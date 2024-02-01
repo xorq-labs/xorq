@@ -632,22 +632,22 @@ def _bitwise_and(op, *, left, right, **_):
 
 
 @translate_val.register(ops.BitwiseOr)
-def _bitwise_and(op, *, left, right, **_):
+def _bitwise_or(op, *, left, right, **_):
     return sg.exp.BitwiseOr(this=left, expression=right)
 
 
 @translate_val.register(ops.BitwiseXor)
-def _bitwise_and(op, *, left, right, **_):
+def _bitwise_xor(op, *, left, right, **_):
     return sg.exp.BitwiseXor(this=left, expression=right)
 
 
 @translate_val.register(ops.BitwiseLeftShift)
-def _bitwise_and(op, *, left, right, **_):
+def _bitwise_left_shift(op, *, left, right, **_):
     return sg.exp.BitwiseLeftShift(this=left, expression=right)
 
 
 @translate_val.register(ops.BitwiseRightShift)
-def _bitwise_and(op, *, left, right, **_):
+def _bitwise_right_shift(op, *, left, right, **_):
     return sg.exp.BitwiseRightShift(this=left, expression=right)
 
 

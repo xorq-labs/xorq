@@ -1,6 +1,6 @@
 [package]
 name = "letsql"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -10,13 +10,16 @@ crate-type = ["cdylib"]
 
 [dependencies]
 tokio = { version = "1.24", features = ["macros", "rt", "rt-multi-thread", "sync"] }
-pyo3 = { version = "0.19.0", features = ["extension-module", "abi3", "abi3-py38"] }
-datafusion = "32.0.0"
-datafusion-common = { version = "32.0.0", features = ["pyarrow"] }
-datafusion-expr = "32.0.0"
+pyo3 = { version = "0.20", features = ["extension-module", "abi3", "abi3-py38"] }
+datafusion = "35.0.0"
+datafusion-common = { version = "35.0.0", features = ["pyarrow"] }
+datafusion-expr = "35.0.0"
 prost = "0.11"
 prost-types = "0.11"
-datafusion-optimizer = "32.0.0"
-datafusion-sql = "32.0.0"
+datafusion-optimizer = "35.0.0"
+datafusion-sql = "35.0.0"
 futures = "0.3"
 async-trait = "0.1"
+arrow = "50.0.0"
+gbdt = { git = "https://github.com/mesejo/gbdt-rs.git", branch = "feature/improve-feature-detection" }
+xgboost = "0.1.4"

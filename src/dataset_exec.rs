@@ -1,5 +1,3 @@
-/// Implements a Datafusion physical ExecutionPlan that delegates to a PyArrow Dataset
-/// This actually performs the projection, filtering and scanning of a Dataset
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyIterator, PyList};
 
@@ -21,8 +19,8 @@ use datafusion::physical_plan::{
     DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream,
     Statistics,
 };
+use datafusion_expr::utils::conjunction;
 use datafusion_expr::Expr;
-use datafusion_optimizer::utils::conjunction;
 
 use crate::errors::DataFusionError;
 use crate::pyarrow_filter_expression::PyArrowFilterExpression;
@@ -116,13 +114,14 @@ impl DatasetExec {
             .downcast()
             .map_err(PyErr::from)?;
 
+        let projected_statistics = Statistics::new_unknown(&schema);
         Ok(DatasetExec {
             dataset: dataset.into(),
             schema,
             fragments: fragments.into(),
             columns,
             filter_expr,
-            projected_statistics: Default::default(),
+            projected_statistics,
         })
     }
 }
@@ -219,8 +218,8 @@ impl ExecutionPlan for DatasetExec {
         })
     }
 
-    fn statistics(&self) -> Statistics {
-        self.projected_statistics.clone()
+    fn statistics(&self) -> DFResult<Statistics> {
+        Ok(self.projected_statistics.clone())
     }
 }
 

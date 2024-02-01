@@ -13,4 +13,5 @@ def con():
 
 read_parquet = ba.read_parquet
 read_csv = ba.read_csv
+register = ba.register
 memtable = ba.memtable

@@ -1,8 +1,8 @@
 [project]
 name = "letsql"
-version = "0.1.1"
+version = "0.1.2"
 description = "Machine Learning pipelines with a familiar DataFrame and SQL UI "
-authors = ["Daniel Mesejo <mesejoleon@gmail.com>"]
+authors = ["Hussain Sultan <hussain@letsql.com>", "Dan Lovell <dan@letsql.com>", "Daniel Mesejo <mesejo@letsql.com>"]
 channels = ["conda-forge"]
 platforms = ["osx-arm64"]
 
@@ -11,3 +11,10 @@ platforms = ["osx-arm64"]
 [dependencies]
 python = "3.9.*"
 pip = "23.3.1.*"
+sqlglot = ">=20.8.0,<20.9"
+
+[pypi-dependencies]
+duckdb = "==0.9.2"
+connectorx = "*"
+sqlglot = "==20.8.0"
+ibis-framework = "==7.2.0"

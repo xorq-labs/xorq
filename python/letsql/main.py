@@ -49,12 +49,13 @@ class LetSql(Postgres):
                 ]
             ),
             exp.IsNan: rename_func("isnan"),
+            exp.BitwiseXor: lambda self, e: self.binary(e, "#"),
         }
 
 
 class Backend(BaseBackend, CanCreateSchema):
     name = "letsql"
-    dialect = "letsql"
+    dialect = LetSql
     builder = None
     supports_in_memory_tables = True
     supports_arrays = True
@@ -62,7 +63,7 @@ class Backend(BaseBackend, CanCreateSchema):
 
     @property
     def version(self):
-        return "0.1.1"
+        return "0.1.2"
 
     def do_connect(
         self,

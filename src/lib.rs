@@ -14,6 +14,8 @@ mod udaf;
 mod udf;
 pub mod utils;
 
+pub mod predict_udf;
+
 // Used to define Tokio Runtime as a Python module attribute
 #[pyclass]
 pub(crate) struct TokioRuntime(tokio::runtime::Runtime);

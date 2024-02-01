@@ -14,6 +14,8 @@ use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::ScalarValue;
 
+use datafusion_expr::ScalarUDF;
+
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 
@@ -21,6 +23,7 @@ use crate::catalog::PyCatalog;
 use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
+use crate::predict_udf::PredictUdf;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
 use crate::utils::wait_for_future;
@@ -80,9 +83,13 @@ impl PySessionContext {
         let runtime_config = RuntimeConfig::default();
         let runtime = Arc::new(RuntimeEnv::new(runtime_config)?);
         let session_state = SessionState::new_with_config_rt(config, runtime);
-        Ok(PySessionContext {
-            ctx: SessionContext::new_with_state(session_state),
-        })
+        let ctx = SessionContext::new_with_state(session_state);
+
+        let predict_xgb = ScalarUDF::from(PredictUdf::new());
+        // register the UDF with the context so it can be invoked by name and from SQL
+        ctx.register_udf(predict_xgb.clone());
+
+        Ok(PySessionContext { ctx })
     }
 
     /// Returns a PyDataFrame whose plan corresponds to the SQL statement.

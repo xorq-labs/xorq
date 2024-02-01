@@ -125,7 +125,7 @@ pub struct PyAggregateUDF {
 
 #[pymethods]
 impl PyAggregateUDF {
-    #[new(name, accumulator, input_type, return_type, state_type, volatility)]
+    #[new]
     fn new(
         name: &str,
         accumulator: PyObject,
@@ -146,6 +146,6 @@ impl PyAggregateUDF {
     }
 
     fn __repr__(&self) -> PyResult<String> {
-        Ok(format!("AggregateUDF({})", self.function.name))
+        Ok(format!("AggregateUDF({})", self.function.name()))
     }
 }

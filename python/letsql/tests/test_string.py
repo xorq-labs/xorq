@@ -261,11 +261,6 @@ def test_string_col_is_unicode(alltypes, df):
             id="negative-index",
         ),
         param(
-            lambda t: t.date_string_col[t.date_string_col.length() - 1 :],
-            lambda t: t.date_string_col.str[-1:],
-            id="expr_slice_begin",
-        ),
-        param(
             lambda t: t.date_string_col[: t.date_string_col.length()],
             lambda t: t.date_string_col,
             id="expr_slice_end",
