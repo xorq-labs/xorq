@@ -22,4 +22,3 @@ futures = "0.3"
 async-trait = "0.1"
 arrow = "50.0.0"
 gbdt = { git = "https://github.com/mesejo/gbdt-rs.git", branch = "feature/improve-feature-detection" }
-xgboost = "0.1.4"
