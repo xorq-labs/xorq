@@ -13,7 +13,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "ibis-framework>=7.2.0",
+    "ibis-framework==7.2.0",
     "connectorx>=0.3.2",
     "sqlglot>=18.12.0,<21"
 ]
