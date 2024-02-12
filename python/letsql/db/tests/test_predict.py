@@ -99,3 +99,27 @@ def test_predict_model(tmp_model_dir, data_dir):
 
     assert len(predictions) == len(data)
     assert is_float_dtype(predictions.squeeze())
+
+
+def test_predict_with_filter(tmp_model_dir, data_dir):
+    data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
+
+    model = train_xgb(data, "reg:linear")
+    model_path = os.path.join(tmp_model_dir, "model.xgb")
+    model.save_model(model_path)
+
+    gdbt_model_path = os.path.join(tmp_model_dir, "gdbt.model")
+    convert_and_save(model_path, gdbt_model_path)
+
+    features = ["carat", "depth", "x", "y", "z"]
+    data_path = os.path.join(tmp_model_dir, "input.csv")
+    data[features].to_csv(data_path, index=False)
+
+    db.register_csv("diamonds", data_path)
+    query = f"""
+    select predict_xgb('{gdbt_model_path}', 'reg:linear', carat, depth, x, y, z) from diamonds where x < 4.5;
+    """
+    predictions = db.sql(query).execute()
+
+    assert len(predictions) == sum(data.x < 4.5)
+    assert is_float_dtype(predictions.squeeze())

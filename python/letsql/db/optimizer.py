@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import typing as t
+from itertools import chain
 
 import sqlglot
 import xgboost as xgb
@@ -41,10 +42,10 @@ def qualify_model(expression: sqlglot.Expression):
 def nest_sub_queries(expression, sources=None):
     if isinstance(expression, exp.Select):
         if expression.args["from"].alias_or_name in sources:
-            columns = expression.find_all(exp.Column)
-            subquery = (
-                exp.Select().select(*columns).from_(expression.args["from"]).subquery()
+            columns = chain.from_iterable(
+                e.find_all(exp.Column) for e in expression.expressions
             )
+            subquery = expression.select(*columns, append=False).subquery()
             return exp.Select().select(*expression.expressions).from_(subquery)
     return expression
 
@@ -62,7 +63,6 @@ RULES = (
     pushdown_predicates,
     optimize_joins,
     eliminate_subqueries,
-    # merge_subqueries,
     eliminate_joins,
     eliminate_ctes,
     quote_identifiers,
