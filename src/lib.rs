@@ -16,6 +16,8 @@ pub mod utils;
 
 pub mod predict_udf;
 
+pub mod model;
+
 // Used to define Tokio Runtime as a Python module attribute
 #[pyclass]
 pub(crate) struct TokioRuntime(tokio::runtime::Runtime);

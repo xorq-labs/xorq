@@ -21,4 +21,5 @@ datafusion-sql = "35.0.0"
 futures = "0.3"
 async-trait = "0.1"
 arrow = "50.0.0"
-gbdt = { git = "https://github.com/mesejo/gbdt-rs.git", branch = "feature/improve-feature-detection" }
+gbdt = { git = "https://github.com/mesejo/gbdt-rs.git", branch = "feat/load-new-json-xgb-models" }
+parking_lot = { version = "0.12" }

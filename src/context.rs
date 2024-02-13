@@ -15,7 +15,9 @@ use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::ScalarValue;
 
 use datafusion_expr::ScalarUDF;
+use gbdt::gradient_boost::GBDT;
 
+use parking_lot::RwLock;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 
@@ -23,6 +25,7 @@ use crate::catalog::PyCatalog;
 use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
+use crate::model::{ModelRegistry, SessionModelRegistry};
 use crate::predict_udf::PredictUdf;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
@@ -68,6 +71,22 @@ impl PySessionConfig {
 #[derive(Clone)]
 pub(crate) struct PySessionContext {
     pub(crate) ctx: SessionContext,
+    /// Shared session state for the session
+    model_registry: Arc<RwLock<SessionModelRegistry>>,
+}
+
+impl ModelRegistry for PySessionContext {
+    fn register_model(&self, name: &str, path: &str, objective: &str) {
+        let mut registry = self.model_registry.write();
+        let model = GBDT::from_xgboost_dump(path, objective).expect("failed to load model");
+        registry.models.insert(name.to_string(), Arc::new(model));
+    }
+
+    fn register_json_model(&self, name: &str, path: &str) {
+        let mut registry = self.model_registry.write();
+        let model = GBDT::from_xgboost_json(path).expect("failed to load model");
+        registry.models.insert(name.to_string(), Arc::new(model));
+    }
 }
 
 #[pymethods]
@@ -84,12 +103,16 @@ impl PySessionContext {
         let runtime = Arc::new(RuntimeEnv::new(runtime_config)?);
         let session_state = SessionState::new_with_config_rt(config, runtime);
         let ctx = SessionContext::new_with_state(session_state);
-
-        let predict_xgb = ScalarUDF::from(PredictUdf::new());
+        let model_registry = SessionModelRegistry::new();
+        let registry = Arc::new(RwLock::new(model_registry));
+        let predict_xgb = ScalarUDF::from(PredictUdf::new_with_model_registry(registry.clone()));
         // register the UDF with the context so it can be invoked by name and from SQL
         ctx.register_udf(predict_xgb.clone());
 
-        Ok(PySessionContext { ctx })
+        Ok(PySessionContext {
+            ctx,
+            model_registry: registry,
+        })
     }
 
     /// Returns a PyDataFrame whose plan corresponds to the SQL statement.
@@ -235,6 +258,18 @@ impl PySessionContext {
         Ok(())
     }
 
+    #[pyo3(signature = (name, path, objective))]
+    fn register_xgb_model(&mut self, name: &str, path: &str, objective: &str) -> PyResult<()> {
+        self.register_model(name, path, objective);
+        Ok(())
+    }
+
+    #[pyo3(signature = (name, path))]
+    fn register_xgb_json_model(&mut self, name: &str, path: &str) -> PyResult<()> {
+        self.register_json_model(name, path);
+        Ok(())
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         let config = self.ctx.copied_config();
         let mut config_entries = config
@@ -273,12 +308,6 @@ impl PySessionContext {
 impl From<PySessionContext> for SessionContext {
     fn from(ctx: PySessionContext) -> SessionContext {
         ctx.ctx
-    }
-}
-
-impl From<SessionContext> for PySessionContext {
-    fn from(ctx: SessionContext) -> PySessionContext {
-        PySessionContext { ctx }
     }
 }
 
