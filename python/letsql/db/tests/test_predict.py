@@ -81,19 +81,18 @@ def test_predict_model(tmp_model_dir, data_dir):
     data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
 
     model = train_xgb(data, "reg:linear")
-    model_path = os.path.join(tmp_model_dir, "model.xgb")
+    model_path = os.path.join(tmp_model_dir, "model.json")
     model.save_model(model_path)
-
-    gdbt_model_path = os.path.join(tmp_model_dir, "gdbt.model")
-    convert_and_save(model_path, gdbt_model_path)
 
     features = ["carat", "depth", "x", "y", "z"]
     data_path = os.path.join(tmp_model_dir, "input.csv")
     data[features].to_csv(data_path, index=False)
 
     db.register_csv("diamonds", data_path)
-    query = f"""
-    select predict_xgb('{gdbt_model_path}', 'reg:linear', carat, depth, x, y, z) from diamonds;
+    db.register_json_model("diamonds_model", model_path)
+
+    query = """
+    select predict_xgb('diamonds_model', diamonds.*) from diamonds;
     """
     predictions = db.sql(query).execute()
 
@@ -105,19 +104,18 @@ def test_predict_with_filter(tmp_model_dir, data_dir):
     data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
 
     model = train_xgb(data, "reg:linear")
-    model_path = os.path.join(tmp_model_dir, "model.xgb")
+    model_path = os.path.join(tmp_model_dir, "model.json")
     model.save_model(model_path)
-
-    gdbt_model_path = os.path.join(tmp_model_dir, "gdbt.model")
-    convert_and_save(model_path, gdbt_model_path)
 
     features = ["carat", "depth", "x", "y", "z"]
     data_path = os.path.join(tmp_model_dir, "input.csv")
     data[features].to_csv(data_path, index=False)
 
     db.register_csv("diamonds", data_path)
-    query = f"""
-    select predict_xgb('{gdbt_model_path}', 'reg:linear', carat, depth, x, y, z) from diamonds where x < 4.5;
+    db.register_json_model("diamonds_model", model_path)
+
+    query = """
+    select predict_xgb('diamonds_model', diamonds.*) from diamonds where x < 4.5;
     """
     predictions = db.sql(query).execute()
 

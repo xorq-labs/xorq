@@ -5,12 +5,13 @@ import sqlglot.expressions as exp
 from sqlglot import parse_one, TokenType, select, and_
 from sqlglot import parser, planner
 from sqlglot.dialects import DuckDB, Postgres
-from sqlglot.dialects.dialect import rename_func
 
 import letsql
 from letsql.db.optimizer import optimize
 from letsql.db.planner import LetSQLPlan
 from letsql.db.predict import LetSQLPredict
+
+import pyarrow.csv as csv
 
 
 class Context:
@@ -49,11 +50,15 @@ class CSVTable(Table):
 
     @property
     def schema(self):
-        return None
+        if self._schema is None:
+            arrow = csv.read_csv(self.path)
+            self._schema = dict(zip(arrow.schema.names, map(str, arrow.schema.types)))
+        return self._schema
 
     def __init__(self, path, name):
         self.path = path
         self._name = name
+        self._schema = None
 
 
 class PostgreSQLTable(Table):
@@ -207,7 +212,7 @@ class PythonExecutor:
         return Context({source: ArrowTable(letsql.ba.con.sql(query))})
 
     def generate(self, expression):
-        """Convert an SQL expression into literal DuckDB expressions."""
+        """Convert an SQL expression into literal DataFusion expressions."""
         if not expression:
             return None
 
@@ -215,7 +220,7 @@ class PythonExecutor:
         return sql
 
     def generate_tuple(self, expressions):
-        """Convert an array of SQL expressions into tuple of DuckDB expressions."""
+        """Convert an array of SQL expressions into tuple of DataFusion expressions."""
         if not expressions:
             return tuple()
         return tuple(self.generate(expression) for expression in expressions)
@@ -233,22 +238,16 @@ class LetSQL(DuckDB):
     class Parser(DuckDB.Parser):
         FUNCTION_PARSERS = {
             **parser.Parser.FUNCTION_PARSERS,
-            "PREDICT": lambda self: self._parse_predict(),
+            "PREDICT_XGB": lambda self: self._parse_predict(),
         }
 
         def _parse_predict(self) -> LetSQLPredict:
-            this = self._parse_string_as_identifier()
+            this = self._parse_string()
 
             self._match(TokenType.COMMA)
 
             projections = self._parse_projections()
             return self.expression(LetSQLPredict, this=this, expressions=projections)
-
-    class Generator(DuckDB.Generator):
-        TRANSFORMS = {
-            **DuckDB.Generator.TRANSFORMS,
-            LetSQLPredict: rename_func("PREDICT_XGB"),
-        }
 
 
 class FutureExecution:
@@ -279,8 +278,6 @@ def sql(query):
     plan = LetSQLPlan(node, tables=con.tables)
     return FutureExecution(plan, con)
 
-    # return PythonExecutor(tables=con.tables).execute(plan)
-
 
 def register_postgres(name, connection):
     con.register_table(name, PostgreSQLTable(connection, name))
@@ -288,6 +285,14 @@ def register_postgres(name, connection):
 
 def register_csv(name, path):
     con.register_table(name, CSVTable(path, name))
+
+
+def register_model(name, path, objective):
+    letsql.ba.con.register_xgb_model(name, path, objective)
+
+
+def register_json_model(name, path):
+    letsql.ba.con.register_xgb_json_model(name, path)
 
 
 __all__ = ["sql", "register_postgres", "register_csv"]
