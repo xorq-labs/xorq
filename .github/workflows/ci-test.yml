@@ -27,70 +27,68 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, x86, aarch64, armv7, s390x, ppc64le]
-        python-version: ["3.9", "3.10", "3.11"]
+        target: [x86_64, x86, aarch64]
+        python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v3
       - uses: extractions/setup-just@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: download test data
         run: just download-data
-      - uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-      - name: Create virtual environment
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-      - name: Activate environment
-        run: |
-          source activate
-      - name: Install letsql
-        uses: PyO3/maturin-action@v1
-        with:
-          command: develop
-          target: ${{ matrix.target }}
-          manylinux: auto
-      - name: Run tests and report coverage
-        run: pytest --cov
+
+      - name: Rust latest
+        run: rustup update
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Poetry install
+        run: poetry install
+        working-directory: ${{ github.workspace }}
+
+      - name: maturin develop
+        run: poetry run maturin develop
+        working-directory: ${{ github.workspace }}
+
+      - name: poetry pytest
+        run: poetry run pytest --cov
+        working-directory: ${{ github.workspace }}
 
   macos:
     runs-on: macos-latest
     strategy:
       matrix:
         target: [x86_64, aarch64]
-        python-version: ["3.9", "3.10", "3.11"]
+        python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v3
       - uses: extractions/setup-just@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: download test data
         run: just download-data
+
       - uses: actions/setup-python@v4
         with:
           python-version: ${{ matrix.python-version }}
-      - name: Create virtual environment
-        run: |
-          python -m venv .venv
-          echo "$GITHUB_WORKSPACE/.venv/bin" >> $GITHUB_PATH
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements-dev.txt
-      - name: Activate environment
-        run: |
-          source activate
-      - name: Install letsql
-        uses: PyO3/maturin-action@v1
-        with:
-          command: develop
-          target: ${{ matrix.target }}
-          sccache: 'true'
-      - name: Run tests and report coverage
-        run: pytest --cov
+
+      - name: Rust latest
+        run: rustup update
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Poetry install
+        run: poetry install
+        working-directory: ${{ github.workspace }}
+
+      - name: maturin develop
+        run: poetry run maturin develop
+        working-directory: ${{ github.workspace }}
+
+      - name: poetry pytest
+        run: poetry run pytest --cov
+        working-directory: ${{ github.workspace }}
