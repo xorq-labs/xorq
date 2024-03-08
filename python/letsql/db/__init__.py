@@ -1,3 +1,5 @@
+from itertools import chain
+import json
 from abc import ABC, abstractmethod
 
 import connectorx as cx
@@ -229,9 +231,22 @@ class PythonExecutor:
 class Connection:
     def __init__(self):
         self.tables = {}
+        self.models = {}
 
     def register_table(self, name: str, table: Table):
         self.tables[name] = table
+
+    def register_model(self, name, path):
+        self.models[name] = self._model_feature_mapping(path)
+
+    @staticmethod
+    def _model_feature_mapping(path) -> dict:
+        with open(path) as infile:
+            json_data = json.load(infile)
+            json_trees = json_data["learner"]["gradient_booster"]["model"]["trees"]
+
+            indices = sorted(set(chain.from_iterable(json_tree["split_indices"] for json_tree in json_trees)))
+            return { v: i for i, v in enumerate(indices)}
 
 
 class LetSQL(DuckDB):
@@ -274,6 +289,7 @@ def sql(query):
         constant_propagation=True,
         leave_tables_isolated=True,
         sources=con.tables,
+        models=con.models
     )
     plan = LetSQLPlan(node, tables=con.tables)
     return FutureExecution(plan, con)
@@ -292,6 +308,7 @@ def register_model(name, path, objective):
 
 
 def register_json_model(name, path):
+    con.register_model(name, path)
     letsql.ba.con.register_xgb_json_model(name, path)
 
 

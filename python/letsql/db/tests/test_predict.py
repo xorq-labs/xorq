@@ -1,4 +1,6 @@
+import json
 import os
+from itertools import chain
 
 import pandas as pd
 import xgboost as xgb
@@ -9,12 +11,11 @@ from pandas.api.types import is_float_dtype
 import letsql.db as db
 
 
-def train_xgb(data, objective="reg:squarederror"):
-    # Assuming 'data' is a pandas DataFrame with the specified columns
-    features = ["carat", "depth", "x", "y", "z"]
-    target = "price"
+def train_xgb(data, objective="reg:squarederror", features=None, target="price", max_depth=8, n_estimators=100):
 
     # Split the data into features and target variable
+    if features is None:
+        features = ["carat", "depth", "x", "y", "z"]
     X = data[features]
     y = data[target]
 
@@ -24,7 +25,7 @@ def train_xgb(data, objective="reg:squarederror"):
     )
 
     # Instantiate an XGBoost regressor
-    model = xgb.XGBRegressor(objective=objective, random_state=42)
+    model = xgb.XGBRegressor(objective=objective, random_state=42, max_depth=max_depth, n_estimators=n_estimators)
 
     # Train the model
     model.fit(X_train, y_train)
@@ -77,6 +78,16 @@ def convert_and_save(input_model, output_file):
     return 0
 
 
+def model_features(path):
+
+    with open(path) as infile:
+        json_data = json.load(infile)
+        json_trees = json_data["learner"]["gradient_booster"]["model"]["trees"]
+
+        indices = sorted(set(chain.from_iterable(json_tree["split_indices"] for json_tree in json_trees)))
+        return {v: i for i, v in enumerate(indices)}
+
+
 def test_predict_model(tmp_model_dir, data_dir):
     data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
 
@@ -120,4 +131,28 @@ def test_predict_with_filter(tmp_model_dir, data_dir):
     predictions = db.sql(query).execute()
 
     assert len(predictions) == sum(data.x < 4.5)
+    assert is_float_dtype(predictions.squeeze())
+
+
+def test_predict_with_only_required_features(tmp_model_dir, data_dir):
+    data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
+
+    model = train_xgb(data, "reg:linear", max_depth=2, n_estimators=3)
+    model_path = os.path.join(tmp_model_dir, "model.json")
+    model.save_model(model_path)
+
+    features = ["carat", "depth", "x", "y", "z"]
+    data_path = os.path.join(tmp_model_dir, "input.csv")
+    data[features].to_csv(data_path, index=False)
+
+    db.register_csv("diamonds", data_path)
+    db.register_json_model("diamonds_model", model_path)
+
+    query = """
+    select predict_xgb('diamonds_model', diamonds.*) from diamonds;
+    """
+    predictions = db.sql(query).execute()
+
+    assert len(model_features(model_path)) < len(features)
+    assert len(predictions) == len(data)
     assert is_float_dtype(predictions.squeeze())
