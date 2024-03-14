@@ -54,8 +54,8 @@ def nest_external_sources(expression, sources=None):
     return expression.transform(nest_sub_queries, sources=sources)
 
 
-def qualify_function_columns(expression, schema=None):
-    def _func(expression, schema: sqlglot.Schema = None):
+def qualify_function_columns(expression, schema=None, models=None):
+    def _func(expression, schema: sqlglot.Schema = None, models: dict = None):
         if isinstance(expression, LetSQLPredict):
             maybe_stars = chain.from_iterable(
                 e.find_all(exp.Column) for e in expression.expressions
@@ -68,13 +68,17 @@ def qualify_function_columns(expression, schema=None):
                 else:
                     new_selections.append(maybe_star)
 
+            if models is not None and expression.this.alias_or_name in models:
+                feature_mapping = models[expression.this.alias_or_name]
+                new_selections = [selection for i, selection in enumerate(new_selections) if i in feature_mapping]
+
             return LetSQLPredict(
                 this=expression.this,
                 expressions=[exp.column(c, table=None) for c in new_selections],
             )
         return expression
 
-    return expression.transform(_func, schema=schema)
+    return expression.transform(_func, schema=schema, models=models)
 
 
 RULES = (

@@ -84,7 +84,7 @@ impl ModelRegistry for PySessionContext {
 
     fn register_json_model(&self, name: &str, path: &str) {
         let mut registry = self.model_registry.write();
-        let model = GBDT::from_xgboost_json(path).expect("failed to load model");
+        let model = GBDT::from_xgboost_json_used_feature(path).expect("failed to load model");
         registry.models.insert(name.to_string(), Arc::new(model));
     }
 }
