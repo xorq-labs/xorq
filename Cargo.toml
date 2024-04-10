@@ -11,13 +11,13 @@ crate-type = ["cdylib"]
 [dependencies]
 tokio = { version = "1.24", features = ["macros", "rt", "rt-multi-thread", "sync"] }
 pyo3 = { version = "0.20", features = ["extension-module", "abi3", "abi3-py38"] }
-datafusion = "35.0.0"
-datafusion-common = { version = "35.0.0", features = ["pyarrow"] }
-datafusion-expr = "35.0.0"
-prost = "0.11"
-prost-types = "0.11"
-datafusion-optimizer = "35.0.0"
-datafusion-sql = "35.0.0"
+datafusion = "=36.0.0"
+datafusion-common = { version = "=36.0.0", features = ["pyarrow"] }
+datafusion-expr = "=36.0.0"
+prost = "=0.12"
+prost-types = "=0.12"
+datafusion-optimizer = "36.0.0"
+datafusion-sql = "36.0.0"
 futures = "0.3"
 async-trait = "0.1"
 arrow = "50.0.0"

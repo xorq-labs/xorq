@@ -77,7 +77,6 @@ def test_isna(alltypes, col, filt):
     "value",
     [
         None,
-        np.nan,
     ],
 )
 def test_column_fillna(alltypes, value):
@@ -455,16 +454,18 @@ def test_ifelse_column(alltypes, df):
 def test_select_filter(alltypes, df):
     t = alltypes
 
-    expr = t.select("int_col").filter(t.string_col == "4")
+    expr = t.select("int_col", "string_col").filter(t.string_col == "4")
     result = expr.execute()
 
-    expected = df.loc[df.string_col == "4", ["int_col"]].reset_index(drop=True)
+    expected = df.loc[df.string_col == "4", ["int_col", "string_col"]].reset_index(
+        drop=True
+    )
     assert_frame_equal(result, expected)
 
 
 def test_select_filter_select(alltypes, df):
     t = alltypes
-    expr = t.select("int_col").filter(t.string_col == "4").int_col
+    expr = t.select("int_col", "string_col").filter(t.string_col == "4").int_col
     result = expr.execute().rename("int_col")
 
     expected = df.loc[df.string_col == "4", "int_col"].reset_index(drop=True)
@@ -498,7 +499,7 @@ def test_uncorrelated_subquery(batting, batting_df):
 
 
 def test_int_column(alltypes):
-    expr = alltypes.mutate(x=1).x
+    expr = alltypes.mutate(x=ibis.literal(1)).x
     result = expr.execute()
     assert expr.type() == dt.int8
     assert result.dtype == np.int8

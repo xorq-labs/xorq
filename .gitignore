@@ -79,3 +79,5 @@ ci/ibis_testing.db
 /.quarto/
 
 /.pixi
+
+.letsql_cache/*

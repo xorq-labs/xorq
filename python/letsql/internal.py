@@ -8,7 +8,22 @@ from ._internal import (
     AggregateUDF,
     SessionContext,  # noqa: F401
     SessionConfig,  # noqa: F401
+    ContextProvider,
+    OptimizerContext,
+    LogicalPlan,
+    LogicalPlanBuilder,
 )
+
+__all__ = [
+    "SessionContext",
+    "ContextProvider",
+    "OptimizerContext",
+    "LogicalPlan",
+    "LogicalPlanBuilder",
+    "SessionConfig",
+    "ScalarUDF",
+    "AggregateUDF",
+]
 
 
 class Accumulator(metaclass=ABCMeta):

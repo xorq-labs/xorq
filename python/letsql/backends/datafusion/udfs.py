@@ -5,8 +5,10 @@ from urllib.parse import parse_qs, urlsplit
 
 import pyarrow as pa
 import pyarrow.compute as pc
+import pyarrow_hotfix  # noqa: F401
 
-import ibis.expr.datatypes as dt  # noqa: TCH001
+import ibis.common.exceptions as com
+import ibis.expr.datatypes as dt
 
 
 def _extract_epoch_seconds(array) -> dt.int32:
@@ -112,3 +114,18 @@ def extract_minute_timestamp(array: dt.Timestamp(scale=9)) -> dt.int32:
 
 def extract_hour_time(array: dt.time) -> dt.int32:
     return pc.cast(pc.hour(array), pa.int32())
+
+
+def regex_split(s: str, pattern: str) -> list[str]:
+    # TODO: pretty inefficient, but this is a stopgap until we can get an
+    # upstream version of this function
+    #
+    # unique is necessary because when `s` is coming from a column, `pattern`
+    # is repeated to match the length of `s`
+    patterns = pattern.unique()
+    if len(patterns) != 1:
+        raise com.IbisError(
+            "Only a single scalar pattern is supported for DataFusion re_split"
+        )
+    pattern = patterns[0].as_py()
+    return pc.split_pattern_regex(s, pattern)

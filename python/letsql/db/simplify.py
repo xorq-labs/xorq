@@ -97,7 +97,6 @@ def simplify(expression, constant_propagation=False):
         node = uniq_sort(node, root)
         node = absorb_and_eliminate(node, root)
         node = simplify_concat(node)
-        node = propagate_filters(node)
         node = simplify_conditionals(node)
 
         if constant_propagation:

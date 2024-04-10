@@ -9,7 +9,6 @@ import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
 import pytest
-from ibis.backends.pandas.execution.temporal import day_name
 from pytest import param
 
 from letsql.tests.util import assert_series_equal, assert_frame_equal
@@ -306,7 +305,7 @@ def test_day_of_week_column(alltypes, df):
     assert_series_equal(result_index, expected_index, check_names=False)
 
     result_day = expr.full_name().name("tmp").execute()
-    expected_day = day_name(df.timestamp_col.dt)
+    expected_day = df.timestamp_col.dt.day_name()
 
     assert_series_equal(result_day, expected_day, check_names=False)
 
@@ -321,7 +320,7 @@ def test_day_of_week_column(alltypes, df):
         ),
         param(
             lambda t: t.timestamp_col.day_of_week.full_name().length().sum(),
-            lambda s: day_name(s.dt).str.len().sum(),
+            lambda s: s.dt.day_name().str.len().sum(),
             id="day_of_week_full_name",
         ),
     ],

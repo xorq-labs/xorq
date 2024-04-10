@@ -12,6 +12,8 @@ from pytest import param
 
 from letsql.tests.util import assert_frame_equal, reduction_tolerance
 
+import ibis.common.exceptions as com
+
 
 @reduction(input_type=[dt.double], output_type=dt.double)
 def mean_udf(s):
@@ -375,8 +377,8 @@ def test_binds_are_cast(alltypes):
 
 def test_agg_sort(alltypes):
     query = alltypes.aggregate(count=alltypes.count())
-    query = query.order_by(alltypes.year)
-    query.execute()
+    with pytest.raises(com.IntegrityError):
+        query.order_by(alltypes.year)
 
 
 def test_filter(alltypes, df):

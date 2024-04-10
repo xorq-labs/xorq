@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-import letsql
+import letsql as ls
 
 import ibis
 
@@ -179,7 +179,7 @@ def data_dir():
 
 @pytest.fixture(scope="session")
 def con(data_dir):
-    conn = letsql.con()
+    conn = ls.connect()
     parquet_dir = data_dir / "parquet"
     conn.register(parquet_dir / "functional_alltypes.parquet", "functional_alltypes")
     conn.register(parquet_dir / "batting.parquet", "batting")
