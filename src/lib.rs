@@ -40,14 +40,16 @@ fn _internal(py: Python, m: &PyModule) -> PyResult<()> {
 
     m.add_class::<context::PySessionConfig>()?;
     m.add_class::<context::PySessionContext>()?;
+    m.add_class::<context::PySessionState>()?;
     m.add_class::<dataframe::PyDataFrame>()?;
     m.add_class::<udf::PyScalarUDF>()?;
     m.add_class::<udaf::PyAggregateUDF>()?;
     m.add_class::<sql::logical::PyLogicalPlan>()?;
     m.add_class::<physical_plan::PyExecutionPlan>()?;
     m.add_class::<parser::PyContextProvider>()?;
-    m.add_class::<optimizer::PyOptimizerContext>()?;
     m.add_class::<builder::PyLogicalPlanBuilder>()?;
+    m.add_class::<optimizer::PyOptimizerContext>()?;
+    m.add_class::<optimizer::PyOptimizerRule>()?;
 
     // Register `common` as a submodule. Matching `datafusion-common` https://docs.rs/datafusion-common/latest/datafusion_common/
     let common = PyModule::new(py, "common")?;

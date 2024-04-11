@@ -312,8 +312,14 @@ impl PyDataFrame {
     /// Convert to Arrow Table
     /// Collect the batches and pass to Arrow Table
     fn to_arrow_table(&self, py: Python) -> PyResult<PyObject> {
-        let batches = self.collect(py)?.to_object(py);
-        let schema: PyObject = self.schema().into_py(py);
+        let batches = self.collect(py).unwrap();
+        let schema: PyObject = if batches.is_empty() {
+            self.schema().into_py(py)
+        } else {
+            batches[0].getattr(py, "schema")?
+        };
+
+        let batches = self.collect(py).unwrap().to_object(py);
 
         Python::with_gil(|py| {
             // Instantiate pyarrow Table object and use its from_batches method

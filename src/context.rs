@@ -17,7 +17,6 @@ use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::ScalarValue;
 use datafusion_expr::ScalarUDF;
 use gbdt::gradient_boost::GBDT;
-
 use parking_lot::RwLock;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
@@ -27,6 +26,7 @@ use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
 use crate::model::{ModelRegistry, SessionModelRegistry};
+use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
 use crate::predict_udf::PredictUdf;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
 use crate::udaf::PyAggregateUDF;
@@ -66,9 +66,48 @@ impl PySessionConfig {
     }
 }
 
+#[pyclass(name = "SessionState", module = "datafusion", subclass)]
+#[derive(Clone)]
+pub(crate) struct PySessionState {
+    pub(crate) session_state: SessionState,
+}
+
+impl From<SessionState> for PySessionState {
+    fn from(session_state: SessionState) -> Self {
+        Self { session_state }
+    }
+}
+
+#[pymethods]
+impl PySessionState {
+    #[pyo3(signature = (config=None))]
+    #[new]
+    fn new(config: Option<PySessionConfig>) -> Self {
+        let config = if let Some(c) = config {
+            c.config
+        } else {
+            SessionConfig::default().with_information_schema(true)
+        };
+        let runtime_config = RuntimeConfig::default();
+        let runtime = Arc::new(RuntimeEnv::new(runtime_config).unwrap());
+
+        let session_state = SessionState::new_with_config_rt(config, runtime);
+
+        Self { session_state }
+    }
+
+    fn add_optimizer_rule(&mut self, rule: PyOptimizerRule) -> Self {
+        Self::from(
+            self.session_state
+                .clone()
+                .add_optimizer_rule(Arc::new(rule)),
+        )
+    }
+}
+
 /// `PySessionContext` is able to plan and execute DataFusion plans.
 /// It has a powerful optimizer, a physical planner for local execution, and a
-/// multi-threaded execution engine to perform the execution.
+/// multithreaded execution engine to perform the execution.
 #[pyclass(name = "SessionContext", module = "datafusion", subclass)]
 #[derive(Clone)]
 pub(crate) struct PySessionContext {
@@ -93,22 +132,31 @@ impl ModelRegistry for PySessionContext {
 
 #[pymethods]
 impl PySessionContext {
-    #[pyo3(signature = (config=None))]
+    #[pyo3(signature = (session_state=None, config=None))]
     #[new]
-    fn new(config: Option<PySessionConfig>) -> PyResult<Self> {
-        let config = if let Some(c) = config {
-            c.config
-        } else {
-            SessionConfig::default().with_information_schema(true)
-        };
-        let runtime_config = RuntimeConfig::default();
-        let runtime = Arc::new(RuntimeEnv::new(runtime_config)?);
-        let session_state = SessionState::new_with_config_rt(config, runtime);
-        let ctx = SessionContext::new_with_state(session_state);
+    fn new(
+        session_state: Option<PySessionState>,
+        config: Option<PySessionConfig>,
+    ) -> PyResult<Self> {
         let model_registry = SessionModelRegistry::new();
         let registry = Arc::new(RwLock::new(model_registry));
         let predict_xgb = ScalarUDF::from(PredictUdf::new_with_model_registry(registry.clone()));
-        // register the UDF with the context so it can be invoked by name and from SQL
+        let rule = PredictXGBoostAnalyzerRule::new(registry.clone());
+
+        let runtime_config = RuntimeConfig::default();
+        let runtime = Arc::new(RuntimeEnv::new(runtime_config)?);
+        let session_state = match (session_state, config) {
+            (Some(s), _) => s.session_state,
+            (None, Some(c)) => SessionState::new_with_config_rt(c.config, runtime),
+            (None, _) => {
+                let session_config = SessionConfig::default().with_information_schema(true);
+                SessionState::new_with_config_rt(session_config, runtime)
+            }
+        };
+
+        let session_state = session_state.add_analyzer_rule(Arc::new(rule));
+        let ctx = SessionContext::new_with_state(session_state);
+        // register the UDF with the context, so it can be invoked by name and from SQL
         ctx.register_udf(predict_xgb.clone());
 
         Ok(PySessionContext {

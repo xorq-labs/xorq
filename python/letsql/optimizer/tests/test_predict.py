@@ -1,14 +1,18 @@
 import json
 import os
+import struct
 from itertools import chain
 
 import pandas as pd
+import pytest
 import xgboost as xgb
-import struct
 from sklearn.model_selection import train_test_split
-from pandas.api.types import is_float_dtype
 
-import letsql.db as db
+from letsql.internal import (
+    SessionContext,
+)
+
+from pandas.api.types import is_float_dtype
 
 
 def train_xgb(
@@ -104,53 +108,7 @@ def model_features(path):
         return {v: i for i, v in enumerate(indices)}
 
 
-def test_predict_model(tmp_model_dir, data_dir):
-    data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
-
-    model = train_xgb(data, "reg:linear")
-    model_path = os.path.join(tmp_model_dir, "model.json")
-    model.save_model(model_path)
-
-    features = ["carat", "depth", "x", "y", "z"]
-    data_path = os.path.join(tmp_model_dir, "input.csv")
-    data[features].to_csv(data_path, index=False)
-
-    db.register_csv("diamonds", data_path)
-    db.register_json_model("diamonds_model", model_path)
-
-    query = """
-    select predict_xgb('diamonds_model', diamonds.*) from diamonds;
-    """
-    predictions = db.sql(query).execute()
-
-    assert len(predictions) == len(data)
-    assert is_float_dtype(predictions.squeeze())
-
-
-def test_predict_with_filter(tmp_model_dir, data_dir):
-    data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
-
-    model = train_xgb(data, "reg:linear")
-    model_path = os.path.join(tmp_model_dir, "model.json")
-    model.save_model(model_path)
-
-    features = ["carat", "depth", "x", "y", "z"]
-    data_path = os.path.join(tmp_model_dir, "input.csv")
-    data[features].to_csv(data_path, index=False)
-
-    db.register_csv("diamonds", data_path)
-    db.register_json_model("diamonds_model", model_path)
-
-    query = """
-    select predict_xgb('diamonds_model', diamonds.*) from diamonds where x < 4.5;
-    """
-    predictions = db.sql(query).execute()
-
-    assert len(predictions) == sum(data.x < 4.5)
-    assert is_float_dtype(predictions.squeeze())
-
-
-def test_predict_with_only_required_features(tmp_model_dir, data_dir):
+def test_predict_with_only_required_features(tmp_model_dir, data_dir, capsys):
     data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
 
     model = train_xgb(data, "reg:linear", max_depth=2, n_estimators=3)
@@ -161,14 +119,61 @@ def test_predict_with_only_required_features(tmp_model_dir, data_dir):
     data_path = os.path.join(tmp_model_dir, "input.csv")
     data[features].to_csv(data_path, index=False)
 
-    db.register_csv("diamonds", data_path)
-    db.register_json_model("diamonds_model", model_path)
+    context = SessionContext()
+    context.register_csv("diamonds", data_path)
+    context.register_xgb_json_model("diamonds_model", model_path)
 
-    query = """
-    select predict_xgb('diamonds_model', diamonds.*) from diamonds;
-    """
-    predictions = db.sql(query).execute()
+    query = "select predict_xgb('diamonds_model', *) from diamonds;"
+    context.sql(query).explain()
+    predictions = context.sql(query).to_pandas()
+
+    captured = capsys.readouterr()
+    expanded = 'predict_xgb(Utf8("diamonds_model"), diamonds.carat, diamonds.y)'
+    assert expanded in captured.out
 
     assert len(model_features(model_path)) < len(features)
     assert len(predictions) == len(data)
     assert is_float_dtype(predictions.squeeze())
+
+
+def test_predict_with_filter(tmp_model_dir, data_dir, capsys):
+    data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
+
+    model = train_xgb(data, "reg:linear")
+    model_path = os.path.join(tmp_model_dir, "model.json")
+    model.save_model(model_path)
+
+    features = ["carat", "depth", "x", "y", "z"]
+    data_path = os.path.join(tmp_model_dir, "input.csv")
+    data[features].to_csv(data_path, index=False)
+
+    context = SessionContext()
+    context.register_csv("diamonds", data_path)
+    context.register_xgb_json_model("diamonds_model", model_path)
+
+    query = "select predict_xgb('diamonds_model', *) from diamonds where x < 4.5;"
+    context.sql(query).explain()
+    predictions = context.sql(query).to_pandas()
+
+    captured = capsys.readouterr()
+    expanded = 'predict_xgb(Utf8("diamonds_model"), diamonds.carat, diamonds.depth, diamonds.x, diamonds.y, diamonds.z)'
+    assert expanded in captured.out
+
+    assert len(predictions) == sum(data.x < 4.5)
+    assert is_float_dtype(predictions.squeeze())
+
+
+def test_predict_fails_when_model_does_not_exist(tmp_model_dir, data_dir):
+    data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
+
+    features = ["carat", "depth", "x", "y", "z"]
+    data_path = os.path.join(tmp_model_dir, "input.csv")
+    data[features].to_csv(data_path, index=False)
+
+    context = SessionContext()
+    context.register_csv("diamonds", data_path)
+
+    query = "select predict_xgb('missing_model', *) from diamonds"
+
+    with pytest.raises(BaseException):
+        context.sql(query).to_pandas()

@@ -8,14 +8,18 @@ from ._internal import (
     AggregateUDF,
     SessionContext,  # noqa: F401
     SessionConfig,  # noqa: F401
+    SessionState,  # noqa: F401
     ContextProvider,
     OptimizerContext,
     LogicalPlan,
     LogicalPlanBuilder,
+    OptimizerRule,
 )
 
 __all__ = [
     "SessionContext",
+    "SessionState",
+    "SessionConfig",
     "ContextProvider",
     "OptimizerContext",
     "LogicalPlan",
@@ -23,6 +27,8 @@ __all__ = [
     "SessionConfig",
     "ScalarUDF",
     "AggregateUDF",
+    "OptimizerRule",
+    "OptimizationRule",
 ]
 
 
@@ -41,6 +47,12 @@ class Accumulator(metaclass=ABCMeta):
 
     @abstractmethod
     def evaluate(self) -> pa.Scalar:
+        pass
+
+
+class OptimizationRule(metaclass=ABCMeta):
+    @abstractmethod
+    def try_optimize(self, plan: LogicalPlan) -> LogicalPlan:
         pass
 
 

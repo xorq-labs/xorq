@@ -3,8 +3,6 @@ use std::sync::Arc;
 
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::pyarrow::PyArrowType;
-// use crate::datafusion_common::DataFusionError;
-// use crate::errors::DataFusionError;
 use datafusion::common::DataFusionError;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::{plan_err, Result};

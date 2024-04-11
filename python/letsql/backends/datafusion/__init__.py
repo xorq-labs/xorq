@@ -75,7 +75,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 ).with_information_schema(True)
             else:
                 df_config = None
-            self.con = SessionContext(df_config)
+            self.con = SessionContext(config=df_config)
 
         self._register_builtin_udfs()
 
