@@ -58,8 +58,8 @@ class Backend(DataFusionBackend, CanCreateConnections):
         return list(self.connections.values())
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        expr = self._register_and_transform_cache_tables(expr)
         name = self._get_source_name(expr)
+        expr = self._register_and_transform_cache_tables(expr)
 
         if name == "datafusion":
             return super().execute(expr, **kwargs)
@@ -117,7 +117,7 @@ class Backend(DataFusionBackend, CanCreateConnections):
         return source.name
 
     def _cached(self, expr: ir.Table, storage=None):
-        source = expr._find_backend()
+        source = self.connections[self._get_source_name(expr)]
         storage = storage or SourceStorage(source)
         op = CachedNode(
             schema=expr.schema(),
@@ -137,10 +137,9 @@ class Backend(DataFusionBackend, CanCreateConnections):
                 key = dask.base.tokenize(uncached) + ".parquet"
                 storage = kwargs["storage"]
                 if not storage.exists(key):
-                    value = node.parent
+                    value = uncached
                     storage.put(key, value)
                 node = storage.get(key)
-                # node = node.replace({node: ir.CachedTable(self.table(key).op()).op()})
             if hasattr(node, "parent"):
                 parent = kwargs.get("parent", node.parent)
                 node = node.replace({node.parent: parent})

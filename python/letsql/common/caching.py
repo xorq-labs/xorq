@@ -113,7 +113,7 @@ class SourceStorage(CacheStorage):
         return self.source.table(key).op()
 
     def _put(self, key, value):
-        self.source._load_into_cache(key, value)
+        self.source.create_table(key, value.to_expr())
         return self.get(key)
 
     def _drop(self, key):
