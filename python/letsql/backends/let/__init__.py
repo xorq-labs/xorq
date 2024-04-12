@@ -157,15 +157,12 @@ class Backend(DataFusionBackend, CanCreateConnections):
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
     ):
         op = expr.op()
-        results = op.map(contract_cache_table)
-        out = results[op]
+        out = op.map_clear(contract_cache_table)
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
 
     def _load_into_cache(self, name, op) -> ir.Table:
-        results = op.parent.map(contract_cache_table)
-        out = results[op.parent]
-
+        out = op.map_clear(contract_cache_table)
         expr = out.to_expr()
         source_name = self._get_source_name(expr)
         backend = self.connections[source_name]

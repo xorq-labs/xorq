@@ -29,7 +29,6 @@ def con(dirty):
     for table in dirty.list_tables():
         if table.startswith("ibis_cache"):
             dirty.drop_table(table)
-    dirty.cache_storage.clear()
     return dirty
 
 
