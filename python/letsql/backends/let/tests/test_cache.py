@@ -4,12 +4,17 @@ from __future__ import annotations
 import ibis
 
 from letsql.backends.let.tests.conftest import assert_frame_equal
-from letsql.backends.let import Backend
+from letsql.backends.let import (
+    Backend,
+    KEY_PREFIX,
+)
 
 from ibis import _
 
 
 def test_cache_simple(con, alltypes, alltypes_df):
+    initial_tables = con.list_tables()
+
     expr = alltypes.select(
         alltypes.smallint_col, alltypes.int_col, alltypes.float_col
     ).filter(
@@ -33,9 +38,13 @@ def test_cache_simple(con, alltypes, alltypes_df):
 
     assert_frame_equal(cached, expected)
     assert not any(
-        table_name.startswith(".parquet") for table_name in tables_after_caching
+        table_name.startswith(KEY_PREFIX)
+        for table_name in set(tables_after_caching).difference(initial_tables)
     )
-    assert any(table_name.endswith(".parquet") for table_name in tables_after_executing)
+    assert any(
+        table_name.startswith(KEY_PREFIX)
+        for table_name in set(tables_after_executing).difference(initial_tables)
+    )
 
 
 def test_cache_multiple_times(con, alltypes, alltypes_df):
@@ -78,10 +87,8 @@ def test_cache_multiple_times(con, alltypes, alltypes_df):
     assert_frame_equal(first, expected)
     assert_frame_equal(second, expected)
 
-    first_tables = [t for t in tables_after_first_caching if t.startswith("ibis_cache")]
-    second_tables = [
-        t for t in tables_after_second_caching if t.startswith("ibis_cache")
-    ]
+    first_tables = [t for t in tables_after_first_caching if t.startswith(KEY_PREFIX)]
+    second_tables = [t for t in tables_after_second_caching if t.startswith(KEY_PREFIX)]
 
     assert sorted(first_tables) == sorted(second_tables)
 
@@ -145,14 +152,15 @@ def test_cache_recreate(con, alltypes):
     con_cached_tables = set(
         table_name
         for table_name in con.list_tables()
-        if table_name.startswith("ibis_cache")
+        if table_name.startswith(KEY_PREFIX)
     )
     other_cached_tables = set(
         table_name
         for table_name in other.list_tables()
-        if table_name.startswith("ibis_cache")
+        if table_name.startswith(KEY_PREFIX)
     )
 
+    assert con_cached_tables
     assert con_cached_tables == other_cached_tables
     for table_name in other_cached_tables:
         assert_frame_equal(

@@ -18,6 +18,9 @@ from letsql.common.caching import (
 from letsql.expr.relations import contract_cache_table, CachedNode
 
 
+KEY_PREFIX = "letsql_cache-"
+
+
 class CanListConnections(abc.ABC):
     @abc.abstractmethod
     def list_connections(
@@ -134,7 +137,7 @@ class Backend(DataFusionBackend, CanCreateConnections):
             if isinstance(node, CachedNode):
                 uncached = node.map_clear(contract_cache_table)
                 # datafusion+ParquetStorage requires key have .parquet suffix: maybe push suffix append into ParquetStorage?
-                key = dask.base.tokenize(uncached) + ".parquet"
+                key = KEY_PREFIX + dask.base.tokenize(uncached)
                 storage = kwargs["storage"]
                 if not storage.exists(key):
                     value = uncached

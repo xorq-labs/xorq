@@ -6,6 +6,7 @@ import pandas as pd
 import pandas.testing as tm
 
 import letsql as ls
+from letsql.backends.let import KEY_PREFIX
 
 
 @pytest.fixture(scope="session")
@@ -26,9 +27,11 @@ def dirty():
 @pytest.fixture(scope="function")
 def con(dirty):
     # cleanup
-    for table in dirty.list_tables():
-        if table.startswith("ibis_cache"):
-            dirty.drop_table(table)
+    for con in dirty.connections.values():
+        for table in con.list_tables():
+            # FIXME: determine if we should drop all or only key-prefixed
+            if table.startswith(KEY_PREFIX):
+                con.drop_table(table)
     return dirty
 
 

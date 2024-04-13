@@ -79,9 +79,7 @@ class ParquetCacheStorage(CacheStorage):
         self.path.parent.mkdir(exist_ok=True, parents=True)
 
     def get_loc(self, key):
-        if not str(key).endswith(".parquet"):
-            raise ValueError
-        return self.path.joinpath(key)
+        return self.path.joinpath(key + ".parquet")
 
     def exists(self, key):
         return self.get_loc(key).exists()
