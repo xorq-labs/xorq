@@ -14,6 +14,7 @@ pub mod model;
 mod optimizer;
 pub mod physical_plan;
 pub mod predict_udf;
+mod py_record_batch_provider;
 mod pyarrow_filter_expression;
 pub mod sql;
 #[allow(clippy::borrow_deref_ref)]
