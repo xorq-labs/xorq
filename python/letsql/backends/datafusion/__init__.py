@@ -348,6 +348,18 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             return self.table(table_name)
         elif isinstance(source, pd.DataFrame):
             return self.register(pa.Table.from_pandas(source), table_name, **kwargs)
+        elif isinstance(source, ibis.expr.types.Expr) and hasattr(
+            source, "to_pyarrow_batches"
+        ):
+            self.con.deregister_table(table_name)
+            self.con.register_record_batch_reader(
+                table_name, source.to_pyarrow_batches()
+            )
+            return self.table(table_name)
+        elif isinstance(source, pa.RecordBatchReader):
+            self.con.deregister_table(table_name)
+            self.con.register_record_batch_reader(table_name, source)
+            return self.table(table_name)
         else:
             raise ValueError("`source` must be either a string or a pathlib.Path")
 
