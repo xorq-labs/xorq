@@ -9,6 +9,29 @@ import letsql as ls
 from letsql.backends.let import KEY_PREFIX
 
 
+expected_tables = (
+    "array_types",
+    "astronauts",
+    "awards_players",
+    "awards_players_special_types",
+    "batting",
+    "diamonds",
+    "films",
+    "functional_alltypes",
+    "geo",
+    "geography_columns",
+    "geometry_columns",
+    "intervals",
+    "json_t",
+    "map",
+    "not_supported_intervals",
+    "spatial_ref_sys",
+    "topk",
+    "tzone",
+    "win",
+)
+
+
 @pytest.fixture(scope="session")
 def dirty():
     con = ls.connect()
@@ -32,6 +55,8 @@ def con(dirty):
             # FIXME: determine if we should drop all or only key-prefixed
             if table.startswith(KEY_PREFIX):
                 con.drop_table(table)
+    if sorted(dirty.list_tables()) != sorted(expected_tables):
+        raise ValueError
     return dirty
 
 
