@@ -76,7 +76,7 @@ class ParquetCacheStorage(CacheStorage):
     source = field(validator=instance_of(ibis.backends.BaseBackend))
 
     def __attrs_post_init__(self):
-        self.path.parent.mkdir(exist_ok=True, parents=True)
+        self.path.mkdir(exist_ok=True, parents=True)
 
     def get_loc(self, key):
         return self.path.joinpath(key + ".parquet")
