@@ -120,7 +120,11 @@ class Backend(DataFusionBackend, CanCreateConnections):
         return source.name
 
     def _cached(self, expr: ir.Table, storage=None):
-        source = self.connections[self._get_source_name(expr)]
+        name = self._get_source_name(expr)
+        if name == "datafusion":
+            source = self
+        else:
+            source = self.connections[name]
         storage = storage or SourceStorage(source)
         op = CachedNode(
             schema=expr.schema(),
