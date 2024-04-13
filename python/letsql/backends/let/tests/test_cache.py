@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import pathlib
 
 import ibis
+import pytest
 
+import letsql
+import pandas as pd
 from letsql.backends.let.tests.conftest import assert_frame_equal
 from letsql.backends.let import (
     Backend,
@@ -199,3 +203,30 @@ def test_cache_execution(con, alltypes):
     )
 
     assert_frame_equal(actual, expected)
+
+
+def test_parquet_cache_storage(tmp_path):
+    tmp_path = pathlib.Path(tmp_path)
+    to_delete_path = tmp_path.joinpath("to-delete.parquet")
+
+    con = letsql.connect()
+    df = pd.DataFrame({chr(ord("a") + i): range(10_000) for i in range(3)})
+    df.to_parquet(to_delete_path)
+    t = con.register(to_delete_path, "t")
+    cols = ["a", "b"]
+    expr = t[cols]
+    expected = df[cols]
+    source = expr._find_backend()
+    storage = letsql.common.caching.ParquetCacheStorage(
+        tmp_path.joinpath("parquet-cache-storage"), source=source
+    )
+    cached = expr.cache(storage=storage)
+    actual = cached.execute()
+    assert_frame_equal(actual, expected)
+
+    to_delete_path.unlink()
+    actual = cached.execute()
+    assert_frame_equal(actual, expected)
+
+    with pytest.raises(Exception):
+        expr.execute()
