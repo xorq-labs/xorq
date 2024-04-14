@@ -586,12 +586,11 @@ pyarrow-hotfix = ">=0.4,<1"
 python-dateutil = ">=2.8.2,<3"
 pytz = ">=2022.7"
 rich = ">=12.4.4,<14"
-sqlglot = ">=22.5,<23.1"
+sqlglot = ">=23.4,<23.11"
 toolz = ">=0.11,<1"
 typing-extensions = ">=4.3.0,<5"
 
 [package.extras]
-all = ["black (>=22.1.0,<25)", "clickhouse-connect[arrow,numpy,pandas] (>=0.5.23,<1)", "dask[array,dataframe] (>=2022.9.1,<2024.3.0)", "datafusion (>=0.6,<37)", "db-dtypes (>=0.3,<2)", "deltalake (>=0.9.0,<1)", "duckdb (>=0.8.1,<1)", "fsspec (<2024.3.0)", "geopandas (>=0.6,<1)", "google-cloud-bigquery (>=3,<4)", "google-cloud-bigquery-storage (>=2,<3)", "graphviz (>=0.16,<1)", "impyla (>=0.17,<1)", "oracledb (>=1.3.1,<3)", "packaging (>=21.3,<25)", "pins[gcs] (>=0.8.3,<1)", "polars (>=0.20.17,<1)", "psycopg2 (>=2.8.4,<3)", "pydata-google-auth (>=1.4.0,<2)", "pydruid[sqlalchemy] (>=0.6.5,<1)", "pyexasol[pandas] (>=0.25.2,<1)", "pymysql (>=1,<2)", "pyodbc (>=4.0.39,<6)", "pyspark (>=3,<4)", "regex (>=2021.7.6)", "shapely (>=2,<3)", "snowflake-connector-python (>=3.0.2,<4,!=3.3.0b1)", "trino (>=0.321,<1)"]
 bigquery = ["db-dtypes (>=0.3,<2)", "google-cloud-bigquery (>=3,<4)", "google-cloud-bigquery-storage (>=2,<3)", "pydata-google-auth (>=1.4.0,<2)"]
 clickhouse = ["clickhouse-connect[arrow,numpy,pandas] (>=0.5.23,<1)"]
 dask = ["dask[array,dataframe] (>=2022.9.1,<2024.3.0)", "regex (>=2021.7.6)"]
@@ -613,7 +612,7 @@ polars = ["packaging (>=21.3,<25)", "polars (>=0.20.17,<1)"]
 postgres = ["psycopg2 (>=2.8.4,<3)"]
 pyspark = ["packaging (>=21.3,<25)", "pyspark (>=3,<4)"]
 risingwave = ["psycopg2 (>=2.8.4,<3)"]
-snowflake = ["snowflake-connector-python (>=3.0.2,<4,!=3.3.0b1)"]
+snowflake = ["snowflake-connector-python (>=3.0.2,!=3.3.0b1,<4)"]
 sqlite = ["regex (>=2021.7.6)"]
 trino = ["trino (>=0.321,<1)"]
 visualization = ["graphviz (>=0.16,<1)"]
@@ -622,7 +621,7 @@ visualization = ["graphviz (>=0.16,<1)"]
 type = "git"
 url = "git@github.com:ibis-project/ibis.git"
 reference = "HEAD"
-resolved_reference = "26484986360e291e500fbacb4a337b36f2f07176"
+resolved_reference = "f15d033e8437c7b63f5cee5a8aff8273c9b0352a"
 
 [[package]]
 name = "identify"
@@ -1680,18 +1679,18 @@ sqlcipher = ["sqlcipher3_binary"]
 
 [[package]]
 name = "sqlglot"
-version = "23.0.5"
+version = "23.10.0"
 description = "An easily customizable SQL parser and transpiler"
 optional = false
 python-versions = ">=3.7"
 files = [
-    {file = "sqlglot-23.0.5-py3-none-any.whl", hash = "sha256:12aadd50775209573e7dfa0136f5769da865de3d5954e8e88a02eb0081d1ad6b"},
-    {file = "sqlglot-23.0.5.tar.gz", hash = "sha256:68386c5aebdc9a1c74e2a623f6373805a2f839d205d46945258dde5ac692d515"},
+    {file = "sqlglot-23.10.0-py3-none-any.whl", hash = "sha256:519ea26007688bbc831939c0c6125762ad5c71339df1ac8184a64d762f75684c"},
+    {file = "sqlglot-23.10.0.tar.gz", hash = "sha256:b80a35de7716464de89cc77678d0a7f972e4a8acaaa7cefcdc6db05ffeb6c951"},
 ]
 
 [package.extras]
 dev = ["duckdb (>=0.6)", "maturin (>=1.4,<2.0)", "mypy", "pandas", "pandas-stubs", "pdoc", "pre-commit", "pyspark", "python-dateutil", "ruff (==0.3.2)", "types-python-dateutil", "typing-extensions"]
-rs = ["sqlglotrs (==0.1.2)"]
+rs = ["sqlglotrs (==0.2.0)"]
 
 [[package]]
 name = "stack-data"
@@ -1858,4 +1857,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "f832876d8fc3d97b6ef69f4faed0115f26fb9fa1821ed699778834b396ba018b"
+content-hash = "1f2b751a044bb87a542753cbf46d314eadf593cf5606ade49137b65d88002abe"

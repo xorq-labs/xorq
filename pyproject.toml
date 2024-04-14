@@ -35,7 +35,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.10"
 maturin = "^1.4.0"
-ibis-framework = {git = "git@github.com:ibis-project/ibis.git", extras = ["duckdb"]}
+ibis-framework = {git = "https://github.com/ibis-project/ibis.git", rev = "f15d033e8437c7b63f5cee5a8aff8273c9b0352a", extras = ["duckdb"]}
 dask = "^2023.12.1"
 xgboost = ">=1.6.1"
 attrs = "^23.2.0"
