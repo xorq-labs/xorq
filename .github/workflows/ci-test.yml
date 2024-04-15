@@ -52,6 +52,9 @@ jobs:
         run: poetry run maturin develop
         working-directory: ${{ github.workspace }}
 
+      - name: start services
+        run: docker compose up --build --wait
+
       - name: poetry pytest
         run: poetry run pytest --cov
         working-directory: ${{ github.workspace }}
@@ -88,6 +91,9 @@ jobs:
       - name: maturin develop
         run: poetry run maturin develop
         working-directory: ${{ github.workspace }}
+
+      - name: start services
+        run: docker compose up --build --wait
 
       - name: poetry pytest
         run: poetry run pytest --cov
