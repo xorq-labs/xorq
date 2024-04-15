@@ -9,14 +9,14 @@ def contract_cache_table(node, _, **kwargs):
     if hasattr(node, "parent"):
         parent = kwargs.get("parent", node.parent)
         node = node.replace({node.parent: parent})
-    if isinstance(node, DeferredCacheTable):
+    if isinstance(node, CachedNode):
         node = node.replace({node: node.parent})
     return node
 
 
-class DeferredCacheTable(ops.SQLQueryResult):
-    query: str
+class CachedNode(ops.Relation):
     schema: Schema
+    parent: Any
     source: Any
+    storage: Any
     values = FrozenDict()
-    parent: ops.Relation

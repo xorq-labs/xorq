@@ -70,7 +70,11 @@ def qualify_function_columns(expression, schema=None, models=None):
 
             if models is not None and expression.this.alias_or_name in models:
                 feature_mapping = models[expression.this.alias_or_name]
-                new_selections = [selection for i, selection in enumerate(new_selections) if i in feature_mapping]
+                new_selections = [
+                    selection
+                    for i, selection in enumerate(new_selections)
+                    if i in feature_mapping
+                ]
 
             return LetSQLPredict(
                 this=expression.this,

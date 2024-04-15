@@ -6,6 +6,30 @@ import pandas as pd
 import pandas.testing as tm
 
 import letsql as ls
+from letsql.backends.let import KEY_PREFIX
+
+
+expected_tables = (
+    "array_types",
+    "astronauts",
+    "awards_players",
+    "awards_players_special_types",
+    "batting",
+    "diamonds",
+    "films",
+    "functional_alltypes",
+    "geo",
+    "geography_columns",
+    "geometry_columns",
+    "intervals",
+    "json_t",
+    "map",
+    "not_supported_intervals",
+    "spatial_ref_sys",
+    "topk",
+    "tzone",
+    "win",
+)
 
 
 @pytest.fixture(scope="session")
@@ -26,10 +50,13 @@ def dirty():
 @pytest.fixture(scope="function")
 def con(dirty):
     # cleanup
-    for table in dirty.list_tables():
-        if table.startswith("ibis_cache"):
-            dirty.drop_table(table)
-    dirty.cache_storage.clear()
+    for con in dirty.connections.values():
+        for table in con.list_tables():
+            # FIXME: determine if we should drop all or only key-prefixed
+            if table.startswith(KEY_PREFIX):
+                con.drop_table(table)
+    if sorted(dirty.list_tables()) != sorted(expected_tables):
+        raise ValueError
     return dirty
 
 

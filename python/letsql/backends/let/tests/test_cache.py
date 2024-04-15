@@ -1,17 +1,24 @@
 from __future__ import annotations
 
-import pickle
+import pathlib
 
 import ibis
+import pytest
 
-from letsql.expr.relations import DeferredCacheTable
+import letsql
+import pandas as pd
 from letsql.backends.let.tests.conftest import assert_frame_equal
-from letsql.backends.let import Backend
+from letsql.backends.let import (
+    Backend,
+    KEY_PREFIX,
+)
 
 from ibis import _
 
 
 def test_cache_simple(con, alltypes, alltypes_df):
+    initial_tables = con.list_tables()
+
     expr = alltypes.select(
         alltypes.smallint_col, alltypes.int_col, alltypes.float_col
     ).filter(
@@ -35,10 +42,12 @@ def test_cache_simple(con, alltypes, alltypes_df):
 
     assert_frame_equal(cached, expected)
     assert not any(
-        table_name.startswith("ibis_cache") for table_name in tables_after_caching
+        table_name.startswith(KEY_PREFIX)
+        for table_name in set(tables_after_caching).difference(initial_tables)
     )
     assert any(
-        table_name.startswith("ibis_cache") for table_name in tables_after_executing
+        table_name.startswith(KEY_PREFIX)
+        for table_name in set(tables_after_executing).difference(initial_tables)
     )
 
 
@@ -82,10 +91,8 @@ def test_cache_multiple_times(con, alltypes, alltypes_df):
     assert_frame_equal(first, expected)
     assert_frame_equal(second, expected)
 
-    first_tables = [t for t in tables_after_first_caching if t.startswith("ibis_cache")]
-    second_tables = [
-        t for t in tables_after_second_caching if t.startswith("ibis_cache")
-    ]
+    first_tables = [t for t in tables_after_first_caching if t.startswith(KEY_PREFIX)]
+    second_tables = [t for t in tables_after_second_caching if t.startswith(KEY_PREFIX)]
 
     assert sorted(first_tables) == sorted(second_tables)
 
@@ -149,14 +156,15 @@ def test_cache_recreate(con, alltypes):
     con_cached_tables = set(
         table_name
         for table_name in con.list_tables()
-        if table_name.startswith("ibis_cache")
+        if table_name.startswith(KEY_PREFIX)
     )
     other_cached_tables = set(
         table_name
         for table_name in other.list_tables()
-        if table_name.startswith("ibis_cache")
+        if table_name.startswith(KEY_PREFIX)
     )
 
+    assert con_cached_tables
     assert con_cached_tables == other_cached_tables
     for table_name in other_cached_tables:
         assert_frame_equal(
@@ -164,9 +172,7 @@ def test_cache_recreate(con, alltypes):
         )
 
 
-def test_cache_execution(con, alltypes, mocker):
-    spy = mocker.spy(con.cache_storage, "store")
-
+def test_cache_execution(con, alltypes):
     cached = (
         alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
         .cache()
@@ -197,32 +203,30 @@ def test_cache_execution(con, alltypes, mocker):
     )
 
     assert_frame_equal(actual, expected)
-    assert spy.call_count == 2
 
 
-def test_pickle_cached_expression(con, alltypes, tmp_path):
-    cached = (
-        alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
-        .cache()
-        .filter(
-            [
-                _.float_col > 0,
-                _.smallint_col == 9,
-                _.int_col < _.float_col * 2,
-            ]
-        )
-        .select(_.int_col * 4)
-        .cache()
+def test_parquet_cache_storage(tmp_path):
+    tmp_path = pathlib.Path(tmp_path)
+    to_delete_path = tmp_path.joinpath("to-delete.parquet")
+
+    con = letsql.connect()
+    df = pd.DataFrame({chr(ord("a") + i): range(10_000) for i in range(3)})
+    df.to_parquet(to_delete_path)
+    t = con.register(to_delete_path, "t")
+    cols = ["a", "b"]
+    expr = t[cols]
+    expected = df[cols]
+    source = expr._find_backend()
+    storage = letsql.common.caching.ParquetCacheStorage(
+        tmp_path.joinpath("parquet-cache-storage"), source=source
     )
+    cached = expr.cache(storage=storage)
+    actual = cached.execute()
+    assert_frame_equal(actual, expected)
 
-    pickle_path = tmp_path / "expression.pkl"
-    with open(pickle_path, "wb") as out:
-        pickle.dump(cached, out)
+    to_delete_path.unlink()
+    actual = cached.execute()
+    assert_frame_equal(actual, expected)
 
-    with open(pickle_path, "rb") as infile:
-        retrieved = pickle.load(infile)
-    cache_nodes = list(retrieved.op().find(lambda o: isinstance(o, DeferredCacheTable)))
-
-    assert con.execute(retrieved) is not None  # need to be specified the backend
-    assert ibis.to_sql(cached) == ibis.to_sql(retrieved)
-    assert len(cache_nodes) == 2
+    with pytest.raises(Exception):
+        expr.execute()

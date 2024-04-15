@@ -1,24 +1,24 @@
 from __future__ import annotations
 
 import abc
-import functools
 from pathlib import Path
 from typing import Any, Mapping
 
+import dask
 import pyarrow_hotfix  # noqa: F401
 from datafusion import SessionContext
 from ibis import BaseBackend
 from letsql.backends.datafusion import Backend as DataFusionBackend
 from ibis.common.exceptions import IbisError
 from ibis.expr import types as ir
-from ibis.util import gen_name
 
 from letsql.common.caching import (
-    ParquetCacheStorage,
+    SourceStorage,
 )
-from letsql.expr.relations import contract_cache_table, DeferredCacheTable
+from letsql.expr.relations import contract_cache_table, CachedNode
 
-from operator import contains
+
+KEY_PREFIX = "letsql_cache-"
 
 
 class CanListConnections(abc.ABC):
@@ -51,14 +51,6 @@ class Backend(DataFusionBackend, CanCreateConnections):
     connections = {}
     sources = {}
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.cache_storage = ParquetCacheStorage(
-            populate=self._load_into_cache,
-            recreate=self._recreate_cache,
-            generate_name=functools.partial(gen_name, "cache"),
-        )
-
     def add_connection(self, connection: BaseBackend, name: str | None = None) -> None:
         self.connections[connection.name] = connection
 
@@ -69,8 +61,8 @@ class Backend(DataFusionBackend, CanCreateConnections):
         return list(self.connections.values())
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        expr = self._register_and_transform_cache_tables(expr)
         name = self._get_source_name(expr)
+        expr = self._register_and_transform_cache_tables(expr)
 
         if name == "datafusion":
             return super().execute(expr, **kwargs)
@@ -83,7 +75,6 @@ class Backend(DataFusionBackend, CanCreateConnections):
         self, config: Mapping[str, str | Path] | SessionContext | None = None
     ) -> None:
         super().do_connect(config=config)
-        self.cache_storage.try_recreate()  # try to recreate the cache
 
     def table(
         self,
@@ -128,24 +119,34 @@ class Backend(DataFusionBackend, CanCreateConnections):
         source = self.sources.get(origin, self)
         return source.name
 
-    def _cached(self, expr: ir.Table):
-        op = DeferredCacheTable(
-            query="", schema=expr.schema(), source=self, parent=expr.op()
+    def _cached(self, expr: ir.Table, storage=None):
+        name = self._get_source_name(expr)
+        if name == "datafusion":
+            source = self
+        else:
+            source = self.connections[name]
+        storage = storage or SourceStorage(source)
+        op = CachedNode(
+            schema=expr.schema(),
+            parent=expr.op(),
+            source=source,
+            storage=storage,
         )
-        self.cache_storage.name(op)
         return op.to_expr()
 
     def _register_and_transform_cache_tables(self, expr):
         """This function will sequentially execute any cache node that is not already cached"""
 
-        is_cached = functools.partial(contains, self.cache_storage)
-
         def fn(node, _, **kwargs):
-            if is_cached(node):
-                name = self.cache_storage[node]
-                if name not in self.list_tables():
-                    self.cache_storage.store(node)
-                node = node.replace({node: ir.CachedTable(self.table(name).op()).op()})
+            if isinstance(node, CachedNode):
+                uncached = node.map_clear(contract_cache_table)
+                # datafusion+ParquetStorage requires key have .parquet suffix: maybe push suffix append into ParquetStorage?
+                key = KEY_PREFIX + dask.base.tokenize(uncached)
+                storage = kwargs["storage"]
+                if not storage.exists(key):
+                    value = uncached
+                    storage.put(key, value)
+                node = storage.get(key)
             if hasattr(node, "parent"):
                 parent = kwargs.get("parent", node.parent)
                 node = node.replace({node.parent: parent})
@@ -162,15 +163,12 @@ class Backend(DataFusionBackend, CanCreateConnections):
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
     ):
         op = expr.op()
-        results = op.map(contract_cache_table)
-        out = results[op]
+        out = op.map_clear(contract_cache_table)
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
 
     def _load_into_cache(self, name, op) -> ir.Table:
-        results = op.parent.map(contract_cache_table)
-        out = results[op.parent]
-
+        out = op.map_clear(contract_cache_table)
         expr = out.to_expr()
         source_name = self._get_source_name(expr)
         backend = self.connections[source_name]
@@ -180,3 +178,74 @@ class Backend(DataFusionBackend, CanCreateConnections):
 
     def _recreate_cache(self, name, data):
         super().create_table(name, data, temp=True)
+
+
+def do_dask_normalize_token_register():
+    import dask
+    import ibis
+    import ibis.backends.datafusion
+
+    @dask.base.normalize_token.register(object)
+    def do_raise(arg):
+        # FIXME: check for attr: __dask_normalize_token__
+        raise ValueError(f"don't know how to handle type {type(arg)}")
+
+    @dask.base.normalize_token.register(ibis.common.graph.Node)
+    def normalize_node(node):
+        return tuple(
+            map(
+                dask.base.normalize_token,
+                (
+                    type(node),
+                    *(node.args),
+                ),
+            )
+        )
+
+    @dask.base.normalize_token.register(ibis.expr.schema.Schema)
+    def normalize_schema(schema):
+        return tuple(
+            map(
+                dask.base.normalize_token,
+                (
+                    type(schema),
+                    schema.fields,
+                ),
+            )
+        )
+
+    @dask.base.normalize_token.register(ibis.expr.datatypes.core.DataType)
+    def normalize_dtype(dtype):
+        return tuple(map(dask.base.normalize_token, (type(dtype), dtype.nullable)))
+
+    @dask.base.normalize_token.register(Backend)
+    def normalize_datafusion_backend(backend):
+        return tuple(map(dask.base.normalize_token, (type(backend),)))
+
+    @dask.base.normalize_token.register(ibis.expr.operations.Namespace)
+    def normalize_namespace(ns):
+        return tuple(
+            map(
+                dask.base.normalize_token,
+                (
+                    ns.database,
+                    ns.catalog,
+                ),
+            )
+        )
+
+
+do_dask_normalize_token_register()
+
+
+def letsql_cache(self, storage=None):
+    current_backend = self._find_backend(use_default=True)
+    return current_backend._cached(self, storage=storage)
+
+
+def do_monkeypatch_Table_cache():
+    setattr(letsql_cache, "orig_cache", ir.Table.cache)
+    setattr(ir.Table, "cache", letsql_cache)
+
+
+do_monkeypatch_Table_cache()

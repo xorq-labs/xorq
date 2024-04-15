@@ -1,15 +1,27 @@
+import operator
 import pathlib
-import warnings
-from collections import defaultdict
-from typing import Any, Callable
+from abc import (
+    ABC,
+    abstractmethod,
+)
 
-import ibis.expr.types as ir
-import pyarrow.parquet as pq
+import ibis
+import toolz
 
+from attr import (
+    field,
+    frozen,
+)
+from attr.validators import (
+    instance_of,
+)
 from cloudpickle import (
     dump as _dump,
     load as _load,
 )
+
+
+abs_path_converter = toolz.compose(operator.methodcaller("absolute"), pathlib.Path)
 
 
 def dump(obj, path):
@@ -22,70 +34,85 @@ def load(path):
         return _load(fh)
 
 
-class ParquetCacheStorage:
-    cache_dir_name = ".letsql_cache"
+class CacheStorage(ABC):
+    @abstractmethod
+    def exists(self, key):
+        pass
 
-    def __init__(
-        self,
-        *,
-        populate: Callable[[str, Any], ir.Table],
-        recreate: Callable[[str, Any], None],
-        generate_name: Callable[[], str],
-        key: Callable[[Any], Any] = None,
-    ) -> None:
-        self.populate = populate
-        self.recreate = recreate
-        # Somehow mypy needs a type hint here
-        self.names: defaultdict = defaultdict(generate_name)
-        self.key = key or (lambda x: x)
-        self._set_cache_dir()
-
-    def _set_cache_dir(self):
-        cwd = pathlib.Path().absolute()
-        cache_dir = pathlib.Path(__file__).parent.joinpath(self.cache_dir_name)
-        if not cache_dir.exists():
-            cache_dir = next(
-                p for p in (cwd, *cwd.parents) if p.joinpath(".git").exists()
-            ).joinpath(self.cache_dir_name)
-            self.keys_cache_dir = cache_dir.joinpath("keys")
-            self.values_cache_dir = cache_dir.joinpath("values")
-            self.keys_cache_dir.mkdir(exist_ok=True, parents=True)
-            self.values_cache_dir.mkdir(exist_ok=True, parents=True)
-
-    def try_recreate(self):
-        keys = sorted([k for k in self.keys_cache_dir.glob("*.key")])
-        values = sorted([v for v in self.values_cache_dir.glob("*.parquet")])
-
-        if len(keys) != len(values) or any(
-            k.stem != v.stem for k, v in zip(keys, values)
-        ):
-            warnings.warn("Illegal state of cache")
+    def get(self, key):
+        if not self.exists(key):
+            raise KeyError
         else:
-            for expr_file, parquet_data in zip(keys, values):
-                self.names[
-                    self.key(load(expr_file))
-                ] = expr_file.stem  # the filename without the extension
-                self.recreate(expr_file.stem, pq.read_table(parquet_data))
+            return self._get(key)
 
-    def clear(self):
-        for k in self.keys_cache_dir.glob("*.key"):
-            k.unlink(missing_ok=True)
+    @abstractmethod
+    def _get(self, key):
+        pass
 
-        for v in self.values_cache_dir.glob("*.parquet"):
-            v.unlink(missing_ok=True)
+    def put(self, key, value):
+        if self.exists(key):
+            raise ValueError
+        else:
+            return self._put(key, value)
 
-    def name(self, value):
-        name = self.names[self.key(value)]
-        return name
+    @abstractmethod
+    def _put(self, key, value):
+        pass
 
-    def store(self, value):
-        name = self.names[self.key(value)]
-        temp_table = self.populate(name, value)
-        dump(value, self.keys_cache_dir.joinpath(f"{name}.key"))
-        temp_table.to_parquet(self.values_cache_dir.joinpath(f"{name}.parquet"))
+    def drop(self, key):
+        if not self.exist(key):
+            raise KeyError
+        else:
+            return self._drop(key)
 
-    def __contains__(self, key):
-        return key in self.names
+    @abstractmethod
+    def _drop(self, key):
+        pass
 
-    def __getitem__(self, item):
-        return self.names[item]
+
+@frozen
+class ParquetCacheStorage(CacheStorage):
+    path = field(validator=instance_of(pathlib.Path), converter=abs_path_converter)
+    source = field(validator=instance_of(ibis.backends.BaseBackend))
+
+    def __attrs_post_init__(self):
+        self.path.mkdir(exist_ok=True, parents=True)
+
+    def get_loc(self, key):
+        return self.path.joinpath(key + ".parquet")
+
+    def exists(self, key):
+        return self.get_loc(key).exists()
+
+    def _get(self, key):
+        op = self.source.read_parquet(self.get_loc(key), key).op()
+        return op
+
+    def _put(self, key, value):
+        loc = self.get_loc(key)
+        value.to_expr().to_parquet(loc)
+        return self.get(key)
+
+    def _drop(self, key):
+        path = self.get_loc(key)
+        path.unlink()
+        # FIXME: what to do if table is not registered?
+        self.source.drop_table(key)
+
+
+@frozen
+class SourceStorage(CacheStorage):
+    source = field(validator=instance_of(ibis.backends.BaseBackend))
+
+    def exists(self, key):
+        return key in self.source.tables
+
+    def _get(self, key):
+        return self.source.table(key).op()
+
+    def _put(self, key, value):
+        self.source.create_table(key, value.to_expr())
+        return self.get(key)
+
+    def _drop(self, key):
+        self.source.drop_table(key)
