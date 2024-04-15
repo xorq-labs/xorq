@@ -11,8 +11,14 @@ from pandas.api.types import is_float_dtype
 import letsql.db as db
 
 
-def train_xgb(data, objective="reg:squarederror", features=None, target="price", max_depth=8, n_estimators=100):
-
+def train_xgb(
+    data,
+    objective="reg:squarederror",
+    features=None,
+    target="price",
+    max_depth=8,
+    n_estimators=100,
+):
     # Split the data into features and target variable
     if features is None:
         features = ["carat", "depth", "x", "y", "z"]
@@ -25,7 +31,12 @@ def train_xgb(data, objective="reg:squarederror", features=None, target="price",
     )
 
     # Instantiate an XGBoost regressor
-    model = xgb.XGBRegressor(objective=objective, random_state=42, max_depth=max_depth, n_estimators=n_estimators)
+    model = xgb.XGBRegressor(
+        objective=objective,
+        random_state=42,
+        max_depth=max_depth,
+        n_estimators=n_estimators,
+    )
 
     # Train the model
     model.fit(X_train, y_train)
@@ -79,12 +90,17 @@ def convert_and_save(input_model, output_file):
 
 
 def model_features(path):
-
     with open(path) as infile:
         json_data = json.load(infile)
         json_trees = json_data["learner"]["gradient_booster"]["model"]["trees"]
 
-        indices = sorted(set(chain.from_iterable(json_tree["split_indices"] for json_tree in json_trees)))
+        indices = sorted(
+            set(
+                chain.from_iterable(
+                    json_tree["split_indices"] for json_tree in json_trees
+                )
+            )
+        )
         return {v: i for i, v in enumerate(indices)}
 
 
