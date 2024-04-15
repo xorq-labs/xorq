@@ -35,3 +35,7 @@ download-data owner="ibis-project" repo="testing-data" rev="master":
     if [ "{{ rev }}" != "master" ]; then
         git -C "${outdir}" checkout "{{ rev }}"
     fi
+
+# start backends using docker compose; no arguments starts all backends
+up *backends:
+    docker compose up --build --wait {{ backends }}

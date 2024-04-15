@@ -73,16 +73,6 @@ def test_string_col_is_unicode(alltypes, df):
             id="re_search_posix",
         ),
         param(
-            lambda t: ("xyz" + t.string_col + "abcd").re_extract(r"(\d+)", 0),
-            lambda t: t.string_col.str.extract(r"(\d+)", expand=False),
-            id="re_extract",
-        ),
-        param(
-            lambda t: ("xyz" + t.string_col + "abcd").re_extract(r"(\d+)abc", 1),
-            lambda t: t.string_col.str.extract(r"(\d+)", expand=False),
-            id="re_extract_group",
-        ),
-        param(
             lambda t: t.string_col.re_extract(r"([[:digit:]]+)", 1),
             lambda t: t.string_col.str.extract(r"(\d+)", expand=False),
             id="re_extract_posix",

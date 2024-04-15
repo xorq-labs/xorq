@@ -1,0 +1,37 @@
+services:
+  postgres:
+    user: postgres
+    environment:
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ibis_testing
+      POSTGRES_USER: postgres
+    build: ./docker/postgres
+    image: ibis-postgres
+    healthcheck:
+      interval: 1s
+      retries: 20
+      test:
+        - CMD
+        - pg_isready
+    ports:
+      - 5432:5432
+    networks:
+      - postgres
+    volumes:
+      - ./ci/ibis-testing-data/csv/astronauts.csv:/data/astronauts.csv
+      - ./ci/ibis-testing-data/csv/awards_players.csv:/data/awards_players.csv
+      - ./ci/ibis-testing-data/csv/batting.csv:/data/batting.csv
+      - ./ci/ibis-testing-data/csv/diamonds.csv:/data/diamonds.csv
+      - ./ci/ibis-testing-data/csv/functional_alltypes.csv:/data/functional_alltypes.csv
+      - ./ci/ibis-testing-data/csv/geo.csv:/data/geo.csv
+      - postgres:/data
+      - ./db/postgres.sql:/docker-entrypoint-initdb.d/create_tables.sql
+
+
+networks:
+  postgres:
+
+
+volumes:
+  postgres:
+

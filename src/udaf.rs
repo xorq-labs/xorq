@@ -9,6 +9,7 @@ use datafusion::common::ScalarValue;
 use datafusion::error::{DataFusionError, Result};
 use datafusion_expr::{create_udaf, Accumulator, AccumulatorFactoryFunction, AggregateUDF};
 
+use crate::expr::PyExpr;
 use crate::utils::parse_volatility;
 
 #[derive(Debug)]
@@ -23,12 +24,12 @@ impl RustAccumulator {
 }
 
 impl Accumulator for RustAccumulator {
-    fn state(&self) -> Result<Vec<ScalarValue>> {
+    fn state(&mut self) -> Result<Vec<ScalarValue>> {
         Python::with_gil(|py| self.accum.as_ref(py).call_method0("state")?.extract())
             .map_err(|e| DataFusionError::Execution(format!("{e}")))
     }
 
-    fn evaluate(&self) -> Result<ScalarValue> {
+    fn evaluate(&mut self) -> Result<ScalarValue> {
         Python::with_gil(|py| self.accum.as_ref(py).call_method0("evaluate")?.extract())
             .map_err(|e| DataFusionError::Execution(format!("{e}")))
     }
@@ -126,23 +127,31 @@ pub struct PyAggregateUDF {
 #[pymethods]
 impl PyAggregateUDF {
     #[new]
+    #[pyo3(signature=(name, accumulator, input_type, return_type, state_type, volatility))]
     fn new(
         name: &str,
         accumulator: PyObject,
-        input_type: PyArrowType<DataType>,
+        input_type: PyArrowType<Vec<DataType>>,
         return_type: PyArrowType<DataType>,
         state_type: PyArrowType<Vec<DataType>>,
         volatility: &str,
     ) -> PyResult<Self> {
         let function = create_udaf(
             name,
-            vec![input_type.0],
+            input_type.0,
             Arc::new(return_type.0),
             parse_volatility(volatility)?,
             to_rust_accumulator(accumulator),
             Arc::new(state_type.0),
         );
         Ok(Self { function })
+    }
+
+    /// creates a new PyExpr with the call of the udf
+    #[pyo3(signature = (*args))]
+    fn __call__(&self, args: Vec<PyExpr>) -> PyResult<PyExpr> {
+        let args = args.iter().map(|e| e.expr.clone()).collect();
+        Ok(self.function.call(args).into())
     }
 
     fn __repr__(&self) -> PyResult<String> {

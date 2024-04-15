@@ -8,10 +8,11 @@ from sqlglot import parse_one, TokenType, select, and_
 from sqlglot import parser, planner
 from sqlglot.dialects import DuckDB, Postgres
 
-import letsql
 from letsql.db.optimizer import optimize
 from letsql.db.planner import LetSQLPlan
 from letsql.db.predict import LetSQLPredict
+
+from letsql.backends.let import Backend
 
 import pyarrow.csv as csv
 
@@ -175,17 +176,17 @@ class PythonExecutor:
         table_name = step.source.name
 
         if isinstance(table, CSVTable):
-            letsql.register(table.path, table_name=table_name)
-            return letsql.ba.con.sql(query)
+            ba.register(table.path, table_name=table_name)
+            return ba.con.sql(query)
         elif isinstance(table, PostgreSQLTable):
             source = cx.read_sql(
                 table.connection, expression.sql(dialect=Postgres), return_type="arrow2"
             )
-            letsql.register(source, table_name=table_name)
-            return letsql.ba.con.sql(f"select * from {table_name};")
+            ba.register(source, table_name=table_name)
+            return ba.con.sql(f"select * from {table_name};")
         elif isinstance(table, ArrowTable):
-            letsql.register(table.to_arrow(), table_name=table_name)
-            return letsql.ba.con.sql(query)
+            ba.register(table.to_arrow(), table_name=table_name)
+            return ba.con.sql(query)
         else:
             raise ValueError
 
@@ -211,7 +212,7 @@ class PythonExecutor:
                 expression = expression.where(join["condition"])
 
         query = self.generator.generate(expression)
-        return Context({source: ArrowTable(letsql.ba.con.sql(query))})
+        return Context({source: ArrowTable(ba.con.sql(query))})
 
     def generate(self, expression):
         """Convert an SQL expression into literal DataFusion expressions."""
@@ -245,8 +246,14 @@ class Connection:
             json_data = json.load(infile)
             json_trees = json_data["learner"]["gradient_booster"]["model"]["trees"]
 
-            indices = sorted(set(chain.from_iterable(json_tree["split_indices"] for json_tree in json_trees)))
-            return { v: i for i, v in enumerate(indices)}
+            indices = sorted(
+                set(
+                    chain.from_iterable(
+                        json_tree["split_indices"] for json_tree in json_trees
+                    )
+                )
+            )
+            return {v: i for i, v in enumerate(indices)}
 
 
 class LetSQL(DuckDB):
@@ -278,6 +285,8 @@ class FutureExecution:
 
 
 con = Connection()
+ba = Backend()
+ba.do_connect()
 
 
 def sql(query):
@@ -289,7 +298,7 @@ def sql(query):
         constant_propagation=True,
         leave_tables_isolated=True,
         sources=con.tables,
-        models=con.models
+        models=con.models,
     )
     plan = LetSQLPlan(node, tables=con.tables)
     return FutureExecution(plan, con)
@@ -304,12 +313,12 @@ def register_csv(name, path):
 
 
 def register_model(name, path, objective):
-    letsql.ba.con.register_xgb_model(name, path, objective)
+    ba.con.register_xgb_model(name, path, objective)
 
 
 def register_json_model(name, path):
     con.register_model(name, path)
-    letsql.ba.con.register_xgb_json_model(name, path)
+    ba.con.register_xgb_json_model(name, path)
 
 
 __all__ = ["sql", "register_postgres", "register_csv"]
