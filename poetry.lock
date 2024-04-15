@@ -612,15 +612,15 @@ polars = ["packaging (>=21.3,<25)", "polars (>=0.20.17,<1)"]
 postgres = ["psycopg2 (>=2.8.4,<3)"]
 pyspark = ["packaging (>=21.3,<25)", "pyspark (>=3,<4)"]
 risingwave = ["psycopg2 (>=2.8.4,<3)"]
-snowflake = ["snowflake-connector-python (>=3.0.2,!=3.3.0b1,<4)"]
+snowflake = ["snowflake-connector-python (>=3.0.2,<4,!=3.3.0b1)"]
 sqlite = ["regex (>=2021.7.6)"]
 trino = ["trino (>=0.321,<1)"]
 visualization = ["graphviz (>=0.16,<1)"]
 
 [package.source]
 type = "git"
-url = "git@github.com:ibis-project/ibis.git"
-reference = "HEAD"
+url = "https://github.com/ibis-project/ibis.git"
+reference = "f15d033e8437c7b63f5cee5a8aff8273c9b0352a"
 resolved_reference = "f15d033e8437c7b63f5cee5a8aff8273c9b0352a"
 
 [[package]]
@@ -1857,4 +1857,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "8243673125b68f6b18b1beecd7c836720bc96eaff7bf12a8734c27bee43c61ff"
+content-hash = "803009304a981ec9ac7b66d1fcd2c19bf9dc65b7f7a94913d77c938d5671267d"
