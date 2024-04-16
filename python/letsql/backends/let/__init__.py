@@ -15,7 +15,7 @@ from ibis.expr import types as ir
 from letsql.common.caching import (
     SourceStorage,
 )
-from letsql.expr.relations import contract_cache_table, CachedNode
+from letsql.expr.relations import replace_cache_table, CachedNode
 
 
 KEY_PREFIX = "letsql_cache-"
@@ -139,7 +139,7 @@ class Backend(DataFusionBackend, CanCreateConnections):
 
         def fn(node, _, **kwargs):
             if isinstance(node, CachedNode):
-                uncached = node.map_clear(contract_cache_table)
+                uncached = node.map_clear(replace_cache_table)
                 # datafusion+ParquetStorage requires key have .parquet suffix: maybe push suffix append into ParquetStorage?
                 key = KEY_PREFIX + dask.base.tokenize(uncached)
                 storage = kwargs["storage"]
@@ -163,12 +163,12 @@ class Backend(DataFusionBackend, CanCreateConnections):
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
     ):
         op = expr.op()
-        out = op.map_clear(contract_cache_table)
+        out = op.map_clear(replace_cache_table)
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
 
     def _load_into_cache(self, name, op) -> ir.Table:
-        out = op.map_clear(contract_cache_table)
+        out = op.map_clear(replace_cache_table)
         expr = out.to_expr()
         source_name = self._get_source_name(expr)
         backend = self.connections[source_name]

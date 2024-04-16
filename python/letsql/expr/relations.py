@@ -5,13 +5,11 @@ from ibis.common.collections import FrozenDict
 from ibis.expr import operations as ops
 
 
-def contract_cache_table(node, _, **kwargs):
-    if hasattr(node, "parent"):
-        parent = kwargs.get("parent", node.parent)
-        node = node.replace({node.parent: parent})
+def replace_cache_table(node, _, **kwargs):
     if isinstance(node, CachedNode):
-        node = node.replace({node: node.parent})
-    return node
+        return kwargs["parent"]
+    else:
+        return node.__recreate__(kwargs)
 
 
 class CachedNode(ops.Relation):
