@@ -4,8 +4,10 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use datafusion::arrow::datatypes::{DataType, Schema};
+use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
 use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion::arrow::record_batch::RecordBatch;
+// use datafusion::arrow::record_batch::{RecordBatch, RecordBatchReader};
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
 use datafusion::datasource::MemTable;
 use datafusion::datasource::TableProvider;
@@ -13,7 +15,6 @@ use datafusion::execution::context::{SessionConfig, SessionContext, SessionState
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::ScalarValue;
-
 use datafusion_expr::ScalarUDF;
 use gbdt::gradient_boost::GBDT;
 
@@ -27,6 +28,7 @@ use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
 use crate::model::{ModelRegistry, SessionModelRegistry};
 use crate::predict_udf::PredictUdf;
+use crate::py_record_batch_provider::PyRecordBatchProvider;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
 use crate::utils::wait_for_future;
@@ -210,6 +212,19 @@ impl PySessionContext {
     ) -> PyResult<()> {
         let schema = partitions.0[0][0].schema();
         let table = MemTable::try_new(schema, partitions.0)?;
+        self.ctx
+            .register_table(name, Arc::new(table))
+            .map_err(DataFusionError::from)?;
+        Ok(())
+    }
+
+    pub fn register_record_batch_reader(
+        &mut self,
+        name: &str,
+        reader: PyArrowType<ArrowArrayStreamReader>,
+    ) -> PyResult<()> {
+        let reader = reader.0;
+        let table = PyRecordBatchProvider::new(reader);
         self.ctx
             .register_table(name, Arc::new(table))
             .map_err(DataFusionError::from)?;
