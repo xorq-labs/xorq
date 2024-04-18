@@ -12,6 +12,15 @@ def replace_cache_table(node, _, **kwargs):
         return node.__recreate__(kwargs)
 
 
+def replace_source_factory(source: Any):
+    def replace_source(node, _, **kwargs):
+        if "source" in kwargs:
+            kwargs["source"] = source
+        return node.__recreate__(kwargs)
+
+    return replace_source
+
+
 class CachedNode(ops.Relation):
     schema: Schema
     parent: Any
