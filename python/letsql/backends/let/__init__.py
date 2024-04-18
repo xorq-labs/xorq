@@ -15,8 +15,11 @@ from ibis.expr import types as ir
 from letsql.common.caching import (
     SourceStorage,
 )
-from letsql.expr.relations import replace_cache_table, CachedNode
-
+from letsql.expr.relations import (
+    replace_cache_table,
+    CachedNode,
+    replace_source_factory,
+)
 
 KEY_PREFIX = "letsql_cache-"
 
@@ -61,8 +64,8 @@ class Backend(DataFusionBackend, CanCreateConnections):
         return list(self.connections.values())
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        name = self._get_source_name(expr)
         expr = self._register_and_transform_cache_tables(expr)
+        name = self._get_source_name(expr)
 
         if name == "datafusion":
             return super().execute(expr, **kwargs)
@@ -116,7 +119,7 @@ class Backend(DataFusionBackend, CanCreateConnections):
         if hasattr(origin, "table"):
             origin = origin.table
 
-        source = self.sources.get(origin, self)
+        source = self.sources.get(origin, getattr(origin, "source", self))
         return source.name
 
     def _cached(self, expr: ir.Table, storage=None):
@@ -139,13 +142,14 @@ class Backend(DataFusionBackend, CanCreateConnections):
 
         def fn(node, _, **kwargs):
             if isinstance(node, CachedNode):
+                replace_source = replace_source_factory(node.source)
                 uncached = node.map_clear(replace_cache_table)
                 # datafusion+ParquetStorage requires key have .parquet suffix: maybe push suffix append into ParquetStorage?
                 key = KEY_PREFIX + dask.base.tokenize(uncached)
                 storage = kwargs["storage"]
                 if not storage.exists(key):
                     value = uncached
-                    storage.put(key, value)
+                    storage.put(key, value.replace(replace_source))
                 node = storage.get(key)
             if hasattr(node, "parent"):
                 parent = kwargs.get("parent", node.parent)

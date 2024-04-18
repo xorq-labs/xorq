@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import ibis
 
 import letsql as ls
@@ -17,7 +19,10 @@ con.add_connection(
 alltypes = con.table("functional_alltypes")
 
 expr = alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
-cached = expr.cache()  # cache expression (this creates a local table)
+
+storage = ls.common.caching.ParquetCacheStorage(Path.cwd(), source=con)
+
+cached = expr.cache(storage=storage)  # cache expression (this creates a local table)
 
 cached = cached.filter(
     [

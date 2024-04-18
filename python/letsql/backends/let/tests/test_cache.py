@@ -230,3 +230,24 @@ def test_parquet_cache_storage(tmp_path):
 
     with pytest.raises(Exception):
         expr.execute()
+
+
+def test_parquet_remote_to_local(con, alltypes, tmp_path):
+    tmp_path = pathlib.Path(tmp_path)
+
+    expr = alltypes.select(
+        alltypes.smallint_col, alltypes.int_col, alltypes.float_col
+    ).filter(
+        [
+            alltypes.float_col > 0,
+            alltypes.smallint_col == 9,
+            alltypes.int_col < alltypes.float_col * 2,
+        ]
+    )
+    storage = letsql.common.caching.ParquetCacheStorage(
+        tmp_path.joinpath("parquet-cache-storage"), source=con
+    )
+    cached = expr.cache(storage=storage)
+    expected = expr.execute()
+    actual = cached.execute()
+    assert_frame_equal(actual, expected)
