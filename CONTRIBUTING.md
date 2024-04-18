@@ -31,5 +31,6 @@ To test the code:
 ```bash
 # make sure you activate the venv using "source venv/bin/activate" first
 maturin develop
+just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
