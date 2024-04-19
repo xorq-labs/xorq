@@ -6,7 +6,7 @@ from typing import Any, Mapping
 
 import dask
 import pyarrow_hotfix  # noqa: F401
-from datafusion import SessionContext
+from letsql.internal import SessionContext
 from ibis import BaseBackend
 from letsql.backends.datafusion import Backend as DataFusionBackend
 from ibis.common.exceptions import IbisError

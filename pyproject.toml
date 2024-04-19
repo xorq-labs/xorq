@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "letsql"
-version = "0.1.2"
+dynamic = ["version"]
 requires-python = ">=3.7"
 classifiers = [
     "Programming Language :: Rust",
@@ -25,7 +25,8 @@ builtin = "clear,rare,names"
 
 [tool.poetry]
 name = "letsql"
-version = "0.1.2"
+# this is just a placeholder https://github.com/tiangolo/poetry-version-plugin?tab=readme-ov-file#version-in-pyprojecttoml
+version = "0"
 description = ""
 authors = ["Hussain Sultan <hussain@letsql.com>", "Dan Lovell <dan@letsql.com>", "Daniel Mesejo <mesejo@letsql.com>"]
 packages = [
@@ -45,7 +46,7 @@ psycopg2-binary = "^2.9.9"
 sqlalchemy = "^2.0.25"
 pytest-mock = "^3.14.0"
 pyarrow = "13.0.0"
-datafusion = "^34.0.0"
+
 
 [tool.poetry.group.dev.dependencies]
 ipython = "^8.19.0"
@@ -57,4 +58,93 @@ ruff = "0.1.1"
 black = "23.10.1"
 blackdoc = "0.3.8"
 codespell = {version = "2.2.6", extras = ["hard-encoding-detection", "toml"]}
+datafusion = "^34.0.0"
+git-cliff = "^2.2.1"
 
+[tool.git-cliff.changelog]
+header = """
+# Changelog\n
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).\n
+"""
+# template for the changelog body
+# https://keats.github.io/tera/docs/#introduction
+body = """
+{%- macro remote_url() -%}
+  https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+
+{% if version -%}
+    ## [{{ version | trim_start_matches(pat="v") }}] - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+    ## [Unreleased]
+{% endif -%}
+
+### Details\
+
+{% for group, commits in commits | group_by(attribute="group") %}
+    #### {{ group | upper_first }}
+    {%- for commit in commits %}
+        - {{ commit.message | upper_first | trim }}\
+            {% if commit.github.username %} by @{{ commit.github.username }}{%- endif -%}
+            {% if commit.github.pr_number %} in \
+              [#{{ commit.github.pr_number }}]({{ self::remote_url() }}/pull/{{ commit.github.pr_number }}) \
+            {%- endif -%}
+    {% endfor %}
+{% endfor %}
+
+{%- if github.contributors | filter(attribute="is_first_time", value=true) | length != 0 %}
+  ## New Contributors
+{%- endif -%}
+
+{% for contributor in github.contributors | filter(attribute="is_first_time", value=true) %}
+  * @{{ contributor.username }} made their first contribution
+    {%- if contributor.pr_number %} in \
+      [#{{ contributor.pr_number }}]({{ self::remote_url() }}/pull/{{ contributor.pr_number }}) \
+    {%- endif %}
+{%- endfor %}\n
+"""
+# template for the changelog footer
+footer = """
+{%- macro remote_url() -%}
+  https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
+{%- endmacro -%}
+
+{% for release in releases -%}
+    {% if release.version -%}
+        {% if release.previous.version -%}
+            [{{ release.version | trim_start_matches(pat="v") }}]: \
+                {{ self::remote_url() }}/compare/{{ release.previous.version }}..{{ release.version }}
+        {% endif -%}
+    {% else -%}
+        [unreleased]: {{ self::remote_url() }}/compare/{{ release.previous.version }}..HEAD
+    {% endif -%}
+{% endfor %}
+"""
+trim = true
+
+
+[tool.git-cliff.git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+commit_preprocessors = [
+    { pattern = '\((\w+\s)?#([0-9]+)\)', replace = "" },
+]
+commit_parsers = [
+    { message = "^.*: add", group = "Added" },
+    { message = "^.*: support", group = "Added" },
+    { message = "^.*: remove", group = "Removed" },
+    { message = "^.*: delete", group = "Removed" },
+    { message = "^test", group = "Fixed" },
+    { message = "^fix", group = "Fixed" },
+    { message = "^.*: fix", group = "Fixed" },
+    { message = "^.*", group = "Changed" },
+]
+protect_breaking_commits = false
+filter_commits = true
+tag_pattern = "v[0-9].*"
+topo_order = false
+sort_commits = "oldest"

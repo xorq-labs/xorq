@@ -6,22 +6,14 @@
 name: ci-publish
 
 on:
-  push:
-    # Skip the backend suite if all changes are docs
-    paths-ignore:
-      - "docs/**"
-      - "**/*.md"
-      - "**/*.qmd"
-      - "*.md"
-      - "codecov.yml"
-      - ".envrc"
-    branches:
-      - main
-      - master
-    tags:
-      - '*'
-  pull_request:
   workflow_dispatch:
+
+# we do not want more than one release workflow executing at the same time, ever
+concurrency:
+  group: release
+  # cancelling in the middle of a release would create incomplete releases
+  # so cancel-in-progress is false
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -113,7 +105,6 @@ jobs:
   release:
     name: Release
     runs-on: ubuntu-latest
-    if: "startsWith(github.ref, 'refs/tags/')"
     needs: [linux, windows, macos, sdist]
     steps:
       - uses: actions/download-artifact@v3

@@ -4,6 +4,8 @@
 
 This assumes that you have rust and cargo installed. We use the workflow recommended by [pyo3](https://github.com/PyO3/pyo3) and [maturin](https://github.com/PyO3/maturin).
 
+#### Using pip and venv
+
 ```bash
 # fetch this repo
 git clone git@github.com:letsql/letsql.git
@@ -13,7 +15,7 @@ python3 -m venv venv
 source venv/bin/activate
 # update pip itself if necessary
 python -m pip install -U pip
-# install dependencies (for Python 3.8+)
+# install dependencies 
 python -m pip install -r requirements-dev.txt
 # set up the git hook scripts
 pre-commit install
@@ -34,3 +36,33 @@ maturin develop
 just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
+
+### Writing the commit
+
+LETSQL follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
+In brief, the commit summary should look like:
+
+    fix(types): make all floats doubles
+
+The type (e.g. `fix`) can be:
+
+- `fix`: A bug fix. Correlates with PATCH in SemVer
+- `feat`: A new feature. Correlates with MINOR in SemVer
+- `docs`: Documentation only changes
+- `style`: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
+
+If the commit fixes a GitHub issue, add something like this to the bottom of the description:
+
+    fixes #4242
+
+
+### Release Flow
+***This section is intended for LETSQL maintainers***
+
+#### Steps
+1. Compute the new version number (`<version-number>`) according to [Semantic Versioning](https://semver.org/) rules
+2. Update the version number in Cargo.toml
+3. Tag the last commit in main with `<version-number>`
+4. Update the CHANGELOG using `git cliff`, manually add any additional notes (links to blogposts, etc.)
+5. Create commit with message `release: <version-number>`
+6. Push and manually trigger the workflow 

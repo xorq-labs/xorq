@@ -57,3 +57,5 @@ repos:
       -   id: poetry-lock
           args: ["--no-update"]
       -   id: poetry-install
+      -   id: poetry-export
+          args: ["--with", "dev", "--no-ansi", "--without-hashes", "-f", "requirements.txt", "-o", "requirements-dev.txt"]
