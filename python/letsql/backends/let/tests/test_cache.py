@@ -6,7 +6,6 @@ import ibis
 import pytest
 
 import letsql
-import pandas as pd
 from letsql.backends.let.tests.conftest import assert_frame_equal
 from letsql.backends.let import (
     Backend,
@@ -205,17 +204,16 @@ def test_cache_execution(con, alltypes):
     assert_frame_equal(actual, expected)
 
 
-def test_parquet_cache_storage(tmp_path):
+def test_parquet_cache_storage(tmp_path, alltypes_df):
     tmp_path = pathlib.Path(tmp_path)
-    to_delete_path = tmp_path.joinpath("to-delete.parquet")
+    path = tmp_path.joinpath("to-delete.parquet")
 
     con = letsql.connect()
-    df = pd.DataFrame({chr(ord("a") + i): range(10_000) for i in range(3)})
-    df.to_parquet(to_delete_path)
-    t = con.register(to_delete_path, "t")
-    cols = ["a", "b"]
+    alltypes_df.to_parquet(path)
+    t = con.register(path, "t")
+    cols = ["id", "bool_col", "float_col", "string_col"]
     expr = t[cols]
-    expected = df[cols]
+    expected = alltypes_df[cols]
     source = expr._find_backend()
     storage = letsql.common.caching.ParquetCacheStorage(
         tmp_path.joinpath("parquet-cache-storage"), source=source
@@ -224,12 +222,22 @@ def test_parquet_cache_storage(tmp_path):
     actual = cached.execute()
     assert_frame_equal(actual, expected)
 
-    to_delete_path.unlink()
+    # the file must exist and have the same schema
+    alltypes_df.head(1).to_parquet(path)
     actual = cached.execute()
     assert_frame_equal(actual, expected)
 
-    with pytest.raises(Exception):
-        expr.execute()
+    path.unlink()
+    pattern = "".join(
+        (
+            "Object Store error: Object at location",
+            ".*",
+            "not found: No such file or directory",
+        )
+    )
+    with pytest.raises(Exception, match=pattern):
+        # if the file doesn't exist, we get a failure, even for cached
+        cached.execute()
 
 
 def test_parquet_remote_to_local(con, alltypes, tmp_path):

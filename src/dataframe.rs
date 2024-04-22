@@ -1,4 +1,5 @@
 use crate::errors::{py_datafusion_err, DataFusionError};
+use crate::physical_plan::PyExecutionPlan;
 use crate::record_batch::PyRecordBatchStream;
 use crate::utils::{get_tokio_runtime, wait_for_future};
 use datafusion::arrow::datatypes::Schema;
@@ -411,6 +412,12 @@ impl PyDataFrame {
     // Executes this DataFrame to get the total number of rows.
     fn count(&self, py: Python) -> PyResult<usize> {
         Ok(wait_for_future(py, self.df.as_ref().clone().count())?)
+    }
+
+    /// Get the execution plan for this `DataFrame`
+    fn execution_plan(&self, py: Python) -> PyResult<PyExecutionPlan> {
+        let plan = wait_for_future(py, self.df.as_ref().clone().create_physical_plan())?;
+        Ok(plan.into())
     }
 }
 
