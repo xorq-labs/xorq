@@ -81,3 +81,5 @@ ci/ibis_testing.db
 /.pixi
 
 .letsql_cache/*
+
+.direnv/

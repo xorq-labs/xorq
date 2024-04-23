@@ -49,7 +49,7 @@
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
-        inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication;
+        inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication overrides;
         toolchain = pkgs.rust-bin.fromRustupToolchainFile toolchainFile;
         craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
         python' = pkgs."python${pythonVersion}";
@@ -63,6 +63,30 @@
           }.${system};
         in "${pname}-${version}-cp38-abi3-${wheelTail}.whl";
 
+        commands = let
+          get-first-pname-drv = pname: builtins.elemAt (builtins.filter (drv: drv.pname == pname) myappFromWheel.requiredPythonModules) 0;
+          black = get-first-pname-drv "black";
+          blackdoc = get-first-pname-drv "blackdoc";
+          ruff = get-first-pname-drv "ruff";
+        in import ./nix/commands.nix {
+          inherit pkgs black blackdoc ruff;
+          inherit (myappFromWheel) python;
+        };
+        inherit (commands) letsql-commands;
+
+        poetryOverrides = final: prev: {
+          ibis-framework = prev.ibis-framework.overridePythonAttrs (old: {
+            buildInputs = (old.buildInputs or [ ]) ++ [ prev.poetry-dynamic-versioning ];
+          });
+          xgboost = prev.xgboost.overridePythonAttrs (old: {
+          } // pkgs.lib.attrsets.optionalAttrs pkgs.stdenv.isDarwin {
+            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ prev.cmake ];
+            cmakeDir = "../cpp_src";
+            preBuild = ''
+              cd ..
+            '';
+          });
+        };
         maturinOverride = old: with pkgs.rustPlatform; {
           cargoDeps = importCargoLock {
             inherit lockFile;
@@ -124,6 +148,7 @@
         })).overridePythonAttrs maturinOverride;
         myappFromWheel = (mkPoetryApplication (commonPoetryArgs // {
           src = "${crateWheel}/${wheelName}";
+          overrides = overrides.withDefaults poetryOverrides;
         })).override (_old: {
           format = "wheel";
         });
@@ -135,8 +160,12 @@
             pkgs.maturin
             pkgs.poetry
             python'
-          ];
+          ] ++ (builtins.attrValues letsql-commands);
         };
+        shellHook = ''
+          ${letsql-commands.letsql-ensure-download-data}/bin/letsql-ensure-download-data
+        '';
+
       in
       {
         packages = {
@@ -156,6 +185,7 @@
               self.packages.${system}.myappFromWheel
               toolsPackages
             ];
+            inherit shellHook;
           };
           inputs = pkgs.mkShell {
             inputsFrom = [ self.packages.${system}.myapp ];
