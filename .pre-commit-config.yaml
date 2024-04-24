@@ -55,4 +55,5 @@ repos:
       hooks:
       -   id: poetry-check
       -   id: poetry-lock
+          args: ["--no-update"]
       -   id: poetry-install
