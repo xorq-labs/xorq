@@ -56,8 +56,11 @@ class CanCreateConnections(CanListConnections):
 
 class Backend(DataFusionBackend, CanCreateConnections):
     name = "let"
-    connections = {}
-    sources = {}
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.connections = {}
+        self.sources = {}
 
     def add_connection(self, connection: BaseBackend, name: str | None = None) -> None:
         self.connections[connection.name] = connection
@@ -77,7 +80,7 @@ class Backend(DataFusionBackend, CanCreateConnections):
         if isinstance(source, ir.Table) and hasattr(source, "to_pyarrow_batches"):
             table = source.op()
             backend = table.source
-            if backend.name == "let":
+            if backend.name == self.name:
                 if (original := backend.sources.get(table, None)) != backend:
                     if original is not None:
                         conn = backend.connections[original.name]
@@ -90,10 +93,10 @@ class Backend(DataFusionBackend, CanCreateConnections):
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         expr = self._register_and_transform_cache_tables(expr)
-        names_to_drop = self._register_remote_sources(expr)
+        _, names_to_drop = self._register_remote_sources(expr)
         name = self._get_source_name(expr)
 
-        backend = super() if name == "let" else self.connections[name]
+        backend = super() if name == self.name else self.connections[name]
         res = backend.execute(expr, **kwargs)
 
         for table_name in names_to_drop:
@@ -105,6 +108,9 @@ class Backend(DataFusionBackend, CanCreateConnections):
         self, config: Mapping[str, str | Path] | SessionContext | None = None
     ) -> None:
         super().do_connect(config=config)
+
+    def disconnect(self) -> None:
+        self.connections.clear()
 
     def table(
         self,
@@ -139,19 +145,23 @@ class Backend(DataFusionBackend, CanCreateConnections):
         return [t for backend in backends for t in backend.list_tables(like=like)]
 
     def _get_source_name(self, expr: ir.Expr):
-        origin = expr.op()
-        while hasattr(origin, "parent"):
-            origin = getattr(origin, "parent")
+        tables = expr.op().find(
+            lambda n: (s := getattr(n, "source", None)) and isinstance(s, BaseBackend)
+        )
 
-        if hasattr(origin, "table"):
-            origin = origin.table
+        # assumes only one backend per DB type
+        sources = set(
+            self.sources.get(table, getattr(table, "source", self)) for table in tables
+        )
 
-        source = self.sources.get(origin, getattr(origin, "source", self))
-        return source.name
+        if len(sources) != 1:
+            return self.name
+        else:
+            return sources.pop().name
 
     def _cached(self, expr: ir.Table, storage=None):
         name = self._get_source_name(expr)
-        if name == "let":
+        if name == self.name:
             source = self
         else:
             source = self.connections[name]
@@ -211,10 +221,12 @@ class Backend(DataFusionBackend, CanCreateConnections):
         super().create_table(name, data, temp=True)
 
     def _register_remote_sources(self, expr):
-        sources = set(
-            self.sources.get(table, None) for table in expr.op().find(ops.DatabaseTable)
-        )
-        names = []
+        sources = [
+            source
+            for table in expr.op().find(ops.DatabaseTable)
+            if (source := self.sources.get(table, None))
+        ]
+        names = set()
         if len(sources) > 1:
             for table in expr.op().find(ops.DatabaseTable):
                 if (source := self.sources.get(table, None)) != self:
@@ -225,8 +237,10 @@ class Backend(DataFusionBackend, CanCreateConnections):
                         super().register(conn.table(table.name), table.name)
 
                         # store the name to do a cleanup after the end of execution
-                        names.append(table.name)
-        return names
+                        names.add(table.name)
+            expr = expr.op().replace(replace_source_factory(self)).to_expr()
+
+        return expr, names
 
 
 def letsql_cache(self, storage=None):

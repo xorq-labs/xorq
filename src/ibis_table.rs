@@ -8,12 +8,13 @@ use datafusion::datasource::TableProvider;
 use datafusion::execution::context::SessionState;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_common::DataFusionError;
-use datafusion_expr::{Expr, TableType};
+use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::PyModule;
-use pyo3::types::PyType;
+use pyo3::types::{PyTuple, PyType};
 use pyo3::{PyAny, PyObject, PyResult, Python};
 
+use crate::ibis_filter_expression::IbisFilterExpression;
 use crate::ibis_table_exec::IbisTableExec;
 
 // Wraps an ibis.Table class and implements a Datafusion TableProvider around it
@@ -69,19 +70,46 @@ impl TableProvider for IbisTable {
         &self,
         _state: &SessionState,
         projection: Option<&Vec<usize>>,
-        _filters: &[Expr],
+        filters: &[Expr],
         _limit: Option<usize>,
     ) -> datafusion_common::Result<Arc<dyn ExecutionPlan>> {
         Python::with_gil(|py| {
-            let table = self
-                .ibis_table
-                .call_method0(py, "to_pyarrow_batches")
-                .unwrap();
+            let table = if !filters.is_empty() {
+                let args = filters
+                    .iter()
+                    .map(|filter| {
+                        IbisFilterExpression::try_from(filter)
+                            .unwrap()
+                            .inner()
+                            .clone()
+                    })
+                    .collect::<Vec<PyObject>>();
+                let ibis_filters = PyTuple::new(py, &args);
+                self.ibis_table
+                    .call_method1(py, "filter", ibis_filters)
+                    .map_err(|err| DataFusionError::Execution(format!("{err}")))?
+                    .call_method0(py, "to_pyarrow_batches")
+                    .unwrap()
+            } else {
+                self.ibis_table
+                    .call_method0(py, "to_pyarrow_batches")
+                    .unwrap()
+            };
             let plan: Arc<dyn ExecutionPlan> = Arc::new(
                 IbisTableExec::new(py, table.as_ref(py), projection)
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             );
             Ok(plan)
         })
+    }
+
+    fn supports_filter_pushdown(
+        &self,
+        filter: &Expr,
+    ) -> datafusion_common::Result<TableProviderFilterPushDown> {
+        match IbisFilterExpression::try_from(filter) {
+            Ok(_) => Ok(TableProviderFilterPushDown::Exact),
+            _ => Ok(TableProviderFilterPushDown::Unsupported),
+        }
     }
 }

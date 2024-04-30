@@ -9,6 +9,8 @@ import ibis
 
 import numpy as np
 
+from pytest import param
+
 
 def _pandas_semi_join(left, right, on, **_):
     assert len(on) == 1, str(on)
@@ -150,20 +152,39 @@ def test_register_already_existing_table(con, batting):
     con.drop_table("own_batting")
 
 
-def test_two_connections(con, csv_dir, batting, awards_players):
+@pytest.mark.parametrize(
+    "left_filter",
+    [
+        lambda t: t.yearID == 2015,
+        lambda t: t.yearID != 2015,
+        lambda t: t.yearID >= 2015,
+        lambda t: t.yearID >= 2014.5,
+        lambda t: t.yearID <= 2015,
+        lambda t: t.yearID > 2015,
+        lambda t: t.yearID < 2015,
+        lambda t: ~(t.yearID < 2015),
+        lambda t: t.yearID.notnull(),
+        lambda t: t.yearID.isnull(),
+        lambda t: t.playerID == "wilsobo02",
+        lambda t: t.yearID.isin([2015, 2014]),
+        lambda t: t.yearID.notin([2015, 2014]),
+        lambda t: t.yearID.between(2013, 2016),
+    ],
+)
+def test_join_non_trivial_filters(con, csv_dir, batting, left_filter):
     ddb = ibis.duckdb.connect()
     ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
     con.add_connection(ddb)
 
-    left = batting[batting.yearID == 2015]
+    awards_players = con.table("ddb_players")
+
+    left = batting[left_filter]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
     right_df = right.execute()
     left_df = left.execute()
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
-    ddb_players = con.table("ddb_players")
-    right = ddb_players[ddb_players.lgID == "NL"].drop("yearID", "lgID")
     expr = left.join(right, predicate, how="inner")
     result = (
         expr.execute()
@@ -186,3 +207,73 @@ def test_two_connections(con, csv_dir, batting, awards_players):
 
     assert_frame_equal(result, expected, check_like=True)
     ddb.drop_view("ddb_players")
+    con.drop_connection("duckdb")
+
+
+@pytest.mark.parametrize(
+    ("predicate", "pandas_value"),
+    [
+        # True
+        param(True, True, id="true"),
+        param(ibis.literal(True), True, id="true-literal"),
+        param([True], True, id="true-list"),
+        param([ibis.literal(True)], True, id="true-literal-list"),
+        # only True
+        param([True, True], True, id="true-true-list"),
+        param(
+            [ibis.literal(True), ibis.literal(True)], True, id="true-true-literal-list"
+        ),
+        param([True, ibis.literal(True)], True, id="true-true-const-expr-list"),
+        param([ibis.literal(True), True], True, id="true-true-expr-const-list"),
+        # False
+        param(False, False, id="false"),
+        param(ibis.literal(False), False, id="false-literal"),
+        param([False], False, id="false-list"),
+        param([ibis.literal(False)], False, id="false-literal-list"),
+        # only False
+        param([False, False], False, id="false-false-list"),
+        param(
+            [ibis.literal(False), ibis.literal(False)],
+            False,
+            id="false-false-literal-list",
+        ),
+        param([False, ibis.literal(False)], False, id="false-false-const-expr-list"),
+        param([ibis.literal(False), False], False, id="false-false-expr-const-list"),
+    ],
+)
+@pytest.mark.parametrize(
+    "how",
+    [
+        "inner",
+        "left",
+        "right",
+        "outer",
+    ],
+)
+def test_join_with_trivial_predicate(
+    con, csv_dir, awards_players, predicate, how, pandas_value
+):
+    ddb = ibis.duckdb.connect()
+    ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
+    con.add_connection(ddb)
+    ddb_players = con.table("ddb_players")
+
+    n = 5
+
+    base = awards_players.limit(n)
+    ddb_base = ddb_players.limit(n)
+
+    left = base.select(left_key="playerID")
+    right = ddb_base.select(right_key="playerID")
+
+    left_df = pd.DataFrame({"key": [True] * n})
+    right_df = pd.DataFrame({"key": [pandas_value] * n})
+
+    expected = pd.merge(left_df, right_df, on="key", how=how)
+
+    expr = left.join(right, predicate, how=how)
+    result = expr.to_pandas()
+
+    assert len(result) == len(expected)
+    ddb.drop_view("ddb_players")
+    con.drop_connection("duckdb")

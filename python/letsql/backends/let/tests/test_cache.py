@@ -151,6 +151,15 @@ def test_cache_recreate(con, alltypes):
     expr.cache().execute()  # execute creation of tables
     other = Backend()
     other.do_connect()
+    other.add_connection(
+        ibis.postgres.connect(
+            host="localhost",
+            port=5432,
+            user="postgres",
+            password="postgres",
+            database="ibis_testing",
+        )
+    )
 
     con_cached_tables = set(
         table_name

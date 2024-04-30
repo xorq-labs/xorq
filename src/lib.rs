@@ -23,6 +23,7 @@ mod udaf;
 mod udf;
 pub mod utils;
 
+mod ibis_filter_expression;
 mod ibis_table;
 mod ibis_table_exec;
 mod record_batch;
