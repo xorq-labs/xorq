@@ -347,7 +347,19 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             self.con.register_dataset(table_name, source)
             return self.table(table_name)
         elif isinstance(source, pd.DataFrame):
-            return self.register(pa.Table.from_pandas(source), table_name, **kwargs)
+            output = pa.Table.from_pandas(source)
+            output = output.drop(
+                filter(
+                    lambda col: col.startswith("__index_level_"), output.column_names
+                )
+            )
+            return self.register(output, table_name, **kwargs)
+        elif isinstance(source, ibis.expr.types.Table) and hasattr(
+            source, "to_pyarrow_batches"
+        ):
+            self.con.deregister_table(table_name)
+            self.con.register_ibis_table(table_name, source)
+            return self.table(table_name)
         elif isinstance(source, ibis.expr.types.Expr) and hasattr(
             source, "to_pyarrow_batches"
         ):

@@ -25,6 +25,7 @@ use crate::catalog::PyCatalog;
 use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
+use crate::ibis_table::IbisTable;
 use crate::model::{ModelRegistry, SessionModelRegistry};
 use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
 use crate::predict_udf::PredictUdf;
@@ -276,6 +277,17 @@ impl PySessionContext {
         self.ctx
             .register_table(name, Arc::new(table))
             .map_err(DataFusionError::from)?;
+
+        Ok(())
+    }
+
+    pub fn register_ibis_table(&mut self, name: &str, reader: &PyAny, py: Python) -> PyResult<()> {
+        let table: Arc<dyn TableProvider> = Arc::new(IbisTable::new(reader, py)?);
+
+        self.ctx
+            .register_table(name, table)
+            .map_err(DataFusionError::from)?;
+
         Ok(())
     }
 

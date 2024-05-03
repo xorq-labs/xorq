@@ -23,6 +23,8 @@ mod udaf;
 mod udf;
 pub mod utils;
 
+mod ibis_table;
+mod ibis_table_exec;
 mod record_batch;
 
 // Used to define Tokio Runtime as a Python module attribute

@@ -47,22 +47,36 @@ def dirty():
     return con
 
 
-@pytest.fixture(scope="function")
-def con(dirty):
-    # cleanup
-    for con in dirty.connections.values():
+def remove_cached_tables(dirty):
+    for con in dirty.list_connections():
         for table in con.list_tables():
             # FIXME: determine if we should drop all or only key-prefixed
             if table.startswith(KEY_PREFIX):
                 con.drop_table(table)
     if sorted(dirty.list_tables()) != sorted(expected_tables):
         raise ValueError
-    return dirty
+
+
+@pytest.fixture(scope="function")
+def con(dirty):
+    yield dirty
+    # cleanup
+    remove_cached_tables(dirty)
 
 
 @pytest.fixture(scope="session")
 def alltypes(dirty):
     return dirty.table("functional_alltypes")
+
+
+@pytest.fixture(scope="session")
+def batting(dirty):
+    return dirty.table("batting")
+
+
+@pytest.fixture(scope="session")
+def awards_players(dirty):
+    return dirty.table("awards_players")
 
 
 @pytest.fixture(scope="session")

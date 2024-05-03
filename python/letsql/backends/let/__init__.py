@@ -5,12 +5,15 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import dask
+import pandas as pd
+import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from letsql.internal import SessionContext
 from ibis import BaseBackend
 from letsql.backends.datafusion import Backend as DataFusionBackend
 from ibis.common.exceptions import IbisError
 from ibis.expr import types as ir
+import ibis.expr.operations as ops
 
 import letsql.common.utils.dask_normalize  # noqa: F401
 from letsql.common.caching import (
@@ -63,18 +66,40 @@ class Backend(DataFusionBackend, CanCreateConnections):
         self.connections.pop(name)
 
     def list_connections(self, like: str | None = None) -> list[BaseBackend]:
-        return list(self.connections.values())
+        return list(self.connections.values()) + [self]
+
+    def register(
+        self,
+        source: str | Path | pa.Table | pa.RecordBatch | pa.Dataset | pd.DataFrame,
+        table_name: str | None = None,
+        **kwargs: Any,
+    ) -> ir.Table:
+        if isinstance(source, ir.Table) and hasattr(source, "to_pyarrow_batches"):
+            table = source.op()
+            backend = table.source
+            if backend.name == "let":
+                if (original := backend.sources.get(table, None)) != backend:
+                    if original is not None:
+                        conn = backend.connections[original.name]
+                        source = conn.table(table.name)
+                else:
+                    # TODO make a better fix to make the table durable (like a datafusion view)
+                    source = original.table(table.name).to_pyarrow_batches()
+
+        return super().register(source, table_name=table_name, **kwargs)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         expr = self._register_and_transform_cache_tables(expr)
+        names_to_drop = self._register_remote_sources(expr)
         name = self._get_source_name(expr)
 
-        if name == "let":
-            return super().execute(expr, **kwargs)
+        backend = super() if name == "let" else self.connections[name]
+        res = backend.execute(expr, **kwargs)
 
-        backend = self.connections[name]
+        for table_name in names_to_drop:
+            super().drop_table(table_name)
 
-        return backend.execute(expr, **kwargs)
+        return res
 
     def do_connect(
         self, config: Mapping[str, str | Path] | SessionContext | None = None
@@ -184,6 +209,24 @@ class Backend(DataFusionBackend, CanCreateConnections):
 
     def _recreate_cache(self, name, data):
         super().create_table(name, data, temp=True)
+
+    def _register_remote_sources(self, expr):
+        sources = set(
+            self.sources.get(table, None) for table in expr.op().find(ops.DatabaseTable)
+        )
+        names = []
+        if len(sources) > 1:
+            for table in expr.op().find(ops.DatabaseTable):
+                if (source := self.sources.get(table, None)) != self:
+                    if source is not None:
+                        conn = self.connections[source.name]
+
+                        # register a new to_pyarrow_batches table
+                        super().register(conn.table(table.name), table.name)
+
+                        # store the name to do a cleanup after the end of execution
+                        names.append(table.name)
+        return names
 
 
 def letsql_cache(self, storage=None):

@@ -41,6 +41,8 @@ use datafusion_expr::Expr;
 
 use async_trait::async_trait;
 
+use futures::StreamExt;
+
 #[derive(Clone, Debug)]
 pub struct PyRecordBatchProvider {
     reader: Arc<Mutex<Option<ArrowArrayStreamReader>>>,
@@ -114,9 +116,59 @@ impl Stream for PyRecordBatchProvider {
 }
 
 #[derive(Debug, Clone)]
+struct ProjectedPyRecordBatchProvider {
+    record_batch_provider: PyRecordBatchProvider,
+    projections: Vec<usize>,
+}
+
+impl ProjectedPyRecordBatchProvider {
+    fn new(record_batch_provider: PyRecordBatchProvider, projections: Vec<usize>) -> Self {
+        let projections = projections.clone();
+        Self {
+            record_batch_provider,
+            projections,
+        }
+    }
+}
+
+impl Stream for ProjectedPyRecordBatchProvider {
+    type Item = Result<RecordBatch>;
+
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let projections = self.projections.clone();
+        match self
+            .record_batch_provider
+            .reader
+            .lock()
+            .unwrap()
+            .deref_mut()
+        {
+            Some(ref mut reader) => thread::scope(|s| {
+                let res = s
+                    .spawn(move || match reader.next() {
+                        Some(value) => Poll::Ready(Some(
+                            value.map(|rb| rb.project(projections.as_slice()).unwrap()),
+                        ))
+                        .map_err(DataFusionError::from),
+                        None => Poll::Ready(None),
+                    })
+                    .join();
+
+                match res {
+                    Ok(val) => val,
+                    _ => Poll::Ready(None),
+                }
+            }),
+            _ => Poll::Ready(None),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 struct CustomExec {
     record_batch_provider: PyRecordBatchProvider,
     projected_schema: SchemaRef,
+    projections: Option<Vec<usize>>,
 }
 
 impl CustomExec {
@@ -126,9 +178,11 @@ impl CustomExec {
         schema: SchemaRef,
     ) -> Self {
         let projected_schema = project_schema(&schema, projections).unwrap();
+        let projections = projections.map(|v| (*v).clone());
         Self {
             record_batch_provider,
             projected_schema,
+            projections,
         }
     }
 }
@@ -173,9 +227,22 @@ impl ExecutionPlan for CustomExec {
         _context: Arc<TaskContext>,
     ) -> Result<SendableRecordBatchStream> {
         let record_batch_provider = self.record_batch_provider.clone();
-        let record_batch_stream: SendableRecordBatchStream = Box::pin(
-            RecordBatchStreamAdapter::new(self.schema(), record_batch_provider),
-        );
+        let projections = self.projections.clone();
+        let projected_schema = self.projected_schema.clone();
+
+        let record_batch_stream: SendableRecordBatchStream = if let Some(pj) = projections {
+            let record_batch_provider =
+                ProjectedPyRecordBatchProvider::new(record_batch_provider.clone(), pj.clone());
+            Box::pin(RecordBatchStreamAdapter::new(
+                projected_schema.clone(),
+                record_batch_provider,
+            ))
+        } else {
+            Box::pin(RecordBatchStreamAdapter::new(
+                projected_schema.clone(),
+                record_batch_provider,
+            ))
+        };
         Ok(record_batch_stream)
     }
 }
