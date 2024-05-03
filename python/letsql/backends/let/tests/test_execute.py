@@ -277,3 +277,44 @@ def test_join_with_trivial_predicate(
     assert len(result) == len(expected)
     ddb.drop_view("ddb_players")
     con.drop_connection("duckdb")
+
+
+def test_sql_execution(con, csv_dir, awards_players, batting):
+    ddb = ibis.duckdb.connect()
+    ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
+    con.add_connection(ddb)
+
+    left = batting[batting.yearID == 2015]
+    right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
+    right_df = right.execute()
+    left_df = left.execute()
+    predicate = ["playerID"]
+    result_order = ["playerID", "yearID", "lgID", "stint"]
+
+    ddb_players = con.table("ddb_players")
+    right = ddb_players[ddb_players.lgID == "NL"].drop("yearID", "lgID")
+    expr = left.join(right, predicate, how="inner")
+    query = ibis.to_sql(expr, dialect="datafusion")
+
+    result = (
+        con.sql(query)
+        .execute()
+        .fillna(np.nan)[left.columns]
+        .sort_values(result_order)
+        .reset_index(drop=True)
+    )
+
+    expected = (
+        check_eq(
+            left_df,
+            right_df,
+            how="inner",
+            on=predicate,
+            suffixes=("_x", "_y"),
+        )[left.columns]
+        .sort_values(result_order)
+        .reset_index(drop=True)
+    )
+
+    assert_frame_equal(result, expected, check_like=True)
+    ddb.drop_view("ddb_players")

@@ -5,17 +5,18 @@ from pathlib import Path
 from typing import Any, Mapping
 
 import dask
+import ibis.expr.operations as ops
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
-from letsql.internal import SessionContext
 from ibis import BaseBackend
-from letsql.backends.datafusion import Backend as DataFusionBackend
 from ibis.common.exceptions import IbisError
 from ibis.expr import types as ir
-import ibis.expr.operations as ops
+from ibis.expr.schema import SchemaLike
+from sqlglot import parse_one, exp
 
 import letsql.common.utils.dask_normalize  # noqa: F401
+from letsql.backends.datafusion import Backend as DataFusionBackend
 from letsql.common.caching import (
     SourceStorage,
 )
@@ -24,6 +25,8 @@ from letsql.expr.relations import (
     CachedNode,
     replace_source_factory,
 )
+from letsql.expr.translate import sql_to_ibis
+from letsql.internal import SessionContext
 
 KEY_PREFIX = "letsql_cache-"
 
@@ -208,6 +211,16 @@ class Backend(DataFusionBackend, CanCreateConnections):
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
 
+    def sql(
+        self,
+        query: str,
+        schema: SchemaLike | None = None,
+        dialect: str | None = None,
+    ) -> ir.Table:
+        query = self._transpile_sql(query, dialect=self.compiler.dialect)
+        catalog = self._extract_catalog(query)
+        return sql_to_ibis(query, catalog).as_table()
+
     def _load_into_cache(self, name, op) -> ir.Table:
         out = op.map_clear(replace_cache_table)
         expr = out.to_expr()
@@ -241,6 +254,10 @@ class Backend(DataFusionBackend, CanCreateConnections):
             expr = expr.op().replace(replace_source_factory(self)).to_expr()
 
         return expr, names
+
+    def _extract_catalog(self, query):
+        tables = parse_one(query).find_all(exp.Table)
+        return {table.name: self.table(table.name) for table in tables}
 
 
 def letsql_cache(self, storage=None):

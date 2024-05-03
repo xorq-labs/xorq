@@ -36,6 +36,8 @@ from letsql.expr import (
     Case,
     Wildcard,
 )
+from letsql.internal import ContextProvider
+from letsql.sql import parser
 
 
 class Catalog(dict[str, Any]):
@@ -180,6 +182,12 @@ def convert_filter(_filter, catalog):
 def convert_table_scan(scan, catalog):
     table = catalog[scan.table_name()]
 
+    if filters := getattr(scan, "filters", None):
+        fs = filters()
+        if fs:
+            fs = [convert(f.to_variant(), catalog=catalog) for f in fs]
+            table = table.filter(fs)
+
     if projections := getattr(scan, "projections", None):
         ps = [convert(p.to_variant(), catalog=catalog) for p in projections()]
         if ps:
@@ -188,11 +196,6 @@ def convert_table_scan(scan, catalog):
         ps = projection()
         if ps:
             table = table[[name for i, name in ps]]
-
-    if filters := getattr(scan, "filters", None):
-        fs = filters()
-        if fs:
-            table = table.filter([convert(f.to_variant(), catalog=catalog) for f in fs])
 
     return table
 
@@ -437,5 +440,19 @@ def plan_to_ibis(plan, catalog):
     catalog = Catalog(
         {name: ibis.table(schema, name=name) for name, schema in catalog.items()}
     )
+
+    return convert(plan.to_variant(), catalog=catalog)
+
+
+def sql_to_ibis(
+    sql: str, catalog: dict[str, ibis.ir.Table], dialect: str = None
+) -> ibis.Expr:
+    plan = parser.parse_sql(
+        sql,
+        ContextProvider({k: v.schema().to_pyarrow() for k, v in catalog.items()}),
+        dialect=dialect,
+    )
+
+    catalog = Catalog({name: table for name, table in catalog.items()})
 
     return convert(plan.to_variant(), catalog=catalog)

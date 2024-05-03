@@ -71,7 +71,7 @@ def test_simple_optimize(con, t):
     actual = con.execute(expr)
 
     assert expr is not None
-    assert expr.op().predicates[0].right.value == 5
+    assert expr.op().parent.predicates[0].right.value == 5
     assert_frame_equal(expected, actual)
 
 
