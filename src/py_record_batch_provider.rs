@@ -41,8 +41,6 @@ use datafusion_expr::Expr;
 
 use async_trait::async_trait;
 
-use futures::StreamExt;
-
 #[derive(Clone, Debug)]
 pub struct PyRecordBatchProvider {
     reader: Arc<Mutex<Option<ArrowArrayStreamReader>>>,

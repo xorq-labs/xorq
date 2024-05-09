@@ -5,7 +5,6 @@ use pyo3::prelude::PyModule;
 use pyo3::{IntoPy, PyAny, PyObject, Python};
 
 use crate::errors::DataFusionError;
-use crate::pyarrow_filter_expression::PyArrowFilterExpression;
 
 #[derive(Debug, Clone)]
 #[repr(transparent)]

@@ -7,6 +7,7 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import letsql
 import letsql.internal as df
 import pyarrow as pa
 import pyarrow.dataset as ds
@@ -27,9 +28,8 @@ from ibis.expr.operations.udf import InputType
 from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
 
-from letsql.internal import SessionContext
-from letsql.internal import SessionConfig
-
+from letsql.backends.datafusion.provider import IbisTableProvider
+from letsql.internal import SessionContext, SessionConfig, TableProvider
 from letsql.backends.datafusion.compiler import DataFusionCompiler
 
 
@@ -45,7 +45,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     @property
     def version(self):
-        return "0.1.2"
+        return letsql.__version__
 
     def do_connect(
         self, config: Mapping[str, str | Path] | SessionContext | None = None
@@ -358,7 +358,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             source, "to_pyarrow_batches"
         ):
             self.con.deregister_table(table_name)
-            self.con.register_ibis_table(table_name, source)
+            self.con.register_table_provider(
+                table_name, TableProvider(IbisTableProvider(source))
+            )
             return self.table(table_name)
         elif isinstance(source, ibis.expr.types.Expr) and hasattr(
             source, "to_pyarrow_batches"

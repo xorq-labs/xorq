@@ -14,6 +14,7 @@ from ._internal import (
     LogicalPlan,
     LogicalPlanBuilder,
     OptimizerRule,
+    TableProvider,
 )
 
 __all__ = [
@@ -29,6 +30,8 @@ __all__ = [
     "AggregateUDF",
     "OptimizerRule",
     "OptimizationRule",
+    "TableProvider",
+    "AbstractTableProvider",
 ]
 
 
@@ -53,6 +56,16 @@ class Accumulator(metaclass=ABCMeta):
 class OptimizationRule(metaclass=ABCMeta):
     @abstractmethod
     def try_optimize(self, plan: LogicalPlan) -> LogicalPlan:
+        pass
+
+
+class AbstractTableProvider(metaclass=ABCMeta):
+    @abstractmethod
+    def schema(self):
+        pass
+
+    @abstractmethod
+    def scan(self, filters=None):
         pass
 
 

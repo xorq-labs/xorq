@@ -24,16 +24,6 @@ impl RustAccumulator {
 }
 
 impl Accumulator for RustAccumulator {
-    fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        Python::with_gil(|py| self.accum.as_ref(py).call_method0("state")?.extract())
-            .map_err(|e| DataFusionError::Execution(format!("{e}")))
-    }
-
-    fn evaluate(&mut self) -> Result<ScalarValue> {
-        Python::with_gil(|py| self.accum.as_ref(py).call_method0("evaluate")?.extract())
-            .map_err(|e| DataFusionError::Execution(format!("{e}")))
-    }
-
     fn update_batch(&mut self, values: &[ArrayRef]) -> Result<()> {
         Python::with_gil(|py| {
             // 1. cast args to Pyarrow array
@@ -51,6 +41,20 @@ impl Accumulator for RustAccumulator {
 
             Ok(())
         })
+    }
+
+    fn evaluate(&mut self) -> Result<ScalarValue> {
+        Python::with_gil(|py| self.accum.as_ref(py).call_method0("evaluate")?.extract())
+            .map_err(|e| DataFusionError::Execution(format!("{e}")))
+    }
+
+    fn size(&self) -> usize {
+        std::mem::size_of_val(self)
+    }
+
+    fn state(&mut self) -> Result<Vec<ScalarValue>> {
+        Python::with_gil(|py| self.accum.as_ref(py).call_method0("state")?.extract())
+            .map_err(|e| DataFusionError::Execution(format!("{e}")))
     }
 
     fn merge_batch(&mut self, states: &[ArrayRef]) -> Result<()> {
@@ -71,10 +75,6 @@ impl Accumulator for RustAccumulator {
 
             Ok(())
         })
-    }
-
-    fn size(&self) -> usize {
-        std::mem::size_of_val(self)
     }
 
     fn retract_batch(&mut self, values: &[ArrayRef]) -> Result<()> {

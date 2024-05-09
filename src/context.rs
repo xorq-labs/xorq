@@ -7,7 +7,6 @@ use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
 use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion::arrow::record_batch::RecordBatch;
-// use datafusion::arrow::record_batch::{RecordBatch, RecordBatchReader};
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
 use datafusion::datasource::MemTable;
 use datafusion::datasource::TableProvider;
@@ -29,6 +28,7 @@ use crate::ibis_table::IbisTable;
 use crate::model::{ModelRegistry, SessionModelRegistry};
 use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
 use crate::predict_udf::PredictUdf;
+use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
@@ -283,6 +283,21 @@ impl PySessionContext {
 
     pub fn register_ibis_table(&mut self, name: &str, reader: &PyAny, py: Python) -> PyResult<()> {
         let table: Arc<dyn TableProvider> = Arc::new(IbisTable::new(reader, py)?);
+
+        self.ctx
+            .register_table(name, table)
+            .map_err(DataFusionError::from)?;
+
+        Ok(())
+    }
+
+    #[pyo3(name = "register_table_provider")]
+    pub fn register_py_table_provider(
+        &mut self,
+        name: &str,
+        provider: PyTableProvider,
+    ) -> PyResult<()> {
+        let table: Arc<dyn TableProvider> = Arc::new(provider);
 
         self.ctx
             .register_table(name, table)

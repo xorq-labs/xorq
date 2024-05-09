@@ -26,6 +26,7 @@ pub mod utils;
 mod ibis_filter_expression;
 mod ibis_table;
 mod ibis_table_exec;
+mod provider;
 mod record_batch;
 
 // Used to define Tokio Runtime as a Python module attribute
@@ -53,6 +54,7 @@ fn _internal(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<builder::PyLogicalPlanBuilder>()?;
     m.add_class::<optimizer::PyOptimizerContext>()?;
     m.add_class::<optimizer::PyOptimizerRule>()?;
+    m.add_class::<provider::PyTableProvider>()?;
 
     // Register `common` as a submodule. Matching `datafusion-common` https://docs.rs/datafusion-common/latest/datafusion_common/
     let common = PyModule::new(py, "common")?;
@@ -75,6 +77,10 @@ fn _internal(py: Python, m: &PyModule) -> PyResult<()> {
     let builder = PyModule::new(py, "builder")?;
     builder::init_module(builder)?;
     m.add_submodule(builder)?;
+
+    let provider = PyModule::new(py, "provider")?;
+    builder::init_module(provider)?;
+    m.add_submodule(provider)?;
 
     Ok(())
 }
