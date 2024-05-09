@@ -6,12 +6,24 @@ build-backend = "maturin"
 name = "letsql"
 dynamic = ["version"]
 requires-python = ">=3.7"
+readme = "README.md"
+license = { file = "LICENSE" }
 classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Topic :: Software Development :: User Interfaces",
+    "Topic :: Database :: Database Engines/Servers",
+    "License :: OSI Approved :: Apache Software License",
     "Programming Language :: Rust",
-    "Programming Language :: Python :: Implementation :: CPython",
-    "Programming Language :: Python :: Implementation :: PyPy",
+    "Programming Language :: Python :: Implementation :: CPython"
 ]
 
+[project.urls]
+Homepage = "https://www.letsql.com/"
+Repository = "https://github.com/letsql/letsql.git"
+Issues = "https://github.com/letsql/letsql/issues"
+Changelog = "https://github.com/letsql/letsql/blob/main/CHANGELOG.md"
 
 [tool.maturin]
 module-name = "letsql._internal"
@@ -105,23 +117,6 @@ body = """
       [#{{ contributor.pr_number }}]({{ self::remote_url() }}/pull/{{ contributor.pr_number }}) \
     {%- endif %}
 {%- endfor %}\n
-"""
-# template for the changelog footer
-footer = """
-{%- macro remote_url() -%}
-  https://github.com/{{ remote.github.owner }}/{{ remote.github.repo }}
-{%- endmacro -%}
-
-{% for release in releases -%}
-    {% if release.version -%}
-        {% if release.previous.version -%}
-            [{{ release.version | trim_start_matches(pat="v") }}]: \
-                {{ self::remote_url() }}/compare/{{ release.previous.version }}..{{ release.version }}
-        {% endif -%}
-    {% else -%}
-        [unreleased]: {{ self::remote_url() }}/compare/{{ release.previous.version }}..HEAD
-    {% endif -%}
-{% endfor %}
 """
 trim = true
 
