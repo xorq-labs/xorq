@@ -29,6 +29,8 @@
             cargoToml
             lockFile
             ./pyproject.toml
+            ./README.md
+            ./LICENSE
             (fileFilter (file: file.hasExt "rs") ./src)
           ];
         };
@@ -39,6 +41,8 @@
             lockFile
             ./pyproject.toml
             ./poetry.lock
+            ./README.md
+            ./LICENSE
             (fileFilter (file: file.hasExt "py") ./python)
             (fileFilter (file: file.hasExt "sql") ./python)
             (fileFilter (file: file.hasExt "rs") ./src)
