@@ -317,8 +317,15 @@ impl PySessionContext {
     }
 
     fn tables(&self) -> HashSet<String> {
-        #[allow(deprecated)]
-        self.ctx.tables().unwrap()
+        self.ctx
+            .catalog("datafusion")
+            .unwrap()
+            .schema("public")
+            .unwrap()
+            .table_names()
+            .iter()
+            .cloned()
+            .collect()
     }
 
     fn table(&self, name: &str, py: Python) -> PyResult<PyDataFrame> {

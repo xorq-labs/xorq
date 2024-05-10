@@ -1,10 +1,5 @@
-use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyIterator, PyList};
-
 use std::any::Any;
 use std::sync::Arc;
-
-use futures::{stream, TryStreamExt};
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
@@ -13,17 +8,20 @@ use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::error::{DataFusionError as InnerDataFusionError, Result as DFResult};
 use datafusion::execution::context::TaskContext;
-use datafusion::physical_expr::PhysicalSortExpr;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionPlan, Partitioning, SendableRecordBatchStream,
+    DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties, SendableRecordBatchStream,
     Statistics,
 };
 use datafusion_expr::utils::conjunction;
 use datafusion_expr::Expr;
+use futures::{stream, TryStreamExt};
+use pyo3::prelude::*;
+use pyo3::types::{PyDict, PyIterator, PyList};
 
 use crate::errors::DataFusionError;
 use crate::pyarrow_filter_expression::PyArrowFilterExpression;
+use crate::utils::compute_properties;
 
 struct PyArrowBatchesAdapter {
     batches: Py<PyIterator>,
@@ -54,6 +52,7 @@ pub(crate) struct DatasetExec {
     columns: Option<Vec<String>>,
     filter_expr: Option<PyObject>,
     projected_statistics: Statistics,
+    cache: PlanProperties,
 }
 
 impl DatasetExec {
@@ -115,6 +114,9 @@ impl DatasetExec {
             .map_err(PyErr::from)?;
 
         let projected_statistics = Statistics::new_unknown(&schema);
+
+        let cache = compute_properties(schema.clone());
+
         Ok(DatasetExec {
             dataset: dataset.into(),
             schema,
@@ -122,6 +124,7 @@ impl DatasetExec {
             columns,
             filter_expr,
             projected_statistics,
+            cache,
         })
     }
 }
@@ -137,16 +140,8 @@ impl ExecutionPlan for DatasetExec {
         self.schema.clone()
     }
 
-    /// Get the output partitioning of this plan
-    fn output_partitioning(&self) -> Partitioning {
-        Python::with_gil(|py| {
-            let fragments = self.fragments.as_ref(py);
-            Partitioning::UnknownPartitioning(fragments.len())
-        })
-    }
-
-    fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
-        None
+    fn properties(&self) -> &PlanProperties {
+        &self.cache
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {

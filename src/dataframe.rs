@@ -1,20 +1,21 @@
-use crate::errors::{py_datafusion_err, DataFusionError};
-use crate::physical_plan::PyExecutionPlan;
-use crate::record_batch::PyRecordBatchStream;
-use crate::utils::{get_tokio_runtime, wait_for_future};
+use std::sync::Arc;
+
 use datafusion::arrow::datatypes::Schema;
 use datafusion::arrow::pyarrow::{PyArrowType, ToPyArrow};
 use datafusion::arrow::util::pretty;
 use datafusion::dataframe::{DataFrame, DataFrameWriteOptions};
 use datafusion::execution::SendableRecordBatchStream;
-use datafusion::parquet::basic::{BrotliLevel, Compression, GzipLevel, ZstdLevel};
-use datafusion::parquet::file::properties::WriterProperties;
 use datafusion::prelude::*;
+use datafusion_common::config::TableParquetOptions;
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
-use std::sync::Arc;
 use tokio::task::JoinHandle;
+
+use crate::errors::{py_datafusion_err, DataFusionError};
+use crate::physical_plan::PyExecutionPlan;
+use crate::record_batch::PyRecordBatchStream;
+use crate::utils::{get_tokio_runtime, wait_for_future};
 
 /// A PyDataFrame is a representation of a logical plan and an API to compose statements.
 /// Use it to build a plan and `.collect()` to execute the plan and collect the result.
@@ -242,57 +243,25 @@ impl PyDataFrame {
     }
 
     /// Write a `DataFrame` to a Parquet file.
+    /// The compression parameter sets the default parquet compression codec
+    /// Valid values are: uncompressed, snappy, gzip(level),
+    /// lzo, brotli(level), lz4, zstd(level), and lz4_raw.
+    /// These values are not case sensitive. If NULL, uses
+    /// default parquet writer setting
     #[pyo3(signature = (
         path,
-        compression="uncompressed",
-        compression_level=None
+        compression="uncompressed"
         ))]
-    fn write_parquet(
-        &self,
-        path: &str,
-        compression: &str,
-        compression_level: Option<u32>,
-        py: Python,
-    ) -> PyResult<()> {
-        fn verify_compression_level(cl: Option<u32>) -> Result<u32, PyErr> {
-            cl.ok_or(PyValueError::new_err("compression_level is not defined"))
-        }
-
-        let compression_type = match compression.to_lowercase().as_str() {
-            "snappy" => Compression::SNAPPY,
-            "gzip" => Compression::GZIP(
-                GzipLevel::try_new(compression_level.unwrap_or(6))
-                    .map_err(|e| PyValueError::new_err(format!("{e}")))?,
-            ),
-            "brotli" => Compression::BROTLI(
-                BrotliLevel::try_new(verify_compression_level(compression_level)?)
-                    .map_err(|e| PyValueError::new_err(format!("{e}")))?,
-            ),
-            "zstd" => Compression::ZSTD(
-                ZstdLevel::try_new(verify_compression_level(compression_level)? as i32)
-                    .map_err(|e| PyValueError::new_err(format!("{e}")))?,
-            ),
-            "lz0" => Compression::LZO,
-            "lz4" => Compression::LZ4,
-            "lz4_raw" => Compression::LZ4_RAW,
-            "uncompressed" => Compression::UNCOMPRESSED,
-            _ => {
-                return Err(PyValueError::new_err(format!(
-                    "Unrecognized compression type {compression}"
-                )));
-            }
-        };
-
-        let writer_properties = WriterProperties::builder()
-            .set_compression(compression_type)
-            .build();
+    fn write_parquet(&self, path: &str, compression: &str, py: Python) -> PyResult<()> {
+        let mut parquet_options = TableParquetOptions::default();
+        parquet_options.global.compression = Some(compression.to_string());
 
         wait_for_future(
             py,
             self.df.as_ref().clone().write_parquet(
                 path,
                 DataFrameWriteOptions::new(),
-                Option::from(writer_properties),
+                Option::from(parquet_options),
             ),
         )?;
         Ok(())
@@ -305,7 +274,7 @@ impl PyDataFrame {
             self.df
                 .as_ref()
                 .clone()
-                .write_json(path, DataFrameWriteOptions::new()),
+                .write_json(path, DataFrameWriteOptions::new(), None),
         )?;
         Ok(())
     }

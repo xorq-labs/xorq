@@ -21,9 +21,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::{fmt, thread};
 
-use futures::stream::Stream;
-use futures::task::{Context, Poll};
-
+use async_trait::async_trait;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
 use datafusion::arrow::record_batch::{RecordBatch, RecordBatchReader};
@@ -31,15 +29,17 @@ use datafusion::datasource::{TableProvider, TableType};
 use datafusion::error::Result;
 use datafusion::execution::context::SessionState;
 use datafusion::execution::TaskContext;
-use datafusion::physical_plan::expressions::PhysicalSortExpr;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
-    project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, SendableRecordBatchStream,
+    project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
+    SendableRecordBatchStream,
 };
 use datafusion_common::DataFusionError;
 use datafusion_expr::Expr;
+use futures::stream::Stream;
+use futures::task::{Context, Poll};
 
-use async_trait::async_trait;
+use crate::utils::compute_properties;
 
 #[derive(Clone, Debug)]
 pub struct PyRecordBatchProvider {
@@ -167,6 +167,7 @@ struct CustomExec {
     record_batch_provider: PyRecordBatchProvider,
     projected_schema: SchemaRef,
     projections: Option<Vec<usize>>,
+    cache: PlanProperties,
 }
 
 impl CustomExec {
@@ -177,10 +178,12 @@ impl CustomExec {
     ) -> Self {
         let projected_schema = project_schema(&schema, projections).unwrap();
         let projections = projections.map(|v| (*v).clone());
+        let cache = compute_properties(projected_schema.clone());
         Self {
             record_batch_provider,
             projected_schema,
             projections,
+            cache,
         }
     }
 }
@@ -200,12 +203,8 @@ impl ExecutionPlan for CustomExec {
         self.projected_schema.clone()
     }
 
-    fn output_partitioning(&self) -> datafusion::physical_plan::Partitioning {
-        datafusion::physical_plan::Partitioning::UnknownPartitioning(1)
-    }
-
-    fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
-        None
+    fn properties(&self) -> &PlanProperties {
+        &self.cache
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {

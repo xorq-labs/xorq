@@ -11,15 +11,15 @@ use arrow::error::ArrowError;
 use arrow::pyarrow::PyArrowType;
 use datafusion::arrow::error::Result as ArrowResult;
 use datafusion::execution::{SendableRecordBatchStream, TaskContext};
-use datafusion::physical_expr::{Partitioning, PhysicalSortExpr};
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
-use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan};
+use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties};
 use datafusion_common::project_schema;
 use futures::{Stream, TryStreamExt};
 use pyo3::types::PyIterator;
 use pyo3::{PyAny, PyObject, Python};
 
 use crate::errors::DataFusionError;
+use crate::utils::compute_properties;
 
 struct RecordBatchReaderAdapter {
     record_batch_reader: PyObject,
@@ -70,6 +70,7 @@ pub struct IbisTableExec {
     record_batch_reader: PyObject,
     schema: SchemaRef,
     columns: Option<Vec<String>>,
+    cache: PlanProperties,
 }
 
 impl IbisTableExec {
@@ -103,10 +104,13 @@ impl IbisTableExec {
         );
         let schema = project_schema(&schema, projections).unwrap();
 
+        let cache = compute_properties(schema.clone());
+
         Ok(IbisTableExec {
             record_batch_reader: record_batch_reader.into(),
             schema,
             columns,
+            cache,
         })
     }
 }
@@ -126,12 +130,8 @@ impl ExecutionPlan for IbisTableExec {
         self.schema.clone()
     }
 
-    fn output_partitioning(&self) -> Partitioning {
-        Partitioning::UnknownPartitioning(1)
-    }
-
-    fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
-        None
+    fn properties(&self) -> &PlanProperties {
+        &self.cache
     }
 
     fn children(&self) -> Vec<Arc<dyn ExecutionPlan>> {

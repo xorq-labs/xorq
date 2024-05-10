@@ -80,7 +80,7 @@ impl PyDatabase {
     }
 
     fn table(&self, name: &str, py: Python) -> PyResult<PyTable> {
-        if let Some(table) = wait_for_future(py, self.database.table(name)) {
+        if let Ok(Some(table)) = wait_for_future(py, self.database.table(name)) {
             Ok(PyTable::new(table))
         } else {
             Err(DataFusionError::Common(format!("Table not found: {name}")).into())

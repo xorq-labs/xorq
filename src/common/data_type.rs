@@ -226,6 +226,10 @@ impl DataTypeMap {
             DataType::RunEndEncoded(_, _) => Err(py_datafusion_err(
                 DataFusionError::NotImplemented(format!("{:?}", arrow_type)),
             )),
+            _ => Err(py_datafusion_err(DataFusionError::NotImplemented(format!(
+                "{:?}",
+                arrow_type
+            )))),
         }
     }
 
@@ -309,6 +313,10 @@ impl DataTypeMap {
             ScalarValue::DurationMillisecond(_) => Ok(DataType::Duration(TimeUnit::Millisecond)),
             ScalarValue::DurationMicrosecond(_) => Ok(DataType::Duration(TimeUnit::Microsecond)),
             ScalarValue::DurationNanosecond(_) => Ok(DataType::Duration(TimeUnit::Nanosecond)),
+            _ => Err(py_datafusion_err(DataFusionError::NotImplemented(format!(
+                "{:?}",
+                scalar_val
+            )))),
         }
     }
 }
@@ -562,43 +570,46 @@ impl DataTypeMap {
     /// we provide an enum to mimic it.
     #[pyo3(name = "friendly_arrow_type_name")]
     pub fn friendly_arrow_type_name(&self) -> PyResult<&str> {
-        Ok(match &self.arrow_type.data_type {
-            DataType::Null => "Null",
-            DataType::Boolean => "Boolean",
-            DataType::Int8 => "Int8",
-            DataType::Int16 => "Int16",
-            DataType::Int32 => "Int32",
-            DataType::Int64 => "Int64",
-            DataType::UInt8 => "UInt8",
-            DataType::UInt16 => "UInt16",
-            DataType::UInt32 => "UInt32",
-            DataType::UInt64 => "UInt64",
-            DataType::Float16 => "Float16",
-            DataType::Float32 => "Float32",
-            DataType::Float64 => "Float64",
-            DataType::Timestamp(_, _) => "Timestamp",
-            DataType::Date32 => "Date32",
-            DataType::Date64 => "Date64",
-            DataType::Time32(_) => "Time32",
-            DataType::Time64(_) => "Time64",
-            DataType::Duration(_) => "Duration",
-            DataType::Interval(_) => "Interval",
-            DataType::Binary => "Binary",
-            DataType::FixedSizeBinary(_) => "FixedSizeBinary",
-            DataType::LargeBinary => "LargeBinary",
-            DataType::Utf8 => "Utf8",
-            DataType::LargeUtf8 => "LargeUtf8",
-            DataType::List(_) => "List",
-            DataType::FixedSizeList(_, _) => "FixedSizeList",
-            DataType::LargeList(_) => "LargeList",
-            DataType::Struct(_) => "Struct",
-            DataType::Union(_, _) => "Union",
-            DataType::Dictionary(_, _) => "Dictionary",
-            DataType::Decimal128(_, _) => "Decimal128",
-            DataType::Decimal256(_, _) => "Decimal256",
-            DataType::Map(_, _) => "Map",
-            DataType::RunEndEncoded(_, _) => "RunEndEncoded",
-        })
+        match &self.arrow_type.data_type {
+            DataType::Null => Ok("Null"),
+            DataType::Boolean => Ok("Boolean"),
+            DataType::Int8 => Ok("Int8"),
+            DataType::Int16 => Ok("Int16"),
+            DataType::Int32 => Ok("Int32"),
+            DataType::Int64 => Ok("Int64"),
+            DataType::UInt8 => Ok("UInt8"),
+            DataType::UInt16 => Ok("UInt16"),
+            DataType::UInt32 => Ok("UInt32"),
+            DataType::UInt64 => Ok("UInt64"),
+            DataType::Float16 => Ok("Float16"),
+            DataType::Float32 => Ok("Float32"),
+            DataType::Float64 => Ok("Float64"),
+            DataType::Timestamp(_, _) => Ok("Timestamp"),
+            DataType::Date32 => Ok("Date32"),
+            DataType::Date64 => Ok("Date64"),
+            DataType::Time32(_) => Ok("Time32"),
+            DataType::Time64(_) => Ok("Time64"),
+            DataType::Duration(_) => Ok("Duration"),
+            DataType::Interval(_) => Ok("Interval"),
+            DataType::Binary => Ok("Binary"),
+            DataType::FixedSizeBinary(_) => Ok("FixedSizeBinary"),
+            DataType::LargeBinary => Ok("LargeBinary"),
+            DataType::Utf8 => Ok("Utf8"),
+            DataType::LargeUtf8 => Ok("LargeUtf8"),
+            DataType::List(_) => Ok("List"),
+            DataType::FixedSizeList(_, _) => Ok("FixedSizeList"),
+            DataType::LargeList(_) => Ok("LargeList"),
+            DataType::Struct(_) => Ok("Struct"),
+            DataType::Union(_, _) => Ok("Union"),
+            DataType::Dictionary(_, _) => Ok("Dictionary"),
+            DataType::Decimal128(_, _) => Ok("Decimal128"),
+            DataType::Decimal256(_, _) => Ok("Decimal256"),
+            DataType::Map(_, _) => Ok("Map"),
+            DataType::RunEndEncoded(_, _) => Ok("RunEndEncoded"),
+            _ => Err(py_datafusion_err(DataFusionError::NotImplemented(
+                "Unknown DataType".to_string(),
+            ))),
+        }
     }
 }
 

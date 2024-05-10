@@ -15,7 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use crate::errors::py_datafusion_err;
 use crate::expr::PyExpr;
+use datafusion_common::DataFusionError;
 use datafusion_expr::expr::{GetFieldAccess, GetIndexedField};
 use pyo3::prelude::*;
 use std::fmt::{Display, Formatter};
@@ -61,7 +63,9 @@ impl PyGetIndexedField {
     fn key(&self) -> PyResult<PyLiteral> {
         match &self.indexed_field.field {
             GetFieldAccess::NamedStructField { name, .. } => Ok(name.clone().into()),
-            _ => todo!(),
+            _ => Err(py_datafusion_err(DataFusionError::NotImplemented(
+                "Unknown DataType".to_string(),
+            ))),
         }
     }
 

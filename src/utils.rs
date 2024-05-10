@@ -1,12 +1,18 @@
 use std::future::Future;
+use std::sync::Arc;
 
+use arrow::array::ArrayRef;
+use arrow::datatypes::SchemaRef;
+use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
+use datafusion::physical_plan::{ExecutionMode, PlanProperties};
+use datafusion_common::{Result, ScalarValue};
+use datafusion_expr::Volatility;
+use datafusion_expr::{ColumnarValue, ScalarFunctionImplementation};
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
-use crate::TokioRuntime;
-
 use crate::errors::DataFusionError;
-use datafusion_expr::Volatility;
+use crate::TokioRuntime;
 
 /// Utility to get the Tokio Runtime from Python
 pub(crate) fn get_tokio_runtime(py: Python) -> PyRef<TokioRuntime> {
@@ -34,6 +40,49 @@ pub(crate) fn parse_volatility(value: &str) -> Result<Volatility, DataFusionErro
                 "Unsupported volatility type: `{value}`, supported \
                  values are: immutable, stable and volatile."
             )))
+        }
+    })
+}
+
+pub fn compute_properties(schema: SchemaRef) -> PlanProperties {
+    let eq_properties = EquivalenceProperties::new(schema);
+
+    PlanProperties::new(
+        eq_properties,
+        Partitioning::UnknownPartitioning(1),
+        ExecutionMode::Bounded,
+    )
+}
+
+pub fn make_scalar_function<F>(inner: F) -> ScalarFunctionImplementation
+where
+    F: Fn(&[ArrayRef]) -> Result<ArrayRef> + Sync + Send + 'static,
+{
+    Arc::new(move |args: &[ColumnarValue]| {
+        // first, identify if any of the arguments is an Array. If yes, store its `len`,
+        // as any scalar will need to be converted to an array of len `len`.
+        let len = args
+            .iter()
+            .fold(Option::<usize>::None, |acc, arg| match arg {
+                ColumnarValue::Scalar(_) => acc,
+                ColumnarValue::Array(a) => Some(a.len()),
+            });
+
+        let is_scalar = len.is_none();
+
+        let inferred_length = len.unwrap_or(1);
+        let args = args
+            .iter()
+            .map(|arg| arg.clone().into_array(inferred_length))
+            .collect::<Result<Vec<_>>>()?;
+
+        let result = (inner)(&args);
+        if is_scalar {
+            // If all inputs are scalar, keeps output as scalar
+            let result = result.and_then(|arr| ScalarValue::try_from_array(&arr, 0));
+            result.map(ColumnarValue::Scalar)
+        } else {
+            result.map(ColumnarValue::Array)
         }
     })
 }

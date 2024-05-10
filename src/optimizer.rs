@@ -18,7 +18,7 @@ use crate::sql::logical::PyLogicalPlan;
 #[pyclass(name = "Optimizer", module = "datafusion", subclass)]
 #[derive(Clone, Default)]
 pub struct PyOptimizer {
-    pub(crate) optimizer: Arc<Optimizer>,
+    pub optimizer: Arc<Optimizer>,
 }
 
 #[pymethods]

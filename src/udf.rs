@@ -6,12 +6,11 @@ use datafusion::arrow::array::{make_array, Array, ArrayData, ArrayRef};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::pyarrow::{FromPyArrow, PyArrowType, ToPyArrow};
 use datafusion::error::DataFusionError;
-use datafusion::physical_plan::functions::make_scalar_function;
 use datafusion::physical_plan::udf::ScalarUDF;
 use datafusion_expr::create_udf;
 use datafusion_expr::function::ScalarFunctionImplementation;
 
-use crate::utils::parse_volatility;
+use crate::utils::{make_scalar_function, parse_volatility};
 
 /// Create a DataFusion's UDF implementation from a python function
 /// that expects pyarrow arrays. This is more efficient as it performs

@@ -3,7 +3,6 @@ use std::sync::Arc;
 
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::pyarrow::PyArrowType;
-use datafusion::common::DataFusionError;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::{plan_err, Result};
 use datafusion_expr::WindowUDF;
@@ -94,6 +93,18 @@ impl ContextProvider for PyContextProvider {
 
     fn options(&self) -> &ConfigOptions {
         &self.options
+    }
+
+    fn udfs_names(&self) -> Vec<String> {
+        vec![]
+    }
+
+    fn udafs_names(&self) -> Vec<String> {
+        vec![]
+    }
+
+    fn udwfs_names(&self) -> Vec<String> {
+        vec![]
     }
 }
 

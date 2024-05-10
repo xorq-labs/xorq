@@ -212,6 +212,7 @@ def test_roundtrip_arithmetic(con, t, operation):
     assert_series_equal(expected, actual)
 
 
+@pytest.mark.xfail(reason="datafusion 37.1.0 introduced a bug in aggregate functions")
 def test_roundtrip_nested_agg(con, g):
     original = (
         g.group_by(["a", "g"])
