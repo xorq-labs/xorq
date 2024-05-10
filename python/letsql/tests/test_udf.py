@@ -1,30 +1,34 @@
 from __future__ import annotations
 
-import pandas.testing as tm
-import pytest
-
+import ibis
 import ibis.expr.datatypes as dt
 import ibis.expr.types as ir
+import pandas.testing as tm
+import pyarrow as pa
+import pytest
 from ibis import udf
-from ibis.legacy.udf.vectorized import elementwise, reduction
-
 
 pc = pytest.importorskip("pyarrow.compute")
 
 
-@elementwise(input_type=["string"], output_type="int64")
-def my_string_length(arr, **kwargs):
+@ibis.udf.scalar.pyarrow
+def my_string_length(arr: dt.string) -> dt.int64:
     # arr is a pyarrow.StringArray
     return pc.cast(pc.multiply(pc.utf8_length(arr), 2), target_type="int64")
 
 
-@elementwise(input_type=[dt.int64, dt.int64], output_type=dt.int64)
-def my_add(arr1, arr2, **kwargs):
+@ibis.udf.scalar.pyarrow
+def my_add(arr1: dt.int64, arr2: dt.int64) -> dt.int64:
     return pc.add(arr1, arr2)
 
 
-@reduction(input_type=[dt.float64], output_type=dt.float64)
-def my_mean(arr):
+@ibis.udf.scalar.pyarrow
+def small_add(arr1: dt.int32, arr2: dt.int32) -> dt.int64:
+    return pc.cast(pc.add(arr1, arr2), pa.int64())
+
+
+@ibis.udf.agg.builtin
+def my_mean(arr: dt.float64) -> dt.float64:
     return pc.mean(arr)
 
 
@@ -40,7 +44,7 @@ def test_udf(alltypes):
 
 
 def test_multiple_argument_udf(alltypes):
-    expr = my_add(alltypes.smallint_col, alltypes.int_col).name("tmp")
+    expr = small_add(alltypes.smallint_col, alltypes.int_col).name("tmp")
     result = expr.execute()
 
     df = alltypes[["smallint_col", "int_col"]].execute()

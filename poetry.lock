@@ -586,33 +586,35 @@ test = ["objgraph", "psutil"]
 
 [[package]]
 name = "ibis-framework"
-version = "8.0.0"
+version = "9.0.0"
 description = "The portable Python dataframe library"
 optional = false
-python-versions = "^3.9"
-files = []
-develop = false
+python-versions = "<4.0,>=3.9"
+files = [
+    {file = "ibis_framework-9.0.0-py3-none-any.whl", hash = "sha256:9ed9cb4f68fb528d2f5be2879937aa186ce54305eaf40112aa97b2ce4159bdae"},
+    {file = "ibis_framework-9.0.0.tar.gz", hash = "sha256:464c4f14febbc54625be80915df3b307bc0adc89b498ec2481b6c13358db321e"},
+]
 
 [package.dependencies]
 atpublic = ">=2.3,<5"
 bidict = ">=0.22.1,<1"
-duckdb = {version = ">=0.8.1,<1", optional = true}
-numpy = ">=1,<2"
-pandas = ">=1.2.5,<3"
+duckdb = {version = ">=0.8.1,<1", optional = true, markers = "extra == \"duckdb\""}
+numpy = ">=1.23.2,<2"
+pandas = ">=1.5.3,<3"
 parsy = ">=2,<3"
-pyarrow = ">=2,<16"
+pyarrow = ">=10.0.1,<17"
 pyarrow-hotfix = ">=0.4,<1"
 python-dateutil = ">=2.8.2,<3"
 pytz = ">=2022.7"
 rich = ">=12.4.4,<14"
-sqlglot = ">=23.4,<23.11"
+sqlglot = ">=23.4,<23.13"
 toolz = ">=0.11,<1"
 typing-extensions = ">=4.3.0,<5"
 
 [package.extras]
 bigquery = ["db-dtypes (>=0.3,<2)", "google-cloud-bigquery (>=3,<4)", "google-cloud-bigquery-storage (>=2,<3)", "pydata-google-auth (>=1.4.0,<2)"]
 clickhouse = ["clickhouse-connect[arrow,numpy,pandas] (>=0.5.23,<1)"]
-dask = ["dask[array,dataframe] (>=2022.9.1,<2024.3.0)", "regex (>=2021.7.6)"]
+dask = ["dask[array,dataframe] (>=2022.9.1,<2024.3.0)", "packaging (>=21.3,<25)", "regex (>=2021.7.6)"]
 datafusion = ["datafusion (>=0.6,<37)"]
 decompiler = ["black (>=22.1.0,<25)"]
 deltalake = ["deltalake (>=0.9.0,<1)"]
@@ -620,13 +622,12 @@ druid = ["pydruid[sqlalchemy] (>=0.6.5,<1)"]
 duckdb = ["duckdb (>=0.8.1,<1)"]
 examples = ["fsspec (<2024.3.0)", "pins[gcs] (>=0.8.3,<1)"]
 exasol = ["pyexasol[pandas] (>=0.25.2,<1)"]
-flink = []
 geospatial = ["geopandas (>=0.6,<1)", "shapely (>=2,<3)"]
 impala = ["impyla (>=0.17,<1)"]
 mssql = ["pyodbc (>=4.0.39,<6)"]
 mysql = ["pymysql (>=1,<2)"]
 oracle = ["oracledb (>=1.3.1,<3)", "packaging (>=21.3,<25)"]
-pandas = ["regex (>=2021.7.6)"]
+pandas = ["packaging (>=21.3,<25)", "regex (>=2021.7.6)"]
 polars = ["packaging (>=21.3,<25)", "polars (>=0.20.17,<1)"]
 postgres = ["psycopg2 (>=2.8.4,<3)"]
 pyspark = ["packaging (>=21.3,<25)", "pyspark (>=3,<4)"]
@@ -635,12 +636,6 @@ snowflake = ["snowflake-connector-python (>=3.0.2,!=3.3.0b1,<4)"]
 sqlite = ["regex (>=2021.7.6)"]
 trino = ["trino (>=0.321,<1)"]
 visualization = ["graphviz (>=0.16,<1)"]
-
-[package.source]
-type = "git"
-url = "https://github.com/ibis-project/ibis.git"
-reference = "f15d033e8437c7b63f5cee5a8aff8273c9b0352a"
-resolved_reference = "f15d033e8437c7b63f5cee5a8aff8273c9b0352a"
 
 [[package]]
 name = "identify"
@@ -1876,4 +1871,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "e8bab2bd7ccbd18b49ec38e014975877addc9e83270a45aa01f5995c54dcd478"
+content-hash = "91b6edcc873c48430a3029f140a30c653b324b067b60ff79c4b24e3c708a6d7c"

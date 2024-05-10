@@ -148,6 +148,13 @@ PANDAS_UNITS = {
     "ms": "L",
 }
 
+TIMESTAMP_PANDAS_UNITS = {
+    "m": "Min",
+    "ms": "L",
+    "M": "ME",
+    "Y": "YE",
+}
+
 
 @pytest.mark.parametrize(
     "unit",
@@ -181,8 +188,10 @@ def test_timestamp_truncate(alltypes, df, unit):
     unit = PANDAS_UNITS.get(unit, unit)
 
     try:
-        expected = df.timestamp_col.dt.floor(unit)
+        ts_unit = TIMESTAMP_PANDAS_UNITS.get(unit, unit)
+        expected = df.timestamp_col.dt.floor(ts_unit)
     except ValueError:
+        unit = PANDAS_UNITS.get(unit, unit)
         expected = df.timestamp_col.dt.to_period(unit).dt.to_timestamp()
 
     result = expr.execute()

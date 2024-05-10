@@ -7,7 +7,6 @@ import pandas as pd
 import pytest
 from ibis import _
 from ibis import literal as L
-from ibis.legacy.udf.vectorized import reduction
 from pytest import param
 
 from letsql.tests.util import assert_frame_equal, reduction_tolerance
@@ -15,8 +14,8 @@ from letsql.tests.util import assert_frame_equal, reduction_tolerance
 import ibis.common.exceptions as com
 
 
-@reduction(input_type=[dt.double], output_type=dt.double)
-def mean_udf(s):
+@ibis.udf.agg.builtin
+def mean_udf(s: dt.double) -> dt.double:
     return s.mean()
 
 

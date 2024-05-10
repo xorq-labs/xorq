@@ -48,7 +48,7 @@ packages = [
 [tool.poetry.dependencies]
 python = "^3.10"
 maturin = "^1.4.0"
-ibis-framework = {git = "https://github.com/ibis-project/ibis.git", rev = "f15d033e8437c7b63f5cee5a8aff8273c9b0352a", extras = ["duckdb"]}
+ibis-framework = {version = "9.0.0", extras = ["duckdb"]}
 dask = "^2023.12.1"
 xgboost = ">=1.6.1"
 attrs = "^23.2.0"
@@ -72,6 +72,17 @@ blackdoc = "0.3.8"
 codespell = {version = "2.2.6", extras = ["hard-encoding-detection", "toml"]}
 datafusion = "^34.0.0"
 git-cliff = "^2.2.1"
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # pandas 2.2 warnings
+    'ignore:DataFrameGroupBy\.apply operated on the grouping columns\. This behavior is deprecated:DeprecationWarning',
+    'ignore:Downcasting object dtype arrays on \.fillna, \.ffill, \.bfill is deprecated:FutureWarning',
+    # pandas 2.2 warnings coming directly from the way flink uses pandas
+    "ignore:Passing a BlockManager to DataFrame is deprecated:DeprecationWarning",
+    "ignore:.+ /workspace/src/objective/regression_obj.cu:UserWarning"
+]
+
 
 [tool.git-cliff.changelog]
 header = """
