@@ -111,7 +111,7 @@ def model_features(path):
 def test_predict_with_only_required_features(tmp_model_dir, data_dir, capsys):
     data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
 
-    model = train_xgb(data, "reg:linear", max_depth=2, n_estimators=3)
+    model = train_xgb(data, "reg:squarederror", max_depth=2, n_estimators=3)
     model_path = os.path.join(tmp_model_dir, "model.json")
     model.save_model(model_path)
 
@@ -139,7 +139,7 @@ def test_predict_with_only_required_features(tmp_model_dir, data_dir, capsys):
 def test_predict_with_filter(tmp_model_dir, data_dir, capsys):
     data = pd.read_csv(data_dir / "csv" / "diamonds.csv")
 
-    model = train_xgb(data, "reg:linear")
+    model = train_xgb(data, "reg:squarederror")
     model_path = os.path.join(tmp_model_dir, "model.json")
     model.save_model(model_path)
 
