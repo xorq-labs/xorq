@@ -6,13 +6,12 @@ from itertools import chain
 import pandas as pd
 import pytest
 import xgboost as xgb
+from pandas.api.types import is_float_dtype
 from sklearn.model_selection import train_test_split
 
 from letsql.internal import (
     SessionContext,
 )
-
-from pandas.api.types import is_float_dtype
 
 
 def train_xgb(

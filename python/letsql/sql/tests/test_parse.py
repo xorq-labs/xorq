@@ -1,14 +1,11 @@
 import ibis
-
+import pyarrow as pa
 import pytest
+from pandas.testing import assert_frame_equal
 
 from letsql.expr.translate import plan_to_ibis
-from letsql.sql import parser
 from letsql.internal import ContextProvider
-
-import pyarrow as pa
-
-from pandas.testing import assert_frame_equal
+from letsql.sql import parser
 
 
 @pytest.fixture(scope="session")

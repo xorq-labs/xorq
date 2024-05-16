@@ -3,9 +3,8 @@ import re
 
 import dask
 import ibis
-import pytest
-
 import letsql.common.utils.dask_normalize  # noqa: F401
+import pytest
 
 
 def test_ensure_deterministic():

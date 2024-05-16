@@ -1,11 +1,12 @@
+import pyarrow as pa
+
 from letsql.internal import (
+    LogicalPlan,
     OptimizationRule,
     OptimizerRule,
     SessionContext,
     SessionState,
-    LogicalPlan,
 )
-import pyarrow as pa
 
 
 class PassThroughOptimizationRule(OptimizationRule):

@@ -1,7 +1,6 @@
 import dask
 import ibis
 import ibis.expr.operations.relations as ir
-
 from letsql.expr.relations import (
     make_native_op,
 )

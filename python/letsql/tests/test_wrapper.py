@@ -1,8 +1,7 @@
+import ibis
 import pandas as pd
 import pytest
 from pytest import param
-
-import ibis
 
 import letsql as ls
 from letsql.tests.util import assert_frame_equal

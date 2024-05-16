@@ -1,11 +1,10 @@
 from pathlib import Path
 
+import pyarrow as pa
 import pytest
 
 import letsql as ls
 from letsql.backends.datafusion.provider import IbisTableProvider
-
-import pyarrow as pa
 
 
 @pytest.fixture(scope="session")

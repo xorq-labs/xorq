@@ -5,12 +5,11 @@ import math
 from functools import partial
 from itertools import starmap
 
-import sqlglot as sg
-import sqlglot.expressions as sge
-
 import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
+import sqlglot as sg
+import sqlglot.expressions as sge
 from ibis.backends.sql.compiler import FALSE, NULL, STAR, SQLGlotCompiler
 from ibis.backends.sql.datatypes import DataFusionType
 from ibis.backends.sql.dialects import DataFusion
@@ -245,9 +244,10 @@ class DataFusionCompiler(SQLGlotCompiler):
         part = type(op).__name__[skip:].lower()
         return self.f.date_part(part, arg)
 
-    visit_ExtractYear = (
-        visit_ExtractMonth
-    ) = visit_ExtractQuarter = visit_ExtractDay = visit_ExtractYearMonthQuarterDay
+    visitExtractYear = visit_ExtractYearMonthQuarterDay
+    visit_ExtractMonth = visit_ExtractYearMonthQuarterDay
+    visit_ExtractQuarter = visit_ExtractYearMonthQuarterDay
+    visit_ExtractDay = visit_ExtractYearMonthQuarterDay
 
     def visit_ExtractDayOfYear(self, op, *, arg):
         return self.f.date_part("doy", arg)

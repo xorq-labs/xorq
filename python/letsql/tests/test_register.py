@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import gzip
-import pytest
+
+import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
-import pandas as pd
+import pytest
 
 
 @pytest.fixture

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-
 from letsql.backends.let import Backend
 
 try:

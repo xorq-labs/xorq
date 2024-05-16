@@ -4,16 +4,16 @@ from typing import List
 import pyarrow as pa
 
 from ._internal import (
-    ScalarUDF,
     AggregateUDF,
-    SessionContext,  # noqa: F401
-    SessionConfig,  # noqa: F401
-    SessionState,  # noqa: F401
     ContextProvider,
-    OptimizerContext,
     LogicalPlan,
     LogicalPlanBuilder,
+    OptimizerContext,
     OptimizerRule,
+    ScalarUDF,
+    SessionConfig,  # noqa: F401
+    SessionContext,  # noqa: F401
+    SessionState,  # noqa: F401
     TableProvider,
 )
 

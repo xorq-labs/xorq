@@ -7,7 +7,6 @@ from abc import (
 
 import ibis
 import toolz
-
 from attr import (
     field,
     frozen,
@@ -17,9 +16,10 @@ from attr.validators import (
 )
 from cloudpickle import (
     dump as _dump,
+)
+from cloudpickle import (
     load as _load,
 )
-
 
 abs_path_converter = toolz.compose(operator.methodcaller("absolute"), pathlib.Path)
 

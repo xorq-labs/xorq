@@ -3,7 +3,6 @@ from typing import Any
 import pandas as pd
 import pandas.testing as tm
 
-
 reduction_tolerance = 1e-7
 
 

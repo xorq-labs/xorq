@@ -7,20 +7,17 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import letsql
-import letsql.internal as df
-import pyarrow as pa
-import pyarrow.dataset as ds
-import pyarrow_hotfix  # noqa: F401
-import sqlglot as sg
-import sqlglot.expressions as sge
-
 import ibis
 import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
+import pyarrow as pa
+import pyarrow.dataset as ds
+import pyarrow_hotfix  # noqa: F401
+import sqlglot as sg
+import sqlglot.expressions as sge
 from ibis.backends import CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl
 from ibis.backends.sql import SQLBackend
 from ibis.backends.sql.compiler import C
@@ -28,10 +25,11 @@ from ibis.expr.operations.udf import InputType
 from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
 
-from letsql.backends.datafusion.provider import IbisTableProvider
-from letsql.internal import SessionContext, SessionConfig, TableProvider
+import letsql
+import letsql.internal as df
 from letsql.backends.datafusion.compiler import DataFusionCompiler
-
+from letsql.backends.datafusion.provider import IbisTableProvider
+from letsql.internal import SessionConfig, SessionContext, TableProvider
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -544,7 +542,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     pa.RecordBatch.from_arrays(batch.to_pyarrow().columns, names=names)
                     # cast the struct array to the desired types to work around
                     # https://github.com/apache/arrow-datafusion-python/issues/534
-                    .to_struct_array().cast(struct_schema)
+                    .to_struct_array()
+                    .cast(struct_schema)
                 )
                 for batch in frame.execute_stream()
             )

@@ -1,10 +1,9 @@
-from letsql._internal import optimizer
-
 import ibis
 
-from letsql.sql import parser
-from letsql.internal import ContextProvider, OptimizerContext
+from letsql._internal import optimizer
 from letsql.expr.translate import plan_to_ibis
+from letsql.internal import ContextProvider, OptimizerContext
+from letsql.sql import parser
 
 
 def optimize_sql(sql: str, catalog: dict, dialect: str = None) -> ibis.Expr:

@@ -1,13 +1,12 @@
 from typing import Any
 
-import pytest
 import ibis
 import pandas as pd
 import pandas.testing as tm
+import pytest
 
 import letsql as ls
 from letsql.backends.let import KEY_PREFIX
-
 
 expected_tables = (
     "array_types",

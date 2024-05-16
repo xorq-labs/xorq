@@ -10,7 +10,7 @@ import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
 from ibis.expr import types as ir
 from ibis.expr.schema import SchemaLike
-from sqlglot import parse_one, exp
+from sqlglot import exp, parse_one
 
 import letsql.common.utils.dask_normalize  # noqa: F401
 from letsql.backends.datafusion import Backend as DataFusionBackend
@@ -18,8 +18,8 @@ from letsql.common.caching import (
     SourceStorage,
 )
 from letsql.expr.relations import (
-    replace_cache_table,
     CachedNode,
+    replace_cache_table,
     replace_source_factory,
 )
 from letsql.expr.translate import sql_to_ibis

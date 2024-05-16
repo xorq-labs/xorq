@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ibis
+import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
@@ -10,8 +11,6 @@ from ibis import literal as L
 from pytest import param
 
 from letsql.tests.util import assert_frame_equal, reduction_tolerance
-
-import ibis.common.exceptions as com
 
 
 @ibis.udf.agg.builtin

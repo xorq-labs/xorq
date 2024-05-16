@@ -1,9 +1,9 @@
 from __future__ import annotations
 
+import ibis.expr.types as ir
 import pytest
 from pytest import param
 
-import ibis.expr.types as ir
 from letsql.tests.conftest import TEST_TABLES
 
 

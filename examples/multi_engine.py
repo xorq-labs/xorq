@@ -1,5 +1,4 @@
 import ibis
-
 import letsql as ls
 
 con = ls.connect()  # empty connection

@@ -4,15 +4,14 @@ import pathlib
 
 import ibis
 import pytest
+from ibis import _
 
 import letsql
-from letsql.backends.let.tests.conftest import assert_frame_equal
 from letsql.backends.let import (
-    Backend,
     KEY_PREFIX,
+    Backend,
 )
-
-from ibis import _
+from letsql.backends.let.tests.conftest import assert_frame_equal
 
 
 @pytest.fixture(scope="function")

@@ -1,15 +1,13 @@
 import random
 from pathlib import Path
 
+import ibis
+import numpy as np
 import pandas as pd
 import pytest
+from pytest import param
 
 from letsql.backends.let.tests.conftest import assert_frame_equal
-import ibis
-
-import numpy as np
-
-from pytest import param
 
 
 def _pandas_semi_join(left, right, on, **_):
