@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-import abc
 from pathlib import Path
 from typing import Any, Mapping
 
 import dask
-import ibis.expr.operations as ops
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
-from ibis.common.exceptions import IbisError
 from ibis.expr import types as ir
 from ibis.expr.schema import SchemaLike
 from sqlglot import parse_one, exp
@@ -31,48 +28,12 @@ from letsql.internal import SessionContext
 KEY_PREFIX = "letsql_cache-"
 
 
-class CanListConnections(abc.ABC):
-    @abc.abstractmethod
-    def list_connections(
-        self,
-        like: str | None = None,
-    ) -> list[BaseBackend]:
-        pass
-
-
-class CanCreateConnections(CanListConnections):
-    @abc.abstractmethod
-    def add_connection(
-        self,
-        connection: BaseBackend,
-        name: str | None = None,
-    ) -> None:
-        """Add a connection named `name`."""
-
-    @abc.abstractmethod
-    def drop_connection(
-        self,
-        name: str,
-    ) -> None:
-        """Drop the connection with `name`."""
-
-
-class Backend(DataFusionBackend, CanCreateConnections):
+class Backend(DataFusionBackend):
     name = "let"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.connections = {}
         self.sources = {}
-
-    def add_connection(self, connection: BaseBackend, name: str | None = None) -> None:
-        self.connections[connection.name] = connection
-
-    def drop_connection(self, name: str) -> None:
-        self.connections.pop(name)
-
-    def list_connections(self, like: str | None = None) -> list[BaseBackend]:
-        return list(self.connections.values()) + [self]
 
     def register(
         self,
@@ -80,30 +41,34 @@ class Backend(DataFusionBackend, CanCreateConnections):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
+        backend = self
         if isinstance(source, ir.Table) and hasattr(source, "to_pyarrow_batches"):
             table = source.op()
             backend = table.source
+
             if backend.name == self.name:
-                if (original := backend.sources.get(table, None)) != backend:
-                    if original is not None:
-                        conn = backend.connections[original.name]
-                        source = conn.table(table.name)
+                if (original := backend.sources.get(table, self)) != self:
+                    if original != backend:
+                        source = original.table(table.name)
+                        # TODO check how to execute on the original Backend
                 else:
                     # TODO make a better fix to make the table durable (like a datafusion view)
                     source = original.table(table.name).to_pyarrow_batches()
 
-        return super().register(source, table_name=table_name, **kwargs)
+        registered_table = super().register(source, table_name=table_name, **kwargs)
+        self.sources[registered_table.op()] = backend
+
+        return registered_table
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         expr = self._register_and_transform_cache_tables(expr)
-        _, names_to_drop = self._register_remote_sources(expr)
-        name = self._get_source_name(expr)
+        backend = self._get_source(expr)
 
-        backend = super() if name == self.name else self.connections[name]
-        res = backend.execute(expr, **kwargs)
-
-        for table_name in names_to_drop:
-            super().drop_table(table_name)
+        res = (
+            super().execute(expr, **kwargs)
+            if backend == self
+            else backend.execute(expr, **kwargs)
+        )
 
         return res
 
@@ -112,42 +77,9 @@ class Backend(DataFusionBackend, CanCreateConnections):
     ) -> None:
         super().do_connect(config=config)
 
-    def disconnect(self) -> None:
-        self.connections.clear()
+    def _get_source(self, expr: ir.Expr):
+        """Find the source"""
 
-    def table(
-        self,
-        name: str,
-        schema: str | None = None,
-        database: tuple[str, str] | str | None = None,
-    ) -> ir.Table:
-        backends = list(self.connections.values())
-        backends.append(super())
-
-        for backend in backends:
-            try:
-                t = backend.table(name, schema=schema)
-                original = t.op().source
-                override = t.op().copy(source=self)
-                self.sources[override] = original
-                return override.to_expr()
-            except IbisError:
-                continue
-        else:
-            if self.connections:
-                raise IbisError(f"Table not found: {name!r}")
-
-    def list_tables(
-        self,
-        like: str | None = None,
-        database: str | None = None,
-    ) -> list[str]:
-        backends = list(self.connections.values())
-        backends.append(super())
-
-        return [t for backend in backends for t in backend.list_tables(like=like)]
-
-    def _get_source_name(self, expr: ir.Expr):
         tables = expr.op().find(
             lambda n: (s := getattr(n, "source", None)) and isinstance(s, BaseBackend)
         )
@@ -158,16 +90,12 @@ class Backend(DataFusionBackend, CanCreateConnections):
         )
 
         if len(sources) != 1:
-            return self.name
+            return self
         else:
-            return sources.pop().name
+            return sources.pop()
 
     def _cached(self, expr: ir.Table, storage=None):
-        name = self._get_source_name(expr)
-        if name == self.name:
-            source = self
-        else:
-            source = self.connections[name]
+        source = self._get_source(expr)
         storage = storage or SourceStorage(source)
         op = CachedNode(
             schema=expr.schema(),
@@ -191,6 +119,9 @@ class Backend(DataFusionBackend, CanCreateConnections):
                     value = uncached
                     storage.put(key, value.replace(replace_source))
                 node = storage.get(key)
+                table = node.to_expr()
+                if node.source != self:
+                    self.register(table, table_name=key)
             if hasattr(node, "parent"):
                 parent = kwargs.get("parent", node.parent)
                 node = node.replace({node.parent: parent})
@@ -220,40 +151,6 @@ class Backend(DataFusionBackend, CanCreateConnections):
         query = self._transpile_sql(query, dialect=self.compiler.dialect)
         catalog = self._extract_catalog(query)
         return sql_to_ibis(query, catalog).as_table()
-
-    def _load_into_cache(self, name, op) -> ir.Table:
-        out = op.map_clear(replace_cache_table)
-        expr = out.to_expr()
-        source_name = self._get_source_name(expr)
-        backend = self.connections[source_name]
-        data = backend.to_pyarrow(expr)
-        temp_table = super().create_table(name, data, temp=True)
-        return temp_table
-
-    def _recreate_cache(self, name, data):
-        super().create_table(name, data, temp=True)
-
-    def _register_remote_sources(self, expr):
-        sources = [
-            source
-            for table in expr.op().find(ops.DatabaseTable)
-            if (source := self.sources.get(table, None))
-        ]
-        names = set()
-        if len(sources) > 1:
-            for table in expr.op().find(ops.DatabaseTable):
-                if (source := self.sources.get(table, None)) != self:
-                    if source is not None:
-                        conn = self.connections[source.name]
-
-                        # register a new to_pyarrow_batches table
-                        super().register(conn.table(table.name), table.name)
-
-                        # store the name to do a cleanup after the end of execution
-                        names.add(table.name)
-            expr = expr.op().replace(replace_source_factory(self)).to_expr()
-
-        return expr, names
 
     def _extract_catalog(self, query):
         tables = parse_one(query).find_all(exp.Table)

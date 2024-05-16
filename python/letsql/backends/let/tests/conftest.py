@@ -16,49 +16,55 @@ expected_tables = (
     "awards_players_special_types",
     "batting",
     "diamonds",
-    "films",
     "functional_alltypes",
     "geo",
     "geography_columns",
     "geometry_columns",
-    "intervals",
     "json_t",
     "map",
-    "not_supported_intervals",
     "spatial_ref_sys",
     "topk",
     "tzone",
-    "win",
 )
 
 
 @pytest.fixture(scope="session")
-def dirty():
-    con = ls.connect()
-    con.add_connection(
-        ibis.postgres.connect(
-            host="localhost",
-            port=5432,
-            user="postgres",
-            password="postgres",
-            database="ibis_testing",
-        )
+def pg():
+    conn = ibis.postgres.connect(
+        host="localhost",
+        port=5432,
+        user="postgres",
+        password="postgres",
+        database="ibis_testing",
     )
+    yield conn
+    for table in conn.list_tables():
+        if table.startswith(KEY_PREFIX):
+            conn.drop_table(table)
+
+
+@pytest.fixture(scope="session")
+def dirty(pg):
+    con = ls.connect()
+
+    for table_name in expected_tables:
+        con.register(pg.table(table_name), table_name=table_name)
+
     return con
 
 
 def remove_cached_tables(dirty):
-    for con in dirty.list_connections():
-        for table in con.list_tables():
-            # FIXME: determine if we should drop all or only key-prefixed
-            if table.startswith(KEY_PREFIX):
-                con.drop_table(table)
+    for table in dirty.list_tables():
+        # FIXME: determine if we should drop all or only key-prefixed
+        if table.startswith(KEY_PREFIX):
+            dirty.drop_table(table)
     if sorted(dirty.list_tables()) != sorted(expected_tables):
         raise ValueError
 
 
 @pytest.fixture(scope="function")
 def con(dirty):
+    remove_cached_tables(dirty)
     yield dirty
     # cleanup
     remove_cached_tables(dirty)

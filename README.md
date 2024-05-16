@@ -4,6 +4,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/letsql)
 ![GitHub License](https://img.shields.io/github/license/letsql/letsql)
 ![PyPI - Status](https://img.shields.io/pypi/status/letsql)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/letsql/letsql/ci-test.yml)
 ![Codecov](https://img.shields.io/codecov/c/github/letsql/letsql)
 
 

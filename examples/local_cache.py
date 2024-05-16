@@ -4,19 +4,19 @@ import ibis
 
 import letsql as ls
 
+pg = ibis.postgres.connect(
+    host="localhost",
+    port=5432,
+    user="postgres",
+    password="postgres",
+    database="ibis_testing",
+)
+
 con = ls.connect()  # empty connection
 
-con.add_connection(
-    ibis.postgres.connect(
-        host="localhost",
-        port=5432,
-        user="postgres",
-        password="postgres",
-        database="ibis_testing",
-    )
-)  # add Postgres connection
-
-alltypes = con.table("functional_alltypes")
+alltypes = con.register(
+    pg.table("functional_alltypes"), table_name="functional_alltypes"
+)
 
 expr = alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
 

@@ -174,9 +174,7 @@ def test_register_already_existing_table(con, batting):
 def test_join_non_trivial_filters(con, csv_dir, batting, left_filter):
     ddb = ibis.duckdb.connect()
     ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
-    con.add_connection(ddb)
-
-    awards_players = con.table("ddb_players")
+    awards_players = con.register(ddb.table("ddb_players"), "ddb_players")
 
     left = batting[left_filter]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
@@ -207,7 +205,7 @@ def test_join_non_trivial_filters(con, csv_dir, batting, left_filter):
 
     assert_frame_equal(result, expected, check_like=True)
     ddb.drop_view("ddb_players")
-    con.drop_connection("duckdb")
+    con.drop_table("ddb_players")
 
 
 @pytest.mark.parametrize(
@@ -255,8 +253,7 @@ def test_join_with_trivial_predicate(
 ):
     ddb = ibis.duckdb.connect()
     ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
-    con.add_connection(ddb)
-    ddb_players = con.table("ddb_players")
+    ddb_players = con.register(ddb.table("ddb_players"), table_name="ddb_players")
 
     n = 5
 
@@ -276,13 +273,13 @@ def test_join_with_trivial_predicate(
 
     assert len(result) == len(expected)
     ddb.drop_view("ddb_players")
-    con.drop_connection("duckdb")
+    con.drop_table("ddb_players")
 
 
 def test_sql_execution(con, csv_dir, awards_players, batting):
     ddb = ibis.duckdb.connect()
     ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
-    con.add_connection(ddb)
+    ddb_players = con.register(ddb.table("ddb_players"), table_name="ddb_players")
 
     left = batting[batting.yearID == 2015]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
@@ -291,7 +288,6 @@ def test_sql_execution(con, csv_dir, awards_players, batting):
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
-    ddb_players = con.table("ddb_players")
     right = ddb_players[ddb_players.lgID == "NL"].drop("yearID", "lgID")
     expr = left.join(right, predicate, how="inner")
     query = ibis.to_sql(expr, dialect="datafusion")
@@ -317,4 +313,5 @@ def test_sql_execution(con, csv_dir, awards_players, batting):
     )
 
     assert_frame_equal(result, expected, check_like=True)
+    con.drop_table("ddb_players")
     ddb.drop_view("ddb_players")

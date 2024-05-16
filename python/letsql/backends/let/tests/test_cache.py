@@ -15,6 +15,11 @@ from letsql.backends.let import (
 from ibis import _
 
 
+@pytest.fixture(scope="function")
+def pg_alltypes(pg):
+    return pg.table("functional_alltypes")
+
+
 def test_cache_simple(con, alltypes, alltypes_df):
     initial_tables = con.list_tables()
 
@@ -111,7 +116,7 @@ def test_cache_to_sql(con, alltypes):
     assert ibis.to_sql(cached) == ibis.to_sql(expr)
 
 
-def test_op_after_cache(con, alltypes):
+def test_op_after_cache(alltypes):
     expr = alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
     cached = expr.cache()
     cached = cached.filter(
@@ -138,7 +143,14 @@ def test_op_after_cache(con, alltypes):
     assert ibis.to_sql(cached) == ibis.to_sql(full_expr)
 
 
-def test_cache_recreate(con, alltypes):
+def setup_backend(table, table_name):
+    other = Backend()
+    other.do_connect()
+    other.register(table, table_name=table_name)
+    return other
+
+
+def test_cache_recreate(con, alltypes, pg_alltypes):
     expr = alltypes.select(
         alltypes.smallint_col, alltypes.int_col, alltypes.float_col
     ).filter(
@@ -149,17 +161,19 @@ def test_cache_recreate(con, alltypes):
         ]
     )
     expr.cache().execute()  # execute creation of tables
-    other = Backend()
-    other.do_connect()
-    other.add_connection(
-        ibis.postgres.connect(
-            host="localhost",
-            port=5432,
-            user="postgres",
-            password="postgres",
-            database="ibis_testing",
-        )
+
+    other = setup_backend(pg_alltypes, "functional_alltypes")
+    other_alltypes = other.table("functional_alltypes")
+    other_expr = other_alltypes.select(
+        alltypes.smallint_col, alltypes.int_col, alltypes.float_col
+    ).filter(
+        [
+            alltypes.float_col > 0,
+            alltypes.smallint_col == 9,
+            alltypes.int_col < alltypes.float_col * 2,
+        ]
     )
+    other_expr.cache().execute()
 
     con_cached_tables = set(
         table_name
@@ -180,7 +194,7 @@ def test_cache_recreate(con, alltypes):
         )
 
 
-def test_cache_execution(con, alltypes):
+def test_cache_execution(alltypes):
     cached = (
         alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
         .cache()
