@@ -46,14 +46,9 @@ class Backend(DataFusionBackend):
             table = source.op()
             backend = table.source
 
-            if backend.name == self.name:
-                if (original := backend.sources.get(table, self)) != self:
-                    if original != backend:
-                        source = original.table(table.name)
-                        # TODO check how to execute on the original Backend
-                else:
-                    # TODO make a better fix to make the table durable (like a datafusion view)
-                    source = original.table(table.name).to_pyarrow_batches()
+            if backend == self:
+                original = backend.sources.get(table, self)
+                source = original.table(table.name)
 
         registered_table = super().register(source, table_name=table_name, **kwargs)
         self.sources[registered_table.op()] = backend

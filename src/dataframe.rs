@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use crate::errors::{py_datafusion_err, DataFusionError};
 use crate::physical_plan::PyExecutionPlan;
 use crate::record_batch::PyRecordBatchStream;
-use crate::utils::{get_tokio_runtime, wait_for_future};
+use crate::utils::{get_tokio_runtime, wait_for_completion, wait_for_future};
 
 /// A PyDataFrame is a representation of a logical plan and an API to compose statements.
 /// Use it to build a plan and `.collect()` to execute the plan and collect the result.
@@ -304,9 +304,10 @@ impl PyDataFrame {
         // create a Tokio runtime to run the async code
         let rt = &get_tokio_runtime(py).0;
         let df = self.df.as_ref().clone();
+
         let fut: JoinHandle<datafusion_common::Result<SendableRecordBatchStream>> =
             rt.spawn(async move { df.execute_stream().await });
-        let stream = wait_for_future(py, fut).map_err(py_datafusion_err)?;
+        let stream = wait_for_completion(py, fut).map_err(py_datafusion_err)?;
         Ok(PyRecordBatchStream::new(stream?))
     }
 

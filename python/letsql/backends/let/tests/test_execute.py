@@ -67,6 +67,13 @@ def csv_dir():
     return data_dir
 
 
+@pytest.fixture(scope="session")
+def parquet_dir():
+    root = Path(__file__).absolute().parents[5]
+    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
+    return data_dir
+
+
 def test_join(con, alltypes, alltypes_df):
     first_10 = alltypes_df.head(10)
     in_memory = con.register(first_10, table_name="in_memory")
@@ -315,3 +322,57 @@ def test_sql_execution(con, csv_dir, awards_players, batting):
     assert_frame_equal(result, expected, check_like=True)
     con.drop_table("ddb_players")
     ddb.drop_view("ddb_players")
+
+
+def test_multiple_execution_letsql_register_table(con, csv_dir):
+    table_name = "csv_players"
+    t = con.register(csv_dir / "awards_players.csv", table_name=table_name)
+    con.register(t, table_name=f"{con.name}_{table_name}")
+
+    assert (first := t.execute()) is not None
+    assert (second := t.execute()) is not None
+    assert_frame_equal(first, second)
+
+    con.drop_table(table_name)
+    con.drop_table(f"{con.name}_{table_name}")
+
+
+@pytest.mark.parametrize(
+    "other_con",
+    [
+        ibis.datafusion.connect(),
+        ibis.duckdb.connect(),
+        ibis.postgres.connect(
+            host="localhost",
+            port=5432,
+            user="postgres",
+            password="postgres",
+            database="ibis_testing",
+        ),
+    ],
+)
+def test_expr_over_same_table_multiple_times(con, parquet_dir, other_con):
+    batting_path = parquet_dir.joinpath("batting.parquet")
+    table_name = "batting"
+    col = "playerID"
+
+    batting_name = f"{con.name}_{table_name}"
+    batting = con.register(batting_path, table_name=batting_name)
+
+    if other_con.name == "postgres":
+        t = other_con.table(table_name)
+    else:
+        t = other_con.register(batting_path, table_name=table_name)
+
+    ls_table_name = f"{other_con.name}_{table_name}"
+    con.register(t, ls_table_name)
+    other = con.table(ls_table_name)
+
+    expr = batting[[col]].distinct().join(other[[col]].distinct(), col)
+
+    assert (first := expr.execute()) is not None
+    assert (second := expr.execute()) is not None
+    assert_frame_equal(first.sort_values(col), second.sort_values(col))
+
+    con.drop_table(ls_table_name)
+    con.drop_table(batting_name)

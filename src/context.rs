@@ -32,7 +32,7 @@ use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
-use crate::utils::wait_for_future;
+use crate::utils::{wait_for_completion, wait_for_future};
 
 /// Configuration options for a SessionContext
 #[pyclass(name = "SessionConfig", module = "datafusion", subclass)]
@@ -169,7 +169,7 @@ impl PySessionContext {
     /// Returns a PyDataFrame whose plan corresponds to the SQL statement.
     fn sql(&mut self, query: &str, py: Python) -> PyResult<PyDataFrame> {
         let result = self.ctx.sql(query);
-        let df = wait_for_future(py, result).map_err(DataFusionError::from)?;
+        let df = wait_for_completion(py, result).unwrap();
         Ok(PyDataFrame::new(df))
     }
 
