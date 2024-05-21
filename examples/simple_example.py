@@ -1,8 +1,12 @@
+import pathlib
+
 import letsql as ls
+
 
 con = ls.connect()
 
-iris = con.read_csv("data/iris.csv", "iris")
+iris_data_path = pathlib.Path(__file__).absolute().parent / "data" / "iris.csv"
+iris = con.read_csv(iris_data_path, "iris")
 
 res = (
     iris.filter([iris.sepal_length > 5])
