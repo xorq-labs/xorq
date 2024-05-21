@@ -44,7 +44,7 @@ def normalize_datafusion_databasetable(dt):
     if dt.source.name not in ("datafusion", "let"):
         raise ValueError
     ep_str = str(dt.source.con.table(dt.name).execution_plan())
-    if ep_str.startswith("ParquetExec:"):
+    if ep_str.startswith(("ParquetExec:", "CsvExec:")):
         return dask.base._normalize_seq_func(
             (
                 dt.schema.to_pandas(),
@@ -75,7 +75,7 @@ def normalize_remote_databasetable(dt):
 def normalize_letsql_databasetable(dt):
     if dt.source.name != "let":
         raise ValueError
-    native_source = dt.source.sources[dt]
+    native_source = dt.source._sources.get_backend(dt)
     if native_source.name == "let":
         return normalize_datafusion_databasetable(dt)
     new_dt = make_native_op(dt)

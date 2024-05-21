@@ -14,7 +14,7 @@ pg = ibis.postgres.connect(
 con = ls.connect()  # empty connection
 
 alltypes = con.register(
-    pg.table("functional_alltypes"), table_name="functional_alltypes"
+    pg.table("functional_alltypes"), table_name="pg_functional_alltypes"
 )
 
 expr = alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)

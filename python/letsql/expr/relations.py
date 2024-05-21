@@ -25,7 +25,7 @@ def make_native_op(node):
     # FIXME: how to reference let.Backend.name?
     if node.source.name != "let":
         raise ValueError
-    native_source = node.source.sources[node]
+    native_source = node.source._sources.get_backend(node)
     if native_source.name == "let":
         raise ValueError
     return node.replace(replace_source_factory(native_source))

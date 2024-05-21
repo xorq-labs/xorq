@@ -10,6 +10,7 @@ import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
 from ibis.expr import types as ir
 from ibis.expr.schema import SchemaLike
+
 from sqlglot import exp, parse_one
 
 import letsql.common.utils.dask_normalize  # noqa: F401
@@ -17,6 +18,7 @@ from letsql.backends.datafusion import Backend as DataFusionBackend
 from letsql.common.caching import (
     SourceStorage,
 )
+from letsql.common.collections import SourceDict
 from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
@@ -33,7 +35,7 @@ class Backend(DataFusionBackend):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.sources = {}
+        self._sources = SourceDict()
 
     def register(
         self,
@@ -41,31 +43,33 @@ class Backend(DataFusionBackend):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        backend = self
+        table = None
         if isinstance(source, ir.Table) and hasattr(source, "to_pyarrow_batches"):
             table = source.op()
             backend = table.source
 
             if backend == self:
-                original = backend.sources.get(table, self)
+                original = self._sources.get_backend(table, self)
                 source = original.table(table.name)
+                table = source.op()
 
         registered_table = super().register(source, table_name=table_name, **kwargs)
-        self.sources[registered_table.op()] = backend
+        self._sources[registered_table.op()] = table or registered_table.op()
 
         return registered_table
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
+        def replace_table(node, _, **_kwargs):
+            return self._sources.get_table(node, node.__recreate__(_kwargs))
+
+        expr = expr.op().replace(replace_table).to_expr()
         expr = self._register_and_transform_cache_tables(expr)
         backend = self._get_source(expr)
 
-        res = (
-            super().execute(expr, **kwargs)
-            if backend == self
-            else backend.execute(expr, **kwargs)
-        )
+        if backend == self:
+            backend = super()
 
-        return res
+        return backend.execute(expr, **kwargs)
 
     def do_connect(
         self, config: Mapping[str, str | Path] | SessionContext | None = None
@@ -81,7 +85,8 @@ class Backend(DataFusionBackend):
 
         # assumes only one backend per DB type
         sources = set(
-            self.sources.get(table, getattr(table, "source", self)) for table in tables
+            self._sources.get_backend(table, getattr(table, "source", self))
+            for table in tables
         )
 
         if len(sources) != 1:
