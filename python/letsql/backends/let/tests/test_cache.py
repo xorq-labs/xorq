@@ -8,9 +8,9 @@ from ibis import _
 
 import letsql
 from letsql.backends.let import (
-    KEY_PREFIX,
     Backend,
 )
+from letsql.common.caching import KEY_PREFIX
 from letsql.backends.let.tests.conftest import assert_frame_equal
 
 

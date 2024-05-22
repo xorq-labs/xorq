@@ -2,7 +2,7 @@ import pathlib
 import runpy
 import pytest
 
-from letsql.backends.let import KEY_PREFIX
+from letsql.common.caching import KEY_PREFIX
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent

@@ -3,7 +3,6 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping
 
-import dask
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
@@ -13,7 +12,6 @@ from ibis.expr.schema import SchemaLike
 
 from sqlglot import exp, parse_one
 
-import letsql.common.utils.dask_normalize  # noqa: F401
 from letsql.backends.datafusion import Backend as DataFusionBackend
 from letsql.common.caching import (
     SourceStorage,
@@ -22,12 +20,9 @@ from letsql.common.collections import SourceDict
 from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
-    replace_source_factory,
 )
 from letsql.expr.translate import sql_to_ibis
 from letsql.internal import SessionContext
-
-KEY_PREFIX = "letsql_cache-"
 
 
 class Backend(DataFusionBackend):
@@ -109,28 +104,18 @@ class Backend(DataFusionBackend):
         """This function will sequentially execute any cache node that is not already cached"""
 
         def fn(node, _, **kwargs):
+            node = node.__recreate__(kwargs)
             if isinstance(node, CachedNode):
-                replace_source = replace_source_factory(node.source)
-                uncached = node.map_clear(replace_cache_table)
-                # datafusion+ParquetStorage requires key have .parquet suffix: maybe push suffix append into ParquetStorage?
-                key = KEY_PREFIX + dask.base.tokenize(uncached.to_expr())
-                storage = kwargs["storage"]
-                if not storage.exists(key):
-                    value = uncached
-                    storage.put(key, value.replace(replace_source))
-                node = storage.get(key)
+                uncached, storage = node.parent, node.storage
+                uncached_to_expr = uncached.to_expr()
+                node = storage.set_default(uncached_to_expr, uncached)
                 table = node.to_expr()
                 if node.source != self:
-                    self.register(table, table_name=key)
-            if hasattr(node, "parent"):
-                parent = kwargs.get("parent", node.parent)
-                node = node.replace({node.parent: parent})
-
+                    self.register(table, table_name=storage.get_key(uncached_to_expr))
             return node
 
         op = expr.op()
-        results = op.map(fn)
-        out = results[op]
+        out = op.replace(fn)
 
         return out.to_expr()
 

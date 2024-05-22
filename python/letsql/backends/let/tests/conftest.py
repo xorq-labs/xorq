@@ -6,7 +6,7 @@ import pandas.testing as tm
 import pytest
 
 import letsql as ls
-from letsql.backends.let import KEY_PREFIX
+from letsql.common.caching import KEY_PREFIX
 
 expected_tables = (
     "array_types",

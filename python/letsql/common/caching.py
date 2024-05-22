@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import operator
 import pathlib
 from abc import (
@@ -6,6 +8,7 @@ from abc import (
 )
 
 import ibis
+from ibis.expr import types as ir
 import toolz
 from attr import (
     field,
@@ -20,8 +23,14 @@ from cloudpickle import (
 from cloudpickle import (
     load as _load,
 )
+import dask
+import letsql.common.utils.dask_normalize  # noqa: F401
+
 
 abs_path_converter = toolz.compose(operator.methodcaller("absolute"), pathlib.Path)
+
+
+KEY_PREFIX = "letsql_cache-"
 
 
 def dump(obj, path):
@@ -36,12 +45,23 @@ def load(path):
 
 class CacheStorage(ABC):
     @abstractmethod
-    def exists(self, key):
+    def exists(self, expr: ir.Expr):
         pass
 
-    def get(self, key):
-        if not self.exists(key):
+    def get_key(self, expr: ir.Expr):
+        return KEY_PREFIX + dask.base.tokenize(expr)
+
+    def get(self, expr: ir.Expr):
+        if not self.exists(expr):
             raise KeyError
+        else:
+            key = self.get_key(expr)
+            return self._get(key)
+
+    def set_default(self, expr: ir.Expr, default):
+        key = self.get_key(expr)
+        if not self.exists(expr):
+            return self._put(key, default)
         else:
             return self._get(key)
 
@@ -49,21 +69,23 @@ class CacheStorage(ABC):
     def _get(self, key):
         pass
 
-    def put(self, key, value):
-        if self.exists(key):
+    def put(self, expr: ir.Expr, value):
+        if self.exists(expr):
             raise ValueError
         else:
+            key = self.get_key(expr)
             return self._put(key, value)
 
     @abstractmethod
     def _put(self, key, value):
         pass
 
-    def drop(self, key):
-        if not self.exist(key):
+    def drop(self, expr: ir.Expr):
+        if not self.exists(expr):
             raise KeyError
         else:
-            return self._drop(key)
+            key = self.get_key(expr)
+            self._drop(key)
 
     @abstractmethod
     def _drop(self, key):
@@ -81,7 +103,8 @@ class ParquetCacheStorage(CacheStorage):
     def get_loc(self, key):
         return self.path.joinpath(key + ".parquet")
 
-    def exists(self, key):
+    def exists(self, expr):
+        key = self.get_key(expr)
         return self.get_loc(key).exists()
 
     def _get(self, key):
@@ -91,7 +114,7 @@ class ParquetCacheStorage(CacheStorage):
     def _put(self, key, value):
         loc = self.get_loc(key)
         value.to_expr().to_parquet(loc)
-        return self.get(key)
+        return self._get(key)
 
     def _drop(self, key):
         path = self.get_loc(key)
@@ -104,7 +127,8 @@ class ParquetCacheStorage(CacheStorage):
 class SourceStorage(CacheStorage):
     source = field(validator=instance_of(ibis.backends.BaseBackend))
 
-    def exists(self, key):
+    def exists(self, expr):
+        key = self.get_key(expr)
         return key in self.source.tables
 
     def _get(self, key):
@@ -112,7 +136,7 @@ class SourceStorage(CacheStorage):
 
     def _put(self, key, value):
         self.source.create_table(key, value.to_expr())
-        return self.get(key)
+        return self._get(key)
 
     def _drop(self, key):
         self.source.drop_table(key)
