@@ -167,6 +167,7 @@
           ] ++ (builtins.attrValues letsql-commands);
         };
         shellHook = ''
+          export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
           ${letsql-commands.letsql-ensure-download-data}/bin/letsql-ensure-download-data
         '';
 

@@ -1,8 +1,12 @@
 import dask
 import ibis
 import ibis.expr.operations.relations as ir
+
 from letsql.expr.relations import (
     make_native_op,
+)
+from letsql.common.utils.postgres_utils import (
+    get_postgres_n_reltuples,
 )
 
 
@@ -60,7 +64,7 @@ def normalize_datafusion_databasetable(dt):
 
 
 def normalize_remote_databasetable(dt):
-    if dt.source.name not in ("postgres", "snowflake"):
+    if dt.source.name not in ("snowflake",):
         raise ValueError
     return dask.base._normalize_seq_func(
         (
@@ -68,6 +72,20 @@ def normalize_remote_databasetable(dt):
             dt.schema,
             dt.source,
             dt.namespace,
+        )
+    )
+
+
+def normalize_postgres_databasetable(dt):
+    if dt.source.name != "postgres":
+        raise ValueError
+    return dask.base._normalize_seq_func(
+        (
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            get_postgres_n_reltuples(dt),
         )
     )
 
@@ -87,7 +105,7 @@ def normalize_databasetable(dt):
     dct = {
         "pandas": normalize_pandas_databasetable,
         "datafusion": normalize_datafusion_databasetable,
-        "postgres": normalize_remote_databasetable,
+        "postgres": normalize_postgres_databasetable,
         "snowflake": normalize_remote_databasetable,
         "let": normalize_letsql_databasetable,
     }

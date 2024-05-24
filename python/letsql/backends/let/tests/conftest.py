@@ -6,7 +6,7 @@ import pandas.testing as tm
 import pytest
 
 import letsql as ls
-from letsql.common.caching import KEY_PREFIX
+
 
 expected_tables = (
     "array_types",
@@ -37,9 +37,7 @@ def pg():
         database="ibis_testing",
     )
     yield conn
-    for table in conn.list_tables():
-        if table.startswith(KEY_PREFIX):
-            conn.drop_table(table)
+    remove_unexpected_tables(conn)
 
 
 @pytest.fixture(scope="session")
@@ -52,10 +50,9 @@ def dirty(pg):
     return con
 
 
-def remove_cached_tables(dirty):
+def remove_unexpected_tables(dirty):
     for table in dirty.list_tables():
-        # FIXME: determine if we should drop all or only key-prefixed
-        if table.startswith(KEY_PREFIX):
+        if table not in expected_tables:
             dirty.drop_table(table)
     if sorted(dirty.list_tables()) != sorted(expected_tables):
         raise ValueError
@@ -63,10 +60,10 @@ def remove_cached_tables(dirty):
 
 @pytest.fixture(scope="function")
 def con(dirty):
-    remove_cached_tables(dirty)
+    remove_unexpected_tables(dirty)
     yield dirty
     # cleanup
-    remove_cached_tables(dirty)
+    remove_unexpected_tables(dirty)
 
 
 @pytest.fixture(scope="session")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pathlib
+import time
 
 import ibis
 import pytest
@@ -10,8 +11,13 @@ import letsql
 from letsql.backends.let import (
     Backend,
 )
-from letsql.common.caching import KEY_PREFIX
 from letsql.backends.let.tests.conftest import assert_frame_equal
+from letsql.common.caching import KEY_PREFIX
+from letsql.common.utils.postgres_utils import (
+    do_analyze,
+    get_postgres_n_scans,
+)
+from letsql.expr.relations import CachedNode
 
 
 @pytest.fixture(scope="function")
@@ -281,3 +287,67 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
     expected = expr.execute()
     actual = cached.execute()
     assert_frame_equal(actual, expected)
+
+
+def test_postgres_cache_invalidation(pg, con):
+    def modify_postgres_table(dt):
+        (con, name) = (dt.source, dt.name)
+        statement = f"""
+        INSERT INTO "{name}"
+        DEFAULT VALUES
+        """
+        con.raw_sql(statement)
+
+    def assert_n_scans_changes(dt, n_scans_before):
+        do_analyze(dt.source, dt.name)
+        for _ in range(10):  # noqa: F402
+            # give postgres some time to update its tables
+            time.sleep(0.1)
+            n_scans_after = get_postgres_n_scans(dt)
+            if n_scans_before != n_scans_after:
+                return n_scans_after
+        else:
+            raise
+
+    def get_storage_uncached(con, expr):
+        op = expr.op()
+        assert isinstance(op, CachedNode)
+
+        def replace_table(node, _, **_kwargs):
+            return con._sources.get_table(node, node.__recreate__(_kwargs))
+
+        uncached = expr.op().replace(replace_table).parent.to_expr()
+        return (op.storage, uncached)
+
+    (from_name, to_name) = ("batting", "batting_to_modify")
+    pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))
+    expr_cached = (
+        con.register(pg_t, table_name=to_name)
+        .group_by("playerID")
+        .size()
+        .order_by("playerID")
+        .cache()
+    )
+    dt = pg_t.op()
+    (storage, uncached) = get_storage_uncached(con, expr_cached)
+
+    # assert initial state
+    assert not storage.exists(uncached)
+    n_scans_before = get_postgres_n_scans(dt)
+    assert n_scans_before == 0
+
+    # assert first execution state
+    expr_cached.execute()
+    n_scans_after = assert_n_scans_changes(dt, n_scans_before)
+    # should we test that SourceCache.get is called?
+    assert n_scans_after == 1
+    assert storage.exists(uncached)
+
+    # assert no change after re-execution of cached expr
+    expr_cached.execute()
+    assert n_scans_after == get_postgres_n_scans(dt)
+
+    # assert cache invalidation happens
+    modify_postgres_table(dt)
+    expr_cached.execute()
+    assert_n_scans_changes(dt, n_scans_after)
