@@ -143,7 +143,7 @@
           src = pySrc;
           preferWheels = true;
           python = python';
-          groups = [ "dev" ];
+          groups = [ "dev" "test" ];
         };
         myapp = (mkPoetryApplication (commonPoetryArgs // {
           buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [

@@ -31,6 +31,7 @@ jobs:
         uses: codespell-project/actions-codespell@v2
         with:
           path: "python src"
+          ignore_words_file: .codespell.ignore-words
       - name: Install Python
         uses: actions/setup-python@v5
         with:

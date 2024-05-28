@@ -13,6 +13,7 @@ repos:
       - id: codespell
         additional_dependencies:
           - tomli
+        args: [--ignore-words=.codespell.ignore-words]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
     rev: v0.4.4
