@@ -11,13 +11,17 @@ import letsql
 from letsql.backends.let import (
     Backend,
 )
-from letsql.backends.let.tests.conftest import assert_frame_equal
+from letsql.backends.conftest import (
+    get_storage_uncached,
+)
 from letsql.common.caching import KEY_PREFIX
 from letsql.common.utils.postgres_utils import (
     do_analyze,
     get_postgres_n_scans,
 )
-from letsql.expr.relations import CachedNode
+from letsql.tests.util import (
+    assert_frame_equal,
+)
 
 
 @pytest.fixture(scope="function")
@@ -308,16 +312,6 @@ def test_postgres_cache_invalidation(pg, con):
                 return n_scans_after
         else:
             raise
-
-    def get_storage_uncached(con, expr):
-        op = expr.op()
-        assert isinstance(op, CachedNode)
-
-        def replace_table(node, _, **_kwargs):
-            return con._sources.get_table(node, node.__recreate__(_kwargs))
-
-        uncached = expr.op().replace(replace_table).parent.to_expr()
-        return (op.storage, uncached)
 
     (from_name, to_name) = ("batting", "batting_to_modify")
     pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))

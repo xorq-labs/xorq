@@ -1,8 +1,4 @@
-from typing import Any
-
 import ibis
-import pandas as pd
-import pandas.testing as tm
 import pytest
 
 import letsql as ls
@@ -84,12 +80,3 @@ def awards_players(dirty):
 @pytest.fixture(scope="session")
 def alltypes_df(alltypes):
     return alltypes.execute()
-
-
-def assert_frame_equal(
-    left: pd.DataFrame, right: pd.DataFrame, *args: Any, **kwargs: Any
-) -> None:
-    left = left.reset_index(drop=True)
-    right = right.reset_index(drop=True)
-    kwargs.setdefault("check_dtype", True)
-    tm.assert_frame_equal(left, right, *args, **kwargs)

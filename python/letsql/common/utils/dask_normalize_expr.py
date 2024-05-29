@@ -8,6 +8,9 @@ from letsql.expr.relations import (
 from letsql.common.utils.postgres_utils import (
     get_postgres_n_reltuples,
 )
+from letsql.common.utils.snowflake_utils import (
+    get_snowflake_last_modification_time,
+)
 
 
 def expr_is_bound(expr):
@@ -64,8 +67,6 @@ def normalize_datafusion_databasetable(dt):
 
 
 def normalize_remote_databasetable(dt):
-    if dt.source.name not in ("snowflake",):
-        raise ValueError
     return dask.base._normalize_seq_func(
         (
             dt.name,
@@ -90,6 +91,20 @@ def normalize_postgres_databasetable(dt):
     )
 
 
+def normalize_snowflake_databasetable(dt):
+    if dt.source.name != "snowflake":
+        raise ValueError
+    return dask.base._normalize_seq_func(
+        (
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            get_snowflake_last_modification_time(dt),
+        )
+    )
+
+
 def normalize_letsql_databasetable(dt):
     if dt.source.name != "let":
         raise ValueError
@@ -106,7 +121,7 @@ def normalize_databasetable(dt):
         "pandas": normalize_pandas_databasetable,
         "datafusion": normalize_datafusion_databasetable,
         "postgres": normalize_postgres_databasetable,
-        "snowflake": normalize_remote_databasetable,
+        "snowflake": normalize_snowflake_databasetable,
         "let": normalize_letsql_databasetable,
     }
     f = dct[dt.source.name]

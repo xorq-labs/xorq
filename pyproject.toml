@@ -97,6 +97,9 @@ filterwarnings = [
     "ignore:Passing a BlockManager to DataFrame is deprecated:DeprecationWarning",
     "ignore:.+ /workspace/src/objective/regression_obj.cu:UserWarning"
 ]
+markers = [
+    "snowflake",
+]
 
 
 [tool.git-cliff.changelog]

@@ -7,7 +7,9 @@ import pandas as pd
 import pytest
 from pytest import param
 
-from letsql.backends.let.tests.conftest import assert_frame_equal
+from letsql.tests.util import (
+    assert_frame_equal,
+)
 
 
 def _pandas_semi_join(left, right, on, **_):
