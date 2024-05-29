@@ -1,0 +1,17 @@
+```{python}
+#| echo: false
+#| output: asis
+
+from _utils import get_backend, render_methods
+
+backend = get_backend()
+
+methods = sorted(
+    key for key, value in backend.all_members.items()
+    if value.is_function
+    if not value.name.startswith("_")
+    if value.name != "do_connect"
+)
+
+render_methods(backend, *methods, level=3)
+```

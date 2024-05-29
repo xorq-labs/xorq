@@ -7,6 +7,7 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/letsql/letsql/ci-test.yml)
 ![Codecov](https://img.shields.io/codecov/c/github/letsql/letsql)
 
+Data processing library built on top of **Ibis** and **DataFusion** to write multi-engine data workflows.
 
 ## Getting Started
 

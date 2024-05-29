@@ -1,0 +1,252 @@
+project:
+  type: website
+
+website:
+  title: "LETSQL"
+  navbar:
+    background: primary
+    search: true
+  sidebar:
+    style: floating
+    collapse-level: 2
+    contents:
+      - section: "Overview"
+        contents:
+          - concepts.qmd
+      - section: "User Guide"
+        contents:
+          - installation.qmd
+          - quick-start.qmd
+          - tutorial.qmd
+      - section: "API Reference"
+        contents:
+          - section: "Backend API"
+            contents:
+              - auto: api/*.qmd
+          - section: "Expression API"
+            contents:
+              - reference/expression-relations.qmd
+              - reference/expression-generic.qmd
+              - reference/expression-numeric.qmd
+              - reference/expression-strings.qmd
+              - reference/expression-temporal.qmd
+
+  page-navigation: false
+
+format:
+  html:
+    theme:
+      - cosmo
+      - custom.scss
+    css: styles.css
+    toc: true
+
+quartodoc:
+  package: ibis
+  title: Reference
+  sidebar: reference/_sidebar.yml
+  render_interlinks: true
+  renderer: _renderer.py
+  options:
+    signature_name: short
+  sections:
+    - title: Expression API
+      desc: "APIs for manipulating table, column and scalar expressions"
+      contents:
+        - kind: page
+          path: expression-relations
+          summary:
+            name: Table expressions
+            desc: Tables are one of the core data structures in Ibis.
+          package: ibis.expr.types.relations
+          contents:
+            - name: Table
+              members:
+                - alias
+                - as_scalar
+                - count
+                - difference
+                - distinct
+                - dropna
+                - fillna
+                - filter
+                - intersect
+                - limit
+                - order_by
+                - sample
+                - select
+                - sql
+                - union
+                - view
+
+        - kind: page
+          path: expression-generic
+          package: ibis.expr.types.generic
+          summary:
+            name: Generic expressions
+            desc: Scalars and columns of any element type.
+          contents:
+            - name: Value
+              members:
+                - asc
+                - cast
+                - coalesce
+                - collect
+                - identical_to
+                - isin
+                - isnull
+                - name
+                - notnull
+                - nullif
+                - try_cast
+            - name: Scalar
+              members:
+                - as_table
+            - name: Column
+              members:
+                - approx_median
+                - approx_nunique
+                - arbitrary
+                - count
+                - first
+                - lag
+                - last
+                - lead
+                - max
+                - median
+                - min
+                - nth
+                - nunique
+
+        - kind: page
+          path: expression-numeric
+          package: ibis.expr.types.numeric
+          summary:
+            name: Numeric and Boolean expressions
+            desc: Integer, floating point, decimal, and boolean expressions.
+          contents:
+            - name: NumericColumn
+              members:
+                - abs
+                - acos
+                - asin
+                - atan
+                - atan2
+                - bucket
+                - ceil
+                - corr
+                - cos
+                - cot
+                - cov
+                - degrees
+                - exp
+                - floor
+                - ln
+                - log
+                - log10
+                - log2
+                - mean
+                - negate
+                - radians
+                - round
+                - sign
+                - sin
+                - sqrt
+                - std
+                - sum
+                - tan
+                - var
+            - name: IntegerColumn
+              members:
+                - bit_and
+                - bit_or
+                - bit_xor
+                - to_timestamp
+            - name: FloatingColumn
+              members:
+                - isinf
+                - isnan
+
+        - kind: page
+          path: expression-strings
+          package: ibis.expr.types.strings
+          summary:
+            name: String expressions
+            desc: All string operations are valid for both scalars and columns.
+          contents:
+            - name: StringValue
+              members:
+                - ascii_str
+                - authority
+                - capitalize
+                - concat
+                - contains
+                - endswith
+                - find
+                - find_in_set
+                - fragment
+                - host
+                - length
+                - levenshtein
+                - lower
+                - lpad
+                - lstrip
+                - path
+                - protocol
+                - query
+                - re_extract
+                - re_replace
+                - re_search
+                - re_split
+                - repeat
+                - replace
+                - reverse
+                - right
+                - rpad
+                - rstrip
+                - split
+                - startswith
+                - strip
+                - substr
+                - to_date
+                - translate
+                - upper
+                - userinfo
+
+        - kind: page
+          path: expression-temporal
+          package: ibis.expr.types.temporal
+          summary:
+            name: Temporal expressions
+            desc: Dates, times, timestamps and intervals.
+          contents:
+            - name: TimeValue
+              members:
+                - hour
+                - microsecond
+                - millisecond
+                - minute
+                - second
+                - time
+                - truncate
+            - name: DateValue
+              members:
+                - day
+                - day_of_year
+                - epoch_seconds
+                - month
+                - quarter
+                - truncate
+                - week_of_year
+                - year
+            - name: DayOfWeek
+              members:
+                - full_name
+                - index
+            - name: TimestampValue
+              members:
+                - date
+                - truncate
+            - name: IntervalValue
+              members:
+                - to_unit

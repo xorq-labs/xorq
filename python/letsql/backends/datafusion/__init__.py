@@ -105,7 +105,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         try:
             result = (
-                self.raw_sql(f"DESCRIBE {table.sql(self.name)}")
+                self.raw_sql(f"DESCRIBE {table.sql(self.dialect)}")
                 .to_arrow_table()
                 .to_pydict()
             )
@@ -296,7 +296,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         Parameters
         ----------
         source
-            The data source(s). May be a path to a file or directory of
+            The data source(s). Maybe a path to a file or directory of
             parquet/csv files, a pandas dataframe, or a pyarrow table, dataset
             or record batch.
         table_name
@@ -437,7 +437,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         path = normalize_filename(path)
         table_name = table_name or gen_name("read_csv")
-        # Our other backends support overwriting views / tables when reregistering
+        # Our other backends support overwriting views / tables when re-registering
         self.con.deregister_table(table_name)
         self.con.register_csv(table_name, path, **kwargs)
         return self.table(table_name)

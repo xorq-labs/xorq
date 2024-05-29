@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from letsql import examples
 from letsql.backends.let import Backend
+
 
 try:
     import importlib.metadata as importlib_metadata
 except ModuleNotFoundError:
     import importlib_metadata
+
+__all__ = ["examples", "connect"]
 
 
 def connect() -> Backend:
