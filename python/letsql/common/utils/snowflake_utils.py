@@ -75,11 +75,16 @@ def grant_create_schema(con, role="public"):
 
 
 def get_snowflake_last_modification_time(dt):
-    (con, table, database) = (dt.source, dt.name, dt.namespace.catalog)
+    (con, table, database, schema) = (
+        dt.source,
+        dt.name,
+        dt.namespace.catalog,
+        dt.namespace.database,
+    )
     values = (
         con.table("TABLES", database=(database, "INFORMATION_SCHEMA"))[
             lambda t: t.TABLE_NAME == table
-        ]
+        ][lambda t: t.TABLE_SCHEMA == schema]
         .LAST_ALTERED.execute()
         .values
     )

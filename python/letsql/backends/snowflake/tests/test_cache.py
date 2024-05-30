@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 
 import ibis
+import ibis.expr.operations as ops
 import pandas as pd
 import pytest
 from ibis.util import gen_name
@@ -16,7 +17,25 @@ from letsql.backends.snowflake.tests.conftest import (
 )
 from letsql.common.utils.snowflake_utils import (
     get_session_query_df,
+    get_snowflake_last_modification_time,
 )
+
+
+@pytest.mark.snowflake
+def test_snowflake_cache_with_name_multiplicity(sf_con):
+    (catalog, db) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1")
+    table = "CUSTOMER"
+    n_tables = (
+        sf_con.table("TABLES", database=(catalog, "INFORMATION_SCHEMA"))[
+            lambda t: t.TABLE_NAME == table
+        ]
+        .count()
+        .execute()
+    )
+    assert n_tables > 1
+    t = sf_con.table(table, database=(catalog, db))
+    (dt,) = t.op().find(ops.DatabaseTable)
+    get_snowflake_last_modification_time(dt)
 
 
 @pytest.mark.snowflake
