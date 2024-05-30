@@ -39,3 +39,17 @@ download-data owner="ibis-project" repo="testing-data" rev="master":
 # start backends using docker compose; no arguments starts all backends
 up *backends:
     docker compose up --build --wait {{ backends }}
+
+# generate API documentation
+docs-apigen *args:
+    cd docs && poetry run quartodoc interlinks
+    poetry run quartodoc build {{ args }} --config docs/_quarto.yml
+
+# build documentation
+docs-render:
+    poetry run quarto render docs
+
+# run the entire docs build pipeline
+docs-build-all:
+    just docs-apigen --verbose
+    just docs-render

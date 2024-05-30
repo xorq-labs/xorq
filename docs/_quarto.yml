@@ -2,44 +2,76 @@ project:
   type: website
 
 website:
+  page-navigation: true
   title: "LETSQL"
-  navbar:
-    background: primary
-    search: true
-  sidebar:
-    style: floating
-    collapse-level: 2
-    contents:
-      - section: "Overview"
-        contents:
-          - concepts.qmd
-      - section: "User Guide"
-        contents:
-          - installation.qmd
-          - quick-start.qmd
-          - tutorial.qmd
-      - section: "API Reference"
-        contents:
-          - section: "Backend API"
-            contents:
-              - auto: api/*.qmd
-          - section: "Expression API"
-            contents:
-              - reference/expression-relations.qmd
-              - reference/expression-generic.qmd
-              - reference/expression-numeric.qmd
-              - reference/expression-strings.qmd
-              - reference/expression-temporal.qmd
+  description: "A modern data processing library focused on composability, portability and performance in critical path of ML."
 
-  page-navigation: false
+  page-footer:
+    center: "This page is built with [Quarto](https://quarto.org/)."
+    background: "#A7D5E8"
+
+  navbar:
+    background: "#A7D5E8"
+    logo: "images/logo.png"
+    align: center
+    title: false
+    collapse-below: lg
+    search: true
+
+    right:
+      - icon: github
+        href: https://github.com/letsql/letsql
+
+    left:
+      - text: "Overview"
+        href: concepts.qmd
+      - text: "User Guide"
+        href: installation.qmd
+      - text: "API Reference"
+        href: api-reference.qmd
+
+  sidebar:
+    - id: overview
+      title: "Overview"
+      style: "floating"
+      collapse-level: 2
+      align: left
+      contents:
+        - href: concepts.qmd
+    - id: user-guide
+      title: "User Guide"
+      contents:
+        - href: installation.qmd
+        - href: quick-start.qmd
+        - href: tutorial.qmd
+    - id: api-reference
+      title: "API Reference"
+      contents:
+        - href: api-reference.qmd
+        - id: backend-api
+          section: "Backend API"
+          contents:
+            - href: api/let.qmd
+        - id: expression-api
+          section: "Expression API"
+          contents:
+            - href: reference/expression-relations.qmd
+            - href: reference/expression-generic.qmd
+            - href: reference/expression-numeric.qmd
+            - href: reference/expression-strings.qmd
+            - href: reference/expression-temporal.qmd
+
 
 format:
   html:
     theme:
       - cosmo
-      - custom.scss
-    css: styles.css
+      - style/letsql.scss
     toc: true
+    code-copy: true
+    code-overflow: wrap
+    mainfont: "Atkinson Hyperlegible"
+    include-in-header: "style/fontawesome.html"
 
 quartodoc:
   package: ibis
