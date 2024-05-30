@@ -57,6 +57,9 @@ jobs:
         run: poetry run maturin develop
         working-directory: ${{ github.workspace }}
 
+      - name: start services
+        run: docker compose up --build --wait
+
       - name: build docs
         run: just docs-build-all
 
