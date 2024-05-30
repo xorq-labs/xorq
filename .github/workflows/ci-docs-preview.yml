@@ -46,7 +46,7 @@ jobs:
         uses: snok/install-poetry@v1
 
       - name: Poetry install
-        run: poetry install --with="dev,test,docs"
+        run: poetry install --with="dev,test,docs" --extras="duckdb snowflake datafusion"
         working-directory: ${{ github.workspace }}
 
       - uses: quarto-dev/quarto-actions/setup@v2
