@@ -25,6 +25,14 @@ def test_register_expr(alltypes_df):
     assert_frame_equal(actual, alltypes_df)
 
 
+def test_execute_nonnull():
+    schema = pa.schema((pa.field("x", pa.int64(), nullable=False),))
+    tab = pa.table({"x": [1, 2, 3]}, schema=schema)
+    con = ls.connect()
+    t = con.register(tab, "my_table")
+    t.execute()
+
+
 def test_register_record_batch_reader_with_filter(alltypes, alltypes_df):
     con = ls.connect()
     t = con.register(alltypes_df, "alltypes")

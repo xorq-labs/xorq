@@ -530,8 +530,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         frame = self.con.sql(raw_sql)
 
         schema = table_expr.schema()
-        names = schema.names
-
+        pyarrow_schema = schema.to_pyarrow()
         struct_schema = schema.as_struct().to_pyarrow()
 
         def make_gen():
@@ -539,7 +538,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 # convert the renamed + cast columns into a record batch
                 pa.RecordBatch.from_struct_array(
                     # rename columns to match schema because datafusion lowercases things
-                    pa.RecordBatch.from_arrays(batch.to_pyarrow().columns, names=names)
+                    pa.RecordBatch.from_arrays(
+                        batch.to_pyarrow().columns, schema=pyarrow_schema
+                    )
                     # cast the struct array to the desired types to work around
                     # https://github.com/apache/arrow-datafusion-python/issues/534
                     .to_struct_array()
@@ -549,7 +550,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             )
 
         return pa.ipc.RecordBatchReader.from_batches(
-            schema.to_pyarrow(),
+            pyarrow_schema,
             make_gen(),
         )
 
