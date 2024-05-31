@@ -1,0 +1,71 @@
+name: Docs main
+
+on:
+  push:
+    branches:
+      - main
+  merge_group:
+
+# only a single docs job that pushes to `main` can run at any given time
+concurrency: docs-${{ github.repository }}
+
+permissions:
+  # increase the rate limit for github operations, but limit token permissions
+  # to read-only
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: extractions/setup-just@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: download test data
+        run: just download-data
+
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Rust latest
+        run: rustup update
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Poetry install
+        run: poetry install --with="dev,test,docs" --extras="duckdb snowflake datafusion"
+        working-directory: ${{ github.workspace }}
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.4.515
+
+      - name: maturin develop
+        run: poetry run maturin develop
+        working-directory: ${{ github.workspace }}
+
+      - name: start services
+        run: docker compose up --build --wait
+
+      - name: build api docs
+        run: just docs-apigen --verbose
+
+      - name: build docs
+        run: just docs-render
+
+      - name: check that all frozen computations were done before push
+        run: git diff --exit-code --stat
+
+      - name: deploy docs
+        run: just docs-deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}

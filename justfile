@@ -49,6 +49,10 @@ docs-apigen *args:
 docs-render:
     poetry run quarto render docs
 
+# deploy docs to netlify
+docs-deploy:
+    poetry run quarto publish --no-prompt --no-browser --no-render netlify docs
+
 # run the entire docs build pipeline
 docs-build-all:
     just docs-apigen --verbose
