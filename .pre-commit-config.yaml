@@ -46,5 +46,8 @@ repos:
       -   id: poetry-lock
           args: ["--no-update"]
       -   id: poetry-install
+  -   repo: https://github.com/python-poetry/poetry-plugin-export
+      rev: 1.8.0
+      hooks:
       -   id: poetry-export
           args: ["--with", "dev", "--no-ansi", "--without-hashes", "-f", "requirements.txt", "-o", "requirements-dev.txt"]
