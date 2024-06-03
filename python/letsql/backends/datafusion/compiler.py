@@ -35,9 +35,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         (
             ops.ArgMax,
             ops.ArgMin,
-            ops.ArrayDistinct,
             ops.ArrayFilter,
-            ops.ArrayFlatten,
             ops.ArrayMap,
             ops.ArrayZip,
             ops.BitwiseNot,
@@ -57,7 +55,6 @@ class DataFusionCompiler(SQLGlotCompiler):
             ops.TimestampDelta,
             ops.TimestampNow,
             ops.TypeOf,
-            ops.Unnest,
             ops.StringToTimestamp,
         )
     )
@@ -79,6 +76,10 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.EndsWith: "ends_with",
         ops.ArrayIntersect: "array_intersect",
         ops.ArrayUnion: "array_union",
+        ops.ArrayFlatten: "flatten",
+        ops.IntegerRange: "range",
+        ops.ArrayDistinct: "array_distinct",
+        ops.Unnest: "unnest",
     }
 
     def _aggregate(self, funcname: str, *args, where):
@@ -477,3 +478,17 @@ class DataFusionCompiler(SQLGlotCompiler):
             sel = sel.group_by(*by_names_quoted)
 
         return sel
+
+    def visit_ArraySlice(self, op, *, arg, start, stop):
+        array_length = self.f.array_length(arg)
+        start = self.f.coalesce(start, 0)
+        stop = self.f.coalesce(stop, array_length + 1)
+        return self.f.array_slice(
+            arg,
+            self.if_(
+                start < 0,
+                self.if_(self.f.abs(start) >= array_length, 0, start),
+                start + 1,
+            ),
+            self.if_(stop < 0, stop - 1, stop),
+        )
