@@ -135,7 +135,12 @@ class SourceStorage(CacheStorage):
         return self.source.table(key).op()
 
     def _put(self, key, value):
-        self.source.create_table(key, value.to_expr())
+        expr = value.to_expr()
+        backends, _ = expr._find_backends()
+        if set(backends) == set((self.source,)):
+            self.source.create_table(key, expr)
+        else:
+            self.source.create_table(key, expr.to_pyarrow())
         return self._get(key)
 
     def _drop(self, key):
