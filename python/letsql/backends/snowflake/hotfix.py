@@ -1,15 +1,26 @@
 import contextlib
-import functools
 import itertools
 import warnings
 
-import dask
 import ibis
+import ibis.expr.types as ir
+import ibis.expr.schema as sch
+import pandas as pd
+import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
 
+from letsql.common.utils.hotfix_utils import (
+    maybe_hotfix,
+)
 
+
+@maybe_hotfix(
+    ibis.backends.snowflake.Backend,
+    "_setup_session",
+    "d1a8b89ff07d7c917cea225644fb126e",
+)
 def _setup_session(self, *, session_parameters, create_object_udfs: bool):
     con = self.con
 
@@ -68,19 +79,112 @@ def _setup_session(self, *, session_parameters, create_object_udfs: bool):
                 warnings.warn(
                     f"Unable to create Ibis UDFs, some functionality will not work: {e}"
                 )
+    # without this self.current_{catalog,database} is not synchronized with con.{database,schema}
+    with contextlib.closing(con.cursor()) as cur:
+        try:
+            cur.execute("SELECT CURRENT_TIME")
+        except Exception:  # noqa: BLE001
+            pass
 
 
-@functools.cache
-def monkeypatch_setup_session():
-    attrname = "_setup_session"
-    _setup_session.original = getattr(ibis.backends.snowflake.Backend, attrname)
-    setattr(ibis.backends.snowflake.Backend, attrname, _setup_session)
+@maybe_hotfix(
+    ibis.backends.snowflake.Backend,
+    "create_table",
+    "5c3483857fcf01118e36c143ca5cb40c",
+)
+def create_table(
+    self,
+    name: str,
+    obj: pd.DataFrame | pa.Table | ir.Table | None = None,
+    *,
+    schema: sch.Schema | None = None,
+    database: str | None = None,
+    temp: bool = False,
+    overwrite: bool = False,
+    comment: str | None = None,
+) -> ir.Table:
+    """Create a table in Snowflake.
 
+    Parameters
+    ----------
+    name
+        Name of the table to create
+    obj
+        The data with which to populate the table; optional, but at least
+        one of `obj` or `schema` must be specified
+    schema
+        The schema of the table to create; optional, but at least one of
+        `obj` or `schema` must be specified
+    database
+        The name of the database in which to create the table; if not
+        passed, the current database is used.
+    temp
+        Create a temporary table
+    overwrite
+        If `True`, replace the table if it already exists, otherwise fail
+        if the table exists
+    comment
+        Add a comment to the table
 
-def maybe_monkeypatch_setup_session():
-    tokenized = dask.base.tokenize(ibis.backends.snowflake.Backend._setup_session)
-    if tokenized == '8c96093dd6f2f759ff96fd41199f06f5':
-        monkeypatch_setup_session()
+    """
+    if obj is None and schema is None:
+        raise ValueError("Either `obj` or `schema` must be specified")
 
+    quoted = self.compiler.quoted
 
-maybe_monkeypatch_setup_session()
+    if database is None:
+        target = sg.table(name, quoted=quoted)
+        catalog = db = database
+    else:
+        db = self._warn_and_create_table_loc(database=database)
+        (catalog, db) = (db.catalog, db.db)
+        target = sg.table(name, db=db, catalog=catalog, quoted=quoted)
+
+    column_defs = [
+        sge.ColumnDef(
+            this=sg.to_identifier(name, quoted=quoted),
+            kind=self.compiler.type_mapper.from_ibis(typ),
+            constraints=(
+                None
+                if typ.nullable
+                else [sge.ColumnConstraint(kind=sge.NotNullColumnConstraint())]
+            ),
+        )
+        for name, typ in (schema or {}).items()
+    ]
+
+    if column_defs:
+        target = sge.Schema(this=target, expressions=column_defs)
+
+    properties = []
+
+    if temp:
+        properties.append(sge.TemporaryProperty())
+
+    if comment is not None:
+        properties.append(sge.SchemaCommentProperty(this=sge.convert(comment)))
+
+    if obj is not None:
+        if not isinstance(obj, ir.Expr):
+            table = ibis.memtable(obj)
+        else:
+            table = obj
+
+        self._run_pre_execute_hooks(table)
+
+        query = self._to_sqlglot(table)
+    else:
+        query = None
+
+    create_stmt = sge.Create(
+        kind="TABLE",
+        this=target,
+        replace=overwrite,
+        properties=sge.Properties(expressions=properties),
+        expression=query,
+    )
+
+    with self._safe_raw_sql(create_stmt):
+        pass
+
+    return self.table(name, database=(catalog, db))

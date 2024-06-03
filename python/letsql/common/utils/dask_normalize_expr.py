@@ -5,12 +5,6 @@ import ibis.expr.operations.relations as ir
 from letsql.expr.relations import (
     make_native_op,
 )
-from letsql.common.utils.postgres_utils import (
-    get_postgres_n_reltuples,
-)
-from letsql.common.utils.snowflake_utils import (
-    get_snowflake_last_modification_time,
-)
 
 
 def expr_is_bound(expr):
@@ -78,6 +72,7 @@ def normalize_remote_databasetable(dt):
 
 
 def normalize_postgres_databasetable(dt):
+    from letsql.common.utils.postgres_utils import get_postgres_n_reltuples
     if dt.source.name != "postgres":
         raise ValueError
     return dask.base._normalize_seq_func(
@@ -92,6 +87,7 @@ def normalize_postgres_databasetable(dt):
 
 
 def normalize_snowflake_databasetable(dt):
+    from letsql.common.utils.snowflake_utils import get_snowflake_last_modification_time
     if dt.source.name != "snowflake":
         raise ValueError
     return dask.base._normalize_seq_func(
