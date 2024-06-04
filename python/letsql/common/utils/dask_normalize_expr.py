@@ -1,3 +1,5 @@
+import re
+
 import dask
 import ibis
 import ibis.expr.operations.relations as ir
@@ -23,7 +25,7 @@ def unbound_expr_to_default_sql(expr):
 
 
 def normalize_memory_databasetable(dt):
-    if dt.source.name not in ("pandas", "datafusion"):
+    if dt.source.name not in ("pandas", "datafusion", "duckdb"):
         raise ValueError
     return dask.base._normalize_seq_func(
         (
@@ -101,6 +103,17 @@ def normalize_snowflake_databasetable(dt):
     )
 
 
+def normalize_duckdb_databasetable(dt):
+    if dt.source.name != "duckdb":
+        raise ValueError
+    ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {dt.name}").fetchall()
+    scan_line = plan.split("\n")[1]
+    if re.match("\s*|\s*ARROW_SCAN\s*|\s*", scan_line):
+        return normalize_memory_databasetable(dt)
+    else:
+        raise NotImplementedError
+
+
 def normalize_letsql_databasetable(dt):
     if dt.source.name != "let":
         raise ValueError
@@ -119,6 +132,7 @@ def normalize_databasetable(dt):
         "postgres": normalize_postgres_databasetable,
         "snowflake": normalize_snowflake_databasetable,
         "let": normalize_letsql_databasetable,
+        "duckdb": normalize_duckdb_databasetable,
     }
     f = dct[dt.source.name]
     return f(dt)
@@ -127,7 +141,7 @@ def normalize_databasetable(dt):
 @dask.base.normalize_token.register(ibis.backends.BaseBackend)
 def normalize_backend(con):
     name = con.name
-    if name in ("snowflake", "pandas", "datafusion"):
+    if name in ("snowflake", "pandas", "datafusion", "duckdb"):
         return name
     elif name == "postgres":
         con_dct = con.con.get_dsn_parameters()
