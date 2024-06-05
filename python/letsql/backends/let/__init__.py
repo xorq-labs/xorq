@@ -9,7 +9,6 @@ import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
 from ibis.expr import types as ir
 from ibis.expr.schema import SchemaLike
-
 from sqlglot import exp, parse_one
 
 from letsql.backends.datafusion import Backend as DataFusionBackend
@@ -38,24 +37,22 @@ class Backend(DataFusionBackend):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
-        table = None
-        if isinstance(source, ir.Table) and hasattr(source, "to_pyarrow_batches"):
-            table = source.op()
-            backend = table.source
+        table_or_expr = None
+        if isinstance(source, ir.Expr) and hasattr(source, "to_pyarrow_batches"):
+            table_or_expr = source.op()
+            backend = source._find_backend(use_default=False)
 
             if backend == self:
-                original = self._sources.get_backend(table, self)
-                source = original.table(table.name)
-                table = source.op()
+                table_or_expr = self._sources.get_table_or_op(table_or_expr)
 
         registered_table = super().register(source, table_name=table_name, **kwargs)
-        self._sources[registered_table.op()] = table or registered_table.op()
+        self._sources[registered_table.op()] = table_or_expr or registered_table.op()
 
         return registered_table
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
         def replace_table(node, _, **_kwargs):
-            return self._sources.get_table(node, node.__recreate__(_kwargs))
+            return self._sources.get_table_or_op(node, node.__recreate__(_kwargs))
 
         expr = expr.op().replace(replace_table).to_expr()
         expr = self._register_and_transform_cache_tables(expr)

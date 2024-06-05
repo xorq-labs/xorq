@@ -5,12 +5,24 @@ from typing import Dict
 from ibis.expr.operations import relations as ops
 
 
+def _find_backend(value):
+    backends = set()
+    node_types = (ops.UnboundTable, ops.DatabaseTable, ops.SQLQueryResult)
+    for table in value.find(node_types):
+        backends.add(table.source)
+
+    if len(backends) > 1:
+        raise ValueError("Multiple backends found for this expression")
+
+    return backends.pop()
+
+
 class SourceDict:
     def __init__(self):
         self.sources: Dict[ops.DatabaseTable, ops.DatabaseTable] = {}
 
     def __setitem__(self, key, value):
-        if not isinstance(value, ops.DatabaseTable):
+        if not isinstance(value, ops.Relation):
             raise ValueError
         self.sources[key] = value
 
@@ -19,11 +31,11 @@ class SourceDict:
 
     def get_backend(self, key, default=None):
         if key in self.sources:
-            return self.sources[key].source
-
+            value = self.sources[key]
+            return getattr(value, "source", _find_backend(value))
         return default
 
-    def get_table(self, key, default=None):
+    def get_table_or_op(self, key, default=None):
         if key in self.sources:
             return self.sources[key]
 

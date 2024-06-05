@@ -386,3 +386,21 @@ def test_cross_source_storage(con, pg):
         .cache(storage=SourceStorage(source=pg))
     )
     expr.execute()
+
+
+def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
+    table_name = "batting"
+    t = pg.table(table_name)
+
+    expr = t.filter(t.playerID == "allisar01")[
+        ["playerID", "yearID", "stint", "teamID", "lgID"]
+    ]
+    expected = expr.execute()
+
+    table = con.register(expr, table_name="expr")
+    result = table.cache(
+        storage=ParquetCacheStorage(path=tmp_path, source=con)
+    ).execute()
+
+    assert result is not None
+    assert_frame_equal(result, expected, check_like=True)

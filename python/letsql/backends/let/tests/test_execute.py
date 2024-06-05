@@ -480,3 +480,67 @@ def test_register_with_different_name_more_than_one_table_expr(con, csv_dir):
 
     con.drop_table(ddb_batting_table_name)
     con.drop_table(ddb_players_table_name)
+
+
+def test_register_arbitrary_expression(con, csv_dir):
+    batting_path = csv_dir.joinpath("batting.csv")
+    batting_table_name = "batting"
+
+    duckdb_con = ibis.duckdb.connect()
+    t = duckdb_con.register(batting_path, table_name=batting_table_name)
+
+    expr = t.filter(t.playerID == "allisar01")[
+        ["playerID", "yearID", "stint", "teamID", "lgID"]
+    ]
+    expected = expr.execute()
+
+    ddb_batting_table_name = f"{duckdb_con.name}_{batting_table_name}"
+    table = con.register(expr, table_name=ddb_batting_table_name)
+    result = table.execute()
+
+    assert result is not None
+    assert_frame_equal(result, expected, check_like=True)
+
+
+def test_register_arbitrary_expression_multiple_tables(con, csv_dir):
+    duckdb_con = ibis.duckdb.connect()
+
+    batting_table_name = "batting"
+    batting_table = duckdb_con.read_csv(
+        csv_dir / "batting.csv", table_name=batting_table_name
+    )
+
+    players_table_name = "ddb_players"
+    awards_players_table = duckdb_con.read_csv(
+        csv_dir / "awards_players.csv", table_name=players_table_name
+    )
+
+    left = batting_table[batting_table.yearID == 2015]
+    right = awards_players_table[awards_players_table.lgID == "NL"].drop(
+        "yearID", "lgID"
+    )
+
+    left_df = left.execute()
+    right_df = right.execute()
+    predicate = ["playerID"]
+    result_order = ["playerID", "yearID", "lgID", "stint"]
+
+    expr = left.join(right, predicate, how="inner")
+    table = con.register(expr, table_name="expr_table")
+
+    result = (
+        table.execute()
+        .fillna(np.nan)
+        .sort_values(result_order)[left.columns]
+        .reset_index(drop=True)
+    )
+
+    expected = check_eq(
+        left_df,
+        right_df,
+        how="inner",
+        on=predicate,
+        suffixes=("", "_y"),
+    ).sort_values(result_order)[list(left.columns)]
+
+    assert_frame_equal(result, expected, check_like=True)
