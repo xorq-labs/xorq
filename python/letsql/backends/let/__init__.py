@@ -51,10 +51,16 @@ class Backend(DataFusionBackend):
         return registered_table
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        def replace_table(node, _, **_kwargs):
-            return self._sources.get_table_or_op(node, node.__recreate__(_kwargs))
+        not_multi_engine = self._get_source(expr) != self
+        if (
+            not_multi_engine
+        ):  # this means is a single source that is not the letsql backend
 
-        expr = expr.op().replace(replace_table).to_expr()
+            def replace_table(node, _, **_kwargs):
+                return self._sources.get_table_or_op(node, node.__recreate__(_kwargs))
+
+            expr = expr.op().replace(replace_table).to_expr()
+
         expr = self._register_and_transform_cache_tables(expr)
         backend = self._get_source(expr)
 
