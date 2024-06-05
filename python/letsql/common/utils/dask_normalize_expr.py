@@ -75,6 +75,7 @@ def normalize_remote_databasetable(dt):
 
 def normalize_postgres_databasetable(dt):
     from letsql.common.utils.postgres_utils import get_postgres_n_reltuples
+
     if dt.source.name != "postgres":
         raise ValueError
     return dask.base._normalize_seq_func(
@@ -90,6 +91,7 @@ def normalize_postgres_databasetable(dt):
 
 def normalize_snowflake_databasetable(dt):
     from letsql.common.utils.snowflake_utils import get_snowflake_last_modification_time
+
     if dt.source.name != "snowflake":
         raise ValueError
     return dask.base._normalize_seq_func(
@@ -108,10 +110,27 @@ def normalize_duckdb_databasetable(dt):
         raise ValueError
     ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {dt.name}").fetchall()
     scan_line = plan.split("\n")[1]
-    if re.match("\s*|\s*ARROW_SCAN\s*|\s*", scan_line):
-        return normalize_memory_databasetable(dt)
-    else:
-        raise NotImplementedError
+    execution_plan_name = r"\s*│\s*(\w+)\s*│\s*"
+    match re.match(execution_plan_name, scan_line).group(1):
+        case "ARROW_SCAN":
+            return normalize_memory_databasetable(dt)
+        case "READ_PARQUET" | "READ_CSV":
+            return normalize_duckdb_file_read(dt)
+        case _:
+            raise NotImplementedError
+
+
+def normalize_duckdb_file_read(dt):
+    (sql_ddl_statement,) = dt.source.con.sql(
+        f"select sql from duckdb_views() where view_name = '{dt.name}'"
+    ).fetchone()
+    return dask.base._normalize_seq_func(
+        (
+            dt.schema.to_pandas(),
+            # sql_ddl_statement denotes the definition of the table, expressed as SQL DDL-statement.
+            sql_ddl_statement,
+        )
+    )
 
 
 def normalize_letsql_databasetable(dt):
@@ -183,16 +202,3 @@ def normalize_expr(expr):
             dts,
         )
     )
-
-
-# @dask.base.normalize_token.register(ibis.common.graph.Node)
-# def normalize_node(node):
-#     return tuple(
-#         map(
-#             dask.base.normalize_token,
-#             (
-#                 type(node),
-#                 *(node.args),
-#             ),
-#         )
-#     )

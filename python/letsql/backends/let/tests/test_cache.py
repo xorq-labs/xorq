@@ -351,7 +351,6 @@ def test_postgres_cache_invalidation(pg, con):
     assert_n_scans_changes(dt, n_scans_after)
 
 
-@pytest.mark.xfail(reason="no strategy to find the parquet file source")
 def test_duckdb_cache_parquet(con, pg, tmp_path):
     name = "batting"
     parquet_path = tmp_path.joinpath(name).with_suffix(".parquet")
@@ -365,7 +364,19 @@ def test_duckdb_cache_parquet(con, pg, tmp_path):
     expr.execute()
 
 
-@pytest.mark.xfail
+def test_duckdb_cache_csv(con, pg, tmp_path):
+    name = "batting"
+    csv_path = tmp_path.joinpath(name).with_suffix(".csv")
+    pg.table(name).to_csv(csv_path)
+    expr = (
+        ibis.duckdb.connect()
+        .read_csv(csv_path)
+        .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
+        .cache(storage=ParquetCacheStorage(path=tmp_path, source=con))
+    )
+    expr.execute()
+
+
 def test_duckdb_cache_arrow(con, pg, tmp_path):
     name = "batting"
     expr = (
