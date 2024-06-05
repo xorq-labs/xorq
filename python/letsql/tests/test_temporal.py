@@ -500,3 +500,19 @@ def test_timestamp_precision_output(con, ts, scale, unit):
 def test_time_extract_literal(con, func, expected):
     value = ibis.time("14:48:05.359")
     assert con.execute(func(value).name("tmp")) == expected
+
+
+def test_now(con):
+    expr = ibis.now()
+    result = con.execute(expr.name("tmp"))
+    assert isinstance(result, datetime.datetime)
+
+
+def test_now_from_projection(alltypes):
+    n = 2
+    expr = alltypes.select(now=ibis.now()).limit(n)
+    result = expr.execute()
+    ts = result.now
+    assert len(result) == n
+    assert ts.nunique() == 1
+    assert not pd.isna(ts.iat[0])

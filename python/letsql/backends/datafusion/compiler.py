@@ -53,8 +53,6 @@ class DataFusionCompiler(SQLGlotCompiler):
             ops.TimeDelta,
             ops.TimestampBucket,
             ops.TimestampDelta,
-            ops.TimestampNow,
-            ops.TypeOf,
             ops.StringToTimestamp,
         )
     )
@@ -492,3 +490,12 @@ class DataFusionCompiler(SQLGlotCompiler):
             ),
             self.if_(stop < 0, stop - 1, stop),
         )
+
+    def visit_TimestampNow(self, op):
+        return self.f.to_timestamp_micros(self.cast(self.f.now(), dt.string))
+
+    def visit_HexDigest(self, op, *, arg, how):
+        return self.f.encode(self.f.digest(arg, how), "hex")
+
+    def visit_TypeOf(self, op, *, arg):
+        return self.f.arrow_typeof(arg)

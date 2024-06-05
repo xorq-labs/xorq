@@ -19,8 +19,11 @@ from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 def test_null_literal(con):
     expr = ibis.null()
-    result = con.execute(expr)
-    assert result is None
+    assert pd.isna(con.execute(expr))
+    assert con.execute(expr.typeof()) == "Null"
+
+    assert expr.type() == dt.null
+    assert pd.isna(con.execute(expr.cast(str).upper()))
 
 
 def test_boolean_literal(con):
@@ -28,6 +31,7 @@ def test_boolean_literal(con):
     result = con.execute(expr)
     assert not result
     assert type(result) in (np.bool_, bool)
+    assert con.execute(expr.typeof()) == "Boolean"
 
 
 @pytest.mark.parametrize(
@@ -642,3 +646,25 @@ def test_sample_memtable(con):
     res = con.execute(ibis.memtable(df).sample(0.5))
     assert len(res) <= 4
     assert_frame_equal(res.iloc[:0], df.iloc[:0])
+
+
+def test_hexdigest(alltypes):
+    h1 = alltypes.order_by("id").string_col.hexdigest().execute(limit=10)
+    df = alltypes.order_by("id").execute(limit=10)
+
+    import hashlib
+
+    def hash_256(col):
+        return hashlib.sha256(col.encode()).hexdigest()
+
+    h2 = df["string_col"].apply(hash_256).rename("HexDigest(string_col)")
+
+    assert_series_equal(h1, h2)
+
+
+def test_typeof(con):
+    # Other tests also use the typeof operation, but only this test has this operation required.
+    expr = ibis.literal(1).typeof()
+    result = con.execute(expr)
+
+    assert result is not None
