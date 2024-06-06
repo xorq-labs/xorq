@@ -23,7 +23,7 @@ def test_tokenize_datafusion_memory_expr(alltypes_df):
     con = ibis.datafusion.connect()
     t = con.register(alltypes_df, "t")
     actual = dask.base.tokenize(t)
-    expected = "6b8a64cd132d212ce4b2af1e2b403316"
+    expected = "e5feefe7661d275607da0e0a089e2c3e"
     assert actual == expected
 
 

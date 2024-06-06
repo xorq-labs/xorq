@@ -32,7 +32,10 @@ def normalize_memory_databasetable(dt):
             dt.source,
             dt.schema.to_pandas(),
             # in memory: so we can assume its reasonable to hash the data
-            dt.to_expr().to_pandas(),
+            tuple(
+                dask.base.tokenize(el.serialize().to_pybytes())
+                for el in dt.to_expr().to_pyarrow_batches()
+            ),
         )
     )
 
