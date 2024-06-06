@@ -1,6 +1,7 @@
 import ibis
 
 import letsql as ls
+from letsql.common.caching import ParquetCacheStorage
 
 
 def test_multiple_pipes(pg):
@@ -26,4 +27,23 @@ def test_multiple_pipes(pg):
         "playerID",
     )
 
+    expr.execute()
+
+
+def test_multi_engine_cache(pg, tmp_path):
+    con = ls.connect()
+    db_con = ibis.duckdb.connect()
+
+    table_name = "batting"
+    pg_t = pg.table(table_name)[lambda t: t.yearID > 2014].pipe(
+        con.register, f"pg-{table_name}"
+    )
+    db_t = db_con.register(pg.table(table_name).to_pyarrow(), f"{table_name}")[
+        lambda t: t.stint == 1
+    ].pipe(con.register, f"db-{table_name}")
+
+    expr = pg_t.join(
+        db_t,
+        db_t.columns,
+    ).cache(storage=ParquetCacheStorage(tmp_path, con))
     expr.execute()

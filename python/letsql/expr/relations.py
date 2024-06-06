@@ -25,10 +25,15 @@ def make_native_op(node):
     # FIXME: how to reference let.Backend.name?
     if node.source.name != "let":
         raise ValueError
-    native_source = node.source._sources.get_backend(node)
+    sources = node.source._sources
+    native_source = sources.get_backend(node)
     if native_source.name == "let":
         raise ValueError
-    return node.replace(replace_source_factory(native_source))
+
+    def replace_table(n, _, **_kwargs):
+        return sources.get_table_or_op(n, n.__recreate__(_kwargs))
+
+    return node.replace(replace_table).to_expr()
 
 
 class CachedNode(ops.Relation):
