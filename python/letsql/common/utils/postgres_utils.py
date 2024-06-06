@@ -1,9 +1,42 @@
+import os
+
+import ibis
+
+import letsql.backends.postgres.hotfix  # noqa: F401
+
+
+def make_credential_defaults():
+    return {
+        "user": os.environ.get("POSTGRES_USER"),
+        "password": os.environ.get("POSTGRES_PASSWORD"),
+    }
+
+
+def make_connection_defaults():
+    return {
+        "host": os.environ.get("POSTGRES_HOST"),
+        "port": os.environ.get("POSTGRES_PORT"),
+        "database": os.environ.get("POSTGRES_DATABASE"),
+    }
+
+
+def make_ibis_connection(**kwargs):
+    con = ibis.postgres.connect(
+        **{
+            **make_credential_defaults(),
+            **make_connection_defaults(),
+            **kwargs,
+        }
+    )
+    return con
+
+
 def do_checkpoint(con):
     con.raw_sql("CHECKPOINT")
 
 
 def do_analyze(con, name):
-    con.raw_sql(f"ANALYZE \"{name}\"")
+    con.raw_sql(f'ANALYZE "{name}"')
 
 
 def get_postgres_n_changes(dt):

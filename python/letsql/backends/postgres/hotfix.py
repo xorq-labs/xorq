@@ -35,7 +35,7 @@ def create_catalog(self, name: str, force: bool = False) -> None:
 )
 def clone(self, password=None, **kwargs):
     """necessary because "UnsupportedOperationError: postgres does not support creating a database in a different catalog" """
-    from common.utils.postgres_utils import make_credential_defaults
+    from letsql.common.utils.postgres_utils import make_credential_defaults
 
     password = password or make_credential_defaults()["password"]
     if not password:
