@@ -29,7 +29,7 @@ import letsql
 import letsql.internal as df
 from letsql.backends.datafusion.compiler import DataFusionCompiler
 from letsql.backends.datafusion.provider import IbisTableProvider
-from letsql.internal import SessionConfig, SessionContext, TableProvider
+from letsql.internal import SessionConfig, SessionContext, TableProvider, Table
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -372,8 +372,12 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             self.con.deregister_table(table_name)
             self.con.register_record_batch_reader(table_name, source)
             return self.table(table_name)
+        elif isinstance(source, Table):
+            self.con.deregister_table(table_name)
+            self.con.register_table(table_name, source)
+            return self.table(table_name)
         else:
-            raise ValueError("`source` must be either a string or a pathlib.Path")
+            raise ValueError(f"Unknown `source` type {type(source)}")
 
         if first.startswith(("parquet://", "parq://")) or first.endswith(
             ("parq", "parquet")

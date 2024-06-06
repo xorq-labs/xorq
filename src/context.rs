@@ -20,7 +20,7 @@ use parking_lot::RwLock;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 
-use crate::catalog::PyCatalog;
+use crate::catalog::{PyCatalog, PyTable};
 use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
@@ -32,7 +32,7 @@ use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
-use crate::utils::{wait_for_completion, wait_for_future};
+use crate::utils::wait_for_future;
 
 /// Configuration options for a SessionContext
 #[pyclass(name = "SessionConfig", module = "datafusion", subclass)]
@@ -169,7 +169,7 @@ impl PySessionContext {
     /// Returns a PyDataFrame whose plan corresponds to the SQL statement.
     fn sql(&mut self, query: &str, py: Python) -> PyResult<PyDataFrame> {
         let result = self.ctx.sql(query);
-        let df = wait_for_completion(py, result).unwrap();
+        let df = wait_for_future(py, result).unwrap();
         Ok(PyDataFrame::new(df))
     }
 
@@ -303,6 +303,13 @@ impl PySessionContext {
             .register_table(name, table)
             .map_err(DataFusionError::from)?;
 
+        Ok(())
+    }
+
+    pub fn register_table(&mut self, name: &str, table: &PyTable) -> PyResult<()> {
+        self.ctx
+            .register_table(name, table.table())
+            .map_err(DataFusionError::from)?;
         Ok(())
     }
 

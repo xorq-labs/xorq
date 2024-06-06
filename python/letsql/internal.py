@@ -15,6 +15,7 @@ from ._internal import (
     SessionContext,  # noqa: F401
     SessionState,  # noqa: F401
     TableProvider,
+    Table,
 )
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "OptimizationRule",
     "TableProvider",
     "AbstractTableProvider",
+    "Table",
 ]
 
 

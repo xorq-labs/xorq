@@ -41,3 +41,11 @@ def test_register_record_batch_reader_with_filter(alltypes, alltypes_df):
     cols_a = [ca for ca in alltypes.columns.copy() if ca != "timestamp_col"]
     expr = t2.filter((t2.id >= 5200) & (t2.id <= 5210))[cols_a]
     expr.execute()
+
+
+def test_create_table(con):
+    import ibis
+    import pandas as pd
+
+    con.create_table("UPPERCASE", schema=ibis.schema({"A": "int"}))
+    con.create_table("name", pd.DataFrame({"a": [1]}))

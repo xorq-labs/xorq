@@ -8,7 +8,9 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
 from ibis.expr import types as ir
+from ibis.expr import operations as ops
 from ibis.expr.schema import SchemaLike
+from ibis.backends.datafusion import Backend as IbisDataFusionBackend
 from sqlglot import exp, parse_one
 
 from letsql.backends.datafusion import Backend as DataFusionBackend
@@ -44,6 +46,15 @@ class Backend(DataFusionBackend):
 
             if backend == self:
                 table_or_expr = self._sources.get_table_or_op(table_or_expr)
+                original_backend = self._sources.get_backend(table_or_expr)
+                is_a_datafusion_backed_table = isinstance(
+                    original_backend, (DataFusionBackend, IbisDataFusionBackend)
+                ) and isinstance(table_or_expr, ops.DatabaseTable)
+                if is_a_datafusion_backed_table:
+                    default = original_backend.con.catalog()
+                    public = default.database("public")
+                    source = public.table(table_or_expr.name)
+                    table_or_expr = None
 
         registered_table = super().register(source, table_name=table_name, **kwargs)
         self._sources[registered_table.op()] = table_or_expr or registered_table.op()
