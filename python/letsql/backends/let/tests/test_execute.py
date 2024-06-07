@@ -7,9 +7,13 @@ import pandas as pd
 import pytest
 from pytest import param
 
+import letsql as ls
 from letsql.tests.util import (
     assert_frame_equal,
 )
+
+
+from letsql.common.caching import ParquetCacheStorage
 
 
 def _pandas_semi_join(left, right, on, **_):
@@ -74,6 +78,36 @@ def parquet_dir():
     return data_dir
 
 
+@pytest.fixture(scope="session")
+def dirty_duckdb_con(csv_dir):
+    con = ibis.duckdb.connect()
+    con.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
+    con.read_csv(csv_dir / "batting.csv", table_name="batting")
+    return con
+
+
+@pytest.fixture(scope="function")
+def duckdb_con(dirty_duckdb_con):
+    expected_tables = ("ddb_players", "batting")
+    for table in dirty_duckdb_con.list_tables():
+        if table not in expected_tables:
+            dirty_duckdb_con.drop_view(table)
+    yield dirty_duckdb_con
+
+
+@pytest.fixture(scope="session")
+def dirty_ls_con():
+    con = ls.connect()
+    return con
+
+
+@pytest.fixture(scope="function")
+def ls_con(dirty_ls_con):
+    yield dirty_ls_con
+    for table_name in dirty_ls_con.list_tables():
+        dirty_ls_con.drop_table(table_name)
+
+
 def test_join(con, alltypes, alltypes_df):
     first_10 = alltypes_df.head(10)
     in_memory = con.register(first_10, table_name="in_memory")
@@ -84,7 +118,6 @@ def test_join(con, alltypes, alltypes_df):
     actual = expr.execute().sort_values("id")
 
     assert_frame_equal(actual, expected)
-    con.drop_table("in_memory")
 
 
 @pytest.mark.parametrize("how", ["semi", "anti"])
@@ -116,7 +149,6 @@ def test_filtering_join(con, batting, awards_players, how):
     ).sort_values(result_order)[list(left.columns)]
 
     assert_frame_equal(result, expected, check_like=True)
-    con.drop_table("right")
 
 
 @pytest.mark.parametrize("distinct", [False, True], ids=["all", "distinct"])
@@ -133,7 +165,6 @@ def test_union(con, union_subsets, distinct):
         expected = expected.drop_duplicates("id")
 
     assert_frame_equal(result, expected)
-    con.drop_table("b")
 
 
 def test_union_mixed_distinct(con, union_subsets):
@@ -149,14 +180,11 @@ def test_union_mixed_distinct(con, union_subsets):
     ).sort_values("id")
 
     assert_frame_equal(result, expected)
-    con.drop_table("b")
-    con.drop_table("c")
 
 
 def test_register_already_existing_table(con, batting):
     own_batting = con.register(batting, "own_batting")
     own_batting.execute()
-    con.drop_table("own_batting")
 
 
 @pytest.mark.parametrize(
@@ -178,16 +206,15 @@ def test_register_already_existing_table(con, batting):
         lambda t: t.yearID.between(2013, 2016),
     ],
 )
-def test_join_non_trivial_filters(con, csv_dir, batting, left_filter):
-    ddb = ibis.duckdb.connect()
-    ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
-    awards_players = con.register(ddb.table("ddb_players"), "ddb_players")
+def test_join_non_trivial_filters(ls_con, pg, duckdb_con, left_filter):
+    awards_players = ls_con.register(duckdb_con.table("ddb_players"), "ddb_players")
+    batting = ls_con.register(pg.table("batting"), table_name="pg-batting")
 
     left = batting[left_filter]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
     right_df = right.execute()
     left_df = left.execute()
-    predicate = ["playerID"]
+    predicate = "playerID"
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
     expr = left.join(right, predicate, how="inner")
@@ -211,8 +238,6 @@ def test_join_non_trivial_filters(con, csv_dir, batting, left_filter):
     )
 
     assert_frame_equal(result, expected, check_like=True)
-    ddb.drop_view("ddb_players")
-    con.drop_table("ddb_players")
 
 
 @pytest.mark.parametrize(
@@ -256,11 +281,11 @@ def test_join_non_trivial_filters(con, csv_dir, batting, left_filter):
     ],
 )
 def test_join_with_trivial_predicate(
-    con, csv_dir, awards_players, predicate, how, pandas_value
+    con, duckdb_con, awards_players, predicate, how, pandas_value
 ):
-    ddb = ibis.duckdb.connect()
-    ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
-    ddb_players = con.register(ddb.table("ddb_players"), table_name="ddb_players")
+    ddb_players = con.register(
+        duckdb_con.table("ddb_players"), table_name="ddb_players"
+    )
 
     n = 5
 
@@ -279,14 +304,12 @@ def test_join_with_trivial_predicate(
     result = expr.to_pandas()
 
     assert len(result) == len(expected)
-    ddb.drop_view("ddb_players")
-    con.drop_table("ddb_players")
 
 
-def test_sql_execution(con, csv_dir, awards_players, batting):
-    ddb = ibis.duckdb.connect()
-    ddb.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
-    ddb_players = con.register(ddb.table("ddb_players"), table_name="ddb_players")
+def test_sql_execution(con, duckdb_con, awards_players, batting):
+    ddb_players = con.register(
+        duckdb_con.table("ddb_players"), table_name="ddb_players"
+    )
 
     left = batting[batting.yearID == 2015]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
@@ -320,8 +343,6 @@ def test_sql_execution(con, csv_dir, awards_players, batting):
     )
 
     assert_frame_equal(result, expected, check_like=True)
-    con.drop_table("ddb_players")
-    ddb.drop_view("ddb_players")
 
 
 def test_multiple_execution_letsql_register_table(con, csv_dir):
@@ -332,9 +353,6 @@ def test_multiple_execution_letsql_register_table(con, csv_dir):
     assert (first := t.execute()) is not None
     assert (second := t.execute()) is not None
     assert_frame_equal(first, second)
-
-    con.drop_table(table_name)
-    con.drop_table(f"{con.name}_{table_name}")
 
 
 @pytest.mark.parametrize(
@@ -374,9 +392,6 @@ def test_expr_over_same_table_multiple_times(con, parquet_dir, other_con):
     assert (second := expr.execute()) is not None
     assert_frame_equal(first.sort_values(col), second.sort_values(col))
 
-    con.drop_table(ls_table_name)
-    con.drop_table(batting_name)
-
 
 different_name_exprs = [
     lambda t: t,
@@ -388,22 +403,18 @@ different_name_exprs = [
     "get_expr",
     different_name_exprs,
 )
-def test_register_with_different_name(con, csv_dir, get_expr):
-    batting_path = csv_dir.joinpath("batting.csv")
+def test_register_with_different_name(ls_con, duckdb_con, get_expr):
     table_name = "batting"
-
-    duckdb_con = ibis.duckdb.connect()
     letsql_table_name = f"{duckdb_con.name}_{table_name}"
-    t = duckdb_con.register(batting_path, table_name=table_name)
-    con.register(t, table_name=letsql_table_name)
 
-    table = con.table(letsql_table_name)
+    t = duckdb_con.table(table_name)
+    ls_con.register(t, table_name=letsql_table_name)
+
+    table = ls_con.table(letsql_table_name)
     expr = get_expr(table)
 
     assert table_name != letsql_table_name
     assert expr.execute() is not None
-
-    con.drop_table(letsql_table_name)
 
 
 @pytest.mark.parametrize(
@@ -428,20 +439,15 @@ def test_register_with_different_name_and_cache(con, csv_dir, get_expr):
     assert table_name != letsql_table_name
     assert expr.execute() is not None
 
-    con.drop_table(letsql_table_name)
 
-
-def test_register_with_different_name_more_than_one_table_expr(con, csv_dir):
-    batting_path = csv_dir.joinpath("batting.csv")
+def test_register_with_different_name_more_than_one_table_expr(con, duckdb_con):
     batting_table_name = "batting"
 
-    duckdb_con = ibis.duckdb.connect()
-    t = duckdb_con.register(batting_path, table_name=batting_table_name)
+    t = duckdb_con.table(batting_table_name)
     ddb_batting_table_name = f"{duckdb_con.name}_{batting_table_name}"
     con.register(t, table_name=ddb_batting_table_name)
 
     players_table_name = "ddb_players"
-    duckdb_con.read_csv(csv_dir / "awards_players.csv", table_name=players_table_name)
     ddb_players_table_name = f"{duckdb_con.name}_{players_table_name}"
     con.register(
         duckdb_con.table(players_table_name), table_name=ddb_players_table_name
@@ -478,16 +484,10 @@ def test_register_with_different_name_more_than_one_table_expr(con, csv_dir):
 
     assert_frame_equal(result, expected, check_like=True)
 
-    con.drop_table(ddb_batting_table_name)
-    con.drop_table(ddb_players_table_name)
 
-
-def test_register_arbitrary_expression(con, csv_dir):
-    batting_path = csv_dir.joinpath("batting.csv")
+def test_register_arbitrary_expression(con, duckdb_con):
     batting_table_name = "batting"
-
-    duckdb_con = ibis.duckdb.connect()
-    t = duckdb_con.register(batting_path, table_name=batting_table_name)
+    t = duckdb_con.table(batting_table_name)
 
     expr = t.filter(t.playerID == "allisar01")[
         ["playerID", "yearID", "stint", "teamID", "lgID"]
@@ -502,18 +502,12 @@ def test_register_arbitrary_expression(con, csv_dir):
     assert_frame_equal(result, expected, check_like=True)
 
 
-def test_register_arbitrary_expression_multiple_tables(con, csv_dir):
-    duckdb_con = ibis.duckdb.connect()
-
+def test_register_arbitrary_expression_multiple_tables(con, duckdb_con):
     batting_table_name = "batting"
-    batting_table = duckdb_con.read_csv(
-        csv_dir / "batting.csv", table_name=batting_table_name
-    )
+    batting_table = duckdb_con.table(batting_table_name)
 
     players_table_name = "ddb_players"
-    awards_players_table = duckdb_con.read_csv(
-        csv_dir / "awards_players.csv", table_name=players_table_name
-    )
+    awards_players_table = duckdb_con.table(players_table_name)
 
     left = batting_table[batting_table.yearID == 2015]
     right = awards_players_table[awards_players_table.lgID == "NL"].drop(
@@ -544,3 +538,47 @@ def test_register_arbitrary_expression_multiple_tables(con, csv_dir):
     ).sort_values(result_order)[list(left.columns)]
 
     assert_frame_equal(result, expected, check_like=True)
+
+
+def test_multiple_pipes(ls_con, pg):
+    """This test address the issue reported on bug #69
+    link: https://github.com/letsql/letsql/issues/69
+
+    NOTE
+    The previous tests didn't catch it because the con object registered the table batting.
+    In this test (and the rest) ls_con is a clean (no tables) letsql connection
+    """
+
+    duckdb_con = ibis.duckdb.connect()
+    table_name = "batting"
+    pg_t = pg.table(table_name)[lambda t: t.yearID == 2015].pipe(
+        ls_con.register, f"pg-{table_name}"
+    )
+    db_t = duckdb_con.register(pg_t.to_pyarrow(), f"{table_name}")[
+        lambda t: t.yearID == 2014
+    ].pipe(ls_con.register, f"db-{table_name}")
+
+    expr = pg_t.join(
+        db_t,
+        "playerID",
+    )
+
+    expr.execute()
+
+
+def test_multi_engine_cache(pg, ls_con, tmp_path):
+    db_con = ibis.duckdb.connect()
+
+    table_name = "batting"
+    pg_t = pg.table(table_name)[lambda t: t.yearID > 2014].pipe(
+        ls_con.register, f"pg-{table_name}"
+    )
+    db_t = db_con.register(pg.table(table_name).to_pyarrow(), f"{table_name}")[
+        lambda t: t.stint == 1
+    ].pipe(ls_con.register, f"db-{table_name}")
+
+    expr = pg_t.join(
+        db_t,
+        db_t.columns,
+    ).cache(storage=ParquetCacheStorage(tmp_path, ls_con))
+    expr.execute()
