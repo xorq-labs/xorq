@@ -1,3 +1,4 @@
+import ibis
 import pyarrow as pa
 
 import letsql as ls
@@ -44,8 +45,33 @@ def test_register_record_batch_reader_with_filter(alltypes, alltypes_df):
 
 
 def test_create_table(con):
-    import ibis
     import pandas as pd
 
     con.create_table("UPPERCASE", schema=ibis.schema({"A": "int"}))
     con.create_table("name", pd.DataFrame({"a": [1]}))
+
+
+def test_register_table_with_uppercase(con):
+    db_con = ibis.duckdb.connect()
+    db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
+
+    uppercase_table_name = "UPPERCASE"
+    t = con.register(db_t, uppercase_table_name)
+    assert uppercase_table_name in con.list_tables()
+    assert t.execute() is not None
+
+
+def test_register_table_with_uppercase_multiple_times(con):
+    db_con = ibis.duckdb.connect()
+    db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
+
+    uppercase_table_name = "UPPERCASE"
+    con.register(db_t, uppercase_table_name)
+
+    expected_schema = ibis.schema({"B": "int"})
+    db_t = db_con.create_table("lowercase_2", schema=expected_schema)
+    t = con.register(db_t, uppercase_table_name)
+
+    assert uppercase_table_name in con.list_tables()
+    assert t.execute() is not None
+    assert t.schema() == expected_schema

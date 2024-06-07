@@ -25,6 +25,7 @@ from ibis.expr.operations.udf import InputType
 from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
 
+
 import letsql
 import letsql.internal as df
 from letsql.backends.datafusion.compiler import DataFusionCompiler
@@ -330,19 +331,22 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         import pandas as pd
 
+        quoted = self.compiler.quoted
+        table_ident = str(sg.to_identifier(table_name, quoted=quoted))
+
         if isinstance(source, (str, Path)):
             first = str(source)
         elif isinstance(source, pa.Table):
-            self.con.deregister_table(table_name)
-            self.con.register_record_batches(table_name, [source.to_batches()])
+            self.con.deregister_table(table_ident)
+            self.con.register_record_batches(table_ident, [source.to_batches()])
             return self.table(table_name)
         elif isinstance(source, pa.RecordBatch):
-            self.con.deregister_table(table_name)
-            self.con.register_record_batches(table_name, [[source]])
+            self.con.deregister_table(table_ident)
+            self.con.register_record_batches(table_ident, [[source]])
             return self.table(table_name)
         elif isinstance(source, pa.dataset.Dataset):
-            self.con.deregister_table(table_name)
-            self.con.register_dataset(table_name, source)
+            self.con.deregister_table(table_ident)
+            self.con.register_dataset(table_ident, source)
             return self.table(table_name)
         elif isinstance(source, pd.DataFrame):
             output = pa.Table.from_pandas(source)
@@ -355,26 +359,26 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         elif isinstance(source, ibis.expr.types.Table) and hasattr(
             source, "to_pyarrow_batches"
         ):
-            self.con.deregister_table(table_name)
+            self.con.deregister_table(table_ident)
             self.con.register_table_provider(
-                table_name, TableProvider(IbisTableProvider(source))
+                table_ident, TableProvider(IbisTableProvider(source))
             )
             return self.table(table_name)
         elif isinstance(source, ibis.expr.types.Expr) and hasattr(
             source, "to_pyarrow_batches"
         ):
-            self.con.deregister_table(table_name)
+            self.con.deregister_table(table_ident)
             self.con.register_record_batch_reader(
-                table_name, source.to_pyarrow_batches()
+                table_ident, source.to_pyarrow_batches()
             )
             return self.table(table_name)
         elif isinstance(source, pa.RecordBatchReader):
-            self.con.deregister_table(table_name)
-            self.con.register_record_batch_reader(table_name, source)
+            self.con.deregister_table(table_ident)
+            self.con.register_record_batch_reader(table_ident, source)
             return self.table(table_name)
         elif isinstance(source, Table):
-            self.con.deregister_table(table_name)
-            self.con.register_table(table_name, source)
+            self.con.deregister_table(table_ident)
+            self.con.register_table(table_ident, source)
             return self.table(table_name)
         else:
             raise ValueError(f"Unknown `source` type {type(source)}")
