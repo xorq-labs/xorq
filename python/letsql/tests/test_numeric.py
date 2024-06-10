@@ -562,3 +562,58 @@ def test_bitwise_scalars(con, op, left, right):
     result = con.execute(expr)
     expected = op(4, 2)
     assert result == expected
+
+
+def test_bitwise_not_scalar(con):
+    expr = ~L(2)
+    result = con.execute(expr)
+    expected = -3
+    assert result == expected
+
+
+def test_bitwise_not_col(alltypes, df):
+    expr = (~alltypes.int_col).name("tmp")
+    result = expr.execute()
+    expected = ~df.int_col
+    assert_series_equal(result, expected.rename("tmp"))
+
+
+@pytest.mark.parametrize(
+    ("ibis_func", "pandas_func"),
+    [
+        param(lambda x: x.clip(lower=0), lambda x: x.clip(lower=0), id="lower-int"),
+        param(
+            lambda x: x.clip(lower=0.0), lambda x: x.clip(lower=0.0), id="lower-float"
+        ),
+        param(lambda x: x.clip(upper=0), lambda x: x.clip(upper=0), id="upper-int"),
+        param(
+            lambda x: x.clip(lower=x - 1, upper=x + 1),
+            lambda x: x.clip(lower=x - 1, upper=x + 1),
+            id="lower-upper-expr",
+        ),
+        param(
+            lambda x: x.clip(lower=0, upper=1),
+            lambda x: x.clip(lower=0, upper=1),
+            id="lower-upper-int",
+        ),
+        param(
+            lambda x: x.clip(lower=0, upper=1.0),
+            lambda x: x.clip(lower=0, upper=1.0),
+            id="lower-upper-float",
+        ),
+        param(
+            lambda x: x.nullif(1).clip(lower=0),
+            lambda x: x.where(x != 1).clip(lower=0),
+            id="null-lower",
+        ),
+        param(
+            lambda x: x.nullif(1).clip(upper=0),
+            lambda x: x.where(x != 1).clip(upper=0),
+            id="null-upper",
+        ),
+    ],
+)
+def test_clip(alltypes, df, ibis_func, pandas_func):
+    result = ibis_func(alltypes.int_col).execute()
+    expected = pandas_func(df.int_col).astype(result.dtype)
+    assert_series_equal(result, expected, check_names=False)

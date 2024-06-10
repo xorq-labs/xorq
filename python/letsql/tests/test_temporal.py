@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import datetime
 import operator
+import warnings
 from operator import methodcaller
 
 import ibis
@@ -11,7 +12,11 @@ import pandas as pd
 import pytest
 from pytest import param
 
-from letsql.tests.util import assert_frame_equal, assert_series_equal
+from letsql.tests.util import (
+    assert_frame_equal,
+    assert_series_equal,
+    default_series_rename,
+)
 
 
 @pytest.mark.parametrize("attr", ["year", "month", "day"])
@@ -516,3 +521,91 @@ def test_now_from_projection(alltypes):
     assert len(result) == n
     assert ts.nunique() == 1
     assert not pd.isna(ts.iat[0])
+
+
+@pytest.mark.parametrize(
+    "unit",
+    [
+        "Y",
+        "M",
+        "W",
+        "D",
+    ],
+)
+def test_integer_to_interval_date(con, alltypes, df, unit):
+    interval = alltypes.int_col.to_interval(unit=unit)
+    array = alltypes.date_string_col.split("/")
+    month, day, year = array[0], array[1], array[2]
+    date_col = ibis.literal("-").join(["20" + year, month, day]).cast("date")
+    expr = (date_col + interval).name("tmp")
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=pd.errors.PerformanceWarning)
+        result = con.execute(expr)
+
+    def convert_to_offset(x):
+        resolution = f"{interval.type().resolution}s"
+        return pd.offsets.DateOffset(**{resolution: x})
+
+    offset = df.int_col.apply(convert_to_offset)
+    with warnings.catch_warnings():
+        warnings.simplefilter(
+            "ignore", category=(UserWarning, pd.errors.PerformanceWarning)
+        )
+        expected = (
+            pd.to_datetime(df.date_string_col)
+            .add(offset)
+            .map(lambda ts: ts.normalize().date(), na_action="ignore")
+        )
+
+    expected = default_series_rename(expected)
+    assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("unit", "displacement_type"),
+    [
+        param(
+            "Y",
+            pd.offsets.DateOffset,
+        ),
+        param(
+            "M",
+            pd.offsets.DateOffset,
+        ),
+        param(
+            "W",
+            pd.offsets.DateOffset,
+        ),
+        param("D", pd.offsets.DateOffset),
+        param("h", pd.Timedelta),
+        param("m", pd.Timedelta),
+        param("s", pd.Timedelta),
+        param(
+            "ms",
+            pd.Timedelta,
+        ),
+        param(
+            "us",
+            pd.Timedelta,
+        ),
+    ],
+)
+def test_integer_to_interval_timestamp(con, alltypes, df, unit, displacement_type):
+    interval = alltypes.int_col.to_interval(unit=unit)
+    expr = (alltypes.timestamp_col + interval).name("tmp")
+
+    def convert_to_offset(offset, displacement_type=displacement_type):
+        resolution = f"{interval.op().dtype.resolution}s"
+        return displacement_type(**{resolution: offset})
+
+    with warnings.catch_warnings():
+        # both the implementation and test code raises pandas
+        # PerformanceWarning, because We use DateOffset addition
+        warnings.simplefilter("ignore", category=pd.errors.PerformanceWarning)
+        result = con.execute(expr)
+        offset = df.int_col.apply(convert_to_offset)
+        expected = df.timestamp_col + offset
+
+    expected = default_series_rename(expected)
+    assert_series_equal(result, expected.astype(result.dtype))

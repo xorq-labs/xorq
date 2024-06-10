@@ -21,3 +21,7 @@ def assert_frame_equal(
     right = right.reset_index(drop=True)
     kwargs.setdefault("check_dtype", True)
     tm.assert_frame_equal(left, right, *args, **kwargs)
+
+
+def default_series_rename(series: pd.Series, name: str = "tmp") -> pd.Series:
+    return series.rename(name)

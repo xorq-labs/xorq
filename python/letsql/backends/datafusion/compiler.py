@@ -38,13 +38,10 @@ class DataFusionCompiler(SQLGlotCompiler):
             ops.ArrayFilter,
             ops.ArrayMap,
             ops.ArrayZip,
-            ops.BitwiseNot,
-            ops.Clip,
             ops.CountDistinctStar,
             ops.DateDelta,
             ops.Greatest,
             ops.GroupConcat,
-            ops.IntervalFromInteger,
             ops.Least,
             ops.MultiQuantile,
             ops.Quantile,
@@ -499,3 +496,22 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_TypeOf(self, op, *, arg):
         return self.f.arrow_typeof(arg)
+
+    def visit_BitwiseNot(self, op, *, arg):
+        # https://stackoverflow.com/q/69648488/4001592
+        return sge.BitwiseXor(this=arg, expression=sg.exp.convert(-1))
+
+    def visit_Clip(self, op, *, arg, lower, upper):
+        ifs = []
+        if lower is not None:
+            lower_case = self.if_(arg < lower, lower)
+            ifs.append(lower_case)
+        if upper is not None:
+            upper_case = self.if_(arg > upper, upper)
+            ifs.append(upper_case)
+
+        return sg.exp.Case(ifs=ifs, default=arg)
+
+    def visit_IntervalFromInteger(self, op, *, arg, unit):
+        unit = unit.name.lower()
+        return sg.cast(self.f.concat(self.cast(arg, dt.string), f" {unit}"), "interval")
