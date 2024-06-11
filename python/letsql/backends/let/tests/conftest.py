@@ -63,6 +63,19 @@ def con(dirty):
 
 
 @pytest.fixture(scope="session")
+def dirty_ls_con():
+    con = ls.connect()
+    return con
+
+
+@pytest.fixture(scope="function")
+def ls_con(dirty_ls_con):
+    yield dirty_ls_con
+    for table_name in dirty_ls_con.list_tables():
+        dirty_ls_con.drop_table(table_name)
+
+
+@pytest.fixture(scope="session")
 def alltypes(dirty):
     return dirty.table("functional_alltypes")
 

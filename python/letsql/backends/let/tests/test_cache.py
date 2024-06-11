@@ -470,3 +470,66 @@ def test_read_csv_compute_and_cache(con, csv_dir, tmp_path):
         .cache()
     )
     assert expr.execute() is not None
+
+
+def test_multi_engine_cache(pg, ls_con, tmp_path):
+    db_con = ibis.duckdb.connect()
+
+    table_name = "batting"
+    pg_t = pg.table(table_name)[lambda t: t.yearID > 2014].pipe(
+        ls_con.register, f"pg-{table_name}"
+    )
+    db_t = db_con.register(pg.table(table_name).to_pyarrow(), f"{table_name}")[
+        lambda t: t.stint == 1
+    ].pipe(ls_con.register, f"db-{table_name}")
+
+    expr = pg_t.join(
+        db_t,
+        db_t.columns,
+    ).cache(storage=ParquetCacheStorage(tmp_path, ls_con))
+
+    assert expr.execute() is not None
+
+
+def test_repeated_cache(pg, ls_con, tmp_path):
+    storage = ParquetCacheStorage(
+        source=ls_con,
+        path=tmp_path,
+    )
+    t = (
+        pg.table("batting")
+        .pipe(ls_con.register, "pg-batting")[lambda t: t.yearID > 2014]
+        .cache(storage=storage)[lambda t: t.stint == 1]
+        .cache(storage=storage)
+    )
+
+    actual = t.execute()
+    expected = pg.table("batting").filter([_.yearID > 2014, _.stint == 1]).execute()
+
+    assert_frame_equal(actual, expected)
+
+
+@pytest.mark.parametrize(
+    "get_expr",
+    [
+        lambda t: t,
+        lambda t: t.group_by("playerID").agg(t.stint.max().name("n-stints")),
+    ],
+)
+def test_register_with_different_name_and_cache(con, csv_dir, get_expr):
+    batting_path = csv_dir.joinpath("batting.csv")
+    table_name = "batting"
+
+    datafusion_con = ibis.datafusion.connect()
+    letsql_table_name = f"{datafusion_con.name}_{table_name}"
+    t = datafusion_con.register(
+        batting_path, table_name=table_name, schema_infer_max_records=50_000
+    )
+    con.register(t, table_name=letsql_table_name)
+
+    batting_table = con.table(letsql_table_name)
+    expr = get_expr(batting_table)
+    expr = expr.cache()
+
+    assert table_name != letsql_table_name
+    assert expr.execute() is not None

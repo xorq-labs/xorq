@@ -26,6 +26,12 @@ from letsql.expr.translate import sql_to_ibis
 from letsql.internal import SessionContext
 
 
+def _get_datafusion_table(con, table_name, database="public"):
+    default = con.catalog()
+    public = default.database(database)
+    return public.table(table_name)
+
+
 class Backend(DataFusionBackend):
     name = "let"
 
@@ -51,9 +57,9 @@ class Backend(DataFusionBackend):
                     original_backend, (DataFusionBackend, IbisDataFusionBackend)
                 ) and isinstance(table_or_expr, ops.DatabaseTable)
                 if is_a_datafusion_backed_table:
-                    default = original_backend.con.catalog()
-                    public = default.database("public")
-                    source = public.table(table_or_expr.name)
+                    source = _get_datafusion_table(
+                        original_backend.con, table_or_expr.name
+                    )
                     table_or_expr = None
 
         registered_table = super().register(source, table_name=table_name, **kwargs)
@@ -154,11 +160,8 @@ class Backend(DataFusionBackend):
                 uncached_to_expr = uncached.to_expr()
                 node = storage.set_default(uncached_to_expr, uncached)
                 table = node.to_expr()
-
                 if node.source == self:
-                    default = self.con.catalog()
-                    public = default.database("public")
-                    table = public.table(node.name)
+                    table = _get_datafusion_table(self.con, node.name)
                 registered_table = self.register(table, table_name=node.name)
                 self._sources[registered_table.op()] = registered_table.op()
             return node
