@@ -54,3 +54,11 @@ def test_tokenize_pandas_expr(alltypes_df):
     actual = dask.base.tokenize(t)
     expected = "7b0019049171a3ef78ecbd5f463ac728"
     assert actual == expected
+
+
+def test_tokenize_duckdb_dt(batting):
+    db_con = ibis.duckdb.connect()
+    t = db_con.register(batting.to_pyarrow(), "dashed-name")
+    actual = dask.base.tokenize(t)
+    expected = "e5d0040b184eaa719ebb5dc0efff3cc7"
+    assert actual == expected

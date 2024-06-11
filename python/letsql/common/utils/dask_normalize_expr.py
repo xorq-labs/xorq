@@ -3,6 +3,7 @@ import re
 import dask
 import ibis
 import ibis.expr.operations.relations as ir
+import sqlglot as sg
 
 from letsql.expr.relations import (
     make_native_op,
@@ -111,7 +112,10 @@ def normalize_snowflake_databasetable(dt):
 def normalize_duckdb_databasetable(dt):
     if dt.source.name != "duckdb":
         raise ValueError
-    ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {dt.name}").fetchall()
+    name = sg.table(dt.name, quoted=dt.source.compiler.quoted).sql(
+        dialect=dt.source.name
+    )
+    ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {name}").fetchall()
     scan_line = plan.split("\n")[1]
     execution_plan_name = r"\s*│\s*(\w+)\s*│\s*"
     match re.match(execution_plan_name, scan_line).group(1):
@@ -124,8 +128,9 @@ def normalize_duckdb_databasetable(dt):
 
 
 def normalize_duckdb_file_read(dt):
+    name = sg.exp.convert(dt.name).sql(dialect=dt.source.name)
     (sql_ddl_statement,) = dt.source.con.sql(
-        f"select sql from duckdb_views() where view_name = '{dt.name}'"
+        f"select sql from duckdb_views() where view_name = {name}"
     ).fetchone()
     return dask.base._normalize_seq_func(
         (
