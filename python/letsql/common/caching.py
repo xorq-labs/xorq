@@ -44,23 +44,27 @@ def load(path):
 
 
 class CacheStorage(ABC):
-    @abstractmethod
     def exists(self, expr: ir.Expr):
+        key = self.get_key(expr)
+        return self.key_exists(key)
+
+    @abstractmethod
+    def key_exists(self, key):
         pass
 
     def get_key(self, expr: ir.Expr):
         return KEY_PREFIX + dask.base.tokenize(expr)
 
     def get(self, expr: ir.Expr):
-        if not self.exists(expr):
+        key = self.get_key(expr)
+        if not self.key_exists(key):
             raise KeyError
         else:
-            key = self.get_key(expr)
             return self._get(key)
 
     def set_default(self, expr: ir.Expr, default):
         key = self.get_key(expr)
-        if not self.exists(expr):
+        if not self.key_exists(key):
             return self._put(key, default)
         else:
             return self._get(key)
@@ -70,7 +74,8 @@ class CacheStorage(ABC):
         pass
 
     def put(self, expr: ir.Expr, value):
-        if self.exists(expr):
+        key = self.get_key(expr)
+        if self.key_exists(key):
             raise ValueError
         else:
             key = self.get_key(expr)
@@ -81,10 +86,10 @@ class CacheStorage(ABC):
         pass
 
     def drop(self, expr: ir.Expr):
-        if not self.exists(expr):
+        key = self.get_key(expr)
+        if not self.key_exists(key):
             raise KeyError
         else:
-            key = self.get_key(expr)
             self._drop(key)
 
     @abstractmethod
@@ -103,8 +108,7 @@ class ParquetCacheStorage(CacheStorage):
     def get_loc(self, key):
         return self.path.joinpath(key + ".parquet")
 
-    def exists(self, expr):
-        key = self.get_key(expr)
+    def key_exists(self, key):
         return self.get_loc(key).exists()
 
     def _get(self, key):
@@ -127,8 +131,7 @@ class ParquetCacheStorage(CacheStorage):
 class SourceStorage(CacheStorage):
     source = field(validator=instance_of(ibis.backends.BaseBackend))
 
-    def exists(self, expr):
-        key = self.get_key(expr)
+    def key_exists(self, key):
         return key in self.source.tables
 
     def _get(self, key):
