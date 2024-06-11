@@ -61,6 +61,36 @@ class Backend(DataFusionBackend):
 
         return registered_table
 
+    def read_parquet(
+        self, path: str | Path, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        registered_table = super().read_parquet(path, table_name=table_name, **kwargs)
+        self._sources[registered_table.op()] = registered_table.op()
+        return registered_table
+
+    def read_csv(
+        self, path: str | Path, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        registered_table = super().read_csv(path, table_name=table_name, **kwargs)
+        self._sources[registered_table.op()] = registered_table.op()
+        return registered_table
+
+    def read_json(
+        self, path: str | Path, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        registered_table = super().read_json(path, table_name=table_name, **kwargs)
+        self._sources[registered_table.op()] = registered_table.op()
+        return registered_table
+
+    def read_delta(
+        self, source_table: str | Path, table_name: str | None = None, **kwargs: Any
+    ) -> ir.Table:
+        registered_table = super().read_delta(
+            source_table, table_name=table_name, **kwargs
+        )
+        self._sources[registered_table.op()] = registered_table.op()
+        return registered_table
+
     def execute(self, expr: ir.Expr, **kwargs: Any):
         not_multi_engine = self._get_source(expr) != self
         if (

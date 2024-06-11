@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pathlib
 import time
+import uuid
 
 import ibis
 import pytest
@@ -31,6 +32,20 @@ from letsql.tests.util import (
 @pytest.fixture(scope="function")
 def pg_alltypes(pg):
     return pg.table("functional_alltypes")
+
+
+@pytest.fixture(scope="session")
+def csv_dir():
+    root = pathlib.Path(__file__).absolute().parents[5]
+    data_dir = root / "ci" / "ibis-testing-data" / "csv"
+    return data_dir
+
+
+@pytest.fixture(scope="session")
+def parquet_dir():
+    root = pathlib.Path(__file__).absolute().parents[5]
+    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
+    return data_dir
 
 
 def test_cache_simple(con, alltypes, alltypes_df):
@@ -415,3 +430,43 @@ def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
 
     assert result is not None
     assert_frame_equal(result, expected, check_like=True)
+
+
+def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
+    batting_path = parquet_dir / "batting.parquet"
+    t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
+    expr = t.cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
+    assert expr.execute() is not None
+
+
+def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
+    batting_path = parquet_dir / "batting.parquet"
+    t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
+    expr = (
+        t[t.yearID == 2015]
+        .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
+        .cache()
+    )
+    assert expr.execute() is not None
+
+
+def test_read_csv_and_cache(con, csv_dir, tmp_path):
+    batting_path = csv_dir / "batting.csv"
+    t = con.read_csv(batting_path, table_name=f"csv_batting-{uuid.uuid4()}")
+    expr = t.cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
+    assert expr.execute() is not None
+
+
+def test_read_csv_compute_and_cache(con, csv_dir, tmp_path):
+    batting_path = csv_dir / "batting.csv"
+    t = con.read_csv(
+        batting_path,
+        table_name=f"csv_batting-{uuid.uuid4()}",
+        schema_infer_max_records=50_000,
+    )
+    expr = (
+        t[t.yearID == 2015]
+        .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
+        .cache()
+    )
+    assert expr.execute() is not None
