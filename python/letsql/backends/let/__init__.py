@@ -154,8 +154,13 @@ class Backend(DataFusionBackend):
                 uncached_to_expr = uncached.to_expr()
                 node = storage.set_default(uncached_to_expr, uncached)
                 table = node.to_expr()
-                if node.source != self:
-                    self.register(table, table_name=storage.get_key(uncached_to_expr))
+
+                if node.source == self:
+                    default = self.con.catalog()
+                    public = default.database("public")
+                    table = public.table(node.name)
+                registered_table = self.register(table, table_name=node.name)
+                self._sources[registered_table.op()] = registered_table.op()
             return node
 
         op = expr.op()

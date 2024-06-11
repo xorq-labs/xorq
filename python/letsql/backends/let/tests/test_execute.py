@@ -581,4 +581,20 @@ def test_multi_engine_cache(pg, ls_con, tmp_path):
         db_t,
         db_t.columns,
     ).cache(storage=ParquetCacheStorage(tmp_path, ls_con))
-    expr.execute()
+
+    assert expr.execute() is not None
+
+
+def test_repeated_cache(pg, ls_con, tmp_path):
+    storage = ParquetCacheStorage(
+        source=ls_con,
+        path=tmp_path,
+    )
+    t = (
+        pg.table("batting")
+        .pipe(ls_con.register, "pg-batting")[lambda t: t.yearID > 2014]
+        .cache(storage=storage)[lambda t: t.stint == 1]
+        .cache(storage=storage)
+    )
+
+    assert t.execute() is not None
