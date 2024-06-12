@@ -15,6 +15,9 @@ from letsql.backends.conftest import (
 from letsql.backends.snowflake.tests.conftest import (
     inside_temp_schema,
 )
+from letsql.common.caching import (
+    ParquetCacheStorage,
+)
 from letsql.common.utils.snowflake_utils import (
     get_session_query_df,
     get_snowflake_last_modification_time,
@@ -24,6 +27,8 @@ from letsql.common.utils.snowflake_utils import (
 @pytest.mark.snowflake
 def test_snowflake_cache_with_name_multiplicity(sf_con):
     (catalog, db) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1")
+    assert sf_con.current_catalog == catalog
+    assert sf_con.current_database == db
     table = "CUSTOMER"
     n_tables = (
         sf_con.table("TABLES", database=(catalog, "INFORMATION_SCHEMA"))[
@@ -33,7 +38,7 @@ def test_snowflake_cache_with_name_multiplicity(sf_con):
         .execute()
     )
     assert n_tables > 1
-    t = sf_con.table(table, database=(catalog, db))
+    t = sf_con.table(table)
     (dt,) = t.op().find(ops.DatabaseTable)
     get_snowflake_last_modification_time(dt)
 
@@ -83,3 +88,17 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
         # test cache invalidation
         sf_con.insert(name, df, database=f"{temp_catalog}.{temp_db}")
         assert not storage.exists(uncached)
+
+
+@pytest.mark.snowflake
+def test_snowflake_simple_cache(sf_con, tmp_path):
+    db_con = ibis.duckdb.connect()
+    con = ls.connect()
+    with inside_temp_schema(sf_con, "SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"):
+        table = sf_con.table("CUSTOMER")
+        expr = (
+            table.pipe(con.register, "sf-CUSTOMER")
+            .limit(1)
+            .cache(ParquetCacheStorage(source=db_con, path=tmp_path))
+        )
+        expr.execute()

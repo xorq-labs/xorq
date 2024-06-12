@@ -10,6 +10,9 @@ import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
+from ibis.expr.operations.relations import (
+    Namespace,
+)
 
 from letsql.common.utils.hotfix_utils import (
     maybe_hotfix,
@@ -188,3 +191,17 @@ def create_table(
         pass
 
     return self.table(name, database=(catalog, db))
+
+
+@maybe_hotfix(
+    ibis.backends.snowflake.Backend,
+    "table",
+    "198ce885b48922c84557b3b791fa33d6",
+)
+def table(self, *args, **kwargs):
+    table = super(ibis.backends.snowflake.Backend, self).table(*args, **kwargs)
+    op = table.op()
+    if op.namespace == Namespace(None, None):
+        (catalog, database) = (self.current_catalog, self.current_database)
+        table = op.copy(**{"namespace": Namespace(catalog, database)}).to_expr()
+    return table

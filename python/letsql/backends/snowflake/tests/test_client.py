@@ -47,3 +47,16 @@ def test_setup_session():
         "CURRENT_DATABASE()": database,
         "CURRENT_SCHEMA()": schema,
     }
+
+
+@pytest.mark.snowflake
+def test_table_namespace():
+    (database, schema, table_name) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1", "CUSTOMER")
+    con = SU.make_ibis_connection(
+        database=database,
+        schema=schema,
+    )
+    table = con.table(table_name)
+    namespace = table.op().namespace
+    assert namespace.catalog is not None
+    assert namespace.database is not None
