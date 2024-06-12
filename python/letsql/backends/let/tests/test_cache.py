@@ -533,3 +533,18 @@ def test_register_with_different_name_and_cache(con, csv_dir, get_expr):
 
     assert table_name != letsql_table_name
     assert expr.execute() is not None
+
+
+def test_replace_table_matching_kwargs(pg, ls_con, tmp_path):
+    storage = ParquetCacheStorage(
+        source=ls_con,
+        path=tmp_path,
+    )
+    expr = (
+        pg.table("batting")
+        .pipe(ls_con.register, "pg-batting")[lambda t: t.yearID > 2014]
+        .limit(1)
+        .cache(storage=storage)
+    )
+
+    assert expr.ls.native_expr is not None

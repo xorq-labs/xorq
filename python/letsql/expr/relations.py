@@ -30,8 +30,8 @@ def make_native_op(node):
     if native_source.name == "let":
         raise ValueError
 
-    def replace_table(n, _, **_kwargs):
-        return sources.get_table_or_op(n, n.__recreate__(_kwargs))
+    def replace_table(_node, _, **_kwargs):
+        return sources.get_table_or_op(_node, _node.__recreate__(_kwargs))
 
     return node.replace(replace_table).to_expr()
 
