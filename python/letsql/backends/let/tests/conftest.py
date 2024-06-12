@@ -93,3 +93,8 @@ def awards_players(dirty):
 @pytest.fixture(scope="session")
 def alltypes_df(alltypes):
     return alltypes.execute()
+
+
+@pytest.fixture(scope="session")
+def batting_df(batting):
+    return batting.execute()

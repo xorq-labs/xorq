@@ -13,6 +13,7 @@ from ibis.expr.schema import SchemaLike
 from ibis.backends.datafusion import Backend as IbisDataFusionBackend
 from sqlglot import exp, parse_one
 
+import letsql.backends.let.hotfix  # noqa: F401
 from letsql.backends.datafusion import Backend as DataFusionBackend
 from letsql.common.caching import (
     SourceStorage,
@@ -192,16 +193,3 @@ class Backend(DataFusionBackend):
     def _extract_catalog(self, query):
         tables = parse_one(query).find_all(exp.Table)
         return {table.name: self.table(table.name) for table in tables}
-
-
-def letsql_cache(self, storage=None):
-    current_backend = self._find_backend(use_default=True)
-    return current_backend._cached(self, storage=storage)
-
-
-def do_monkeypatch_Table_cache():
-    setattr(letsql_cache, "orig_cache", ir.Table.cache)
-    setattr(ir.Table, "cache", letsql_cache)
-
-
-do_monkeypatch_Table_cache()

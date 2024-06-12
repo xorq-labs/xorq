@@ -24,7 +24,11 @@ def maybe_hotfix(obj, attrname, target_tokenized, hotfix):
         "hotfix_tokenized": dask.base.tokenize(hotfix),
     }
     if tokenized == target_tokenized:
-        setattr(hotfix, "_original", to_hotfix)
+        if not isinstance(hotfix, property):
+            setattr(hotfix, "_original", to_hotfix)
+        else:
+            if tokenized != none_tokenized:
+                raise ValueError("Don't know how to retain _original")
         setattr(obj, attrname, hotfix)
         logger.info("hotfixing", **dct)
     else:
