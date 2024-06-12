@@ -27,7 +27,9 @@ import dask
 import letsql.common.utils.dask_normalize  # noqa: F401
 
 
-abs_path_converter = toolz.compose(operator.methodcaller("absolute"), pathlib.Path)
+abs_path_converter = toolz.compose(
+    operator.methodcaller("expanduser"), operator.methodcaller("absolute"), pathlib.Path
+)
 
 
 KEY_PREFIX = "letsql_cache-"
@@ -99,8 +101,12 @@ class CacheStorage(ABC):
 
 @frozen
 class ParquetCacheStorage(CacheStorage):
-    path = field(validator=instance_of(pathlib.Path), converter=abs_path_converter)
     source = field(validator=instance_of(ibis.backends.BaseBackend))
+    path = field(
+        validator=instance_of(pathlib.Path),
+        converter=abs_path_converter,
+        default=(pathlib.Path("~/.local/share/letsql")),
+    )
 
     def __attrs_post_init__(self):
         self.path.mkdir(exist_ok=True, parents=True)

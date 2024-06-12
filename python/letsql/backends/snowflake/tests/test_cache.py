@@ -49,7 +49,7 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
     con = ls.connect()
-    storage = ls.common.caching.ParquetCacheStorage(tmp_path, source=con)
+    storage = ls.common.caching.ParquetCacheStorage(source=con, path=tmp_path)
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):

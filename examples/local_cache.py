@@ -19,7 +19,10 @@ alltypes = con.register(
 
 expr = alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
 
-storage = ls.common.caching.ParquetCacheStorage(Path.cwd(), source=con)
+storage = ls.common.caching.ParquetCacheStorage(
+    source=con,
+    path=Path.cwd(),
+)
 
 cached = expr.cache(storage=storage)  # cache expression (this creates a local table)
 

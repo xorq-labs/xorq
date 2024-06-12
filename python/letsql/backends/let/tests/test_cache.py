@@ -267,7 +267,8 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     expected = alltypes_df[cols]
     source = expr._find_backend()
     storage = letsql.common.caching.ParquetCacheStorage(
-        tmp_path.joinpath("parquet-cache-storage"), source=source
+        source=source,
+        path=tmp_path.joinpath("parquet-cache-storage"),
     )
     cached = expr.cache(storage=storage)
     actual = cached.execute()
@@ -304,7 +305,8 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
         ]
     )
     storage = letsql.common.caching.ParquetCacheStorage(
-        tmp_path.joinpath("parquet-cache-storage"), source=con
+        source=con,
+        path=tmp_path.joinpath("parquet-cache-storage"),
     )
     cached = expr.cache(storage=storage)
     expected = expr.execute()
@@ -374,7 +376,7 @@ def test_duckdb_cache_parquet(con, pg, tmp_path):
         ibis.duckdb.connect()
         .read_parquet(parquet_path)
         .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
-        .cache(storage=ParquetCacheStorage(path=tmp_path, source=con))
+        .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
     )
     expr.execute()
 
@@ -387,7 +389,7 @@ def test_duckdb_cache_csv(con, pg, tmp_path):
         ibis.duckdb.connect()
         .read_csv(csv_path)
         .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
-        .cache(storage=ParquetCacheStorage(path=tmp_path, source=con))
+        .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
     )
     expr.execute()
 
@@ -398,7 +400,7 @@ def test_duckdb_cache_arrow(con, pg, tmp_path):
         ibis.duckdb.connect()
         .register(pg.table(name).to_pyarrow(), name)
         .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
-        .cache(storage=ParquetCacheStorage(path=tmp_path, source=con))
+        .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
     )
     expr.execute()
 
@@ -425,7 +427,7 @@ def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
 
     table = con.register(expr, table_name="expr")
     result = table.cache(
-        storage=ParquetCacheStorage(path=tmp_path, source=con)
+        storage=ParquetCacheStorage(source=con, path=tmp_path)
     ).execute()
 
     assert result is not None
@@ -486,7 +488,10 @@ def test_multi_engine_cache(pg, ls_con, tmp_path):
     expr = pg_t.join(
         db_t,
         db_t.columns,
-    ).cache(storage=ParquetCacheStorage(tmp_path, ls_con))
+    ).cache(storage=ParquetCacheStorage(
+        source=ls_con,
+        path=tmp_path,
+    ))
 
     assert expr.execute() is not None
 
