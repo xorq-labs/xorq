@@ -88,8 +88,7 @@ class LETSQLAccessor:
 
     @property
     def native_dts(self):
-        sources = self.ls_con._sources.sources
-        return tuple(sources[dt] for dt in self.dts)
+        return tuple(self.native_expr.op().find(self.node_types))
 
     @property
     def native_expr(self):
