@@ -163,8 +163,7 @@ class Backend(DataFusionBackend):
                 table = node.to_expr()
                 if node.source == self:
                     table = _get_datafusion_table(self.con, node.name)
-                registered_table = self.register(table, table_name=node.name)
-                self._sources[registered_table.op()] = registered_table.op()
+                self.register(table, table_name=node.name)
             return node
 
         op = expr.op()
