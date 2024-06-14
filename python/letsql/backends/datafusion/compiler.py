@@ -40,9 +40,7 @@ class DataFusionCompiler(SQLGlotCompiler):
             ops.ArrayZip,
             ops.CountDistinctStar,
             ops.DateDelta,
-            ops.Greatest,
             ops.GroupConcat,
-            ops.Least,
             ops.MultiQuantile,
             ops.Quantile,
             ops.RowID,
@@ -515,3 +513,9 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_IntervalFromInteger(self, op, *, arg, unit):
         unit = unit.name.lower()
         return sg.cast(self.f.concat(self.cast(arg, dt.string), f" {unit}"), "interval")
+
+    def visit_Greatest(self, op, *, arg):
+        return self.f.greatest(*arg)
+
+    def visit_Least(self, op, *, arg):
+        return self.f.least(*arg)

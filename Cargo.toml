@@ -23,4 +23,5 @@ async-trait = "0.1"
 arrow = "52.0.0"
 gbdt = { git = "https://github.com/mesejo/gbdt-rs.git", branch = "feat/add-feature-mapping" }
 parking_lot = { version = "0.12" }
+arrow-ord = "52.0.0"
 

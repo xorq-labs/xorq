@@ -4,6 +4,7 @@ import decimal
 import math
 import operator
 from operator import and_, lshift, or_, rshift, xor
+from typing import Callable
 
 import ibis
 import numpy as np
@@ -14,7 +15,7 @@ from ibis import literal as L
 from ibis.expr import datatypes as dt
 from pytest import param
 
-from letsql.tests.util import assert_series_equal
+from letsql.tests.util import assert_series_equal, default_series_rename
 
 
 @pytest.mark.parametrize(
@@ -233,6 +234,16 @@ def test_isnan_isinf(
             11 % 3,
             id="mod",
         ),
+        param(
+            ibis.greatest(L(10), L(1)),
+            10,
+            id="greatest",
+        ),
+        param(
+            ibis.least(L(10), L(1)),
+            1,
+            id="least",
+        ),
     ],
 )
 def test_math_functions_literals(con, expr, expected):
@@ -358,6 +369,40 @@ def test_complex_math_functions_columns(con, alltypes, df, expr_fn, expected_fn)
     expr = expr_fn(alltypes).name("tmp")
     expected = expected_fn(df)
     result = con.execute(expr)
+    assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("expr_fn", "expected_fn"),
+    [
+        param(
+            lambda t: ibis.least(t.bigint_col, t.int_col),
+            lambda t: pd.Series(list(map(min, t.bigint_col, t.int_col))),
+            id="least-all-columns",
+        ),
+        param(
+            lambda t: ibis.least(t.bigint_col, t.int_col, -2),
+            lambda t: pd.Series(list(map(min, t.bigint_col, t.int_col, [-2] * len(t)))),
+            id="least-scalar",
+        ),
+        param(
+            lambda t: ibis.greatest(t.bigint_col, t.int_col),
+            lambda t: pd.Series(list(map(max, t.bigint_col, t.int_col))),
+            id="greatest-all-columns",
+        ),
+        param(
+            lambda t: ibis.greatest(t.bigint_col, t.int_col, -2),
+            lambda t: pd.Series(list(map(max, t.bigint_col, t.int_col, [-2] * len(t)))),
+            id="greatest-scalar",
+        ),
+    ],
+)
+def test_backend_specific_numerics(
+    con, df, alltypes, expr_fn: Callable, expected_fn: Callable
+):
+    expr = expr_fn(alltypes)
+    result = default_series_rename(con.execute(expr.name("tmp")))
+    expected = default_series_rename(expected_fn(df))
     assert_series_equal(result, expected)
 
 

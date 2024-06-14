@@ -24,6 +24,8 @@ use crate::catalog::{PyCatalog, PyTable};
 use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
+use crate::functions::greatest::GreatestFunc;
+use crate::functions::least::LeastFunc;
 use crate::ibis_table::IbisTable;
 use crate::model::{ModelRegistry, SessionModelRegistry};
 use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
@@ -159,6 +161,8 @@ impl PySessionContext {
         let ctx = SessionContext::new_with_state(session_state);
         // register the UDF with the context, so it can be invoked by name and from SQL
         ctx.register_udf(predict_xgb.clone());
+        ctx.register_udf(ScalarUDF::from(GreatestFunc::new()));
+        ctx.register_udf(ScalarUDF::from(LeastFunc::new()));
 
         Ok(PySessionContext {
             ctx,
