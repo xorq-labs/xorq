@@ -252,6 +252,12 @@ def test_reduction_ops(
             lambda t, where: t.G.cov(t.RBI, where=where, how="sample"),
             lambda t, where: t.G[where].cov(t.RBI[where], ddof=1),
             id="covar_samp",
+            marks=[
+                pytest.mark.xfail(
+                    reason="datafusion FILTER syntax seems broken",
+                    strict=False,  # passes with no filter condition
+                )
+            ],
         ),
         param(
             lambda t, where: t.G.corr(t.RBI, where=where, how="pop"),

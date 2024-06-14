@@ -3,7 +3,7 @@ use std::sync::Arc;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_expr::expr::ScalarFunction;
-use datafusion_expr::{Expr, Filter, LogicalPlan, Projection, ScalarFunctionDefinition};
+use datafusion_expr::{Expr, Filter, LogicalPlan, Projection};
 use datafusion_optimizer::analyzer::AnalyzerRule;
 use datafusion_optimizer::optimizer::Optimizer;
 use datafusion_optimizer::{OptimizerConfig, OptimizerContext, OptimizerRule};
@@ -127,24 +127,24 @@ impl PredictXGBoostAnalyzerRule {
 
         match &args[..] {
             [Expr::Literal(ScalarValue::Utf8(value)), Expr::Wildcard { qualifier: None }] => {
-                if let ScalarFunctionDefinition::UDF(udf) = fun.clone().func_def {
-                    if let Some(scan) = scan {
-                        let model_registry = self.session_model_registry.read();
-                        if let Some(model) =
-                            model_registry.models.get(value.clone().unwrap().as_str())
-                        {
-                            let mut args: Vec<Expr> =
-                                vec![Expr::Literal(ScalarValue::from(value.clone().unwrap()))];
-                            let fields = (*scan.projected_schema.fields()).clone();
-                            let columns = fields.iter().enumerate().filter_map(|(index, field)| {
-                                if model.feature_mapping.contains_key(&(index as i64)) {
-                                    return Some(Expr::Column(field.qualified_column()));
-                                }
-                                None
-                            });
-                            args.extend(columns);
-                            return Some(Expr::ScalarFunction(ScalarFunction::new_udf(udf, args)));
-                        }
+                if let Some(scan) = scan {
+                    let model_registry = self.session_model_registry.read();
+                    if let Some(model) = model_registry.models.get(value.clone().unwrap().as_str())
+                    {
+                        let mut args: Vec<Expr> =
+                            vec![Expr::Literal(ScalarValue::from(value.clone().unwrap()))];
+                        let fields = (*scan.projected_schema.fields()).clone();
+                        let columns = fields.iter().enumerate().filter_map(|(index, field)| {
+                            if model.feature_mapping.contains_key(&(index as i64)) {
+                                return Some(Expr::Column(field.name().into()));
+                            }
+                            None
+                        });
+                        args.extend(columns);
+                        return Some(Expr::ScalarFunction(ScalarFunction::new_udf(
+                            fun.func.clone(),
+                            args,
+                        )));
                     }
                 }
                 None
@@ -159,16 +159,14 @@ impl PredictXGBoostAnalyzerRule {
             .iter()
             .map(|e| {
                 if let Expr::ScalarFunction(fun) = e {
-                    if let ScalarFunctionDefinition::UDF(udf) = fun.clone().func_def {
-                        return if udf.name() == "predict_xgb" {
-                            match self.use_only_required_features(fun.clone(), projection.clone()) {
-                                Some(expr) => expr,
-                                None => e.clone(),
-                            }
-                        } else {
-                            e.clone()
-                        };
-                    }
+                    return if fun.clone().func.name() == "predict_xgb" {
+                        match self.use_only_required_features(fun.clone(), projection.clone()) {
+                            Some(expr) => expr,
+                            None => e.clone(),
+                        }
+                    } else {
+                        e.clone()
+                    };
                 }
                 e.clone()
             })
@@ -204,14 +202,11 @@ impl AnalyzerRule for PredictXGBoostAnalyzerRule {
 fn observe(_plan: &LogicalPlan, _rule: &dyn OptimizerRule) {}
 
 #[pyfunction]
-pub fn optimize_plan(plan: &PyLogicalPlan, context_provider: PyOptimizerContext) -> PyLogicalPlan {
+pub fn optimize_plan(plan: PyLogicalPlan, context_provider: PyOptimizerContext) -> PyLogicalPlan {
     let optimizer = Optimizer::new();
+    let plan = plan.plan.as_ref().clone();
     let optimized_plan = optimizer
-        .optimize(
-            plan.plan.as_ref(),
-            context_provider.context.as_ref(),
-            observe,
-        )
+        .optimize(plan, context_provider.context.as_ref(), observe)
         .unwrap();
     PyLogicalPlan::from(optimized_plan)
 }

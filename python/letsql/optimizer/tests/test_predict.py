@@ -127,7 +127,7 @@ def test_predict_with_only_required_features(tmp_model_dir, data_dir, capsys):
     predictions = context.sql(query).to_pandas()
 
     captured = capsys.readouterr()
-    expanded = 'predict_xgb(Utf8("diamonds_model"), diamonds.carat, diamonds.y)'
+    expanded = 'predict_xgb(Utf8("diamonds_model"), carat, y)'
     assert expanded in captured.out
 
     assert len(model_features(model_path)) < len(features)
@@ -155,7 +155,7 @@ def test_predict_with_filter(tmp_model_dir, data_dir, capsys):
     predictions = context.sql(query).to_pandas()
 
     captured = capsys.readouterr()
-    expanded = 'predict_xgb(Utf8("diamonds_model"), diamonds.carat, diamonds.depth, diamonds.x, diamonds.y, diamonds.z)'
+    expanded = 'predict_xgb(Utf8("diamonds_model"), carat, depth, x, y, z)'
     assert expanded in captured.out
 
     assert len(predictions) == sum(data.x < 4.5)

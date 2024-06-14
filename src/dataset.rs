@@ -102,10 +102,16 @@ impl TableProvider for Dataset {
         })
     }
 
-    fn supports_filter_pushdown(&self, filter: &Expr) -> DFResult<TableProviderFilterPushDown> {
-        match PyArrowFilterExpression::try_from(filter) {
-            Ok(_) => Ok(TableProviderFilterPushDown::Exact),
-            _ => Ok(TableProviderFilterPushDown::Unsupported),
-        }
+    fn supports_filters_pushdown(
+        &self,
+        filters: &[&Expr],
+    ) -> DFResult<Vec<TableProviderFilterPushDown>> {
+        filters
+            .iter()
+            .map(|&f| match PyArrowFilterExpression::try_from(f) {
+                Ok(_) => Ok(TableProviderFilterPushDown::Exact),
+                _ => Ok(TableProviderFilterPushDown::Unsupported),
+            })
+            .collect()
     }
 }

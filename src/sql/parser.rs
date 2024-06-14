@@ -95,15 +95,15 @@ impl ContextProvider for PyContextProvider {
         &self.options
     }
 
-    fn udfs_names(&self) -> Vec<String> {
+    fn udf_names(&self) -> Vec<String> {
         vec![]
     }
 
-    fn udafs_names(&self) -> Vec<String> {
+    fn udaf_names(&self) -> Vec<String> {
         vec![]
     }
 
-    fn udwfs_names(&self) -> Vec<String> {
+    fn udwf_names(&self) -> Vec<String> {
         vec![]
     }
 }

@@ -163,6 +163,10 @@ impl TableSource for SqlTableSource {
         self.schema.clone()
     }
 
+    fn table_type(&self) -> datafusion_expr::TableType {
+        datafusion_expr::TableType::Base
+    }
+
     fn supports_filter_pushdown(
         &self,
         filter: &Expr,
@@ -178,10 +182,6 @@ impl TableSource for SqlTableSource {
         } else {
             Ok(TableProviderFilterPushDown::Unsupported)
         }
-    }
-
-    fn table_type(&self) -> datafusion_expr::TableType {
-        datafusion_expr::TableType::Base
     }
 
     #[allow(deprecated)]

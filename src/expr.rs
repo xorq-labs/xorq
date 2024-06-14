@@ -17,19 +17,18 @@
 
 use pyo3::{basic::CompareOp, prelude::*};
 use std::convert::{From, Into};
-use std::str::FromStr;
+use std::sync::Arc;
 
-use datafusion::arrow::datatypes::DataType;
+use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::arrow::pyarrow::PyArrowType;
+use datafusion::functions::core::expr_ext::FieldAccessor;
 use datafusion::scalar::ScalarValue;
-use datafusion_common::DFField;
 use datafusion_expr::{
     col,
     expr::{AggregateFunction, InList, InSubquery, ScalarFunction, Sort, WindowFunction},
     lit,
     utils::exprlist_to_fields,
-    Between, BinaryExpr, BuiltinScalarFunction, Case, Cast, Expr, GetFieldAccess, GetIndexedField,
-    Like, LogicalPlan, Operator, TryCast,
+    Between, BinaryExpr, Case, Cast, Expr, Like, LogicalPlan, Operator, TryCast,
 };
 
 use crate::common::data_type::{DataTypeMap, RexType};
@@ -41,7 +40,6 @@ use crate::expr::cast::PyCast;
 use crate::expr::column::PyColumn;
 use crate::expr::literal::PyLiteral;
 use crate::expr::ordered::PyOrdered;
-use crate::expr::scalar_function::PyScalarFunction;
 use crate::expr::wildcard::PyWildcard;
 use crate::sql::logical::PyLogicalPlan;
 
@@ -77,7 +75,6 @@ pub mod filter;
 pub mod grouping_set;
 pub mod in_list;
 pub mod in_subquery;
-pub mod indexed_field;
 pub mod join;
 pub mod like;
 pub mod limit;
@@ -87,7 +84,6 @@ pub mod ordered;
 pub mod placeholder;
 pub mod projection;
 pub mod repartition;
-pub mod scalar_function;
 pub mod scalar_subquery;
 pub mod scalar_variable;
 pub mod signature;
@@ -127,6 +123,7 @@ pub fn py_expr_list(expr: &[Expr]) -> PyResult<Vec<PyExpr>> {
 impl PyExpr {
     /// Return the specific expression
     fn to_variant(&self, py: Python) -> PyResult<PyObject> {
+        //TODO add ScalarFunction back
         Python::with_gil(|_| match &self.expr {
             Expr::Alias(alias) => Ok(PyAlias::new(&alias.expr, &alias.name).into_py(py)),
             Expr::Column(col) => Ok(PyColumn::from(col.clone()).into_py(py)),
@@ -148,11 +145,6 @@ impl PyExpr {
             Expr::Negative(expr) => Ok(PyNegative::new(*expr.clone()).into_py(py)),
             Expr::Sort(sort) => Ok(PyOrdered::from(sort.clone()).into_py(py)),
             Expr::Cast(cast) => Ok(PyCast::from(cast.clone()).into_py(py)),
-            Expr::ScalarFunction(expr) => Ok(PyScalarFunction::new(
-                BuiltinScalarFunction::from_str(expr.func_def.name()).unwrap(),
-                expr.args.clone(),
-            )
-            .into_py(py)),
             Expr::Case(case) => Ok(PyCase::from(case.clone()).into_py(py)),
             Expr::Wildcard { qualifier } => Ok(PyWildcard::new(qualifier.clone()).into_py(py)),
             Expr::AggregateFunction(expr) => {
@@ -233,13 +225,7 @@ impl PyExpr {
     }
 
     fn __getitem__(&self, key: &str) -> PyResult<PyExpr> {
-        Ok(Expr::GetIndexedField(GetIndexedField::new(
-            Box::new(self.expr.clone()),
-            GetFieldAccess::NamedStructField {
-                name: ScalarValue::Utf8(Some(key.to_string())),
-            },
-        ))
-        .into())
+        Ok(self.expr.clone().field(key).into())
     }
 
     #[staticmethod]
@@ -280,7 +266,7 @@ impl PyExpr {
     pub fn rex_type(&self) -> PyResult<RexType> {
         Ok(match self.expr {
             Expr::Alias(..) => RexType::Alias,
-            Expr::Column(..) | Expr::GetIndexedField { .. } => RexType::Reference,
+            Expr::Column(..) => RexType::Reference,
             Expr::ScalarVariable(..) | Expr::Literal(..) => RexType::Literal,
             Expr::BinaryExpr { .. }
             | Expr::Not(..)
@@ -331,6 +317,11 @@ impl PyExpr {
                     ),
                 )),
                 ScalarValue::Boolean(v) => Ok(v.into_py(py)),
+                ScalarValue::Float16(_) => Err(py_datafusion_err(
+                    datafusion_common::DataFusionError::NotImplemented(
+                        "ScalarValue::Float16".to_string(),
+                    ),
+                )),
                 ScalarValue::Float32(v) => Ok(v.into_py(py)),
                 ScalarValue::Float64(v) => Ok(v.into_py(py)),
                 ScalarValue::Decimal128(v, _, _) => Ok(v.into_py(py)),
@@ -372,8 +363,10 @@ impl PyExpr {
                 ScalarValue::TimestampMicrosecond(v, _) => Ok(v.into_py(py)),
                 ScalarValue::TimestampNanosecond(v, _) => Ok(v.into_py(py)),
                 ScalarValue::IntervalYearMonth(v) => Ok(v.into_py(py)),
-                ScalarValue::IntervalDayTime(v) => Ok(v.into_py(py)),
-                ScalarValue::IntervalMonthDayNano(v) => Ok(v.into_py(py)),
+                ScalarValue::IntervalDayTime(v) => Ok(ScalarValue::IntervalDayTime(*v).into_py(py)),
+                ScalarValue::IntervalMonthDayNano(v) => {
+                    Ok(ScalarValue::IntervalMonthDayNano(*v).into_py(py))
+                }
                 ScalarValue::DurationSecond(v) => Ok(v.into_py(py)),
                 ScalarValue::DurationMicrosecond(v) => Ok(v.into_py(py)),
                 ScalarValue::DurationNanosecond(v) => Ok(v.into_py(py)),
@@ -434,7 +427,6 @@ impl PyExpr {
             | Expr::IsNotFalse(expr)
             | Expr::IsNotUnknown(expr)
             | Expr::Negative(expr)
-            | Expr::GetIndexedField(GetIndexedField { expr, .. })
             | Expr::Cast(Cast { expr, .. })
             | Expr::TryCast(TryCast { expr, .. })
             | Expr::Sort(Sort { expr, .. })
@@ -530,9 +522,7 @@ impl PyExpr {
                 op,
                 right: _,
             }) => format!("{op}"),
-            Expr::ScalarFunction(ScalarFunction { func_def, args: _ }) => {
-                func_def.name().to_string()
-            }
+            Expr::ScalarFunction(ScalarFunction { func, args: _ }) => func.name().to_string(),
             Expr::Cast { .. } => "cast".to_string(),
             Expr::Between { .. } => "between".to_string(),
             Expr::Case { .. } => "case".to_string(),
@@ -583,14 +573,14 @@ impl PyExpr {
 impl PyExpr {
     pub fn _column_name(&self, plan: &LogicalPlan) -> Result<String, DataFusionError> {
         let field = Self::expr_to_field(&self.expr, plan)?;
-        Ok(field.qualified_column().flat_name())
+        Ok(field.name().to_owned())
     }
 
     /// Create a [DFField] representing an [Expr], given an input [LogicalPlan] to resolve against
     pub fn expr_to_field(
         expr: &Expr,
         input_plan: &LogicalPlan,
-    ) -> Result<DFField, DataFusionError> {
+    ) -> Result<Arc<Field>, DataFusionError> {
         match expr {
             Expr::Sort(Sort { expr, .. }) => {
                 // DataFusion does not support create_name for sort expressions (since they never
@@ -599,12 +589,12 @@ impl PyExpr {
             }
             Expr::Wildcard { .. } => {
                 // Since * could be any of the valid column names just return the first one
-                Ok(input_plan.schema().field(0).clone())
+                Ok(Arc::new(input_plan.schema().field(0).clone()))
             }
             _ => {
                 let fields =
                     exprlist_to_fields(&[expr.clone()], input_plan).map_err(PyErr::from)?;
-                Ok(fields[0].clone())
+                Ok(fields[0].1.clone())
             }
         }
     }
@@ -680,9 +670,7 @@ pub(crate) fn init_module(m: &PyModule) -> PyResult<()> {
     m.add_class::<PyILike>()?;
     m.add_class::<PySimilarTo>()?;
     m.add_class::<PyScalarVariable>()?;
-    m.add_class::<alias::PyAlias>()?;
-    m.add_class::<scalar_function::PyScalarFunction>()?;
-    m.add_class::<scalar_function::PyBuiltinScalarFunction>()?;
+    m.add_class::<PyAlias>()?;
     m.add_class::<in_list::PyInList>()?;
     m.add_class::<exists::PyExists>()?;
     m.add_class::<subquery::PySubquery>()?;
@@ -690,11 +678,10 @@ pub(crate) fn init_module(m: &PyModule) -> PyResult<()> {
     m.add_class::<scalar_subquery::PyScalarSubquery>()?;
     m.add_class::<placeholder::PyPlaceholder>()?;
     m.add_class::<grouping_set::PyGroupingSet>()?;
-    m.add_class::<case::PyCase>()?;
-    m.add_class::<cast::PyCast>()?;
+    m.add_class::<PyCase>()?;
+    m.add_class::<PyCast>()?;
     m.add_class::<cast::PyTryCast>()?;
     m.add_class::<between::PyBetween>()?;
-    m.add_class::<indexed_field::PyGetIndexedField>()?;
     m.add_class::<explain::PyExplain>()?;
     m.add_class::<limit::PyLimit>()?;
     m.add_class::<aggregate::PyAggregate>()?;

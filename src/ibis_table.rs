@@ -95,6 +95,7 @@ impl TableProvider for IbisTable {
                     .call_method0(py, "to_pyarrow_batches")
                     .unwrap()
             };
+
             let plan: Arc<dyn ExecutionPlan> = Arc::new(
                 IbisTableExec::new(py, table.as_ref(py), projection)
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
@@ -103,13 +104,16 @@ impl TableProvider for IbisTable {
         })
     }
 
-    fn supports_filter_pushdown(
+    fn supports_filters_pushdown(
         &self,
-        filter: &Expr,
-    ) -> datafusion_common::Result<TableProviderFilterPushDown> {
-        match IbisFilterExpression::try_from(filter) {
-            Ok(_) => Ok(TableProviderFilterPushDown::Exact),
-            _ => Ok(TableProviderFilterPushDown::Unsupported),
-        }
+        filters: &[&Expr],
+    ) -> datafusion_common::Result<Vec<TableProviderFilterPushDown>> {
+        filters
+            .iter()
+            .map(|&f| match IbisFilterExpression::try_from(f) {
+                Ok(_) => Ok(TableProviderFilterPushDown::Exact),
+                _ => Ok(TableProviderFilterPushDown::Unsupported),
+            })
+            .collect()
     }
 }

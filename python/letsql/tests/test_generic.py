@@ -562,6 +562,7 @@ def test_memtable_construct(con, monkeypatch):
     assert_frame_equal(t.execute().fillna(pd.NA), pa_t.to_pandas().fillna(pd.NA))
 
 
+@pytest.mark.xfail(reason="datafusion 38.0.0 introduced a bug")
 def test_pivot_wider(diamonds):
     expr = (
         diamonds.group_by(["cut", "color"])

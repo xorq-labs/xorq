@@ -8,7 +8,7 @@ use datafusion::{
     logical_expr::Volatility,
 };
 use datafusion_common::ScalarValue;
-use datafusion_expr::{ColumnarValue, FuncMonotonicity, ScalarUDFImpl, Signature};
+use datafusion_expr::{ColumnarValue, ScalarUDFImpl, Signature};
 use gbdt::decision_tree::Data;
 use parking_lot::RwLock;
 
@@ -100,9 +100,5 @@ impl ScalarUDFImpl for PredictUdf {
 
     fn aliases(&self) -> &[String] {
         &self.aliases
-    }
-
-    fn monotonicity(&self) -> Result<Option<FuncMonotonicity>> {
-        Ok(Some(vec![Some(true)]))
     }
 }

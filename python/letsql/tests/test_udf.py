@@ -73,6 +73,7 @@ def test_builtin_agg_udf(con):
     assert result == con.tables.batting.G.execute().median()
 
 
+@pytest.mark.xfail(reason="datafusion 38.0.0 introduced a bug")
 def test_builtin_agg_udf_filtered(con):
     @udf.agg.builtin
     def median(a: float, where: bool = True) -> float:

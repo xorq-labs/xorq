@@ -6,9 +6,9 @@ use datafusion::arrow::array::{make_array, Array, ArrayData, ArrayRef};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::pyarrow::{FromPyArrow, PyArrowType, ToPyArrow};
 use datafusion::error::DataFusionError;
-use datafusion::physical_plan::udf::ScalarUDF;
 use datafusion_expr::create_udf;
 use datafusion_expr::function::ScalarFunctionImplementation;
+use datafusion_expr::ScalarUDF;
 
 use crate::utils::{make_scalar_function, parse_volatility};
 
@@ -33,7 +33,7 @@ fn to_rust_function(func: PyObject) -> ScalarFunctionImplementation {
                     .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
 
                 // 3. cast to arrow::array::Array
-                let array_data = ArrayData::from_pyarrow(value).unwrap();
+                let array_data = ArrayData::from_pyarrow_bound(&value.as_borrowed()).unwrap();
                 Ok(make_array(array_data))
             })
         },

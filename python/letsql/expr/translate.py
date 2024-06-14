@@ -30,7 +30,6 @@ from letsql.expr import (
     Not,
     Ordered,
     Projection,
-    ScalarFunction,
     Sort,
     SubqueryAlias,
     TableScan,
@@ -275,19 +274,6 @@ def convert_aggregate_function(agg_fun, catalog, table):
 
 
 _scalar_functions = {"abs": "abs"}
-
-
-@convert.register(ScalarFunction)
-def convert_scalar_function(fun, catalog):
-    name = fun.fun().name().lower()
-    args = []
-    if fun.args():
-        args.extend(convert(arg.to_variant(), catalog=catalog) for arg in fun.args())
-    method = _scalar_functions[name]
-    this, *rest = args
-    scalar_expr = getattr(this, method)(*rest)
-    catalog[str(fun)] = scalar_expr
-    return scalar_expr
 
 
 @convert.register(Join)

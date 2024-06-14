@@ -89,13 +89,16 @@ impl TableProvider for PyTableProvider {
         })
     }
 
-    fn supports_filter_pushdown(
+    fn supports_filters_pushdown(
         &self,
-        filter: &Expr,
-    ) -> datafusion_common::Result<TableProviderFilterPushDown> {
-        match IbisFilterExpression::try_from(filter) {
-            Ok(_) => Ok(TableProviderFilterPushDown::Exact),
-            _ => Ok(TableProviderFilterPushDown::Unsupported),
-        }
+        filters: &[&Expr],
+    ) -> datafusion_common::Result<Vec<TableProviderFilterPushDown>> {
+        filters
+            .iter()
+            .map(|&filter| match IbisFilterExpression::try_from(filter) {
+                Ok(_) => Ok(TableProviderFilterPushDown::Exact),
+                _ => Ok(TableProviderFilterPushDown::Unsupported),
+            })
+            .collect()
     }
 }
