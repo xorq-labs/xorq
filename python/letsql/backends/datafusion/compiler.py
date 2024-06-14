@@ -46,9 +46,7 @@ class DataFusionCompiler(SQLGlotCompiler):
             ops.RowID,
             ops.Strftime,
             ops.TimeDelta,
-            ops.TimestampBucket,
             ops.TimestampDelta,
-            ops.StringToTimestamp,
         )
     )
 
@@ -73,6 +71,8 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.IntegerRange: "range",
         ops.ArrayDistinct: "array_distinct",
         ops.Unnest: "unnest",
+        ops.StringToDate: "to_date",
+        ops.StringToTimestamp: "to_timestamp",
     }
 
     def _aggregate(self, funcname: str, *args, where):
@@ -519,3 +519,15 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_Least(self, op, *, arg):
         return self.f.least(*arg)
+
+    UNIX_EPOCH = "1970-01-01T00:00:00Z"
+
+    def visit_TimestampBucket(self, op, *, arg, interval, offset):
+        if offset is None:
+            return self.f.date_bin(interval, arg)
+        else:
+            offset = (
+                self.f.arrow_cast(self.UNIX_EPOCH, "Timestamp(Nanosecond, None)")
+                - offset
+            )
+        return self.f.date_bin(interval, arg, offset)
