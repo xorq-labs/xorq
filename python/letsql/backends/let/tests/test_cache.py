@@ -488,10 +488,12 @@ def test_multi_engine_cache(pg, ls_con, tmp_path):
     expr = pg_t.join(
         db_t,
         db_t.columns,
-    ).cache(storage=ParquetCacheStorage(
-        source=ls_con,
-        path=tmp_path,
-    ))
+    ).cache(
+        storage=ParquetCacheStorage(
+            source=ls_con,
+            path=tmp_path,
+        )
+    )
 
     assert expr.execute() is not None
 
@@ -553,3 +555,31 @@ def test_replace_table_matching_kwargs(pg, ls_con, tmp_path):
     )
 
     assert expr.ls.native_expr is not None
+
+
+def test_cache_default_path_set(pg, ls_con, tmp_path):
+    letsql.options.cache_default_path = tmp_path
+
+    storage = ParquetCacheStorage(
+        source=ls_con,
+    )
+
+    expr = (
+        pg.table("batting")
+        .pipe(ls_con.register, "pg-batting")[lambda t: t.yearID > 2014]
+        .limit(1)
+        .cache(storage=storage)
+    )
+
+    result = expr.execute()
+
+    cache_files = list(
+        path
+        for path in tmp_path.iterdir()
+        if path.is_file()
+        and path.name.startswith(KEY_PREFIX)
+        and path.name.endswith(".parquet")
+    )
+
+    assert result is not None
+    assert cache_files

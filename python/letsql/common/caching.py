@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import functools
 import operator
 import pathlib
 from abc import (
@@ -105,7 +106,7 @@ class ParquetCacheStorage(CacheStorage):
     path = field(
         validator=instance_of(pathlib.Path),
         converter=abs_path_converter,
-        default=(pathlib.Path("~/.local/share/letsql")),
+        factory=functools.partial(letsql.options.get, "cache_default_path"),
     )
 
     def __attrs_post_init__(self):
