@@ -20,6 +20,14 @@ from ibis.expr.rewrites import rewrite_stringslice
 from ibis.formats.pyarrow import PyArrowType
 
 
+_UNIX_EPOCH = "1970-01-01T00:00:00Z"
+
+
+def _replace_offset(offset):
+    offset = int(offset)
+    return f"{offset + math.copysign(1, offset):.0f}"
+
+
 class DataFusionCompiler(SQLGlotCompiler):
     __slots__ = ()
 
@@ -520,14 +528,13 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_Least(self, op, *, arg):
         return self.f.least(*arg)
 
-    UNIX_EPOCH = "1970-01-01T00:00:00Z"
-
     def visit_TimestampBucket(self, op, *, arg, interval, offset):
         if offset is None:
             return self.f.date_bin(interval, arg)
         else:
+            this = offset.this
+            this.set("this", _replace_offset(this.this))
             offset = (
-                self.f.arrow_cast(self.UNIX_EPOCH, "Timestamp(Nanosecond, None)")
-                - offset
+                self.f.arrow_cast(_UNIX_EPOCH, "Timestamp(Nanosecond, None)") - offset
             )
         return self.f.date_bin(interval, arg, offset)

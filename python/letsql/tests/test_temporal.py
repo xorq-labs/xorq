@@ -660,12 +660,23 @@ def test_timestamp_bucket(alltypes, kws: dict, pd_freq):
 
 
 @pytest.mark.parametrize("offset_in_minutes", [2, -2], ids=["pos", "neg"])
-@pytest.mark.xfail
 def test_timestamp_bucket_offset(alltypes, offset_in_minutes):
     ts = alltypes.timestamp_col
     expr = ts.bucket(minutes=5, offset=ibis.interval(minutes=offset_in_minutes))
     res = expr.execute().astype("datetime64[ns]").rename("ts")
     td = pd.Timedelta(minutes=offset_in_minutes)
+    sol = ((ts.execute().rename("ts") - td).dt.floor("300s") + td).astype(
+        "datetime64[ns]"
+    )
+    assert_series_equal(res, sol)
+
+
+@pytest.mark.parametrize("offset_in_hours", [2, -2], ids=["pos", "neg"])
+def test_timestamp_bucket_offset_in_hours(alltypes, offset_in_hours):
+    ts = alltypes.timestamp_col
+    expr = ts.bucket(minutes=5, offset=ibis.interval(hours=offset_in_hours))
+    res = expr.execute().astype("datetime64[ns]").rename("ts")
+    td = pd.Timedelta(hours=offset_in_hours)
     sol = ((ts.execute().rename("ts") - td).dt.floor("300s") + td).astype(
         "datetime64[ns]"
     )
