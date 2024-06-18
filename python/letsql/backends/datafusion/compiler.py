@@ -137,6 +137,19 @@ class DataFusionCompiler(SQLGlotCompiler):
         else:
             return None
 
+    def visit_DefaultLiteral(self, op, *, value, dtype):
+        if dtype.is_struct():
+            values = [
+                self.visit_Literal(
+                    ops.Literal(v, field_dtype), value=v, dtype=field_dtype
+                )
+                for field_dtype, v in zip(dtype.types, value.values())
+            ]
+            args = (arg for args in zip(value.keys(), values) for arg in args)
+            return self.f.named_struct(*args)
+        else:
+            return super().visit_DefaultLiteral(op, value=value, dtype=dtype)
+
     def visit_Cast(self, op, *, arg, to):
         if to.is_interval():
             unit = to.unit.name.lower()
@@ -186,7 +199,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         return self.f[func.__name__](*func_args)
 
     def visit_RegexExtract(self, op, *, arg, pattern, index):
-        if not isinstance(op.index, ops.Literal):
+        if not isinstance(op.index, ops.Literal):  # noqa
             raise ValueError(
                 "re_extract `index` expressions must be literals. "
                 "Arbitrary expressions are not supported in the DataFusion backend"
@@ -538,3 +551,10 @@ class DataFusionCompiler(SQLGlotCompiler):
                 self.f.arrow_cast(_UNIX_EPOCH, "Timestamp(Nanosecond, None)") - offset
             )
         return self.f.date_bin(interval, arg, offset)
+
+    def visit_StructField(self, op, *, arg, field):
+        return sge.Bracket(this=arg, expressions=[sg.exp.convert(field)])
+
+    def visit_StructColumn(self, op, *, names, values):
+        args = (arg for args in zip(map(sg.exp.convert, names), values) for arg in args)
+        return self.f.named_struct(*args)

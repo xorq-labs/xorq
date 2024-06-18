@@ -105,7 +105,6 @@ TEST_TABLES = {
     ),
 }
 
-
 array_types_df = pd.DataFrame(
     [
         (
@@ -176,7 +175,22 @@ def data_dir():
 
 
 @pytest.fixture(scope="session")
-def con(data_dir):
+def ddl_file():
+    root = Path(__file__).absolute().parents[3]
+    ddl_dir = root / "db" / "datafusion.sql"
+    return ddl_dir
+
+
+def statements(ddl_file: Path):
+    return (
+        statement
+        for statement in map(str.strip, ddl_file.read_text().split(";"))
+        if statement
+    )
+
+
+@pytest.fixture(scope="session")
+def con(data_dir, ddl_file):
     conn = ls.connect()
     parquet_dir = data_dir / "parquet"
     conn.register(parquet_dir / "functional_alltypes.parquet", "functional_alltypes")
@@ -186,6 +200,11 @@ def con(data_dir):
     conn.register(parquet_dir / "awards_players.parquet", "awards_players")
 
     conn.register(array_types_df, "array_types")
+
+    if ddl_file.is_file() and ddl_file.name.endswith(".sql"):
+        for statement in statements(ddl_file):
+            with conn._safe_raw_sql(statement):  # noqa
+                pass
 
     return conn
 
@@ -238,3 +257,13 @@ def diamonds(con):
 @pytest.fixture(scope="session")
 def array_types(con):
     return con.table("array_types")
+
+
+@pytest.fixture(scope="session")
+def struct(con):
+    return con.table("structs")
+
+
+@pytest.fixture(scope="session")
+def struct_df(struct):
+    return struct.execute()
