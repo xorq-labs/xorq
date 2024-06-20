@@ -5,6 +5,7 @@ import time
 import uuid
 
 import ibis
+import pandas as pd
 import pytest
 from ibis import _
 
@@ -17,8 +18,9 @@ from letsql.backends.conftest import (
 )
 from letsql.common.caching import (
     KEY_PREFIX,
-    SourceStorage,
     ParquetCacheStorage,
+    SnapshotStorage,
+    SourceStorage,
 )
 from letsql.common.utils.postgres_utils import (
     do_analyze,
@@ -335,6 +337,8 @@ def test_postgres_cache_invalidation(pg, con):
             raise
 
     (from_name, to_name) = ("batting", "batting_to_modify")
+    if to_name in pg.tables:
+        pg.drop_table(to_name)
     pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))
     expr_cached = (
         con.register(pg_t, table_name=to_name)
@@ -366,6 +370,69 @@ def test_postgres_cache_invalidation(pg, con):
     modify_postgres_table(dt)
     expr_cached.execute()
     assert_n_scans_changes(dt, n_scans_after)
+
+
+def test_postgres_snapshot(pg, con):
+    def modify_postgres_table(dt):
+        (con, name) = (dt.source, dt.name)
+        statement = f"""
+        INSERT INTO "{name}"
+        DEFAULT VALUES
+        """
+        con.raw_sql(statement)
+
+    def assert_n_scans_changes(dt, n_scans_before):
+        do_analyze(dt.source, dt.name)
+        for _ in range(10):  # noqa: F402
+            # give postgres some time to update its tables
+            time.sleep(0.1)
+            n_scans_after = get_postgres_n_scans(dt)
+            if n_scans_before != n_scans_after:
+                return n_scans_after
+        else:
+            raise
+
+    (from_name, to_name) = ("batting", "batting_to_modify")
+    if to_name in pg.tables:
+        pg.drop_table(to_name)
+    pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))
+    storage = SnapshotStorage(source=con)
+    expr_cached = (
+        con.register(pg_t, table_name=to_name)
+        .group_by("playerID")
+        .size()
+        .order_by("playerID")
+        .cache(storage=storage)
+    )
+    dt = pg_t.op()
+    (storage, uncached) = get_storage_uncached(con, expr_cached)
+
+    # assert initial state
+    assert not storage.exists(uncached)
+    n_scans_before = get_postgres_n_scans(dt)
+    assert n_scans_before == 0
+
+    # assert first execution state
+    executed0 = expr_cached.execute()
+    n_scans_after = assert_n_scans_changes(dt, n_scans_before)
+    # should we test that SourceStorage.get is called?
+    assert n_scans_after == 1
+    assert storage.exists(uncached)
+
+    # assert no change after re-execution of cached expr
+    executed1 = expr_cached.execute()
+    assert n_scans_after == get_postgres_n_scans(dt)
+    assert executed0.equals(executed1)
+
+    # assert NO cache invalidation
+    modify_postgres_table(dt)
+    executed2 = expr_cached.execute()
+    assert executed0.equals(executed2)
+    with pytest.raises(Exception):
+        assert_n_scans_changes(dt, n_scans_after)
+
+    executed3 = expr_cached.ls.uncached.execute()
+    assert not executed0.equals(executed3)
 
 
 def test_duckdb_cache_parquet(con, pg, tmp_path):
@@ -583,3 +650,112 @@ def test_cache_default_path_set(pg, ls_con, tmp_path):
 
     assert result is not None
     assert cache_files
+
+
+def test_pandas_snapshot(ls_con, alltypes_df):
+    group_by = "year"
+    name = ibis.util.gen_name("tmp_table")
+
+    # create a temp table we can mutate
+    pd_con = ibis.pandas.connect()
+    table = pd_con.create_table(name, alltypes_df)
+    t = ls_con.register(table, f"let_{table.op().name}")
+    cached_expr = (
+        t.group_by(group_by)
+        .agg({f"count_{col}": t[col].count() for col in t.columns})
+        .cache(storage=SnapshotStorage(source=ls_con))
+    )
+    (storage, uncached) = get_storage_uncached(ls_con, cached_expr)
+
+    # test preconditions
+    assert not storage.exists(uncached)
+
+    # test cache creation
+    executed0 = cached_expr.execute()
+    assert storage.exists(uncached)
+
+    # test cache use
+    executed1 = cached_expr.execute()
+    assert executed0.equals(executed1)
+
+    # test NO cache invalidation
+    pd_con.reconnect()
+    table2 = pd_con.create_table(name, pd.concat((alltypes_df, alltypes_df)))
+    t = ls_con.register(table2, f"let_{table2.op().name}")
+    cached_expr = (
+        t.group_by(group_by)
+        .agg({f"count_{col}": t[col].count() for col in t.columns})
+        .cache(storage)
+    )
+    (storage, uncached) = get_storage_uncached(ls_con, cached_expr)
+    assert storage.exists(uncached)
+    executed2 = cached_expr.ls.uncached.execute()
+    assert not executed0.equals(executed2)
+
+
+def test_duckdb_snapshot(ls_con, alltypes_df):
+    group_by = "year"
+    name = ibis.util.gen_name("tmp_table")
+
+    # create a temp table we can mutate
+    db_con = ibis.duckdb.connect()
+    table = db_con.create_table(name, alltypes_df)
+    t = ls_con.register(table, f"let_{table.op().name}")
+    cached_expr = (
+        t.group_by(group_by)
+        .agg({f"count_{col}": t[col].count() for col in t.columns})
+        .cache(storage=SnapshotStorage(source=ls_con))
+    )
+    (storage, uncached) = get_storage_uncached(ls_con, cached_expr)
+
+    # test preconditions
+    assert not storage.exists(uncached)
+
+    # test cache creation
+    executed0 = cached_expr.execute()
+    assert storage.exists(uncached)
+
+    # test cache use
+    executed1 = cached_expr.execute()
+    assert executed0.equals(executed1)
+
+    # test NO cache invalidation
+    db_con.insert(name, alltypes_df)
+    executed2 = cached_expr.execute()
+    executed3 = cached_expr.ls.uncached.execute()
+    assert executed0.equals(executed2)
+    assert not executed0.equals(executed3)
+
+
+def test_datafusion_snapshot(ls_con, alltypes_df):
+    group_by = "year"
+    name = ibis.util.gen_name("tmp_table")
+
+    # create a temp table we can mutate
+    df_con = ibis.datafusion.connect()
+    table = df_con.create_table(name, alltypes_df)
+    t = ls_con.register(table, f"let_{table.op().name}")
+    cached_expr = (
+        t.group_by(group_by)
+        .agg({f"count_{col}": t[col].count() for col in t.columns})
+        .cache(storage=SnapshotStorage(source=ls_con))
+    )
+    (storage, uncached) = get_storage_uncached(ls_con, cached_expr)
+
+    # test preconditions
+    assert not storage.exists(uncached)
+
+    # test cache creation
+    executed0 = cached_expr.execute()
+    assert storage.exists(uncached)
+
+    # test cache use
+    executed1 = cached_expr.execute()
+    assert executed0.equals(executed1)
+
+    # test NO cache invalidation
+    df_con.insert(name, alltypes_df)
+    executed2 = cached_expr.execute()
+    executed3 = cached_expr.ls.uncached.execute()
+    assert executed0.equals(executed2)
+    assert not executed0.equals(executed3)

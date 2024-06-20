@@ -92,12 +92,15 @@ class LETSQLAccessor:
 
     @property
     def native_expr(self):
-        _sources = self.ls_con._sources
+        native_expr = self.expr
+        if self.is_letsql:
+            _sources = self.ls_con._sources
 
-        def replace_table(_node, _, **_kwargs):
-            return _sources.get_table_or_op(_node, _node.__recreate__(_kwargs))
+            def replace_table(_node, _, **_kwargs):
+                return _sources.get_table_or_op(_node, _node.__recreate__(_kwargs))
 
-        return self.op.replace(replace_table).to_expr()
+            native_expr = self.op.replace(replace_table).to_expr()
+        return native_expr
 
     @property
     def is_cached(self):

@@ -8,9 +8,11 @@ from abc import (
     abstractmethod,
 )
 
+import dask
 import ibis
-from ibis.expr import types as ir
+import ibis.expr.operations as ops
 import toolz
+from ibis.expr import types as ir
 from attr import (
     field,
     frozen,
@@ -24,8 +26,14 @@ from cloudpickle import (
 from cloudpickle import (
     load as _load,
 )
-import dask
+
 import letsql.common.utils.dask_normalize  # noqa: F401
+from letsql.common.utils.dask_normalize import (
+    patch_normalize_token,
+)
+from letsql.common.utils.dask_normalize_expr import (
+    normalize_backend,
+)
 
 
 abs_path_converter = toolz.compose(
@@ -155,3 +163,33 @@ class SourceStorage(CacheStorage):
 
     def _drop(self, key):
         self.source.drop_table(key)
+
+
+@frozen
+class SnapshotStorage(SourceStorage):
+    def get_key(self, expr: ir.Expr):
+        typs = map(type, expr.ls.backends)
+        with patch_normalize_token(*typs, f=self.normalize_backend):
+            with patch_normalize_token(
+                ops.DatabaseTable, f=self.normalize_databasetable
+            ):
+                tokenized = dask.base.tokenize(expr)
+                return "-".join(("snapshot", tokenized))
+
+    @staticmethod
+    def normalize_backend(con):
+        name = con.name
+        if name in ("pandas", "duckdb", "datafusion"):
+            return (name, None)
+        else:
+            return normalize_backend(con)
+
+    @staticmethod
+    def normalize_databasetable(dt):
+        return dask.base.normalize_token(
+            {
+                argname: getattr(dt, argname)
+                # argnames: name, schema, source, namespace
+                for argname in dt.argnames
+            }
+        )

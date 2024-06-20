@@ -168,13 +168,18 @@ def normalize_databasetable(dt):
 @dask.base.normalize_token.register(ibis.backends.BaseBackend)
 def normalize_backend(con):
     name = con.name
-    if name in ("snowflake", "pandas", "datafusion", "duckdb"):
-        return name
+    if name == "snowflake":
+        con_details = con.con._host
     elif name == "postgres":
         con_dct = con.con.get_dsn_parameters()
-        return {k: con_dct[k] for k in ("host", "port", "dbname")}
+        con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
+    elif name == "pandas":
+        con_details = id(con.dictionary)
+    elif name in ("datafusion", "duckdb"):
+        con_details = id(con.con)
     else:
         raise ValueError
+    return (name, con_details)
 
 
 @dask.base.normalize_token.register(ir.Schema)

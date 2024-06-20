@@ -3,6 +3,11 @@ import numpy as np
 import pandas as pd
 
 
+# pre-emptively cause registration of numpy, pandas
+dask.base.normalize_token.dispatch(np.dtype)
+dask.base.normalize_token.dispatch(pd.DataFrame)
+
+
 @dask.base.normalize_token.register(pd._libs.interval.Interval)
 def normalize_interval(interval):
     objs = (interval.left, interval.right, interval.closed)

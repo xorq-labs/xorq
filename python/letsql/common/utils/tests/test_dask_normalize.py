@@ -3,8 +3,15 @@ import re
 
 import dask
 import ibis
-import letsql.common.utils.dask_normalize  # noqa: F401
 import pytest
+
+import letsql.common.utils.dask_normalize  # noqa: F401
+from letsql.common.caching import (
+    SnapshotStorage,
+)
+from letsql.common.utils.dask_normalize import (
+    patch_normalize_token,
+)
 
 
 def test_ensure_deterministic():
@@ -21,16 +28,20 @@ def test_unregistered_rasies():
 
 def test_tokenize_datafusion_memory_expr(alltypes_df):
     con = ibis.datafusion.connect()
+    typ = type(con)
     t = con.register(alltypes_df, "t")
-    actual = dask.base.tokenize(t)
-    expected = "e5feefe7661d275607da0e0a089e2c3e"
+    with patch_normalize_token(type(con)) as mocks:
+        actual = dask.base.tokenize(t)
+    mocks[typ].assert_called_once()
+    expected = "c5c75c85e9998c1d8f2ed60c829f2f43"
     assert actual == expected
 
 
 def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path):
     path = pathlib.Path(tmp_path).joinpath("data.parquet")
     alltypes_df.to_parquet(path)
-    t = ibis.datafusion.connect({"t": path}).table("t")
+    con = ibis.datafusion.connect()
+    t = con.register(path, "t")
     # work around tmp_path variation
     (prefix, suffix) = (
         re.escape(part)
@@ -50,15 +61,40 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path):
 
 
 def test_tokenize_pandas_expr(alltypes_df):
-    t = ibis.pandas.connect({"t": alltypes_df})
-    actual = dask.base.tokenize(t)
-    expected = "7b0019049171a3ef78ecbd5f463ac728"
+    con = ibis.pandas.connect()
+    typ = type(con)
+    t = con.create_table("t", alltypes_df)
+    with patch_normalize_token(type(t.op().source)) as mocks:
+        actual = dask.base.tokenize(t)
+    mocks[typ].assert_called_once()
+    expected = "bfa5bb55e47f2da9094d7aed9cee6130"
     assert actual == expected
 
 
-def test_tokenize_duckdb_dt(batting):
-    db_con = ibis.duckdb.connect()
-    t = db_con.register(batting.to_pyarrow(), "dashed-name")
-    actual = dask.base.tokenize(t)
-    expected = "e5d0040b184eaa719ebb5dc0efff3cc7"
+def test_tokenize_duckdb_expr(batting):
+    con = ibis.duckdb.connect()
+    typ = type(con)
+    t = con.register(batting.to_pyarrow(), "dashed-name")
+    with patch_normalize_token(type(con)) as mocks:
+        actual = dask.base.tokenize(t)
+    mocks[typ].assert_called_once()
+    expected = "26d37818c847a542b65d3e1455501e04"
+    assert actual == expected
+
+
+def test_pandas_snapshot_key(alltypes_df):
+    con = ibis.pandas.connect()
+    t = con.create_table("t", alltypes_df)
+    storage = SnapshotStorage(source=con)
+    actual = storage.get_key(t)
+    expected = "snapshot-e8bbc4feaa5271ea2470140185beae96"
+    assert actual == expected
+
+
+def test_duckdb_snapshot_key(batting):
+    con = ibis.duckdb.connect()
+    t = con.register(batting.to_pyarrow(), "dashed-name")
+    storage = SnapshotStorage(source=con)
+    actual = storage.get_key(t)
+    expected = "snapshot-e645278e370b6a79b62fd1865a77fff5"
     assert actual == expected
