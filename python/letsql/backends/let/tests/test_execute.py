@@ -7,6 +7,7 @@ import pandas as pd
 import pytest
 from pytest import param
 
+import letsql
 from letsql.tests.util import (
     assert_frame_equal,
 )
@@ -341,6 +342,7 @@ def test_multiple_execution_letsql_register_table(con, csv_dir):
 @pytest.mark.parametrize(
     "other_con",
     [
+        letsql.connect(),
         ibis.datafusion.connect(),
         ibis.duckdb.connect(),
         ibis.postgres.connect(
@@ -497,7 +499,14 @@ def test_register_arbitrary_expression_multiple_tables(con, duckdb_con):
     assert_frame_equal(result, expected, check_like=True)
 
 
-def test_multiple_pipes(ls_con, pg):
+@pytest.mark.parametrize(
+    "new_con",
+    [
+        letsql.connect(),
+        ibis.duckdb.connect(),
+    ],
+)
+def test_multiple_pipes(ls_con, pg, new_con):
     """This test address the issue reported on bug #69
     link: https://github.com/letsql/letsql/issues/69
 
@@ -506,12 +515,11 @@ def test_multiple_pipes(ls_con, pg):
     In this test (and the rest) ls_con is a clean (no tables) letsql connection
     """
 
-    duckdb_con = ibis.duckdb.connect()
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID == 2015].pipe(
         ls_con.register, f"pg-{table_name}"
     )
-    db_t = duckdb_con.register(pg_t.to_pyarrow(), f"{table_name}")[
+    db_t = new_con.register(pg_t.to_pyarrow(), f"{table_name}")[
         lambda t: t.yearID == 2014
     ].pipe(ls_con.register, f"db-{table_name}")
 

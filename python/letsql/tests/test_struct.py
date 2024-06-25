@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import ibis
 import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
 import pytest
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_series_equal, assert_frame_equal
 
 
@@ -48,11 +48,11 @@ def test_all_fields(struct, struct_df):
 
 
 _SIMPLE_DICT = dict(a=1, b="2", c=3.0)
-_STRUCT_LITERAL = ibis.struct(
+_STRUCT_LITERAL = letsql.struct(
     _SIMPLE_DICT,
     type="struct<a: int64, b: string, c: float64>",
 )
-_NULL_STRUCT_LITERAL = ibis.null().cast("struct<a: int64, b: string, c: float64>")
+_NULL_STRUCT_LITERAL = letsql.null().cast("struct<a: int64, b: string, c: float64>")
 
 
 @pytest.mark.parametrize("field", ["a", "b", "c"])
@@ -67,7 +67,7 @@ def test_literal(con, field):
 
 def test_struct_column(alltypes, df):
     t = alltypes
-    expr = t.select(s=ibis.struct(dict(a=t.string_col, b=1, c=t.bigint_col)))
+    expr = t.select(s=letsql.struct(dict(a=t.string_col, b=1, c=t.bigint_col)))
     assert expr.s.type() == dt.Struct(dict(a=dt.string, b=dt.int8, c=dt.int64))
     result = expr.execute()
     expected = pd.DataFrame(
@@ -77,8 +77,8 @@ def test_struct_column(alltypes, df):
 
 
 def test_field_access_after_case(con):
-    s = ibis.struct({"a": 3})
-    x = ibis.case().when(True, s).else_(ibis.struct({"a": 4})).end()
+    s = letsql.struct({"a": 3})
+    x = letsql.case().when(True, s).else_(letsql.struct({"a": 4})).end()
     y = x.a
     assert con.to_pandas(y) == 3
 
@@ -91,7 +91,7 @@ def test_collect_into_struct(alltypes):
         t[_.string_col.isin(("0", "1"))]
         .group_by(group="string_col")
         .agg(
-            val=lambda t: ibis.struct(
+            val=lambda t: letsql.struct(
                 dict(key=t.bigint_col.collect().cast("array<int64>"))
             )
         )

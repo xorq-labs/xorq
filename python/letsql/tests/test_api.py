@@ -1,16 +1,18 @@
 from __future__ import annotations
 
+from typing import Callable
+
 import ibis.expr.types as ir
 import pytest
 from pytest import param
 
+import letsql
 from letsql.tests.conftest import TEST_TABLES
 
 
 def test_list_tables(con):
     tables = con.list_tables()
     assert isinstance(tables, list)
-    # only table that is guaranteed to be in all backends
     key = "functional_alltypes"
     assert key in tables or key.upper() in tables
     assert all(isinstance(table, str) for table in tables)
@@ -83,10 +85,23 @@ def test_limit_chain(alltypes, expr_fn):
         param(lambda t: t.join(t.view(), [("id", "int_col")]), id="self join"),
     ],
 )
-def test_unbind(alltypes, expr_fn):
+def test_unbind(alltypes, expr_fn: Callable):
+    letsql.options.interactive = False
+
     expr = expr_fn(alltypes)
     assert expr.unbind() != expr
     assert expr.unbind().schema() == expr.schema()
 
     assert "Unbound" not in repr(expr)
     assert "Unbound" in repr(expr.unbind())
+
+
+@pytest.mark.parametrize(
+    ("extension", "method"),
+    [("parquet", letsql.read_parquet), ("csv", letsql.read_csv)],
+)
+def test_read(data_dir, extension, method):
+    table = method(
+        data_dir / extension / f"batting.{extension}", table_name=f"batting-{extension}"
+    )
+    assert table.execute() is not None

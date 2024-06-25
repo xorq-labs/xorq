@@ -1,7 +1,87 @@
 import pathlib
-from typing import Union
+from typing import Union, Optional, Any
 
+import ibis
 from ibis.config import Config
+
+
+class Cache(Config):
+    """LETSQL cache configuration options
+
+    Attributes
+    ----------
+
+    default_path : str
+
+    """
+
+    default_path: Union[str, pathlib.Path] = pathlib.Path(
+        "~/.local/share/letsql"
+    ).expanduser()
+
+
+class Interactive(Config):
+    """Options controlling the interactive repr."""
+
+    @property
+    def max_rows(self) -> int:
+        return ibis.options.repr.interactive.max_rows
+
+    @max_rows.setter
+    def max_rows(self, value: int):
+        ibis.options.repr.interactive.max_rows = value
+
+    @property
+    def max_columns(self) -> Optional[int]:
+        return ibis.options.repr.interactive.max_columns
+
+    @max_columns.setter
+    def max_columns(self, value: Optional[int]):
+        ibis.options.repr.interactive.max_columns = value
+
+    @property
+    def max_length(self) -> int:
+        return ibis.options.repr.interactive.max_length
+
+    @max_length.setter
+    def max_length(self, value: int):
+        ibis.options.repr.interactive.max_length = value
+
+    @property
+    def max_string(self) -> int:
+        return ibis.options.repr.interactive.max_string
+
+    @max_string.setter
+    def max_string(self, value: int):
+        ibis.options.repr.interactive.max_string = value
+
+    @property
+    def max_depth(self) -> int:
+        return ibis.options.repr.interactive.max_depth
+
+    @max_depth.setter
+    def max_depth(self, value: int):
+        ibis.options.repr.interactive.max_depth = value
+
+    @property
+    def show_types(self) -> bool:
+        return ibis.options.repr.interactive.show_types
+
+    @show_types.setter
+    def show_types(self, value: bool):
+        ibis.options.repr.interactive.show_types = value
+
+
+class Repr(Config):
+    """Expression printing options.
+
+    Attributes
+    ----------
+    interactive : Interactive
+        Options controlling the interactive repr.
+    """
+
+    interactive: Interactive = Interactive()
 
 
 class Options(Config):
@@ -9,14 +89,36 @@ class Options(Config):
 
     Attributes
     ----------
-
-    cache_default_path : str
-
+    cache : Cache
+        Options controlling caching.
+    backend : Optional[letsql.backends.let.Backend]
+        The backend to use for execution.
+    repr : Repr
+        Options controlling expression printing.
     """
 
-    cache_default_path: Union[str, pathlib.Path] = pathlib.Path(
-        "~/.local/share/letsql"
-    ).expanduser()
+    cache: Cache = Cache()
+    backend: Optional[Any] = None
+    repr: Repr = Repr()
+
+    @property
+    def interactive(self) -> bool:
+        """Show the first few rows of computing an expression when in a repl."""
+        return ibis.options.interactive
+
+    @interactive.setter
+    def interactive(self, value: bool):
+        ibis.options.interactive = value
 
 
 options = Options()
+
+
+def _backend_init():
+    if (backend := options.backend) is not None:
+        return backend
+
+    import letsql
+
+    options.backend = con = letsql.connect()
+    return con

@@ -3,7 +3,6 @@ from __future__ import annotations
 import decimal
 from operator import invert, neg
 
-import ibis
 import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import numpy as np
@@ -14,11 +13,12 @@ from ibis import _
 from ibis.common.annotations import ValidationError
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 
 def test_null_literal(con):
-    expr = ibis.null()
+    expr = letsql.null()
     assert pd.isna(con.execute(expr))
     assert con.execute(expr.typeof()) == "Null"
 
@@ -27,7 +27,7 @@ def test_null_literal(con):
 
 
 def test_boolean_literal(con):
-    expr = ibis.literal(False, type=dt.boolean)
+    expr = letsql.literal(False, type=dt.boolean)
     result = con.execute(expr)
     assert not result
     assert type(result) in (np.bool_, bool)
@@ -37,10 +37,10 @@ def test_boolean_literal(con):
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
-        param(ibis.NA.fillna(5), 5, id="na_fillna"),
-        param(ibis.literal(5).fillna(10), 5, id="non_na_fillna"),
-        param(ibis.literal(5).nullif(5), None, id="nullif_null"),
-        param(ibis.literal(10).nullif(5), 10, id="nullif_not_null"),
+        param(letsql.null().fillna(5), 5, id="na_fillna"),
+        param(letsql.literal(5).fillna(10), 5, id="non_na_fillna"),
+        param(letsql.literal(5).nullif(5), None, id="nullif_null"),
+        param(letsql.literal(10).nullif(5), 10, id="nullif_not_null"),
     ],
 )
 def test_scalar_fillna_nullif(con, expr, expected):
@@ -67,7 +67,7 @@ def test_scalar_fillna_nullif(con, expr, expected):
 )
 def test_isna(alltypes, col, filt):
     table = alltypes.select(
-        nan_col=ibis.literal(np.nan), none_col=ibis.NA.cast("float64")
+        nan_col=letsql.literal(np.nan), none_col=letsql.null().cast("float64")
     )
     df = table.execute()
 
@@ -84,7 +84,7 @@ def test_isna(alltypes, col, filt):
     ],
 )
 def test_column_fillna(alltypes, value):
-    table = alltypes.mutate(missing=ibis.literal(value).cast("float64"))
+    table = alltypes.mutate(missing=letsql.literal(value).cast("float64"))
     pd_table = table.execute()
 
     res = table.mutate(missing=table.missing.fillna(0.0)).execute()
@@ -95,9 +95,13 @@ def test_column_fillna(alltypes, value):
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
-        param(ibis.coalesce(5, None, 4), 5, id="generic"),
-        param(ibis.coalesce(ibis.NA, 4, ibis.NA), 4, id="null_start_end"),
-        param(ibis.coalesce(ibis.NA, ibis.NA, 3.14), 3.14, id="non_null_last"),
+        param(letsql.coalesce(5, None, 4), 5, id="generic"),
+        param(letsql.coalesce(letsql.null(), 4, letsql.null()), 4, id="null_start_end"),
+        param(
+            letsql.coalesce(letsql.null(), letsql.null(), 3.14),
+            3.14,
+            id="non_null_last",
+        ),
     ],
 )
 def test_coalesce(con, expr, expected):
@@ -191,7 +195,7 @@ def test_case_where(alltypes, df):
     table = alltypes
     table = table.mutate(
         new_col=(
-            ibis.case()
+            letsql.case()
             .when(table["int_col"] == 1, 20)
             .when(table["int_col"] == 0, 10)
             .else_(0)
@@ -305,9 +309,9 @@ def test_dropna_table(alltypes, how, subset):
     is_four = alltypes.int_col == 4
 
     table = alltypes.mutate(
-        col_1=is_two.ifelse(ibis.NA, alltypes.float_col),
-        col_2=is_four.ifelse(ibis.NA, alltypes.float_col),
-        col_3=(is_two | is_four).ifelse(ibis.NA, alltypes.float_col),
+        col_1=is_two.ifelse(letsql.null(), alltypes.float_col),
+        col_2=is_four.ifelse(letsql.null(), alltypes.float_col),
+        col_3=(is_two | is_four).ifelse(letsql.null(), alltypes.float_col),
     ).select("col_1", "col_2", "col_3")
 
     table_pandas = table.execute()
@@ -329,7 +333,7 @@ def test_select_sort_sort(alltypes):
         param(_.id, {"by": "id"}),
         param(lambda _: _.id, {"by": "id"}),
         param(
-            ibis.desc("id"),
+            letsql.desc("id"),
             {"by": "id", "ascending": False},
         ),
         param(
@@ -337,7 +341,7 @@ def test_select_sort_sort(alltypes):
             {"by": ["id", "int_col"]},
         ),
         param(
-            ["id", ibis.desc("int_col")],
+            ["id", letsql.desc("int_col")],
             {"by": ["id", "int_col"], "ascending": [True, False]},
         ),
     ],
@@ -349,7 +353,7 @@ def test_order_by(alltypes, df, key, df_kwargs):
 
 
 def test_order_by_random(alltypes):
-    expr = alltypes.filter(_.id < 100).order_by(ibis.random()).limit(5)
+    expr = alltypes.filter(_.id < 100).order_by(letsql.random()).limit(5)
     r1 = expr.execute()
     r2 = expr.execute()
     assert len(r1) == 5
@@ -402,7 +406,7 @@ def test_isin_notin(alltypes, df, ibis_op, pandas_op):
     ],
 )
 def test_logical_negation_literal(con, expr, expected, op):
-    assert con.execute(op(ibis.literal(expr)).name("tmp")) == expected
+    assert con.execute(op(letsql.literal(expr)).name("tmp")) == expected
 
 
 @pytest.mark.parametrize(
@@ -425,7 +429,7 @@ def test_ifelse_select(alltypes, df):
         [
             "int_col",
             (
-                ibis.ifelse(table["int_col"] == 0, 42, -1)
+                letsql.ifelse(table["int_col"] == 0, 42, -1)
                 .cast("int64")
                 .name("where_col")
             ),
@@ -443,7 +447,9 @@ def test_ifelse_select(alltypes, df):
 
 
 def test_ifelse_column(alltypes, df):
-    expr = ibis.ifelse(alltypes["int_col"] == 0, 42, -1).cast("int64").name("where_col")
+    expr = (
+        letsql.ifelse(alltypes["int_col"] == 0, 42, -1).cast("int64").name("where_col")
+    )
     result = expr.execute()
 
     expected = pd.Series(
@@ -477,12 +483,12 @@ def test_select_filter_select(alltypes, df):
 
 
 def test_interactive(alltypes, monkeypatch):
-    monkeypatch.setattr(ibis.options, "interactive", True)
+    monkeypatch.setattr(letsql.options, "interactive", True)
 
     expr = alltypes.mutate(
         str_col=_.string_col.replace("1", "").nullif("2"),
         date_col=_.timestamp_col.date(),
-        delta_col=lambda t: ibis.now() - t.timestamp_col,
+        delta_col=lambda t: letsql.now() - t.timestamp_col,
     )
 
     repr(expr)
@@ -503,7 +509,7 @@ def test_uncorrelated_subquery(batting, batting_df):
 
 
 def test_int_column(alltypes):
-    expr = alltypes.mutate(x=ibis.literal(1)).x
+    expr = alltypes.mutate(x=letsql.literal(1)).x
     result = expr.execute()
     assert expr.type() == dt.int8
     assert result.dtype == np.int8
@@ -536,19 +542,19 @@ def test_int_scalar(alltypes):
     ],
 )
 def test_literal_na(con, dtype):
-    expr = ibis.literal(None, type=dtype)
+    expr = letsql.literal(None, type=dtype)
     result = con.execute(expr)
     assert pd.isna(result)
 
 
 def test_memtable_bool_column(con):
-    t = ibis.memtable({"a": [True, False, True]})
+    t = letsql.memtable({"a": [True, False, True]})
     assert_series_equal(con.execute(t.a), pd.Series([True, False, True], name="a"))
 
 
 def test_memtable_construct(con, monkeypatch):
     pa = pytest.importorskip("pyarrow")
-    monkeypatch.setattr(ibis.options, "default_backend", con)
+    monkeypatch.setattr(letsql.options, "backend", con)
 
     pa_t = pa.Table.from_pydict(
         {
@@ -558,7 +564,7 @@ def test_memtable_construct(con, monkeypatch):
             "d": [None, "b", None],
         }
     )
-    t = ibis.memtable(pa_t)
+    t = letsql.memtable(pa_t)
     assert_frame_equal(t.execute().fillna(pd.NA), pa_t.to_pandas().fillna(pd.NA))
 
 
@@ -644,7 +650,7 @@ def test_sample(functional_alltypes):
 
 def test_sample_memtable(con):
     df = pd.DataFrame({"x": [1, 2, 3, 4]})
-    res = con.execute(ibis.memtable(df).sample(0.5))
+    res = con.execute(letsql.memtable(df).sample(0.5))
     assert len(res) <= 4
     assert_frame_equal(res.iloc[:0], df.iloc[:0])
 
@@ -665,7 +671,7 @@ def test_hexdigest(alltypes):
 
 def test_typeof(con):
     # Other tests also use the typeof operation, but only this test has this operation required.
-    expr = ibis.literal(1).typeof()
+    expr = letsql.literal(1).typeof()
     result = con.execute(expr)
 
     assert result is not None

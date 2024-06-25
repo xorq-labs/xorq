@@ -3,7 +3,7 @@ from typing import List
 
 import pyarrow as pa
 
-from ._internal import (
+from letsql._internal import (
     AggregateUDF,
     ContextProvider,
     LogicalPlan,
@@ -16,6 +16,7 @@ from ._internal import (
     SessionState,  # noqa: F401
     TableProvider,
     Table,
+    DataFrame,
 )
 
 __all__ = [
@@ -34,6 +35,7 @@ __all__ = [
     "TableProvider",
     "AbstractTableProvider",
     "Table",
+    "DataFrame",
 ]
 
 

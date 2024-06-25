@@ -310,6 +310,16 @@ impl PySessionContext {
         Ok(())
     }
 
+    pub fn register_dataframe(&mut self, name: &str, dataframe: PyDataFrame) -> PyResult<()> {
+        let table: Arc<dyn TableProvider> = dataframe.df.as_ref().clone().into_view();
+
+        self.ctx
+            .register_table(name, table)
+            .map_err(DataFusionError::from)?;
+
+        Ok(())
+    }
+
     pub fn register_table(&mut self, name: &str, table: &PyTable) -> PyResult<()> {
         self.ctx
             .register_table(name, table.table())

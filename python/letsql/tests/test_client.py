@@ -10,6 +10,7 @@ import pytest
 import rich.console
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_frame_equal
 
 if TYPE_CHECKING:
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
 
 @pytest.fixture
 def new_schema():
-    return ibis.schema([("a", "string"), ("b", "bool"), ("c", "int32")])
+    return letsql.schema([("a", "string"), ("b", "bool"), ("c", "int32")])
 
 
 def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
@@ -43,19 +44,19 @@ def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
     ("expr", "expected"),
     [
         param(
-            ibis.memtable([(1, 2.0, "3")], columns=list("abc")),
+            letsql.memtable([(1, 2.0, "3")], columns=list("abc")),
             pd.DataFrame([(1, 2.0, "3")], columns=list("abc")),
             id="simple",
         ),
         param(
-            ibis.memtable([(1, 2.0, "3")]),
+            letsql.memtable([(1, 2.0, "3")]),
             pd.DataFrame([(1, 2.0, "3")], columns=["col0", "col1", "col2"]),
             id="simple_auto_named",
         ),
         param(
-            ibis.memtable(
+            letsql.memtable(
                 [(1, 2.0, "3")],
-                schema=ibis.schema(dict(a="int8", b="float32", c="string")),
+                schema=letsql.schema(dict(a="int8", b="float32", c="string")),
             ),
             pd.DataFrame([(1, 2.0, "3")], columns=list("abc")).astype(
                 {"a": "int8", "b": "float32"}
@@ -63,7 +64,7 @@ def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
             id="simple_schema",
         ),
         param(
-            ibis.memtable(
+            letsql.memtable(
                 pd.DataFrame({"a": [1], "b": [2.0], "c": ["3"]}).astype(
                     {"a": "int8", "b": "float32"}
                 )
@@ -74,7 +75,7 @@ def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
             id="dataframe",
         ),
         param(
-            ibis.memtable([dict(a=1), dict(a=2)]),
+            letsql.memtable([dict(a=1), dict(a=2)]),
             pd.DataFrame({"a": [1, 2]}),
             id="list_of_dicts",
         ),
@@ -86,7 +87,7 @@ def test_in_memory_table(con, expr, expected):
 
 
 def test_filter_memory_table(con):
-    t = ibis.memtable([(1, 2), (3, 4), (5, 6)], columns=["x", "y"])
+    t = letsql.memtable([(1, 2), (3, 4), (5, 6)], columns=["x", "y"])
     expr = t.filter(t.x > 1)
     expected = pd.DataFrame({"x": [3, 5], "y": [4, 6]})
     result = con.execute(expr)
@@ -94,14 +95,14 @@ def test_filter_memory_table(con):
 
 
 def test_agg_memory_table(con):
-    t = ibis.memtable([(1, 2), (3, 4), (5, 6)], columns=["x", "y"])
+    t = letsql.memtable([(1, 2), (3, 4), (5, 6)], columns=["x", "y"])
     expr = t.x.count()
     result = con.execute(expr)
     assert result == 3
 
 
 def test_self_join_memory_table(con):
-    t = ibis.memtable({"x": [1, 2], "y": [2, 1], "z": ["a", "b"]})
+    t = letsql.memtable({"x": [1, 2], "y": [2, 1], "z": ["a", "b"]})
     t_view = t.view()
     expr = t.join(t_view, t.x == t_view.y).select("x", "y", "z", "z_right")
     result = con.execute(expr).sort_values("x").reset_index(drop=True)
@@ -131,7 +132,7 @@ def test_dunder_array_column(alltypes, dtype):
 
 @pytest.mark.parametrize("interactive", [True, False])
 def test_repr(alltypes, interactive, monkeypatch):
-    monkeypatch.setattr(ibis.options, "interactive", interactive)
+    monkeypatch.setattr(letsql.options, "interactive", interactive)
 
     expr = alltypes.select("date_string_col")
 
@@ -146,8 +147,8 @@ def test_repr(alltypes, interactive, monkeypatch):
 
 @pytest.mark.parametrize("show_types", [True, False])
 def test_interactive_repr_show_types(alltypes, show_types, monkeypatch):
-    monkeypatch.setattr(ibis.options, "interactive", True)
-    monkeypatch.setattr(ibis.options.repr.interactive, "show_types", show_types)
+    monkeypatch.setattr(letsql.options, "interactive", True)
+    monkeypatch.setattr(letsql.options.repr.interactive, "show_types", show_types)
 
     expr = alltypes.select("id")
     s = repr(expr)
@@ -159,7 +160,7 @@ def test_interactive_repr_show_types(alltypes, show_types, monkeypatch):
 
 @pytest.mark.parametrize("is_jupyter", [True, False])
 def test_interactive_repr_max_columns(alltypes, is_jupyter, monkeypatch):
-    monkeypatch.setattr(ibis.options, "interactive", True)
+    monkeypatch.setattr(letsql.options, "interactive", True)
 
     cols = {f"c_{i}": ibis._.id + i for i in range(50)}
     expr = alltypes.mutate(**cols).select(*cols)
@@ -178,13 +179,13 @@ def test_interactive_repr_max_columns(alltypes, is_jupyter, monkeypatch):
         assert " c_19 " not in text
 
     # max_columns = 3
-    monkeypatch.setattr(ibis.options.repr.interactive, "max_columns", 3)
+    monkeypatch.setattr(letsql.options.repr.interactive, "max_columns", 3)
     text = "".join(s.text for s in console.render(expr, options))
     assert " c_2 " in text
     assert " c_3 " not in text
 
     # max_columns = None
-    monkeypatch.setattr(ibis.options.repr.interactive, "max_columns", None)
+    monkeypatch.setattr(letsql.options.repr.interactive, "max_columns", None)
     text = "".join(s.text for s in console.render(expr, options))
     assert " c_0 " in text
     if is_jupyter:
@@ -198,7 +199,7 @@ def test_interactive_repr_max_columns(alltypes, is_jupyter, monkeypatch):
 @pytest.mark.parametrize("expr_type", ["table", "column"])
 @pytest.mark.parametrize("interactive", [True, False])
 def test_repr_mimebundle(alltypes, interactive, expr_type, monkeypatch):
-    monkeypatch.setattr(ibis.options, "interactive", interactive)
+    monkeypatch.setattr(letsql.options, "interactive", interactive)
 
     if expr_type == "column":
         expr = alltypes.date_string_col
@@ -206,8 +207,23 @@ def test_repr_mimebundle(alltypes, interactive, expr_type, monkeypatch):
         expr = alltypes.select("date_string_col")
 
     reprs = expr._repr_mimebundle_(include=["text/plain", "text/html"], exclude=[])
-    for format in ["text/plain", "text/html"]:
+    for fmt in ["text/plain", "text/html"]:
         if interactive:
-            assert "r0.date_string_col" not in reprs[format]
+            assert "r0.date_string_col" not in reprs[fmt]
         else:
-            assert "r0.date_string_col" in reprs[format]
+            assert "r0.date_string_col" in reprs[fmt]
+
+
+@pytest.mark.parametrize(
+    "option", ["max_rows", "max_length", "max_string", "max_depth"]
+)
+def test_ibis_config_wrapper(option, monkeypatch):
+    import ibis
+
+    letsql_option_value = getattr(letsql.options.repr.interactive, option)
+    assert letsql_option_value == getattr(ibis.options.repr.interactive, option)
+
+    monkeypatch.setattr(
+        letsql.options.repr.interactive, option, letsql_option_value + 1
+    )
+    assert getattr(ibis.options.repr.interactive, option) == letsql_option_value + 1

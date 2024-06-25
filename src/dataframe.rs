@@ -23,7 +23,7 @@ use crate::utils::{get_tokio_runtime, wait_for_completion, wait_for_future};
 #[pyclass(name = "DataFrame", module = "datafusion", subclass)]
 #[derive(Clone)]
 pub struct PyDataFrame {
-    df: Arc<DataFrame>,
+    pub df: Arc<DataFrame>,
 }
 
 impl PyDataFrame {

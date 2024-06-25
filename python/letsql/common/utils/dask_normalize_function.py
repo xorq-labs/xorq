@@ -65,6 +65,7 @@ def normalize_function(function):
 
 normalize_code = normalize_by_attrs(CODE_ATTRS)
 dask.base.normalize_token.register(types.CodeType, normalize_code)
+dask.base.normalize_token.register(property, normalize_code)
 
 
 @dask.base.normalize_token.register(toolz.curry)

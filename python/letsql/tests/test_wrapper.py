@@ -1,4 +1,3 @@
-import ibis
 import pandas as pd
 import pytest
 from pytest import param
@@ -36,7 +35,7 @@ def test_simple_agg_ops_read_csv(data_dir):
 
 
 def test_memtable_ops_dict():
-    t = ibis.memtable({"s": ["aaa", "a", "aa"]})
+    t = ls.memtable({"s": ["aaa", "a", "aa"]})
     assert t.s.length().execute().gt(0).all()
 
 
@@ -44,17 +43,17 @@ def test_memtable_ops_dict():
     ("expr", "expected"),
     [
         param(
-            lambda: ibis.memtable([(1, 2.0, "3")], columns=list("abc")),
+            lambda: ls.memtable([(1, 2.0, "3")], columns=list("abc")),
             pd.DataFrame([(1, 2.0, "3")], columns=list("abc")),
             id="simple",
         ),
         param(
-            lambda: ibis.memtable([(1, 2.0, "3")]),
+            lambda: ls.memtable([(1, 2.0, "3")]),
             pd.DataFrame([(1, 2.0, "3")], columns=["col0", "col1", "col2"]),
             id="simple_auto_named",
         ),
         param(
-            lambda: ibis.memtable(
+            lambda: ls.memtable(
                 pd.DataFrame({"a": [1], "b": [2.0], "c": ["3"]}).astype(
                     {"a": "int8", "b": "float32"}
                 )
@@ -65,7 +64,7 @@ def test_memtable_ops_dict():
             id="dataframe",
         ),
         param(
-            lambda: ibis.memtable([dict(a=1), dict(a=2)]),
+            lambda: ls.memtable([dict(a=1), dict(a=2)]),
             pd.DataFrame({"a": [1, 2]}),
             id="list_of_dicts",
         ),

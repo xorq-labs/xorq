@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from letsql import examples
 from letsql.config import options
+from letsql.expr import api
+from letsql.expr.api import *  # noqa: F403
 from letsql.backends.let import Backend
 
 
@@ -12,7 +14,13 @@ try:
 except ModuleNotFoundError:
     import importlib_metadata
 
-__all__ = ["examples", "connect", "options"]
+__all__ = [  # noqa: PLE0604
+    "api",
+    "examples",
+    "connect",
+    "options",
+    *api.__all__,
+]
 
 
 def connect() -> Backend:

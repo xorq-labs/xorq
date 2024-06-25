@@ -541,14 +541,15 @@ def test_read_csv_compute_and_cache(con, csv_dir, tmp_path):
     assert expr.execute() is not None
 
 
-def test_multi_engine_cache(pg, ls_con, tmp_path):
-    db_con = ibis.duckdb.connect()
+@pytest.mark.parametrize("other_con", [letsql.connect(), ibis.duckdb.connect()])
+def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
+    other_con = ibis.duckdb.connect()
 
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID > 2014].pipe(
         ls_con.register, f"pg-{table_name}"
     )
-    db_t = db_con.register(pg.table(table_name).to_pyarrow(), f"{table_name}")[
+    db_t = other_con.register(pg.table(table_name).to_pyarrow(), f"{table_name}")[
         lambda t: t.stint == 1
     ].pipe(ls_con.register, f"db-{table_name}")
 
@@ -625,7 +626,7 @@ def test_replace_table_matching_kwargs(pg, ls_con, tmp_path):
 
 
 def test_cache_default_path_set(pg, ls_con, tmp_path):
-    letsql.options.cache_default_path = tmp_path
+    letsql.options.cache.default_path = tmp_path
 
     storage = ParquetCacheStorage(
         source=ls_con,

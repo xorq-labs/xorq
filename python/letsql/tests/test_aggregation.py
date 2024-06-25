@@ -10,6 +10,7 @@ from ibis import _
 from ibis import literal as L
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_frame_equal, reduction_tolerance
 
 
@@ -215,7 +216,7 @@ def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
             id="is_in",
         ),
         param(
-            lambda _: ibis._.string_col.isin(["1", "7"]),
+            lambda _: letsql._.string_col.isin(["1", "7"]),
             lambda t: t.string_col.isin(["1", "7"]),
             id="is_in_deferred",
         ),
@@ -413,9 +414,11 @@ def test_agg_name_in_output_column(alltypes):
 
 
 def test_grouped_case(con):
-    table = ibis.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
+    table = letsql.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
 
-    case_expr = ibis.case().when(table.value < 25, table.value).else_(ibis.null()).end()
+    case_expr = (
+        letsql.case().when(table.value < 25, table.value).else_(letsql.null()).end()
+    )
 
     expr = table.group_by("key").aggregate(mx=case_expr.max()).order_by("key")
     result = con.execute(expr)

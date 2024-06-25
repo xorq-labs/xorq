@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import ibis
 import ibis.expr.datatypes as dt
 import pandas as pd
 import pytest
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 
@@ -27,7 +27,7 @@ from letsql.tests.util import assert_frame_equal, assert_series_equal
     ],
 )
 def test_string_literal(con, text_value):
-    expr = ibis.literal(text_value)
+    expr = letsql.literal(text_value)
     result = con.execute(expr)
     assert result == text_value
 
@@ -268,7 +268,7 @@ def test_string_col_is_unicode(alltypes, df):
             id="expr_slice_begin_end",
         ),
         param(
-            lambda t: ibis.literal("-").join(["a", t.string_col, "c"]),
+            lambda t: letsql.literal("-").join(["a", t.string_col, "c"]),
             lambda t: "a-" + t.string_col + "-c",
             id="join",
         ),
@@ -303,14 +303,14 @@ def test_string(alltypes, df, result_func, expected_func):
 
 
 def test_re_replace_global(con):
-    expr = ibis.literal("aba").re_replace("a", "c")
+    expr = letsql.literal("aba").re_replace("a", "c")
     result = con.execute(expr)
     assert result == "cbc"
 
 
 def test_substr_with_null_values(alltypes, df):
     table = alltypes.mutate(
-        substr_col_null=ibis.case()
+        substr_col_null=letsql.case()
         .when(alltypes["bool_col"], alltypes["string_col"])
         .else_(None)
         .end()
@@ -350,7 +350,7 @@ def test_substr_with_null_values(alltypes, df):
         param(lambda d: d.query(), "name=networking", id="query"),
         param(lambda d: d.query("name"), "networking", id="query-key"),
         param(
-            lambda d: d.query(ibis.literal("na") + ibis.literal("me")),
+            lambda d: d.query(letsql.literal("na") + letsql.literal("me")),
             "networking",
             id="query-dynamic-key",
         ),
@@ -359,27 +359,27 @@ def test_substr_with_null_values(alltypes, df):
 )
 def test_parse_url(con, result_func, expected):
     url = "http://user:pass@example.com:80/docs/books/tutorial/index.html?name=networking#DOWNLOADING"
-    expr = result_func(ibis.literal(url))
+    expr = result_func(letsql.literal(url))
     result = con.execute(expr)
     assert result == expected
 
 
 def test_capitalize(con):
-    s = ibis.literal("aBc")
+    s = letsql.literal("aBc")
     expected = "Abc"
     expr = s.capitalize()
     assert con.execute(expr) == expected
 
 
 def test_subs_with_re_replace(con):
-    expr = ibis.literal("hi").re_replace("i", "a").substitute({"d": "b"}, else_="k")
+    expr = letsql.literal("hi").re_replace("i", "a").substitute({"d": "b"}, else_="k")
     result = con.execute(expr)
     assert result == "k"
 
 
 def test_multiple_subs(con):
     m = {"foo": "FOO", "bar": "BAR"}
-    expr = ibis.literal("foo").substitute(m)
+    expr = letsql.literal("foo").substitute(m)
     result = con.execute(expr)
     assert result == "FOO"
 
@@ -387,8 +387,8 @@ def test_multiple_subs(con):
 @pytest.mark.parametrize(
     "expr",
     [
-        param(ibis.case().when(True, "%").end(), id="case"),
-        param(ibis.ifelse(True, "%", ibis.NA), id="ifelse"),
+        param(letsql.case().when(True, "%").end(), id="case"),
+        param(letsql.ifelse(True, "%", letsql.null()), id="ifelse"),
     ],
 )
 def test_no_conditional_percent_escape(con, expr):
@@ -396,5 +396,5 @@ def test_no_conditional_percent_escape(con, expr):
 
 
 def test_string_length(con):
-    t = ibis.memtable({"s": ["aaa", "a", "aa"]})
+    t = letsql.memtable({"s": ["aaa", "a", "aa"]})
     assert con.execute(t.s.length()).gt(0).all()

@@ -30,7 +30,13 @@ import letsql
 import letsql.internal as df
 from letsql.backends.datafusion.compiler import DataFusionCompiler
 from letsql.backends.datafusion.provider import IbisTableProvider
-from letsql.internal import SessionConfig, SessionContext, TableProvider, Table
+from letsql.internal import (
+    SessionConfig,
+    SessionContext,
+    TableProvider,
+    Table,
+    DataFrame,
+)
 
 if TYPE_CHECKING:
     import pandas as pd
@@ -46,35 +52,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def version(self):
         return letsql.__version__
 
-    def do_connect(
-        self, config: Mapping[str, str | Path] | SessionContext | None = None
-    ) -> None:
-        """Create a Datafusion backend for use with Ibis.
-
-        Parameters
-        ----------
-        config
-            Mapping of table names to files.
-
-        Examples
-        --------
-        >>> import letsql as ls
-        >>> config = {"t": "path/to/file.parquet", "s": "path/to/file.csv"}
-        >>> ls.connect(config)
-
-        """
-        if isinstance(config, SessionContext):
-            (self.con, config) = (config, None)
-        else:
-            if config is not None and not isinstance(config, Mapping):
-                raise TypeError("Input to datafusion.connect must be a mapping")
-            if SessionConfig is not None:
-                df_config = SessionConfig(
-                    {"datafusion.sql_parser.dialect": "PostgreSQL"}
-                ).with_information_schema(True)
-            else:
-                df_config = None
-            self.con = SessionContext(config=df_config)
+    def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
+        df_config = SessionConfig(
+            {"datafusion.sql_parser.dialect": "PostgreSQL"}
+        ).with_information_schema(True)
+        self.con = SessionContext(config=df_config)
 
         self._register_builtin_udfs()
 
@@ -185,9 +167,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         ----------
         query
             Raw SQL string
-        kwargs
-            Backend specific query arguments
-
         """
         with contextlib.suppress(AttributeError):
             query = query.sql(dialect=self.dialect, pretty=True)
@@ -305,29 +284,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         kwargs
             Datafusion-specific keyword arguments
 
-        Examples
-        --------
-        Register a csv:
-
-        >>> import ibis
-        >>> conn = ibis.datafusion.connect(config)
-        >>> conn.register("path/to/data.csv", "my_table")
-        >>> conn.table("my_table")
-
-        Register a PyArrow table:
-
-        >>> import pyarrow as pa
-        >>> tab = pa.table({"x": [1, 2, 3]})
-        >>> conn.register(tab, "my_table")
-        >>> conn.table("my_table")
-
-        Register a PyArrow dataset:
-
-        >>> import pyarrow.dataset as ds
-        >>> dataset = ds.dataset("path/to/table")
-        >>> conn.register(dataset, "my_table")
-        >>> conn.table("my_table")
-
         """
         import pandas as pd
 
@@ -379,6 +335,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         elif isinstance(source, Table):
             self.con.deregister_table(table_ident)
             self.con.register_table(table_ident, source)
+            return self.table(table_name)
+        elif isinstance(source, DataFrame):
+            self.con.deregister_table(table_ident)
+            self.con.register_dataframe(table_ident, source)
             return self.table(table_name)
         else:
             raise ValueError(f"Unknown `source` type {type(source)}")

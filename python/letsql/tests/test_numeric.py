@@ -15,6 +15,7 @@ from ibis import literal as L
 from ibis.expr import datatypes as dt
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_series_equal, default_series_rename
 
 
@@ -22,43 +23,43 @@ from letsql.tests.util import assert_series_equal, default_series_rename
     ("expr",),
     [
         param(
-            ibis.literal(1, type=dt.int8),
+            letsql.literal(1, type=dt.int8),
             id="int8",
         ),
         param(
-            ibis.literal(1, type=dt.int16),
+            letsql.literal(1, type=dt.int16),
             id="int16",
         ),
         param(
-            ibis.literal(1, type=dt.int32),
+            letsql.literal(1, type=dt.int32),
             id="int32",
         ),
         param(
-            ibis.literal(1, type=dt.int64),
+            letsql.literal(1, type=dt.int64),
             id="int64",
         ),
         param(
-            ibis.literal(1, type=dt.uint8),
+            letsql.literal(1, type=dt.uint8),
             id="uint8",
         ),
         param(
-            ibis.literal(1, type=dt.uint16),
+            letsql.literal(1, type=dt.uint16),
             id="uint16",
         ),
         param(
-            ibis.literal(1, type=dt.uint32),
+            letsql.literal(1, type=dt.uint32),
             id="uint32",
         ),
         param(
-            ibis.literal(1, type=dt.uint64),
+            letsql.literal(1, type=dt.uint64),
             id="uint64",
         ),
         param(
-            ibis.literal(1, type=dt.float32),
+            letsql.literal(1, type=dt.float32),
             id="float32",
         ),
         param(
-            ibis.literal(1, type=dt.float64),
+            letsql.literal(1, type=dt.float64),
             id="float64",
         ),
     ],
@@ -72,12 +73,12 @@ def test_numeric_literal(con, expr):
     ("expr", "expected_result"),
     [
         param(
-            ibis.literal(decimal.Decimal("1.1"), type=dt.decimal),
+            letsql.literal(decimal.Decimal("1.1"), type=dt.decimal),
             decimal.Decimal("1.1"),
             id="default",
         ),
         param(
-            ibis.literal(decimal.Decimal("1.1"), type=dt.Decimal(38, 9)),
+            letsql.literal(decimal.Decimal("1.1"), type=dt.Decimal(38, 9)),
             decimal.Decimal("1.1"),
             id="decimal-small",
         ),
@@ -107,22 +108,22 @@ def test_decimal_literal(con, expr, expected_result):
             id="double-column",
         ),
         param(
-            lambda t: ibis.literal(1.3),
+            lambda t: letsql.literal(1.3),
             lambda t: 1.3,
             id="float-literal",
         ),
         param(
-            lambda t: ibis.literal(np.nan),
+            lambda t: letsql.literal(np.nan),
             lambda t: np.nan,
             id="nan-literal",
         ),
         param(
-            lambda t: ibis.literal(np.inf),
+            lambda t: letsql.literal(np.inf),
             lambda t: np.inf,
             id="inf-literal",
         ),
         param(
-            lambda t: ibis.literal(-np.inf),
+            lambda t: letsql.literal(-np.inf),
             lambda t: -np.inf,
             id="-inf-literal",
         ),
@@ -235,12 +236,12 @@ def test_isnan_isinf(
             id="mod",
         ),
         param(
-            ibis.greatest(L(10), L(1)),
+            letsql.greatest(L(10), L(1)),
             10,
             id="greatest",
         ),
         param(
-            ibis.least(L(10), L(1)),
+            letsql.least(L(10), L(1)),
             1,
             id="least",
         ),
@@ -376,22 +377,22 @@ def test_complex_math_functions_columns(con, alltypes, df, expr_fn, expected_fn)
     ("expr_fn", "expected_fn"),
     [
         param(
-            lambda t: ibis.least(t.bigint_col, t.int_col),
+            lambda t: letsql.least(t.bigint_col, t.int_col),
             lambda t: pd.Series(list(map(min, t.bigint_col, t.int_col))),
             id="least-all-columns",
         ),
         param(
-            lambda t: ibis.least(t.bigint_col, t.int_col, -2),
+            lambda t: letsql.least(t.bigint_col, t.int_col, -2),
             lambda t: pd.Series(list(map(min, t.bigint_col, t.int_col, [-2] * len(t)))),
             id="least-scalar",
         ),
         param(
-            lambda t: ibis.greatest(t.bigint_col, t.int_col),
+            lambda t: letsql.greatest(t.bigint_col, t.int_col),
             lambda t: pd.Series(list(map(max, t.bigint_col, t.int_col))),
             id="greatest-all-columns",
         ),
         param(
-            lambda t: ibis.greatest(t.bigint_col, t.int_col, -2),
+            lambda t: letsql.greatest(t.bigint_col, t.int_col, -2),
             lambda t: pd.Series(list(map(max, t.bigint_col, t.int_col, [-2] * len(t)))),
             id="greatest-scalar",
         ),
@@ -515,7 +516,7 @@ def test_divide_by_zero(alltypes, df, column, denominator):
 
 
 def test_random(con):
-    expr = ibis.random()
+    expr = letsql.random()
     result = con.execute(expr)
     assert isinstance(result, float)
     assert 0 <= result <= 1

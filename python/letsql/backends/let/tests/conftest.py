@@ -49,7 +49,12 @@ def dirty(pg):
 def remove_unexpected_tables(dirty):
     for table in dirty.list_tables():
         if table not in expected_tables:
-            dirty.drop_table(table)
+            dirty.drop_table(table, force=True)
+
+    for table in dirty.list_tables():
+        if table not in expected_tables:
+            dirty.drop_view(table, force=True)
+
     if sorted(dirty.list_tables()) != sorted(expected_tables):
         raise ValueError
 
@@ -72,7 +77,9 @@ def dirty_ls_con():
 def ls_con(dirty_ls_con):
     yield dirty_ls_con
     for table_name in dirty_ls_con.list_tables():
-        dirty_ls_con.drop_table(table_name)
+        dirty_ls_con.drop_table(table_name, force=True)
+    for table_name in dirty_ls_con.list_tables():
+        dirty_ls_con.drop_view(table_name, force=True)
 
 
 @pytest.fixture(scope="session")

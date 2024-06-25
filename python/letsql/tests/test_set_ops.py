@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import random
 
-import ibis
 import ibis.expr.types as ir
 import pandas as pd
 import pytest
 from ibis import _
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_frame_equal
 
 
@@ -37,7 +37,7 @@ def union_subsets(alltypes, df):
 def test_union(union_subsets, distinct):
     (a, b, c), (da, db, dc) = union_subsets
 
-    expr = ibis.union(a, b, distinct=distinct).order_by("id")
+    expr = letsql.union(a, b, distinct=distinct).order_by("id")
     result = expr.execute()
 
     expected = pd.concat([da, db], axis=0).sort_values("id").reset_index(drop=True)
@@ -77,7 +77,7 @@ def test_intersect(alltypes, df, distinct):
     db = df[(df.id >= 5205) & (df.id <= 5215)]
     dc = df[(df.id >= 5195) & (df.id <= 5208)]
 
-    expr = ibis.intersect(a, b, c, distinct=distinct).order_by("id")
+    expr = letsql.intersect(a, b, c, distinct=distinct).order_by("id")
     result = expr.execute()
 
     index = da.index.intersection(db.index).intersection(dc.index)
@@ -106,7 +106,7 @@ def test_difference(alltypes, df, distinct):
     db = df[(df.id >= 5205) & (df.id <= 5215)]
     dc = df[(df.id >= 5195) & (df.id <= 5202)]
 
-    expr = ibis.difference(a, b, c, distinct=distinct).order_by("id")
+    expr = letsql.difference(a, b, c, distinct=distinct).order_by("id")
     result = expr.execute()
 
     index = da.index.difference(db.index).difference(dc.index)
@@ -120,7 +120,7 @@ def test_difference(alltypes, df, distinct):
 @pytest.mark.parametrize("method", ["intersect", "difference", "union"])
 def test_table_set_operations_api(alltypes, method):
     # top level variadic
-    result = getattr(ibis, method)(alltypes)
+    result = getattr(letsql, method)(alltypes)
     assert result.equals(alltypes)
 
     # table level methods require at least one argument

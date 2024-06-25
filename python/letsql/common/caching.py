@@ -114,7 +114,7 @@ class ParquetCacheStorage(CacheStorage):
     path = field(
         validator=instance_of(pathlib.Path),
         converter=abs_path_converter,
-        factory=functools.partial(letsql.options.get, "cache_default_path"),
+        factory=functools.partial(letsql.options.get, "cache.default_path"),
     )
 
     def __attrs_post_init__(self):

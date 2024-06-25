@@ -8,7 +8,6 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
 from ibis.expr import types as ir
-from ibis.expr import operations as ops
 from ibis.expr.schema import SchemaLike
 from ibis.backends.datafusion import Backend as IbisDataFusionBackend
 from sqlglot import exp, parse_one
@@ -24,13 +23,22 @@ from letsql.expr.relations import (
     replace_cache_table,
 )
 from letsql.expr.translate import sql_to_ibis
-from letsql.internal import SessionContext
 
 
 def _get_datafusion_table(con, table_name, database="public"):
     default = con.catalog()
     public = default.database(database)
     return public.table(table_name)
+
+
+def _get_datafusion_dataframe(con, expr, **kwargs):
+    con._register_udfs(expr)
+    con._register_in_memory_tables(expr)
+
+    table_expr = expr.as_table()
+    raw_sql = con.compile(table_expr, **kwargs)
+
+    return con.con.sql(raw_sql)
 
 
 class Backend(DataFusionBackend):
@@ -51,17 +59,13 @@ class Backend(DataFusionBackend):
             table_or_expr = source.op()
             backend = source._find_backend(use_default=False)
 
-            if backend == self:
-                table_or_expr = self._sources.get_table_or_op(table_or_expr)
-                original_backend = self._sources.get_backend(table_or_expr)
-                is_a_datafusion_backed_table = isinstance(
-                    original_backend, (DataFusionBackend, IbisDataFusionBackend)
-                ) and isinstance(table_or_expr, ops.DatabaseTable)
-                if is_a_datafusion_backed_table:
-                    source = _get_datafusion_table(
-                        original_backend.con, table_or_expr.name
-                    )
-                    table_or_expr = None
+            if isinstance(backend, Backend):
+                if backend is self:
+                    table_or_expr = self._sources.get_table_or_op(table_or_expr)
+                    backend = self._sources.get_backend(table_or_expr)
+
+                if isinstance(backend, (DataFusionBackend, IbisDataFusionBackend)):
+                    source = _get_datafusion_dataframe(backend, source)
 
         registered_table = super().register(source, table_name=table_name, **kwargs)
         self._sources[registered_table.op()] = table_or_expr or registered_table.op()
@@ -99,7 +103,7 @@ class Backend(DataFusionBackend):
         return registered_table
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        not_multi_engine = self._get_source(expr) != self
+        not_multi_engine = self._get_source(expr) is not self
         if (
             not_multi_engine
         ):  # this means is a single source that is not the letsql backend
@@ -112,14 +116,25 @@ class Backend(DataFusionBackend):
         expr = self._register_and_transform_cache_tables(expr)
         backend = self._get_source(expr)
 
-        if backend == self:
+        if backend is self:
             backend = super()
 
         return backend.execute(expr, **kwargs)
 
-    def do_connect(
-        self, config: Mapping[str, str | Path] | SessionContext | None = None
-    ) -> None:
+    def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
+        """Creates a connection.
+
+        Parameters
+        ----------
+        config
+            Mapping of table names to files.
+
+        Examples
+        --------
+        >>> import letsql as ls
+        >>> con = ls.connect()
+
+        """
         super().do_connect(config=config)
 
     def _get_source(self, expr: ir.Expr):
@@ -161,7 +176,7 @@ class Backend(DataFusionBackend):
                 uncached_to_expr = uncached.to_expr()
                 node = storage.set_default(uncached_to_expr, uncached)
                 table = node.to_expr()
-                if node.source == self:
+                if node.source is self:
                     table = _get_datafusion_table(self.con, node.name)
                 self.register(table, table_name=node.name)
             return node

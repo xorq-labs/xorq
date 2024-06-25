@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import ibis
 import ibis.expr.schema as sch
 import numpy as np
 import pandas as pd
 import pytest
 from pytest import param
 
+import letsql
 from letsql.tests.util import assert_frame_equal
 
 
@@ -188,30 +188,32 @@ def test_join_with_pandas_non_null_typed_columns(batting, awards_players):
     [
         # Trues
         param(True, True, id="true"),
-        param(ibis.literal(True), True, id="true-literal"),
+        param(letsql.literal(True), True, id="true-literal"),
         param([True], True, id="true-list"),
-        param([ibis.literal(True)], True, id="true-literal-list"),
+        param([letsql.literal(True)], True, id="true-literal-list"),
         # only trues
         param([True, True], True, id="true-true-list"),
         param(
-            [ibis.literal(True), ibis.literal(True)], True, id="true-true-literal-list"
+            [letsql.literal(True), letsql.literal(True)],
+            True,
+            id="true-true-literal-list",
         ),
-        param([True, ibis.literal(True)], True, id="true-true-const-expr-list"),
-        param([ibis.literal(True), True], True, id="true-true-expr-const-list"),
+        param([True, letsql.literal(True)], True, id="true-true-const-expr-list"),
+        param([letsql.literal(True), True], True, id="true-true-expr-const-list"),
         # Falses
         param(False, False, id="false"),
-        param(ibis.literal(False), False, id="false-literal"),
+        param(letsql.literal(False), False, id="false-literal"),
         param([False], False, id="false-list"),
-        param([ibis.literal(False)], False, id="false-literal-list"),
+        param([letsql.literal(False)], False, id="false-literal-list"),
         # only falses
         param([False, False], False, id="false-false-list"),
         param(
-            [ibis.literal(False), ibis.literal(False)],
+            [letsql.literal(False), letsql.literal(False)],
             False,
             id="false-false-literal-list",
         ),
-        param([False, ibis.literal(False)], False, id="false-false-const-expr-list"),
-        param([ibis.literal(False), False], False, id="false-false-expr-const-list"),
+        param([False, letsql.literal(False)], False, id="false-false-const-expr-list"),
+        param([letsql.literal(False), False], False, id="false-false-expr-const-list"),
     ],
 )
 @pytest.mark.parametrize(
