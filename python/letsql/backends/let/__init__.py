@@ -9,7 +9,6 @@ import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
 from ibis.expr import types as ir
 from ibis.expr.schema import SchemaLike
-from ibis.backends.datafusion import Backend as IbisDataFusionBackend
 from sqlglot import exp, parse_one
 
 import letsql.backends.let.hotfix  # noqa: F401
@@ -64,7 +63,10 @@ class Backend(DataFusionBackend):
                     table_or_expr = self._sources.get_table_or_op(table_or_expr)
                     backend = self._sources.get_backend(table_or_expr)
 
-                if isinstance(backend, (DataFusionBackend, IbisDataFusionBackend)):
+                if (
+                    isinstance(backend, DataFusionBackend)
+                    or getattr(backend, "name", "") == DataFusionBackend.name
+                ):
                     source = _get_datafusion_dataframe(backend, source)
 
         registered_table = super().register(source, table_name=table_name, **kwargs)

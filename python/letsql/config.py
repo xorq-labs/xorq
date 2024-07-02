@@ -84,6 +84,19 @@ class Repr(Config):
     interactive: Interactive = Interactive()
 
 
+class SQL(Config):
+    """SQL-related options.
+
+    Attributes
+    ----------
+    dialect : str
+        Dialect to use for printing SQL when the backend cannot be determined.
+
+    """
+
+    dialect: str = "datafusion"
+
+
 class Options(Config):
     """LETSQL configuration options
 
@@ -100,6 +113,7 @@ class Options(Config):
     cache: Cache = Cache()
     backend: Optional[Any] = None
     repr: Repr = Repr()
+    sql: SQL = SQL()
 
     @property
     def interactive(self) -> bool:

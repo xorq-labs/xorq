@@ -5,6 +5,7 @@ import ibis
 import ibis.expr.operations.relations as ir
 import sqlglot as sg
 
+import letsql
 from letsql.expr.relations import (
     make_native_op,
 )
@@ -18,15 +19,12 @@ def expr_is_bound(expr):
 def unbound_expr_to_default_sql(expr):
     if expr_is_bound(expr):
         raise ValueError
-    default_sql = ibis.to_sql(
-        expr,
-        dialect=ibis.options.sql.default_dialect,
-    )
+    default_sql = letsql.to_sql(expr)
     return str(default_sql)
 
 
 def normalize_memory_databasetable(dt):
-    if dt.source.name not in ("pandas", "datafusion", "duckdb"):
+    if dt.source.name not in ("pandas", "let", "datafusion", "duckdb"):
         raise ValueError
     return dask.base._normalize_seq_func(
         (
@@ -175,7 +173,7 @@ def normalize_backend(con):
         con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
     elif name == "pandas":
         con_details = id(con.dictionary)
-    elif name in ("datafusion", "duckdb"):
+    elif name in ("datafusion", "duckdb", "let"):
         con_details = id(con.con)
     else:
         raise ValueError

@@ -11,6 +11,13 @@ import structlog
 default_log_path = pathlib.Path("~/.config/letsql/letsql.log").expanduser()
 
 
+def _git_is_present(cwd=None):
+    if cwd is None:
+        cwd = pathlib.Path().absolute()
+
+    return any(p for p in (cwd, *cwd.parents) if p.joinpath(".git").exists())
+
+
 def get_git_state(hash_diffs):
     (commit, diff, diff_cached) = (
         subprocess.check_output(lst).decode().strip()
@@ -33,15 +40,20 @@ def get_git_state(hash_diffs):
     return git_state
 
 
-def log_initial_state(hash_diffs=False):
+def log_initial_state(hash_diffs=False, cwd=None):
     logger = structlog.get_logger(__name__)
     logger.info("initial log level", log_level=log_level)
     try:
-        git_state = get_git_state(hash_diffs=hash_diffs)
-        logger.info(
-            "git state",
-            **git_state,
-        )
+        if _git_is_present(cwd=cwd):
+            git_state = get_git_state(hash_diffs=hash_diffs)
+            logger.info(
+                "git state",
+                **git_state,
+            )
+        else:
+            import letsql
+
+            logger.info("letsql version", version=letsql.__version__)
     except Exception:
         logger.exception("failed to log git repo info")
 

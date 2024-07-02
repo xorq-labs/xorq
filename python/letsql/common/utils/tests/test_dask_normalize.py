@@ -18,7 +18,7 @@ def test_ensure_deterministic():
     assert dask.config.get("tokenize.ensure-deterministic")
 
 
-def test_unregistered_rasies():
+def test_unregistered_raises():
     class Unregistered:
         pass
 

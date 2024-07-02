@@ -13,8 +13,10 @@ import ibis.expr.operations as ops
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
 from ibis import api
+from ibis.backends.sql.dialects import DataFusion
 from ibis.common.deferred import Deferred, _, deferrable
 from ibis.expr.schema import Schema
+from ibis.expr.sql import SQLString
 from ibis.expr.types import (
     Column,
     DateValue,
@@ -90,6 +92,7 @@ __all__ = (
     "table",
     "time",
     "today",
+    "to_sql",
     "timestamp",
     "union",
     "uuid",
@@ -1515,3 +1518,27 @@ def interval(
         microseconds=microseconds,
         nanoseconds=nanoseconds,
     )
+
+
+def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
+    """Return the formatted SQL string for an expression.
+
+    Parameters
+    ----------
+    expr
+        Ibis expression.
+    pretty
+        Whether to use pretty formatting.
+
+    Returns
+    -------
+    str
+        Formatted SQL string
+
+    """
+    from letsql.config import _backend_init
+
+    con = _backend_init()
+    sg_expr = con._to_sqlglot(expr.unbind())
+    sql = sg_expr.sql(dialect=DataFusion, pretty=pretty)
+    return SQLString(sql)
