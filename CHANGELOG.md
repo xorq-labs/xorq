@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.4] - 2024-07-02
+### Details
+#### Changed
+- Api letsql api methods by @mesejo in [#105](https://github.com/letsql/letsql/pull/105)
+- Prepare for release 0.1.4 by @mesejo in [#107](https://github.com/letsql/letsql/pull/107)
+
 ## [0.1.3] - 2024-06-24
 ### Details
 #### Added
@@ -37,6 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add greatest and least functions by @mesejo in [#98](https://github.com/letsql/letsql/pull/98)
 - Add temporal functions by @mesejo in [#99](https://github.com/letsql/letsql/pull/99)
 - Add StructColumn and StructField ops by @mesejo in [#102](https://github.com/letsql/letsql/pull/102)
+- Add SnapshotStorage by @dlovell in [#103](https://github.com/letsql/letsql/pull/103)
 
 #### Changed
 - Improve performance and ux of predict_xgb by @mesejo in [#8](https://github.com/letsql/letsql/pull/8)
