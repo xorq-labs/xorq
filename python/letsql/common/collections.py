@@ -29,6 +29,9 @@ class SourceDict:
     def __getitem__(self, key):
         return self.sources[key]
 
+    def __contains__(self, key):
+        return self.sources.__contains__(key)
+
     def get_backend(self, key, default=None):
         if key in self.sources:
             value = self.sources[key]

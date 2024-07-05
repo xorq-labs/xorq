@@ -59,7 +59,7 @@ class Backend(DataFusionBackend):
             backend = source._find_backend(use_default=False)
 
             if isinstance(backend, Backend):
-                if backend is self:
+                if backend is self and table_or_expr in self._sources:
                     table_or_expr = self._sources.get_table_or_op(table_or_expr)
                     backend = self._sources.get_backend(table_or_expr)
 

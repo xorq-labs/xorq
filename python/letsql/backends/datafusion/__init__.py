@@ -30,6 +30,7 @@ import letsql
 import letsql.internal as df
 from letsql.backends.datafusion.compiler import DataFusionCompiler
 from letsql.backends.datafusion.provider import IbisTableProvider
+from letsql.expr.pyaggregator import PyAggregator, make_struct_type
 from letsql.internal import (
     SessionConfig,
     SessionContext,
@@ -40,6 +41,49 @@ from letsql.internal import (
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+def _compile_pyarrow_udaf(udaf_node):
+    func = udaf_node.__func__
+    name = type(udaf_node).__name__
+    return_type = PyArrowType.from_ibis(udaf_node.dtype)
+    parameters = (
+        (name, PyArrowType.from_ibis(param.annotation.pattern.dtype))
+        for name, param in udaf_node.__signature__.parameters.items()
+        if name != "where"
+    )
+    names, input_types = map(list, zip(*parameters))  # noqa
+    struct_type = make_struct_type(names, input_types)
+
+    class MyAggregator(PyAggregator):
+        @classmethod
+        @property
+        def struct_type(cls):
+            return struct_type
+
+        def py_evaluate(self):
+            struct_array = self.pystate()
+            args = (struct_array.field(field_name) for field_name in self.names)
+            return func(*args)
+
+        @classmethod
+        @property
+        def return_type(cls):
+            return return_type
+
+        @classmethod
+        @property
+        def name(cls):
+            return name
+
+    return df.udaf(
+        accum=MyAggregator,
+        input_type=input_types,
+        return_type=return_type,
+        state_type=[MyAggregator.state_type],
+        volatility=MyAggregator.volatility,
+        name=name,
+    )
 
 
 class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl):
@@ -139,6 +183,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         for udf_node in expr.op().find(ops.ElementWiseVectorizedUDF):
             udf = self._compile_elementwise_udf(udf_node)
             self.con.register_udf(udf)
+
+        for udaf_node in expr.op().find(ops.AggUDF):
+            if udaf_node.__input_type__ == InputType.PYARROW:
+                udaf = _compile_pyarrow_udaf(udaf_node)
+                self.con.register_udaf(udaf)
 
     def _compile_pyarrow_udf(self, udf_node):
         return df.udf(

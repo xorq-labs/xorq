@@ -1,9 +1,14 @@
 import re
+import types
 
 import dask
 import ibis
 import ibis.expr.operations.relations as ir
 import sqlglot as sg
+from ibis.expr.operations.udf import (
+    AggUDF,
+    ScalarUDF,
+)
 
 import letsql
 from letsql.expr.relations import (
@@ -28,7 +33,8 @@ def normalize_memory_databasetable(dt):
         raise ValueError
     return dask.base._normalize_seq_func(
         (
-            dt.source,
+            # we are normalizing the data, we don't care about the connection
+            # dt.source,
             dt.schema.to_pandas(),
             # in memory: so we can assume its reasonable to hash the data
             tuple(
@@ -149,6 +155,16 @@ def normalize_letsql_databasetable(dt):
     return dask.base.normalize_token(new_dt)
 
 
+@dask.base.normalize_token.register(types.ModuleType)
+def normalize_module(module):
+    return dask.base._normalize_seq_func(
+        (
+            module.__name__,
+            module.__package__,
+        )
+    )
+
+
 @dask.base.normalize_token.register(ir.DatabaseTable)
 def normalize_databasetable(dt):
     dct = {
@@ -195,21 +211,60 @@ def normalize_namespace(ns):
     )
 
 
+@dask.base.normalize_token.register(ScalarUDF)
+def normalize_scalar_udf(udf):
+    typs = tuple(arg.dtype for arg in udf.args)
+    return dask.base._normalize_seq_func(
+        (
+            ScalarUDF,
+            typs,
+            udf.dtype,
+            udf.__func__,
+            # we are insensitive to these for now
+            # udf.__udf_namespace__,
+            # udf.__func_name__,
+        )
+    )
+
+
+@dask.base.normalize_token.register(AggUDF)
+def normalize_agg_udf(udf):
+    (*args, where) = udf.args
+    if where is not None:
+        # TODO: determine if sql string already contains
+        #       the relevant information of `where`
+        raise NotImplementedError
+    typs = tuple(arg.dtype for arg in args)
+    return dask.base._normalize_seq_func(
+        (
+            AggUDF,
+            typs,
+            udf.dtype,
+            udf.__func__,
+            # we are insensitive to these for now
+            # udf.__udf_namespace__,
+            # udf.__func_name__,
+        )
+    )
+
+
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    # how do cached tables interact with this?
-    sql = unbound_expr_to_default_sql(expr.unbind())
+    # FIXME: replace bound table names with their hashes
+    sql = unbound_expr_to_default_sql(expr.ls.uncached.unbind())
     if not expr_is_bound(expr):
         return sql
-    mem_dts = expr.op().find(ir.InMemoryTable)
-    if mem_dts:
-        # FIXME: decide whether to hash these
-        # these could be large tables in memory in a remote postgres database, so possibly non-trivial to pull down and hash
-        raise ValueError
-    dts = expr.op().find(ir.DatabaseTable)
+
+    op = expr.op()
+    if mem_dts := op.find(ir.InMemoryTable):
+        # these should have been replaced by the time we get to them
+        raise ValueError(f"{mem_dts}")
+    dts = op.find(ir.DatabaseTable)
+    udfs = op.find((AggUDF, ScalarUDF))
     return dask.base._normalize_seq_func(
         (
             sql,
             dts,
+            udfs,
         )
     )

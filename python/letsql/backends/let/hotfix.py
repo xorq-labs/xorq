@@ -125,17 +125,25 @@ class LETSQLAccessor:
             return self.expr
 
     def get_key(self):
-        if self.is_cached:
+        if self.is_cached and self.exists():
             return self.storage.get_key(
                 self.ls_con._register_and_transform_cache_tables(
-                    self.native_expr.uncached_one
+                    self.native_expr.ls.uncached_one
                 )
             )
         else:
             return None
 
+    def get_keys(self):
+        if self.has_cached and self.cached_nodes[0].to_expr().ls.exists():
+            # FIXME: yield storage with key
+            return tuple(op.to_expr().ls.get_key() for op in self.cached_nodes)
+        else:
+            return None
+
     def exists(self):
         if self.is_cached:
+            # must iterate from the bottom up else we execute downstream cached tables
             con = self.ls_con
             return all(
                 cn.storage.exists(

@@ -35,6 +35,7 @@ __all__ = [
     "TableProvider",
     "AbstractTableProvider",
     "Table",
+    "Accumulator",
     "DataFrame",
 ]
 

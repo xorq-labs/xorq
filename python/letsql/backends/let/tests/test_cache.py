@@ -1,17 +1,25 @@
 from __future__ import annotations
 
+import inspect
 import pathlib
 import time
 import uuid
 
 import ibis
+import ibis.expr.datatypes as dt
 import pandas as pd
+import pyarrow as pa
+import pyarrow.compute as pc
 import pytest
+import toolz
 from ibis import _
 
 import letsql
 from letsql.backends.let import (
     Backend,
+)
+from letsql.expr.udf import (
+    agg,
 )
 from letsql.backends.conftest import (
     get_storage_uncached,
@@ -131,7 +139,7 @@ def test_cache_multiple_times(con, alltypes, alltypes_df):
     assert sorted(first_tables) == sorted(second_tables)
 
 
-def test_cache_to_sql(con, alltypes):
+def test_cache_to_sql(alltypes):
     expr = alltypes.select(
         alltypes.smallint_col, alltypes.int_col, alltypes.float_col
     ).filter(
@@ -760,3 +768,76 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     executed3 = cached_expr.ls.uncached.execute()
     assert executed0.equals(executed2)
     assert not executed0.equals(executed3)
+
+
+def test_udf_caching(ls_con, alltypes_df):
+    @ibis.udf.scalar.pyarrow
+    def my_mul(tinyint_col: dt.int16, smallint_col: dt.int16) -> dt.int16:
+        return pc.multiply(tinyint_col, smallint_col)
+
+    @toolz.curry
+    def wrapper(f, t):
+        # here: map pandas into pyarrow
+        # goal: map pyarrow into pandas: so users can define functions in pandas land
+        inner = f.__wrapped__
+        kwargs = {k: pa.array(v) for k, v in t.items()}
+        return inner(**kwargs)
+
+    cols = list(inspect.signature(my_mul).parameters)
+
+    expr = (
+        ls_con.register(alltypes_df, "alltypes")[cols]
+        .pipe(lambda t: t.mutate(mulled=my_mul(*(t[col] for col in cols))))
+        .cache()
+    )
+    from_ls = expr.execute()
+    from_pandas = alltypes_df[cols].assign(mulled=wrapper(my_mul))
+    assert from_ls.equals(from_pandas)
+
+    expected = "letsql_cache-a530a334af9622457349c33c0fb16ed8"
+    actual = expr.ls.get_key()
+    assert actual == expected
+
+
+def test_udaf_caching(ls_con, alltypes_df):
+    def my_mul_sum(df):
+        return df.sum().sum()
+
+    cols = ["tinyint_col", "smallint_col"]
+    ibis_output_type = dt.infer(alltypes_df[cols].sum().sum())
+    by = "bool_col"
+    name = "my_mul_sum"
+
+    t = ls_con.register(alltypes_df, "alltypes")
+    agg_udf = agg.pandas_df(
+        t[cols],
+        my_mul_sum,
+        ibis_output_type,
+        name=name,
+    )
+    from_pandas = (
+        alltypes_df.groupby(by)[cols]
+        .apply(my_mul_sum)
+        .rename(name)
+        .reset_index()
+        .sort_values(by)
+    )
+    expr = (
+        t.group_by(by)
+        .agg(**{name: agg_udf(*(t[col] for col in cols))})
+        .order_by(by)
+        .cache()
+    )
+    on_expr = t.group_by(by).agg(**{name: agg_udf.on_expr(t)}).order_by(by).cache()
+    assert not expr.ls.exists()
+    assert not on_expr.ls.exists()
+
+    from_ls = expr.execute()
+    assert from_ls.equals(from_pandas)
+    assert from_ls.equals(on_expr.execute())
+    assert expr.ls.exists()
+    assert on_expr.ls.exists()
+    expected = "letsql_cache-1b1ccd4852615cc78b01a17ceadc8960"
+    actual = expr.ls.get_key()
+    assert actual == expected
+    assert actual == on_expr.ls.get_key()

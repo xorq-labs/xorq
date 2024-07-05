@@ -529,3 +529,29 @@ def test_multiple_pipes(ls_con, pg, new_con):
     )
 
     assert expr.execute() is not None
+
+
+def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con):
+    from letsql.common.caching import ParquetCacheStorage
+
+    storage = ParquetCacheStorage(ls_con)
+
+    table_name = "batting"
+    pg_t = (
+        pg.table(table_name)[lambda t: t.yearID == 2015]
+        .pipe(ls_con.register, f"pg-{table_name}")
+        .cache(storage)
+    )
+
+    db_t = duckdb_con.register(pg_t.to_pyarrow_batches(), f"{table_name}")[
+        lambda t: t.yearID == 2014
+    ].pipe(ls_con.register, f"db-{table_name}")
+
+    expr = pg_t.join(
+        db_t,
+        "playerID",
+    )
+
+    expr = ls_con.register(expr, "join")
+
+    assert expr.execute() is not None

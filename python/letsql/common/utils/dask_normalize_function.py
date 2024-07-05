@@ -68,6 +68,17 @@ dask.base.normalize_token.register(types.CodeType, normalize_code)
 dask.base.normalize_token.register(property, normalize_code)
 
 
+@dask.base.normalize_token.register(toolz.functoolz.Compose)
+def normalize_toolz_compose(composed):
+    return dask.base._normalize_seq_func(
+        (
+            toolz.functoolz.Compose,
+            composed.first,
+            composed.funcs,
+        )
+    )
+
+
 @dask.base.normalize_token.register(toolz.curry)
 def normalize_toolz_curry(curried):
     partial_arguments = get_partial_arguments(

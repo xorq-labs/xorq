@@ -56,7 +56,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: poetry pytest
-        run: poetry run pytest --cov --cov-report=xml
+        run: poetry run pytest --import-mode=importlib --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
 
       - name: Upload coverage reports to Codecov

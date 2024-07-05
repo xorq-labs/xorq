@@ -32,8 +32,8 @@ def test_tokenize_datafusion_memory_expr(alltypes_df):
     t = con.register(alltypes_df, "t")
     with patch_normalize_token(type(con)) as mocks:
         actual = dask.base.tokenize(t)
-    mocks[typ].assert_called_once()
-    expected = "c5c75c85e9998c1d8f2ed60c829f2f43"
+    mocks[typ].assert_not_called()
+    expected = "534bc9e796f1c4e196948dbfb1105b5f"
     assert actual == expected
 
 
@@ -56,7 +56,7 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path):
         str(tuple(dask.base.normalize_token(t))),
     )
     actual = dask.base._md5(to_hash.encode()).hexdigest()
-    expected = "7685a5a58f3da4e8afd41b6a4a4f5790"
+    expected = "418032406d49e33664758f6bdc1806dd"
     assert actual == expected
 
 
@@ -66,8 +66,8 @@ def test_tokenize_pandas_expr(alltypes_df):
     t = con.create_table("t", alltypes_df)
     with patch_normalize_token(type(t.op().source)) as mocks:
         actual = dask.base.tokenize(t)
-    mocks[typ].assert_called_once()
-    expected = "bfa5bb55e47f2da9094d7aed9cee6130"
+    mocks[typ].assert_not_called()
+    expected = "79d57cb9ea641bbde700fef50b63a178"
     assert actual == expected
 
 
@@ -77,8 +77,8 @@ def test_tokenize_duckdb_expr(batting):
     t = con.register(batting.to_pyarrow(), "dashed-name")
     with patch_normalize_token(type(con)) as mocks:
         actual = dask.base.tokenize(t)
-    mocks[typ].assert_called_once()
-    expected = "26d37818c847a542b65d3e1455501e04"
+    mocks[typ].assert_not_called()
+    expected = "b03c2dc252e61b8a2273b6708e37bade"
     assert actual == expected
 
 
@@ -87,7 +87,7 @@ def test_pandas_snapshot_key(alltypes_df):
     t = con.create_table("t", alltypes_df)
     storage = SnapshotStorage(source=con)
     actual = storage.get_key(t)
-    expected = "snapshot-e8bbc4feaa5271ea2470140185beae96"
+    expected = "snapshot-458282738391db238cd7b3462d40b13e"
     assert actual == expected
 
 
@@ -96,5 +96,5 @@ def test_duckdb_snapshot_key(batting):
     t = con.register(batting.to_pyarrow(), "dashed-name")
     storage = SnapshotStorage(source=con)
     actual = storage.get_key(t)
-    expected = "snapshot-e645278e370b6a79b62fd1865a77fff5"
+    expected = "snapshot-614c0fc08df80bf954862a79a63bc4ea"
     assert actual == expected
