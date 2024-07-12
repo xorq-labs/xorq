@@ -7,7 +7,7 @@ import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
-from ibis.expr import types as ir
+from ibis.expr import types as ir, schema as sch
 from ibis.expr.schema import SchemaLike
 from sqlglot import exp, parse_one
 
@@ -104,6 +104,22 @@ class Backend(DataFusionBackend):
         self._sources[registered_table.op()] = registered_table.op()
         return registered_table
 
+    def create_table(
+        self,
+        name: str,
+        obj: pd.DataFrame | pa.Table | ir.Table | None = None,
+        *,
+        schema: sch.Schema | None = None,
+        database: str | None = None,
+        temp: bool = False,
+        overwrite: bool = False,
+    ):
+        registered_table = super().create_table(
+            name, obj, schema=schema, database=database, temp=temp, overwrite=overwrite
+        )
+        self._sources[registered_table.op()] = registered_table.op()
+        return registered_table
+
     def execute(self, expr: ir.Expr, **kwargs: Any):
         not_multi_engine = self._get_source(expr) is not self
         if (
@@ -147,15 +163,16 @@ class Backend(DataFusionBackend):
         )
 
         # assumes only one backend per DB type
-        sources = set(
-            self._sources.get_backend(table, getattr(table, "source", self))
-            for table in tables
-        )
+        sources = []
+        for table in tables:
+            source = self._sources.get_backend(table, getattr(table, "source", self))
+            if all(source is not seen for seen in sources):
+                sources.append(source)
 
         if len(sources) != 1:
             return self
         else:
-            return sources.pop()
+            return sources[0]
 
     def _cached(self, expr: ir.Table, storage=None):
         source = self._get_source(expr)
@@ -180,7 +197,7 @@ class Backend(DataFusionBackend):
                 table = node.to_expr()
                 if node.source is self:
                     table = _get_datafusion_table(self.con, node.name)
-                self.register(table, table_name=node.name)
+                node = self.register(table, table_name=node.name).op()
             return node
 
         op = expr.op()

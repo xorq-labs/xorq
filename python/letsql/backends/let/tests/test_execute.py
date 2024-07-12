@@ -1,3 +1,4 @@
+import itertools
 import random
 from pathlib import Path
 
@@ -5,6 +6,7 @@ import ibis
 import numpy as np
 import pandas as pd
 import pytest
+from ibis.expr import types as ir
 from pytest import param
 
 import letsql
@@ -85,11 +87,36 @@ def dirty_duckdb_con(csv_dir):
 
 @pytest.fixture(scope="function")
 def duckdb_con(dirty_duckdb_con):
+    from duckdb import CatalogException
+
     expected_tables = ("ddb_players", "batting")
     for table in dirty_duckdb_con.list_tables():
         if table not in expected_tables:
-            dirty_duckdb_con.drop_view(table)
+            try:
+                dirty_duckdb_con.drop_view(table, force=True)
+            except CatalogException:
+                dirty_duckdb_con.drop_table(table, force=True)
     yield dirty_duckdb_con
+
+
+@pytest.fixture(scope="function")
+def pg_batting(pg):
+    return pg.table("batting")
+
+
+@pytest.fixture(scope="function")
+def parquet_batting(parquet_dir):
+    return parquet_dir / "batting.parquet"
+
+
+@pytest.fixture(scope="function")
+def ls_batting(parquet_batting):
+    return letsql.connect().read_parquet(parquet_batting)
+
+
+@pytest.fixture(scope="function")
+def ddb_batting(duckdb_con):
+    return duckdb_con.table("batting")
 
 
 def test_join(con, alltypes, alltypes_df):
@@ -543,7 +570,7 @@ def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con):
         .cache(storage)
     )
 
-    db_t = duckdb_con.register(pg_t.to_pyarrow_batches(), f"{table_name}")[
+    db_t = duckdb_con.register(pg_t.to_pyarrow_batches(), f"ls-{table_name}")[
         lambda t: t.yearID == 2014
     ].pipe(ls_con.register, f"db-{table_name}")
 
@@ -555,3 +582,89 @@ def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con):
     expr = ls_con.register(expr, "join")
 
     assert expr.execute() is not None
+
+
+@pytest.mark.parametrize(
+    "tables",
+    [
+        param(pair, id="-".join(pair))
+        for pair in itertools.combinations_with_replacement(
+            ["batting", "pg_batting", "parquet_batting", "ls_batting", "ddb_batting"],
+            r=2,
+        )
+    ],
+)
+def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
+    table_name = "batting"
+    left, right = map(request.getfixturevalue, tables)
+
+    left_t = ls_con.register(left, table_name=f"left-{table_name}")[
+        lambda t: t.yearID == 2015
+    ]
+    right_t = ls_con.register(right, table_name=f"right-{table_name}")[
+        lambda t: t.yearID == 2014
+    ]
+
+    expr = left_t.join(
+        right_t,
+        "playerID",
+    )
+
+    native_backend = isinstance(left, ir.Expr) and left is right
+    spy = mocker.spy(left.op().source, "execute") if native_backend else None
+
+    assert expr.execute() is not None
+    assert getattr(spy, "call_count", 0) == int(native_backend)
+
+
+@pytest.mark.parametrize(
+    "tables",
+    [
+        param(
+            pair,
+            id="-".join(pair),
+            marks=[pytest.mark.xfail] if ("ddb_batting", "ddb_batting") == pair else [],
+        )
+        for pair in itertools.combinations_with_replacement(
+            ["pg_batting", "ls_batting", "ddb_batting"],
+            r=2,
+        )
+    ],
+)
+def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
+    from letsql.common.caching import SourceStorage
+
+    table_name = "batting"
+    left, right = map(request.getfixturevalue, tables)
+
+    left_storage = SourceStorage(left.op().source)
+    right_storage = SourceStorage(right.op().source)
+
+    left_t = ls_con.register(left, table_name=f"left-{table_name}")[
+        lambda t: t.yearID == 2015
+    ].cache(right_storage)
+
+    right_t = ls_con.register(right, table_name=f"right-{table_name}")[
+        lambda t: t.yearID == 2014
+    ].cache(left_storage)
+
+    actual = (
+        left_t.join(
+            right_t,
+            "playerID",
+        )
+        .cache(left_storage)
+        .execute()
+    )
+
+    expected = (
+        ls_con.table(f"left-{table_name}")[lambda t: t.yearID == 2015]
+        .join(
+            ls_con.table(f"right-{table_name}")[lambda t: t.yearID == 2014], "playerID"
+        )
+        .execute()
+        .sort_values(by="playerID")
+    )
+
+    columns = list(actual.columns)
+    assert_frame_equal(actual.sort_values(columns), expected.sort_values(columns))

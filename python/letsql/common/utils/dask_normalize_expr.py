@@ -125,16 +125,16 @@ def normalize_duckdb_databasetable(dt):
     match re.match(execution_plan_name, scan_line).group(1):
         case "ARROW_SCAN":
             return normalize_memory_databasetable(dt)
-        case "READ_PARQUET" | "READ_CSV":
+        case "READ_PARQUET" | "READ_CSV" | "SEQ_SCAN":
             return normalize_duckdb_file_read(dt)
         case _:
-            raise NotImplementedError
+            raise NotImplementedError(scan_line)
 
 
 def normalize_duckdb_file_read(dt):
     name = sg.exp.convert(dt.name).sql(dialect=dt.source.name)
     (sql_ddl_statement,) = dt.source.con.sql(
-        f"select sql from duckdb_views() where view_name = {name}"
+        f"select sql from duckdb_views() where view_name = {name} UNION select sql from duckdb_tables() where table_name = {name}"
     ).fetchone()
     return dask.base._normalize_seq_func(
         (
