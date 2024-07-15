@@ -2,12 +2,13 @@ from functools import cache
 
 import letsql as ls
 
-from palmerpenguins import load_penguins
-
 
 @cache
 def cached_penguins():
-    return load_penguins()
+    import pandas as pd
+
+    url = "https://raw.githubusercontent.com/mesejo/palmerpenguins/master/palmerpenguins/data/penguins.csv"
+    return pd.read_csv(url)
 
 
 class Example:

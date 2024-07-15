@@ -1,6 +1,8 @@
 import pathlib
+
 import runpy
 import pytest
+from pytest import param
 
 from letsql.common.caching import KEY_PREFIX
 
@@ -19,6 +21,8 @@ def teardown_function():
         path.unlink(missing_ok=True)
 
 
-@pytest.mark.parametrize("script", scripts)
+@pytest.mark.parametrize(
+    "script", [param(script, id=script.stem) for script in scripts]
+)
 def test_script_execution(script):
     runpy.run_path(str(script))

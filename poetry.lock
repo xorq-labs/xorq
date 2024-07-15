@@ -1475,21 +1475,6 @@ files = [
 ]
 
 [[package]]
-name = "palmerpenguins"
-version = "0.1.4"
-description = "A python package for the palmer penguins dataset"
-optional = false
-python-versions = "*"
-files = [
-    {file = "palmerpenguins-0.1.4-py3-none-any.whl", hash = "sha256:63c904db3dcef10e4ff1372f9b7f50a8f44c7364cc03f27f9a487fe5762d159c"},
-    {file = "palmerpenguins-0.1.4.tar.gz", hash = "sha256:d04d9064930e053fb0805261fe2aa26b4581fdabacaa54d393ddd65bb93bbaf2"},
-]
-
-[package.dependencies]
-numpy = "*"
-pandas = "*"
-
-[[package]]
 name = "pandas"
 version = "2.2.2"
 description = "Powerful data structures for data analysis, time series, and statistics"
@@ -3140,4 +3125,4 @@ snowflake = ["snowflake-connector-python"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "e22703b94f5b5ca494beff87553bee11520fb1d52b5e936275b60527b27b7979"
+content-hash = "82d89927e96892946331b6213290d433e69c1d45aa463c830607f478619a4105"
