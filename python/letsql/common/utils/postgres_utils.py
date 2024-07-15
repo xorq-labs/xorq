@@ -1,6 +1,5 @@
 import os
 
-import ibis
 
 import letsql.backends.postgres.hotfix  # noqa: F401
 
@@ -20,8 +19,11 @@ def make_connection_defaults():
     }
 
 
-def make_ibis_connection(**kwargs):
-    con = ibis.postgres.connect(
+def make_connection(**kwargs):
+    from letsql.backends.postgres import Backend
+
+    con = Backend()
+    con = con.connect(
         **{
             **make_credential_defaults(),
             **make_connection_defaults(),

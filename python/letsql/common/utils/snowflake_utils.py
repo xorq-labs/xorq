@@ -1,6 +1,6 @@
 import os
 
-import ibis
+import letsql as ls
 import pandas as pd
 import snowflake.connector
 
@@ -28,12 +28,12 @@ def execute_statement(con, statement):
         raise ValueError
 
 
-def make_ibis_connection(
+def make_connection(
     database,
     schema,
     **kwargs,
 ):
-    con = ibis.snowflake.connect(
+    con = ls.snowflake.connect(
         database=f"{database}/{schema}",
         **{
             **make_credential_defaults(),

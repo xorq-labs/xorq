@@ -6,7 +6,7 @@ SU = pytest.importorskip("letsql.common.utils.snowflake_utils")
 @pytest.mark.snowflake
 def test_setup_session():
     (database, schema) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1")
-    con = SU.make_ibis_connection(
+    con = SU.make_connection(
         database=database,
         schema=schema,
         create_object_udfs=False,
@@ -27,7 +27,7 @@ def test_setup_session():
         "CURRENT_SCHEMA()": None,
     }
 
-    con = SU.make_ibis_connection(
+    con = SU.make_connection(
         database=database,
         schema=schema,
         create_object_udfs=True,
@@ -52,7 +52,7 @@ def test_setup_session():
 @pytest.mark.snowflake
 def test_table_namespace():
     (database, schema, table_name) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1", "CUSTOMER")
-    con = SU.make_ibis_connection(
+    con = SU.make_connection(
         database=database,
         schema=schema,
     )

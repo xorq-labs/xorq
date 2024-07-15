@@ -1,12 +1,11 @@
 import pathlib
 
-import ibis
 import letsql as ls
 from letsql.common.caching import SourceStorage
 
 con = ls.connect()
-ddb = ibis.duckdb.connect()
-pg = ibis.postgres.connect(
+ddb = ls.duckdb.connect()
+pg = ls.postgres.connect(
     host="localhost",
     port=5432,
     user="postgres",

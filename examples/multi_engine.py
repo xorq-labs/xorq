@@ -1,12 +1,11 @@
 import pathlib
 
-import ibis
 
 import letsql as ls
 
 con = ls.connect()  # empty connection
 
-pg = ibis.postgres.connect(
+pg = ls.postgres.connect(
     host="localhost",
     port=5432,
     user="postgres",

@@ -37,6 +37,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ibis.expr.schema import SchemaLike
+    import pyarrow as pa
+    import pandas as pd
 
 __all__ = (
     "Column",
@@ -86,6 +88,7 @@ __all__ = (
     "rank",
     "read_csv",
     "read_parquet",
+    "register",
     "row_number",
     "schema",
     "struct",
@@ -872,6 +875,17 @@ def read_parquet(
 
     con = _backend_init()
     return con.read_parquet(sources, table_name=table_name, **kwargs)
+
+
+def register(
+    source: str | Path | pa.Table | pa.RecordBatch | pa.Dataset | pd.DataFrame,
+    table_name: str | None = None,
+    **kwargs: Any,
+):
+    from letsql.config import _backend_init
+
+    con = _backend_init()
+    return con.read_parquet(source, table_name=table_name, **kwargs)
 
 
 def union(table: ir.Table, *rest: ir.Table, distinct: bool = False) -> ir.Table:

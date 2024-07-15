@@ -1,4 +1,3 @@
-import ibis
 import pytest
 
 import letsql.backends.let
@@ -19,7 +18,7 @@ def cached_two(con, batting, tmp_path):
 
 @pytest.fixture
 def duck_batting_raw(batting_df):
-    return ibis.duckdb.connect().register(
+    return letsql.duckdb.connect().register(
         batting_df,
         table_name="batting_df",
     )

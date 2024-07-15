@@ -1,4 +1,3 @@
-import ibis
 import pytest
 
 import letsql as ls
@@ -25,7 +24,7 @@ expected_tables = (
 
 @pytest.fixture(scope="session")
 def pg():
-    conn = ibis.postgres.connect(
+    conn = ls.postgres.connect(
         host="localhost",
         port=5432,
         user="postgres",

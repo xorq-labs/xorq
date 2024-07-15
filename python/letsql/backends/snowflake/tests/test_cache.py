@@ -93,7 +93,7 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
 
 @pytest.mark.snowflake
 def test_snowflake_simple_cache(sf_con, tmp_path):
-    db_con = ibis.duckdb.connect()
+    db_con = ls.duckdb.connect()
     con = ls.connect()
     with inside_temp_schema(sf_con, "SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"):
         table = sf_con.table("CUSTOMER")
@@ -111,7 +111,7 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
     con = ls.connect()
-    storage = SnapshotStorage(source=ibis.duckdb.connect())
+    storage = SnapshotStorage(source=ls.duckdb.connect())
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):

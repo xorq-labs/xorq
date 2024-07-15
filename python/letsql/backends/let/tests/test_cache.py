@@ -448,7 +448,7 @@ def test_duckdb_cache_parquet(con, pg, tmp_path):
     parquet_path = tmp_path.joinpath(name).with_suffix(".parquet")
     pg.table(name).to_parquet(parquet_path)
     expr = (
-        ibis.duckdb.connect()
+        letsql.duckdb.connect()
         .read_parquet(parquet_path)
         .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
@@ -461,7 +461,7 @@ def test_duckdb_cache_csv(con, pg, tmp_path):
     csv_path = tmp_path.joinpath(name).with_suffix(".csv")
     pg.table(name).to_csv(csv_path)
     expr = (
-        ibis.duckdb.connect()
+        letsql.duckdb.connect()
         .read_csv(csv_path)
         .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
@@ -472,7 +472,7 @@ def test_duckdb_cache_csv(con, pg, tmp_path):
 def test_duckdb_cache_arrow(con, pg, tmp_path):
     name = "batting"
     expr = (
-        ibis.duckdb.connect()
+        letsql.duckdb.connect()
         .register(pg.table(name).to_pyarrow(), name)
         .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
@@ -483,7 +483,7 @@ def test_duckdb_cache_arrow(con, pg, tmp_path):
 def test_cross_source_storage(con, pg):
     name = "batting"
     expr = (
-        ibis.duckdb.connect()
+        letsql.duckdb.connect()
         .register(pg.table(name).to_pyarrow(), name)
         .pipe(con.register, f"duckdb-{name}")[lambda t: t.yearID > 2000]
         .cache(storage=SourceStorage(source=pg))
@@ -549,9 +549,9 @@ def test_read_csv_compute_and_cache(con, csv_dir, tmp_path):
     assert expr.execute() is not None
 
 
-@pytest.mark.parametrize("other_con", [letsql.connect(), ibis.duckdb.connect()])
+@pytest.mark.parametrize("other_con", [letsql.connect(), letsql.duckdb.connect()])
 def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
-    other_con = ibis.duckdb.connect()
+    other_con = letsql.duckdb.connect()
 
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID > 2014].pipe(
@@ -707,7 +707,7 @@ def test_duckdb_snapshot(ls_con, alltypes_df):
     name = ibis.util.gen_name("tmp_table")
 
     # create a temp table we can mutate
-    db_con = ibis.duckdb.connect()
+    db_con = letsql.duckdb.connect()
     table = db_con.create_table(name, alltypes_df)
     t = ls_con.register(table, f"let_{table.op().name}")
     cached_expr = (
@@ -770,7 +770,7 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     assert not executed0.equals(executed3)
 
 
-def test_udf_caching(ls_con, alltypes_df):
+def test_udf_caching(ls_con, alltypes_df, snapshot):
     @ibis.udf.scalar.pyarrow
     def my_mul(tinyint_col: dt.int16, smallint_col: dt.int16) -> dt.int16:
         return pc.multiply(tinyint_col, smallint_col)
@@ -794,12 +794,10 @@ def test_udf_caching(ls_con, alltypes_df):
     from_pandas = alltypes_df[cols].assign(mulled=wrapper(my_mul))
     assert from_ls.equals(from_pandas)
 
-    expected = "letsql_cache-a530a334af9622457349c33c0fb16ed8"
-    actual = expr.ls.get_key()
-    assert actual == expected
+    snapshot.assert_match(expr.ls.get_key(), "udf_caching.txt")
 
 
-def test_udaf_caching(ls_con, alltypes_df):
+def test_udaf_caching(ls_con, alltypes_df, snapshot):
     def my_mul_sum(df):
         return df.sum().sum()
 
@@ -837,7 +835,6 @@ def test_udaf_caching(ls_con, alltypes_df):
     assert from_ls.equals(on_expr.execute())
     assert expr.ls.exists()
     assert on_expr.ls.exists()
-    expected = "letsql_cache-1b1ccd4852615cc78b01a17ceadc8960"
-    actual = expr.ls.get_key()
-    assert actual == expected
-    assert actual == on_expr.ls.get_key()
+
+    snapshot.assert_match(expr.ls.get_key(), "test_udaf_caching.txt")
+    snapshot.assert_match(on_expr.ls.get_key(), "test_udaf_caching.txt")

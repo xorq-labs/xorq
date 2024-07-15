@@ -79,7 +79,7 @@ def parquet_dir():
 
 @pytest.fixture(scope="session")
 def dirty_duckdb_con(csv_dir):
-    con = ibis.duckdb.connect()
+    con = letsql.duckdb.connect()
     con.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
     con.read_csv(csv_dir / "batting.csv", table_name="batting")
     return con
@@ -371,8 +371,8 @@ def test_multiple_execution_letsql_register_table(con, csv_dir):
     [
         letsql.connect(),
         ibis.datafusion.connect(),
-        ibis.duckdb.connect(),
-        ibis.postgres.connect(
+        letsql.duckdb.connect(),
+        letsql.postgres.connect(
             host="localhost",
             port=5432,
             user="postgres",
@@ -530,7 +530,7 @@ def test_register_arbitrary_expression_multiple_tables(con, duckdb_con):
     "new_con",
     [
         letsql.connect(),
-        ibis.duckdb.connect(),
+        letsql.duckdb.connect(),
     ],
 )
 def test_multiple_pipes(ls_con, pg, new_con):

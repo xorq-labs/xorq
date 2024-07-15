@@ -89,7 +89,7 @@ def test_decimal_literal(con, expr, expected_result):
     if type(expected_result) in (float, decimal.Decimal) and math.isnan(
         expected_result
     ):
-        assert math.isnan(result) and type(result) == type(expected_result)
+        assert math.isnan(result) and type(result) is type(expected_result)
     else:
         assert result == expected_result
 

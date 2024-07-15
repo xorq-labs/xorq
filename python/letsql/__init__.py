@@ -22,12 +22,52 @@ __all__ = [  # noqa: PLE0604
     *api.__all__,
 ]
 
+_CUSTOM_BACKENDS = ["postgres"]
+
+
+def load_backend(name):
+    if name in _CUSTOM_BACKENDS:
+        import importlib
+        import types
+        import letsql
+
+        module = importlib.import_module(f"letsql.backends.{name}")
+        backend = module.Backend()
+        backend.register_options()
+
+        def connect(*args, **kwargs):
+            return backend.connect(*args, **kwargs)
+
+        connect.__doc__ = backend.do_connect.__doc__
+        connect.__wrapped__ = backend.do_connect
+        connect.__module__ = f"letsql.{name}"
+
+        proxy = types.ModuleType(f"letsql.{name}")
+        setattr(letsql, name, proxy)
+        proxy.connect = connect
+        proxy.compile = backend.compile
+        proxy.has_operation = backend.has_operation
+        proxy.name = name
+        proxy._from_url = backend._from_url
+        proxy._to_sqlglot = backend._to_sqlglot
+        # Add any additional methods that should be exposed at the top level
+        for attr in getattr(backend, "_top_level_methods", ()):
+            setattr(proxy, attr, getattr(backend, attr))
+
+        return proxy
+
 
 def connect() -> Backend:
     """Create a LETSQL backend."""
     instance = Backend()
     instance.do_connect()
     return instance
+
+
+def __getattr__(name):
+    import ibis
+
+    return load_backend(name) or ibis.__getattr__(name)
 
 
 __version__ = importlib_metadata.version(__name__)

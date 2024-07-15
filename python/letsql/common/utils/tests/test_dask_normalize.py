@@ -72,7 +72,7 @@ def test_tokenize_pandas_expr(alltypes_df):
 
 
 def test_tokenize_duckdb_expr(batting):
-    con = ibis.duckdb.connect()
+    con = letsql.duckdb.connect()
     typ = type(con)
     t = con.register(batting.to_pyarrow(), "dashed-name")
     with patch_normalize_token(type(con)) as mocks:
@@ -92,7 +92,7 @@ def test_pandas_snapshot_key(alltypes_df):
 
 
 def test_duckdb_snapshot_key(batting):
-    con = ibis.duckdb.connect()
+    con = letsql.duckdb.connect()
     t = con.register(batting.to_pyarrow(), "dashed-name")
     storage = SnapshotStorage(source=con)
     actual = storage.get_key(t)

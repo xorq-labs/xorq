@@ -52,7 +52,7 @@ def test_create_table(con):
 
 
 def test_register_table_with_uppercase(con):
-    db_con = ibis.duckdb.connect()
+    db_con = ls.duckdb.connect()
     db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
 
     uppercase_table_name = "UPPERCASE"
@@ -62,7 +62,7 @@ def test_register_table_with_uppercase(con):
 
 
 def test_register_table_with_uppercase_multiple_times(con):
-    db_con = ibis.duckdb.connect()
+    db_con = ls.duckdb.connect()
     db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
 
     uppercase_table_name = "UPPERCASE"
