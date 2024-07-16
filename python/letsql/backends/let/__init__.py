@@ -121,16 +121,7 @@ class Backend(DataFusionBackend):
         return registered_table
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        not_multi_engine = self._get_source(expr) is not self
-        if (
-            not_multi_engine
-        ):  # this means is a single source that is not the letsql backend
-
-            def replace_table(node, _, **_kwargs):
-                return self._sources.get_table_or_op(node, node.__recreate__(_kwargs))
-
-            expr = expr.op().replace(replace_table).to_expr()
-
+        expr = self._transform_to_native_backend(expr)
         expr = self._register_and_transform_cache_tables(expr)
         backend = self._get_source(expr)
 
@@ -138,6 +129,27 @@ class Backend(DataFusionBackend):
             backend = super()
 
         return backend.execute(expr, **kwargs)
+
+    def _transform_to_native_backend(self, expr):
+        native_backend = self._get_source(expr) is not self
+        if native_backend:
+
+            def replace_table(node, _, **_kwargs):
+                return self._sources.get_table_or_op(node, node.__recreate__(_kwargs))
+
+            expr = expr.op().replace(replace_table).to_expr()
+
+        return expr
+
+    def to_pyarrow(self, expr: ir.Expr, **kwargs: Any) -> pa.Table:
+        expr = self._transform_to_native_backend(expr)
+        expr = self._register_and_transform_cache_tables(expr)
+        backend = self._get_source(expr)
+
+        if backend is self:
+            backend = super()
+
+        return backend.to_pyarrow(expr, **kwargs)
 
     def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
         """Creates a connection.

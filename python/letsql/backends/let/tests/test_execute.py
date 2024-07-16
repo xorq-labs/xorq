@@ -13,6 +13,7 @@ import letsql
 from letsql.tests.util import (
     assert_frame_equal,
 )
+from letsql.common.caching import SourceStorage, KEY_PREFIX
 
 
 def _pandas_semi_join(left, right, on, **_):
@@ -558,10 +559,17 @@ def test_multiple_pipes(ls_con, pg, new_con):
     assert expr.execute() is not None
 
 
-def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con):
-    from letsql.common.caching import ParquetCacheStorage
+@pytest.mark.parametrize(
+    "method",
+    ["to_pyarrow", "execute"],
+)
+@pytest.mark.parametrize("remote", [True, False])
+def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con, method, remote):
+    from operator import methodcaller
 
-    storage = ParquetCacheStorage(ls_con)
+    function = methodcaller(method)
+    source = pg if remote else ls_con
+    storage = SourceStorage(source=source)
 
     table_name = "batting"
     pg_t = (
@@ -579,9 +587,28 @@ def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con):
         "playerID",
     )
 
-    expr = ls_con.register(expr, "join")
+    assert function(expr) is not None
+    assert any(table_name.startswith(KEY_PREFIX) for table_name in source.list_tables())
 
-    assert expr.execute() is not None
+
+def test_to_pyarrow_native_execution(ls_con, pg, mocker):
+    table_name = "batting"
+    spy = mocker.spy(pg, "to_pyarrow")
+
+    pg_t = pg.table(table_name)[lambda t: t.yearID == 2015].pipe(
+        ls_con.register, f"pg-{table_name}"
+    )
+    db_t = pg.table(table_name)[lambda t: t.yearID == 2014].pipe(
+        ls_con.register, f"db-{table_name}"
+    )
+
+    expr = pg_t.join(
+        db_t,
+        "playerID",
+    )
+
+    assert expr.to_pyarrow() is not None
+    assert spy.call_count == 1
 
 
 @pytest.mark.parametrize(
