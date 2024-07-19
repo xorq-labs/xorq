@@ -1,6 +1,6 @@
 import letsql as ls
 from letsql import _
-from letsql.common.caching import SourceStorage, KEY_PREFIX
+from letsql.common.caching import ParquetCacheStorage, KEY_PREFIX
 from letsql.common.utils.postgres_utils import (
     make_connection,
 )
@@ -17,7 +17,7 @@ for table_name in pg.list_tables():
     if table_name.startswith(KEY_PREFIX):
         pg.drop_table(table_name)
 
-cache = SourceStorage(source=pg)
+cache = ParquetCacheStorage(source=pg)
 
 t = (
     pg.table("batting")
