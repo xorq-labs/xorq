@@ -22,7 +22,7 @@ __all__ = [  # noqa: PLE0604
     *api.__all__,
 ]
 
-_CUSTOM_BACKENDS = ["postgres"]
+_CUSTOM_BACKENDS = ["postgres", "snowflake"]
 
 
 def load_backend(name):

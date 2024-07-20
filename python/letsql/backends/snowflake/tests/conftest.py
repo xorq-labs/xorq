@@ -1,6 +1,6 @@
 from contextlib import contextmanager
 
-import ibis
+import letsql as ls
 import pytest
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -12,7 +12,7 @@ SU = pytest.importorskip("letsql.common.utils.snowflake_utils")
 
 @pytest.fixture(scope="session")
 def sf_con():
-    return ibis.snowflake.connect(
+    return ls.snowflake.connect(
         # a database/schema we can trust exists
         database="SNOWFLAKE_SAMPLE_DATA",
         schema="TPCH_SF1",

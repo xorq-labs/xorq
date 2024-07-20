@@ -106,6 +106,28 @@ def test_snowflake_simple_cache(sf_con, tmp_path):
 
 
 @pytest.mark.snowflake
+def test_snowflake_native_cache(sf_con, temp_catalog, temp_db, tmp_path):
+    group_by = "key"
+    df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
+    name = gen_name("tmp_table")
+    storage = ParquetCacheStorage(source=sf_con, path=tmp_path)
+
+    # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        # create a temp table we can mutate
+        table = sf_con.create_table(
+            name=name,
+            obj=df,
+        )
+        cached_expr = (
+            table.group_by(group_by)
+            .agg({f"count_{col}": table[col].count() for col in table.columns})
+            .cache(storage)
+        )
+        cached_expr.execute()
+
+
+@pytest.mark.snowflake
 def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
     group_by = "key"
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
