@@ -58,3 +58,26 @@ def test_executed_on_original_backend(ls_con, parquet_dir, csv_dir, mocker):
 
     assert expr.execute() is not None
     assert spy.call_count == 1
+
+
+def test_read_postgres():
+    uri = "postgres://postgres:postgres@localhost:5432/ibis_testing"
+    t = ls.read_postgres(uri, table_name="batting")
+    res = t.execute()
+
+    assert res is not None and len(res)
+
+
+def test_read_sqlite(tmp_path):
+    import sqlite3
+
+    ls.options.interactive = True
+    db_path = tmp_path / "sqlite.db"
+    with sqlite3.connect(db_path) as sq3:
+        sq3.execute("DROP TABLE IF EXISTS t")
+        sq3.execute("CREATE TABLE t (a INT, b TEXT)")
+        sq3.execute("INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')")
+    t = ls.read_sqlite(path=db_path, table_name="t")
+    res = t.execute()
+
+    assert res is not None and len(res)

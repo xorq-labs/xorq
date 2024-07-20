@@ -104,6 +104,86 @@ class Backend(DataFusionBackend):
         self._sources[registered_table.op()] = registered_table.op()
         return registered_table
 
+    def read_postgres(
+        self, uri: str, *, table_name: str | None = None, database: str = "public"
+    ) -> ir.Table:
+        """Register a table from a postgres instance into a DuckDB table.
+
+        Parameters
+        ----------
+        uri
+            A postgres URI of the form `postgres://user:password@host:port`
+        table_name
+            The table to read
+        database
+            PostgreSQL database (schema) where `table_name` resides
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table.
+
+        """
+        from letsql.backends.postgres import Backend
+
+        backend = Backend()
+        backend = backend._from_url(uri, database=database)
+        table = backend.table(table_name)
+        registered_table = super().register_table_provider(table, table_name=table_name)
+        self._sources[registered_table.op()] = table.op()
+        return registered_table
+
+    def read_sqlite(
+        self, path: str | Path, *, table_name: str | None = None
+    ) -> ir.Table:
+        """Register a table from a SQLite database into a DuckDB table.
+
+        Parameters
+        ----------
+        path
+            The path to the SQLite database
+        table_name
+            The table to read
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table.
+
+        Examples
+        --------
+        >>> import letsql as ls
+        >>> import sqlite3
+        >>> ls.options.interactive = True
+        >>> with sqlite3.connect("/tmp/sqlite.db") as con:
+        ...     con.execute("DROP TABLE IF EXISTS t")  # doctest: +ELLIPSIS
+        ...     con.execute("CREATE TABLE t (a INT, b TEXT)")  # doctest: +ELLIPSIS
+        ...     con.execute(
+        ...         "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')"
+        ...     )  # doctest: +ELLIPSIS
+        <...>
+        >>> t = ls.read_sqlite(path="/tmp/sqlite.db", table_name="t")
+        >>> t
+        ┏━━━━━━━┳━━━━━━━━┓
+        ┃ a     ┃ b      ┃
+        ┡━━━━━━━╇━━━━━━━━┩
+        │ int64 │ string │
+        ├───────┼────────┤
+        │     1 │ a      │
+        │     2 │ b      │
+        │     3 │ c      │
+        └───────┴────────┘
+
+        """
+        import letsql as ls
+
+        con = ls.sqlite.connect(path)
+
+        table = con.table(table_name)
+        registered_table = super().register_table_provider(table, table_name=table_name)
+        self._sources[registered_table.op()] = table.op()
+        return registered_table
+
     def create_table(
         self,
         name: str,

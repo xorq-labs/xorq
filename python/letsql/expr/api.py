@@ -88,6 +88,8 @@ __all__ = (
     "rank",
     "read_csv",
     "read_parquet",
+    "read_postgres",
+    "read_sqlite",
     "register",
     "row_number",
     "schema",
@@ -886,6 +888,24 @@ def register(
 
     con = _backend_init()
     return con.read_parquet(source, table_name=table_name, **kwargs)
+
+
+def read_postgres(
+    uri: str,
+    table_name: str | None = None,
+    **kwargs: Any,
+):
+    from letsql.config import _backend_init
+
+    con = _backend_init()
+    return con.read_postgres(uri, table_name=table_name, **kwargs)
+
+
+def read_sqlite(path: str | Path, *, table_name: str | None = None):
+    from letsql.config import _backend_init
+
+    con = _backend_init()
+    return con.read_sqlite(path, table_name=table_name)
 
 
 def union(table: ir.Table, *rest: ir.Table, distinct: bool = False) -> ir.Table:

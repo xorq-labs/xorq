@@ -404,6 +404,18 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             self._register_failure()
             return None
 
+    def register_table_provider(
+        self,
+        source: str | Path | pa.Table | pa.RecordBatch | pa.Dataset | pd.DataFrame,
+        table_name: str | None = None,
+    ):
+        table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
+        self.con.deregister_table(table_ident)
+        self.con.register_table_provider(
+            table_ident, TableProvider(IbisTableProvider(source))
+        )
+        return self.table(table_name)
+
     def _register_failure(self):
         import inspect
 
