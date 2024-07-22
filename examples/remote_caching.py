@@ -1,5 +1,3 @@
-import pathlib
-
 import letsql as ls
 from letsql.common.caching import SourceStorage
 
@@ -13,14 +11,15 @@ pg = ls.postgres.connect(
     database="ibis_testing",
 )
 
-root = pathlib.Path(__file__).absolute().parents[1]
-path = root / "ci" / "ibis-testing-data" / "parquet" / "batting.parquet"
-right = ddb.read_parquet(path, table_name="batting")[lambda t: t.yearID == 2014].pipe(
-    con.register, table_name="ddb-batting"
+name = "batting"
+path = ls.config.options.pins.get_path(name)
+
+right = ddb.read_parquet(path, table_name=name)[lambda t: t.yearID == 2014].pipe(
+    con.register, table_name=f"ddb-{name}"
 )
 
-left = pg.table("batting")[lambda t: t.yearID == 2015].pipe(
-    con.register, table_name="pg-batting"
+left = pg.table(name)[lambda t: t.yearID == 2015].pipe(
+    con.register, table_name=f"pg-{name}"
 )
 
 expr = left.join(

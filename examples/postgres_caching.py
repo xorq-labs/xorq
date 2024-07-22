@@ -25,6 +25,7 @@ t = (
     .filter(_.row_number == 1)
     .cache(storage=cache)
 )
-
+print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
 res = t.execute()
 print(res)
+print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")

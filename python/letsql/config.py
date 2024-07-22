@@ -97,6 +97,44 @@ class SQL(Config):
     dialect: str = "datafusion"
 
 
+class Pins(Config):
+    """SQL-related options.
+
+    Attributes
+    ----------
+    dialect : str
+        Dialect to use for printing SQL when the backend cannot be determined.
+
+    """
+
+    protocol: str = "gcs"
+    path: str = "letsql-pins"
+    storage_options: dict[str, Any] = dict(
+        (
+            ("cache_timeout", 0),
+            ("token", "anon"),
+        )
+    )
+
+    def get_board(self, **kwargs):
+        import pins
+
+        _kwargs = {
+            **{
+                "protocol": self.protocol,
+                "path": self.path,
+                "storage_options": self.storage_options,
+            },
+            **kwargs,
+        }
+        return pins.board(**_kwargs)
+
+    def get_path(self, name, board=None):
+        board = board or self.get_board()
+        (path,) = board.pin_download(name)
+        return path
+
+
 class Options(Config):
     """LETSQL configuration options
 
@@ -114,6 +152,7 @@ class Options(Config):
     backend: Optional[Any] = None
     repr: Repr = Repr()
     sql: SQL = SQL()
+    pins: Pins = Pins()
 
     @property
     def interactive(self) -> bool:

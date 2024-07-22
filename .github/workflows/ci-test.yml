@@ -45,7 +45,7 @@ jobs:
         uses: snok/install-poetry@v1
 
       - name: Poetry install
-        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion"
+        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop

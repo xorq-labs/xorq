@@ -200,6 +200,7 @@
             packages = [
               toolsPackages
             ];
+            inherit shellHook;
           };
           default = self.devShells.${system}.devFromWheel;
         };

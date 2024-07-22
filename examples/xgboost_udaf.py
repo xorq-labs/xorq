@@ -1,5 +1,3 @@
-import pathlib
-
 import ibis.expr.datatypes as dt
 import pandas as pd
 import toolz
@@ -32,7 +30,6 @@ def calc_best_features(df, candidates, target, n):
     )
 
 
-path = pathlib.Path(__file__).absolute().parent / "data" / "data.rownum.parquet"
 candidates = (
     "emp_length",
     "dti",
@@ -50,7 +47,7 @@ curried_calc_best_features = toolz.curry(
 ibis_output_type = dt.infer(({"feature": "feature", "score": 0.0},))
 
 
-t = ls.connect().read_parquet(path)
+t = ls.connect().read_parquet(ls.config.options.pins.get_path("lending-club"))
 agg_udf = udf.agg.pandas_df(
     t[cols],
     curried_calc_best_features,
