@@ -97,7 +97,7 @@ pins = { version = ">=0.8.3,<1", extras = ["gcs"], optional = true }
 
 
 [tool.poetry.group.dev.dependencies]
-black = "23.10.1"
+black = "24.3.0"
 blackdoc = "0.3.8"
 codespell = {version = "2.2.6", extras = ["hard-encoding-detection", "toml"]}
 coverage = {version = "7.3.2", extras = ["toml"]}
