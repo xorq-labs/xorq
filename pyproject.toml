@@ -46,7 +46,7 @@ Changelog = "https://github.com/letsql/letsql/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 duckb = [
-    "duckdb==0.10.3 ; python_version >= '3.10' and python_version < '4.0'"
+    "duckdb>=0.10.3,<2; python_version >= '3.10' and python_version < '4.0'"
 ]
 datafusion = [
     "datafusion>=34.0.0,<40; python_version >= '3.10' and python_version < '4.0'"
@@ -86,7 +86,7 @@ connectorx = "^0.3.2"
 psycopg2-binary = "^2.9.9"
 sqlalchemy = "^2.0.25"
 pyarrow = ">=13.0.0"
-duckdb = {version = "^0.10.3", optional = true}
+duckdb = {version = ">=0.10.3,<2", optional = true}
 snowflake-connector-python = {version = "^3.10.1", optional = true}
 datafusion = {version = ">=34.0.0,<40", optional = true}
 structlog = "^24.2.0"
