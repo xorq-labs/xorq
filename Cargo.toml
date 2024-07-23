@@ -14,8 +14,8 @@ pyo3 = { version = ">=0.21.1,<1", features = ["extension-module", "abi3", "abi3-
 datafusion =  { version = "39.0.0", features = ["pyarrow", "avro"]}
 datafusion-common = { version = "39.0.0", features = ["pyarrow"] }
 datafusion-expr = "39.0.0"
-prost = "=0.12"
-prost-types = "=0.12"
+prost = ">=0.12,<0.14"
+prost-types = ">=0.12,<0.14"
 datafusion-optimizer = "39.0.0"
 datafusion-sql = "39.0.0"
 futures = "0.3"
