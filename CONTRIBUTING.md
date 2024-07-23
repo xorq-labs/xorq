@@ -60,9 +60,9 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 ***This section is intended for LETSQL maintainers***
 
 #### Steps
-1. Compute the new version number (`<version-number>`) according to [Semantic Versioning](https://semver.org/) rules
-2. Update the version number in Cargo.toml
-3. Tag the last commit in main with `<version-number>`
-4. Update the CHANGELOG using `git cliff`, manually add any additional notes (links to blogposts, etc.)
-5. Create commit with message `release: <version-number>`
-6. Push and manually trigger the workflow 
+1. Compute the new version number (`<version-number>`) according to [Semantic Versioning](https://semver.org/) rules.
+2. Update the version number in `Cargo.toml`.
+3. Update the CHANGELOG using `git cliff --github-repo letsql/letsql -o CHANGELOG.md --tag v<version-number>`, manually add any additional notes (links to blogposts, etc.).
+4. Create commit with message `release: <version-number>`.
+5. Tag the last commit in main with `v<version-number>`, push the tag.
+6. Create a GitHub release to trigger the publishing workflow.

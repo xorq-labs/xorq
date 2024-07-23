@@ -6,7 +6,8 @@
 name: ci-publish
 
 on:
-  workflow_dispatch:
+  release:
+    types: [ published ]
 
 # we do not want more than one release workflow executing at the same time, ever
 concurrency:
