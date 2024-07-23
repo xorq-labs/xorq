@@ -52,7 +52,7 @@ datafusion = [
     "datafusion==34.0.0 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 snowflake = [
-    "snowflake-connector-python==3.10.1 ; python_version >= '3.10' and python_version < '4.0'"
+    "snowflake-connector-python==3.11.0; python_version >= '3.10' and python_version < '4.0'"
 ]
 
 
