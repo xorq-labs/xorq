@@ -110,7 +110,10 @@ class CacheStorage(ABC):
 
 @frozen
 class ParquetCacheStorage(CacheStorage):
-    source = field(validator=instance_of(ibis.backends.BaseBackend))
+    source = field(
+        validator=instance_of(ibis.backends.BaseBackend),
+        factory=letsql.config._backend_init,
+    )
     path = field(
         validator=instance_of(pathlib.Path),
         converter=abs_path_converter,
