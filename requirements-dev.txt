@@ -45,7 +45,7 @@ pathspec==0.12.1 ; python_version >= "3.10" and python_version < "4.0"
 pexpect==4.9.0 ; python_version >= "3.10" and python_version < "4.0" and (sys_platform != "win32" and sys_platform != "emscripten")
 platformdirs==4.2.2 ; python_version >= "3.10" and python_version < "4.0"
 pluggy==1.5.0 ; python_version >= "3.10" and python_version < "4.0"
-pre-commit==3.5.0 ; python_version >= "3.10" and python_version < "4.0"
+pre-commit==3.7.1 ; python_version >= "3.10" and python_version < "4.0"
 prompt-toolkit==3.0.47 ; python_version >= "3.10" and python_version < "4.0"
 psycopg2-binary==2.9.9 ; python_version >= "3.10" and python_version < "4.0"
 ptyprocess==0.7.0 ; python_version >= "3.10" and python_version < "4.0" and (sys_platform != "win32" and sys_platform != "emscripten")
