@@ -31,7 +31,7 @@ jobs:
         python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v1
+      - uses: extractions/setup-just@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
