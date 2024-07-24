@@ -12,7 +12,6 @@
     "github-actions",
     "pep621",
     "poetry",
-    "pip_requirements",
     "cargo"
   ],
   "prHourlyLimit": 3,
