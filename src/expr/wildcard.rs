@@ -1,3 +1,4 @@
+use datafusion_common::TableReference;
 use pyo3::{pyclass, pymethods, PyResult};
 
 #[pyclass(name = "Wildcard", module = "datafusion.expr", subclass)]
@@ -7,8 +8,13 @@ pub struct PyWildcard {
 }
 
 impl PyWildcard {
-    pub fn new(qualifier: Option<String>) -> Self {
-        Self { qualifier }
+    pub fn new(qualifier: Option<TableReference>) -> Self {
+        match qualifier {
+            Some(reference) => Self {
+                qualifier: Some((*reference.table()).to_string()),
+            },
+            _ => Self { qualifier: None },
+        }
     }
 }
 

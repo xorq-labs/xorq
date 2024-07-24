@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use datafusion_common::config::ConfigOptions;
+use datafusion_common::tree_node::Transformed;
 use datafusion_common::{DataFusionError, ScalarValue};
 use datafusion_expr::expr::ScalarFunction;
 use datafusion_expr::{Expr, Filter, LogicalPlan, Projection};
@@ -55,23 +56,41 @@ impl OptimizerRule for PyOptimizerRule {
         plan: &LogicalPlan,
         _config: &dyn OptimizerConfig,
     ) -> datafusion_common::Result<Option<LogicalPlan>> {
+        self.rewrite(plan.clone(), _config).map(|o| Some(o.data))
+    }
+
+    fn name(&self) -> &str {
+        "python rule"
+    }
+
+    fn supports_rewrite(&self) -> bool {
+        true
+    }
+
+    fn rewrite(
+        &self,
+        plan: LogicalPlan,
+        _config: &dyn OptimizerConfig,
+    ) -> datafusion_common::Result<Transformed<LogicalPlan>, DataFusionError> {
         Python::with_gil(|py| {
-            let py_plan = PyLogicalPlan::new((*plan).clone());
+            let py_plan = PyLogicalPlan::new(plan);
             let result = self
                 .rule
                 .as_ref(py)
                 .call_method1("try_optimize", (py_plan,));
             match result {
-                Ok(py_plan) => Ok(Some(LogicalPlan::from(
-                    py_plan.extract::<PyLogicalPlan>().unwrap(),
-                ))),
+                Ok(py_plan) => Ok(Transformed::new_transformed(
+                    py_plan
+                        .extract::<PyLogicalPlan>()
+                        .unwrap()
+                        .plan
+                        .as_ref()
+                        .clone(),
+                    true,
+                )),
                 Err(err) => Err(DataFusionError::Execution(format!("{err}"))),
             }
         })
-    }
-
-    fn name(&self) -> &str {
-        "python rule"
     }
 }
 

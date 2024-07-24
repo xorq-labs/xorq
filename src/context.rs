@@ -148,7 +148,7 @@ impl PySessionContext {
 
         let runtime_config = RuntimeConfig::default();
         let runtime = Arc::new(RuntimeEnv::new(runtime_config)?);
-        let session_state = match (session_state, config) {
+        let mut session_state = match (session_state, config) {
             (Some(s), _) => s.session_state,
             (None, Some(c)) => SessionState::new_with_config_rt(c.config, runtime),
             (None, _) => {
@@ -158,7 +158,7 @@ impl PySessionContext {
         };
 
         let session_state = session_state.add_analyzer_rule(Arc::new(rule));
-        let ctx = SessionContext::new_with_state(session_state);
+        let ctx = SessionContext::new_with_state(session_state.clone());
         // register the UDF with the context, so it can be invoked by name and from SQL
         ctx.register_udf(predict_xgb.clone());
         ctx.register_udf(ScalarUDF::from(GreatestFunc::new()));

@@ -195,6 +195,10 @@ impl DisplayAs for CustomExec {
 }
 
 impl ExecutionPlan for CustomExec {
+    fn name(&self) -> &str {
+        "py_record_batch_provider"
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

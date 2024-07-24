@@ -122,6 +122,10 @@ impl DisplayAs for IbisTableExec {
 }
 
 impl ExecutionPlan for IbisTableExec {
+    fn name(&self) -> &str {
+        "ibis_table"
+    }
+
     fn as_any(&self) -> &dyn Any {
         self
     }

@@ -257,7 +257,7 @@ _reduction_methods = {"SUM": "sum", "AVG": "mean", "COUNT": "count"}
 
 @convert.register(AggregateFunction)
 def convert_aggregate_function(agg_fun, catalog, table):
-    method = _reduction_methods[agg_fun.aggregate_type()]
+    method = _reduction_methods[agg_fun.aggregate_type().upper()]
     args = []
     for arg in agg_fun.args():
         variant = arg.to_variant()

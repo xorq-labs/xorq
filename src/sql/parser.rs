@@ -9,6 +9,9 @@ use datafusion_expr::WindowUDF;
 use datafusion_expr::{
     logical_plan::builder::LogicalTableSource, AggregateUDF, ScalarUDF, TableSource,
 };
+use datafusion_functions_aggregate::average::avg_udaf;
+use datafusion_functions_aggregate::count::count_udaf;
+use datafusion_functions_aggregate::sum::sum_udaf;
 use datafusion_sql::sqlparser::dialect::dialect_from_str;
 use datafusion_sql::{
     planner::{ContextProvider, SqlToRel},
@@ -80,7 +83,13 @@ impl ContextProvider for PyContextProvider {
     }
 
     fn get_aggregate_meta(&self, _name: &str) -> Option<Arc<AggregateUDF>> {
-        None
+        // TODO fix to include all default agg functions
+        match _name.to_lowercase().as_str() {
+            "count" => Some(count_udaf()),
+            "sum" => Some(sum_udaf()),
+            "avg" => Some(avg_udaf()),
+            _ => None,
+        }
     }
 
     fn get_window_meta(&self, _name: &str) -> Option<Arc<WindowUDF>> {

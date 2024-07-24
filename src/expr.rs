@@ -396,6 +396,21 @@ impl PyExpr {
                         "ScalarValue::Union".to_string(),
                     ),
                 )),
+                ScalarValue::Utf8View(_) => Err(py_datafusion_err(
+                    datafusion_common::DataFusionError::NotImplemented(
+                        "ScalarValue::Utf8View".to_string(),
+                    ),
+                )),
+                ScalarValue::BinaryView(_) => Err(py_datafusion_err(
+                    datafusion_common::DataFusionError::NotImplemented(
+                        "ScalarValue::BinaryView".to_string(),
+                    ),
+                )),
+                ScalarValue::Map(_) => Err(py_datafusion_err(
+                    datafusion_common::DataFusionError::NotImplemented(
+                        "ScalarValue::Map".to_string(),
+                    ),
+                )),
             },
             _ => Err(py_type_err(format!(
                 "Non Expr::Literal encountered in types: {:?}",
