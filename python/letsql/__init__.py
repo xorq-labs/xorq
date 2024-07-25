@@ -25,13 +25,19 @@ __all__ = [  # noqa: PLE0604
 _CUSTOM_BACKENDS = ["postgres", "snowflake"]
 
 
+def _load_entry_points():
+    eps = importlib_metadata.entry_points(group="letsql.backends")
+    return sorted(eps)
+
+
 def load_backend(name):
-    if name in _CUSTOM_BACKENDS:
-        import importlib
+    if entry_point := next(
+        (ep for ep in _load_entry_points() if ep.name == name), None
+    ):
         import types
         import letsql
 
-        module = importlib.import_module(f"letsql.backends.{name}")
+        module = entry_point.load()
         backend = module.Backend()
         backend.register_options()
 

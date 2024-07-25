@@ -59,6 +59,11 @@ examples = [
     "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 
+[project.entry-points."letsql.backends"]
+let = "letsql.backends.let"
+postgres = "letsql.backends.postgres"
+snowflake = "letsql.backends.snowflake"
+
 
 [tool.maturin]
 module-name = "letsql._internal"
@@ -101,6 +106,7 @@ pins = { version = ">=0.8.3,<1", extras = ["gcs"], optional = true }
 
 
 [tool.poetry.group.dev.dependencies]
+python = "^3.10"
 black = "24.4.2"
 blackdoc = "0.3.9"
 codespell = {version = "2.3.0", extras = ["hard-encoding-detection", "toml"]}
@@ -113,10 +119,12 @@ pytest-cov = "5.0.0"
 ruff = "0.5.4"
 
 [tool.poetry.group.test.dependencies]
+python = "^3.10"
 scikit-learn = "^1.4.0"
 xgboost = ">=1.6.1"
 
 [tool.poetry.group.docs.dependencies]
+python = "^3.10"
 quartodoc = "^0.7.2"
 nbformat = "^5.10.4"
 nbclient = "^0.10.0"
@@ -127,6 +135,11 @@ datafusion = ["datafusion"]
 duckdb = ["duckdb"]
 snowflake = ["snowflake-connector-python"]
 examples = ["pins", "fsspec"]
+
+[tool.poetry.plugins."letsql.backends"]
+let = "letsql.backends.let"
+postgres = "letsql.backends.postgres"
+snowflake = "letsql.backends.snowflake"
 
 [tool.pytest.ini_options]
 filterwarnings = [
