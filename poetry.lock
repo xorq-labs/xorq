@@ -746,31 +746,31 @@ test-randomorder = ["pytest-randomly"]
 
 [[package]]
 name = "dask"
-version = "2023.12.1"
+version = "2024.7.1"
 description = "Parallel PyData with Task Scheduling"
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "dask-2023.12.1-py3-none-any.whl", hash = "sha256:55f316f32da9e68fe995e2c0dc460cb8888cd4a1af32096753788e8af45a8d10"},
-    {file = "dask-2023.12.1.tar.gz", hash = "sha256:0ac3acd5bdbfacb5ad6401ac7663a1135955b3fa051a118e1b8a88e87b6b44a2"},
+    {file = "dask-2024.7.1-py3-none-any.whl", hash = "sha256:dd046840050376c317de90629db5c6197adda820176cf3e2df10c3219d11951f"},
+    {file = "dask-2024.7.1.tar.gz", hash = "sha256:dbaef2d50efee841a9d981a218cfeb50392fc9a95e0403b6d680450e4f50d531"},
 ]
 
 [package.dependencies]
 click = ">=8.1"
 cloudpickle = ">=1.5.0"
 fsspec = ">=2021.09.0"
-importlib-metadata = ">=4.13.0"
+importlib-metadata = {version = ">=4.13.0", markers = "python_version < \"3.12\""}
 packaging = ">=20.0"
-partd = ">=1.2.0"
+partd = ">=1.4.0"
 pyyaml = ">=5.3.1"
 toolz = ">=0.10.0"
 
 [package.extras]
 array = ["numpy (>=1.21)"]
 complete = ["dask[array,dataframe,diagnostics,distributed]", "lz4 (>=4.3.2)", "pyarrow (>=7.0)", "pyarrow-hotfix"]
-dataframe = ["dask[array]", "pandas (>=1.3)"]
+dataframe = ["dask-expr (>=1.1,<1.2)", "dask[array]", "pandas (>=2.0)"]
 diagnostics = ["bokeh (>=2.4.2)", "jinja2 (>=2.10.3)"]
-distributed = ["distributed (==2023.12.1)"]
+distributed = ["distributed (==2024.7.1)"]
 test = ["pandas[test]", "pre-commit", "pytest", "pytest-cov", "pytest-rerunfailures", "pytest-timeout", "pytest-xdist"]
 
 [[package]]
@@ -4213,4 +4213,4 @@ snowflake = ["snowflake-connector-python"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "3c705342cf6593e956257c77d1f2150a94df1581fc0e3f5bc0cea764d3ff7e60"
+content-hash = "0f93bd165e4589d639b26bf719f683e3469611e7ee816388d0017ce8b7ad7e03"

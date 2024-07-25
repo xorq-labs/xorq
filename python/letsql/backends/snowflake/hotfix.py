@@ -22,7 +22,7 @@ from letsql.common.utils.hotfix_utils import (
 @maybe_hotfix(
     ibis.backends.snowflake.Backend,
     "_setup_session",
-    "d1a8b89ff07d7c917cea225644fb126e",
+    "1a7e2da089862b9f3601e9ad13a0fbb0",
 )
 def _setup_session(self, *, session_parameters, create_object_udfs: bool):
     con = self.con
@@ -93,7 +93,7 @@ def _setup_session(self, *, session_parameters, create_object_udfs: bool):
 @maybe_hotfix(
     ibis.backends.snowflake.Backend,
     "create_table",
-    "5c3483857fcf01118e36c143ca5cb40c",
+    "48dc5668957d8a42dffb12f1142b3a97",
 )
 def create_table(
     self,
@@ -196,7 +196,7 @@ def create_table(
 @maybe_hotfix(
     ibis.backends.snowflake.Backend,
     "table",
-    "198ce885b48922c84557b3b791fa33d6",
+    "67cbeeeb4ebb81c496be59bb114918fa",
 )
 def table(self, *args, **kwargs):
     table = super(ibis.backends.snowflake.Backend, self).table(*args, **kwargs)

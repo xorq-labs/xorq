@@ -8,7 +8,7 @@ from letsql.common.utils.logging_utils import get_logger
 logger = get_logger(__name__)
 
 
-none_tokenized = "8c9f081a88f539969f3dff99d6e05e36"
+none_tokenized = "8c3b464958e9ad0f20fb2e3b74c80519"
 
 
 @toolz.curry

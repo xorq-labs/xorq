@@ -159,7 +159,7 @@ class LETSQLAccessor:
 @maybe_hotfix(
     ibis.expr.types.relations.Table,
     "cache",
-    "86f5c6be5577d4d65b53025d151bdd94",
+    "769ed788acacc47ad2d10b3ad1a7cbae",
 )
 def letsql_cache(self, storage=None):
     current_backend = self._find_backend(use_default=True)
