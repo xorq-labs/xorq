@@ -26,4 +26,4 @@ parking_lot = { version = "0.12" }
 arrow-ord = "52.0.0"
 datafusion-functions = { version = ">=40.0.0,<41" , default-features = true }
 datafusion-functions-aggregate = { version = ">=40.0.0,<41" }
-
+object_store = "0.10.2"

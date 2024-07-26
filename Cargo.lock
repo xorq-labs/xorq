@@ -731,7 +731,7 @@ dependencies = [
  "half",
  "hashbrown",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "num-traits",
  "num_cpus",
@@ -840,7 +840,7 @@ dependencies = [
  "datafusion-expr",
  "hashbrown",
  "hex",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "md-5",
  "rand",
@@ -884,7 +884,7 @@ dependencies = [
  "datafusion-expr",
  "datafusion-functions",
  "datafusion-functions-aggregate",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "paste",
 ]
@@ -903,7 +903,7 @@ dependencies = [
  "datafusion-physical-expr",
  "hashbrown",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "paste",
  "regex-syntax",
@@ -932,7 +932,7 @@ dependencies = [
  "hashbrown",
  "hex",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "paste",
  "petgraph",
@@ -978,7 +978,7 @@ dependencies = [
  "half",
  "hashbrown",
  "indexmap",
- "itertools",
+ "itertools 0.12.1",
  "log",
  "once_cell",
  "parking_lot",
@@ -1179,7 +1179,7 @@ version = "0.1.3"
 source = "git+https://github.com/mesejo/gbdt-rs.git?branch=feat/add-feature-mapping#ae567a7a175a52bc4cf742993128229a7a2fe973"
 dependencies = [
  "cfg-if",
- "itertools",
+ "itertools 0.12.1",
  "rand",
  "regex",
  "serde",
@@ -1342,6 +1342,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "413ee7dfc52ee1a4949ceeb7dbc8a33f2d6c088194d9f922fb8318faf1f01186"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1387,6 +1396,7 @@ dependencies = [
  "datafusion-sql",
  "futures",
  "gbdt",
+ "object_store",
  "parking_lot",
  "prost",
  "prost-types",
@@ -1667,16 +1677,16 @@ dependencies = [
 
 [[package]]
 name = "object_store"
-version = "0.10.1"
+version = "0.10.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fbebfd32c213ba1907fa7a9c9138015a8de2b43e30c5aa45b18f7deb46786ad6"
+checksum = "e6da452820c715ce78221e8202ccc599b4a52f3e1eb3eedb487b680c81a8e3f3"
 dependencies = [
  "async-trait",
  "bytes",
  "chrono",
  "futures",
  "humantime",
- "itertools",
+ "itertools 0.13.0",
  "parking_lot",
  "percent-encoding",
  "snafu",
@@ -1885,7 +1895,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "18bec9b0adc4eba778b33684b7ba3e7137789434769ee3ce3930463ef904cfca"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.12.1",
  "proc-macro2",
  "quote",
  "syn 2.0.60",
