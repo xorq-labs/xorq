@@ -14,6 +14,9 @@
     "poetry",
     "cargo"
   ],
+  "pre-commit": {
+    "enabled": true
+  },
   "prHourlyLimit": 3,
   "automerge": false,
   "printConfig": true
