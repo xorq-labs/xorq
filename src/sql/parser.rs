@@ -49,7 +49,7 @@ impl PyContextProvider {
         for (name, schema) in tables.into_iter() {
             let pyarrow_schema = schema.extract::<PyArrowType<Schema>>(py);
             let fields = SchemaRef::from(pyarrow_schema.unwrap().0)
-                .all_fields()
+                .flattened_fields()
                 .iter()
                 .map(|f| Field::new(f.name(), f.data_type().clone(), f.is_nullable()))
                 .collect();
