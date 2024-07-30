@@ -42,7 +42,6 @@
           name = "tools-${python.pythonVersion}";
           paths = [
             letsql.toolchain
-            pkgs.maturin
             pkgs.poetry
             python
             commands.letsql-commands-star
@@ -54,6 +53,7 @@
         in pkgs.mkShell {
           packages = [
             toolsPackages
+            pkgs.maturin
           ];
           inherit shellHook;
         };
@@ -99,6 +99,7 @@
         lib = {
           inherit (letsql310) poetryOverrides maturinOverride;
           inherit mkLETSQL mkCommands mkShellHook mkToolsPackages mkDevShell;
+          inherit pkgs;
         };
         devShells = {
           inherit tools310 tools311 tools312;

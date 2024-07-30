@@ -119,7 +119,7 @@ let
     };
   in {
     inherit toolchain;
-    inherit rustSrcSet pySrcSet crateWheelSrc;
+    inherit rustSrcSet pySrcSet rustSrc pySrc crateWheelSrc;
     inherit poetryOverrides maturinOverride;
     inherit app appFromWheel;
   };
