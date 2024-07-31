@@ -1,4 +1,4 @@
-{ pkgs, python, black, blackdoc, ruff }: let
+{ pkgs, python }: let
 
   letsql-pytest = pkgs.writeShellScriptBin "letsql-pytest" ''
     set -eux
@@ -10,16 +10,16 @@
   letsql-fmt = pkgs.writeShellScriptBin "letsql-fmt" ''
     set -eux
 
-    ${black}/bin/black .
-    ${blackdoc}/bin/blackdoc .
-    ${ruff}/bin/ruff --fix .
+    ${python}/bin/python -m black .
+    ${python}/bin/python -m blackdoc .
+    ${python}/bin/python -m ruff --fix .
   '';
 
   letsql-lint = pkgs.writeShellScriptBin "letsql-lint" ''
     set -eux
 
-    ${black}/bin/black --quiet --check .
-    ${ruff}/bin/ruff .
+    ${python}/bin/python -m black --quiet --check .
+    ${python}/bin/python -m ruff .
   '';
 
   letsql-download-data = pkgs.writeShellScriptBin "letsql-download-data" ''
@@ -91,7 +91,7 @@
 
   letsql-commands-star = pkgs.buildEnv {
     name = "letsql-commands-star";
-    paths = builtins.attrValues letsql-commands-star;
+    paths = builtins.attrValues letsql-commands;
   };
 in {
   inherit letsql-commands letsql-commands-star;

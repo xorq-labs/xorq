@@ -18,191 +18,91 @@
   outputs = { self, nixpkgs, flake-utils, poetry2nix, rust-overlay, crane }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-
-        toolchainFile = ./rust-toolchain.toml;
-        cargoToml = ./Cargo.toml;
-        lockFile = ./Cargo.lock;
-        pythonVersion = "310";
-        rustSrc = with pkgs.lib.fileset; toSource {
-          root = ./.;
-          fileset = unions [
-            cargoToml
-            lockFile
-            ./pyproject.toml
-            ./README.md
-            ./LICENSE
-            (fileFilter (file: file.hasExt "rs") ./src)
-          ];
-        };
-        pySrc = with pkgs.lib.fileset; toSource {
-          root = ./.;
-          fileset = unions [
-            cargoToml
-            lockFile
-            ./pyproject.toml
-            ./poetry.lock
-            ./README.md
-            ./LICENSE
-            (fileFilter (file: file.hasExt "py") ./python)
-            (fileFilter (file: file.hasExt "sql") ./python)
-            (fileFilter (file: file.hasExt "rs") ./src)
-          ];
-        };
-
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
         };
-        inherit (poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryApplication overrides;
-        toolchain = pkgs.rust-bin.fromRustupToolchainFile toolchainFile;
-        craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
-        python' = pkgs."python${pythonVersion}";
-        wheelName = let
-          inherit (craneLib.crateNameFromCargoToml { inherit cargoToml; }) pname version;
-          wheelTail = {
-            x86_64-linux = "linux_x86_64";
-            aarch64-darwin = "macosx_11_0_arm64";
-            # aarch64-linux = "";
-            # x86_64-darwin = "";
-          }.${system};
-        in "${pname}-${version}-cp38-abi3-${wheelTail}.whl";
-
-        commands = let
-          get-first-pname-drv = pname: builtins.elemAt (builtins.filter (drv: drv.pname == pname) myappFromWheel.requiredPythonModules) 0;
-          black = get-first-pname-drv "black";
-          blackdoc = get-first-pname-drv "blackdoc";
-          ruff = get-first-pname-drv "ruff";
-        in import ./nix/commands.nix {
-          inherit pkgs black blackdoc ruff;
-          inherit (myappFromWheel) python;
+        mkLETSQL = (import ./nix/letsql.nix { inherit system pkgs poetry2nix crane; }) ./.;
+        mkCommands = python: import ./nix/commands.nix {
+          inherit pkgs python;
         };
-        inherit (commands) letsql-commands;
-
-        poetryOverrides = final: prev: {
-          ibis-framework = prev.ibis-framework.overridePythonAttrs (old: {
-            buildInputs = (old.buildInputs or [ ]) ++ [ prev.poetry-dynamic-versioning ];
-          });
-          xgboost = prev.xgboost.overridePythonAttrs (old: {
-          } // pkgs.lib.attrsets.optionalAttrs pkgs.stdenv.isDarwin {
-            nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ prev.cmake ];
-            cmakeDir = "../cpp_src";
-            preBuild = ''
-              cd ..
-            '';
-          });
-        };
-        maturinOverride = old: with pkgs.rustPlatform; {
-          cargoDeps = importCargoLock {
-            inherit lockFile;
-          };
-          nativeBuildInputs = (old.nativeBuildInputs or []) ++ [
-            cargoSetupHook
-            maturinBuildHook
-          ];
-        };
-        buildPhaseCargoCommand = ''
-          ${pkgs.maturin}/bin/maturin build \
-            --offline \
-            --target-dir target \
-            --manylinux off \
-            --strip \
-            --release
+        mkShellHook = python: let
+          commands = mkCommands python;
+        in ''
+          export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
+          ${commands.letsql-commands.letsql-ensure-download-data}/bin/letsql-ensure-download-data
         '';
-
-        commonCraneArgs = {
-          src = rustSrc;
-          strictDeps = true;
-          nativeBuildInputs = [
-            python'
-          ];
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.libiconv
-            python'
-          ];
-        };
-        crateWheelDeps = craneLib.buildPackage (commonCraneArgs // {
-          pname = "crateWheel-deps";
-          src = rustSrc;
-          doInstallCargoArtifacts = true;
-          inherit buildPhaseCargoCommand;
-          installPhaseCommand = "mkdir -p $out";
-        });
-        crateWheel = craneLib.buildPackage (commonCraneArgs // {
-          cargoArtifacts = crateWheelDeps;
-          src = pySrc;
-          inherit buildPhaseCargoCommand;
-          installPhaseCommand = ''
-            ls target/wheels/*
-            mkdir -p $out
-            cp target/wheels/*.whl $out/
-          '';
-        });
-
-        commonPoetryArgs = {
-          projectDir = ./.;
-          src = pySrc;
-          preferWheels = true;
-          python = python';
-          groups = [ "dev" "test" "docs" ];
-        };
-        myapp = (mkPoetryApplication (commonPoetryArgs // {
-          buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
-            pkgs.libiconv
-          ];
-        })).overridePythonAttrs maturinOverride;
-        myappFromWheel = (mkPoetryApplication (commonPoetryArgs // {
-          src = "${crateWheel}/${wheelName}";
-          overrides = overrides.withDefaults poetryOverrides;
-        })).override (_old: {
-          format = "wheel";
-        });
-
-        toolsPackages = pkgs.buildEnv {
-          name = "tools";
+        mkToolsPackages = python: let
+          commands = mkCommands python;
+          letsql = mkLETSQL python;
+        in pkgs.buildEnv {
+          name = "tools-${python.pythonVersion}";
           paths = [
-            toolchain
+            letsql.toolchain
             pkgs.maturin
             pkgs.poetry
-            python'
-          ] ++ (builtins.attrValues letsql-commands);
+            python
+            commands.letsql-commands-star
+          ];
         };
-        shellHook = ''
-          export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
-          ${letsql-commands.letsql-ensure-download-data}/bin/letsql-ensure-download-data
-        '';
-
+        mkToolsShell = python: let
+          toolsPackages = mkToolsPackages python;
+          shellHook = mkShellHook python;
+        in pkgs.mkShell {
+          packages = [
+            toolsPackages
+          ];
+          inherit shellHook;
+        };
+        mkDevShell = python: let
+          toolsPackages = mkToolsPackages python;
+          letsql = mkLETSQL python;
+          shellHook = mkShellHook python;
+        in pkgs.mkShell {
+          packages = [
+            letsql.appFromWheel
+            toolsPackages
+          ];
+          inherit shellHook;
+        };
+        letsql310 = mkLETSQL pkgs.python310;
+        letsql311 = mkLETSQL pkgs.python311;
+        letsql312 = mkLETSQL pkgs.python312;
+        toolsPackages310 = mkToolsPackages pkgs.python310;
+        toolsPackages311 = mkToolsPackages pkgs.python311;
+        toolsPackages312 = mkToolsPackages pkgs.python312;
+        tools310 = mkToolsShell pkgs.python310;
+        tools311 = mkToolsShell pkgs.python311;
+        tools312 = mkToolsShell pkgs.python312;
+        dev310 = mkDevShell pkgs.python310;
+        dev311 = mkDevShell pkgs.python311;
+        dev312 = mkDevShell pkgs.python312;
       in
       {
         packages = {
-          inherit crateWheelDeps crateWheel myapp myappFromWheel toolsPackages;
-          default = self.packages.${system}.myapp;
+          app310 = letsql310.app;
+          appFromWheel310 = letsql310.appFromWheel;
+          app311 = letsql311.app;
+          appFromWheel311 = letsql311.appFromWheel;
+          app312 = letsql312.app;
+          appFromWheel312 = letsql312.appFromWheel;
+          inherit toolsPackages310 toolsPackages311 toolsPackages312;
+          #
+          app = self.packages.${system}.app310;
+          appFromWheel = self.packages.${system}.appFromWheel310;
+          toolsPackages = self.packages.${system}.toolsPackages310;
+          default = self.packages.${system}.appFromWheel;
         };
-
+        lib = {
+          inherit (letsql310) poetryOverrides maturinOverride;
+          inherit mkLETSQL mkCommands mkShellHook mkToolsPackages mkDevShell;
+        };
         devShells = {
-          dev = pkgs.mkShell {
-            packages = [
-              self.packages.${system}.myapp
-              toolsPackages
-            ];
-          };
-          devFromWheel = pkgs.mkShell {
-            packages = [
-              self.packages.${system}.myappFromWheel
-              toolsPackages
-            ];
-            inherit shellHook;
-          };
-          inputs = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.myapp ];
-            packages = toolsPackages;
-          };
-          tools = pkgs.mkShell {
-            packages = [
-              toolsPackages
-            ];
-            inherit shellHook;
-          };
-          default = self.devShells.${system}.devFromWheel;
+          inherit tools310 tools311 tools312;
+          tools = self.devShells.${system}.tools310;
+          inherit dev310 dev311 dev312;
+          dev = self.devShells.${system}.dev310;
+          default = self.devShells.${system}.dev;
         };
       });
 }
