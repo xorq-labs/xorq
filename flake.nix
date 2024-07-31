@@ -20,7 +20,10 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ (import rust-overlay) ];
+          overlays = [
+            (import rust-overlay)
+            poetry2nix.overlays.default
+          ];
         };
         mkLETSQL = (import ./nix/letsql.nix { inherit system pkgs poetry2nix crane; }) ./.;
         mkCommands = python: import ./nix/commands.nix {
