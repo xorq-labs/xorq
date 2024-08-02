@@ -1,18 +1,24 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import inspect
 import typing
+import toolz
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import ibis
+from ibis.common.annotations import Argument
+from ibis.expr.operations import Namespace
 import ibis.common.exceptions as com
+import ibis.expr.rules as rlz
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
+import json
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow_hotfix  # noqa: F401
@@ -24,7 +30,7 @@ from ibis.backends.sql.compiler import C
 from ibis.expr.operations.udf import InputType
 from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
-
+from ibis.expr.operations.udf import ScalarUDF 
 
 import letsql
 import letsql.internal as df
@@ -84,6 +90,27 @@ def _compile_pyarrow_udaf(udaf_node):
         volatility=MyAggregator.volatility,
         name=name,
     )
+
+def _inspect_xgboost_model_from_json(json_file_path):
+    with open(json_file_path, 'r') as file:
+        model_data = json.load(file)
+    
+    learner_data = model_data['learner']
+    model_attributes = learner_data['attributes']
+    feature_names = learner_data['feature_names']
+    feature_types = learner_data['feature_types']
+    gbtree_model_param = learner_data['gradient_booster']['model']['gbtree_model_param']
+    num_trees = gbtree_model_param['num_trees']
+    
+    metadata = {
+        'model_attributes': model_attributes,
+        'feature_names': feature_names,
+        'feature_types': feature_types,
+        'gbtree_model_param': gbtree_model_param,
+        'number_of_trees': num_trees,
+    }
+    
+    return metadata
 
 
 class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl):
@@ -443,6 +470,58 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             for memtable in expr.op().find(ops.InMemoryTable):
                 self._register_in_memory_table(memtable)
 
+    def register_xgb_model(self,model_name: str, source: str | Path ) -> typing.Callable:
+        source = str(source)
+        metadata = _inspect_xgboost_model_from_json(source)
+        self.con.register_xgb_json_model(model_name, source)
+        features = metadata['feature_names']
+        feature_types = [dt.dtype(feature_type) for feature_type in metadata['feature_types']]
+        return_type = dt.dtype('float64')
+        bases = (ScalarUDF,)
+        fields = {
+            k: v
+            for k, v in (
+                ("model_name", Argument(pattern=rlz.ValueOf(str), typehint=str)),
+            ) + tuple(
+                (arg_name, Argument(pattern=rlz.ValueOf(typ), typehint=typ))
+                for (arg_name, typ) in zip(features, feature_types)
+            )
+        }
+
+        fn = toolz.functoolz.return_none
+
+        meta = {
+            "dtype": return_type,
+            "__input_type__": InputType.BUILTIN,
+            "__func__": property(
+                fget=lambda _, fn=fn:fn
+            ),
+            "__config__": {"volatility": "immutable"},
+            "__udf_namespace__": Namespace(database=None, catalog=None),
+            "__module__": self.__module__,
+            "__func_name__": "predict_xgb",
+        }
+        kwds = {
+            **fields,
+            **meta,
+        }
+
+        node = type(
+            "predict_xgb",
+            bases,
+            kwds,
+        )
+
+        @functools.wraps(fn)
+        def construct(*args: Any, **kwargs: Any) -> ir.Value:
+            return node(*args, **kwargs).to_expr()
+
+        def on_expr(e, **kwargs):
+            return construct(*(e[c] for c in features), **kwargs)
+
+        construct.on_expr = on_expr
+        return construct
+ 
     def read_csv(
         self, path: str | Path, table_name: str | None = None, **kwargs: Any
     ) -> ir.Table:
