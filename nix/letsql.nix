@@ -87,6 +87,14 @@ let
           cd ..
         '';
       });
+      scipy = prev.scipy.overridePythonAttrs (old: {
+      } // pkgs.lib.attrsets.optionalAttrs pkgs.stdenv.isDarwin {
+        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ pkgs.xcbuild.xcrun ];
+      });
+      scikit-learn = prev.scikit-learn.overridePythonAttrs (old: {
+      } // pkgs.lib.attrsets.optionalAttrs pkgs.stdenv.isDarwin {
+        nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [ prev.meson-python ];
+      });
     };
     maturinOverride = old: with pkgs.rustPlatform; {
       cargoDeps = importCargoLock {

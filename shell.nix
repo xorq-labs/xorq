@@ -1,7 +1,7 @@
 let
   flake = builtins.getFlake (toString ./.);
-  inherit (flake.lib.${builtins.currentSystem}) pkgs mkToolsPackages;
-  inherit (flake.inputs.poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryEnv;
+  inherit (flake.lib.${builtins.currentSystem}) pkgs mkToolsPackages poetryOverrides;
+  inherit (flake.inputs.poetry2nix.lib.mkPoetry2Nix { inherit pkgs; }) mkPoetryEnv overrides;
 
   python = pkgs.python310;
 
@@ -13,29 +13,42 @@ let
     editablePackageSources = {
       letsql = ./python;
     };
+    overrides = overrides.withDefaults poetryOverrides;
   };
   toolsPackages = mkToolsPackages editableApp;
-in pkgs.mkShell {
-  packages = [
-    editableApp
-    toolsPackages
-    pkgs.poetry
-  ];
   shellHook = ''
+    set -eu
+
     repo_dir=$(git rev-parse --show-toplevel)
     if [ "$(basename "$repo_dir")" != "letsql" ]; then
       echo "not in letsql, exiting"
       exit 1
     fi
-    source=$repo_dir/target/debug/maturin/libletsql.so
+    case $(uname) in
+      Darwin) suffix=dylib ;;
+      *) suffix=so ;;
+    esac
+    source=$repo_dir/target/debug/maturin/libletsql.$suffix
     target=$repo_dir/python/letsql/_internal.abi3.so
-    if [ ! -f "$target" ]; then
+    if [ ! -e "$source" ]; then
       maturin build
+    fi
+    if [ ! -L "$target" ]; then
+      rm -f "$target"
       ln -s "$source" "$target"
     fi
     if [ "$(realpath "$source")" != "$(realpath "$target")" ]; then
-      rm "$target"
+      rm -f "$target"
       ln -s "$source" "$target"
     fi
   '';
+in pkgs.mkShell {
+  packages = [
+    editableApp
+    toolsPackages
+    pkgs.poetry
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+    pkgs.libiconv
+  ];
+  inherit shellHook;
 }
