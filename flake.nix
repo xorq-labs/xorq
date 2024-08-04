@@ -20,7 +20,10 @@
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ (import rust-overlay) ];
+          overlays = [
+            (import rust-overlay)
+            poetry2nix.overlays.default
+          ];
         };
         mkLETSQL = (import ./nix/letsql.nix { inherit system pkgs poetry2nix crane; }) ./.;
         mkCommands = python: import ./nix/commands.nix {
@@ -39,7 +42,6 @@
           name = "tools-${python.pythonVersion}";
           paths = [
             letsql.toolchain
-            pkgs.maturin
             pkgs.poetry
             python
             commands.letsql-commands-star
@@ -51,6 +53,7 @@
         in pkgs.mkShell {
           packages = [
             toolsPackages
+            pkgs.maturin
           ];
           inherit shellHook;
         };
@@ -96,6 +99,7 @@
         lib = {
           inherit (letsql310) poetryOverrides maturinOverride;
           inherit mkLETSQL mkCommands mkShellHook mkToolsPackages mkDevShell;
+          inherit pkgs;
         };
         devShells = {
           inherit tools310 tools311 tools312;
