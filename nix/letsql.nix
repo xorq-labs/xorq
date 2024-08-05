@@ -106,6 +106,11 @@ let
       nativeBuildInputs = (old.nativeBuildInputs or []) ++ [
         cargoSetupHook
         maturinBuildHook
+      ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+        pkgs.libiconv
+      ];
+      buildInputs = (old.buildInputs or []) ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+        pkgs.libiconv
       ];
     };
     commonPoetryArgs = {
