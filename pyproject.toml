@@ -110,7 +110,7 @@ python = "^3.10"
 black = "24.4.2"
 blackdoc = "0.3.9"
 codespell = {version = "2.3.0", extras = ["hard-encoding-detection", "toml"]}
-coverage = {version = "7.6.0", extras = ["toml"]}
+coverage = {version = "7.6.1", extras = ["toml"]}
 git-cliff = "^2.2.1"
 ipython = "^8.19.0"
 pre-commit = "3.8.0"
