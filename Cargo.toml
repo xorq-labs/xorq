@@ -20,10 +20,10 @@ datafusion-optimizer = ">=40.0.0,<41"
 datafusion-sql = ">=40.0.0,<41"
 futures = "0.3"
 async-trait = "0.1"
-arrow = "52.2.0"
+arrow = ">=52.2.0,<53"
 gbdt = { git = "https://github.com/mesejo/gbdt-rs.git", branch = "feat/add-feature-mapping" }
 parking_lot = { version = "0.12" }
-arrow-ord = "52.0.0"
+arrow-ord = ">=52.2.0,<53"
 datafusion-functions = { version = ">=40.0.0,<41" , default-features = true }
 datafusion-functions-aggregate = { version = ">=40.0.0,<41" }
 object_store = "0.10.2"
