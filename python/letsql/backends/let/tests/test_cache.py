@@ -838,3 +838,15 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
 
     snapshot.assert_match(expr.ls.get_key(), "test_udaf_caching.txt")
     snapshot.assert_match(on_expr.ls.get_key(), "test_udaf_caching.txt")
+
+
+def test_caching_pandas(ls_con, csv_dir):
+    diamonds_path = csv_dir / "diamonds.csv"
+    pandas_con = letsql.pandas.connect()
+    cache = SourceStorage(source=pandas_con)
+    t = (
+        pandas_con.read_csv(diamonds_path)
+        .pipe(ls_con.register, "DIAMONDS")
+        .cache(storage=cache)
+    )
+    assert t.execute() is not None
