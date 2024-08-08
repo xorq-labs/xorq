@@ -159,7 +159,11 @@ class SourceStorage(CacheStorage):
         expr = value.to_expr()
         backends, _ = expr._find_backends()
         # FIXME what happens when the backend is LETSQL, to_pyarrow won't work
-        if all(self.source is backend for backend in backends) and len(backends) == 1:
+        if (
+            len(backends) == 1
+            and backends[0].name != "pandas"
+            and backends[0] is self.source
+        ):
             self.source.create_table(key, expr)
         else:
             self.source.create_table(key, expr.to_pyarrow())

@@ -208,7 +208,7 @@ class Backend(DataFusionBackend):
         if backend is self:
             backend = super()
 
-        return backend.execute(expr, **kwargs)
+        return backend.execute(expr.unbind(), **kwargs)
 
     def _transform_to_native_backend(self, expr):
         native_backend = self._get_source(expr) is not self
