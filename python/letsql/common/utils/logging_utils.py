@@ -62,7 +62,7 @@ def get_log_path(log_path=default_log_path):
     try:
         log_path.parent.mkdir(exist_ok=True, parents=True)
     except Exception:
-        log_path = tempfile.mkstemp(suffix=".log", prefix="letsql-")
+        (_, log_path) = tempfile.mkstemp(suffix=".log", prefix="letsql-")
     return log_path
 
 

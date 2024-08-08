@@ -1,9 +1,13 @@
+import pathlib
+
 import pytest
 import structlog
-
 from structlog.testing import LogCapture
 
-from letsql.common.utils.logging_utils import log_initial_state
+from letsql.common.utils.logging_utils import (
+    get_log_path,
+    log_initial_state,
+)
 
 
 @pytest.fixture(name="log_output")
@@ -32,3 +36,11 @@ def test_logging_without_git(log_output, tmp_path):
 
     assert not _has_event(log_output.entries, "git state")
     assert _has_event(log_output.entries, "letsql version")
+
+
+def test_temp_log_path():
+    bad_log_path = "/nonexistantandunwritablepath/"
+    log_path = pathlib.Path(get_log_path(bad_log_path))
+    assert log_path.exists()
+    with pytest.raises(ValueError):
+        log_path.relative_to(bad_log_path)
