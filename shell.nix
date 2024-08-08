@@ -26,18 +26,14 @@ let
     fi
     case $(uname) in
       Darwin) suffix=dylib ;;
-      *) suffix=so ;;
+      *)      suffix=so    ;;
     esac
     source=$repo_dir/target/debug/maturin/libletsql.$suffix
     target=$repo_dir/python/letsql/_internal.abi3.so
     if [ ! -e "$source" ]; then
-      maturin build
+      ${toolsPackages}/bin/maturin build
     fi
-    if [ ! -L "$target" ]; then
-      rm -f "$target"
-      ln -s "$source" "$target"
-    fi
-    if [ "$(realpath "$source")" != "$(realpath "$target")" ]; then
+    if [ ! -L "$target" -o "$(realpath "$source")" != "$(realpath "$target")" ]; then
       rm -f "$target"
       ln -s "$source" "$target"
     fi
