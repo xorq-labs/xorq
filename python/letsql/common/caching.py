@@ -41,9 +41,6 @@ abs_path_converter = toolz.compose(
 )
 
 
-KEY_PREFIX = "letsql_cache-"
-
-
 def dump(obj, path):
     with path.open("wb") as fh:
         _dump(obj, fh)
@@ -54,7 +51,13 @@ def load(path):
         return _load(fh)
 
 
+@frozen
 class CacheStorage(ABC):
+    key_prefix = field(
+        validator=instance_of(str),
+        factory=functools.partial(letsql.options.get, "cache.key_prefix"),
+    )
+
     def exists(self, expr: ir.Expr):
         key = self.get_key(expr)
         return self.key_exists(key)
@@ -64,7 +67,7 @@ class CacheStorage(ABC):
         pass
 
     def get_key(self, expr: ir.Expr):
-        return KEY_PREFIX + dask.base.tokenize(expr)
+        return self.key_prefix + dask.base.tokenize(expr)
 
     def get(self, expr: ir.Expr):
         key = self.get_key(expr)
@@ -147,7 +150,10 @@ class ParquetCacheStorage(CacheStorage):
 
 @frozen
 class SourceStorage(CacheStorage):
-    source = field(validator=instance_of(ibis.backends.BaseBackend))
+    source = field(
+        validator=instance_of(ibis.backends.BaseBackend),
+        factory=letsql.config._backend_init,
+    )
 
     def key_exists(self, key):
         return key in self.source.tables

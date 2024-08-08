@@ -268,7 +268,7 @@ class Backend(DataFusionBackend):
 
     def _cached(self, expr: ir.Table, storage=None):
         source = self._get_source(expr)
-        storage = storage or SourceStorage(source)
+        storage = storage or SourceStorage(source=source)
         op = CachedNode(
             schema=expr.schema(),
             parent=expr.op(),

@@ -4,7 +4,11 @@ import runpy
 import pytest
 from pytest import param
 
-from letsql.common.caching import KEY_PREFIX
+import letsql
+
+
+KEY_PREFIX = letsql.config.options.cache.key_prefix
+
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent

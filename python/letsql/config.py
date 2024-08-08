@@ -18,6 +18,7 @@ class Cache(Config):
     default_path: Union[str, pathlib.Path] = pathlib.Path(
         "~/.local/share/letsql"
     ).expanduser()
+    key_prefix: str = "letsql_cache-"
 
 
 class Interactive(Config):

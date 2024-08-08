@@ -13,7 +13,10 @@ import letsql
 from letsql.tests.util import (
     assert_frame_equal,
 )
-from letsql.common.caching import SourceStorage, KEY_PREFIX
+from letsql.common.caching import SourceStorage
+
+
+KEY_PREFIX = letsql.config.options.cache.key_prefix
 
 
 def _pandas_semi_join(left, right, on, **_):
@@ -664,8 +667,8 @@ def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
     table_name = "batting"
     left, right = map(request.getfixturevalue, tables)
 
-    left_storage = SourceStorage(left.op().source)
-    right_storage = SourceStorage(right.op().source)
+    left_storage = SourceStorage(source=left.op().source)
+    right_storage = SourceStorage(source=right.op().source)
 
     left_t = ls_con.register(left, table_name=f"left-{table_name}")[
         lambda t: t.yearID == 2015

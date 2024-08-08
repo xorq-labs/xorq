@@ -25,7 +25,6 @@ from letsql.backends.conftest import (
     get_storage_uncached,
 )
 from letsql.common.caching import (
-    KEY_PREFIX,
     ParquetCacheStorage,
     SnapshotStorage,
     SourceStorage,
@@ -37,6 +36,9 @@ from letsql.common.utils.postgres_utils import (
 from letsql.tests.util import (
     assert_frame_equal,
 )
+
+
+KEY_PREFIX = letsql.config.options.cache.key_prefix
 
 
 @pytest.fixture(scope="function")

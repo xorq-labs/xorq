@@ -25,7 +25,7 @@ left = pg.table(name)[lambda t: t.yearID == 2015].pipe(
 expr = left.join(
     right,
     "playerID",
-).cache(SourceStorage(pg))
+).cache(SourceStorage(source=pg))
 
 res = expr.execute()
 print(res)

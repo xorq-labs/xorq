@@ -46,7 +46,7 @@ class Backend(IbisSnowflakeBackend):
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
 
     def _cached(self, expr: ir.Table, storage=None):
-        storage = storage or SourceStorage(self)
+        storage = storage or SourceStorage(source=self)
         op = CachedNode(
             schema=expr.schema(),
             parent=expr.op(),
