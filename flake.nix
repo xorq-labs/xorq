@@ -80,6 +80,19 @@
         dev310 = mkDevShell pkgs.python310;
         dev311 = mkDevShell pkgs.python311;
         dev312 = mkDevShell pkgs.python312;
+        #
+        mkShellApp = drv: name: bin-name: pkgs.writeShellApplication {
+          inherit name;
+          runtimeInputs = [ ];
+          text = ''
+            bash <(
+              cat <(grep ^declare ${drv}) <(echo ${bin-name} "''${@}")
+            )
+          '';
+        };
+        letsql-ipython-310 = mkShellApp dev310 "letsql-ipython-310" "ipython";
+        letsql-ipython-311 = mkShellApp dev311 "letsql-ipython-311" "ipython";
+        letsql-ipython-312 = mkShellApp dev312 "letsql-ipython-312" "ipython";
       in
       {
         packages = {
@@ -90,11 +103,14 @@
           app312 = letsql312.app;
           appFromWheel312 = letsql312.appFromWheel;
           inherit toolsPackages310 toolsPackages311 toolsPackages312;
+          inherit letsql-ipython-310 letsql-ipython-311 letsql-ipython-312;
           #
           app = self.packages.${system}.app310;
           appFromWheel = self.packages.${system}.appFromWheel310;
           toolsPackages = self.packages.${system}.toolsPackages310;
-          default = self.packages.${system}.appFromWheel;
+          letsql = self.packages.${system}.letsql-ipython-310;
+          #
+          default = self.packages.${system}.letsql;
         };
         lib = {
           inherit (letsql310) poetryOverrides maturinOverride;
