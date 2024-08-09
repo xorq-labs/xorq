@@ -132,7 +132,7 @@ def test_register_model_with_udf_output(data_dir, tmp_model_dir, con):
     data[features].to_csv(data_path, index=False)
 
     t = (con.read_csv(table_name="diamonds_data", path=data_path)
-            .mutate(prediction = lambda t: predict_diamond("diamonds_model", t.carat, t.depth, t.x, t.y, t.z))
+            .mutate(prediction = lambda t: predict_diamond(t.carat, t.depth, t.x, t.y, t.z))
          )
     
     result = t.execute()

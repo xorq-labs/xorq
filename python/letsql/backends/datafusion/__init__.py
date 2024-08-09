@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextlib
 import functools
 import inspect
+import types
 import typing
 import toolz
 from collections.abc import Mapping
@@ -30,7 +31,7 @@ from ibis.backends.sql.compiler import C
 from ibis.expr.operations.udf import InputType
 from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
-from ibis.expr.operations.udf import ScalarUDF 
+from ibis.expr.operations.udf import ScalarUDF
 
 import letsql
 import letsql.internal as df
@@ -91,26 +92,37 @@ def _compile_pyarrow_udaf(udaf_node):
         name=name,
     )
 
+
 def _inspect_xgboost_model_from_json(json_file_path):
-    with open(json_file_path, 'r') as file:
+    with open(json_file_path, "r") as file:
         model_data = json.load(file)
-    
-    learner_data = model_data['learner']
-    model_attributes = learner_data['attributes']
-    feature_names = learner_data['feature_names']
-    feature_types = learner_data['feature_types']
-    gbtree_model_param = learner_data['gradient_booster']['model']['gbtree_model_param']
-    num_trees = gbtree_model_param['num_trees']
-    
+
+    learner_data = model_data["learner"]
+    model_attributes = learner_data["attributes"]
+    feature_names = learner_data["feature_names"]
+    feature_types = learner_data["feature_types"]
+    gbtree_model_param = learner_data["gradient_booster"]["model"]["gbtree_model_param"]
+    num_trees = gbtree_model_param["num_trees"]
+
     metadata = {
-        'model_attributes': model_attributes,
-        'feature_names': feature_names,
-        'feature_types': feature_types,
-        'gbtree_model_param': gbtree_model_param,
-        'number_of_trees': num_trees,
+        "model_attributes": model_attributes,
+        "feature_names": feature_names,
+        "feature_types": feature_types,
+        "gbtree_model_param": gbtree_model_param,
+        "number_of_trees": num_trees,
     }
-    
+
     return metadata
+
+
+def _fields_to_parameters(fields):
+    parameters = []
+    for name, arg in fields.items():
+        param = inspect.Parameter(
+            name, inspect.Parameter.POSITIONAL_OR_KEYWORD, annotation=arg.typehint
+        )
+        parameters.append(param)
+    return parameters
 
 
 class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl):
@@ -470,19 +482,38 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             for memtable in expr.op().find(ops.InMemoryTable):
                 self._register_in_memory_table(memtable)
 
-    def register_xgb_model(self,model_name: str, source: str | Path ) -> typing.Callable:
+    def register_xgb_model(
+        self, model_name: str, source: str | Path
+    ) -> typing.Callable:
+        """Register an XGBoost model as a UDF in the `letsql` Backend.
+
+        Parameters
+        ----------
+        model_name
+            The name of the model
+        source
+            The path to the JSON file containing the XGBoost model
+
+        Returns
+        -------
+        typing.Callable
+            A function that can be used to call the XGBoost model as an Ibis UDF
+        """
         source = str(source)
         metadata = _inspect_xgboost_model_from_json(source)
         self.con.register_xgb_json_model(model_name, source)
-        features = metadata['feature_names']
-        feature_types = [dt.dtype(feature_type) for feature_type in metadata['feature_types']]
-        return_type = dt.dtype('float64')
+        features = metadata["feature_names"]
+        feature_types = [
+            dt.dtype(feature_type) for feature_type in metadata["feature_types"]
+        ]
+        return_type = dt.dtype("float64")
         bases = (ScalarUDF,)
         fields = {
             k: v
             for k, v in (
                 ("model_name", Argument(pattern=rlz.ValueOf(str), typehint=str)),
-            ) + tuple(
+            )
+            + tuple(
                 (arg_name, Argument(pattern=rlz.ValueOf(typ), typehint=typ))
                 for (arg_name, typ) in zip(features, feature_types)
             )
@@ -493,9 +524,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         meta = {
             "dtype": return_type,
             "__input_type__": InputType.BUILTIN,
-            "__func__": property(
-                fget=lambda _, fn=fn:fn
-            ),
+            "__func__": property(fget=lambda _, fn=fn: fn),
             "__config__": {"volatility": "immutable"},
             "__udf_namespace__": Namespace(database=None, catalog=None),
             "__module__": self.__module__,
@@ -520,8 +549,28 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             return construct(*(e[c] for c in features), **kwargs)
 
         construct.on_expr = on_expr
-        return construct
- 
+
+        partial = toolz.functoolz.partial(construct, model_name)
+
+        def create_named_wrapper(func, name, signature):
+            def register_xgb_model(*args, **kwargs):
+                return func(*args, **kwargs)
+
+            new_func = types.FunctionType(
+                register_xgb_model.__code__,
+                register_xgb_model.__globals__,
+                name=name,
+                argdefs=register_xgb_model.__defaults__,
+                closure=register_xgb_model.__closure__,
+            )
+            new_func = functools.wraps(func)(new_func)
+            new_func.__signature__ = signature
+            return new_func
+
+        new_signature = inspect.Signature(_fields_to_parameters(fields)[1:])
+        wrapper = create_named_wrapper(partial, model_name, new_signature)
+        return wrapper
+
     def read_csv(
         self, path: str | Path, table_name: str | None = None, **kwargs: Any
     ) -> ir.Table:
@@ -651,8 +700,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     )
                     # cast the struct array to the desired types to work around
                     # https://github.com/apache/arrow-datafusion-python/issues/534
-                    .to_struct_array()
-                    .cast(struct_schema)
+                    .to_struct_array().cast(struct_schema)
                 )
                 for batch in frame.execute_stream()
             )
