@@ -553,17 +553,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         partial = toolz.functoolz.partial(construct, model_name)
 
         def create_named_wrapper(func, name, signature):
-            def register_xgb_model(*args, **kwargs):
+            def predict_xgb(*args, **kwargs):
                 return func(*args, **kwargs)
 
             new_func = types.FunctionType(
-                register_xgb_model.__code__,
-                register_xgb_model.__globals__,
+                predict_xgb.__code__,
+                predict_xgb.__globals__,
                 name=name,
-                argdefs=register_xgb_model.__defaults__,
-                closure=register_xgb_model.__closure__,
+                argdefs=predict_xgb.__defaults__,
+                closure=predict_xgb.__closure__,
             )
-            new_func = functools.wraps(func)(new_func)
             new_func.__signature__ = signature
             return new_func
 
