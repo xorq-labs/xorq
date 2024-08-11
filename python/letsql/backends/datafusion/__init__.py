@@ -545,12 +545,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         def construct(*args: Any, **kwargs: Any) -> ir.Value:
             return node(*args, **kwargs).to_expr()
 
-        def on_expr(e, **kwargs):
-            return construct(*(e[c] for c in features), **kwargs)
-
-        construct.on_expr = on_expr
-
         partial = toolz.functoolz.partial(construct, model_name)
+
+        def on_expr(expr, *args, **kwargs):
+            return partial(*(expr[c] for c in features), *args, **kwargs)
 
         def create_named_wrapper(func, name, signature):
             def predict_xgb(*args, **kwargs):
@@ -568,6 +566,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         new_signature = inspect.Signature(_fields_to_parameters(fields)[1:])
         wrapper = create_named_wrapper(partial, model_name, new_signature)
+        wrapper.on_expr = on_expr
         return wrapper
 
     def read_csv(
@@ -699,7 +698,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     )
                     # cast the struct array to the desired types to work around
                     # https://github.com/apache/arrow-datafusion-python/issues/534
-                    .to_struct_array().cast(struct_schema)
+                    .to_struct_array()
+                    .cast(struct_schema)
                 )
                 for batch in frame.execute_stream()
             )
