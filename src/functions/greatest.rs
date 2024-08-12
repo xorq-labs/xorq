@@ -3,12 +3,21 @@ use std::any::Any;
 use arrow::compute::kernels::zip::zip;
 use arrow::datatypes::DataType;
 use arrow_ord::cmp::gt;
-use datafusion::physical_plan::expressions::helpers::max;
 
-use datafusion_common::{exec_err, Result};
+use crate::functions::min_max::choose_min_max;
+use crate::functions::min_max::interval_min_max;
+use crate::functions::min_max::min_max;
+use crate::functions::min_max::typed_min_max;
+use crate::functions::min_max::typed_min_max_float;
+use crate::functions::min_max::typed_min_max_string;
+use datafusion_common::{exec_err, internal_err, Result, ScalarValue};
 use datafusion_expr::type_coercion::binary::type_union_resolution;
 use datafusion_expr::ColumnarValue;
 use datafusion_expr::{ScalarUDFImpl, Signature, Volatility};
+
+pub fn max(lhs: &ScalarValue, rhs: &ScalarValue) -> Result<ScalarValue> {
+    min_max!(lhs, rhs, max)
+}
 
 #[derive(Debug)]
 pub struct GreatestFunc {

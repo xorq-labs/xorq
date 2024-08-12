@@ -12,6 +12,7 @@ use datafusion::datasource::MemTable;
 use datafusion::datasource::TableProvider;
 use datafusion::execution::context::{SessionConfig, SessionContext, SessionState};
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::ScalarValue;
 use datafusion_expr::ScalarUDF;
@@ -94,16 +95,20 @@ impl PySessionState {
         let runtime_config = RuntimeConfig::default();
         let runtime = Arc::new(RuntimeEnv::new(runtime_config).unwrap());
 
-        let session_state = SessionState::new_with_config_rt(config, runtime);
+        let session_state = SessionStateBuilder::new()
+            .with_config(config)
+            .with_runtime_env(runtime)
+            .with_default_features()
+            .build();
 
         Self { session_state }
     }
 
     fn add_optimizer_rule(&mut self, rule: PyOptimizerRule) -> Self {
         Self::from(
-            self.session_state
-                .clone()
-                .add_optimizer_rule(Arc::new(rule)),
+            SessionStateBuilder::new_from_existing(self.session_state.clone())
+                .with_optimizer_rule(Arc::new(rule))
+                .build(),
         )
     }
 }
@@ -150,10 +155,18 @@ impl PySessionContext {
         let runtime = Arc::new(RuntimeEnv::new(runtime_config)?);
         let mut session_state = match (session_state, config) {
             (Some(s), _) => s.session_state,
-            (None, Some(c)) => SessionState::new_with_config_rt(c.config, runtime),
+            (None, Some(c)) => SessionStateBuilder::new()
+                .with_config(c.config)
+                .with_runtime_env(runtime)
+                .with_default_features()
+                .build(),
             (None, _) => {
                 let session_config = SessionConfig::default().with_information_schema(true);
-                SessionState::new_with_config_rt(session_config, runtime)
+                SessionStateBuilder::new()
+                    .with_config(session_config)
+                    .with_runtime_env(runtime)
+                    .with_default_features()
+                    .build()
             }
         };
 

@@ -1,7 +1,7 @@
 CREATE TABLE values(
     a FLOAT,
     b STRING,
-    c BIGINT,
+    c BIGINT
 ) AS VALUES
   (1.0, 'banana', 2),
   (2.0,  'apple', 3),

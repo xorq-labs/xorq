@@ -8,7 +8,7 @@ use crate::errors::DataFusionError;
 use crate::utils::wait_for_future;
 use datafusion::{
     arrow::pyarrow::ToPyArrow,
-    catalog::{schema::SchemaProvider, CatalogProvider},
+    catalog::{CatalogProvider, SchemaProvider},
     datasource::{TableProvider, TableType},
 };
 

@@ -4,8 +4,8 @@ use std::sync::Arc;
 use arrow::datatypes::SchemaRef;
 use arrow::pyarrow::PyArrowType;
 use async_trait::async_trait;
+use datafusion::catalog::Session;
 use datafusion::datasource::TableProvider;
-use datafusion::execution::context::SessionState;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_common::DataFusionError;
 use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};
@@ -58,7 +58,7 @@ impl TableProvider for PyTableProvider {
 
     async fn scan(
         &self,
-        _state: &SessionState,
+        _state: &dyn Session,
         projection: Option<&Vec<usize>>,
         filters: &[Expr],
         _limit: Option<usize>,
