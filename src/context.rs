@@ -33,6 +33,9 @@ use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
 use crate::predict_udf::PredictUdf;
 use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
+use crate::tensor_functions::mean_all::TensorMeanAllUDF;
+use crate::tensor_functions::rotate::Rotate90UDF;
+use crate::tensor_functions::segment_anything::SegmentAnythingUDF;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
 use crate::utils::wait_for_future;
@@ -176,6 +179,9 @@ impl PySessionContext {
         ctx.register_udf(predict_xgb.clone());
         ctx.register_udf(ScalarUDF::from(GreatestFunc::new()));
         ctx.register_udf(ScalarUDF::from(LeastFunc::new()));
+        ctx.register_udf(ScalarUDF::from(TensorMeanAllUDF::new()));
+        ctx.register_udf(ScalarUDF::from(SegmentAnythingUDF::new()));
+        ctx.register_udf(ScalarUDF::from(Rotate90UDF::new()));
 
         Ok(PySessionContext {
             ctx,

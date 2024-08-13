@@ -10,25 +10,25 @@ mod dataset;
 mod dataset_exec;
 mod errors;
 pub mod expr;
+mod functions;
+mod ibis_filter_expression;
+mod ibis_table;
+mod ibis_table_exec;
 pub mod model;
 mod optimizer;
 pub mod physical_plan;
 pub mod predict_udf;
+mod provider;
 mod py_record_batch_provider;
 mod pyarrow_filter_expression;
+mod record_batch;
 pub mod sql;
+mod tensor_functions;
 #[allow(clippy::borrow_deref_ref)]
 mod udaf;
 #[allow(clippy::borrow_deref_ref)]
 mod udf;
 pub mod utils;
-
-mod functions;
-mod ibis_filter_expression;
-mod ibis_table;
-mod ibis_table_exec;
-mod provider;
-mod record_batch;
 
 // Used to define Tokio Runtime as a Python module attribute
 #[pyclass]

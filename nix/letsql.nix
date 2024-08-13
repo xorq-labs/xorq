@@ -49,11 +49,13 @@ let
       strictDeps = true;
       nativeBuildInputs = [
         python
+        pkgs.pkg-config
       ];
       buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
         pkgs.libiconv
         python
       ];
+      PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
     };
     crateWheelDeps = craneLib.buildPackage (commonCraneArgs // {
       pname = "crateWheel-deps";

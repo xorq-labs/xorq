@@ -10,13 +10,14 @@ from attr.validators import (
 )
 
 import letsql
-from letsql.expr.relations import (
-    CachedNode,
-    replace_cache_table,
-)
 from letsql.common.utils.hotfix_utils import (
     maybe_hotfix,
     none_tokenized,
+)
+from letsql.expr.operations.images import SegmentAnything, Rotate90
+from letsql.expr.relations import (
+    CachedNode,
+    replace_cache_table,
 )
 
 
@@ -174,3 +175,15 @@ def letsql_cache(self, storage=None):
 @property
 def ls(self):
     return LETSQLAccessor(self)
+
+
+@maybe_hotfix(ibis.expr.types.binary.BinaryColumn, "segment_anything", none_tokenized)
+def segment_anything(
+    self: ibis.expr.types.binary.BinaryColumn, model_name: str, seed: list
+):
+    return SegmentAnything(arg=self, model_name=model_name, seed=seed).to_expr()
+
+
+@maybe_hotfix(ibis.expr.types.binary.BinaryColumn, "rotate90", none_tokenized)
+def rotate90(self: ibis.expr.types.binary.BinaryColumn):
+    return Rotate90(arg=self).to_expr()

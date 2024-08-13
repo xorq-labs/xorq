@@ -85,8 +85,13 @@
     ${pkgs.git}/bin/git config blame.ignoreRevsFile "$ignore_revs_file"
   '';
 
+  letsql-maturin-build = pkgs.writeShellScriptBin "letsql-maturin-build" ''
+    set -eux
+    ${python}/bin/maturin build --release
+  '';
+
   letsql-commands = {
-    inherit letsql-pytest letsql-fmt letsql-lint letsql-ensure-download-data letsql-docker-compose-up letsql-newgrp-docker-compose-up letsql-git-fetch-origin-pull letsql-git-config-blame-ignore-revs;
+    inherit letsql-pytest letsql-fmt letsql-lint letsql-ensure-download-data letsql-docker-compose-up letsql-newgrp-docker-compose-up letsql-git-fetch-origin-pull letsql-git-config-blame-ignore-revs letsql-maturin-build;
   };
 
   letsql-commands-star = pkgs.buildEnv {

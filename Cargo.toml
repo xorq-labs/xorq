@@ -15,7 +15,6 @@ datafusion =  { version = ">=40.0.0, <42", features = ["pyarrow", "avro"]}
 datafusion-common = { version = ">=40.0.0,<42", features = ["pyarrow"] }
 datafusion-expr = ">=40.0.0,<42"
 prost = ">=0.12,<0.14"
-prost-types = ">=0.12,<0.14"
 datafusion-optimizer = ">=40.0.0,<42"
 datafusion-sql = ">=40.0.0,<42"
 futures = "0.3"
@@ -24,6 +23,13 @@ arrow = ">=52.2.0,<53"
 gbdt = { git = "https://github.com/mesejo/gbdt-rs.git", branch = "feat/add-feature-mapping" }
 parking_lot = { version = "0.12" }
 arrow-ord = ">=52.2.0,<53"
-datafusion-functions = { version = ">=40.0.0,<42" , default-features = true }
 datafusion-functions-aggregate = { version = ">=40.0.0,<42" }
-object_store = "0.10.2"
+arrow-schema = "52.2.0"
+arrow_convert = "0.6.8"
+itertools = "0.13.0"
+candle-core = "0.6.0"
+image = "0.25.2"
+hf-hub = "0.3.2"
+candle-nn = "0.6.0"
+candle-transformers = "0.6.0"
+imageproc = "0.25.0"

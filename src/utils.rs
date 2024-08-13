@@ -1,13 +1,16 @@
 use std::future::Future;
+use std::io::Cursor;
 use std::sync::Arc;
 
 use arrow::array::ArrayRef;
 use arrow::datatypes::SchemaRef;
 use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
 use datafusion::physical_plan::{ExecutionMode, PlanProperties};
-use datafusion_common::{Result, ScalarValue};
+use datafusion_common::DataFusionError::Execution;
+use datafusion_common::{exec_err, Result, ScalarValue};
 use datafusion_expr::Volatility;
 use datafusion_expr::{ColumnarValue, ScalarFunctionImplementation};
+use image::{DynamicImage, ImageFormat, ImageReader};
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
@@ -21,18 +24,18 @@ pub(crate) fn get_tokio_runtime(py: Python) -> PyRef<TokioRuntime> {
 }
 
 /// Utility to collect rust futures with GIL released
-pub fn wait_for_future<F: Future>(py: Python, f: F) -> F::Output
+pub fn wait_for_future<F>(py: Python, f: F) -> F::Output
 where
-    F: Send,
+    F: Send + Future,
     F::Output: Send,
 {
     let runtime: &Runtime = &get_tokio_runtime(py).0;
     py.allow_threads(|| runtime.block_on(f))
 }
 #[allow(clippy::redundant_async_block)]
-pub fn wait_for_completion<F: Future>(py: Python, fut: F) -> F::Output
+pub fn wait_for_completion<F>(py: Python, fut: F) -> F::Output
 where
-    F: Send,
+    F: Send + Future,
     F::Output: Send,
 {
     py.allow_threads(|| futures::executor::block_on(async move { fut.await }))
@@ -93,4 +96,21 @@ where
             result.map(ColumnarValue::Array)
         }
     })
+}
+
+pub(crate) fn binary_to_img(data: &[u8]) -> Result<(ImageFormat, DynamicImage)> {
+    let data = Cursor::new(data);
+
+    let reader = ImageReader::new(data)
+        .with_guessed_format()
+        .map_err(|e| Execution(e.to_string()))?;
+
+    let format = match reader.format() {
+        Some(format) => format,
+        None => return exec_err!("Format"),
+    };
+
+    let image = reader.decode().map_err(|e| Execution(e.to_string()))?;
+
+    Ok((format, image))
 }

@@ -28,10 +28,10 @@ let
       Darwin) suffix=dylib ;;
       *)      suffix=so    ;;
     esac
-    source=$repo_dir/target/debug/maturin/libletsql.$suffix
+    source=$repo_dir/target/release/maturin/libletsql.$suffix
     target=$repo_dir/python/letsql/_internal.abi3.so
     if [ ! -e "$source" ]; then
-      ${toolsPackages}/bin/maturin build
+      ${toolsPackages}/bin/maturin build --release
     fi
     if [ ! -L "$target" -o "$(realpath "$source")" != "$(realpath "$target")" ]; then
       rm -f "$target"
@@ -43,8 +43,10 @@ in pkgs.mkShell {
     editableApp
     toolsPackages
     pkgs.poetry
+    pkgs.pkg-config
   ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
     pkgs.libiconv
   ];
+  PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
   inherit shellHook;
 }
