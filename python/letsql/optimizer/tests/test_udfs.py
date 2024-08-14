@@ -15,9 +15,7 @@ import letsql as ls
 
 IMAGE_FORMAT = "JPEG"
 TULIPS_URL = "https://github.com/mohammadimtiazz/standard-test-images-for-Image-Processing/blob/master/standard_test_images/tulips.png?raw=true"
-SAM_MODEL_URL = (
-    "https://storage.googleapis.com/letsql-pins/models/mobile_sam-tiny-vitt.safetensors"
-)
+SAM_MODEL_URL = "https://storage.googleapis.com/letsql-assets/models/mobile_sam-tiny-vitt.safetensors"
 
 
 @pytest.fixture

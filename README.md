@@ -25,16 +25,19 @@ pip install letsql
 ### Usage
 
 ```python
+import urllib.request
+
 import letsql as ls
 
-con = ls.connect()
+urllib.request.urlretrieve("https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv", "iris.csv")
 
-iris = con.read_csv("data/iris.csv", "iris")
+con = ls.connect()
+iris_table = con.read_csv("iris.csv", table_name="iris")
 
 res = (
-    iris.filter([iris.sepal_length > 5])
+    iris_table.filter([iris_table.sepal_length > 5])
     .group_by("species")
-    .agg(iris.sepal_width.sum())
+    .agg(iris_table.sepal_width.sum())
     .execute()
 )
 ```
