@@ -1,18 +1,9 @@
-import ibis
-
 import letsql as ls
 
 
 con = ls.connect()  # empty connection
-
-pg = ls.postgres.connect(
-    # FIXME: use dyndns to point examples.letsql.com to the gcp sql host
-    host="34.135.241.141",
-    user="letsql",
-    password="letsql",
-    database="letsql",
-)
-db = ibis.duckdb.connect()
+pg = ls.postgres.connect_examples()
+db = ls.duckdb.connect()
 
 
 batting = pg.table("batting").pipe(con.register, table_name="batting")

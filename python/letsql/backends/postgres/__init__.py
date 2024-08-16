@@ -19,6 +19,23 @@ from letsql.expr.relations import CachedNode, replace_cache_table
 
 
 class Backend(IbisPostgresBackend):
+    _top_level_methods = ("connect_examples", "connect_env")
+
+    @classmethod
+    def connect_env(cls, **kwargs):
+        from letsql.common.utils.postgres_utils import make_connection
+
+        return make_connection(**kwargs)
+
+    @classmethod
+    def connect_examples(cls):
+        return cls().connect(
+            host="examples.letsql.com",
+            user="letsql",
+            password="letsql",
+            database="letsql",
+        )
+
     @staticmethod
     def _register_and_transform_cache_tables(expr):
         """This function will sequentially execute any cache node that is not already cached"""

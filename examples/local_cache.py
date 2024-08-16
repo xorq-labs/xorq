@@ -2,13 +2,8 @@ from pathlib import Path
 
 import letsql as ls
 
-pg = ls.postgres.connect(
-    # FIXME: use dyndns to point examples.letsql.com to the gcp sql host
-    host="34.135.241.141",
-    user="letsql",
-    password="letsql",
-    database="letsql",
-)
+
+pg = ls.postgres.connect_examples()
 con = ls.connect()  # empty connection
 storage = ls.common.caching.ParquetCacheStorage(
     source=con,
