@@ -8,7 +8,7 @@ import letsql
 
 
 KEY_PREFIX = letsql.config.options.cache.key_prefix
-
+LIBRARY_SCRIPTS = ("pandas_example", "penguins_example")
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent
@@ -26,7 +26,7 @@ def teardown_function():
 
 
 def maybe_library(name: str):
-    return pytest.mark.library if name == "pandas_example" else ()
+    return pytest.mark.library if name in LIBRARY_SCRIPTS else ()
 
 
 @pytest.mark.parametrize(

@@ -15,6 +15,7 @@ dependencies = [
     "pyarrow>=13.0.0,<18 ; python_version >= '3.10' and python_version < '4.0'",
     "structlog>=24.2.0,<25 ; python_version >= '3.10' and python_version < '4.0'",
     "pytest-mock>=3.14.0,<4 ; python_version >= '3.10' and python_version < '4.0'",
+    "cityhash>=0.4.7,<1 ; python_version >= '3.10' and python_version < '4.0'",
 ]
 requires-python = ">=3.7"
 authors = [
@@ -56,7 +57,9 @@ snowflake = [
 ]
 examples = [
     "fsspec>=2024.6.1,<2024.6.2 ; python_version >= '3.10' and python_version < '4.0'",
-    "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'"
+    "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'",
+    "xgboost >=1.6.1 ; python_version >= '3.10' and python_version < '4.0'",
+    "duckdb >=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 
 [project.entry-points."letsql.backends"]
@@ -103,7 +106,8 @@ pytest-mock = "^3.14.0"
 pytest-snapshot = "^0.9.0"
 fsspec = { version = "<2024.6.2", optional = true }
 pins = { version = ">=0.8.3,<1", extras = ["gcs"], optional = true }
-
+xgboost = { version = ">=1.6.1", optional = true}
+cityhash = { version = ">=0.4.7,<1" }
 
 [tool.poetry.group.dev.dependencies]
 python = "^3.10"
@@ -135,7 +139,7 @@ ipykernel = "^6.29.4"
 datafusion = ["datafusion"]
 duckdb = ["duckdb"]
 snowflake = ["snowflake-connector-python"]
-examples = ["pins", "fsspec"]
+examples = ["pins", "fsspec", "duckdb", "xgboost"]
 
 [tool.poetry.plugins."letsql.backends"]
 let = "letsql.backends.let"

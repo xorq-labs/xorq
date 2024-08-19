@@ -1,6 +1,14 @@
+import warnings
+
 import dask
 import toolz
 
+try:
+    import cityhash  # noqa: F401
+except ImportError:
+    warnings.warn(
+        "cityhash is not installed, some functionality will not work", UserWarning
+    )
 
 from letsql.common.utils.logging_utils import get_logger
 
