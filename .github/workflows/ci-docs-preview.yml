@@ -57,7 +57,7 @@ jobs:
           version: 1.4.515
 
       - name: maturin develop
-        run: poetry run maturin develop
+        run: poetry run maturin develop --release
         working-directory: ${{ github.workspace }}
 
       - name: start services

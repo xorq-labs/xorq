@@ -1,4 +1,4 @@
-name: ci-test
+name: ci-test-library
 
 on:
   push:
@@ -27,16 +27,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, x86, aarch64]
-        python-version: ["3.10", "3.11"]
+        target: ["x86_64"]
+        python-version: ["3.11"]
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: download test data
-        run: just download-data
 
       - name: Rust latest
         run: rustup update
@@ -45,21 +42,13 @@ jobs:
         uses: snok/install-poetry@v1
 
       - name: Poetry install
-        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
+        run: poetry install
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
         run: poetry run maturin develop --release
         working-directory: ${{ github.workspace }}
 
-      - name: start services
-        run: docker compose up --build --wait
-
       - name: poetry pytest
-        run: poetry run pytest --import-mode=importlib --cov --cov-report=xml
+        run: poetry run pytest --import-mode=importlib python/letsql/tests/test_examples.py -v -m library
         working-directory: ${{ github.workspace }}
-
-      - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v4.5.0
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}

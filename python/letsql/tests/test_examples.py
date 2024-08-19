@@ -25,8 +25,16 @@ def teardown_function():
         path.unlink(missing_ok=True)
 
 
+def maybe_library(name: str):
+    return pytest.mark.library if name == "pandas_example" else ()
+
+
 @pytest.mark.parametrize(
-    "script", [param(script, id=script.stem) for script in scripts]
+    "script",
+    [
+        param(script, id=script.stem, marks=maybe_library(script.stem))
+        for script in scripts
+    ],
 )
 def test_script_execution(script):
     runpy.run_path(str(script))

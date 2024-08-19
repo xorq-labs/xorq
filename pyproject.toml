@@ -153,6 +153,7 @@ filterwarnings = [
 ]
 markers = [
     "snowflake",
+    "library"
 ]
 
 
