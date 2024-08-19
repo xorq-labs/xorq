@@ -1,17 +1,8 @@
 import letsql as ls
 from letsql import _
 from letsql.common.caching import ParquetCacheStorage
-from letsql.common.utils.postgres_utils import (
-    make_connection,
-)
 
-pg = make_connection(
-    host="localhost",
-    port=5432,
-    user="postgres",
-    password="postgres",
-    database="ibis_testing",
-)
+pg = ls.postgres.connect_examples()
 
 for table_name in pg.list_tables():
     if table_name.startswith(ls.config.options.cache.key_prefix):
