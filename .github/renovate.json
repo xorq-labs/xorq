@@ -5,7 +5,7 @@
     "config:recommended", ":enablePreCommit", ":disableDependencyDashboard"
   ],
   "semanticCommits": "enabled",
-  "lockFileMaintenance": { "enabled": true },
+  "lockFileMaintenance": { "enabled": false },
   "enabledManagers": [
     "docker-compose",
     "dockerfile",
@@ -15,7 +15,7 @@
     "cargo"
   ],
   "pre-commit": {
-    "enabled": true
+    "enabled": false
   },
   "prHourlyLimit": 3,
   "automerge": false,
