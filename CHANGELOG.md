@@ -5,11 +5,122 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.5] - 2024-08-21
+### Details
+The library has seen a lot of active development, with numerous new features and improvements added in various pull requests:
+- New functionality, such as a pyarrow-based UDAF, postgres and sqlite readers, image/array manipulation functions, 
+and xgboost prediction functions, have been added.
+- Existing functionality has been enhanced by wrapping ibis backends, updating dependencies, and improving the build/testing process.
+- Numerous dependency updates have been made to keep the library up-to-date.
+- Some bug fixes and stability improvements have been implemented as well.
+
+
+#### Added
+- Add pyarrow udaf based on PyAggregator by @mesejo in [#108](https://github.com/letsql/letsql/pull/108)
+- Add unit tests based on workflow diagram by @mesejo in [#110](https://github.com/letsql/letsql/pull/110)
+- Add postgres read_parquet by @mesejo in [#118](https://github.com/letsql/letsql/pull/118)
+- Add wrapper for snowflake backend by @mesejo in [#119](https://github.com/letsql/letsql/pull/119)
+- Add read_sqlite and read_postgres by @mesejo in [#120](https://github.com/letsql/letsql/pull/120)
+- Add ibis udf and model registration method by @hussainsultan in [#182](https://github.com/letsql/letsql/pull/182)
+- Add udf signature and return a partial with model_name by @hussainsultan in [#195](https://github.com/letsql/letsql/pull/195)
+- Add image and array manipulation functions by @mesejo in [#181](https://github.com/letsql/letsql/pull/181)
+- Add example predict_xgb.py by @dlovell in [#213](https://github.com/letsql/letsql/pull/213)
+- Add connectors for using environment variables or fixed examples server by @dlovell in [#217](https://github.com/letsql/letsql/pull/217)
+- Add workflow for testing library only dependencies by @mesejo in [#223](https://github.com/letsql/letsql/pull/223)
+- Add duckdb and xgboost as dependencies for examples by @mesejo in [#216](https://github.com/letsql/letsql/pull/216)
+
+#### Changed
+- Wrap ibis backends by @mesejo in [#115](https://github.com/letsql/letsql/pull/115)
+- Unpin pyarrow version by @mesejo in [#121](https://github.com/letsql/letsql/pull/121)
+- Update README by @mesejo in [#125](https://github.com/letsql/letsql/pull/125)
+- Use options.backend as ParquetCacheStorage's default backend by @mesejo in [#123](https://github.com/letsql/letsql/pull/123)
+- Change to publish on release by @mesejo in [#122](https://github.com/letsql/letsql/pull/122)
+- Configure Renovate by @renovate[bot] in [#124](https://github.com/letsql/letsql/pull/124)
+- Update dependency black to v24 [security] by @renovate[bot] in [#126](https://github.com/letsql/letsql/pull/126)
+- Update dependency pure-eval to v0.2.3 by @renovate[bot] in [#130](https://github.com/letsql/letsql/pull/130)
+- Update dependency blackdoc to v0.3.9 by @renovate[bot] in [#128](https://github.com/letsql/letsql/pull/128)
+- Update dependency pytest to v7.4.4 by @renovate[bot] in [#131](https://github.com/letsql/letsql/pull/131)
+- Update actions/create-github-app-token action to v1.10.3 by @renovate[bot] in [#127](https://github.com/letsql/letsql/pull/127)
+- Update dependency connectorx to v0.3.3 by @renovate[bot] in [#129](https://github.com/letsql/letsql/pull/129)
+- Update dependency snowflake/snowflake-connector-python to v3.11.0 by @renovate[bot] in [#141](https://github.com/letsql/letsql/pull/141)
+- Update dependency importlib-metadata to v8.1.0 by @renovate[bot] in [#139](https://github.com/letsql/letsql/pull/139)
+- Update dependency ruff to v0.5.4 by @renovate[bot] in [#133](https://github.com/letsql/letsql/pull/133)
+- Update dependency black to v24.4.2 by @renovate[bot] in [#136](https://github.com/letsql/letsql/pull/136)
+- Update dependency sqlalchemy to v2.0.31 by @renovate[bot] in [#134](https://github.com/letsql/letsql/pull/134)
+- Update codecov/codecov-action action to v4.5.0 by @renovate[bot] in [#135](https://github.com/letsql/letsql/pull/135)
+- Update dependency codespell to v2.3.0 by @renovate[bot] in [#137](https://github.com/letsql/letsql/pull/137)
+- Update dependency coverage to v7.6.0 by @renovate[bot] in [#138](https://github.com/letsql/letsql/pull/138)
+- Update dependency sqlglot to v23.17.0 by @renovate[bot] in [#142](https://github.com/letsql/letsql/pull/142)
+- Update dependency pre-commit to v3.7.1 by @renovate[bot] in [#140](https://github.com/letsql/letsql/pull/140)
+- Update dependency structlog to v24.4.0 by @renovate[bot] in [#143](https://github.com/letsql/letsql/pull/143)
+- Update actions/checkout action to v4 by @renovate[bot] in [#148](https://github.com/letsql/letsql/pull/148)
+- Update actions/setup-python action to v5 by @renovate[bot] in [#149](https://github.com/letsql/letsql/pull/149)
+- Update dependency datafusion/datafusion to v39 by @renovate[bot] in [#150](https://github.com/letsql/letsql/pull/150)
+- Update dependency numpy to v2 by @renovate[bot] in [#152](https://github.com/letsql/letsql/pull/152)
+- Update dependency duckb/duckdb to v1 by @renovate[bot] in [#151](https://github.com/letsql/letsql/pull/151)
+- Update dependency pyarrow to v17 by @renovate[bot] in [#153](https://github.com/letsql/letsql/pull/153)
+- Disable pip_requirements manager by @mesejo in [#163](https://github.com/letsql/letsql/pull/163)
+- Update dependency pytest-cov to v5 by @renovate[bot] in [#159](https://github.com/letsql/letsql/pull/159)
+- Update extractions/setup-just action to v2 by @renovate[bot] in [#161](https://github.com/letsql/letsql/pull/161)
+- Update github artifact actions to v4 by @renovate[bot] in [#162](https://github.com/letsql/letsql/pull/162)
+- Range for datafusion-common by @renovate[bot] in [#166](https://github.com/letsql/letsql/pull/166)
+- Update dependency pytest to v8 by @renovate[bot] in [#158](https://github.com/letsql/letsql/pull/158)
+- Update dependencies ranges by @mesejo in [#172](https://github.com/letsql/letsql/pull/172)
+- Enable plugin development for backends by @mesejo in [#132](https://github.com/letsql/letsql/pull/132)
+- Include pre-commit dependencies in renovatebot scan by @mesejo in [#176](https://github.com/letsql/letsql/pull/176)
+- Update dependency ruff to v0.5.5 by @renovate[bot] in [#174](https://github.com/letsql/letsql/pull/174)
+- Bump object_store from 0.10.1 to 0.10.2 by @dependabot[bot] in [#175](https://github.com/letsql/letsql/pull/175)
+- Update dependency pre-commit to v3.8.0 by @renovate[bot] in [#178](https://github.com/letsql/letsql/pull/178)
+- Lock file maintenance, update Cargo TOML by @renovate[bot] in [#179](https://github.com/letsql/letsql/pull/179)
+- Refactor flake by @dlovell in [#180](https://github.com/letsql/letsql/pull/180)
+- Use poetry2nix overlays by @dlovell
+- Enable editable install by @dlovell
+- Update dependency ruff to v0.5.6 by @renovate[bot] in [#183](https://github.com/letsql/letsql/pull/183)
+- Update dependency coverage to v7.6.1 by @renovate[bot] in [#187](https://github.com/letsql/letsql/pull/187)
+- Lock file maintenance by @renovate[bot] in [#188](https://github.com/letsql/letsql/pull/188)
+- Collapse ifs by @dlovell
+- Enable `nix run` to drop into an ipython shell by @dlovell
+- Make key_prefix settable in config/CacheStorage by @dlovell in [#196](https://github.com/letsql/letsql/pull/196)
+- Update dependency ruff to v0.5.7 by @renovate[bot] in [#197](https://github.com/letsql/letsql/pull/197)
+- Bump aiohttp from 3.9.5 to 3.10.2 by @dependabot[bot] in [#212](https://github.com/letsql/letsql/pull/212)
+- Lock file maintenance by @renovate[bot] in [#207](https://github.com/letsql/letsql/pull/207)
+- Return wrapper with model_name partialized by @hussainsultan
+- Update links to data files by @mesejo in [#214](https://github.com/letsql/letsql/pull/214)
+- Update dependency ruff to v0.6.0 by @renovate[bot] in [#215](https://github.com/letsql/letsql/pull/215)
+- Update gbdt-rs repo url by @mesejo in [#220](https://github.com/letsql/letsql/pull/220)
+- Make gbdt-rs dependency unambiguous by @mesejo in [#222](https://github.com/letsql/letsql/pull/222)
+- Use postgres.connect_examples() and TemporaryDirectory by @mesejo in [#219](https://github.com/letsql/letsql/pull/219)
+- Update dependency ruff to v0.6.1 by @renovate[bot] in [#218](https://github.com/letsql/letsql/pull/218)
+
+#### Fixed
+- Register cache tables when executing to_pyarrow by @mesejo in [#114](https://github.com/letsql/letsql/pull/114)
+- Update dependency fsspec to v2024.6.1 by @renovate[bot] in [#144](https://github.com/letsql/letsql/pull/144)
+- Update rust crate pyo3 to 0.21 by @renovate[bot] in [#146](https://github.com/letsql/letsql/pull/146)
+- Update tokio-prost monorepo to 0.13.1 by @renovate[bot] in [#147](https://github.com/letsql/letsql/pull/147)
+- Update rust crate datafusion range to v40 by @renovate[bot] in [#165](https://github.com/letsql/letsql/pull/165)
+- Update rust crate datafusion-* to v40 by @renovate[bot] in [#167](https://github.com/letsql/letsql/pull/167)
+- Widen dependency dask range to v2024 by @renovate[bot] in [#164](https://github.com/letsql/letsql/pull/164)
+- Enable build on macos by @dlovell
+- Conditionally include libiconv in maturinOverride by @dlovell
+- Update dependency attrs to v24 by @renovate[bot] in [#185](https://github.com/letsql/letsql/pull/185)
+- Return proper type in get_log_path by @dlovell
+- Use pandas backend in SourceStorage by @mesejo
+- Update rust crate datafusion to v41 by @renovate[bot] in [#203](https://github.com/letsql/letsql/pull/203)
+
+#### Removed
+- Remove warnings and deprecated palmerpenguins package by @mesejo in [#113](https://github.com/letsql/letsql/pull/113)
+- Remove  so that the udf keeps its metadata by @hussainsultan in [#198](https://github.com/letsql/letsql/pull/198)
+
+## New Contributors
+* @renovate[bot] made their first contribution in [#218](https://github.com/letsql/letsql/pull/218)
+* @dependabot[bot] made their first contribution in [#212](https://github.com/letsql/letsql/pull/212)
+
 ## [0.1.4] - 2024-07-02
 ### Details
 #### Changed
 - Api letsql api methods by @mesejo in [#105](https://github.com/letsql/letsql/pull/105)
 - Prepare for release 0.1.4 by @mesejo in [#107](https://github.com/letsql/letsql/pull/107)
+- 0.1.4 by @mesejo in [#109](https://github.com/letsql/letsql/pull/109)
 
 ## [0.1.3] - 2024-06-24
 ### Details
@@ -46,7 +157,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add SnapshotStorage by @dlovell in [#103](https://github.com/letsql/letsql/pull/103)
 
 #### Changed
+- Improve performance and ux of predict_xgb by @mesejo
 - Improve performance and ux of predict_xgb by @mesejo in [#8](https://github.com/letsql/letsql/pull/8)
+- Fetch only the required features for the model by @mesejo
 - Fetch only the required features for the model by @mesejo in [#9](https://github.com/letsql/letsql/pull/9)
 - Organize the letsql package by @mesejo
 - Lint by @dlovell
@@ -78,6 +191,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Give ParquetCacheStorage a default path by @dlovell in [#92](https://github.com/letsql/letsql/pull/92)
 - Update to datafusion version 39.0.0 by @mesejo in [#97](https://github.com/letsql/letsql/pull/97)
 - Make cache default path configurable by @mesejo in [#101](https://github.com/letsql/letsql/pull/101)
+- V0.1.3 by @mesejo in [#106](https://github.com/letsql/letsql/pull/106)
 
 #### Fixed
 - Filter bug solved by @mesejo
@@ -124,6 +238,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add CONTRIBUTING.md
 - Address problems with schema
 - Nix: add flake.nix and related files by @dlovell
+- Add db package for showing predict udf working by @mesejo
 - Add db package for showing predict udf working by @mesejo in [#1](https://github.com/letsql/letsql/pull/1)
 
 #### Removed

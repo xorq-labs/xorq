@@ -2082,7 +2082,7 @@ checksum = "03087c2bad5e1034e8cace5926dec053fb3790248370865f5117a7d0213354c8"
 
 [[package]]
 name = "letsql"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "arrow",
  "arrow-ord",
