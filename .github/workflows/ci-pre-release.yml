@@ -3,12 +3,10 @@
 #
 #    maturin generate-ci github
 #
-name: ci-publish
+name: ci-pre-release
 
 on:
   workflow_dispatch:
-  release:
-    types: [ published ]
 
 # we do not want more than one release workflow executing at the same time, ever
 concurrency:
@@ -113,10 +111,11 @@ jobs:
         with:
           path: dist
           merge-multiple: true
-      - name: Publish to PyPI
+      - name: Publish to TestPyPI
         uses: PyO3/maturin-action@v1
         env:
-          MATURIN_PYPI_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+          MATURIN_PYPI_TOKEN: ${{ secrets.TEST_PYPI_API_TOKEN }}
+          MATURIN_REPOSITORY: "testpypi"
         with:
           command: upload
           args: --non-interactive --skip-existing ./dist/*

@@ -3,6 +3,7 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
 
+import letsql
 from letsql.common.utils.hotfix_utils import (
     maybe_hotfix,
     none_tokenized,
@@ -55,5 +56,5 @@ def clone(self, password=None, **kwargs):
         },
         **kwargs,
     }
-    con = ibis.postgres.connect(**dct)
+    con = letsql.postgres.connect(**dct)
     return con

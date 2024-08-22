@@ -153,7 +153,7 @@ def test_cache_to_sql(alltypes):
     )
     cached = expr.cache()
 
-    assert ibis.to_sql(cached) == ibis.to_sql(expr)
+    assert letsql.to_sql(cached) == letsql.to_sql(expr)
 
 
 def test_op_after_cache(alltypes):
@@ -180,7 +180,7 @@ def test_op_after_cache(alltypes):
 
     assert_frame_equal(actual, expected)
 
-    assert ibis.to_sql(cached) == ibis.to_sql(full_expr)
+    assert letsql.to_sql(cached) == letsql.to_sql(full_expr)
 
 
 def setup_backend(table, table_name):
@@ -605,7 +605,7 @@ def test_register_with_different_name_and_cache(con, csv_dir, get_expr):
     batting_path = csv_dir.joinpath("batting.csv")
     table_name = "batting"
 
-    datafusion_con = ibis.datafusion.connect()
+    datafusion_con = letsql.datafusion.connect()
     letsql_table_name = f"{datafusion_con.name}_{table_name}"
     t = datafusion_con.register(
         batting_path, table_name=table_name, schema_infer_max_records=50_000
@@ -668,7 +668,7 @@ def test_pandas_snapshot(ls_con, alltypes_df):
     name = ibis.util.gen_name("tmp_table")
 
     # create a temp table we can mutate
-    pd_con = ibis.pandas.connect()
+    pd_con = letsql.pandas.connect()
     table = pd_con.create_table(name, alltypes_df)
     t = ls_con.register(table, f"let_{table.op().name}")
     cached_expr = (
@@ -743,7 +743,7 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     name = ibis.util.gen_name("tmp_table")
 
     # create a temp table we can mutate
-    df_con = ibis.datafusion.connect()
+    df_con = letsql.datafusion.connect()
     table = df_con.create_table(name, alltypes_df)
     t = ls_con.register(table, f"let_{table.op().name}")
     cached_expr = (

@@ -29,7 +29,7 @@ def test_unregistered_raises():
 
 
 def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
-    con = ibis.datafusion.connect()
+    con = letsql.datafusion.connect()
     typ = type(con)
     t = con.register(alltypes_df, "t")
     with patch_normalize_token(type(con)) as mocks:
@@ -41,7 +41,7 @@ def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
 def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     path = pathlib.Path(tmp_path).joinpath("data.parquet")
     alltypes_df.to_parquet(path)
-    con = ibis.datafusion.connect()
+    con = letsql.datafusion.connect()
     t = con.register(path, "t")
     # work around tmp_path variation
     (prefix, suffix) = (
@@ -61,7 +61,7 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
 
 
 def test_tokenize_pandas_expr(alltypes_df, snapshot):
-    con = ibis.pandas.connect()
+    con = letsql.pandas.connect()
     typ = type(con)
     t = con.create_table("t", alltypes_df)
     with patch_normalize_token(type(t.op().source)) as mocks:

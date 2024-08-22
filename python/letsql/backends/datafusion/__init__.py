@@ -764,7 +764,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                table = ibis.memtable(obj)
+                table = letsql.memtable(obj)
             else:
                 table = obj
 

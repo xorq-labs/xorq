@@ -42,6 +42,13 @@ res = (
 )
 ```
 
+for more examples on how to use letsql, check the [examples](https://github.com/letsql/letsql/tree/main/examples) directory, 
+note that in order to run some of the scripts in there, you need to install the library with `examples` extra:
+
+```shell
+pip install 'letsql[extras]'
+```
+
 ## Contributing
 
 Contributions are welcome and highly appreciated. To get started, check out the [contributing guidelines](https://github.com/letsql/letsql/blob/main/CONTRIBUTING.md).

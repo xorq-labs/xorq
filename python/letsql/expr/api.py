@@ -1469,8 +1469,8 @@ def time(value_or_hour, minute=None, second=None, /):
 
     Create a time column from hour, minute, and second
 
-    >>> t = ibis.memtable({"h": [1, 4], "m": [2, 5], "s": [3, 6]})
-    >>> ibis.time(t.h, t.m, t.s).name("time")
+    >>> t = letsql.memtable({"h": [1, 4], "m": [2, 5], "s": [3, 6]})
+    >>> letsql.time(t.h, t.m, t.s).name("time")
     ┏━━━━━━━━━━┓
     ┃ time     ┃
     ┡━━━━━━━━━━┩

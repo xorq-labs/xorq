@@ -335,7 +335,7 @@ def test_sql_execution(con, duckdb_con, awards_players, batting):
 
     right = ddb_players[ddb_players.lgID == "NL"].drop("yearID", "lgID")
     expr = left.join(right, predicate, how="inner")
-    query = ibis.to_sql(expr, dialect="datafusion")
+    query = letsql.to_sql(expr)
 
     result = (
         con.sql(query)
