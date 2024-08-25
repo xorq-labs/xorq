@@ -53,10 +53,21 @@ class Backend(DataFusionBackend):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
+        # FIXME: make sure all paths set the correct backend, table_or_expr pairs
         table_or_expr = None
         if isinstance(source, ir.Expr) and hasattr(source, "to_pyarrow_batches"):
             table_or_expr = source.op()
-            backend = source._find_backend(use_default=False)
+
+            backends, has_unbound = source._find_backends()
+            backend = None
+            if not backends:
+                if not has_unbound:
+                    source = super().execute(source)
+                    table_or_expr = None
+            elif len(backends) > 1:
+                raise ValueError("Multiple backends found for this expression")
+            else:
+                backend = backends[0]
 
             if isinstance(backend, Backend):
                 if backend is self and table_or_expr in self._sources:

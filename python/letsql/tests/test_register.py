@@ -7,6 +7,8 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pytest
 
+import letsql
+
 
 @pytest.fixture
 def gzip_csv(data_dir, tmp_path):
@@ -84,3 +86,9 @@ def test_register_dataset(con):
     dataset = ds.InMemoryDataset(tab)
     con.register(dataset, "my_table")
     assert con.table("my_table").x.sum().execute() == 6
+
+
+def test_register_memtable(con):
+    data = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [2, 3, 4, 5, 6]})
+    t = letsql.memtable(data).pipe(con.register, "data")
+    assert t.a.sum().execute() == 15
