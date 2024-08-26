@@ -2,6 +2,9 @@ name: ci-test-snowflake
 
 on:
   workflow_dispatch:
+  pull_request_target:
+    types:
+      - labeled
 
 permissions:
   contents: read
@@ -10,6 +13,7 @@ permissions:
 jobs:
   linux:
     runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci-test-snowflake'
     strategy:
       matrix:
         target: ["x86_64"]
@@ -30,7 +34,7 @@ jobs:
         uses: snok/install-poetry@v1
 
       - name: Poetry install
-        run: poetry install --extras="examples"
+        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
@@ -41,7 +45,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: poetry pytest
-        run: poetry run pytest --import-mode=importlib python/letsql/backends/snowflake -v
+        run: poetry run pytest --import-mode=importlib python/letsql/backends/snowflake -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_GH_USER_PASSWORD }}
@@ -49,4 +53,12 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_GH_WAREHOUSE }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_GH_ROLE }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_GH_ACCOUNT }}
+
+      - name: Upload coverage reports to Codecov
+        if: success()
+        continue-on-error: true
+        uses: codecov/codecov-action@v4.5.0
+        with:
+          flags: snowflake
+          token: ${{ secrets.CODECOV_TOKEN }}
 
