@@ -1,0 +1,61 @@
+name: ci-test-s3
+
+on:
+  workflow_dispatch:
+  pull_request_target:
+    types:
+      - labeled
+
+permissions:
+  contents: read
+
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'ci-test-s3'
+    strategy:
+      matrix:
+        target: ["x86_64"]
+        python-version: ["3.11"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: download test data
+        run: just download-data
+
+      - name: Rust latest
+        run: rustup update
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Poetry install
+        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
+        working-directory: ${{ github.workspace }}
+
+      - name: maturin develop
+        run: poetry run maturin develop --release
+        working-directory: ${{ github.workspace }}
+
+      - name: start services
+        run: docker compose up --build --wait
+
+      - name: poetry pytest
+        run: poetry run pytest --import-mode=importlib python/letsql/tests/test_register.py -v --cov --cov-report=xml
+        working-directory: ${{ github.workspace }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+
+      - name: Upload coverage reports to Codecov
+        if: success()
+        continue-on-error: true
+        uses: codecov/codecov-action@v4.5.0
+        with:
+          flags: s3
+          token: ${{ secrets.CODECOV_TOKEN }}
+
