@@ -19,7 +19,17 @@ jobs:
         target: ["x86_64"]
         python-version: ["3.11"]
     steps:
-      - uses: actions/checkout@v4
+      - name: checkout
+        uses: actions/checkout@v4
+        if: github.event.label.name != 'ci-test-s3'
+
+      - name: checkout
+        if: github.event.label.name == 'ci-test-s3'
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
       - uses: extractions/setup-just@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
