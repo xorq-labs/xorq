@@ -46,7 +46,7 @@ for more examples on how to use letsql, check the [examples](https://github.com/
 note that in order to run some of the scripts in there, you need to install the library with `examples` extra:
 
 ```shell
-pip install 'letsql[extras]'
+pip install 'letsql[examples]'
 ```
 
 ## Contributing
