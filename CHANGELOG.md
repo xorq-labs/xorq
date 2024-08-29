@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.6] - 2024-08-29
+### Details
+This update includes new workflows for testing Snowflake and S3, a dependency update for ruff, 
+and several fixes addressing PyPI release issues, in-memory table registration, and Dask version compatibility.
+
+#### Added
+- Add workflow for testing snowflake by @mesejo in [#233](https://github.com/letsql/letsql/pull/233)
+- Add ci workflow for testing s3 by @mesejo in [#235](https://github.com/letsql/letsql/pull/235)
+
+#### Changed
+- Update dependency ruff to v0.6.2 by @renovate[bot] in [#229](https://github.com/letsql/letsql/pull/229)
+
+#### Fixed
+- Issues with release to pypi by @mesejo in [#228](https://github.com/letsql/letsql/pull/228)
+- Registration of in-memory tables by @mesejo in [#232](https://github.com/letsql/letsql/pull/232)
+- Improve snowflake workflow by @mesejo in [#234](https://github.com/letsql/letsql/pull/234)
+- Checkout PR ref by @mesejo in [#236](https://github.com/letsql/letsql/pull/236)
+- Fix dask version by @mesejo in [#237](https://github.com/letsql/letsql/pull/237)
+
 ## [0.1.5] - 2024-08-21
 ### Details
 The library has seen a lot of active development, with numerous new features and improvements added in various pull requests:
