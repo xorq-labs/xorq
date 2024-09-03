@@ -1,5 +1,6 @@
 import io
 import urllib.request
+from operator import itemgetter
 
 import pandas as pd
 import pyarrow as pa
@@ -72,9 +73,9 @@ def test_segment_anything(images_table, model_path):
     context.register_record_batches("images", [images_table.to_batches()])
     sql = make_images_expr(images_table, model_path).compile()
     rows = context.sql(sql).to_pylist()
-    output = [Image.open(io.BytesIO(row["segmented"])) for row in rows]
-    assert output is not None
-    assert all(image.format == IMAGE_FORMAT for image in output)
+    output = [row for row in map(itemgetter("segmented"), rows)]
+    assert all(row["mask"] is not None for row in output)
+    assert all(row["iou_score"] is not None for row in output)
 
 
 def test_segment_anything_op(images_table, model_path):

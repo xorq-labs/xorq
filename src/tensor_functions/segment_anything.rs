@@ -1,10 +1,10 @@
 use std::any::Any;
-use std::io::Cursor;
 use std::sync::Arc;
 
-use arrow::array::{Array, ArrayRef, LargeBinaryArray};
+use arrow::array::{Array, ArrayRef, Float32Array, LargeListArray, StructArray};
+use arrow::datatypes::UInt8Type;
 use arrow_convert::deserialize::TryIntoCollection;
-use arrow_schema::DataType;
+use arrow_schema::{DataType, Field, Fields};
 use candle_core::{DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::models::segment_anything::sam;
@@ -45,7 +45,15 @@ impl ScalarUDFImpl for SegmentAnythingUDF {
     }
 
     fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        Ok(DataType::LargeBinary)
+        let struct_fields = Fields::from(vec![
+            Field::new(
+                "mask",
+                DataType::LargeList(new_arc_field("item", DataType::UInt8, true)),
+                false,
+            ),
+            Field::new("iou_score", DataType::Float32, false),
+        ]);
+        Ok(DataType::Struct(struct_fields.clone()))
     }
 
     fn invoke(&self, args: &[ColumnarValue]) -> Result<ColumnarValue> {
@@ -96,16 +104,22 @@ fn segment_anything_inner(args: &[ArrayRef]) -> Result<ArrayRef> {
     let images = as_binary_array(&args[1])?;
     let row_count = images.len();
     let mut segmented: Vec<Vec<u8>> = (0..row_count).map(|_| Vec::new()).collect();
+    let mut iou_scores: Vec<f32> = Vec::new();
 
-    for (i, mut bytes) in (0..row_count).zip(segmented.clone()) {
-        let image = images.value(i);
-        let (format, mut image) = binary_to_img(image)?;
+    for (i, image) in images.iter().enumerate().take(row_count) {
+        let (_, image) = binary_to_img(image.unwrap_or_default())?;
         let tensor = get_tensor_from_image(Some(sam::IMAGE_SIZE), image.clone())
             .map_err(|e| Execution(e.to_string()))?;
 
         let (mask, _iou_predictions) = sam
             .forward(&tensor, &points, false)
             .map_err(|e| Execution(e.to_string()))?;
+
+        let iou_score = _iou_predictions
+            .flatten_all()
+            .map_err(|e| Execution(e.to_string()))?
+            .to_vec1::<f32>()
+            .map_err(|e| Execution(e.to_string()))?[0];
 
         let mask = (mask.ge(0.).map_err(|e| Execution(e.to_string()))? * 255.)
             .map_err(|e| Execution(e.to_string()))?;
@@ -121,49 +135,36 @@ fn segment_anything_inner(args: &[ArrayRef]) -> Result<ArrayRef> {
             .map_err(|e| Execution(e.to_string()))?
             .to_vec1::<u8>()
             .map_err(|e| Execution(e.to_string()))?;
-        let mask_img: image::ImageBuffer<image::Rgb<u8>, Vec<u8>> =
-            match image::ImageBuffer::from_raw(w as u32, h as u32, mask_pixels) {
-                Some(image) => image,
-                None => return exec_err!("error saving merged image"),
-            };
-        let mask_img = image::DynamicImage::from(mask_img).resize_to_fill(
-            image.width(),
-            image.height(),
-            image::imageops::FilterType::CatmullRom,
-        );
-        for x in 0..image.width() {
-            for y in 0..image.height() {
-                let mask_p = imageproc::drawing::Canvas::get_pixel(&mask_img, x, y);
-                if mask_p.0[0] > 100 {
-                    let mut img_p = imageproc::drawing::Canvas::get_pixel(&image, x, y);
-                    img_p.0[2] = 255 - (255 - img_p.0[2]) / 2;
-                    img_p.0[1] /= 2;
-                    img_p.0[0] /= 2;
-                    imageproc::drawing::Canvas::draw_pixel(&mut image, x, y, img_p)
-                }
-            }
-        }
-        for (x, y, b) in &points {
-            let x = (x * image.width() as f64) as i32;
-            let y = (y * image.height() as f64) as i32;
-            let color = if *b {
-                image::Rgba([255, 0, 0, 200])
-            } else {
-                image::Rgba([0, 255, 0, 200])
-            };
-            imageproc::drawing::draw_filled_circle_mut(&mut image, (x, y), 3, color);
-        }
 
-        let mut writer = Cursor::new(&mut bytes);
-
-        let _ = image.write_to(&mut writer, format);
-
-        segmented[i] = bytes;
+        segmented[i] = mask_pixels;
+        iou_scores.push(iou_score);
     }
 
-    let result = segmented.iter().map(|v| v.as_slice()).collect();
+    let segmented: Vec<Option<Vec<Option<u8>>>> = segmented
+        .iter()
+        .map(|v| Some(v.iter().map(|x1| Some(*x1)).collect::<Vec<Option<u8>>>()))
+        .collect();
+    let result = Arc::new(LargeListArray::from_iter_primitive::<UInt8Type, _, _>(
+        segmented,
+    ));
+    let iou_scores = Arc::new(Float32Array::from(iou_scores));
 
-    Ok(Arc::new(LargeBinaryArray::from_vec(result)))
+    let expected = StructArray::from(vec![
+        (
+            Arc::new(Field::new(
+                "mask",
+                DataType::LargeList(new_arc_field("item", DataType::UInt8, true)),
+                false,
+            )),
+            Arc::clone(&result) as ArrayRef,
+        ),
+        (
+            Arc::new(Field::new("iou_score", DataType::Float32, false)),
+            Arc::clone(&iou_scores) as ArrayRef,
+        ),
+    ]);
+
+    Ok(Arc::new(expected))
 }
 
 fn get_tensor_from_image(
@@ -190,4 +191,8 @@ fn get_tensor_from_image(
     let data = img.into_raw();
     let data = Tensor::from_vec(data, (height, width, 3), &Device::Cpu)?.permute((2, 0, 1))?;
     Ok(data)
+}
+
+fn new_arc_field(name: &str, dt: DataType, nullable: bool) -> Arc<Field> {
+    Arc::new(Field::new(name, dt, nullable))
 }
