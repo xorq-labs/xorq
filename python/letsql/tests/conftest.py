@@ -6,6 +6,10 @@ import pandas as pd
 import pytest
 
 import letsql as ls
+from letsql.common.utils.aws_utils import (
+    connection_is_set,
+    make_s3_credentials_defaults,
+)
 
 TEST_TABLES = {
     "functional_alltypes": ibis.schema(
@@ -165,6 +169,14 @@ array_types_df = pd.DataFrame(
         "multi_dim",
     ],
 )
+
+have_s3_credentials = connection_is_set(make_s3_credentials_defaults())
+
+
+def pytest_runtest_setup(item):
+    if any(mark.name == "s3" for mark in item.iter_markers()):
+        if not have_s3_credentials:
+            pytest.skip("cannot run s3 tests without s3 credentials")
 
 
 @pytest.fixture(scope="session")

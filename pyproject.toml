@@ -157,7 +157,8 @@ filterwarnings = [
 ]
 markers = [
     "snowflake",
-    "library"
+    "library",
+    "s3"
 ]
 
 

@@ -58,6 +58,21 @@ def test_read_csv(con, data_dir):
     assert t.count().execute()
 
 
+def test_read_csv_from_url(con):
+    t = con.read_csv(
+        "https://opendata-downloads.s3.amazonaws.com/opa_properties_public.csv"
+    )
+    assert t.head().execute() is not None
+
+
+@pytest.mark.s3
+def test_read_csv_from_s3(con):
+    t = con.read_csv(
+        "s3://opendata-downloads/opa_properties_public.csv",
+    )
+    assert t.head().execute() is not None
+
+
 def test_read_parquet(con, data_dir):
     t = con.read_parquet(data_dir / "parquet" / "functional_alltypes.parquet")
     assert t.count().execute()

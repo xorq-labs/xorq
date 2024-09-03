@@ -30,6 +30,8 @@ mod udaf;
 mod udf;
 pub mod utils;
 
+mod object_storage;
+
 // Used to define Tokio Runtime as a Python module attribute
 #[pyclass]
 pub(crate) struct TokioRuntime(tokio::runtime::Runtime);

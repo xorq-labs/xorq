@@ -3,40 +3,43 @@ from __future__ import annotations
 import contextlib
 import functools
 import inspect
+import json
 import types
 import typing
-import toolz
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import ibis
-from ibis.common.annotations import Argument
-from ibis.expr.operations import Namespace
 import ibis.common.exceptions as com
-import ibis.expr.rules as rlz
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
+import ibis.expr.rules as rlz
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
-import json
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
+import toolz
 from ibis.backends import CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl
 from ibis.backends.sql import SQLBackend
 from ibis.backends.sql.compiler import C
+from ibis.common.annotations import Argument
+from ibis.expr.operations import Namespace
 from ibis.expr.operations.udf import InputType
+from ibis.expr.operations.udf import ScalarUDF
 from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
-from ibis.expr.operations.udf import ScalarUDF
 
 import letsql
 import letsql.internal as df
 from letsql.backends.datafusion.compiler import DataFusionCompiler
 from letsql.backends.datafusion.provider import IbisTableProvider
+from letsql.common.utils.aws_utils import (
+    make_s3_connection,
+)
 from letsql.expr.pyaggregator import PyAggregator, make_struct_type
 from letsql.internal import (
     SessionConfig,
@@ -592,6 +595,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         path = normalize_filename(path)
         table_name = table_name or gen_name("read_csv")
+
+        storage_options, is_connection_set = make_s3_connection()
+        if is_connection_set:
+            kwargs.setdefault("storage_options", storage_options)
+
         # Our other backends support overwriting views / tables when re-registering
         self.con.deregister_table(table_name)
         self.con.register_csv(table_name, path, **kwargs)

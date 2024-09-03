@@ -3,6 +3,25 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 
+use crate::catalog::{PyCatalog, PyTable};
+use crate::dataframe::PyDataFrame;
+use crate::dataset::Dataset;
+use crate::errors::DataFusionError;
+use crate::functions::greatest::GreatestFunc;
+use crate::functions::least::LeastFunc;
+use crate::ibis_table::IbisTable;
+use crate::model::{ModelRegistry, SessionModelRegistry};
+use crate::object_storage::register_object_store_and_config_extensions;
+use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
+use crate::predict_udf::PredictUdf;
+use crate::provider::PyTableProvider;
+use crate::py_record_batch_provider::PyRecordBatchProvider;
+use crate::tensor_functions::mean_all::TensorMeanAllUDF;
+use crate::tensor_functions::rotate::Rotate90UDF;
+use crate::tensor_functions::segment_anything::SegmentAnythingUDF;
+use crate::udaf::PyAggregateUDF;
+use crate::udf::PyScalarUDF;
+use crate::utils::wait_for_future;
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
 use datafusion::arrow::pyarrow::PyArrowType;
@@ -14,31 +33,13 @@ use datafusion::execution::context::{SessionConfig, SessionContext, SessionState
 use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
+use datafusion_common::config::ConfigFileType;
 use datafusion_common::ScalarValue;
 use datafusion_expr::ScalarUDF;
 use gbdt::gradient_boost::GBDT;
 use parking_lot::RwLock;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
-
-use crate::catalog::{PyCatalog, PyTable};
-use crate::dataframe::PyDataFrame;
-use crate::dataset::Dataset;
-use crate::errors::DataFusionError;
-use crate::functions::greatest::GreatestFunc;
-use crate::functions::least::LeastFunc;
-use crate::ibis_table::IbisTable;
-use crate::model::{ModelRegistry, SessionModelRegistry};
-use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
-use crate::predict_udf::PredictUdf;
-use crate::provider::PyTableProvider;
-use crate::py_record_batch_provider::PyRecordBatchProvider;
-use crate::tensor_functions::mean_all::TensorMeanAllUDF;
-use crate::tensor_functions::rotate::Rotate90UDF;
-use crate::tensor_functions::segment_anything::SegmentAnythingUDF;
-use crate::udaf::PyAggregateUDF;
-use crate::udf::PyScalarUDF;
-use crate::utils::wait_for_future;
 
 /// Configuration options for a SessionContext
 #[pyclass(name = "SessionConfig", module = "datafusion", subclass)]
@@ -240,7 +241,8 @@ impl PySessionContext {
                         delimiter=",",
                         schema_infer_max_records=1000,
                         file_extension=".csv",
-                        file_compression_type=None))]
+                        file_compression_type=None,
+                        storage_options=None))]
     fn register_csv(
         &mut self,
         name: &str,
@@ -251,6 +253,7 @@ impl PySessionContext {
         schema_infer_max_records: usize,
         file_extension: &str,
         file_compression_type: Option<String>,
+        storage_options: Option<HashMap<String, String>>,
         py: Python,
     ) -> PyResult<()> {
         let path = path
@@ -262,6 +265,7 @@ impl PySessionContext {
                 "Delimiter must be a single character",
             ));
         }
+        let storage_options = storage_options.unwrap_or_default();
 
         let mut options = CsvReadOptions::new()
             .has_header(has_header)
@@ -271,7 +275,17 @@ impl PySessionContext {
             .file_compression_type(parse_file_compression_type(file_compression_type)?);
         options.schema = schema.as_ref().map(|x| &x.0);
 
-        let result = self.ctx.register_csv(name, path, options);
+        let result = async {
+            register_object_store_and_config_extensions(
+                &self.ctx,
+                &path.to_string(),
+                Some(ConfigFileType::CSV),
+                &storage_options,
+            )
+            .await?;
+            self.ctx.register_csv(name, path, options).await
+        };
+
         wait_for_future(py, result).map_err(DataFusionError::from)?;
 
         Ok(())
