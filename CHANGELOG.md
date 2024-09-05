@@ -5,6 +5,25 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.7] - 2024-09-05
+### Details
+In this release, the segment_anything function has been refactored and cleaned up for improved performance and maintainability. 
+The output of segment_anything has also been modified to return the mask and iou_score. 
+Additionally, support for reading CSV files from HTTP sources has been added, along with basic S3 support, enhancing the data ingestion capabilities of the project.
+
+#### Changed
+- Update dependency ruff to v0.6.3 by @renovate[bot] in [#242](https://github.com/letsql/letsql/pull/242)
+- Refactor and clean segment anything function by @mesejo in [#243](https://github.com/letsql/letsql/pull/243)
+- Reading from csv in HTTP, add basic s3 support by @mesejo in [#230](https://github.com/letsql/letsql/pull/230)
+- Change output of segment_anything to mask and iou_score by @mesejo in [#244](https://github.com/letsql/letsql/pull/244)
+- Bump quinn-proto from 0.11.6 to 0.11.8 by @dependabot[bot] in [#249](https://github.com/letsql/letsql/pull/249)
+- Update actions/create-github-app-token action to v1.10.4 by @renovate[bot] in [#253](https://github.com/letsql/letsql/pull/253)
+- Bump cryptography from 43.0.0 to 43.0.1 by @dependabot[bot] in [#254](https://github.com/letsql/letsql/pull/254)
+
+#### Fixed
+- Fix typo in README by @mesejo in [#241](https://github.com/letsql/letsql/pull/241)
+- Update rust crate arrow to v53 by @renovate[bot] in [#250](https://github.com/letsql/letsql/pull/250)
+
 ## [0.1.6] - 2024-08-29
 ### Details
 This update includes new workflows for testing Snowflake and S3, a dependency update for ruff, 
