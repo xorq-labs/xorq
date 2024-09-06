@@ -120,7 +120,7 @@ ipython = "^8.19.0"
 pre-commit = "3.8.0"
 pytest = "8.0.2"
 pytest-cov = "5.0.0"
-ruff = "0.6.3"
+ruff = "0.6.4"
 pillow = "^10.4.0"
 
 [tool.poetry.group.test.dependencies]
