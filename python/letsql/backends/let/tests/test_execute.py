@@ -572,7 +572,6 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
         param(
             pair,
             id="-".join(pair),
-            marks=[pytest.mark.xfail] if ("ddb_batting", "ddb_batting") == pair else [],
         )
         for pair in itertools.combinations_with_replacement(
             ["pg_batting", "ls_batting", "ddb_batting"],

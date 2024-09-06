@@ -50,7 +50,7 @@ duckb = [
     "duckdb>=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 datafusion = [
-    "datafusion>=34.0.0,<40 ; python_version >= '3.10' and python_version < '4.0'"
+    "datafusion>=34.0.0,<41; python_version >= '3.10' and python_version < '4.0'"
 ]
 snowflake = [
     "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'"
@@ -101,7 +101,7 @@ sqlalchemy = "^2.0.25"
 pyarrow = ">=13.0.0,<18"
 duckdb = {version = ">=0.10.3,<2", optional = true}
 snowflake-connector-python = {version = ">=3.10.1,<4", optional = true}
-datafusion = {version = ">=34.0.0,<40", optional = true}
+datafusion = {version = ">=34.0.0,<41", optional = true}
 structlog = "^24.2.0"
 pytest-mock = "^3.14.0"
 pytest-snapshot = "^0.9.0"
