@@ -13,9 +13,6 @@ from sqlglot import exp, parse_one
 
 import letsql.backends.let.hotfix  # noqa: F401
 from letsql.backends.datafusion import Backend as DataFusionBackend
-from letsql.common.caching import (
-    SourceStorage,
-)
 from letsql.common.collections import SourceDict
 from letsql.expr.relations import (
     CachedNode,
@@ -62,6 +59,7 @@ class Backend(DataFusionBackend):
             backend = None
             if not backends:
                 if not has_unbound:
+                    # presumes MemoryTable?
                     source = super().execute(source)
                     table_or_expr = None
             elif len(backends) > 1:
@@ -70,15 +68,19 @@ class Backend(DataFusionBackend):
                 backend = backends[0]
 
             if isinstance(backend, Backend):
-                if backend is self and table_or_expr in self._sources:
-                    table_or_expr = self._sources.get_table_or_op(table_or_expr)
-                    backend = self._sources.get_backend(table_or_expr)
+                if table_or_expr in backend._sources:
+                    old_table_expr, table_or_expr = (
+                        table_or_expr,
+                        backend._sources.get_table_or_op(table_or_expr),
+                    )
+                    backend = backend._sources.get_backend(old_table_expr)
+                source = table_or_expr.to_expr()
 
-                if (
-                    isinstance(backend, DataFusionBackend)
-                    or getattr(backend, "name", "") == DataFusionBackend.name
-                ):
-                    source = _get_datafusion_dataframe(backend, source)
+            if (
+                isinstance(backend, DataFusionBackend)
+                or getattr(backend, "name", "") == DataFusionBackend.name
+            ):
+                source = _get_datafusion_dataframe(backend, source)
 
         registered_table = super().register(source, table_name=table_name, **kwargs)
         self._sources[registered_table.op()] = table_or_expr or registered_table.op()
@@ -211,16 +213,6 @@ class Backend(DataFusionBackend):
         self._sources[registered_table.op()] = registered_table.op()
         return registered_table
 
-    def execute(self, expr: ir.Expr, **kwargs: Any):
-        expr = self._transform_to_native_backend(expr)
-        expr = self._register_and_transform_cache_tables(expr)
-        backend = self._get_source(expr)
-
-        if backend is self:
-            backend = super()
-
-        return backend.execute(expr.unbind(), **kwargs)
-
     def _transform_to_native_backend(self, expr):
         native_backend = self._get_source(expr) is not self
         if native_backend:
@@ -232,15 +224,33 @@ class Backend(DataFusionBackend):
 
         return expr
 
+    def execute(self, expr: ir.Expr, **kwargs: Any):
+        backend, expr = self._get_backend_and_expr(expr)
+        return backend.execute(expr.unbind(), **kwargs)
+
     def to_pyarrow(self, expr: ir.Expr, **kwargs: Any) -> pa.Table:
+        backend, expr = self._get_backend_and_expr(expr)
+        return backend.to_pyarrow(expr.unbind(), **kwargs)
+
+    def to_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        *,
+        chunk_size: int = 1_000_000,
+        **kwargs: Any,
+    ) -> pa.ipc.RecordBatchReader:
+        backend, expr = self._get_backend_and_expr(expr)
+        return backend.to_pyarrow_batches(
+            expr.unbind(), chunk_size=chunk_size, **kwargs
+        )
+
+    def _get_backend_and_expr(self, expr):
         expr = self._transform_to_native_backend(expr)
         expr = self._register_and_transform_cache_tables(expr)
         backend = self._get_source(expr)
-
-        if backend is self:
-            backend = super()
-
-        return backend.to_pyarrow(expr, **kwargs)
+        if isinstance(backend, self.__class__):
+            backend = super(self.__class__, backend)
+        return backend, expr
 
     def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
         """Creates a connection.
@@ -276,17 +286,6 @@ class Backend(DataFusionBackend):
             return self
         else:
             return sources[0]
-
-    def _cached(self, expr: ir.Table, storage=None):
-        source = self._get_source(expr)
-        storage = storage or SourceStorage(source=source)
-        op = CachedNode(
-            schema=expr.schema(),
-            parent=expr.op(),
-            source=source,
-            storage=storage,
-        )
-        return op.to_expr()
 
     def _register_and_transform_cache_tables(self, expr):
         """This function will sequentially execute any cache node that is not already cached"""

@@ -37,19 +37,16 @@ def pg():
 
 @pytest.fixture(scope="session")
 def dirty(pg):
-    con = ls.connect()
-
-    for table_name in expected_tables:
-        con.register(pg.table(table_name), table_name=table_name)
-
-    return con
+    return pg
 
 
 def remove_unexpected_tables(dirty):
+    # drop tables
     for table in dirty.list_tables():
         if table not in expected_tables:
             dirty.drop_table(table, force=True)
 
+    # drop view
     for table in dirty.list_tables():
         if table not in expected_tables:
             dirty.drop_view(table, force=True)
@@ -74,9 +71,12 @@ def dirty_ls_con():
 
 @pytest.fixture(scope="function")
 def ls_con(dirty_ls_con):
+    # since we don't register, maybe just create a fresh con
     yield dirty_ls_con
+    # drop tables
     for table_name in dirty_ls_con.list_tables():
         dirty_ls_con.drop_table(table_name, force=True)
+    # drop view
     for table_name in dirty_ls_con.list_tables():
         dirty_ls_con.drop_view(table_name, force=True)
 

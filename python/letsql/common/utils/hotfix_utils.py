@@ -20,7 +20,12 @@ none_tokenized = "8c3b464958e9ad0f20fb2e3b74c80519"
 
 
 @toolz.curry
-def maybe_hotfix(obj, attrname, target_tokenized, hotfix):
+def hotfix(obj, attrname, target_tokenized, hotfix):
+    return maybe_hotfix(obj, attrname, target_tokenized, hotfix, definitely=True)
+
+
+@toolz.curry
+def maybe_hotfix(obj, attrname, target_tokenized, hotfix, definitely=False):
     to_hotfix = getattr(obj, attrname, None)
     tokenized = dask.base.tokenize(to_hotfix)
     dct = {
@@ -31,7 +36,7 @@ def maybe_hotfix(obj, attrname, target_tokenized, hotfix):
         "target_tokenized": target_tokenized,
         "hotfix_tokenized": dask.base.tokenize(hotfix),
     }
-    if tokenized == target_tokenized:
+    if definitely or (tokenized == target_tokenized):
         if not isinstance(hotfix, property):
             setattr(hotfix, "_original", to_hotfix)
         else:

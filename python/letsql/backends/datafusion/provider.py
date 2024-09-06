@@ -14,5 +14,5 @@ class IbisTableProvider(AbstractTableProvider):
         table = self.table
         if filters:
             table = self.table.filter(filters)
-
-        return table.to_pyarrow_batches()
+        backend = table._find_backend()
+        return backend.to_pyarrow_batches(table)

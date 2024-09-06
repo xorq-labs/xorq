@@ -12,9 +12,6 @@ from ibis.backends.postgres import Backend as IbisPostgresBackend
 from ibis.expr import types as ir
 from pandas.api.types import is_float_dtype
 
-from letsql.common.caching import (
-    SourceStorage,
-)
 from letsql.expr.relations import CachedNode, replace_cache_table
 
 
@@ -70,16 +67,6 @@ class Backend(IbisPostgresBackend):
         out = op.map_clear(replace_cache_table)
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
-
-    def _cached(self, expr: ir.Table, storage=None):
-        storage = storage or SourceStorage(source=self)
-        op = CachedNode(
-            schema=expr.schema(),
-            parent=expr.op(),
-            source=self,
-            storage=storage,
-        )
-        return op.to_expr()
 
     def read_parquet(
         self, path: str | Path, table_name: str | None = None, **kwargs: Any

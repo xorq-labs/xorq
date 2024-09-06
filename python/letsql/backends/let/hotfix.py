@@ -1,3 +1,6 @@
+import toolz
+
+import dask
 import ibis.expr.operations as ops
 import ibis.expr.types.core
 import ibis.expr.types.relations
@@ -8,10 +11,16 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
+from ibis.common.exceptions import (
+    IbisError,
+)
 
 import letsql
+from letsql.common.caching import (
+    SourceStorage,
+)
 from letsql.common.utils.hotfix_utils import (
-    maybe_hotfix,
+    hotfix,
     none_tokenized,
 )
 from letsql.expr.operations.images import SegmentAnything, Rotate90
@@ -46,37 +55,9 @@ class LETSQLAccessor:
         return tuple(node.storage for node in self.cached_nodes)
 
     @property
-    def _backends(self):
-        (backends, _) = self.expr._find_backends()
-        return backends
-
-    @property
-    def is_letsql(self):
-        names = set(backend.name for backend in self._backends)
-        if letsql.backends.let.Backend.name in names:
-            if len(names) > 1:
-                raise ValueError
-            else:
-                return True
-        else:
-            return False
-
-    @property
-    def ls_con(self):
-        if self.is_letsql:
-            (con,) = self._backends
-            return con
-        else:
-            return None
-
-    @property
     def backends(self):
-        if self.is_letsql:
-            return tuple(
-                set((self.ls_con,) + tuple(dt.source for dt in self.native_dts))
-            )
-        else:
-            return self._backends
+        (_backends, _) = self.expr._find_backends()
+        return tuple(set(_backends))
 
     @property
     def is_multiengine(self):
@@ -86,22 +67,6 @@ class LETSQLAccessor:
     @property
     def dts(self):
         return self.op.find(self.node_types)
-
-    @property
-    def native_dts(self):
-        return tuple(self.native_expr.op().find(self.node_types))
-
-    @property
-    def native_expr(self):
-        native_expr = self.expr
-        if self.is_letsql:
-            _sources = self.ls_con._sources
-
-            def replace_table(_node, _, **_kwargs):
-                return _sources.get_table_or_op(_node, _node.__recreate__(_kwargs))
-
-            native_expr = self.op.replace(replace_table).to_expr()
-        return native_expr
 
     @property
     def is_cached(self):
@@ -129,7 +94,7 @@ class LETSQLAccessor:
         if self.is_cached and (self.exists() or not self.uncached_one.ls.has_cached):
             return self.storage.get_key(
                 self.storage.source._register_and_transform_cache_tables(
-                    self.native_expr.ls.uncached_one
+                    self.uncached_one
                 )
             )
         else:
@@ -151,23 +116,54 @@ class LETSQLAccessor:
                         cn.parent.to_expr()
                     )
                 )
-                for cn in self.native_expr.op().find(CachedNode)[::-1]
+                for cn in self.cached_nodes[::-1]
             )
         else:
             return None
 
 
-@maybe_hotfix(
+@hotfix(
+    ibis.expr.types.core.Expr,
+    "_find_backend",
+    "9e19dfcd3404a043987ff26dce7a40ad",
+)
+def _letsql_find_backend(self, *, use_default=True):
+    # FIXME: push this into LETSQLAccessor
+    try:
+        current_backend = self._find_backend._original(self, use_default=use_default)
+    except IbisError as e:
+        if "Multiple backends found" in e.args[0]:
+            current_backend = letsql.options.backend
+        else:
+            raise e
+    return current_backend
+
+
+@hotfix(
     ibis.expr.types.relations.Table,
     "cache",
     "654b574765abdd475264851b89112881",
 )
 def letsql_cache(self, storage=None):
-    current_backend = self._find_backend(use_default=True)
-    return current_backend._cached(self, storage=storage)
+    # FIXME: push this into LETSQLAccessor
+    try:
+        current_backend = self._find_backend(use_default=True)
+    except IbisError as e:
+        if "Multiple backends found" in e.args[0]:
+            current_backend = letsql.options.backend
+        else:
+            raise e
+    storage = storage or SourceStorage(source=current_backend)
+    op = CachedNode(
+        schema=self.schema(),
+        parent=self.op(),
+        source=current_backend,
+        storage=storage,
+    )
+    return op.to_expr()
 
 
-@maybe_hotfix(
+@hotfix(
     ibis.expr.types.core.Expr,
     "ls",
     none_tokenized,
@@ -177,13 +173,44 @@ def ls(self):
     return LETSQLAccessor(self)
 
 
-@maybe_hotfix(ibis.expr.types.binary.BinaryColumn, "segment_anything", none_tokenized)
+@hotfix(ibis.expr.types.binary.BinaryColumn, "segment_anything", none_tokenized)
 def segment_anything(
     self: ibis.expr.types.binary.BinaryColumn, model_name: str, seed: list
 ):
     return SegmentAnything(arg=self, model_name=model_name, seed=seed).to_expr()
 
 
-@maybe_hotfix(ibis.expr.types.binary.BinaryColumn, "rotate90", none_tokenized)
+@hotfix(ibis.expr.types.binary.BinaryColumn, "rotate90", none_tokenized)
 def rotate90(self: ibis.expr.types.binary.BinaryColumn):
     return Rotate90(arg=self).to_expr()
+
+
+@toolz.curry
+def letsql_invoke(_methodname, self, *args, **kwargs):
+    con = letsql.connect()
+    for dt in self.op().find(ops.DatabaseTable):
+        # fixme: use temp names to avoid collisions, remove / deregister after done
+        if dt not in con._sources.sources:
+            con.register(dt.to_expr(), dt.name)
+    method = getattr(con, f"{_methodname}")
+    return method(self, *args, **kwargs)
+
+
+for typ, methodnames in (
+    (
+        ibis.expr.types.core.Expr,
+        ("execute", "to_pyarrow", "to_pyarrow_batches"),
+    ),
+    (
+        # Join.execute is the only case outside Expr.execute
+        ibis.expr.types.joins.Join,
+        ("execute",),
+    ),
+):
+    for methodname in methodnames:
+        hotfix(
+            typ,
+            methodname,
+            dask.base.tokenize(getattr(typ, methodname)),
+            letsql_invoke(methodname),
+        )

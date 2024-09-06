@@ -16,11 +16,11 @@ from ibis.expr.operations.relations import (
 
 import letsql
 from letsql.common.utils.hotfix_utils import (
-    maybe_hotfix,
+    hotfix,
 )
 
 
-@maybe_hotfix(
+@hotfix(
     ibis.backends.snowflake.Backend,
     "_setup_session",
     "1a7e2da089862b9f3601e9ad13a0fbb0",
@@ -91,7 +91,7 @@ def _setup_session(self, *, session_parameters, create_object_udfs: bool):
             pass
 
 
-@maybe_hotfix(
+@hotfix(
     ibis.backends.snowflake.Backend,
     "create_table",
     "48dc5668957d8a42dffb12f1142b3a97",
@@ -194,7 +194,7 @@ def create_table(
     return self.table(name, database=(catalog, db))
 
 
-@maybe_hotfix(
+@hotfix(
     ibis.backends.snowflake.Backend,
     "table",
     "67cbeeeb4ebb81c496be59bb114918fa",

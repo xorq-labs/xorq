@@ -66,6 +66,7 @@ examples = [
 let = "letsql.backends.let"
 postgres = "letsql.backends.postgres"
 snowflake = "letsql.backends.snowflake"
+datafusion = "letsql.backends.datafusion"
 
 
 [tool.maturin]
@@ -145,6 +146,7 @@ examples = ["pins", "fsspec", "duckdb", "xgboost"]
 let = "letsql.backends.let"
 postgres = "letsql.backends.postgres"
 snowflake = "letsql.backends.snowflake"
+datafusion = "letsql.backends.datafusion"
 
 [tool.pytest.ini_options]
 filterwarnings = [

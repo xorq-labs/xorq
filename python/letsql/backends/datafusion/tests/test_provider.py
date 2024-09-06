@@ -52,6 +52,7 @@ def train_xgb(
     # Return the trained model
     return model
 
+
 @pytest.fixture(scope="session")
 def data_dir():
     root = Path(__file__).absolute().parents[5]
@@ -104,13 +105,17 @@ def test_registered_model_udf(data_dir, tmp_model_dir, con):
     data[features].to_csv(data_path, index=False)
 
     @udf.scalar.builtin
-    def predict_xgb(model_name:str, carat:float, depth:float, x:float, y:float, z:float) -> float:
+    def predict_xgb(
+        model_name: str, carat: float, depth: float, x: float, y: float, z: float
+    ) -> float:
         """predict builtin"""
 
-    t = (con.read_csv(table_name="diamonds_data", path=data_path)
-            .mutate(prediction = lambda t: predict_xgb("diamonds_model", t.carat, t.depth, t.x, t.y, t.z))
-         )
-    
+    t = con.read_csv(table_name="diamonds_data", path=data_path).mutate(
+        prediction=lambda t: predict_xgb(
+            "diamonds_model", t.carat, t.depth, t.x, t.y, t.z
+        )
+    )
+
     result = t.execute()
 
     assert result is not None
@@ -131,10 +136,10 @@ def test_register_model_with_udf_output(data_dir, tmp_model_dir, con):
     data_path = os.path.join(tmp_model_dir, "input.csv")
     data[features].to_csv(data_path, index=False)
 
-    t = (con.read_csv(table_name="diamonds_data", path=data_path)
-            .mutate(prediction = lambda t: predict_diamond(t.carat, t.depth, t.x, t.y, t.z))
-         )
-    
+    t = con.read_csv(table_name="diamonds_data", path=data_path).mutate(
+        prediction=lambda t: predict_diamond(t.carat, t.depth, t.x, t.y, t.z)
+    )
+
     result = t.execute()
 
     assert result is not None

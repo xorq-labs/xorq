@@ -682,16 +682,21 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ) -> pa.ipc.RecordBatchReader:
-        pa = self._import_pyarrow()
+        return self._to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
+    def _to_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        *,
+        chunk_size: int = 1_000_000,
+        **kwargs: Any,
+    ):
+        pa = self._import_pyarrow()
         self._register_udfs(expr)
         self._register_in_memory_tables(expr)
-
         table_expr = expr.as_table()
         raw_sql = self.compile(table_expr, **kwargs)
-
         frame = self.con.sql(raw_sql)
-
         schema = table_expr.schema()
         pyarrow_schema = schema.to_pyarrow()
         struct_schema = schema.as_struct().to_pyarrow()
@@ -718,12 +723,12 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def to_pyarrow(self, expr: ir.Expr, **kwargs: Any) -> pa.Table:
-        batch_reader = self.to_pyarrow_batches(expr, **kwargs)
+        batch_reader = self._to_pyarrow_batches(expr, **kwargs)
         arrow_table = batch_reader.read_all()
         return expr.__pyarrow_result__(arrow_table)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        batch_reader = self.to_pyarrow_batches(expr, **kwargs)
+        batch_reader = self._to_pyarrow_batches(expr, **kwargs)
         return expr.__pandas_result__(
             batch_reader.read_pandas(timestamp_as_object=True)
         )

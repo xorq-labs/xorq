@@ -42,15 +42,15 @@ def centroid_list(a: dt.float64, b: dt.float64, c: dt.float64) -> pa.list_(
     return pa.scalar([pc.mean(a), pc.mean(b), pc.mean(c)], type=pa.list_(pa.float64()))
 
 
-def test_udf_agg_pyarrow(con, batting):
-    batting = con.register(batting.execute(), "pg-batting")
+def test_udf_agg_pyarrow(ls_con, batting):
+    batting = ls_con.register(batting.execute(), "pg-batting")
     result = my_mean(batting.G).execute()
 
     assert result == batting.G.execute().mean()
 
 
-def test_multiple_arguments_udf_agg_pyarrow(con, batting):
-    batting = con.register(batting.execute(), "pg-batting")
+def test_multiple_arguments_udf_agg_pyarrow(ls_con, batting):
+    batting = ls_con.register(batting.execute(), "pg-batting")
     actual = add_mean(batting.G, batting.G).execute()
     expected = batting.G.execute()
     expected = (expected + expected).mean()
@@ -58,20 +58,20 @@ def test_multiple_arguments_udf_agg_pyarrow(con, batting):
     assert actual == expected
 
 
-def test_multiple_arguments_struct_udf_agg_pyarrow(con, batting):
+def test_multiple_arguments_struct_udf_agg_pyarrow(ls_con, batting):
     from math import isclose
 
-    batting = con.register(batting.execute(), "pg-batting")
+    batting = ls_con.register(batting.execute(), "pg-batting")
     actual = centroid(batting.G, batting.G, batting.G).execute()
     expected = batting.G.execute().mean()
 
     assert all(isclose(value, expected) for value in actual.values())
 
 
-def test_multiple_arguments_list_udf_agg_pyarrow(con, batting):
+def test_multiple_arguments_list_udf_agg_pyarrow(ls_con, batting):
     from math import isclose
 
-    batting = con.register(batting.execute(), "pg-batting")
+    batting = ls_con.register(batting.execute(), "pg-batting")
     actual = centroid_list(batting.G, batting.G, batting.G).execute()
     expected = batting.G.execute().mean()
 
@@ -83,8 +83,8 @@ def my_sum(arr: dt.float64) -> dt.float64:
     return pc.sum(arr)
 
 
-def test_group_by_udf_agg_pyarrow(con, alltypes_df):
-    alltypes = con.register(alltypes_df, "pg-alltypes")
+def test_group_by_udf_agg_pyarrow(ls_con, alltypes_df):
+    alltypes = ls_con.register(alltypes_df, "pg-alltypes")
 
     expr = (
         alltypes[_.string_col == "1"]
@@ -106,12 +106,12 @@ def test_group_by_udf_agg_pyarrow(con, alltypes_df):
     assert_frame_equal(result, expected, check_like=True)
 
 
-def test_udf_agg_pandas_df(con, alltypes):
+def test_udf_agg_pandas_df(ls_con, alltypes):
     def sum_sum(df):
         return df.sum().sum()
 
     name = "sum_sum"
-    alltypes = con.register(alltypes.execute(), "pg-alltypes")
+    alltypes = ls_con.register(alltypes.execute(), "pg-alltypes")
     cols = (by, _) = ["year", "month"]
     expr = alltypes
     agg_udf = udf.agg.pandas_df(

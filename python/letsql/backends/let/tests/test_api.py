@@ -20,36 +20,34 @@ def parquet_dir():
     return data_dir
 
 
-def test_register_read_csv(con, csv_dir):
-    api_batting = con.register(
-        ls.read_csv(csv_dir / "batting.csv"), table_name="api_batting"
+def test_register_read_csv(csv_dir):
+    # this will use ls.options.backend: do we want to clear it out between function invocations?
+    api_batting = ls.read_csv(csv_dir / "batting.csv", table_name="api_batting")
+    result = api_batting.execute()
+
+    assert result is not None
+
+
+def test_register_read_parquet(parquet_dir):
+    # this will use ls.options.backend: do we want to clear it out between function invocations?
+    api_batting = ls.read_parquet(
+        parquet_dir / "batting.parquet", table_name="api_batting"
     )
     result = api_batting.execute()
 
     assert result is not None
 
 
-def test_register_read_parquet(con, parquet_dir):
-    api_batting = con.register(
-        ls.read_parquet(parquet_dir / "batting.parquet"), table_name="api_batting"
-    )
-    result = api_batting.execute()
-
-    assert result is not None
-
-
-def test_executed_on_original_backend(ls_con, parquet_dir, csv_dir, mocker):
+@pytest.mark.xfail(reason="No purpose with no registration api")
+def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
     con = ls.config._backend_init()
     spy = mocker.spy(con, "execute")
 
-    table_name = "batting"
     parquet_table = ls.read_parquet(parquet_dir / "batting.parquet")[
         lambda t: t.yearID == 2015
-    ].pipe(ls_con.register, f"parquet-{table_name}")
+    ]
 
-    csv_table = ls.read_csv(csv_dir / "batting.csv")[lambda t: t.yearID == 2014].pipe(
-        ls_con.register, f"csv-{table_name}"
-    )
+    csv_table = ls.read_csv(csv_dir / "batting.csv")[lambda t: t.yearID == 2014]
 
     expr = parquet_table.join(
         csv_table,
@@ -68,6 +66,7 @@ def test_read_postgres():
     assert res is not None and len(res)
 
 
+@pytest.mark.xfail(reason="No purpose with no registration api")
 def test_read_sqlite(tmp_path):
     import sqlite3
 

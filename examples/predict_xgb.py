@@ -13,7 +13,7 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     predict_xgb = con.register_xgb_model(model_name, model_path)
     cache = ParquetCacheStorage(source=con, path=tmp_dir)
     pg = ls.postgres.connect_examples()
-    t = pg.table("diamonds").pipe(con.register, "diamonds").cache(storage=cache)
+    t = pg.table("diamonds").cache(storage=cache)
 
     output = t.mutate(prediction=predict_xgb.on_expr).execute()
     print(output)

@@ -5,12 +5,12 @@ import toolz
 
 import letsql
 from letsql.common.utils.hotfix_utils import (
-    maybe_hotfix,
+    hotfix,
     none_tokenized,
 )
 
 
-@maybe_hotfix(
+@hotfix(
     ibis.backends.postgres.Backend,
     "create_catalog",
     none_tokenized,
@@ -29,7 +29,7 @@ def create_catalog(self, name: str, force: bool = False) -> None:
     self.con.autocommit = prev_autocommit
 
 
-@maybe_hotfix(
+@hotfix(
     ibis.backends.postgres.Backend,
     "clone",
     none_tokenized,

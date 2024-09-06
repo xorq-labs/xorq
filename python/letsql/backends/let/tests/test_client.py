@@ -51,27 +51,27 @@ def test_create_table(con):
     con.create_table("name", pd.DataFrame({"a": [1]}))
 
 
-def test_register_table_with_uppercase(con):
+def test_register_table_with_uppercase(ls_con):
     db_con = ls.duckdb.connect()
     db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
 
     uppercase_table_name = "UPPERCASE"
-    t = con.register(db_t, uppercase_table_name)
-    assert uppercase_table_name in con.list_tables()
+    t = ls_con.register(db_t, uppercase_table_name)
+    assert uppercase_table_name in ls_con.list_tables()
     assert t.execute() is not None
 
 
-def test_register_table_with_uppercase_multiple_times(con):
+def test_register_table_with_uppercase_multiple_times(ls_con):
     db_con = ls.duckdb.connect()
     db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
 
     uppercase_table_name = "UPPERCASE"
-    con.register(db_t, uppercase_table_name)
+    ls_con.register(db_t, uppercase_table_name)
 
     expected_schema = ibis.schema({"B": "int"})
     db_t = db_con.create_table("lowercase_2", schema=expected_schema)
-    t = con.register(db_t, uppercase_table_name)
+    t = ls_con.register(db_t, uppercase_table_name)
 
-    assert uppercase_table_name in con.list_tables()
+    assert uppercase_table_name in ls_con.list_tables()
     assert t.execute() is not None
     assert t.schema() == expected_schema

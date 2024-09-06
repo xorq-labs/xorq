@@ -3,9 +3,6 @@ from typing import Mapping, Any
 import ibis.expr.types as ir
 from ibis.backends.snowflake import Backend as IbisSnowflakeBackend
 
-from letsql.common.caching import (
-    SourceStorage,
-)
 from letsql.expr.relations import CachedNode, replace_cache_table
 
 
@@ -52,13 +49,3 @@ class Backend(IbisSnowflakeBackend):
         out = op.map_clear(replace_cache_table)
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
-
-    def _cached(self, expr: ir.Table, storage=None):
-        storage = storage or SourceStorage(source=self)
-        op = CachedNode(
-            schema=expr.schema(),
-            parent=expr.op(),
-            source=self,
-            storage=storage,
-        )
-        return op.to_expr()

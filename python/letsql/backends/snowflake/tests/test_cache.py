@@ -58,10 +58,9 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
             name=name,
             obj=df,
         )
-        t = con.register(table, f"let_{table.op().name}")
         cached_expr = (
-            t.group_by(group_by)
-            .agg({f"min_{col}": t[col].min() for col in t.columns})
+            table.group_by(group_by)
+            .agg({f"min_{col}": table[col].min() for col in table.columns})
             .cache(storage)
         )
         (storage, uncached) = get_storage_uncached(con, cached_expr)
@@ -94,14 +93,9 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
 @pytest.mark.snowflake
 def test_snowflake_simple_cache(sf_con, tmp_path):
     db_con = ls.duckdb.connect()
-    con = ls.connect()
     with inside_temp_schema(sf_con, "SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"):
         table = sf_con.table("CUSTOMER")
-        expr = (
-            table.pipe(con.register, "sf-CUSTOMER")
-            .limit(1)
-            .cache(ParquetCacheStorage(source=db_con, path=tmp_path))
-        )
+        expr = table.limit(1).cache(ParquetCacheStorage(source=db_con, path=tmp_path))
         expr.execute()
 
 
@@ -142,10 +136,9 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
             name=name,
             obj=df,
         )
-        t = con.register(table, f"let_{table.op().name}")
         cached_expr = (
-            t.group_by(group_by)
-            .agg({f"count_{col}": t[col].count() for col in t.columns})
+            table.group_by(group_by)
+            .agg({f"count_{col}": table[col].count() for col in table.columns})
             .cache(storage)
         )
         (storage, uncached) = get_storage_uncached(con, cached_expr)
