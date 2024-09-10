@@ -50,6 +50,7 @@ let
       nativeBuildInputs = [
         python
         pkgs.pkg-config
+        pkgs.darwin.apple_sdk.frameworks.Security
       ];
       buildInputs = pkgs.lib.optionals pkgs.stdenv.isDarwin [
         pkgs.libiconv
