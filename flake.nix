@@ -84,9 +84,12 @@
         mkShellApp = drv: name: bin-name: pkgs.writeShellApplication {
           inherit name;
           runtimeInputs = [ ];
-          text = ''
+          text = pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+            export PINS_DATA_DIR="$HOME/Library/Application Support/pins-py"
+            export PINS_CACHE_DIR=$HOME/Library/Caches/pins-py
+          '' + ''
             bash <(
-              cat <(grep ^declare ${drv}) <(echo ${bin-name} "''${@}")
+              cat <(grep ^declare ${drv} | grep -v "SSL_CERT_FILE=") <(echo ${bin-name} "''${@}")
             )
           '';
         };
