@@ -26,7 +26,7 @@ let
       fileset = unions [ rustSrcSet pySrcSet ];
     };
     toolchain = pkgs.rust-bin.fromRustupToolchainFile (append src "rust-toolchain.toml");
-    craneLib = (crane.mkLib pkgs).overrideToolchain toolchain;
+    craneLib = (crane.mkLib pkgs).overrideToolchain (p: toolchain);
     wheelName = let
       inherit (craneLib.crateNameFromCargoToml { inherit cargoToml; }) pname version;
       wheelTail = {
@@ -104,12 +104,13 @@ let
       cargoDeps = importCargoLock {
         lockFile = "${old.src}/Cargo.lock";
         outputHashes = {
-          "gbdt-0.1.3" = "sha256-oEiCWgbu9FBJt+5ceGTt/OCqbx1UI24dXOUEFy0hZoU=";
+          "gbdt-0.1.3" = "sha256-f2uqulFSNGwrDM7RPdGIW11VpJRYexektXjHxTJHHmA=";
         };
       };
       nativeBuildInputs = (old.nativeBuildInputs or []) ++ [
         cargoSetupHook
         maturinBuildHook
+        toolchain
       ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
         pkgs.libiconv
       ];

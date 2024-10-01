@@ -113,7 +113,7 @@
           default = self.packages.${system}.letsql;
         };
         lib = {
-          inherit (letsql310) poetryOverrides maturinOverride;
+          inherit (letsql310) poetryOverrides maturinOverride toolchain;
           inherit mkLETSQL mkCommands mkShellHook mkToolsPackages mkDevShell;
           inherit pkgs;
         };
