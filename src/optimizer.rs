@@ -34,7 +34,7 @@ impl PyOptimizer {
 }
 
 #[pyclass(name = "OptimizerRule", module = "datafusion", subclass)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PyOptimizerRule {
     pub(crate) rule: PyObject,
 }
@@ -45,8 +45,10 @@ unsafe impl Sync for PyOptimizerRule {}
 #[pymethods]
 impl PyOptimizerRule {
     #[new]
-    fn new(rule: PyObject) -> Self {
-        Self { rule }
+    pub fn new(rule: &Bound<'_, PyAny>) -> Self {
+        Self {
+            rule: rule.clone().unbind(),
+        }
     }
 }
 
@@ -74,10 +76,7 @@ impl OptimizerRule for PyOptimizerRule {
     ) -> datafusion_common::Result<Transformed<LogicalPlan>, DataFusionError> {
         Python::with_gil(|py| {
             let py_plan = PyLogicalPlan::new(plan);
-            let result = self
-                .rule
-                .as_ref(py)
-                .call_method1("try_optimize", (py_plan,));
+            let result = self.rule.bind(py).call_method1("try_optimize", (py_plan,));
             match result {
                 Ok(py_plan) => Ok(Transformed::new_transformed(
                     py_plan
@@ -145,7 +144,10 @@ impl PredictXGBoostAnalyzerRule {
         };
 
         match &args[..] {
-            [Expr::Literal(ScalarValue::Utf8(value)), Expr::Wildcard { qualifier: None }] => {
+            [Expr::Literal(ScalarValue::Utf8(value)), Expr::Wildcard {
+                qualifier: None,
+                options: _,
+            }] => {
                 if let Some(scan) = scan {
                     let model_registry = self.session_model_registry.read();
                     if let Some(model) = model_registry.models.get(value.clone().unwrap().as_str())
@@ -230,7 +232,7 @@ pub fn optimize_plan(plan: PyLogicalPlan, context_provider: PyOptimizerContext) 
     PyLogicalPlan::from(optimized_plan)
 }
 
-pub(crate) fn init_module(m: &PyModule) -> PyResult<()> {
+pub(crate) fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(optimize_plan))?;
     Ok(())
 }

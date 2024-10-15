@@ -16,10 +16,12 @@ use datafusion::physical_plan::{DisplayAs, DisplayFormatType, ExecutionPlan, Pla
 use datafusion_common::project_schema;
 use futures::{Stream, TryStreamExt};
 use pyo3::types::PyIterator;
-use pyo3::{PyAny, PyObject, Python};
+use pyo3::{Bound, PyAny, PyObject, Python};
 
 use crate::errors::DataFusionError;
 use crate::utils::compute_properties;
+
+use pyo3::prelude::*;
 
 struct RecordBatchReaderAdapter {
     record_batch_reader: PyObject,
@@ -34,8 +36,8 @@ impl Stream for RecordBatchReaderAdapter {
             let res = s
                 .spawn(move || {
                     let option = Python::with_gil(|py| {
-                        let batches = self.record_batch_reader.as_ref(py);
-                        let mut batches = PyIterator::from_object(batches).unwrap();
+                        let batches = self.record_batch_reader.bind(py);
+                        let mut batches = PyIterator::from_bound_object(batches).unwrap();
                         Some(
                             batches
                                 .next()?
@@ -65,7 +67,7 @@ impl Stream for RecordBatchReaderAdapter {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct IbisTableExec {
     record_batch_reader: PyObject,
     schema: SchemaRef,
@@ -76,7 +78,7 @@ pub struct IbisTableExec {
 impl IbisTableExec {
     pub(crate) fn new(
         _py: Python,
-        record_batch_reader: &PyAny,
+        record_batch_reader: &Bound<'_, PyAny>,
         projections: Option<&Vec<usize>>,
     ) -> Result<Self, DataFusionError> {
         // TODO use indices instead of columns
@@ -96,18 +98,16 @@ impl IbisTableExec {
 
         let schema: SchemaRef = Arc::new(
             record_batch_reader
-                .getattr("schema")
-                .unwrap()
-                .extract::<PyArrowType<_>>()
-                .unwrap()
+                .getattr("schema")?
+                .extract::<PyArrowType<_>>()?
                 .0,
         );
-        let schema = project_schema(&schema, projections).unwrap();
+        let schema = project_schema(&schema, projections)?;
 
         let cache = compute_properties(schema.clone());
 
         Ok(IbisTableExec {
-            record_batch_reader: record_batch_reader.into(),
+            record_batch_reader: record_batch_reader.clone().unbind(),
             schema,
             columns,
             cache,
@@ -155,9 +155,9 @@ impl ExecutionPlan for IbisTableExec {
         _partition: usize,
         _context: Arc<TaskContext>,
     ) -> datafusion_common::Result<SendableRecordBatchStream> {
-        Python::with_gil(|_py| {
+        Python::with_gil(|py| {
             let record_batches = RecordBatchReaderAdapter {
-                record_batch_reader: self.record_batch_reader.clone(),
+                record_batch_reader: self.record_batch_reader.clone_ref(py),
                 columns: self.columns.clone(),
             };
 

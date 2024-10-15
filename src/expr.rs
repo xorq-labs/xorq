@@ -25,7 +25,7 @@ use datafusion::functions::core::expr_ext::FieldAccessor;
 use datafusion::scalar::ScalarValue;
 use datafusion_expr::{
     col,
-    expr::{AggregateFunction, InList, InSubquery, ScalarFunction, Sort, WindowFunction},
+    expr::{AggregateFunction, InList, InSubquery, ScalarFunction, WindowFunction},
     lit,
     utils::exprlist_to_fields,
     Between, BinaryExpr, Case, Cast, Expr, Like, LogicalPlan, Operator, TryCast,
@@ -88,6 +88,7 @@ pub mod scalar_subquery;
 pub mod scalar_variable;
 pub mod signature;
 pub mod sort;
+pub mod sort_expr;
 pub mod subquery;
 pub mod subquery_alias;
 pub mod table_scan;
@@ -143,10 +144,12 @@ impl PyExpr {
             Expr::IsNotFalse(expr) => Ok(PyIsNotFalse::new(*expr.clone()).into_py(py)),
             Expr::IsNotUnknown(expr) => Ok(PyIsNotUnknown::new(*expr.clone()).into_py(py)),
             Expr::Negative(expr) => Ok(PyNegative::new(*expr.clone()).into_py(py)),
-            Expr::Sort(sort) => Ok(PyOrdered::from(sort.clone()).into_py(py)),
             Expr::Cast(cast) => Ok(PyCast::from(cast.clone()).into_py(py)),
             Expr::Case(case) => Ok(PyCase::from(case.clone()).into_py(py)),
-            Expr::Wildcard { qualifier } => Ok(PyWildcard::new(qualifier.clone()).into_py(py)),
+            Expr::Wildcard {
+                qualifier,
+                options: _,
+            } => Ok(PyWildcard::new(qualifier.clone()).into_py(py)),
             Expr::AggregateFunction(expr) => {
                 Ok(PyAggregateFunction::from(expr.clone()).into_py(py))
             }
@@ -159,13 +162,13 @@ impl PyExpr {
 
     /// Returns the name of this expression as it should appear in a schema. This name
     /// will not include any CAST expressions.
-    fn display_name(&self) -> PyResult<String> {
-        Ok(self.expr.display_name()?)
+    fn schema_name(&self) -> PyResult<String> {
+        Ok(format!("{}", self.expr.schema_name()))
     }
 
     /// Returns a full and complete string representation of this expression.
     fn canonical_name(&self) -> PyResult<String> {
-        Ok(self.expr.canonical_name())
+        Ok(format!("{}", self.expr))
     }
 
     /// Returns the name of the Expr variant.
@@ -245,7 +248,7 @@ impl PyExpr {
 
     /// Create a sort PyExpr from an existing PyExpr.
     #[pyo3(signature = (ascending=true, nulls_first=true))]
-    pub fn sort(&self, ascending: bool, nulls_first: bool) -> PyExpr {
+    pub fn sort(&self, ascending: bool, nulls_first: bool) -> PyOrdered {
         self.expr.clone().sort(ascending, nulls_first).into()
     }
 
@@ -279,7 +282,6 @@ impl PyExpr {
             | Expr::Case { .. }
             | Expr::Cast { .. }
             | Expr::TryCast { .. }
-            | Expr::Sort { .. }
             | Expr::ScalarFunction { .. }
             | Expr::AggregateFunction { .. }
             | Expr::WindowFunction { .. }
@@ -444,7 +446,6 @@ impl PyExpr {
             | Expr::Negative(expr)
             | Expr::Cast(Cast { expr, .. })
             | Expr::TryCast(TryCast { expr, .. })
-            | Expr::Sort(Sort { expr, .. })
             | Expr::InSubquery(InSubquery { expr, .. }) => Ok(vec![PyExpr::from(*expr.clone())]),
 
             // Expr variants containing a collection of Expr(s) for operands
@@ -597,11 +598,6 @@ impl PyExpr {
         input_plan: &LogicalPlan,
     ) -> Result<Arc<Field>, DataFusionError> {
         match expr {
-            Expr::Sort(Sort { expr, .. }) => {
-                // DataFusion does not support create_name for sort expressions (since they never
-                // appear in projections) so we just delegate to the contained expression instead
-                Self::expr_to_field(expr, input_plan)
-            }
             Expr::Wildcard { .. } => {
                 // Since * could be any of the valid column names just return the first one
                 Ok(Arc::new(input_plan.schema().field(0).clone()))
@@ -664,7 +660,7 @@ impl PyExpr {
 }
 
 /// Initializes the `expr` module to match the pattern of `datafusion-expr` https://docs.rs/datafusion-expr/latest/datafusion_expr/
-pub(crate) fn init_module(m: &PyModule) -> PyResult<()> {
+pub(crate) fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyExpr>()?;
     m.add_class::<PyColumn>()?;
     m.add_class::<PyLiteral>()?;

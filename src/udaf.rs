@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use pyo3::{prelude::*, types::PyBool, types::PyTuple};
+use pyo3::{prelude::*, types::PyTuple};
 
 use datafusion::arrow::array::{Array, ArrayRef};
 use datafusion::arrow::datatypes::DataType;
@@ -31,11 +31,11 @@ impl Accumulator for RustAccumulator {
                 .iter()
                 .map(|arg| arg.into_data().to_pyarrow(py).unwrap())
                 .collect::<Vec<_>>();
-            let py_args = PyTuple::new(py, py_args);
+            let py_args = PyTuple::new_bound(py, py_args);
 
             // 2. call function
             self.accum
-                .as_ref(py)
+                .bind(py)
                 .call_method1("update", py_args)
                 .map_err(|e| DataFusionError::Execution(format!("{e}")))?;
 
@@ -44,7 +44,7 @@ impl Accumulator for RustAccumulator {
     }
 
     fn evaluate(&mut self) -> Result<ScalarValue> {
-        Python::with_gil(|py| self.accum.as_ref(py).call_method0("evaluate")?.extract())
+        Python::with_gil(|py| self.accum.bind(py).call_method0("evaluate")?.extract())
             .map_err(|e| DataFusionError::Execution(format!("{e}")))
     }
 
@@ -53,7 +53,7 @@ impl Accumulator for RustAccumulator {
     }
 
     fn state(&mut self) -> Result<Vec<ScalarValue>> {
-        Python::with_gil(|py| self.accum.as_ref(py).call_method0("state")?.extract())
+        Python::with_gil(|py| self.accum.bind(py).call_method0("state")?.extract())
             .map_err(|e| DataFusionError::Execution(format!("{e}")))
     }
 
@@ -69,7 +69,7 @@ impl Accumulator for RustAccumulator {
 
             // 2. call merge
             self.accum
-                .as_ref(py)
+                .bind(py)
                 .call_method1("merge", (state,))
                 .map_err(|e| DataFusionError::Execution(format!("{e}")))?;
 
@@ -84,11 +84,11 @@ impl Accumulator for RustAccumulator {
                 .iter()
                 .map(|arg| arg.into_data().to_pyarrow(py).unwrap())
                 .collect::<Vec<_>>();
-            let py_args = PyTuple::new(py, py_args);
+            let py_args = PyTuple::new_bound(py, py_args);
 
             // 2. call function
             self.accum
-                .as_ref(py)
+                .bind(py)
                 .call_method1("retract_batch", py_args)
                 .map_err(|e| DataFusionError::Execution(format!("{e}")))?;
 
@@ -97,12 +97,12 @@ impl Accumulator for RustAccumulator {
     }
 
     fn supports_retract_batch(&self) -> bool {
-        Python::with_gil(|py| {
-            let x: Result<&PyAny, PyErr> =
-                self.accum.as_ref(py).call_method0("supports_retract_batch");
-            let x: &PyAny = x.unwrap_or(PyBool::new(py, false));
-            x.extract().unwrap_or(false)
-        })
+        Python::with_gil(
+            |py| match self.accum.bind(py).call_method0("supports_retract_batch") {
+                Ok(x) => x.extract().unwrap_or(false),
+                Err(_) => false,
+            },
+        )
     }
 }
 

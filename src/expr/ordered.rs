@@ -1,6 +1,6 @@
-use datafusion_expr::expr::Sort;
-use datafusion_expr::Expr;
+use datafusion_expr::{Expr, SortExpr};
 use pyo3::{pyclass, pymethods};
+use std::clone::Clone;
 
 use crate::expr::PyExpr;
 
@@ -12,20 +12,20 @@ pub struct PyOrdered {
     pub nulls_first: bool,
 }
 
-impl From<Sort> for PyOrdered {
-    fn from(sort: Sort) -> PyOrdered {
+impl From<SortExpr> for PyOrdered {
+    fn from(value: SortExpr) -> PyOrdered {
         PyOrdered {
-            expr: PyExpr::from(*sort.expr.clone()),
-            asc: sort.asc,
-            nulls_first: sort.nulls_first,
+            expr: PyExpr::from(value.expr.clone()),
+            asc: value.asc,
+            nulls_first: value.nulls_first,
         }
     }
 }
 
-impl From<PyOrdered> for Sort {
-    fn from(value: PyOrdered) -> Sort {
-        Sort {
-            expr: Box::from(Expr::from(value.expr)),
+impl From<PyOrdered> for SortExpr {
+    fn from(value: PyOrdered) -> SortExpr {
+        SortExpr {
+            expr: Expr::from(value.expr),
             asc: value.asc,
             nulls_first: value.nulls_first,
         }

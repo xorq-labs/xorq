@@ -24,16 +24,15 @@ fn to_rust_function(func: PyObject) -> ScalarFunctionImplementation {
                     .iter()
                     .map(|arg| arg.into_data().to_pyarrow(py).unwrap())
                     .collect::<Vec<_>>();
-                let py_args = PyTuple::new(py, py_args);
+                let py_args = PyTuple::new_bound(py, py_args);
 
                 // 2. call function
                 let value = func
-                    .as_ref(py)
-                    .call(py_args, None)
+                    .call_bound(py, py_args, None)
                     .map_err(|e| DataFusionError::Execution(format!("{e:?}")))?;
 
                 // 3. cast to arrow::array::Array
-                let array_data = ArrayData::from_pyarrow_bound(&value.as_borrowed()).unwrap();
+                let array_data = ArrayData::from_pyarrow_bound(value.bind(py)).unwrap();
                 Ok(make_array(array_data))
             })
         },

@@ -30,6 +30,7 @@ use crate::sql::logical::PyLogicalPlan;
 use super::py_expr_list;
 
 use crate::errors::py_datafusion_err;
+use crate::expr::sort_expr::{py_sort_expr_list, PySortExpr};
 
 #[pyclass(name = "Window", module = "datafusion.expr", subclass)]
 #[derive(Clone)]
@@ -114,9 +115,9 @@ impl PyWindow {
     }
 
     /// Returns order by columns in a window function expression
-    pub fn get_sort_exprs(&self, expr: PyExpr) -> PyResult<Vec<PyExpr>> {
+    pub fn get_sort_exprs(&self, expr: PyExpr) -> PyResult<Vec<PySortExpr>> {
         match expr.expr.unalias() {
-            Expr::WindowFunction(WindowFunction { order_by, .. }) => py_expr_list(&order_by),
+            Expr::WindowFunction(WindowFunction { order_by, .. }) => py_sort_expr_list(&order_by),
             other => Err(not_window_function_err(other)),
         }
     }

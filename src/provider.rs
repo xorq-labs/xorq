@@ -9,14 +9,16 @@ use datafusion::datasource::TableProvider;
 use datafusion::physical_plan::ExecutionPlan;
 use datafusion_common::DataFusionError;
 use datafusion_expr::{Expr, TableProviderFilterPushDown, TableType};
-use pyo3::types::{IntoPyDict, PyTuple};
+use pyo3::types::{IntoPyDict, PyAnyMethods, PyTuple};
 use pyo3::{pyclass, pymethods, PyAny, PyObject, PyResult, Python};
 
 use crate::ibis_filter_expression::IbisFilterExpression;
 use crate::ibis_table_exec::IbisTableExec;
 
+use pyo3::prelude::*;
+
 #[pyclass(name = "TableProvider", module = "datafusion", subclass)]
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct PyTableProvider {
     table_provider: PyObject,
 }
@@ -25,9 +27,9 @@ pub struct PyTableProvider {
 impl PyTableProvider {
     #[new]
     #[pyo3(signature=(table_provider))]
-    pub fn new(table_provider: &PyAny) -> PyResult<Self> {
+    pub fn new(table_provider: &Bound<'_, PyAny>) -> PyResult<Self> {
         Ok(Self {
-            table_provider: table_provider.into(),
+            table_provider: table_provider.clone().into(),
         })
     }
 }
@@ -40,7 +42,7 @@ impl TableProvider for PyTableProvider {
 
     fn schema(&self) -> SchemaRef {
         Python::with_gil(|py| {
-            let table_provider = self.table_provider.as_ref(py);
+            let table_provider = self.table_provider.bind(py);
             Arc::new(
                 table_provider
                     .call_method0("schema")
@@ -70,19 +72,20 @@ impl TableProvider for PyTableProvider {
                     IbisFilterExpression::try_from(filter)
                         .unwrap()
                         .inner()
-                        .clone()
+                        .clone_ref(py)
                 })
                 .collect::<Vec<PyObject>>();
-            let ibis_filters = PyTuple::new(py, &args);
-            let kwargs = [("filters", ibis_filters)].into_py_dict(py);
+            let ibis_filters = PyTuple::new_bound(py, &args);
+            let kwargs = [("filters", ibis_filters)].into_py_dict_bound(py);
 
             let table = self
                 .table_provider
-                .call_method(py, "scan", (), Some(kwargs))
+                .bind(py)
+                .call_method("scan", (), Some(&kwargs))
                 .unwrap();
 
             let plan: Arc<dyn ExecutionPlan> = Arc::new(
-                IbisTableExec::new(py, table.as_ref(py), projection)
+                IbisTableExec::new(py, &table, projection)
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             );
             Ok(plan)

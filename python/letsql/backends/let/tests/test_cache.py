@@ -781,9 +781,9 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
     assert not expr.ls.exists()
     assert not on_expr.ls.exists()
 
-    from_ls = expr.execute()
-    assert from_ls.equals(from_pandas)
-    assert from_ls.equals(on_expr.execute())
+    from_ls = expr.execute().sort_values(by="bool_col")
+    assert_frame_equal(from_ls, from_pandas.sort_values(by="bool_col"))
+    assert_frame_equal(from_ls, on_expr.execute().sort_values(by="bool_col"))
     assert expr.ls.exists()
     assert on_expr.ls.exists()
 

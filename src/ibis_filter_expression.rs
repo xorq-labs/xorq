@@ -1,20 +1,20 @@
+use pyo3::prelude::*;
+
 use datafusion_common::{Column, ScalarValue};
 use datafusion_expr::expr::InList;
 use datafusion_expr::{Between, BinaryExpr, Expr, Operator};
-use pyo3::prelude::PyModule;
-use pyo3::{IntoPy, PyAny, PyObject, Python};
 
 use crate::errors::DataFusionError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(transparent)]
 pub(crate) struct IbisFilterExpression(PyObject);
 
 fn operator_to_py<'py>(
     operator: &Operator,
-    op: &'py PyModule,
-) -> Result<&'py PyAny, DataFusionError> {
-    let py_op: &PyAny = match operator {
+    op: &Bound<'py, PyModule>,
+) -> Result<Bound<'py, PyAny>, DataFusionError> {
+    let py_op: Bound<'py, PyAny> = match operator {
         Operator::Eq => op.getattr("eq")?,
         Operator::NotEq => op.getattr("ne")?,
         Operator::Lt => op.getattr("lt")?,
@@ -72,11 +72,11 @@ impl TryFrom<&Expr> for IbisFilterExpression {
 
     fn try_from(expr: &Expr) -> Result<Self, Self::Error> {
         Python::with_gil(|py| {
-            let ibis = Python::import(py, "ibis")?;
-            let op_module = Python::import(py, "operator")?;
+            let ibis = Python::import_bound(py, "ibis")?;
+            let op_module = Python::import_bound(py, "operator")?;
             let deferred = ibis.getattr("_")?;
 
-            let ibis_expr: Result<&PyAny, DataFusionError> = match expr {
+            let ibis_expr: Result<Bound<'_, PyAny>, DataFusionError> = match expr {
                 Expr::Column(Column { name, .. }) => Ok(deferred.getattr(name.as_str())?),
                 Expr::Literal(v) => match v {
                     ScalarValue::Boolean(Some(b)) => Ok(ibis.getattr("literal")?.call1((*b,))?),
@@ -96,7 +96,7 @@ impl TryFrom<&Expr> for IbisFilterExpression {
                     ))),
                 },
                 Expr::BinaryExpr(BinaryExpr { left, op, right }) => {
-                    let operator = operator_to_py(op, op_module)?;
+                    let operator = operator_to_py(op, &op_module)?;
                     let left = IbisFilterExpression::try_from(left.as_ref())?.0;
                     let right = IbisFilterExpression::try_from(right.as_ref())?.0;
                     Ok(operator.call1((left, right))?)
@@ -106,33 +106,31 @@ impl TryFrom<&Expr> for IbisFilterExpression {
                     let py_expr = IbisFilterExpression::try_from(expr.as_ref())?.0;
                     Ok(operator.call1((py_expr,))?)
                 }
-                Expr::IsNotNull(expr) => {
-                    let py_expr = IbisFilterExpression::try_from(expr.as_ref())?
-                        .0
-                        .into_ref(py);
-                    Ok(py_expr.call_method0("notnull")?)
-                }
-                Expr::IsNull(expr) => {
-                    let expr = IbisFilterExpression::try_from(expr.as_ref())?
-                        .0
-                        .into_ref(py);
-                    Ok(expr.call_method0("isnull")?)
-                }
+                Expr::IsNotNull(expr) => Ok(IbisFilterExpression::try_from(expr.as_ref())?
+                    .0
+                    .bind(py)
+                    .call_method0("notnull")?),
+                Expr::IsNull(expr) => Ok(IbisFilterExpression::try_from(expr.as_ref())?
+                    .0
+                    .bind(py)
+                    .call_method0("isnull")?),
                 Expr::InList(InList {
                     expr,
                     list,
                     negated,
                 }) => {
-                    let expr = IbisFilterExpression::try_from(expr.as_ref())?
-                        .0
-                        .into_ref(py);
                     let scalars = extract_scalar_list(list, py)?;
-                    let ret = if *negated {
-                        expr.call_method1("isin", (scalars,))?
+                    Ok(if *negated {
+                        IbisFilterExpression::try_from(expr.as_ref())?
+                            .0
+                            .bind(py)
+                            .call_method1("isin", (scalars,))?
                     } else {
-                        expr.call_method1("notin", (scalars,))?
-                    };
-                    Ok(ret)
+                        IbisFilterExpression::try_from(expr.as_ref())?
+                            .0
+                            .bind(py)
+                            .call_method1("notin", (scalars,))?
+                    })
                 }
                 Expr::Between(Between {
                     expr,
@@ -140,13 +138,13 @@ impl TryFrom<&Expr> for IbisFilterExpression {
                     low,
                     high,
                 }) => {
-                    let expr = IbisFilterExpression::try_from(expr.as_ref())?
-                        .0
-                        .into_ref(py);
                     let low = IbisFilterExpression::try_from(low.as_ref())?.0;
                     let high = IbisFilterExpression::try_from(high.as_ref())?.0;
+                    let ret = IbisFilterExpression::try_from(expr.as_ref())?
+                        .0
+                        .bind(py)
+                        .call_method1("between", (low, high))?;
                     let invert = op_module.getattr("invert")?;
-                    let ret = expr.call_method1("between", (low, high))?;
                     Ok(if *negated { invert.call1((ret,))? } else { ret })
                 }
                 _ => Err(DataFusionError::Common(format!(

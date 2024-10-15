@@ -62,7 +62,7 @@ impl PySessionConfig {
         let mut config = SessionConfig::new();
         if let Some(hash_map) = config_options {
             for (k, v) in &hash_map {
-                config = config.set(k, ScalarValue::Utf8(Some(v.clone())));
+                config = config.set(k, &ScalarValue::Utf8(Some(v.clone())));
             }
         }
 
@@ -108,7 +108,9 @@ impl PySessionState {
         Self { session_state }
     }
 
-    fn add_optimizer_rule(&mut self, rule: PyOptimizerRule) -> Self {
+    fn add_optimizer_rule(&mut self, rule: &Bound<'_, PyAny>) -> Self {
+        let rule = PyOptimizerRule::new(rule);
+
         Self::from(
             SessionStateBuilder::new_from_existing(self.session_state.clone())
                 .with_optimizer_rule(Arc::new(rule))
@@ -318,7 +320,12 @@ impl PySessionContext {
         Ok(())
     }
 
-    pub fn register_ibis_table(&mut self, name: &str, reader: &PyAny, py: Python) -> PyResult<()> {
+    pub fn register_ibis_table(
+        &mut self,
+        name: &str,
+        reader: &Bound<'_, PyAny>,
+        py: Python,
+    ) -> PyResult<()> {
         let table: Arc<dyn TableProvider> = Arc::new(IbisTable::new(reader, py)?);
 
         self.ctx
@@ -332,8 +339,9 @@ impl PySessionContext {
     pub fn register_py_table_provider(
         &mut self,
         name: &str,
-        provider: PyTableProvider,
+        provider: &Bound<'_, PyAny>,
     ) -> PyResult<()> {
+        let provider = PyTableProvider::new(provider)?;
         let table: Arc<dyn TableProvider> = Arc::new(provider);
 
         self.ctx
@@ -360,7 +368,7 @@ impl PySessionContext {
         Ok(())
     }
 
-    fn register_dataset(&self, name: &str, dataset: &PyAny, py: Python) -> PyResult<()> {
+    fn register_dataset(&self, name: &str, dataset: &Bound<'_, PyAny>, py: Python) -> PyResult<()> {
         let table: Arc<dyn TableProvider> = Arc::new(Dataset::new(dataset, py)?);
 
         self.ctx

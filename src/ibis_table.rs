@@ -17,20 +17,24 @@ use pyo3::{PyAny, PyObject, PyResult, Python};
 use crate::ibis_filter_expression::IbisFilterExpression;
 use crate::ibis_table_exec::IbisTableExec;
 
+use pyo3::prelude::*;
+
 // Wraps an ibis.Table class and implements a Datafusion TableProvider around it
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct IbisTable {
     ibis_table: PyObject,
 }
 
 impl IbisTable {
     // Creates a Python ibis.Table
-    pub fn new(ibis_table: &PyAny, py: Python) -> PyResult<Self> {
-        let pa = PyModule::import(py, "ibis.expr.types")?;
-        let table: &PyType = pa.getattr("Table")?.downcast()?;
-        if ibis_table.is_instance(table)? {
+    pub fn new(ibis_table: &Bound<'_, PyAny>, py: Python) -> PyResult<Self> {
+        let pa = PyModule::import_bound(py, "ibis.expr.types")?;
+        let table = pa.getattr("Table")?;
+        let table_type = table.downcast::<PyType>()?;
+
+        if ibis_table.is_instance(table_type)? {
             Ok(IbisTable {
-                ibis_table: ibis_table.into(),
+                ibis_table: ibis_table.clone().unbind(),
             })
         } else {
             Err(PyValueError::new_err(
@@ -48,7 +52,7 @@ impl TableProvider for IbisTable {
 
     fn schema(&self) -> SchemaRef {
         Python::with_gil(|py| {
-            let batch_reader = self.ibis_table.as_ref(py);
+            let batch_reader = self.ibis_table.bind(py);
             Arc::new(
                 batch_reader
                     .call_method0("schema")
@@ -81,10 +85,10 @@ impl TableProvider for IbisTable {
                         IbisFilterExpression::try_from(filter)
                             .unwrap()
                             .inner()
-                            .clone()
+                            .clone_ref(py)
                     })
                     .collect::<Vec<PyObject>>();
-                let ibis_filters = PyTuple::new(py, &args);
+                let ibis_filters = PyTuple::new_bound(py, &args);
                 self.ibis_table
                     .call_method1(py, "filter", ibis_filters)
                     .map_err(|err| DataFusionError::Execution(format!("{err}")))?
@@ -97,7 +101,7 @@ impl TableProvider for IbisTable {
             };
 
             let plan: Arc<dyn ExecutionPlan> = Arc::new(
-                IbisTableExec::new(py, table.as_ref(py), projection)
+                IbisTableExec::new(py, table.bind(py), projection)
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             );
             Ok(plan)

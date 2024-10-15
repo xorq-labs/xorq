@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use crate::sql::logical::PyLogicalPlan;
 use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion_common::config::ConfigOptions;
@@ -18,10 +19,8 @@ use datafusion_sql::{
     sqlparser::parser::Parser,
     TableReference,
 };
-use pyo3::prelude::PyModule;
-use pyo3::{pyclass, pyfunction, pymethods, wrap_pyfunction, PyObject, PyResult, Python};
 
-use crate::sql::logical::PyLogicalPlan;
+use pyo3::prelude::*;
 
 fn create_table_source(fields: Vec<Field>) -> Arc<dyn TableSource> {
     Arc::new(LogicalTableSource::new(Arc::new(
@@ -118,6 +117,7 @@ impl ContextProvider for PyContextProvider {
 }
 
 #[pyfunction]
+#[pyo3(signature = (sql, context_provider, dialect=None))]
 pub fn parse_sql(
     sql: &str,
     context_provider: PyContextProvider,
@@ -139,7 +139,7 @@ pub fn parse_sql(
     PyLogicalPlan::from(plan)
 }
 
-pub(crate) fn init_module(m: &PyModule) -> PyResult<()> {
+pub(crate) fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(parse_sql))?;
     Ok(())
 }

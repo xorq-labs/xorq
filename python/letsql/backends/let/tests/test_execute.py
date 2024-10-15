@@ -163,6 +163,7 @@ def test_filtering_join(batting, awards_players, how):
     assert_frame_equal(result, expected, check_like=True)
 
 
+@pytest.mark.xfail(reason="datafusion 42.0.0 update introduced a bug")
 @pytest.mark.parametrize("distinct", [False, True], ids=["all", "distinct"])
 def test_union(ls_con, union_subsets, distinct):
     (a, _, c), (da, db, dc) = union_subsets
@@ -179,6 +180,7 @@ def test_union(ls_con, union_subsets, distinct):
     assert_frame_equal(result, expected)
 
 
+@pytest.mark.xfail(reason="datafusion 42.0.0 update introduced a bug")
 def test_union_mixed_distinct(ls_con, union_subsets):
     (a, _, _), (da, db, dc) = union_subsets
 

@@ -2,8 +2,8 @@ use std::{any::Any, sync::Arc};
 
 use arrow::array::{Array, ArrayRef, Float64Array};
 use arrow::datatypes::DataType;
+use arrow::datatypes::DataType::{FixedSizeList, LargeList, List};
 use arrow_convert::deserialize::TryIntoCollection;
-use arrow_schema::DataType::{FixedSizeList, LargeList, List};
 use candle_core::{Device, Tensor};
 use datafusion_common::cast::as_list_array;
 use datafusion_common::{exec_err, Result};
@@ -103,13 +103,13 @@ pub fn tensor_mean_all(args: &[ArrayRef]) -> Result<ArrayRef> {
 }
 
 fn extract1d(arr_ref: ArrayRef) -> Result<(usize, usize, Vec<f64>)> {
-    let arr_vec: Vec<f64> = arr_ref.try_into_collection().unwrap();
+    let arr_vec: Vec<f64> = arr_ref.try_into_collection()?;
     let elements = arr_vec.len();
     Ok((1, elements, arr_vec))
 }
 
 fn extract2d(arr_ref: ArrayRef) -> Result<(usize, usize, Vec<f64>)> {
-    let arr_vec: Vec<Vec<Option<f64>>> = arr_ref.try_into_collection().unwrap();
+    let arr_vec: Vec<Vec<Option<f64>>> = arr_ref.try_into_collection()?;
     let unique: Vec<usize> = arr_vec.iter().map(|v| v.len()).unique().collect();
     if unique.len() > 1 {
         return exec_err!("jagged array");

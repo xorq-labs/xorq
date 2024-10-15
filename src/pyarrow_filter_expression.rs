@@ -8,15 +8,15 @@ use datafusion_expr::{expr::InList, Between, BinaryExpr, Expr, Operator};
 
 use crate::errors::DataFusionError;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 #[repr(transparent)]
 pub(crate) struct PyArrowFilterExpression(PyObject);
 
 fn operator_to_py<'py>(
     operator: &Operator,
-    op: &'py PyModule,
-) -> Result<&'py PyAny, DataFusionError> {
-    let py_op: &PyAny = match operator {
+    op: &Bound<'py, PyModule>,
+) -> Result<Bound<'py, PyAny>, DataFusionError> {
+    let py_op: Bound<'_, PyAny> = match operator {
         Operator::Eq => op.getattr("eq")?,
         Operator::NotEq => op.getattr("ne")?,
         Operator::Lt => op.getattr("lt")?,
@@ -74,9 +74,9 @@ impl TryFrom<&Expr> for PyArrowFilterExpression {
 
     fn try_from(expr: &Expr) -> Result<Self, Self::Error> {
         Python::with_gil(|py| {
-            let pc = Python::import(py, "pyarrow.compute")?;
-            let op_module = Python::import(py, "operator")?;
-            let pc_expr: Result<&PyAny, DataFusionError> = match expr {
+            let pc = Python::import_bound(py, "pyarrow.compute")?;
+            let op_module = Python::import_bound(py, "operator")?;
+            let pc_expr: Result<Bound<'_, PyAny>, DataFusionError> = match expr {
                 Expr::Column(Column { name, .. }) => Ok(pc.getattr("field")?.call1((name,))?),
                 Expr::Literal(v) => match v {
                     ScalarValue::Boolean(Some(b)) => Ok(pc.getattr("scalar")?.call1((*b,))?),
@@ -96,7 +96,7 @@ impl TryFrom<&Expr> for PyArrowFilterExpression {
                     ))),
                 },
                 Expr::BinaryExpr(BinaryExpr { left, op, right }) => {
-                    let operator = operator_to_py(op, op_module)?;
+                    let operator = operator_to_py(op, &op_module)?;
                     let left = PyArrowFilterExpression::try_from(left.as_ref())?.0;
                     let right = PyArrowFilterExpression::try_from(right.as_ref())?.0;
                     Ok(operator.call1((left, right))?)
@@ -106,18 +106,14 @@ impl TryFrom<&Expr> for PyArrowFilterExpression {
                     let py_expr = PyArrowFilterExpression::try_from(expr.as_ref())?.0;
                     Ok(operator.call1((py_expr,))?)
                 }
-                Expr::IsNotNull(expr) => {
-                    let py_expr = PyArrowFilterExpression::try_from(expr.as_ref())?
-                        .0
-                        .into_ref(py);
-                    Ok(py_expr.call_method0("is_valid")?)
-                }
-                Expr::IsNull(expr) => {
-                    let expr = PyArrowFilterExpression::try_from(expr.as_ref())?
-                        .0
-                        .into_ref(py);
-                    Ok(expr.call_method1("is_null", (expr,))?)
-                }
+                Expr::IsNotNull(expr) => Ok(PyArrowFilterExpression::try_from(expr.as_ref())?
+                    .0
+                    .bind(py)
+                    .call_method0("is_valid")?),
+                Expr::IsNull(expr) => Ok(PyArrowFilterExpression::try_from(expr.as_ref())?
+                    .0
+                    .bind(py)
+                    .call_method0("is_null")?),
                 Expr::Between(Between {
                     expr,
                     negated,
@@ -144,14 +140,20 @@ impl TryFrom<&Expr> for PyArrowFilterExpression {
                     list,
                     negated,
                 }) => {
-                    let expr = PyArrowFilterExpression::try_from(expr.as_ref())?
-                        .0
-                        .into_ref(py);
                     let scalars = extract_scalar_list(list, py)?;
-                    let ret = expr.call_method1("isin", (scalars,))?;
                     let invert = op_module.getattr("invert")?;
-
-                    Ok(if *negated { invert.call1((ret,))? } else { ret })
+                    PyArrowFilterExpression::try_from(expr.as_ref())?
+                        .0
+                        .bind(py)
+                        .call_method1("isin", (scalars,))
+                        .map(|ret| {
+                            if *negated {
+                                invert.call1((ret,)).unwrap()
+                            } else {
+                                ret
+                            }
+                        })
+                        .map_err(DataFusionError::from)
                 }
                 _ => Err(DataFusionError::Common(format!(
                     "Unsupported Datafusion expression {expr:?}"

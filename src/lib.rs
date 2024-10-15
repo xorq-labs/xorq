@@ -38,7 +38,7 @@ pub(crate) struct TokioRuntime(tokio::runtime::Runtime);
 
 /// Low-level LetSQL internal package.
 #[pymodule]
-fn _internal(py: Python, m: &PyModule) -> PyResult<()> {
+fn _internal(py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     // Register the Tokio Runtime as a module attribute, so we can reuse it
     m.add(
         "runtime",
@@ -61,26 +61,26 @@ fn _internal(py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<catalog::PyTable>()?;
 
     // Register `common` as a submodule. Matching `datafusion-common` https://docs.rs/datafusion-common/latest/datafusion_common/
-    let common = PyModule::new(py, "common")?;
-    common::init_module(common)?;
-    m.add_submodule(common)?;
+    let common = PyModule::new_bound(py, "common")?;
+    common::init_module(&common)?;
+    m.add_submodule(&common)?;
 
     // Register `expr` as a submodule. Matching `datafusion-expr` https://docs.rs/datafusion-expr/latest/datafusion_expr/
-    let expr = PyModule::new(py, "expr")?;
-    expr::init_module(expr)?;
-    m.add_submodule(expr)?;
+    let expr = PyModule::new_bound(py, "expr")?;
+    expr::init_module(&expr)?;
+    m.add_submodule(&expr)?;
 
-    let parser = PyModule::new(py, "parser")?;
-    parser::init_module(parser)?;
-    m.add_submodule(parser)?;
+    let parser = PyModule::new_bound(py, "parser")?;
+    parser::init_module(&parser)?;
+    m.add_submodule(&parser)?;
 
-    let optimizer = PyModule::new(py, "optimizer")?;
-    optimizer::init_module(optimizer)?;
-    m.add_submodule(optimizer)?;
+    let optimizer = PyModule::new_bound(py, "optimizer")?;
+    optimizer::init_module(&optimizer)?;
+    m.add_submodule(&optimizer)?;
 
-    let builder = PyModule::new(py, "builder")?;
-    builder::init_module(builder)?;
-    m.add_submodule(builder)?;
+    let builder = PyModule::new_bound(py, "builder")?;
+    builder::init_module(&builder)?;
+    m.add_submodule(&builder)?;
 
     Ok(())
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use std::any::Any;
+use std::{any::Any, borrow::Cow};
 
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion_expr::{Expr, TableProviderFilterPushDown, TableSource};
@@ -62,6 +62,7 @@ pub struct SqlTable {
 #[pymethods]
 impl SqlTable {
     #[new]
+    #[pyo3(signature = (table_name, columns, row_count, filepaths=None))]
     pub fn new(
         table_name: String,
         columns: Vec<(String, DataTypeMap)>,
@@ -167,35 +168,29 @@ impl TableSource for SqlTableSource {
         datafusion_expr::TableType::Base
     }
 
-    fn supports_filter_pushdown(
-        &self,
-        filter: &Expr,
-    ) -> datafusion_common::Result<TableProviderFilterPushDown> {
-        let filters = split_conjunction(filter);
-        if filters.iter().all(|f| is_supported_push_down_expr(f)) {
-            // Push down filters to the tablescan operation if all are supported
-            Ok(TableProviderFilterPushDown::Exact)
-        } else if filters.iter().any(|f| is_supported_push_down_expr(f)) {
-            // Partially apply the filter in the TableScan but retain
-            // the Filter operator in the plan as well
-            Ok(TableProviderFilterPushDown::Inexact)
-        } else {
-            Ok(TableProviderFilterPushDown::Unsupported)
-        }
-    }
-
-    #[allow(deprecated)]
     fn supports_filters_pushdown(
         &self,
         filters: &[&Expr],
-    ) -> datafusion_common::Result<Vec<TableProviderFilterPushDown>> {
+    ) -> datafusion::common::Result<Vec<TableProviderFilterPushDown>> {
         filters
             .iter()
-            .map(|f| self.supports_filter_pushdown(f))
+            .map(|f| {
+                let filters = split_conjunction(f);
+                if filters.iter().all(|f| is_supported_push_down_expr(f)) {
+                    // Push down filters to the tablescan operation if all are supported
+                    Ok(TableProviderFilterPushDown::Exact)
+                } else if filters.iter().any(|f| is_supported_push_down_expr(f)) {
+                    // Partially apply the filter in the TableScan but retain
+                    // the Filter operator in the plan as well
+                    Ok(TableProviderFilterPushDown::Inexact)
+                } else {
+                    Ok(TableProviderFilterPushDown::Unsupported)
+                }
+            })
             .collect()
     }
 
-    fn get_logical_plan(&self) -> Option<&datafusion_expr::LogicalPlan> {
+    fn get_logical_plan(&self) -> Option<Cow<datafusion::logical_expr::LogicalPlan>> {
         None
     }
 }

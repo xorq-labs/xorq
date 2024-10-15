@@ -1,14 +1,12 @@
-use datafusion::arrow::datatypes::{Schema, SchemaRef};
-use datafusion::arrow::pyarrow::PyArrowType;
-use datafusion_expr::builder::table_scan_with_filters;
-use datafusion_expr::expr::Sort;
-use datafusion_expr::{table_scan, Expr, LogicalPlanBuilder};
-use pyo3::prelude::PyModule;
-use pyo3::{pyclass, pyfunction, pymethods, wrap_pyfunction, PyResult};
-
 use crate::expr::ordered::PyOrdered;
 use crate::expr::PyExpr;
 use crate::sql::logical::PyLogicalPlan;
+use datafusion::arrow::datatypes::{Schema, SchemaRef};
+use datafusion::arrow::pyarrow::PyArrowType;
+use datafusion_expr::builder::table_scan_with_filters;
+use datafusion_expr::{table_scan, Expr, LogicalPlanBuilder, SortExpr};
+
+use pyo3::prelude::*;
 
 #[pyclass(name = "LogicalPlanBuilder", module = "datafusion", subclass)]
 #[derive(Clone)]
@@ -43,7 +41,7 @@ impl PyLogicalPlanBuilder {
     }
 
     pub fn sort(&self, expr: Vec<PyOrdered>) -> Self {
-        let expr = expr.iter().map(|e| Expr::Sort(Sort::from(e.clone())));
+        let expr = expr.iter().map(|e| SortExpr::from(e.clone()));
         Self {
             builder: self.builder.clone().sort(expr).unwrap(),
         }
@@ -52,6 +50,7 @@ impl PyLogicalPlanBuilder {
 
 #[pyfunction]
 #[pyo3(name = "table_scan")]
+#[pyo3(signature = (name, table_schema, projections=None))]
 pub fn py_table_scan(
     name: &str,
     table_schema: PyArrowType<Schema>,
@@ -65,6 +64,7 @@ pub fn py_table_scan(
 
 #[pyfunction]
 #[pyo3(name = "table_scan_with_filters")]
+#[pyo3(signature = (name, table_schema, filters, projections=None))]
 pub fn py_table_scan_with_filters(
     name: &str,
     table_schema: PyArrowType<Schema>,
@@ -83,7 +83,7 @@ pub fn py_table_scan_with_filters(
     PyLogicalPlanBuilder::from(plan_builder)
 }
 
-pub(crate) fn init_module(m: &PyModule) -> PyResult<()> {
+pub(crate) fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_wrapped(wrap_pyfunction!(py_table_scan))?;
     m.add_wrapped(wrap_pyfunction!(py_table_scan_with_filters))?;
     Ok(())

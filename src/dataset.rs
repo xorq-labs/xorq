@@ -37,20 +37,21 @@ use crate::dataset_exec::DatasetExec;
 use crate::pyarrow_filter_expression::PyArrowFilterExpression;
 
 // Wraps a pyarrow.dataset.Dataset class and implements a Datafusion TableProvider around it
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) struct Dataset {
     dataset: PyObject,
 }
 
 impl Dataset {
     // Creates a Python PyArrow.Dataset
-    pub fn new(dataset: &PyAny, py: Python) -> PyResult<Self> {
+    pub fn new(dataset: &Bound<'_, PyAny>, py: Python) -> PyResult<Self> {
         // Ensure that we were passed an instance of pyarrow.dataset.Dataset
-        let ds = PyModule::import(py, "pyarrow.dataset")?;
-        let ds_type: &PyType = ds.getattr("Dataset")?.downcast()?;
+        let ds = PyModule::import_bound(py, "pyarrow.dataset")?;
+        let ds_attr = ds.getattr("Dataset")?;
+        let ds_type = ds_attr.downcast::<PyType>()?;
         if dataset.is_instance(ds_type)? {
             Ok(Dataset {
-                dataset: dataset.into(),
+                dataset: dataset.clone().unbind(),
             })
         } else {
             Err(PyValueError::new_err(
@@ -68,7 +69,7 @@ impl TableProvider for Dataset {
 
     fn schema(&self) -> SchemaRef {
         Python::with_gil(|py| {
-            let dataset = self.dataset.as_ref(py);
+            let dataset = self.dataset.bind(py);
             Arc::new(
                 dataset
                     .getattr("schema")
@@ -93,7 +94,7 @@ impl TableProvider for Dataset {
     ) -> DFResult<Arc<dyn ExecutionPlan>> {
         Python::with_gil(|py| {
             let plan: Arc<dyn ExecutionPlan> = Arc::new(
-                DatasetExec::new(py, self.dataset.as_ref(py), projection.cloned(), filters)
+                DatasetExec::new(py, self.dataset.bind(py), projection.cloned(), filters)
                     .map_err(|err| DataFusionError::External(Box::new(err)))?,
             );
             Ok(plan)

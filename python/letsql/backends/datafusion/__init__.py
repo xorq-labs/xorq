@@ -44,7 +44,6 @@ from letsql.expr.pyaggregator import PyAggregator, make_struct_type
 from letsql.internal import (
     SessionConfig,
     SessionContext,
-    TableProvider,
     Table,
     DataFrame,
 )
@@ -407,9 +406,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             source, "to_pyarrow_batches"
         ):
             self.con.deregister_table(table_ident)
-            self.con.register_table_provider(
-                table_ident, TableProvider(IbisTableProvider(source))
-            )
+            self.con.register_table_provider(table_ident, IbisTableProvider(source))
             return self.table(table_name)
         elif isinstance(source, ibis.expr.types.Expr) and hasattr(
             source, "to_pyarrow_batches"
@@ -453,9 +450,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     ):
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
-        self.con.register_table_provider(
-            table_ident, TableProvider(IbisTableProvider(source))
-        )
+        self.con.register_table_provider(table_ident, IbisTableProvider(source))
         return self.table(table_name)
 
     def _register_failure(self):
