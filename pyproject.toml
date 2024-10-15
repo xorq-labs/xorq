@@ -118,7 +118,7 @@ codespell = {version = "2.3.0", extras = ["hard-encoding-detection", "toml"]}
 coverage = {version = "7.6.3", extras = ["toml"]}
 git-cliff = "^2.2.1"
 ipython = "^8.19.0"
-pre-commit = "3.8.0"
+pre-commit = "4.0.1"
 pytest = "8.0.2"
 pytest-cov = "5.0.0"
 ruff = "0.6.9"
