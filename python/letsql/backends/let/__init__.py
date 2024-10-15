@@ -8,7 +8,6 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from ibis import BaseBackend
 from ibis.expr import types as ir, schema as sch
-from ibis.expr.schema import SchemaLike
 from sqlglot import exp, parse_one
 
 import letsql.backends.let.hotfix  # noqa: F401
@@ -18,7 +17,6 @@ from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
 )
-from letsql.expr.translate import sql_to_ibis
 
 
 def _get_datafusion_table(con, table_name, database="public"):
@@ -314,16 +312,6 @@ class Backend(DataFusionBackend):
         out = op.map_clear(replace_cache_table)
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
-
-    def sql(
-        self,
-        query: str,
-        schema: SchemaLike | None = None,
-        dialect: str | None = None,
-    ) -> ir.Table:
-        query = self._transpile_sql(query, dialect=self.compiler.dialect)
-        catalog = self._extract_catalog(query)
-        return sql_to_ibis(query, catalog).as_table()
 
     def _extract_catalog(self, query):
         tables = parse_one(query).find_all(exp.Table)

@@ -165,7 +165,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             this=table,
             kind="VIEW",
             expression=sg.parse_one(query, read="datafusion"),
-            properties=sge.Properties(expressions=[sge.TemporaryProperty()]),
         )
 
         with self._safe_raw_sql(src):

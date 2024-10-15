@@ -195,7 +195,7 @@ impl PySessionContext {
     /// Returns a PyDataFrame whose plan corresponds to the SQL statement.
     fn sql(&mut self, query: &str, py: Python) -> PyResult<PyDataFrame> {
         let result = self.ctx.sql(query);
-        let df = wait_for_future(py, result).unwrap();
+        let df = wait_for_future(py, result)?;
         Ok(PyDataFrame::new(df))
     }
 
