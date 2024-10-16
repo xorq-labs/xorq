@@ -559,8 +559,5 @@ class DataFusionCompiler(SQLGlotCompiler):
         args = (arg for args in zip(map(sg.exp.convert, names), values) for arg in args)
         return self.f.named_struct(*args)
 
-    def visit_SegmentAnything(self, op, *, arg, model_name, seed):
-        return self.f.segment_anything(sg.exp.convert(model_name), arg, seed)
-
     def visit_Rotate90(self, op, *, arg):
         return self.f.rotate90(arg)

@@ -1,6 +1,5 @@
 import io
 import urllib.request
-from operator import itemgetter
 
 import pandas as pd
 import pyarrow as pa
@@ -36,13 +35,6 @@ def images_table():
     return table
 
 
-def make_images_expr(images_table, path):
-    con = ls.connect()
-    images = con.register(images_table, table_name="images")
-    expr = images.data.segment_anything(str(path), [0.5, 0.6]).name("segmented")
-    return expr
-
-
 @pytest.fixture(scope="session")
 def model_path(tmp_path_factory):
     filename = tmp_path_factory.mktemp("models") / "mobile_sam-tiny-vitt.safetensors"
@@ -67,22 +59,6 @@ def test_tensor_mean_all_over_matrix():
     expected = pd.DataFrame({"tmp": [2.0]})
 
     assert_frame_equal(actual, expected)
-
-
-def test_segment_anything(images_table, model_path):
-    context = SessionContext()
-    context.register_record_batches("images", [images_table.to_batches()])
-    sql = make_images_expr(images_table, model_path).compile()
-    rows = context.sql(sql).to_pylist()
-    output = [row for row in map(itemgetter("segmented"), rows)]
-    assert all(row["mask"] is not None for row in output)
-    assert all(row["iou_score"] is not None for row in output)
-
-
-def test_segment_anything_op(images_table, model_path):
-    sql = make_images_expr(images_table, model_path).compile()
-    expected = f"""SELECT SEGMENT_ANYTHING('{model_path}', "t0"."data", MAKE_ARRAY(0.5, 0.6)) AS "segmented" FROM "images" AS "t0\""""
-    assert sql == expected
 
 
 def test_rotate(images_table):
