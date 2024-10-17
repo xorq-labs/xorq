@@ -24,12 +24,7 @@ gbdt = { git = "https://github.com/letsql/gbdt-rs.git", rev = "8262de1d20ab6dc7c
 parking_lot = { version = "0.12" }
 arrow-ord = ">=52.2.0, <54"
 datafusion-functions-aggregate = { version = ">=40.0.0,<43" }
-arrow_convert = "0.7.2"
-itertools = "0.13.0"
-candle-core = "0.6.0"
-image = "0.25.2"
 aws-config = "0.55"
 aws-credential-types = "0.55"
 object_store = { version = "0.11.0", features = ["aws", "gcp", "http"] }
 url = "2.2"
-arrow-schema = "53.1.0"

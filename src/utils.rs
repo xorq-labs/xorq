@@ -1,16 +1,13 @@
 use std::future::Future;
-use std::io::Cursor;
 use std::sync::Arc;
 
 use arrow::array::ArrayRef;
 use arrow::datatypes::SchemaRef;
 use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
 use datafusion::physical_plan::{ExecutionMode, PlanProperties};
-use datafusion_common::DataFusionError::Execution;
-use datafusion_common::{exec_err, Result, ScalarValue};
+use datafusion_common::{Result, ScalarValue};
 use datafusion_expr::Volatility;
 use datafusion_expr::{ColumnarValue, ScalarFunctionImplementation};
-use image::{DynamicImage, ImageFormat, ImageReader};
 use pyo3::prelude::*;
 use tokio::runtime::Runtime;
 
@@ -96,21 +93,4 @@ where
             result.map(ColumnarValue::Array)
         }
     })
-}
-
-pub(crate) fn binary_to_img(data: &[u8]) -> Result<(ImageFormat, DynamicImage)> {
-    let data = Cursor::new(data);
-
-    let reader = ImageReader::new(data)
-        .with_guessed_format()
-        .map_err(|e| Execution(e.to_string()))?;
-
-    let format = match reader.format() {
-        Some(format) => format,
-        None => return exec_err!("Format"),
-    };
-
-    let image = reader.decode().map_err(|e| Execution(e.to_string()))?;
-
-    Ok((format, image))
 }

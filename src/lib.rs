@@ -23,7 +23,6 @@ mod py_record_batch_provider;
 mod pyarrow_filter_expression;
 mod record_batch;
 pub mod sql;
-mod tensor_functions;
 #[allow(clippy::borrow_deref_ref)]
 mod udaf;
 #[allow(clippy::borrow_deref_ref)]

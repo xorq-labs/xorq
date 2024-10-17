@@ -23,7 +23,6 @@ from letsql.common.utils.hotfix_utils import (
     hotfix,
     none_tokenized,
 )
-from letsql.expr.operations.images import Rotate90
 from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
@@ -171,11 +170,6 @@ def letsql_cache(self, storage=None):
 @property
 def ls(self):
     return LETSQLAccessor(self)
-
-
-@hotfix(ibis.expr.types.binary.BinaryColumn, "rotate90", none_tokenized)
-def rotate90(self: ibis.expr.types.binary.BinaryColumn):
-    return Rotate90(arg=self).to_expr()
 
 
 @toolz.curry
