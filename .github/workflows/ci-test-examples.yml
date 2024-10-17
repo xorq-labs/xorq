@@ -58,3 +58,9 @@ jobs:
       - name: poetry pytest
         run: poetry run pytest --import-mode=importlib python/letsql/tests/test_examples.py -v
         working-directory: ${{ github.workspace }}
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_GH_PASSWORD }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_GH_USER }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_GH_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_GH_PORT }}
+          POSTGRES_DATABASE: ${{ secrets.POSTGRES_GH_DATABASE }}
