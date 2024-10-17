@@ -48,7 +48,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: poetry run maturin develop --release
+        run: poetry run maturin develop
         working-directory: ${{ github.workspace }}
 
       - name: start services

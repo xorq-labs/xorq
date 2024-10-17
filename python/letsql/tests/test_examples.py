@@ -36,6 +36,5 @@ def maybe_library(name: str):
         for script in scripts
     ],
 )
-@pytest.mark.skip(reason="failing")
 def test_script_execution(script):
     runpy.run_path(str(script))
