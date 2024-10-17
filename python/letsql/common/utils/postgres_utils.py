@@ -1,7 +1,80 @@
 import os
 
+import adbc_driver_postgresql.dbapi
+import ibis
+import sqlglot as sg
+import sqlglot.expressions as sge
+import toolz
+from attr import (
+    field,
+    frozen,
+)
+from attr.validators import (
+    instance_of,
+    optional,
+)
 
 import letsql.backends.postgres.hotfix  # noqa: F401
+from letsql.backends.postgres import (
+    Backend as PGBackend,
+)
+
+
+@frozen
+class PgADBC:
+    con = field(validator=instance_of(PGBackend))
+    password = field(validator=optional(instance_of(str)), default=None)
+
+    def __attrs_post_init__(self):
+        if self.password is None:
+            object.__setattr__(self, "password", make_credential_defaults()["password"])
+
+    @property
+    def params(self):
+        dsn_parameters = self.con.con.get_dsn_parameters()
+        dct = {
+            **toolz.dissoc(
+                dsn_parameters,
+                "dbname",
+                "options",
+            ),
+            **{
+                "database": dsn_parameters["dbname"],
+                "password": self.password,
+            },
+        }
+        return dct
+
+    def get_uri(self, **kwargs):
+        params = {**self.params, **kwargs}
+        uri = f"postgresql://{params['user']}:{params['password']}@{params['host']}:{params['port']}/{params['database']}"
+        return uri
+
+    @property
+    def uri(self):
+        return self.get_uri()
+
+    def get_conn(self, **kwargs):
+        return adbc_driver_postgresql.dbapi.connect(self.get_uri(**kwargs))
+
+    @property
+    def conn(self):
+        return self.get_conn()
+
+    def adbc_ingest(
+        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
+    ):
+        with self.get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.adbc_ingest(
+                    table_name,
+                    record_batch_reader,
+                    mode=mode,
+                    temporary=temporary,
+                    **kwargs,
+                )
+            # must commit!
+            conn.commit()
 
 
 def make_credential_defaults():
@@ -20,9 +93,7 @@ def make_connection_defaults():
 
 
 def make_connection(**kwargs):
-    from letsql.backends.postgres import Backend
-
-    con = Backend()
+    con = PGBackend()
     con = con.connect(
         **{
             **make_credential_defaults(),
@@ -54,15 +125,20 @@ def get_postgres_n_changes(dt):
 
 
 def get_postgres_n_reltuples(dt):
+    # FIXME: determine how to track "temporary" tables
     (con, name) = (dt.source, dt.name)
+    which = "reltuples"
     sql = f"""
-        SELECT reltuples
+        SELECT {which}
         FROM pg_class
         WHERE relname = '{name}'
+        AND relpersistence = 'p'
     """
     do_checkpoint(con)
     do_analyze(con, name)
-    ((n_reltuples,),) = con.sql(sql).execute().values
+    (n_reltuples, *rest) = con.sql(sql).execute()[which]
+    if rest:
+        raise ValueError(str((n_reltuples, rest)))
     return n_reltuples
 
 
@@ -74,3 +150,47 @@ def get_postgres_n_scans(dt):
     """
     ((n_scans,),) = con.sql(sql).execute().values
     return n_scans
+
+
+def make_table_temporary(con, name):
+    def rename_table_pg(con, old_name, new_name):
+        # rename_stmt = f"ALTER TABLE {old_name} RENAME TO {new_name}"
+        # sg.parse_one(rename_stmt)
+        sql = sge.AlterTable(
+            this=sg.table(old_name, quoted=True),
+            actions=[
+                sge.RenameTable(
+                    this=sg.table(new_name, quoted=True),
+                ),
+            ],
+        )
+        rename_stmt = sql.sql(dialect="postgres")
+        with con._safe_raw_sql(rename_stmt):
+            pass
+
+    def copy_table_pg(con, from_name, to_name, temporary=False):
+        # copy_stmt = f"CREATE {'TEMP ' if temporary else ''}TABLE {to_name} AS SELECT * FROM {from_name}"
+        # sg.parse_one(copy_stmt)
+        sql = sge.Create(
+            this=sg.table(to_name, quoted=True),
+            kind="TABLE",
+            expression=sge.Select(
+                **{
+                    "expressions": [sge.Star()],
+                    "from": sge.From(
+                        this=sg.table(from_name, quoted=True),
+                    ),
+                }
+            ),
+            properties=sge.Properties(
+                expressions=[sge.TemporaryProperty()] if temporary else []
+            ),
+        )
+        copy_stmt = sql.sql(dialect="postgres")
+        with con._safe_raw_sql(copy_stmt):
+            pass
+
+    tmp_name = ibis.util.gen_name(f"tmp-{name}")
+    rename_table_pg(con, name, tmp_name)
+    copy_table_pg(con, tmp_name, name, temporary=True)
+    con.drop_table(tmp_name)

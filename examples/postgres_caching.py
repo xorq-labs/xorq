@@ -3,12 +3,13 @@ from letsql import _
 from letsql.common.caching import ParquetCacheStorage
 
 pg = ls.postgres.connect_examples()
+con = ls.connect()
 
 for table_name in pg.list_tables():
     if table_name.startswith(ls.config.options.cache.key_prefix):
         pg.drop_table(table_name)
 
-cache = ParquetCacheStorage(source=pg)
+cache = ParquetCacheStorage(source=con)
 
 t = (
     pg.table("batting")

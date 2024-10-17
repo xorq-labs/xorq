@@ -2,17 +2,19 @@ from functools import partial
 from pathlib import Path
 from typing import Mapping, Any
 
-import ibis
-import ibis.common.exceptions as exc
 import ibis.expr.schema as sch
-import numpy as np
 import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends.postgres import Backend as IbisPostgresBackend
 from ibis.expr import types as ir
-from pandas.api.types import is_float_dtype
+from ibis.util import (
+    gen_name,
+)
 
 from letsql.expr.relations import CachedNode, replace_cache_table
+from letsql.common.utils.defer_utils import (
+    read_csv_rbr,
+)
 
 
 class Backend(IbisPostgresBackend):
@@ -68,72 +70,6 @@ class Backend(IbisPostgresBackend):
 
         return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
 
-    def read_parquet(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
-    ) -> ir.Table:
-        import pyarrow.parquet as pq
-        from psycopg2.extras import execute_batch
-
-        pyarrow_schema = pq.read_schema(path, memory_map=True)
-        schema = ibis.Schema.from_pyarrow(pyarrow_schema)
-
-        if null_columns := [col for col, dtype in schema.items() if dtype.is_null()]:
-            raise exc.IbisTypeError(
-                f"{self.name} cannot yet reliably handle `null` typed columns; "
-                f"got null typed columns: {null_columns}"
-            )
-
-        if table_name not in self.list_tables():
-            quoted = self.compiler.quoted
-            column_defs = [
-                sg.exp.ColumnDef(
-                    this=sg.to_identifier(colname, quoted=quoted),
-                    kind=self.compiler.type_mapper.from_ibis(typ),
-                    constraints=(
-                        None
-                        if typ.nullable
-                        else [
-                            sg.exp.ColumnConstraint(
-                                kind=sg.exp.NotNullColumnConstraint()
-                            )
-                        ]
-                    ),
-                )
-                for colname, typ in schema.items()
-            ]
-
-            create_stmt = sg.exp.Create(
-                kind="TABLE",
-                this=sg.exp.Schema(
-                    this=sg.to_identifier(table_name, quoted=quoted),
-                    expressions=column_defs,
-                ),
-                properties=sg.exp.Properties(expressions=[sge.TemporaryProperty()]),
-            )
-            create_stmt_sql = create_stmt.sql(self.dialect)
-
-            df = pq.read_table(path).to_pandas()
-            # nan gets compiled into 'NaN'::float which throws errors in non-float columns
-            # In order to hold NaN values, pandas automatically converts integer columns
-            # to float columns if there are NaN values in them. Therefore, we need to convert
-            # them to their original dtypes (that support pd.NA) to figure out which columns
-            # are actually non-float, then fill the NaN values in those columns with None.
-            convert_df = df.convert_dtypes()
-            for col in convert_df.columns:
-                if not is_float_dtype(convert_df[col]):
-                    df[col] = df[col].replace(np.nan, None)
-
-            data = df.itertuples(index=False)
-            sql = self._build_insert_template(
-                table_name, schema=schema, columns=True, placeholder="%s"
-            )
-
-            with self.begin() as cur:
-                cur.execute(create_stmt_sql)
-                execute_batch(cur, sql, data, 128)
-
-        return self.table(table_name)
-
     def _build_insert_template(
         self,
         name,
@@ -182,3 +118,61 @@ class Backend(IbisPostgresBackend):
                 else None
             ),
         ).sql(self.dialect)
+
+    def read_parquet(
+        self,
+        path: str | Path,
+        table_name: str | None = None,
+        password: str | None = None,
+        temporary: bool = False,
+        **kwargs: Any,
+    ) -> ir.Table:
+        import pyarrow.parquet as pq
+        from letsql.common.utils.postgres_utils import (
+            PgADBC,
+            make_table_temporary,
+        )
+
+        if table_name is None:
+            if not temporary:
+                raise ValueError(
+                    "If `table_name` is not provided, `temporary` must be True"
+                )
+            else:
+                table_name = gen_name("ls-read-parquet")
+        rbr = pq.ParquetFile(path).iter_batches()
+        pgadbc = PgADBC(self, password)
+        pgadbc.adbc_ingest(table_name, rbr)
+        if temporary:
+            make_table_temporary(self, table_name)
+        return self.table(table_name)
+
+    def read_csv(
+        self,
+        path,
+        table_name=None,
+        chunksize=10_000,
+        password=None,
+        temporary=False,
+        **kwargs,
+    ):
+        from letsql.common.utils.postgres_utils import (
+            PgADBC,
+            make_table_temporary,
+        )
+
+        if chunksize is None:
+            raise ValueError
+        if table_name is None:
+            if not temporary:
+                raise ValueError(
+                    "If `table_name` is not provided, `temporary` must be True"
+                )
+            else:
+                table_name = gen_name("ls-read-csv")
+        pgadbc = PgADBC(self, password)
+        pd_rbr = read_csv_rbr(path, **kwargs)
+        pgadbc.adbc_ingest(table_name, pd_rbr)
+        if temporary:
+            make_table_temporary(self, table_name)
+        return self.table(table_name)

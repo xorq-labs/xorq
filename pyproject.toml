@@ -109,6 +109,7 @@ fsspec = { version = "<2024.9.1", optional = true }
 pins = { version = ">=0.8.3,<1", extras = ["gcs"], optional = true }
 xgboost = { version = ">=1.6.1", optional = true}
 cityhash = { version = ">=0.4.7,<1" }
+adbc-driver-postgresql = "^1.2.0"
 
 [tool.poetry.group.dev.dependencies]
 python = "^3.10"
