@@ -5,6 +5,46 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.8] - 2024-10-24
+### Details
+Some major changes were introduced in this version the most important removing the need for registering expressions
+for execution, updating to datafusion 42, as well as removing heavy rust dependencies such as candle. 
+
+#### Changed
+- Update dependency ruff to v0.6.4 by @renovate[bot] in [#258](https://github.com/letsql/letsql/pull/258)
+- Update changelog command by @mesejo in [#259](https://github.com/letsql/letsql/pull/259)
+- Update dependency ruff to v0.6.5 by @renovate[bot] in [#265](https://github.com/letsql/letsql/pull/265)
+- Update actions/create-github-app-token action to v1.11.0 by @renovate[bot] in [#263](https://github.com/letsql/letsql/pull/263)
+- Update dependency ruff to v0.6.8 by @renovate[bot] in [#273](https://github.com/letsql/letsql/pull/273)
+- Disable test_examples temporarily by @mesejo in [#284](https://github.com/letsql/letsql/pull/284)
+- Update dependency coverage to v7.6.3 by @renovate[bot] in [#283](https://github.com/letsql/letsql/pull/283)
+- Update dependency ruff to v0.6.9 by @renovate[bot] in [#285](https://github.com/letsql/letsql/pull/285)
+- Update dependency black to v24.10.0 by @renovate[bot] in [#287](https://github.com/letsql/letsql/pull/287)
+- Update codecov/codecov-action action to v4.6.0 by @renovate[bot] in [#286](https://github.com/letsql/letsql/pull/286)
+- Update to datafusion v42 by @mesejo in [#293](https://github.com/letsql/letsql/pull/293)
+- Update dependency pre-commit to v4 by @renovate[bot] in [#291](https://github.com/letsql/letsql/pull/291)
+- Update tests and workflows by @mesejo in [#299](https://github.com/letsql/letsql/pull/299)
+- Only run ruff on repo files by @dlovell in [#301](https://github.com/letsql/letsql/pull/301)
+- Set postgres env vars by @mesejo in [#303](https://github.com/letsql/letsql/pull/303)
+- Update dependency ruff to v0.7.0 by @renovate[bot] in [#302](https://github.com/letsql/letsql/pull/302)
+
+#### Fixed
+- Fix pre-release workflow by @mesejo in [#257](https://github.com/letsql/letsql/pull/257)
+- Update dependency fsspec to v2024.9.0 by @renovate[bot] in [#255](https://github.com/letsql/letsql/pull/255)
+- Update dependency datafusion to v40 by @renovate[bot] in [#226](https://github.com/letsql/letsql/pull/226)
+- Update rust crate arrow-ord to v53 by @renovate[bot] in [#251](https://github.com/letsql/letsql/pull/251)
+- Enable build on macos by @dlovell in [#260](https://github.com/letsql/letsql/pull/260)
+- Enable build on macos by @dlovell in [#262](https://github.com/letsql/letsql/pull/262)
+- Update rust crate datafusion-common to v42 by @renovate[bot] in [#269](https://github.com/letsql/letsql/pull/269)
+- Fix `nix run` issues re SSL and macos temp user dirs by @dlovell
+- Fix `nix run` issues re IPYTHONDIR by @dlovell in [#264](https://github.com/letsql/letsql/pull/264)
+- Docs deployment by @mesejo in [#294](https://github.com/letsql/letsql/pull/294)
+
+#### Removed
+- Remove the requirement of table registration for expr execution by @dlovell in [#209](https://github.com/letsql/letsql/pull/209)
+- Remove segment_anything by @mesejo in [#295](https://github.com/letsql/letsql/pull/295)
+- Remove tensor functions by @mesejo in [#297](https://github.com/letsql/letsql/pull/297)
+
 ## [0.1.7] - 2024-09-05
 ### Details
 In this release, the segment_anything function has been refactored and cleaned up for improved performance and maintainability. 
