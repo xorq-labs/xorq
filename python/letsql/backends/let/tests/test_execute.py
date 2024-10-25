@@ -119,7 +119,10 @@ def ls_batting(parquet_batting):
 
 @pytest.fixture(scope="function")
 def ddb_batting(duckdb_con):
-    return duckdb_con.table("batting")
+    return duckdb_con.register(
+        duckdb_con.table("batting").to_pyarrow(),
+        "db-batting",
+    )
 
 
 def test_join(ls_con, alltypes, alltypes_df):
@@ -478,7 +481,7 @@ def test_multiple_pipes(pg, new_con):
 
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID == 2015]
-    db_t = new_con.register(pg_t.to_pyarrow(), f"{table_name}")[
+    db_t = new_con.register(pg_t.to_pyarrow(), f"db-{table_name}")[
         lambda t: t.yearID == 2014
     ]
 

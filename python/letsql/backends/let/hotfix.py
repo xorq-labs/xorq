@@ -1,9 +1,10 @@
-import toolz
+import operator
 
 import dask
 import ibis.expr.operations as ops
 import ibis.expr.types.core
 import ibis.expr.types.relations
+import toolz
 from attr import (
     field,
     frozen,
@@ -174,9 +175,25 @@ def ls(self):
 
 @toolz.curry
 def letsql_invoke(_methodname, self, *args, **kwargs):
+    def check_collisions():
+        names_to_backends = toolz.groupby(
+            operator.itemgetter(0),
+            (
+                (dt.name, dt.source, id(dt.source))
+                for dt in self.op().find(ops.DatabaseTable)
+            ),
+        )
+        bad_names = tuple(
+            (name, tuple(con for _, con, _ in vs))
+            for name, vs in names_to_backends.items()
+            if len(vs) > 1
+        )
+        if bad_names:
+            raise ValueError(f"name collision detected: {bad_names}")
+
+    check_collisions()
     con = letsql.connect()
     for dt in self.op().find(ops.DatabaseTable):
-        # fixme: use temp names to avoid collisions, remove / deregister after done
         if dt not in con._sources.sources:
             con.register(dt.to_expr(), dt.name)
     method = getattr(con, f"{_methodname}")

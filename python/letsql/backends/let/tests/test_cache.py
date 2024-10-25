@@ -531,7 +531,7 @@ def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
 
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID > 2014]
-    db_t = other_con.register(pg.table(table_name).to_pyarrow(), f"{table_name}")[
+    db_t = other_con.register(pg.table(table_name).to_pyarrow(), f"db-{table_name}")[
         lambda t: t.stint == 1
     ]
 
