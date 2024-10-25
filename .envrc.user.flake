@@ -1,0 +1,2 @@
+# use `use flake` for non-mutable install
+use flake
