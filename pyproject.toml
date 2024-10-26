@@ -8,7 +8,7 @@ dynamic = ["version"]
 dependencies = [
     "ibis-framework==9.0.0 ; python_version >= '3.10' and python_version < '4.0'",
     "dask==2024.8.0 ; python_version >= '3.10' and python_version < '4.0'",
-    "attrs>=23.2.0,<25; python_version >= '3.10' and python_version < '4.0'",
+    "attrs>=24.0.0,<25; python_version >= '3.10' and python_version < '4.0'",
     "connectorx>=0.3.2,<0.4.0 ; python_version >= '3.10' and python_version < '4.0'",
     "psycopg2-binary>=2.9.9,<3 ; python_version >= '3.10' and python_version < '4.0'",
     "sqlalchemy>=2.0.29,<3 ; python_version >= '3.10' and python_version < '4.0'",
@@ -16,6 +16,7 @@ dependencies = [
     "structlog>=24.2.0,<25 ; python_version >= '3.10' and python_version < '4.0'",
     "pytest-mock>=3.14.0,<4 ; python_version >= '3.10' and python_version < '4.0'",
     "cityhash>=0.4.7,<1 ; python_version >= '3.10' and python_version < '4.0'",
+    "adbc-driver-postgresql>=1.2.0,<2 ; python_version >= '3.10' and python_version < '4.0'",
 ]
 requires-python = ">=3.7"
 authors = [
@@ -94,18 +95,17 @@ python = "^3.10"
 maturin = "^1.4.0"
 ibis-framework = "9.0.0"
 dask = "2024.8.0"
-attrs = "^23.2.0 || ^24.0.0"
+attrs = "^24.0.0"
 connectorx = "^0.3.2"
 psycopg2-binary = "^2.9.9"
-sqlalchemy = "^2.0.25"
+sqlalchemy = "^2.0.29"
 pyarrow = ">=13.0.0,<18"
 duckdb = {version = ">=0.10.3,<2", optional = true}
 snowflake-connector-python = {version = ">=3.10.1,<4", optional = true}
 datafusion = {version = ">=34.0.0,<41", optional = true}
 structlog = "^24.2.0"
 pytest-mock = "^3.14.0"
-pytest-snapshot = "^0.9.0"
-fsspec = { version = "<2024.10.1", optional = true }
+fsspec = { version = ">=2024.6.1,<2024.10.1", optional = true }
 pins = { version = ">=0.8.3,<1", extras = ["gcs"], optional = true }
 xgboost = { version = ">=1.6.1", optional = true}
 cityhash = { version = ">=0.4.7,<1" }
@@ -126,6 +126,7 @@ ruff = "0.7.1"
 
 [tool.poetry.group.test.dependencies]
 python = "^3.10"
+pytest-snapshot = "^0.9.0"
 scikit-learn = "^1.4.0"
 xgboost = ">=1.6.1"
 
