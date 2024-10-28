@@ -35,20 +35,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Rust latest
+      - uses: actions/setup-python@v5
+        with:
+          python-version: 3.x
+
+      - name: rust latest
         run: rustup update
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      # check how to use virtual environment https://stackoverflow.com/q/74668349/4001592
+      - name: create virtual environment
+        run: python -m venv .venv
 
-      - name: Poetry install
-        run: poetry install
-        working-directory: ${{ github.workspace }}
+      - name: install dependencies
+        run: |
+          source .venv/bin/activate
+          python -m pip install pytest maturin
 
-      - name: maturin develop
-        run: poetry run maturin develop
-        working-directory: ${{ github.workspace }}
+      - name: develop
+        run: |
+          source .venv/bin/activate
+          python -m maturin develop
 
-      - name: poetry pytest
-        run: poetry run pytest --import-mode=importlib python/letsql/tests/test_examples.py -v -m library
+      - name: test
+        run: |
+          source .venv/bin/activate
+          python -m pytest --import-mode=importlib python/letsql/tests/test_examples.py -v -m library
         working-directory: ${{ github.workspace }}
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_GH_PASSWORD }}
+          POSTGRES_USER: ${{ secrets.POSTGRES_GH_USER }}
+          POSTGRES_HOST: ${{ secrets.POSTGRES_GH_HOST }}
+          POSTGRES_PORT: ${{ secrets.POSTGRES_GH_PORT }}
+          POSTGRES_DATABASE: ${{ secrets.POSTGRES_GH_DATABASE }}

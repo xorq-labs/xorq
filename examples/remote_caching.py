@@ -3,13 +3,7 @@ from letsql.common.caching import SourceStorage
 
 con = ls.connect()
 ddb = ls.duckdb.connect()
-pg = ls.postgres.connect(
-    host="localhost",
-    port=5432,
-    user="postgres",
-    password="postgres",
-    database="ibis_testing",
-)
+pg = ls.postgres.connect_env()
 
 name = "batting"
 path = ls.config.options.pins.get_path(name)
