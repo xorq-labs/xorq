@@ -15,5 +15,5 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     pg = ls.postgres.connect_examples()
     t = pg.table("diamonds").cache(storage=cache)
 
-    output = t.mutate(prediction=predict_xgb.on_expr).execute()
+    output = t.mutate(prediction=predict_xgb.on_expr).pipe(ls.execute)
     print(output)

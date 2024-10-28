@@ -74,7 +74,7 @@ def test_tables_accessor_repr(con):
 )
 def test_limit_chain(alltypes, expr_fn):
     expr = expr_fn(alltypes)
-    result = expr.execute()
+    result = letsql.execute(expr)
     assert len(result) == 5
 
 
@@ -104,4 +104,4 @@ def test_read(data_dir, extension, method):
     table = method(
         data_dir / extension / f"batting.{extension}", table_name=f"batting-{extension}"
     )
-    assert table.execute() is not None
+    assert letsql.execute(table) is not None

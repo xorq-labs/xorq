@@ -15,5 +15,5 @@ right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
 expr = left.join(right, ["playerID"], how="semi")[["yearID", "stint"]]
 
 
-result = expr.execute()
+result = ls.execute(expr)
 print(result)

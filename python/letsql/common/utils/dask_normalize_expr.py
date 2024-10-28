@@ -29,6 +29,8 @@ def unbound_expr_to_default_sql(expr):
 
 
 def normalize_memory_databasetable(dt):
+    import letsql
+
     if dt.source.name not in ("pandas", "let", "datafusion", "duckdb"):
         raise ValueError
     return dask.base._normalize_seq_func(
@@ -36,10 +38,10 @@ def normalize_memory_databasetable(dt):
             # we are normalizing the data, we don't care about the connection
             # dt.source,
             dt.schema.to_pandas(),
-            # in memory: so we can assume its reasonable to hash the data
+            # in memory: so we can assume it's reasonable to hash the data
             tuple(
                 dask.base.tokenize(el.serialize().to_pybytes())
-                for el in dt.to_expr().to_pyarrow_batches()
+                for el in letsql.to_pyarrow_batches(dt.to_expr())
             ),
         )
     )

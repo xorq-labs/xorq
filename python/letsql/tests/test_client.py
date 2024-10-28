@@ -116,7 +116,7 @@ def test_self_join_memory_table(con):
 def test_dunder_array_table(alltypes, dtype):
     expr = alltypes.group_by("string_col").int_col.sum().order_by("string_col")
     result = np.asarray(expr, dtype=dtype)
-    expected = np.asarray(expr.execute(), dtype=dtype)
+    expected = np.asarray(letsql.execute(expr), dtype=dtype)
     np.testing.assert_array_equal(result, expected)
 
 
@@ -126,7 +126,7 @@ def test_dunder_array_column(alltypes, dtype):
 
     expr = alltypes.group_by("string_col").agg(int_col=_.int_col.sum()).int_col
     result = np.sort(np.asarray(expr, dtype=dtype))
-    expected = np.sort(np.asarray(expr.execute(), dtype=dtype))
+    expected = np.sort(np.asarray(letsql.execute(expr), dtype=dtype))
     np.testing.assert_array_equal(result, expected)
 
 

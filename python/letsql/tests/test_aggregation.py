@@ -42,7 +42,7 @@ aggregate_test_params = [
 )
 def test_aggregate(alltypes, df, result_fn, expected_fn):
     expr = alltypes.aggregate(tmp=result_fn)
-    result = expr.execute()
+    result = letsql.execute(expr)
 
     # Create a single-row single-column dataframe with the Pandas `agg` result
     # (to match the output format of Ibis `aggregate`)
@@ -63,8 +63,8 @@ def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
     #  2) `aggregate` with `by`
     expr1 = alltypes.group_by(grouping_key_col).aggregate(tmp=result_fn)
     expr2 = alltypes.aggregate(tmp=result_fn, by=grouping_key_col)
-    result1 = expr1.execute()
-    result2 = expr2.execute()
+    result1 = letsql.execute(expr1)
+    result2 = letsql.execute(expr2)
 
     # Note: Using `reset_index` to get the grouping key as a column
     expected = (
@@ -231,7 +231,7 @@ def test_reduction_ops(
     pandas_cond,
 ):
     expr = alltypes.agg(tmp=result_fn(alltypes, ibis_cond(alltypes))).tmp
-    result = expr.execute().squeeze()
+    result = letsql.execute(expr).squeeze()
     expected = expected_fn(df, pandas_cond(df))
 
     try:
@@ -310,7 +310,7 @@ def test_corr_cov(
     pandas_cond,
 ):
     expr = result_fn(batting, ibis_cond(batting)).name("tmp")
-    result = expr.execute()
+    result = letsql.execute(expr)
 
     expected = expected_fn(batting_df, pandas_cond(batting_df))
 
@@ -319,13 +319,13 @@ def test_corr_cov(
 
 def test_approx_median(alltypes):
     expr = alltypes.double_col.approx_median()
-    result = expr.execute()
+    result = letsql.execute(expr)
     assert isinstance(result, float)
 
 
 def test_median(alltypes, df):
     expr = alltypes.double_col.median()
-    result = expr.execute()
+    result = letsql.execute(expr)
     expected = df.double_col.median()
     assert result == expected
 
@@ -338,7 +338,7 @@ def test_topk_op(alltypes, df):
     t = alltypes.order_by(alltypes.string_col)
     df = df.sort_values("string_col")
     expr = t.string_col.topk(3)
-    result = expr.execute()
+    result = letsql.execute(expr)
     expected = df.groupby("string_col")["string_col"].count().head(3)
     assert all(result.iloc[:, 1].values == expected.values)
 
@@ -365,7 +365,7 @@ def test_topk_filter_op(alltypes, df, result_fn, expected_fn):
     t = alltypes.order_by(alltypes.string_col)
     df = df.sort_values("string_col")
     expr = result_fn(t)
-    result = expr.execute()
+    result = letsql.execute(expr)
     expected = expected_fn(df)
     assert result.shape[0] == expected.shape[0]
 
@@ -377,7 +377,7 @@ def test_binds_are_cast(alltypes):
         )
     )
 
-    expr.execute()
+    letsql.execute(expr)
 
 
 def test_agg_sort(alltypes):
@@ -394,7 +394,7 @@ def test_filter(alltypes, df):
         .aggregate(sum=_.double_col.sum())
     )
 
-    result = expr.execute().astype({"x": "int64"})
+    result = letsql.execute(expr).astype({"x": "int64"})
     expected = (
         df.loc[df.string_col == "1", :]
         .assign(x=1)
@@ -408,7 +408,7 @@ def test_filter(alltypes, df):
 
 def test_agg_name_in_output_column(alltypes):
     query = alltypes.aggregate([alltypes.int_col.min(), alltypes.int_col.max()])
-    df = query.execute()
+    df = letsql.execute(query)
     assert "min" in df.columns[0].lower()
     assert "max" in df.columns[1].lower()
 
@@ -430,7 +430,7 @@ def test_value_counts_on_expr(alltypes, df):
     expr = alltypes.bigint_col.add(1).value_counts()
     columns = expr.columns
     expr = expr.order_by(columns)
-    result = expr.execute().sort_values(columns).reset_index(drop=True)
+    result = letsql.execute(expr).sort_values(columns).reset_index(drop=True)
     expected = df.bigint_col.add(1).value_counts().reset_index()
     expected.columns = columns
     expected = expected.sort_values(by=columns).reset_index(drop=True)

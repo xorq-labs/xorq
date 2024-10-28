@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from letsql.tests.util import assert_frame_equal
 
+import letsql as ls
+
 
 def test_where_multiple_conditions(alltypes, df):
     expr = alltypes.filter(
@@ -11,7 +13,7 @@ def test_where_multiple_conditions(alltypes, df):
             alltypes.int_col < alltypes.float_col * 2,
         ]
     )
-    result = expr.execute()
+    result = ls.execute(expr)
 
     expected = df[
         (df["float_col"] > 0)

@@ -108,7 +108,7 @@ def test_exists(cached_two):
     assert not cached_two.ls.exists()
     assert not tuple(storage.path.iterdir())
 
-    cached_two.execute()
+    letsql.execute(cached_two)
     assert cached_two.ls.exists()
     assert len(tuple(storage.path.iterdir())) == 1
 

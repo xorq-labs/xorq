@@ -8,6 +8,8 @@ import pyarrow as pa
 import pytest
 from ibis import udf
 
+import letsql
+
 pc = pytest.importorskip("pyarrow.compute")
 
 
@@ -33,19 +35,19 @@ def my_mean(arr: dt.float64) -> dt.float64:
 
 
 def test_udf(alltypes):
-    data_string_col = alltypes.date_string_col.execute()
+    data_string_col = letsql.execute(alltypes.date_string_col)
     expected = data_string_col.str.len() * 2
 
     expr = my_string_length(alltypes.date_string_col)
     assert isinstance(expr, ir.Column)
 
-    result = expr.execute()
+    result = letsql.execute(expr)
     tm.assert_series_equal(result, expected, check_names=False)
 
 
 def test_multiple_argument_udf(alltypes):
     expr = small_add(alltypes.smallint_col, alltypes.int_col).name("tmp")
-    result = expr.execute()
+    result = letsql.execute(expr)
 
     df = alltypes[["smallint_col", "int_col"]].execute()
     expected = (df.smallint_col + df.int_col).astype("int64")
@@ -70,7 +72,7 @@ def test_builtin_agg_udf(con):
 
     expr = median(con.tables.batting.G)
     result = con.execute(expr)
-    assert result == con.tables.batting.G.execute().median()
+    assert result == letsql.execute(con.tables.batting.G).median()
 
 
 @pytest.mark.xfail(reason="datafusion 38.0.0 introduced a bug")
@@ -79,4 +81,4 @@ def test_builtin_agg_udf_filtered(con):
     def median(a: float, where: bool = True) -> float:
         """Median of a column."""
 
-    median(con.tables.batting.G).execute()
+    letsql.execute(median(con.tables.batting.G))

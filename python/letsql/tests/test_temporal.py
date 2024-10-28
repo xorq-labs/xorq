@@ -55,7 +55,7 @@ def test_date_extract(alltypes, df, attr, expr_fn):
 def test_timestamp_extract(alltypes, df, attr):
     method = getattr(alltypes.timestamp_col, attr)
     expr = method().name(attr)
-    result = expr.execute()
+    result = ls.execute(expr)
     expected = (
         getattr(df.timestamp_col.dt, attr.replace("_", "")).astype("int32").rename(attr)
     )
@@ -119,14 +119,14 @@ def test_timestamp_extract_literal(con, func, expected):
 
 def test_timestamp_extract_microseconds(alltypes, df):
     expr = alltypes.timestamp_col.microsecond().name("microsecond")
-    result = expr.execute()
+    result = ls.execute(expr)
     expected = df.timestamp_col.dt.microsecond.astype("int32").rename("microsecond")
     assert_series_equal(result, expected)
 
 
 def test_timestamp_extract_milliseconds(alltypes, df):
     expr = alltypes.timestamp_col.millisecond().name("millisecond")
-    result = expr.execute()
+    result = ls.execute(expr)
     expected = (
         (df.timestamp_col.dt.microsecond // 1_000).astype("int32").rename("millisecond")
     )
@@ -135,7 +135,7 @@ def test_timestamp_extract_milliseconds(alltypes, df):
 
 def test_timestamp_extract_epoch_seconds(alltypes, df):
     expr = alltypes.timestamp_col.epoch_seconds().name("tmp")
-    result = expr.execute()
+    result = ls.execute(expr)
 
     expected = df.timestamp_col.astype("datetime64[s]").astype("int64").astype("int32")
     assert_series_equal(result, expected)
@@ -143,7 +143,7 @@ def test_timestamp_extract_epoch_seconds(alltypes, df):
 
 def test_timestamp_extract_week_of_year(alltypes, df):
     expr = alltypes.timestamp_col.week_of_year().name("tmp")
-    result = expr.execute()
+    result = ls.execute(expr)
     expected = df.timestamp_col.dt.isocalendar().week.astype("int32")
     assert_series_equal(result, expected)
 
@@ -199,7 +199,7 @@ def test_timestamp_truncate(alltypes, df, unit):
         unit = PANDAS_UNITS.get(unit, unit)
         expected = df.timestamp_col.dt.to_period(unit).dt.to_timestamp()
 
-    result = expr.execute()
+    result = ls.execute(expr)
     assert_series_equal(result, expected)
 
 
@@ -265,7 +265,7 @@ def test_interval_add_cast_scalar(alltypes):
     timestamp_date = alltypes.timestamp_col.date()
     delta = ls.literal(10).cast("interval('D')")
     expr = (timestamp_date + delta).name("result")
-    result = expr.execute()
+    result = ls.execute(expr)
     expected = timestamp_date.name("result").execute() + pd.Timedelta(10, unit="D")
     assert_series_equal(result, expected.astype(result.dtype))
 
@@ -274,7 +274,7 @@ def test_interval_add_cast_column(alltypes, df):
     timestamp_date = alltypes.timestamp_col.date()
     delta = alltypes.bigint_col.cast("interval('D')")
     expr = alltypes["id", (timestamp_date + delta).name("tmp")]
-    result = expr.execute().sort_values("id").reset_index().tmp
+    result = ls.execute(expr).sort_values("id").reset_index().tmp
     df = df.sort_values("id").reset_index(drop=True)
     expected = (
         df["timestamp_col"]
@@ -348,7 +348,7 @@ def test_day_of_week_column_group_by(
     schema = expr.schema()
     assert schema["day_of_week_result"] == dt.int64
 
-    result = expr.execute().sort_values("string_col")
+    result = ls.execute(expr).sort_values("string_col")
     expected = (
         df.groupby("string_col")
         .timestamp_col.apply(day_of_week_pandas)
@@ -516,7 +516,7 @@ def test_now(con):
 def test_now_from_projection(alltypes):
     n = 2
     expr = alltypes.select(now=ls.now()).limit(n)
-    result = expr.execute()
+    result = ls.execute(expr)
     ts = result.now
     assert len(result) == n
     assert ts.nunique() == 1
@@ -653,7 +653,7 @@ def test_string_to_date(alltypes):
     ],
 )
 def test_timestamp_bucket(alltypes, kws: dict, pd_freq):
-    ts = alltypes.timestamp_col.execute().rename("ts")
+    ts = ls.execute(alltypes.timestamp_col).rename("ts")
     res = alltypes.timestamp_col.bucket(**kws).execute().rename("ts")
     sol = ts.dt.floor(pd_freq)
     assert_series_equal(res, sol)
@@ -663,9 +663,9 @@ def test_timestamp_bucket(alltypes, kws: dict, pd_freq):
 def test_timestamp_bucket_offset(alltypes, offset_in_minutes):
     ts = alltypes.timestamp_col
     expr = ts.bucket(minutes=5, offset=ls.interval(minutes=offset_in_minutes))
-    res = expr.execute().astype("datetime64[ns]").rename("ts")
+    res = ls.execute(expr).astype("datetime64[ns]").rename("ts")
     td = pd.Timedelta(minutes=offset_in_minutes)
-    sol = ((ts.execute().rename("ts") - td).dt.floor("300s") + td).astype(
+    sol = ((ls.execute(ts).rename("ts") - td).dt.floor("300s") + td).astype(
         "datetime64[ns]"
     )
     assert_series_equal(res, sol)
@@ -675,9 +675,9 @@ def test_timestamp_bucket_offset(alltypes, offset_in_minutes):
 def test_timestamp_bucket_offset_in_hours(alltypes, offset_in_hours):
     ts = alltypes.timestamp_col
     expr = ts.bucket(minutes=5, offset=ls.interval(hours=offset_in_hours))
-    res = expr.execute().astype("datetime64[ns]").rename("ts")
+    res = ls.execute(expr).astype("datetime64[ns]").rename("ts")
     td = pd.Timedelta(hours=offset_in_hours)
-    sol = ((ts.execute().rename("ts") - td).dt.floor("300s") + td).astype(
+    sol = ((ls.execute(ts).rename("ts") - td).dt.floor("300s") + td).astype(
         "datetime64[ns]"
     )
     assert_series_equal(res, sol)

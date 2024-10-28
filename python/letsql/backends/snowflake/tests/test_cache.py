@@ -76,13 +76,13 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 0
 
         # test cache creation
-        cached_expr.execute()
+        ls.execute(cached_expr)
         query_df = get_session_query_df(sf_con)
         assert storage.exists(uncached)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 1
 
         # test cache use
-        cached_expr.execute()
+        ls.execute(cached_expr)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 1
 
         # test cache invalidation
@@ -96,7 +96,7 @@ def test_snowflake_simple_cache(sf_con, tmp_path):
     with inside_temp_schema(sf_con, "SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"):
         table = sf_con.table("CUSTOMER")
         expr = table.limit(1).cache(ParquetCacheStorage(source=db_con, path=tmp_path))
-        expr.execute()
+        ls.execute(expr)
 
 
 @pytest.mark.snowflake
@@ -118,7 +118,7 @@ def test_snowflake_native_cache(sf_con, temp_catalog, temp_db, tmp_path):
             .agg({f"count_{col}": table[col].count() for col in table.columns})
             .cache(storage)
         )
-        cached_expr.execute()
+        ls.execute(cached_expr)
 
 
 @pytest.mark.snowflake
@@ -154,13 +154,13 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 0
 
         # test cache creation
-        executed0 = cached_expr.execute()
+        executed0 = ls.execute(cached_expr)
         query_df = get_session_query_df(sf_con)
         assert storage.exists(uncached)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 1
 
         # test cache use
-        executed1 = cached_expr.execute()
+        executed1 = ls.execute(cached_expr)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 1
         assert executed0.equals(executed1)
 
@@ -168,5 +168,5 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
         sf_con.insert(name, df, database=f"{temp_catalog}.{temp_db}")
         (storage, uncached) = get_storage_uncached(con, cached_expr)
         assert storage.exists(uncached)
-        executed2 = cached_expr.ls.uncached.execute()
+        executed2 = ls.execute(cached_expr.ls.uncached)
         assert not executed0.equals(executed2)

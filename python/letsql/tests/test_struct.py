@@ -30,14 +30,14 @@ from letsql.tests.util import assert_series_equal, assert_frame_equal
 )
 def test_single_field(struct, field, expected):
     expr = struct.select(field=lambda t: t.abc[field]).order_by("field")
-    result = expr.execute()
+    result = letsql.execute(expr)
     assert_series_equal(
         result.field, pd.Series(expected, name="field"), check_dtype=False
     )
 
 
 def test_all_fields(struct, struct_df):
-    result = struct.abc.execute()
+    result = letsql.execute(struct.abc)
     expected = struct_df.abc
 
     assert {
@@ -69,7 +69,7 @@ def test_struct_column(alltypes, df):
     t = alltypes
     expr = t.select(s=letsql.struct(dict(a=t.string_col, b=1, c=t.bigint_col)))
     assert expr.s.type() == dt.Struct(dict(a=dt.string, b=dt.int8, c=dt.int64))
-    result = expr.execute()
+    result = letsql.execute(expr)
     expected = pd.DataFrame(
         {"s": [dict(a=a, b=1, c=c) for a, c in zip(df.string_col, df.bigint_col)]}
     )
@@ -96,7 +96,7 @@ def test_collect_into_struct(alltypes):
             )
         )
     )
-    result = expr.execute()
+    result = letsql.execute(expr)
     assert result.shape == (2, 2)
     assert set(result.group) == {"0", "1"}
     val = result.val

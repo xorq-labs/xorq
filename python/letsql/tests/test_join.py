@@ -46,22 +46,22 @@ def test_mutating_join(batting, awards_players, how):
     left = batting[batting.yearID == 2015]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
 
-    left_df = left.execute()
-    right_df = right.execute()
+    left_df = letsql.execute(left)
+    right_df = letsql.execute(right)
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
     expr = left.join(right, predicate, how=how)
     if how == "inner":
         result = (
-            expr.execute()
+            letsql.execute(expr)
             .fillna(np.nan)[left.columns]
             .sort_values(result_order)
             .reset_index(drop=True)
         )
     else:
         result = (
-            expr.execute()
+            letsql.execute(expr)
             .fillna(np.nan)
             .assign(
                 playerID=lambda df: df.playerID.where(
@@ -94,14 +94,14 @@ def test_filtering_join(batting, awards_players, how):
     left = batting[batting.yearID == 2015]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
 
-    left_df = left.execute()
-    right_df = right.execute()
+    left_df = letsql.execute(left)
+    right_df = letsql.execute(right)
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
     expr = left.join(right, predicate, how=how)
     result = (
-        expr.execute()
+        letsql.execute(expr)
         .fillna(np.nan)
         .sort_values(result_order)[left.columns]
         .reset_index(drop=True)
@@ -127,7 +127,7 @@ def test_join_then_filter_no_column_overlap(awards_players, batting):
     expr = left.join(right, left.year == right.yearID)
     filters = [expr.RBI == 9]
     q = expr.filter(filters)
-    assert not q.execute().empty
+    assert not letsql.execute(q).empty
 
 
 def test_mutate_then_join_no_column_overlap(batting, awards_players):
@@ -161,7 +161,7 @@ def test_join_with_pandas(batting, awards_players):
     awards_players_filt = awards_players[lambda t: t.yearID < 1900].execute()
     assert isinstance(awards_players_filt, pd.DataFrame)
     expr = batting_filt.join(awards_players_filt, "yearID")
-    df = expr.execute()
+    df = letsql.execute(expr)
     assert df.yearID.nunique() == 7
 
 
@@ -179,7 +179,7 @@ def test_join_with_pandas_non_null_typed_columns(batting, awards_players):
     assert sch.infer(awards_players_filt) == sch.Schema(dict(yearID="int"))
     assert isinstance(awards_players_filt, pd.DataFrame)
     expr = batting_filt.join(awards_players_filt, "yearID")
-    df = expr.execute()
+    df = letsql.execute(expr)
     assert df.yearID.nunique() == 7
 
 

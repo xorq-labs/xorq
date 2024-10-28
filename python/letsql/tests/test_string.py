@@ -40,7 +40,7 @@ def test_string_col_is_unicode(alltypes, df):
     dtype = alltypes.string_col.type()
     assert dtype == dt.String(nullable=dtype.nullable)
     assert df.string_col.map(is_text_type).all()
-    result = alltypes.string_col.execute()
+    result = letsql.execute(alltypes.string_col)
     assert result.map(is_text_type).all()
 
 
@@ -296,7 +296,7 @@ def test_string_col_is_unicode(alltypes, df):
 )
 def test_string(alltypes, df, result_func, expected_func):
     expr = result_func(alltypes).name("tmp")
-    result = expr.execute()
+    result = letsql.execute(expr)
 
     expected = expected_func(df)
     assert_series_equal(result, expected)
@@ -316,7 +316,7 @@ def test_substr_with_null_values(alltypes, df):
         .end()
         .substr(0, 2)
     )
-    result = table.execute()
+    result = letsql.execute(table)
 
     expected = df.copy()
     mask = ~expected["bool_col"]

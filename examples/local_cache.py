@@ -30,6 +30,6 @@ path = storage.get_loc(cached.ls.get_key())
 
 
 print(f"{path} exists?: {path.exists()}")
-result = cached.execute()  # the filter is executed on the local table
+result = ls.execute(cached)  # the filter is executed on the local table
 print(f"{path} exists?: {path.exists()}")
 print(result)

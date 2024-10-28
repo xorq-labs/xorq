@@ -850,3 +850,21 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         ident = sg.table(name, db=db, catalog=catalog).sql(self.name)
         with self._safe_raw_sql(sge.delete(ident)):
             pass
+
+    def to_parquet(
+        self,
+        expr: ir.Table,
+        path: str | Path,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        import letsql
+
+        self._import_pyarrow()
+        import pyarrow.parquet as pq
+
+        with letsql.to_pyarrow_batches(expr, params=params) as batch_reader:
+            with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
+                for batch in batch_reader:
+                    writer.write_batch(batch)

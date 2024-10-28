@@ -55,4 +55,4 @@ agg_udf = udf.agg.pandas_df(
     name="calc_best_features",
 )
 expr = t.group_by(by).agg(agg_udf.on_expr(t).name("best_features")).order_by(by)
-result = expr.execute()
+result = ls.execute(expr)

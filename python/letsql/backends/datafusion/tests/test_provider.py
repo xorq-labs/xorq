@@ -116,7 +116,7 @@ def test_registered_model_udf(data_dir, tmp_model_dir, con):
         )
     )
 
-    result = t.execute()
+    result = ls.execute(t)
 
     assert result is not None
     assert isinstance(result, pd.DataFrame)
@@ -140,7 +140,7 @@ def test_register_model_with_udf_output(data_dir, tmp_model_dir, con):
         prediction=lambda t: predict_diamond(t.carat, t.depth, t.x, t.y, t.z)
     )
 
-    result = t.execute()
+    result = ls.execute(t)
 
     assert result is not None
     assert isinstance(result, pd.DataFrame)

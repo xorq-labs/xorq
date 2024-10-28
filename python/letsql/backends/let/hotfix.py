@@ -1,10 +1,6 @@
-import operator
-
-import dask
 import ibis.expr.operations as ops
 import ibis.expr.types.core
 import ibis.expr.types.relations
-import toolz
 from attr import (
     field,
     frozen,
@@ -171,50 +167,3 @@ def letsql_cache(self, storage=None):
 @property
 def ls(self):
     return LETSQLAccessor(self)
-
-
-@toolz.curry
-def letsql_invoke(_methodname, self, *args, **kwargs):
-    def check_collisions():
-        names_to_backends = toolz.groupby(
-            operator.itemgetter(0),
-            (
-                (dt.name, dt.source, id(dt.source))
-                for dt in self.op().find(ops.DatabaseTable)
-            ),
-        )
-        bad_names = tuple(
-            (name, tuple(con for _, con, _ in vs))
-            for name, vs in names_to_backends.items()
-            if len(vs) > 1
-        )
-        if bad_names:
-            raise ValueError(f"name collision detected: {bad_names}")
-
-    check_collisions()
-    con = letsql.connect()
-    for dt in self.op().find(ops.DatabaseTable):
-        if dt not in con._sources.sources:
-            con.register(dt.to_expr(), dt.name)
-    method = getattr(con, f"{_methodname}")
-    return method(self, *args, **kwargs)
-
-
-for typ, methodnames in (
-    (
-        ibis.expr.types.core.Expr,
-        ("execute", "to_pyarrow", "to_pyarrow_batches"),
-    ),
-    (
-        # Join.execute is the only case outside Expr.execute
-        ibis.expr.types.joins.Join,
-        ("execute",),
-    ),
-):
-    for methodname in methodnames:
-        hotfix(
-            typ,
-            methodname,
-            dask.base.tokenize(getattr(typ, methodname)),
-            letsql_invoke(methodname),
-        )

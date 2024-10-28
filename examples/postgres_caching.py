@@ -18,6 +18,6 @@ t = (
     .cache(storage=cache)
 )
 print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
-res = t.execute()
+res = ls.execute(t)
 print(res)
 print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
