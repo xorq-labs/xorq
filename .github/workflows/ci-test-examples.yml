@@ -38,25 +38,30 @@ jobs:
       - name: download test data
         run: just download-data
 
-      - name: Rust latest
-        run: rustup update
-
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-
-      - name: Poetry install
-        run: poetry install --extras="examples"
-        working-directory: ${{ github.workspace }}
-
-      - name: maturin develop
-        run: poetry run maturin develop
-        working-directory: ${{ github.workspace }}
-
       - name: start services
         run: docker compose up --build --wait
 
-      - name: poetry pytest
-        run: poetry run pytest --import-mode=importlib python/letsql/tests/test_examples.py -v
+      - name: Rust latest
+        run: rustup update
+
+      # check how to use virtual environment https://stackoverflow.com/q/74668349/4001592
+      - name: create virtual environment
+        run: python -m venv .venv
+
+      - name: install dependencies
+        run: |
+          source .venv/bin/activate
+          python -m pip install pytest maturin
+
+      - name: develop
+        run: |
+          source .venv/bin/activate
+          python -m maturin develop --extras=examples
+
+      - name: pytest
+        run: |
+          source .venv/bin/activate
+          python -m pytest --import-mode=importlib python/letsql/tests/test_examples.py -v
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: ${{ secrets.POSTGRES_GH_PASSWORD }}
