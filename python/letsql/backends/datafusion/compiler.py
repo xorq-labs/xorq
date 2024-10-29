@@ -11,7 +11,7 @@ import ibis.expr.operations as ops
 import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends.sql.compiler import FALSE, NULL, STAR, SQLGlotCompiler
-from ibis.backends.sql.datatypes import DataFusionType
+from ibis.backends.sql.datatypes import PostgresType
 from ibis.backends.sql.dialects import DataFusion
 from ibis.backends.sql.rewrites import rewrite_sample_as_filter
 from ibis.common.temporal import IntervalUnit, TimestampUnit
@@ -26,6 +26,10 @@ _UNIX_EPOCH = "1970-01-01T00:00:00Z"
 def _replace_offset(offset):
     offset = int(offset)
     return f"{offset + math.copysign(1, offset):.0f}"
+
+
+class DataFusionType(PostgresType):
+    unknown_type_strings = {"utf8": dt.string, "float64": dt.float64, "date32": dt.date}
 
 
 class DataFusionCompiler(SQLGlotCompiler):
@@ -558,3 +562,17 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_StructColumn(self, op, *, names, values):
         args = (arg for args in zip(map(sg.exp.convert, names), values) for arg in args)
         return self.f.named_struct(*args)
+
+    def visit_MarkedRemoteTable(
+        self,
+        op,
+        *,
+        name: str,
+        schema,
+        source,
+        namespace: ops.Namespace,
+        remote_expr,
+    ):
+        return sg.table(
+            name, db=namespace.database, catalog=namespace.catalog, quoted=self.quoted
+        )

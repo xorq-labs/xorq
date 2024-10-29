@@ -13,6 +13,8 @@ from ibis.expr.operations.udf import (
 import letsql
 from letsql.expr.relations import (
     make_native_op,
+    MarkedRemoteTable,
+    RemoteTable,
 )
 
 
@@ -56,7 +58,8 @@ def normalize_pandas_databasetable(dt):
 def normalize_datafusion_databasetable(dt):
     if dt.source.name not in ("datafusion", "let"):
         raise ValueError
-    ep_str = str(dt.source.con.table(dt.name).execution_plan())
+    table = dt.source.con.table(dt.name)
+    ep_str = str(table.execution_plan())
     if ep_str.startswith(("ParquetExec:", "CsvExec:")):
         return dask.base._normalize_seq_func(
             (
@@ -68,6 +71,8 @@ def normalize_datafusion_databasetable(dt):
         )
     elif ep_str.startswith("MemoryExec:"):
         return normalize_memory_databasetable(dt)
+    elif ep_str.startswith("CustomExec"):
+        return dask.base._normalize_seq_func((dt.schema.to_pandas(), dt.name))
     else:
         raise ValueError
 
@@ -121,6 +126,16 @@ def normalize_duckdb_databasetable(dt):
     name = sg.table(dt.name, quoted=dt.source.compiler.quoted).sql(
         dialect=dt.source.name
     )
+
+    if isinstance(dt, (MarkedRemoteTable, RemoteTable)):
+        return dask.base._normalize_seq_func(
+            (
+                dt.schema.to_pandas(),
+                str(dt.remote_expr),
+                normalize_backend(dt.source),
+            )
+        )
+
     ((_, plan),) = dt.source.raw_sql(f"EXPLAIN SELECT * FROM {name}").fetchall()
     scan_line = plan.split("\n")[1]
     execution_plan_name = r"\s*│\s*(\w+)\s*│\s*"
@@ -151,6 +166,14 @@ def normalize_letsql_databasetable(dt):
     if dt.source.name != "let":
         raise ValueError
     native_source = dt.source._sources.get_backend(dt)
+    if isinstance(dt, (MarkedRemoteTable, RemoteTable)):
+        return dask.base._normalize_seq_func(
+            (
+                dt.schema.to_pandas(),
+                str(dt.remote_expr),
+                normalize_backend(dt.source),
+            )
+        )
     if native_source.name == "let":
         return normalize_datafusion_databasetable(dt)
     new_dt = make_native_op(dt)

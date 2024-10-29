@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
 
@@ -16,6 +17,7 @@ from letsql.common.collections import SourceDict
 from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
+    RemoteTableReplacer,
 )
 
 
@@ -223,12 +225,15 @@ class Backend(DataFusionBackend):
         return expr
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
-        backend, expr = self._get_backend_and_expr(expr)
-        return backend.execute(expr.unbind(), **kwargs)
+        with self._get_backend_and_expr(expr) as resource:
+            backend, expr = resource
+            result = backend.execute(expr, **kwargs)
+        return result
 
     def to_pyarrow(self, expr: ir.Expr, **kwargs: Any) -> pa.Table:
-        backend, expr = self._get_backend_and_expr(expr)
-        return backend.to_pyarrow(expr.unbind(), **kwargs)
+        with self._get_backend_and_expr(expr) as resource:
+            backend, expr = resource
+        return backend.to_pyarrow(expr, **kwargs)
 
     def to_pyarrow_batches(
         self,
@@ -237,18 +242,24 @@ class Backend(DataFusionBackend):
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ) -> pa.ipc.RecordBatchReader:
-        backend, expr = self._get_backend_and_expr(expr)
-        return backend.to_pyarrow_batches(
-            expr.unbind(), chunk_size=chunk_size, **kwargs
-        )
+        with self._get_backend_and_expr(expr) as resource:
+            backend, expr = resource
+        return backend.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
+    @contextmanager
     def _get_backend_and_expr(self, expr):
         expr = self._transform_to_native_backend(expr)
+        expr, created = self._register_and_transform_remote_tables(expr)
         expr = self._register_and_transform_cache_tables(expr)
         backend = self._get_source(expr)
         if isinstance(backend, self.__class__):
             backend = super(self.__class__, backend)
-        return backend, expr
+        yield backend, expr.unbind()
+        for table, con in created.items():
+            try:
+                con.drop_table(table)
+            except Exception:
+                con.drop_view(table)
 
     def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
         """Creates a connection.
@@ -316,3 +327,8 @@ class Backend(DataFusionBackend):
     def _extract_catalog(self, query):
         tables = parse_one(query).find_all(exp.Table)
         return {table.name: self.table(table.name) for table in tables}
+
+    @staticmethod
+    def _register_and_transform_remote_tables(expr):
+        replacer = RemoteTableReplacer()
+        return expr.op().replace(replacer).to_expr(), replacer.created

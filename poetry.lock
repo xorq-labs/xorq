@@ -2420,9 +2420,9 @@ files = [
 
 [package.dependencies]
 numpy = [
+    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
     {version = ">=1.22.4", markers = "python_version < \"3.11\""},
     {version = ">=1.23.2", markers = "python_version == \"3.11\""},
-    {version = ">=1.26.0", markers = "python_version >= \"3.12\""},
 ]
 python-dateutil = ">=2.8.2"
 pytz = ">=2020.1"
@@ -3021,8 +3021,8 @@ files = [
 annotated-types = ">=0.6.0"
 pydantic-core = "2.23.4"
 typing-extensions = [
-    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
     {version = ">=4.12.2", markers = "python_version >= \"3.13\""},
+    {version = ">=4.6.1", markers = "python_version < \"3.13\""},
 ]
 
 [package.extras]
@@ -4175,6 +4175,31 @@ docs = ["myst-parser", "pydata-sphinx-theme", "sphinx"]
 test = ["argcomplete (>=3.0.3)", "mypy (>=1.7.0)", "pre-commit", "pytest (>=7.0,<8.2)", "pytest-mock", "pytest-mypy-testing"]
 
 [[package]]
+name = "trino"
+version = "0.330.0"
+description = "Client for the Trino distributed SQL Engine"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "trino-0.330.0-py3-none-any.whl", hash = "sha256:535f612d754338cfefa4b3fe86b63c8c000d21cb5ea476ae4ec4390d5cc37659"},
+    {file = "trino-0.330.0.tar.gz", hash = "sha256:1e731be22bc6fb4ce6537287419c3d221faaa8d089f5a05b0f01ef25b860e96e"},
+]
+
+[package.dependencies]
+python-dateutil = "*"
+pytz = "*"
+requests = ">=2.31.0"
+tzlocal = "*"
+
+[package.extras]
+all = ["requests-kerberos", "sqlalchemy (>=1.3)"]
+external-authentication-token-cache = ["keyring"]
+gssapi = ["krb5 (==0.5.1)", "requests-gssapi"]
+kerberos = ["requests-kerberos"]
+sqlalchemy = ["sqlalchemy (>=1.3)"]
+tests = ["black", "httpretty (<1.1)", "isort", "keyring", "krb5 (==0.5.1)", "pre-commit", "pytest", "pytest-runner", "requests-gssapi", "requests-kerberos", "sqlalchemy (>=1.3)"]
+
+[[package]]
 name = "typing-extensions"
 version = "4.12.2"
 description = "Backported and Experimental Type Hints for Python 3.8+"
@@ -4195,6 +4220,23 @@ files = [
     {file = "tzdata-2024.2-py2.py3-none-any.whl", hash = "sha256:a48093786cdcde33cad18c2555e8532f34422074448fbc874186f0abd79565cd"},
     {file = "tzdata-2024.2.tar.gz", hash = "sha256:7d85cc416e9382e69095b7bdf4afd9e3880418a2413feec7069d533d6b4e31cc"},
 ]
+
+[[package]]
+name = "tzlocal"
+version = "5.2"
+description = "tzinfo object for the local timezone"
+optional = false
+python-versions = ">=3.8"
+files = [
+    {file = "tzlocal-5.2-py3-none-any.whl", hash = "sha256:49816ef2fe65ea8ac19d19aa7a1ae0551c834303d5014c6d5a62e4cbda8047b8"},
+    {file = "tzlocal-5.2.tar.gz", hash = "sha256:8d399205578f1a9342816409cc1e46a93ebd5755e39ea2d85334bea911bf0e6e"},
+]
+
+[package.dependencies]
+tzdata = {version = "*", markers = "platform_system == \"Windows\""}
+
+[package.extras]
+devenv = ["check-manifest", "pytest (>=4.3)", "pytest-cov", "pytest-mock (>=3.3)", "zest.releaser"]
 
 [[package]]
 name = "urllib3"
@@ -4572,4 +4614,4 @@ snowflake = ["snowflake-connector-python"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "eb39d9d84305a58fb329004b257d73a1ac7200a84a84ce5bbd9085a690203576"
+content-hash = "8ad2a6b15427b5f89cdfea8fcd1e063843746a349d23902f475b638eda0ba0d6"

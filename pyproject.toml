@@ -68,6 +68,7 @@ let = "letsql.backends.let"
 postgres = "letsql.backends.postgres"
 snowflake = "letsql.backends.snowflake"
 datafusion = "letsql.backends.datafusion"
+duckdb = "letsql.backends.duckdb"
 
 
 [tool.maturin]
@@ -123,6 +124,7 @@ pre-commit = "4.0.1"
 pytest = "8.0.2"
 pytest-cov = "5.0.0"
 ruff = "0.7.1"
+trino = "0.330.0"
 
 [tool.poetry.group.test.dependencies]
 python = "^3.10"
@@ -148,6 +150,7 @@ let = "letsql.backends.let"
 postgres = "letsql.backends.postgres"
 snowflake = "letsql.backends.snowflake"
 datafusion = "letsql.backends.datafusion"
+duckdb = "letsql.backends.duckdb"
 
 [tool.pytest.ini_options]
 filterwarnings = [
