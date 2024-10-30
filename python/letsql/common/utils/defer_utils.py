@@ -1,5 +1,4 @@
 import ibis
-import ibis.backends.sql.compiler
 import pandas as pd
 import pyarrow as pa
 import sqlglot as sg
@@ -20,6 +19,7 @@ from letsql.expr.relations import (
     Read,
 )
 
+from ibis.backends.sql.compilers.base import SQLGlotCompiler
 
 DEFAULT_CHUNKSIZE = 10_000
 
@@ -111,7 +111,7 @@ def deferred_read_parquet(con, path, table_name=None, **kwargs):
 
 
 @hotfix(
-    ibis.backends.sql.compiler.SQLGlotCompiler,
+    SQLGlotCompiler,
     "visit_Read",
     none_tokenized,
 )

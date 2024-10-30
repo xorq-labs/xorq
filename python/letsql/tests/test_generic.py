@@ -37,8 +37,8 @@ def test_boolean_literal(con):
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
-        param(letsql.null().fillna(5), 5, id="na_fillna"),
-        param(letsql.literal(5).fillna(10), 5, id="non_na_fillna"),
+        param(letsql.null().fill_null(5), 5, id="na_fillna"),
+        param(letsql.literal(5).fill_null(10), 5, id="non_na_fillna"),
         param(letsql.literal(5).nullif(5), None, id="nullif_null"),
         param(letsql.literal(10).nullif(5), 10, id="nullif_not_null"),
     ],
@@ -87,7 +87,7 @@ def test_column_fillna(alltypes, value):
     table = alltypes.mutate(missing=letsql.literal(value).cast("float64"))
     pd_table = letsql.execute(table)
 
-    res = table.mutate(missing=table.missing.fillna(0.0)).execute()
+    res = table.mutate(missing=table.missing.fill_null(0.0)).execute()
     sol = pd_table.assign(missing=pd_table.missing.fillna(0.0))
     assert_frame_equal(res.reset_index(drop=True), sol.reset_index(drop=True))
 
@@ -217,21 +217,21 @@ def test_case_where(alltypes, df):
     assert_frame_equal(result, expected)
 
 
-def test_table_fillna_invalid(alltypes):
+def test_table_fill_null_invalid(alltypes):
     with pytest.raises(
         com.IbisTypeError, match=r"Column 'invalid_col' is not found in table"
     ):
-        alltypes.fillna({"invalid_col": 0.0})
+        alltypes.fill_null({"invalid_col": 0.0})
 
     with pytest.raises(
-        com.IbisTypeError, match="Cannot fillna on column 'string_col' of type.*"
+        com.IbisTypeError, match="Cannot fill_null on column 'string_col' of type.*"
     ):
-        alltypes[["int_col", "string_col"]].fillna(0)
+        alltypes[["int_col", "string_col"]].fill_null(0)
 
     with pytest.raises(
-        com.IbisTypeError, match="Cannot fillna on column 'int_col' of type.*"
+        com.IbisTypeError, match="Cannot fill_null on column 'int_col' of type.*"
     ):
-        alltypes.fillna({"int_col": "oops"})
+        alltypes.fill_null({"int_col": "oops"})
 
 
 @pytest.mark.parametrize(
@@ -256,7 +256,7 @@ def test_table_fillna_mapping(alltypes, replacements):
     ).select("id", "int_col", "double_col", "string_col")
     pd_table = letsql.execute(table)
 
-    result = table.fillna(replacements).execute().reset_index(drop=True)
+    result = table.fill_null(replacements).execute().reset_index(drop=True)
     expected = pd_table.fillna(replacements).reset_index(drop=True)
 
     assert_frame_equal(result, expected, check_dtype=False)
@@ -270,11 +270,11 @@ def test_table_fillna_scalar(alltypes):
     ).select("id", "int_col", "double_col", "string_col")
     pd_table = letsql.execute(table)
 
-    res = table[["int_col", "double_col"]].fillna(0).execute().reset_index(drop=True)
+    res = table[["int_col", "double_col"]].fill_null(0).execute().reset_index(drop=True)
     sol = pd_table[["int_col", "double_col"]].fillna(0).reset_index(drop=True)
     assert_frame_equal(res, sol, check_dtype=False)
 
-    res = table[["string_col"]].fillna("missing").execute().reset_index(drop=True)
+    res = table[["string_col"]].fill_null("missing").execute().reset_index(drop=True)
     sol = pd_table[["string_col"]].fillna("missing").reset_index(drop=True)
     assert_frame_equal(res, sol, check_dtype=False)
 
@@ -290,14 +290,14 @@ def test_mutate_rename(alltypes):
     assert list(result.columns) == ["bool_col", "string_col", "dupe_col"]
 
 
-def test_dropna_invalid(alltypes):
+def test_drop_null_invalid(alltypes):
     with pytest.raises(
         com.IbisTypeError, match=r"Column 'invalid_col' is not found in table"
     ):
-        alltypes.dropna(subset=["invalid_col"])
+        alltypes.drop_null(subset=["invalid_col"])
 
     with pytest.raises(ValidationError):
-        alltypes.dropna(how="invalid")
+        alltypes.drop_null(how="invalid")
 
 
 @pytest.mark.parametrize("how", ["any", "all"])
@@ -315,7 +315,7 @@ def test_dropna_table(alltypes, how, subset):
     ).select("col_1", "col_2", "col_3")
 
     table_pandas = letsql.execute(table)
-    result = table.dropna(subset, how).execute().reset_index(drop=True)
+    result = table.drop_null(subset, how).execute().reset_index(drop=True)
     expected = table_pandas.dropna(how=how, subset=subset).reset_index(drop=True)
 
     assert_frame_equal(result, expected)

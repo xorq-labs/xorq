@@ -13,14 +13,16 @@ from ibis.util import (
     gen_name,
 )
 
-from letsql.expr.relations import CachedNode, replace_cache_table
+from letsql.backends.postgres.compiler import compiler
 from letsql.common.utils.defer_utils import (
     read_csv_rbr,
 )
+from letsql.expr.relations import CachedNode, replace_cache_table
 
 
 class Backend(IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
+    compiler = compiler
 
     @classmethod
     def connect_env(cls, **kwargs):

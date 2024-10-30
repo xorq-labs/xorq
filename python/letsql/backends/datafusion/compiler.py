@@ -4,21 +4,20 @@ import calendar
 import math
 from functools import partial
 from itertools import starmap
+from typing import Mapping, Any
 
 import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import sqlglot as sg
 import sqlglot.expressions as sge
-from ibis.backends.sql.compiler import FALSE, NULL, STAR, SQLGlotCompiler
+from ibis.backends.sql.compilers.base import FALSE, NULL, STAR, AggGen, SQLGlotCompiler
 from ibis.backends.sql.datatypes import PostgresType
 from ibis.backends.sql.dialects import DataFusion
-from ibis.backends.sql.rewrites import rewrite_sample_as_filter
+from ibis.backends.sql.rewrites import split_select_distinct_with_order_by
 from ibis.common.temporal import IntervalUnit, TimestampUnit
+from ibis.expr import types as ir
 from ibis.expr.operations.udf import InputType
-from ibis.expr.rewrites import rewrite_stringslice
-from ibis.formats.pyarrow import PyArrowType
-
 
 _UNIX_EPOCH = "1970-01-01T00:00:00Z"
 
@@ -37,32 +36,27 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     dialect = DataFusion
     type_mapper = DataFusionType
-    rewrites = (
-        rewrite_sample_as_filter,
-        rewrite_stringslice,
-        *SQLGlotCompiler.rewrites,
-    )
 
-    UNSUPPORTED_OPERATIONS = frozenset(
-        (
-            ops.ArgMax,
-            ops.ArgMin,
-            ops.ArrayFilter,
-            ops.ArrayMap,
-            ops.ArrayZip,
-            ops.CountDistinctStar,
-            ops.DateDelta,
-            ops.GroupConcat,
-            ops.MultiQuantile,
-            ops.Quantile,
-            ops.RowID,
-            ops.Strftime,
-            ops.TimeDelta,
-            ops.TimestampDelta,
-        )
+    agg = AggGen(supports_filter=True, supports_order_by=True)
+
+    post_rewrites = (split_select_distinct_with_order_by,)
+
+    UNSUPPORTED_OPS = (
+        ops.ArgMax,
+        ops.ArgMin,
+        ops.ArrayFilter,
+        ops.ArrayMap,
+        ops.ArrayZip,
+        ops.CountDistinctStar,
+        ops.DateDelta,
+        ops.RowID,
+        ops.Strftime,
+        ops.TimeDelta,
+        ops.TimestampDelta,
     )
 
     SIMPLE_OPS = {
+        ops.ApproxQuantile: "approx_percentile_cont",
         ops.ApproxMedian: "approx_median",
         ops.ArrayRemove: "array_remove_all",
         ops.BitAnd: "bit_and",
@@ -70,8 +64,6 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.BitXor: "bit_xor",
         ops.Cot: "cot",
         ops.ExtractMicrosecond: "extract_microsecond",
-        ops.First: "first_value",
-        ops.Last: "last_value",
         ops.Median: "median",
         ops.StringLength: "character_length",
         ops.RandomUUID: "uuid",
@@ -86,12 +78,6 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.StringToDate: "to_date",
         ops.StringToTimestamp: "to_timestamp",
     }
-
-    def _aggregate(self, funcname: str, *args, where):
-        expr = self.f[funcname](*args)
-        if where is not None:
-            return sg.exp.Filter(this=expr, expression=sg.exp.Where(this=where))
-        return expr
 
     def _to_timestamp(self, value, target_dtype, literal=False):
         tz = (
@@ -138,21 +124,14 @@ class DataFusionCompiler(SQLGlotCompiler):
             return sg.exp.HexString(this=value.hex())
         elif dtype.is_uuid():
             return sge.convert(str(value))
-        else:
-            return None
-
-    def visit_DefaultLiteral(self, op, *, value, dtype):
-        if dtype.is_struct():
-            values = [
-                self.visit_Literal(
-                    ops.Literal(v, field_dtype), value=v, dtype=field_dtype
-                )
-                for field_dtype, v in zip(dtype.types, value.values())
-            ]
-            args = (arg for args in zip(value.keys(), values) for arg in args)
+        elif dtype.is_struct():
+            args = []
+            for name, field_value in value.items():
+                args.append(sge.convert(name))
+                args.append(field_value)
             return self.f.named_struct(*args)
         else:
-            return super().visit_DefaultLiteral(op, value=value, dtype=dtype)
+            return None
 
     def visit_Cast(self, op, *, arg, to):
         if to.is_interval():
@@ -163,11 +142,13 @@ class DataFusionCompiler(SQLGlotCompiler):
         if to.is_timestamp():
             return self._to_timestamp(arg, to)
         if to.is_decimal():
+            from ibis.formats.pyarrow import PyArrowType
+
             return self.f.arrow_cast(arg, f"{PyArrowType.from_ibis(to)}".capitalize())
         return self.cast(arg, to)
 
     def visit_Arbitrary(self, op, *, arg, where):
-        cond = ~arg.is_(None)
+        cond = ~arg.is_(NULL)
         if where is not None:
             cond &= where
         return self.agg.first_value(arg, where=cond)
@@ -191,7 +172,7 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_ScalarUDF(self, op, **kw):
         input_type = op.__input_type__
         if input_type in (InputType.PYARROW, InputType.BUILTIN):
-            return self.f[op.__func_name__](*kw.values())
+            return self.f.anon[op.__func_name__](*kw.values())
         else:
             raise NotImplementedError(
                 f"DataFusion only supports PyArrow UDFs: got a {input_type.name.lower()} UDF"
@@ -203,7 +184,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         return self.f[func.__name__](*func_args)
 
     def visit_RegexExtract(self, op, *, arg, pattern, index):
-        if not isinstance(op.index, ops.Literal):  # noqa
+        if not isinstance(op.index, ops.Literal):
             raise ValueError(
                 "re_extract `index` expressions must be literals. "
                 "Arbitrary expressions are not supported in the DataFusion backend"
@@ -263,10 +244,9 @@ class DataFusionCompiler(SQLGlotCompiler):
         part = type(op).__name__[skip:].lower()
         return self.f.date_part(part, arg)
 
-    visitExtractYear = visit_ExtractYearMonthQuarterDay
-    visit_ExtractMonth = visit_ExtractYearMonthQuarterDay
-    visit_ExtractQuarter = visit_ExtractYearMonthQuarterDay
-    visit_ExtractDay = visit_ExtractYearMonthQuarterDay
+    visit_ExtractYear = visit_ExtractMonth = visit_ExtractQuarter = visit_ExtractDay = (
+        visit_ExtractYearMonthQuarterDay
+    )
 
     def visit_ExtractDayOfYear(self, op, *, arg):
         return self.f.date_part("doy", arg)
@@ -355,6 +335,12 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_ArrayPosition(self, op, *, arg, other):
         return self.f.coalesce(self.f.array_position(arg, other), 0)
+
+    def visit_ArrayCollect(self, op, *, arg, where, order_by, include_null):
+        if not include_null:
+            cond = arg.is_(sg.not_(NULL, copy=False))
+            where = cond if where is None else sge.And(this=cond, expression=where)
+        return self.agg.array_agg(arg, where=where, order_by=order_by)
 
     def visit_Covariance(self, op, *, left, right, how, where):
         x = op.left
@@ -449,6 +435,18 @@ class DataFusionCompiler(SQLGlotCompiler):
         return self.if_(
             sg.or_(*any_args_null), self.cast(NULL, dt.string), self.f.concat(*arg)
         )
+
+    def visit_First(self, op, *, arg, where, order_by, include_null):
+        if not include_null:
+            cond = arg.is_(sg.not_(NULL, copy=False))
+            where = cond if where is None else sge.And(this=cond, expression=where)
+        return self.agg.first_value(arg, where=where, order_by=order_by)
+
+    def visit_Last(self, op, *, arg, where, order_by, include_null):
+        if not include_null:
+            cond = arg.is_(sg.not_(NULL, copy=False))
+            where = cond if where is None else sge.And(this=cond, expression=where)
+        return self.agg.last_value(arg, where=where, order_by=order_by)
 
     def visit_Aggregate(self, op, *, parent, groups, metrics):
         """Support `GROUP BY` expressions in `SELECT` since DataFusion does not."""
@@ -560,8 +558,23 @@ class DataFusionCompiler(SQLGlotCompiler):
         return sge.Bracket(this=arg, expressions=[sg.exp.convert(field)])
 
     def visit_StructColumn(self, op, *, names, values):
-        args = (arg for args in zip(map(sg.exp.convert, names), values) for arg in args)
+        args = []
+        for name, value in zip(names, values):
+            args.append(sge.convert(name))
+            args.append(value)
         return self.f.named_struct(*args)
+
+    def visit_GroupConcat(self, op, *, arg, sep, where, order_by):
+        if order_by:
+            raise com.UnsupportedOperationError(
+                "DataFusion does not support order-sensitive group_concat"
+            )
+        return super().visit_GroupConcat(
+            op, arg=arg, sep=sep, where=where, order_by=order_by
+        )
+
+    def visit_ArrayFlatten(self, op, *, arg):
+        return self.if_(arg.is_(NULL), NULL, self.f.flatten(arg))
 
     def visit_MarkedRemoteTable(
         self,
@@ -576,3 +589,19 @@ class DataFusionCompiler(SQLGlotCompiler):
         return sg.table(
             name, db=namespace.database, catalog=namespace.catalog, quoted=self.quoted
         )
+
+    def to_sqlglot(
+        self,
+        expr: ir.Expr,
+        *,
+        limit: str | None = None,
+        params: Mapping[ir.Expr, Any] | None = None,
+    ):
+        op = expr.op()
+        from letsql.expr.relations import replace_cache_table
+
+        out = op.map_clear(replace_cache_table)
+        return super().to_sqlglot(out.to_expr(), limit=limit, params=params)
+
+
+compiler = DataFusionCompiler()

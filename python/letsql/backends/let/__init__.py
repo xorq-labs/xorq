@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import urllib.parse
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
@@ -140,7 +141,8 @@ class Backend(DataFusionBackend):
         from letsql.backends.postgres import Backend
 
         backend = Backend()
-        backend = backend._from_url(uri, database=database)
+        parsed = urllib.parse.urlparse(uri)
+        backend = backend._from_url(parsed, database=database)
         table = backend.table(table_name)
         registered_table = super().register_table_provider(table, table_name=table_name)
         self._sources[registered_table.op()] = table.op()
@@ -227,13 +229,12 @@ class Backend(DataFusionBackend):
     def execute(self, expr: ir.Expr, **kwargs: Any):
         with self._get_backend_and_expr(expr) as resource:
             backend, expr = resource
-            result = backend.execute(expr, **kwargs)
-        return result
+            return backend.execute(expr, **kwargs)
 
     def to_pyarrow(self, expr: ir.Expr, **kwargs: Any) -> pa.Table:
         with self._get_backend_and_expr(expr) as resource:
             backend, expr = resource
-        return backend.to_pyarrow(expr, **kwargs)
+            return backend.to_pyarrow(expr, **kwargs)
 
     def to_pyarrow_batches(
         self,
@@ -244,7 +245,7 @@ class Backend(DataFusionBackend):
     ) -> pa.ipc.RecordBatchReader:
         with self._get_backend_and_expr(expr) as resource:
             backend, expr = resource
-        return backend.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+            return backend.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
     @contextmanager
     def _get_backend_and_expr(self, expr):

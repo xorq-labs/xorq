@@ -8,7 +8,7 @@ from collections import defaultdict
 
 import ibis.expr.operations as ops
 import yaml
-from ibis.backends.sql.compiler import ALL_OPERATIONS
+from ibis.backends.sql.compilers.base import ALL_OPERATIONS
 from ibis.expr.types.arrays import ArrayValue
 from ibis.expr.types.binary import BinaryValue
 from ibis.expr.types.collections import SetValue

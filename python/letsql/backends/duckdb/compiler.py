@@ -1,4 +1,4 @@
-from ibis.backends.duckdb.compiler import DuckDBCompiler as IbisDuckDBCompiler
+from ibis.backends.sql.compilers.duckdb import DuckDBCompiler as IbisDuckDBCompiler
 
 import ibis.expr.operations as ops
 import sqlglot as sg

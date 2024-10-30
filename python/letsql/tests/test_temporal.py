@@ -533,7 +533,7 @@ def test_now_from_projection(alltypes):
     ],
 )
 def test_integer_to_interval_date(con, alltypes, df, unit):
-    interval = alltypes.int_col.to_interval(unit=unit)
+    interval = alltypes.int_col.as_interval(unit=unit)
     array = alltypes.date_string_col.split("/")
     month, day, year = array[0], array[1], array[2]
     date_col = ls.literal("-").join(["20" + year, month, day]).cast("date")
@@ -592,7 +592,7 @@ def test_integer_to_interval_date(con, alltypes, df, unit):
     ],
 )
 def test_integer_to_interval_timestamp(con, alltypes, df, unit, displacement_type):
-    interval = alltypes.int_col.to_interval(unit=unit)
+    interval = alltypes.int_col.as_interval(unit=unit)
     expr = (alltypes.timestamp_col + interval).name("tmp")
 
     def convert_to_offset(offset, displacement_type=displacement_type):
@@ -613,7 +613,7 @@ def test_integer_to_interval_timestamp(con, alltypes, df, unit, displacement_typ
 
 def test_string_to_timestamp(alltypes):
     fmt = "%m/%d/%y"
-    result = alltypes.mutate(date=alltypes.date_string_col.to_timestamp(fmt)).execute()
+    result = alltypes.mutate(date=alltypes.date_string_col.as_timestamp(fmt)).execute()
 
     for i, val in enumerate(result["date"]):
         assert val.strftime(fmt) == result["date_string_col"][i]
@@ -621,7 +621,7 @@ def test_string_to_timestamp(alltypes):
 
 def test_string_to_date(alltypes):
     fmt = "%m/%d/%y"
-    result = alltypes.mutate(date=alltypes.date_string_col.to_date(fmt)).execute()
+    result = alltypes.mutate(date=alltypes.date_string_col.as_date(fmt)).execute()
 
     for i, val in enumerate(result["date"]):
         assert val.strftime(fmt) == result["date_string_col"][i]

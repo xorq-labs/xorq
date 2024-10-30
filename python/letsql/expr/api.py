@@ -1580,7 +1580,7 @@ def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
     from letsql.config import _backend_init
 
     con = _backend_init()
-    sg_expr = con._to_sqlglot(expr.unbind())
+    sg_expr = con.compiler.to_sqlglot(expr.unbind())
     sql = sg_expr.sql(dialect=DataFusion, pretty=pretty)
     return SQLString(sql)
 

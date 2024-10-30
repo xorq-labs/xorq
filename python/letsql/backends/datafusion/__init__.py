@@ -25,7 +25,7 @@ import sqlglot.expressions as sge
 import toolz
 from ibis.backends import CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl
 from ibis.backends.sql import SQLBackend
-from ibis.backends.sql.compiler import C
+from ibis.backends.sql.compilers.base import C
 from ibis.common.annotations import Argument
 from ibis.expr.operations import Namespace
 from ibis.expr.operations.udf import InputType
@@ -35,7 +35,7 @@ from ibis.util import gen_name, normalize_filename
 
 import letsql
 import letsql.internal as df
-from letsql.backends.datafusion.compiler import DataFusionCompiler
+from letsql.backends.datafusion.compiler import compiler
 from letsql.backends.datafusion.provider import IbisTableProvider
 from letsql.common.utils.aws_utils import (
     make_s3_connection,
@@ -131,7 +131,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     name = "datafusion"
     supports_in_memory_tables = True
     supports_arrays = True
-    compiler = DataFusionCompiler()
+    compiler = compiler
 
     @property
     def version(self):
@@ -776,17 +776,18 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 table = obj
 
             self._run_pre_execute_hooks(table)
+            compiler = self.compiler
 
             relname = "_"
             query = sg.select(
                 *(
-                    self.compiler.cast(
+                    compiler.cast(
                         sg.column(col, table=relname, quoted=quoted), dtype
                     ).as_(col, quoted=quoted)
                     for col, dtype in table.schema().items()
                 )
             ).from_(
-                self._to_sqlglot(table).subquery(
+                compiler.to_sqlglot(table).subquery(
                     sg.to_identifier(relname, quoted=quoted)
                 )
             )

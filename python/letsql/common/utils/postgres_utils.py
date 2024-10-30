@@ -19,6 +19,15 @@ from letsql.backends.postgres import (
     Backend as PGBackend,
 )
 
+try:
+    from sqlglot.expressions import Alter
+except ImportError:
+    from sqlglot.expressions import AlterTable
+else:
+
+    def AlterTable(*args, kind="TABLE", **kwargs):
+        return Alter(*args, kind=kind, **kwargs)
+
 
 @frozen
 class PgADBC:
@@ -156,7 +165,7 @@ def make_table_temporary(con, name):
     def rename_table_pg(con, old_name, new_name):
         # rename_stmt = f"ALTER TABLE {old_name} RENAME TO {new_name}"
         # sg.parse_one(rename_stmt)
-        sql = sge.AlterTable(
+        sql = AlterTable(
             this=sg.table(old_name, quoted=True),
             actions=[
                 sge.RenameTable(

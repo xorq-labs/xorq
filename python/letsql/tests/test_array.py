@@ -245,7 +245,10 @@ def test_unnest_idempotent(array_types):
     )
     result = letsql.execute(expr)
     expected = (
-        df[["scalar_column", "x"]].sort_values("scalar_column").reset_index(drop=True)
+        df[["scalar_column", "x"]]
+        .assign(x=df.x.map(lambda arr: sorted(i for i in arr if not pd.isna(i))))
+        .sort_values("scalar_column")
+        .reset_index(drop=True)
     )
     assert_frame_equal(result, expected)
 

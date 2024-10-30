@@ -82,7 +82,7 @@ impl TableProvider for PyTableProvider {
                 .table_provider
                 .bind(py)
                 .call_method("scan", (), Some(&kwargs))
-                .unwrap();
+                .map_err(|err| DataFusionError::External(Box::new(err)))?;
 
             let plan: Arc<dyn ExecutionPlan> = Arc::new(
                 IbisTableExec::new(py, &table, projection)
