@@ -39,7 +39,7 @@ def clone(self, password=None, **kwargs):
     from letsql.common.utils.postgres_utils import make_credential_defaults
 
     password = password or make_credential_defaults()["password"]
-    if not password:
+    if password is None:
         raise ValueError(
             "password is required if POSTGRES_PASSWORD env var is not populated"
         )
