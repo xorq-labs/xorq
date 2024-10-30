@@ -12,7 +12,6 @@ from ibis.common.exceptions import (
     IbisError,
 )
 
-import letsql
 from letsql.common.caching import (
     SourceStorage,
 )
@@ -20,8 +19,12 @@ from letsql.common.utils.hotfix_utils import (
     hotfix,
     none_tokenized,
 )
+from letsql.config import (
+    _backend_init,
+)
 from letsql.expr.relations import (
     CachedNode,
+    Read,
     replace_cache_table,
 )
 
@@ -126,10 +129,15 @@ class LETSQLAccessor:
 def _letsql_find_backend(self, *, use_default=True):
     # FIXME: push this into LETSQLAccessor
     try:
-        current_backend = self._find_backend._original(self, use_default=use_default)
+        if tuple(op.source for op in self.op().find(Read)):
+            current_backend = _backend_init()
+        else:
+            current_backend = self._find_backend._original(
+                self, use_default=use_default
+            )
     except IbisError as e:
         if "Multiple backends found" in e.args[0]:
-            current_backend = letsql.options.backend
+            current_backend = _backend_init()
         else:
             raise e
     return current_backend
@@ -146,7 +154,7 @@ def letsql_cache(self, storage=None):
         current_backend = self._find_backend(use_default=True)
     except IbisError as e:
         if "Multiple backends found" in e.args[0]:
-            current_backend = letsql.options.backend
+            current_backend = _backend_init()
         else:
             raise e
     storage = storage or SourceStorage(source=current_backend)

@@ -5,6 +5,7 @@ from __future__ import annotations
 import datetime
 import functools
 import operator
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Union, overload
 
 import ibis
@@ -100,6 +101,7 @@ __all__ = (
     "table",
     "time",
     "today",
+    "to_parquet",
     "to_pyarrow",
     "to_pyarrow_batches",
     "to_sql",
@@ -1637,3 +1639,15 @@ def to_pyarrow(expr: ir.Expr, **kwargs: Any):
             con.register(t.to_expr(), t.name)
 
     return con.to_pyarrow(expr, **kwargs)
+
+
+def to_parquet(expr: ir.Expr, path: str | Path, **kwargs: Any):
+    import letsql
+
+    _check_collisions(expr)
+    con = letsql.connect()
+    for t in expr.op().find(ops.DatabaseTable):
+        if t not in con._sources.sources:
+            con.register(t.to_expr(), t.name)
+
+    return con.to_parquet(expr, path, **kwargs)

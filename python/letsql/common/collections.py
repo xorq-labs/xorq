@@ -3,11 +3,14 @@ from __future__ import annotations
 from typing import Dict
 
 from ibis.expr.operations import relations as ops
+from letsql.expr.relations import (
+    Read,
+)
 
 
 def _find_backend(value):
     backends = set()
-    node_types = (ops.UnboundTable, ops.DatabaseTable, ops.SQLQueryResult)
+    node_types = (ops.UnboundTable, ops.DatabaseTable, ops.SQLQueryResult, Read)
     for table in value.find(node_types):
         backends.add(table.source)
 

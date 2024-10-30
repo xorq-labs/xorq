@@ -210,3 +210,26 @@ class MarkedRemoteTable(ops.DatabaseTable):
 
 def into_backend(expr, con, name=None):
     return RemoteTable.from_expr(con=con, expr=expr, name=name).to_expr()
+
+
+class Read(ops.Relation):
+    method_name: str
+    name: str
+    schema: Schema
+    source: Any
+    read_kwargs: Any
+    values = FrozenDict()
+
+    def make_dt(self):
+        method = getattr(self.source, self.method_name)
+        dt = method(**dict(self.read_kwargs)).op()
+        return dt
+
+    def make_unbound_dt(self):
+        import dask
+
+        name = f"{self.name}-{dask.base.tokenize(self)}"
+        return ops.UnboundTable(
+            name=name,
+            schema=self.schema,
+        )

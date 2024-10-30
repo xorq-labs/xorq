@@ -1,3 +1,4 @@
+import pathlib
 import re
 import types
 
@@ -11,6 +12,9 @@ from ibis.expr.operations.udf import (
 )
 
 import letsql
+from letsql.common.utils.defer_utils import (
+    Read,
+)
 from letsql.expr.relations import (
     make_native_op,
     MarkedRemoteTable,
@@ -190,6 +194,44 @@ def normalize_module(module):
     )
 
 
+@dask.base.normalize_token.register(Read)
+def normalize_read(read):
+    path = dict(read.read_kwargs).get("path") or dict(read.read_kwargs).get("source")
+    if isinstance(path, (str, pathlib.Path)):
+        path = str(path)
+        if path.startswith("http") or path.startswith("https:"):
+            import requests
+
+            resp = requests.head(path)
+            resp.raise_for_status()
+            dct = {
+                k: resp.headers[k]
+                for k in (
+                    "Last-Modified",
+                    "Content-Length",
+                    "Content-Type",
+                )
+            }
+        elif path.startswith("s3"):
+            raise NotImplementedError
+        elif (path := pathlib.Path(path)).exists():
+            stat = path.stat()
+            dct = {
+                attrname: getattr(stat, attrname)
+                for attrname in (
+                    "st_mtime",
+                    "st_size",
+                    # mtime, size <?-?> md5sum
+                    "st_ino",
+                )
+            }
+        else:
+            raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
+    elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
+        raise NotImplementedError
+    return dask.base._normalize_seq_func((read.schema, dct))
+
+
 @dask.base.normalize_token.register(ir.DatabaseTable)
 def normalize_databasetable(dt):
     dct = {
@@ -284,11 +326,13 @@ def normalize_expr(expr):
     if mem_dts := op.find(ir.InMemoryTable):
         # these should have been replaced by the time we get to them
         raise ValueError(f"{mem_dts}")
+    reads = op.find(Read)
     dts = op.find(ir.DatabaseTable)
     udfs = op.find((AggUDF, ScalarUDF))
     return dask.base._normalize_seq_func(
         (
             sql,
+            reads,
             dts,
             udfs,
         )

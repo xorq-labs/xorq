@@ -27,6 +27,7 @@ from cloudpickle import (
     load as _load,
 )
 
+import letsql as ls
 import letsql.common.utils.dask_normalize  # noqa: F401
 from letsql.common.utils.dask_normalize import (
     patch_normalize_token,
@@ -138,7 +139,7 @@ class ParquetCacheStorage(CacheStorage):
 
     def _put(self, key, value):
         loc = self.get_loc(key)
-        value.to_expr().to_parquet(loc)
+        ls.to_parquet(value.to_expr(), loc)
         return self._get(key)
 
     def _drop(self, key):
@@ -172,7 +173,7 @@ class SourceStorage(CacheStorage):
         ):
             self.source.create_table(key, expr)
         else:
-            self.source.create_table(key, expr.to_pyarrow())
+            self.source.create_table(key, ls.to_pyarrow(expr))
         return self._get(key)
 
     def _drop(self, key):

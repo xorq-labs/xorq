@@ -23,7 +23,7 @@ from letsql.backends.postgres import (
 @frozen
 class PgADBC:
     con = field(validator=instance_of(PGBackend))
-    password = field(validator=optional(instance_of(str)), default=None)
+    password = field(validator=optional(instance_of(str)), default=None, repr=False)
 
     def __attrs_post_init__(self):
         if self.password is None:

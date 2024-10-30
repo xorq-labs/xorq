@@ -3,6 +3,8 @@ from pathlib import Path
 from typing import Mapping, Any
 
 import ibis.expr.schema as sch
+import pyarrow as pa
+import pyarrow.parquet as pq
 import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends.postgres import Backend as IbisPostgresBackend
@@ -119,20 +121,35 @@ class Backend(IbisPostgresBackend):
             ),
         ).sql(self.dialect)
 
+    def read_record_batches(
+        self,
+        record_batches: pa.RecordBatchReader,
+        table_name: str | None = None,
+        password: str | None = None,
+        temporary: bool = False,
+        mode: str = "create",
+        **kwargs: Any,
+    ) -> ir.Table:
+        from letsql.common.utils.postgres_utils import (
+            PgADBC,
+            make_table_temporary,
+        )
+
+        pgadbc = PgADBC(self, password)
+        pgadbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
+        if temporary:
+            make_table_temporary(self, table_name)
+        return self.table(table_name)
+
     def read_parquet(
         self,
         path: str | Path,
         table_name: str | None = None,
         password: str | None = None,
         temporary: bool = False,
+        mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
-        import pyarrow.parquet as pq
-        from letsql.common.utils.postgres_utils import (
-            PgADBC,
-            make_table_temporary,
-        )
-
         if table_name is None:
             if not temporary:
                 raise ValueError(
@@ -140,12 +157,15 @@ class Backend(IbisPostgresBackend):
                 )
             else:
                 table_name = gen_name("ls-read-parquet")
-        rbr = pq.ParquetFile(path).iter_batches()
-        pgadbc = PgADBC(self, password)
-        pgadbc.adbc_ingest(table_name, rbr)
-        if temporary:
-            make_table_temporary(self, table_name)
-        return self.table(table_name)
+        record_batches = pq.ParquetFile(path).iter_batches()
+        return self.read_record_batches(
+            record_batches=record_batches,
+            table_name=table_name,
+            password=password,
+            temporary=temporary,
+            mode=mode,
+            **kwargs,
+        )
 
     def read_csv(
         self,
@@ -154,13 +174,10 @@ class Backend(IbisPostgresBackend):
         chunksize=10_000,
         password=None,
         temporary=False,
+        mode="create",
+        schema=None,
         **kwargs,
     ):
-        from letsql.common.utils.postgres_utils import (
-            PgADBC,
-            make_table_temporary,
-        )
-
         if chunksize is None:
             raise ValueError
         if table_name is None:
@@ -170,9 +187,12 @@ class Backend(IbisPostgresBackend):
                 )
             else:
                 table_name = gen_name("ls-read-csv")
-        pgadbc = PgADBC(self, password)
-        pd_rbr = read_csv_rbr(path, **kwargs)
-        pgadbc.adbc_ingest(table_name, pd_rbr)
-        if temporary:
-            make_table_temporary(self, table_name)
-        return self.table(table_name)
+        record_batches = read_csv_rbr(path, schema=schema, **kwargs)
+        return self.read_record_batches(
+            record_batches=record_batches,
+            table_name=table_name,
+            password=password,
+            temporary=temporary,
+            mode=mode,
+            **kwargs,
+        )

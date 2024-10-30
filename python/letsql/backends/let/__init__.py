@@ -251,6 +251,7 @@ class Backend(DataFusionBackend):
         expr = self._transform_to_native_backend(expr)
         expr, created = self._register_and_transform_remote_tables(expr)
         expr = self._register_and_transform_cache_tables(expr)
+        expr, dt_to_read = self._transform_deferred_reads(expr)
         backend = self._get_source(expr)
         if isinstance(backend, self.__class__):
             backend = super(self.__class__, backend)
@@ -296,6 +297,25 @@ class Backend(DataFusionBackend):
         else:
             return sources[0]
 
+    def _transform_deferred_reads(self, expr, **kwargs):
+        dt_to_read = {}
+
+        def replace_read(node, _, **_kwargs):
+            from letsql.expr.relations import Read
+
+            if isinstance(node, Read):
+                if node.source.name == "pandas":
+                    # FIXME: pandas read is not lazy, leave it to the pandas executor to do
+                    node = dt_to_read[node] = node.make_dt()
+                else:
+                    node = dt_to_read[node] = node.make_dt()
+            else:
+                node = node.__recreate__(_kwargs)
+            return node
+
+        expr = expr.op().replace(replace_read).to_expr()
+        return expr, dt_to_read
+
     def _register_and_transform_cache_tables(self, expr):
         """This function will sequentially execute any cache node that is not already cached"""
 
@@ -303,8 +323,7 @@ class Backend(DataFusionBackend):
             node = node.__recreate__(kwargs)
             if isinstance(node, CachedNode):
                 uncached, storage = node.parent, node.storage
-                uncached_to_expr = uncached.to_expr()
-                node = storage.set_default(uncached_to_expr, uncached)
+                node = storage.set_default(uncached.to_expr(), uncached)
                 table = node.to_expr()
                 if node.source is self:
                     table = _get_datafusion_table(self.con, node.name)
