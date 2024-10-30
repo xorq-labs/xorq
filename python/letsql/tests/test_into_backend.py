@@ -1,6 +1,9 @@
+from operator import methodcaller
+
 import ibis
 import pandas as pd
 import pytest
+import pyarrow as pa
 from ibis import _
 
 import letsql as ls
@@ -97,15 +100,20 @@ def test_multiple_record_batches(pg):
     assert 0 < len(res) <= 15
 
 
-def test_into_backend_simple(pg):
+@pytest.mark.parametrize("method", ["to_pyarrow", "to_pyarrow_batches", "execute"])
+def test_into_backend_simple(pg, method):
     con = ls.connect()
     expr = into_backend(pg.table("batting"), con, "ls_batting")
-    res = expr.execute()
-    assert isinstance(res, pd.DataFrame)
+    res = methodcaller(method)(expr)
+
+    if isinstance(res, pa.RecordBatchReader):
+        res = next(res)
+
     assert len(res) > 0
 
 
-def test_into_backend_complex(pg):
+@pytest.mark.parametrize("method", ["to_pyarrow", "to_pyarrow_batches", "execute"])
+def test_into_backend_complex(pg, method):
     con = ls.connect()
 
     t = into_backend(pg.table("batting"), con, "ls_batting")
@@ -118,7 +126,11 @@ def test_into_backend_complex(pg):
     )
 
     assert ls.to_sql(expr).count("ls_batting") == 2
-    res = expr.execute()
+    res = methodcaller(method)(expr)
+
+    if isinstance(res, pa.RecordBatchReader):
+        res = next(res)
+
     assert 0 < len(res) <= 15
 
 
