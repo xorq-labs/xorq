@@ -5,6 +5,23 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.9] - 2024-10-30
+### Details
+Fix dependencies issues (adbc-driver-postgresql not installed) in release of 0.1.8
+
+#### Changed
+- Make git indifferent to changes in use nix/flake by @dlovell in [#305](https://github.com/letsql/letsql/pull/305)
+- Update dependency ruff to v0.7.1 by @renovate[bot] in [#311](https://github.com/letsql/letsql/pull/311)
+- Ci check for proper package installation by @mesejo in [#318](https://github.com/letsql/letsql/pull/318)
+- Check proper installation of examples extras by @mesejo in [#320](https://github.com/letsql/letsql/pull/320)
+- Use letsql execute/to_pyarrow/to_pyarrow_batches by @mesejo in [#316](https://github.com/letsql/letsql/pull/316)
+- Update dependency pytest-cov to v6 by @renovate[bot] in [#322](https://github.com/letsql/letsql/pull/322)
+- Update trinodb/trino docker tag to v463 by @renovate[bot] in [#321](https://github.com/letsql/letsql/pull/321)
+
+#### Fixed
+- Update dependency snowflake-connector-python to v3.12.3 [security] by @renovate[bot] in [#312](https://github.com/letsql/letsql/pull/312)
+- Synchronize dependencies by @dlovell in [#317](https://github.com/letsql/letsql/pull/317)
+
 ## [0.1.8] - 2024-10-24
 ### Details
 Some major changes were introduced in this version the most important removing the need for registering expressions
