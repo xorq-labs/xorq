@@ -59,11 +59,11 @@ jobs:
         run: poetry run pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution'
         working-directory: ${{ github.workspace }}
         env:
-          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_GH_PASSWORD }}
-          POSTGRES_USER: ${{ secrets.POSTGRES_GH_USER }}
-          POSTGRES_HOST: ${{ secrets.POSTGRES_GH_HOST }}
-          POSTGRES_PORT: ${{ secrets.POSTGRES_GH_PORT }}
-          POSTGRES_DATABASE: ${{ secrets.POSTGRES_GH_DATABASE }}
+          POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASSWORD }}
+          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
+          POSTGRES_HOST: ${{ vars.POSTGRES_HOST }}
+          POSTGRES_PORT: ${{ vars.POSTGRES_PORT }}
+          POSTGRES_DATABASE: ${{ vars.POSTGRES_DATABASE }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v4.6.0
