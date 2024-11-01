@@ -129,7 +129,7 @@ ipython = "^8.19.0"
 pre-commit = "4.0.1"
 pytest = "8.0.2"
 pytest-cov = "6.0.0"
-ruff = "0.7.1"
+ruff = "0.7.2"
 trino = "0.330.0"
 
 [tool.poetry.group.test.dependencies]
