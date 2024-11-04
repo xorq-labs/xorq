@@ -64,8 +64,8 @@ jobs:
           python -m pytest --import-mode=importlib python/letsql/tests/test_examples.py -v
         working-directory: ${{ github.workspace }}
         env:
-          POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASSWORD }}
-          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
-          POSTGRES_HOST: ${{ vars.POSTGRES_HOST }}
-          POSTGRES_PORT: ${{ vars.POSTGRES_PORT }}
-          POSTGRES_DATABASE: ${{ vars.POSTGRES_DATABASE }}
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing
