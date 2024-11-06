@@ -35,6 +35,11 @@ from ibis.expr.types import (
     struct,
 )
 
+from letsql.expr.relations import (
+    RemoteTable,
+)
+
+
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from pathlib import Path
@@ -1606,7 +1611,7 @@ def execute(expr: ir.Expr, **kwargs: Any):
     _check_collisions(expr)
     con = letsql.connect()
     for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources:
+        if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
 
     return con.execute(expr, **kwargs)
@@ -1623,7 +1628,7 @@ def to_pyarrow_batches(
     _check_collisions(expr)
     con = letsql.connect()
     for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources:
+        if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
 
     return con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
@@ -1635,7 +1640,7 @@ def to_pyarrow(expr: ir.Expr, **kwargs: Any):
     _check_collisions(expr)
     con = letsql.connect()
     for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources:
+        if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
 
     return con.to_pyarrow(expr, **kwargs)
@@ -1647,7 +1652,7 @@ def to_parquet(expr: ir.Expr, path: str | Path, **kwargs: Any):
     _check_collisions(expr)
     con = letsql.connect()
     for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources:
+        if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
 
     return con.to_parquet(expr, path, **kwargs)
