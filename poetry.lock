@@ -3505,16 +3505,17 @@ cffi = {version = "*", markers = "implementation_name == \"pypy\""}
 
 [[package]]
 name = "quartodoc"
-version = "0.7.6"
+version = "0.9.0"
 description = "Generate API documentation with Quarto."
 optional = false
 python-versions = ">=3.9"
 files = [
-    {file = "quartodoc-0.7.6-py3-none-any.whl", hash = "sha256:d52f5c9e0b5842b74b93647c423af64c689d5aa0c43789ae4986a6044fde3733"},
-    {file = "quartodoc-0.7.6.tar.gz", hash = "sha256:5513d66195f66d1edb547fdf9b4084532bd70b4ce44ce0f7a4e6a2cb55708626"},
+    {file = "quartodoc-0.9.0-py3-none-any.whl", hash = "sha256:fba8ec56ab82a871607dc92f3533db6e4249b5f057b914bb43c84ec28e331813"},
+    {file = "quartodoc-0.9.0.tar.gz", hash = "sha256:1f287891773bd86ab84cfa1d55181e03e4bf74d57035c73dc1c0e7355148ad27"},
 ]
 
 [package.dependencies]
+black = "*"
 click = "*"
 griffe = ">=0.33"
 importlib-metadata = ">=5.1.0"
@@ -4632,4 +4633,4 @@ snowflake = ["snowflake-connector-python"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "2f27fe5b85b5e766888e04405fc98a40513a96887defdac2add7bfa3e94cec49"
+content-hash = "febf5950220b685bc0af4bce4954c47191fa0d1bf29c756060dcd8b422f86126"
