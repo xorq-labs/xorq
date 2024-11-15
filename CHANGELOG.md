@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.10] - 2024-11-15
+### Details
+This release introduces UDWF and RemoteTables functionality.
+
+#### Added
+- Add test for to_pyarrow and to_pyarrow_batches by @mesejo in [#325](https://github.com/letsql/letsql/pull/325)
+- Add udwf by @dlovell in [#354](https://github.com/letsql/letsql/pull/354)
+
+#### Changed
+- Reparametrize caching into storage and invalidation strategy by @dlovell in [#278](https://github.com/letsql/letsql/pull/278)
+- Update trinodb/trino docker tag to v464 by @renovate[bot] in [#326](https://github.com/letsql/letsql/pull/326)
+- Use vars instead of secrets by @mesejo in [#330](https://github.com/letsql/letsql/pull/330)
+- Update bitnami/minio docker tag to v2024.10.29 by @renovate[bot] in [#327](https://github.com/letsql/letsql/pull/327)
+- Update dependency ruff to v0.7.2 by @renovate[bot] in [#331](https://github.com/letsql/letsql/pull/331)
+- Use env variables in workflows by @mesejo in [#332](https://github.com/letsql/letsql/pull/332)
+- Update dependency quartodoc to ^0.7.2 || ^0.9.0 by @renovate[bot] in [#333](https://github.com/letsql/letsql/pull/333)
+- Update dependency ruff to v0.7.3 by @renovate[bot] in [#338](https://github.com/letsql/letsql/pull/338)
+- Update bitnami/minio docker tag to v2024.11.7 by @renovate[bot] in [#337](https://github.com/letsql/letsql/pull/337)
+- Udate python version in pyproject by @mesejo in [#351](https://github.com/letsql/letsql/pull/351)
+- Update dependency coverage to v7.6.5 by @renovate[bot] in [#349](https://github.com/letsql/letsql/pull/349)
+- Update codecov/codecov-action action to v5 by @renovate[bot] in [#350](https://github.com/letsql/letsql/pull/350)
+- Update postgres docker tag to v17.1 by @renovate[bot] in [#352](https://github.com/letsql/letsql/pull/352)
+
+#### Fixed
+- Update dependency pyarrow to v18 by @renovate[bot] in [#319](https://github.com/letsql/letsql/pull/319)
+- Update dependency ibis-framework to v9.4.0 by @renovate[bot] in [#145](https://github.com/letsql/letsql/pull/145)
+- Update dependency connectorx to v0.4.0 by @renovate[bot] in [#334](https://github.com/letsql/letsql/pull/334)
+- RemoteTable bug by @mesejo in [#335](https://github.com/letsql/letsql/pull/335)
+
 ## [0.1.9] - 2024-10-30
 ### Details
 Fix dependencies issues (adbc-driver-postgresql not installed) in release of 0.1.8
