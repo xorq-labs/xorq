@@ -8,6 +8,7 @@ from typing import Any, Mapping
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
+from letsql.internal import WindowUDF
 from ibis import BaseBackend
 from ibis.expr import types as ir, schema as sch
 from sqlglot import exp, parse_one
@@ -352,3 +353,6 @@ class Backend(DataFusionBackend):
     def _register_and_transform_remote_tables(expr):
         replacer = RemoteTableReplacer()
         return expr.op().replace(replacer).to_expr(), replacer.created
+
+    def register_udwf(self, func: WindowUDF):
+        self.con.register_udwf(func)

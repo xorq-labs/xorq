@@ -27,6 +27,7 @@ pub mod sql;
 mod udaf;
 #[allow(clippy::borrow_deref_ref)]
 mod udf;
+mod udwf;
 pub mod utils;
 
 mod object_storage;
@@ -50,6 +51,7 @@ fn _internal(py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<dataframe::PyDataFrame>()?;
     m.add_class::<udf::PyScalarUDF>()?;
     m.add_class::<udaf::PyAggregateUDF>()?;
+    m.add_class::<udwf::PyWindowUDF>()?;
     m.add_class::<sql::logical::PyLogicalPlan>()?;
     m.add_class::<physical_plan::PyExecutionPlan>()?;
     m.add_class::<parser::PyContextProvider>()?;

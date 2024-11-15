@@ -2,6 +2,7 @@ import functools
 
 import ibis.expr.rules as rlz
 import ibis.expr.types as ir
+import toolz
 from ibis.common.annotations import Argument
 from ibis.common.collections import FrozenDict
 from ibis.expr.operations import Namespace
@@ -91,3 +92,81 @@ class agg(_UDF):
 
         construct.on_expr = on_expr
         return construct
+
+
+def arbitrate_evaluate(
+    uses_window_frame=False,
+    supports_bounded_execution=False,
+    include_rank=False,
+    **config_kwargs,
+):
+    match (uses_window_frame, supports_bounded_execution, include_rank):
+        case (False, False, False):
+            return "evaluate_all"
+        case (False, True, False):
+            return "evaluate"
+        case (False, _, True):
+            return "evaluate_all_with_rank"
+        case (True, _, _):
+            return "evaluate"
+        case _:
+            raise RuntimeError
+
+
+@toolz.curry
+def pyarrow_udwf(
+    fn,
+    schema,
+    return_type,
+    name=None,
+    namespace=Namespace(database=None, catalog=None),
+    base=AggUDF,
+    **config_kwargs,
+):
+    fields = {
+        arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
+        for (arg_name, typ) in schema.items()
+    }
+    # which_evaluate = arbitrate_evaluate(**config_kwargs)
+    name = name or fn.__name__
+    meta = {
+        "dtype": return_type,
+        "__input_type__": InputType.PYARROW,
+        "__func__": property(fget=toolz.functoolz.return_none),
+        "__config__": FrozenDict(
+            input_types=tuple(el.type for el in schema.to_pyarrow()),
+            return_type=return_type.to_pyarrow(),
+            name=name,
+            **config_kwargs,
+            # assert which_evaluate in ("evaluate", "evaluate_all", "evaluate_all_with_rank")
+            # **{which_evaluate: fn},
+            **{
+                which_evaluate: fn
+                for which_evaluate in (
+                    "evaluate",
+                    "evaluate_all",
+                    "evaluate_all_with_rank",
+                )
+            },
+        ),
+        "__udf_namespace__": namespace,
+        "__module__": __name__,
+        "__func_name__": name,
+    }
+    node = type(
+        name,
+        (base,),
+        {
+            **fields,
+            **meta,
+        },
+    )
+
+    def construct(*args: Any, **kwargs: Any) -> ir.Value:
+        return node(*args, **kwargs).to_expr()
+
+    def on_expr(e, **kwargs):
+        return construct(*(e[c] for c in schema), **kwargs)
+
+    construct.on_expr = on_expr
+    return construct

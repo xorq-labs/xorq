@@ -17,6 +17,7 @@ from letsql._internal import (
     TableProvider,
     Table,
     DataFrame,
+    WindowUDF,
 )
 
 __all__ = [
@@ -37,6 +38,8 @@ __all__ = [
     "Table",
     "Accumulator",
     "DataFrame",
+    "WindowUDF",
+    "WindowEvaluator",
 ]
 
 
@@ -74,6 +77,39 @@ class AbstractTableProvider(metaclass=ABCMeta):
         pass
 
 
+class WindowEvaluator(metaclass=ABCMeta):
+    def memoize(self) -> None:
+        pass
+
+    def get_range(self, idx: int, num_rows: int) -> tuple[int, int]:
+        return idx, idx + 1
+
+    def is_causal(self) -> bool:
+        return False
+
+    def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+        pass
+
+    def evaluate(
+        self, values: list[pa.Array], eval_range: tuple[int, int]
+    ) -> pa.Scalar:
+        pass
+
+    def evaluate_all_with_rank(
+        self, num_rows: int, ranks_in_partition: list[tuple[int, int]]
+    ) -> pa.Array:
+        pass
+
+    def supports_bounded_execution(self) -> bool:
+        return False
+
+    def uses_window_frame(self) -> bool:
+        return False
+
+    def include_rank(self) -> bool:
+        return False
+
+
 def udf(func, input_types, return_type, volatility, name=None):
     """
     Create a new User Defined Function
@@ -107,3 +143,32 @@ def udaf(accum, input_type, return_type, state_type, volatility, name=None):
         state_type=state_type,
         volatility=volatility,
     )
+
+
+def udwf(
+    func: WindowEvaluator,
+    input_types: pa.DataType | list[pa.DataType],
+    return_type: pa.DataType,
+    volatility: str,
+    name: str | None = None,
+) -> WindowUDF:
+    """Create a new User-Defined Window Function.
+
+    Args:
+        func: The python function.
+        input_types: The data types of the arguments to ``func``.
+        return_type: The data type of the return value.
+        volatility: See :py:class:`Volatility` for allowed values.
+        name: A descriptive name for the function.
+
+    Returns:
+        A user-defined window function.
+    """
+    if not isinstance(func, WindowEvaluator):
+        raise TypeError("`func` must implement the abstract base class WindowEvaluator")
+    if name is None:
+        name = func.__class__.__qualname__.lower()
+    if isinstance(input_types, pa.DataType):
+        input_types = [input_types]
+
+    return WindowUDF(name, func, input_types, return_type, str(volatility))

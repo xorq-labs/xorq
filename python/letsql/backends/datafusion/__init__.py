@@ -42,14 +42,64 @@ from letsql.common.utils.aws_utils import (
 )
 from letsql.expr.pyaggregator import PyAggregator, make_struct_type
 from letsql.internal import (
+    DataFrame,
     SessionConfig,
     SessionContext,
     Table,
-    DataFrame,
+    WindowEvaluator,
+    udwf,
 )
 
 if TYPE_CHECKING:
     import pandas as pd
+
+
+def _compile_pyarrow_udwf(udwf_node):
+    def make_datafusion_udwf(
+        input_types,
+        return_type,
+        name,
+        evaluate=None,
+        evaluate_all=None,
+        evaluate_all_with_rank=None,
+        supports_bounded_execution=False,
+        uses_window_frame=False,
+        include_rank=False,
+        volatility="immutable",
+        **kwargs,
+    ):
+        def return_value(value):
+            def f(_):
+                return value
+
+            return f
+
+        kwds = {
+            "evaluate": evaluate,
+            "evaluate_all": evaluate_all,
+            "evaluate_all_with_rank": evaluate_all_with_rank,
+            "supports_bounded_execution": return_value(supports_bounded_execution),
+            "uses_window_frame": return_value(uses_window_frame),
+            "include_rank": return_value(include_rank),
+            **kwargs,
+        }
+        mytyp = type(
+            name,
+            (WindowEvaluator,),
+            kwds,
+        )
+        my_udwf = udwf(
+            mytyp(),
+            input_types,
+            return_type,
+            volatility=str(volatility),
+            # datafusion normalizes to lower case and ibis doesn't quote
+            name=name.lower(),
+        )
+        return my_udwf
+
+    my_udwf = make_datafusion_udwf(**udwf_node.__config__)
+    return my_udwf
 
 
 def _compile_pyarrow_udaf(udaf_node):
@@ -224,10 +274,14 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             udf = self._compile_elementwise_udf(udf_node)
             self.con.register_udf(udf)
 
-        for udaf_node in expr.op().find(ops.AggUDF):
-            if udaf_node.__input_type__ == InputType.PYARROW:
-                udaf = _compile_pyarrow_udaf(udaf_node)
-                self.con.register_udaf(udaf)
+        for agg_node in expr.op().find(ops.AggUDF):
+            if agg_node.__input_type__ == InputType.PYARROW:
+                if set(("evaluate", "evaluate_all")).intersection(agg_node.__config__):
+                    udwf = _compile_pyarrow_udwf(agg_node)
+                    self.con.register_udwf(udwf)
+                else:
+                    udaf = _compile_pyarrow_udaf(agg_node)
+                    self.con.register_udaf(udaf)
 
     def _compile_pyarrow_udf(self, udf_node):
         return df.udf(

@@ -1,4 +1,5 @@
 import pytest
+import pyarrow as pa
 
 import letsql as ls
 
@@ -104,3 +105,18 @@ def alltypes_df(alltypes):
 @pytest.fixture(scope="session")
 def batting_df(batting):
     return batting.execute()
+
+
+@pytest.fixture
+def df():
+    # create a RecordBatch and a new DataFrame from it
+    batch = pa.RecordBatch.from_arrays(
+        [
+            pa.array([0, 1, 2, 3, 4, 5, 6]),
+            pa.array([7, 4, 3, 8, 9, 1, 6]),
+            pa.array(["A", "A", "A", "A", "B", "B", "B"]),
+        ],
+        names=["a", "b", "c"],
+    )
+
+    return batch.to_pandas()

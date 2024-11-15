@@ -18,6 +18,7 @@ use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
 use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
+use crate::udwf::PyWindowUDF;
 use crate::utils::wait_for_future;
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
@@ -408,6 +409,11 @@ impl PySessionContext {
 
     fn register_udaf(&mut self, udaf: PyAggregateUDF) -> PyResult<()> {
         self.ctx.register_udaf(udaf.function);
+        Ok(())
+    }
+
+    pub fn register_udwf(&mut self, udwf: PyWindowUDF) -> PyResult<()> {
+        self.ctx.register_udwf(udwf.function);
         Ok(())
     }
 
