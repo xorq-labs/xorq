@@ -170,9 +170,9 @@ def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
             id="var_pop",
         ),
         param(
-            lambda t, where: t.string_col.approx_nunique(where=where),
+            lambda t, where: t.string_col.nunique(where=where),
             lambda t, where: t.string_col[where].nunique(),
-            id="approx_nunique",
+            id="string_nunique",
         ),
         param(
             lambda t, where: t.double_col.first(where=where),

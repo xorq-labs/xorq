@@ -1,3 +1,4 @@
+use std::fmt::Debug;
 use std::sync::Arc;
 
 use datafusion_common::config::ConfigOptions;
@@ -110,6 +111,7 @@ impl PyOptimizerContext {
     }
 }
 
+#[derive(Debug)]
 pub struct PredictXGBoostAnalyzerRule {
     session_model_registry: Arc<RwLock<SessionModelRegistry>>,
 }

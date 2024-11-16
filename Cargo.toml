@@ -11,19 +11,19 @@ crate-type = ["cdylib"]
 [dependencies]
 tokio = { version = "1.24", features = ["macros", "rt", "rt-multi-thread", "sync"] }
 pyo3 = { version = ">=0.21.1,<1", features = ["extension-module", "abi3", "abi3-py38"] }
-datafusion =  { version = ">=40.0.0, <43", features = ["pyarrow", "avro"]}
-datafusion-common = { version = ">=40.0.0, <43", features = ["pyarrow"] }
-datafusion-expr = ">=40.0.0,<43"
+datafusion =  { version = ">=40.0.0, <44", features = ["pyarrow", "avro"]}
+datafusion-common = { version = ">=40.0.0, <44", features = ["pyarrow"] }
+datafusion-expr = ">=40.0.0,<44"
 prost = ">=0.12,<0.14"
-datafusion-optimizer = ">=40.0.0,<43"
-datafusion-sql = ">=40.0.0,<43"
+datafusion-optimizer = ">=40.0.0,<44"
+datafusion-sql = ">=40.0.0,<44"
 futures = "0.3"
 async-trait = "0.1"
 arrow = ">=52.2.0, <54"
 gbdt = { git = "https://github.com/letsql/gbdt-rs.git", rev = "8262de1d20ab6dc7c7e6778b243578d190fb6a62" }
 parking_lot = { version = "0.12" }
 arrow-ord = ">=52.2.0, <54"
-datafusion-functions-aggregate = { version = ">=40.0.0,<43" }
+datafusion-functions-aggregate = { version = ">=40.0.0,<44" }
 aws-config = "0.55"
 aws-credential-types = "0.55"
 object_store = { version = "0.11.0", features = ["aws", "gcp", "http"] }

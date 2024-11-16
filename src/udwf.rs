@@ -20,6 +20,7 @@ use std::ops::Range;
 use std::sync::Arc;
 
 use arrow::array::{make_array, Array, ArrayData, ArrayRef};
+use arrow::datatypes::Field;
 use datafusion::logical_expr::window_state::WindowAggState;
 use datafusion::scalar::ScalarValue;
 use pyo3::exceptions::PyValueError;
@@ -31,6 +32,7 @@ use datafusion::error::{DataFusionError, Result};
 use datafusion::logical_expr::{
     PartitionEvaluator, PartitionEvaluatorFactory, Signature, Volatility, WindowUDF, WindowUDFImpl,
 };
+use datafusion_expr::function::{PartitionEvaluatorArgs, WindowUDFFieldArgs};
 use pyo3::types::{PyList, PyTuple};
 
 use crate::expr::PyExpr;
@@ -295,11 +297,19 @@ impl WindowUDFImpl for MultiColumnWindowUDF {
         &self.signature
     }
 
-    fn return_type(&self, _arg_types: &[DataType]) -> Result<DataType> {
-        Ok(self.return_type.clone())
+    fn partition_evaluator(
+        &self,
+        _partition_evaluator_args: PartitionEvaluatorArgs,
+    ) -> Result<Box<dyn PartitionEvaluator>> {
+        let _ = _partition_evaluator_args;
+        (self.partition_evaluator_factory)()
     }
 
-    fn partition_evaluator(&self) -> Result<Box<dyn PartitionEvaluator>> {
-        (self.partition_evaluator_factory)()
+    fn field(&self, field_args: WindowUDFFieldArgs) -> Result<Field> {
+        Ok(arrow::datatypes::Field::new(
+            field_args.name(),
+            self.return_type.clone(),
+            true,
+        ))
     }
 }

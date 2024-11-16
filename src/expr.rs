@@ -64,7 +64,6 @@ pub mod column;
 pub mod conditional_expr;
 pub mod create_memory_table;
 pub mod create_view;
-pub mod cross_join;
 pub mod distinct;
 pub mod drop_table;
 pub mod empty_relation;
@@ -702,7 +701,6 @@ pub(crate) fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<join::PyJoin>()?;
     m.add_class::<join::PyJoinType>()?;
     m.add_class::<join::PyJoinConstraint>()?;
-    m.add_class::<cross_join::PyCrossJoin>()?;
     m.add_class::<union::PyUnion>()?;
     m.add_class::<extension::PyExtension>()?;
     m.add_class::<filter::PyFilter>()?;

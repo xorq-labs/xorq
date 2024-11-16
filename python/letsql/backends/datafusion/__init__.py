@@ -32,6 +32,7 @@ from ibis.expr.operations.udf import InputType
 from ibis.expr.operations.udf import ScalarUDF
 from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
+from ibis.formats.pyarrow import _from_pyarrow_types
 
 import letsql
 import letsql.internal as df
@@ -52,6 +53,9 @@ from letsql.internal import (
 
 if TYPE_CHECKING:
     import pandas as pd
+
+# include string view
+_from_pyarrow_types[pa.string_view()] = dt.String
 
 
 def _compile_pyarrow_udwf(udwf_node):

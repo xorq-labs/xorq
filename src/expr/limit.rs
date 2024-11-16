@@ -15,13 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use datafusion_expr::logical_plan::Limit;
-use pyo3::prelude::*;
-use std::fmt::{self, Display, Formatter};
-
 use crate::common::df_schema::PyDFSchema;
 use crate::expr::logical_node::LogicalNode;
 use crate::sql::logical::PyLogicalPlan;
+use datafusion_common::ScalarValue;
+use datafusion_expr::logical_plan::Limit;
+use datafusion_expr::Expr;
+use pyo3::prelude::*;
+use std::fmt::{self, Display, Formatter};
 
 #[pyclass(name = "Limit", module = "datafusion.expr", subclass)]
 #[derive(Clone)]
@@ -46,7 +47,7 @@ impl Display for PyLimit {
         write!(
             f,
             "Limit
-            Skip: {}
+            Skip: {:?}
             Fetch: {:?}
             Input: {:?}",
             &self.limit.skip, &self.limit.fetch, &self.limit.input
@@ -58,12 +59,40 @@ impl Display for PyLimit {
 impl PyLimit {
     /// Retrieves the skip value for this `Limit`
     fn skip(&self) -> usize {
-        self.limit.skip
+        match self.limit.skip.as_deref() {
+            Some(expr) => match *expr {
+                Expr::Literal(ScalarValue::Int64(s)) => {
+                    // `skip = NULL` is equivalent to `skip = 0`
+                    let s = s.unwrap_or(0);
+                    if s >= 0 {
+                        s as usize
+                    } else {
+                        panic!("OFFSET must be >=0, '{}' was provided", s)
+                    }
+                }
+                _ => panic!("Unsupported Expr for OFFSET"),
+            },
+            // `skip = None` is equivalent to `skip = 0`
+            None => 0,
+        }
     }
 
     /// Retrieves the fetch value for this `Limit`
     fn fetch(&self) -> Option<usize> {
-        self.limit.fetch
+        match self.limit.fetch.as_deref() {
+            Some(expr) => match *expr {
+                Expr::Literal(ScalarValue::Int64(Some(s))) => {
+                    if s >= 0 {
+                        Some(s as usize)
+                    } else {
+                        None
+                    }
+                }
+                Expr::Literal(ScalarValue::Int64(None)) => None,
+                _ => None,
+            },
+            None => None,
+        }
     }
 
     /// Retrieves the input `LogicalPlan` to this `Limit` node

@@ -95,7 +95,7 @@ impl PySessionState {
             SessionConfig::default().with_information_schema(true)
         };
         let runtime_config = RuntimeConfig::default();
-        let runtime = Arc::new(RuntimeEnv::new(runtime_config).unwrap());
+        let runtime = Arc::new(RuntimeEnv::try_new(runtime_config).unwrap());
 
         let session_state = SessionStateBuilder::new()
             .with_config(config)
@@ -156,7 +156,7 @@ impl PySessionContext {
         let rule = PredictXGBoostAnalyzerRule::new(registry.clone());
 
         let runtime_config = RuntimeConfig::default();
-        let runtime = Arc::new(RuntimeEnv::new(runtime_config)?);
+        let runtime = Arc::new(RuntimeEnv::try_new(runtime_config)?);
         let mut session_state = match (session_state, config) {
             (Some(s), _) => s.session_state,
             (None, Some(c)) => SessionStateBuilder::new()

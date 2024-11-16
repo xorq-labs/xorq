@@ -6,10 +6,9 @@ use datafusion::arrow::datatypes::{DataType, Field, Schema, SchemaRef};
 use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion_common::config::ConfigOptions;
 use datafusion_common::{plan_err, Result};
+use datafusion_expr::AggregateUDF;
 use datafusion_expr::WindowUDF;
-use datafusion_expr::{
-    logical_plan::builder::LogicalTableSource, AggregateUDF, ScalarUDF, TableSource,
-};
+use datafusion_expr::{logical_plan::builder::LogicalTableSource, ScalarUDF, TableSource};
 use datafusion_functions_aggregate::average::avg_udaf;
 use datafusion_functions_aggregate::count::count_udaf;
 use datafusion_functions_aggregate::sum::sum_udaf;
@@ -81,9 +80,8 @@ impl ContextProvider for PyContextProvider {
         None
     }
 
-    fn get_aggregate_meta(&self, _name: &str) -> Option<Arc<AggregateUDF>> {
-        // TODO fix to include all default agg functions
-        match _name.to_lowercase().as_str() {
+    fn get_aggregate_meta(&self, name: &str) -> Option<Arc<AggregateUDF>> {
+        match name.to_lowercase().as_str() {
             "count" => Some(count_udaf()),
             "sum" => Some(sum_udaf()),
             "avg" => Some(avg_udaf()),
