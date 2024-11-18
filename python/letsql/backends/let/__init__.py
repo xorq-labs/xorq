@@ -16,6 +16,7 @@ from sqlglot import exp, parse_one
 import letsql.backends.let.hotfix  # noqa: F401
 from letsql.backends.datafusion import Backend as DataFusionBackend
 from letsql.common.collections import SourceDict
+from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
@@ -223,7 +224,7 @@ class Backend(DataFusionBackend):
             def replace_table(node, _, **_kwargs):
                 return self._sources.get_table_or_op(node, node.__recreate__(_kwargs))
 
-            expr = expr.op().replace(replace_table).to_expr()
+            expr = expr.op().replace(replace_fix(replace_table)).to_expr()
 
         return expr
 
@@ -315,7 +316,7 @@ class Backend(DataFusionBackend):
                 node = node.__recreate__(_kwargs)
             return node
 
-        expr = expr.op().replace(replace_read).to_expr()
+        expr = expr.op().replace(replace_fix(replace_read)).to_expr()
         return expr, dt_to_read
 
     def _register_and_transform_cache_tables(self, expr):
@@ -333,7 +334,7 @@ class Backend(DataFusionBackend):
             return node
 
         op = expr.op()
-        out = op.replace(fn)
+        out = op.replace(replace_fix(fn))
 
         return out.to_expr()
 

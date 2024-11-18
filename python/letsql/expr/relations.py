@@ -9,6 +9,8 @@ from ibis.common.collections import FrozenDict
 from ibis.expr import operations as ops
 from ibis.expr.operations import Relation, Node
 
+from letsql.common.utils.graph_utils import replace_fix, get_args
+
 
 def replace_cache_table(node, _, **kwargs):
     if isinstance(node, CachedNode):
@@ -90,7 +92,8 @@ class RemoteTableReplacer:
         self.created = {}
         self.seen_expr = {}
 
-    def __call__(self, node, _, **kwargs):
+    def __call__(self, *args, **kwargs):
+        node, _, kwargs = get_args(*args, **kwargs)
         if isinstance(node, Relation):
             updated = {}
             for k, v in list(kwargs.items()):
@@ -176,7 +179,7 @@ def make_native_op(node):
     def replace_table(_node, _, **_kwargs):
         return sources.get_table_or_op(_node, _node.__recreate__(_kwargs))
 
-    return node.replace(replace_table).to_expr()
+    return node.replace(replace_fix(replace_table)).to_expr()
 
 
 class CachedNode(ops.Relation):

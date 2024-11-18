@@ -2,8 +2,8 @@ from operator import methodcaller
 
 import ibis
 import pandas as pd
-import pytest
 import pyarrow as pa
+import pytest
 from ibis import _
 
 import letsql as ls

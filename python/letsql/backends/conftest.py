@@ -22,11 +22,13 @@ def pytest_runtest_setup(item):
 
 
 def get_storage_uncached(con, expr):
+    from letsql.common.utils.graph_utils import replace_fix
+
     op = expr.op()
     assert isinstance(op, CachedNode)
 
     def replace_table(node, _, **_kwargs):
         return con._sources.get_table_or_op(node, node.__recreate__(_kwargs))
 
-    uncached = expr.op().replace(replace_table).parent.to_expr()
+    uncached = expr.op().replace(replace_fix(replace_table)).parent.to_expr()
     return (op.storage, uncached)
