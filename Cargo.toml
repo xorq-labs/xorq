@@ -9,22 +9,22 @@ name = "letsql"
 crate-type = ["cdylib"]
 
 [dependencies]
-tokio = { version = "1.24", features = ["macros", "rt", "rt-multi-thread", "sync"] }
-pyo3 = { version = ">=0.21.1,<1", features = ["extension-module", "abi3", "abi3-py38"] }
-datafusion =  { version = ">=40.0.0, <44", features = ["pyarrow", "avro"]}
-datafusion-common = { version = ">=40.0.0, <44", features = ["pyarrow"] }
-datafusion-expr = ">=40.0.0,<44"
-prost = ">=0.12,<0.14"
-datafusion-optimizer = ">=40.0.0,<44"
-datafusion-sql = ">=40.0.0,<44"
-futures = "0.3"
-async-trait = "0.1"
-arrow = ">=52.2.0, <54"
+tokio = { version = "=1.41.1", features = ["macros", "rt", "rt-multi-thread", "sync"] }
+pyo3 = { version = "=0.22.6", features = ["extension-module", "abi3", "abi3-py38"] }
+datafusion =  { version = "=43.0.0", features = ["pyarrow", "avro"]}
+datafusion-common = { version = "=43.0.0", features = ["pyarrow"] }
+datafusion-expr = "=43.0.0"
+prost = "=0.13.3"
+datafusion-optimizer = "=43.0.0"
+datafusion-sql = "=43.0.0"
+futures = "=0.3.31"
+async-trait = "=0.1.83"
+arrow = "=53.2.0"
 gbdt = { git = "https://github.com/letsql/gbdt-rs.git", rev = "8262de1d20ab6dc7c7e6778b243578d190fb6a62" }
-parking_lot = { version = "0.12" }
-arrow-ord = ">=52.2.0, <54"
-datafusion-functions-aggregate = { version = ">=40.0.0,<44" }
-aws-config = "0.55"
-aws-credential-types = "0.55"
-object_store = { version = "0.11.0", features = ["aws", "gcp", "http"] }
-url = "2.2"
+parking_lot = { version = "=0.12.3" }
+arrow-ord = "=53.2.0"
+datafusion-functions-aggregate = { version = "=43.0.0" }
+aws-config = "=0.55.3"
+aws-credential-types = "=0.55.3"
+object_store = { version = "=0.11.0", features = ["aws", "gcp", "http"] }
+url = "=2.5.3"
