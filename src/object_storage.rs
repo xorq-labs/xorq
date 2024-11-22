@@ -28,6 +28,7 @@ use datafusion::error::{DataFusionError, Result};
 use datafusion::execution::context::SessionState;
 
 use async_trait::async_trait;
+use aws_config::BehaviorVersion;
 use aws_credential_types::provider::ProvideCredentials;
 use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::prelude::SessionContext;
@@ -63,7 +64,9 @@ pub async fn get_s3_object_store_builder(
             builder = builder.with_token(session_token);
         }
     } else {
-        let config = aws_config::from_env().load().await;
+        let config = aws_config::defaults(BehaviorVersion::v2023_11_09())
+            .load()
+            .await;
         if let Some(region) = config.region() {
             builder = builder.with_region(region.to_string());
         }

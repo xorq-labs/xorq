@@ -202,11 +202,15 @@ impl PySessionContext {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (name, path, table_partition_cols=vec![],
+    #[pyo3(signature = (name,
+                        path,
+                        table_partition_cols=vec![],
                         parquet_pruning=true,
                         file_extension=".parquet",
                         skip_metadata=true,
-                        schema=None))]
+                        schema=None,
+                        storage_options=None
+    ))]
     fn register_parquet(
         &mut self,
         name: &str,
@@ -216,6 +220,7 @@ impl PySessionContext {
         file_extension: &str,
         skip_metadata: bool,
         schema: Option<PyArrowType<Schema>>,
+        storage_options: Option<HashMap<String, String>>,
         py: Python,
     ) -> PyResult<()> {
         let mut options = ParquetReadOptions::default()
@@ -224,8 +229,19 @@ impl PySessionContext {
             .skip_metadata(skip_metadata);
         options.file_extension = file_extension;
         options.schema = schema.as_ref().map(|x| &x.0);
+        let storage_options = storage_options.unwrap_or_default();
 
-        let result = self.ctx.register_parquet(name, path, options);
+        let result = async {
+            register_object_store_and_config_extensions(
+                &self.ctx,
+                &path.to_string(),
+                Some(ConfigFileType::PARQUET),
+                &storage_options,
+            )
+            .await?;
+            self.ctx.register_parquet(name, path, options).await
+        };
+
         wait_for_future(py, result).map_err(DataFusionError::from)?;
         Ok(())
     }

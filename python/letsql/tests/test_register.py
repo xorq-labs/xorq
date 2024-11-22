@@ -78,6 +78,17 @@ def test_read_parquet(con, data_dir):
     assert t.count().execute()
 
 
+def test_read_parquet_from_url(con):
+    t = con.read_parquet(
+        "https://nasa-avionics-data-ml.s3.us-east-2.amazonaws.com/Tail_652_1_parquet/652200101120916.16p0.parquet",
+        table_name="nasa_table",
+    )
+
+    assert "nasa_table" in con.list_tables()
+    assert t.op().name == "nasa_table"
+    assert t.head().execute() is not None
+
+
 def test_register_table(con):
     tab = pa.table({"x": [1, 2, 3]})
     con.register(tab, "my_table")
