@@ -4,12 +4,13 @@ except ModuleNotFoundError:
     import importlib_metadata
 
 
+version = tuple(
+    int(part) for part in importlib_metadata.version("ibis-framework").split(".")
+)
+
+
 def replace_fix(fun):
     def wrapper(*args, **kwargs):
-        version = tuple(
-            int(part)
-            for part in importlib_metadata.version("ibis-framework").split(".")
-        )
         if version > (9, 4, 0):
             node, kw = args
             return fun(node, None, **(kw or dict(zip(node.argnames, node.args))))
@@ -20,9 +21,6 @@ def replace_fix(fun):
 
 
 def get_args(*args, **kwargs):
-    version = tuple(
-        int(part) for part in importlib_metadata.version("ibis-framework").split(".")
-    )
     if version > (9, 4, 0):
         node, kw = args
         return node, None, (kw or dict(zip(node.argnames, node.args)))
