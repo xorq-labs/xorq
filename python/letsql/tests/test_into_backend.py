@@ -134,6 +134,7 @@ def test_into_backend_complex(pg, method):
     assert 0 < len(res) <= 15
 
 
+@pytest.mark.benchmark
 def test_into_backend_cache(pg, tmp_path):
     con = ls.connect()
     ddb_con = ls.duckdb.connect()
@@ -224,6 +225,7 @@ def test_multiple_into_backend_duckdb_letsql(trino_table):
     assert len(replacer.created) == 5
 
 
+@pytest.mark.benchmark
 def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
     db_con = ls.duckdb.connect()
     expr = (

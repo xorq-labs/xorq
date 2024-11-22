@@ -83,3 +83,5 @@ ci/ibis_testing.db
 .letsql_cache/*
 
 .direnv/
+
+.codspeed

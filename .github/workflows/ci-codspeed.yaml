@@ -1,0 +1,53 @@
+name: codspeed
+
+on:
+  push:
+    branches:
+      - main # Run on pushes to the main branch
+  pull_request: # Run on all pull requests
+
+jobs:
+  codspeed:
+    name: Run benchmarks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: extractions/setup-just@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: download test data
+        run: just download-data
+
+      - name: Rust latest
+        run: rustup update
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+
+      - name: Poetry install
+        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
+        working-directory: ${{ github.workspace }}
+
+      - name: maturin develop
+        run: poetry run maturin develop --release
+        working-directory: ${{ github.workspace }}
+
+      - name: start services
+        run: docker compose up --build --wait
+
+      - uses: CodSpeedHQ/action@v3
+        with:
+          run: poetry run pytest --import-mode=importlib --codspeed
+          token: ${{ secrets.CODSPEED_TOKEN }}
+          working-directory: ${{ github.workspace }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing

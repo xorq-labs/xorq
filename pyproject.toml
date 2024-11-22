@@ -131,6 +131,7 @@ pytest = "8.0.2"
 pytest-cov = "6.0.0"
 ruff = "0.8.0"
 trino = "0.330.0"
+pytest-codspeed = "^3.0.0"
 
 [tool.poetry.group.test.dependencies]
 python = "^3.10"
