@@ -40,7 +40,7 @@ use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 
 /// Configuration options for a SessionContext
-#[pyclass(name = "SessionConfig", module = "datafusion", subclass)]
+#[pyclass(name = "SessionConfig", module = "let", subclass)]
 #[derive(Clone, Default)]
 pub(crate) struct PySessionConfig {
     pub(crate) config: SessionConfig,
@@ -72,7 +72,7 @@ impl PySessionConfig {
     }
 }
 
-#[pyclass(name = "SessionState", module = "datafusion", subclass)]
+#[pyclass(name = "SessionState", module = "let", subclass)]
 #[derive(Clone)]
 pub(crate) struct PySessionState {
     pub(crate) session_state: SessionState,
@@ -120,7 +120,7 @@ impl PySessionState {
 /// `PySessionContext` is able to plan and execute DataFusion plans.
 /// It has a powerful optimizer, a physical planner for local execution, and a
 /// multithreaded execution engine to perform the execution.
-#[pyclass(name = "SessionContext", module = "datafusion", subclass)]
+#[pyclass(name = "SessionContext", module = "let", subclass)]
 #[derive(Clone)]
 pub(crate) struct PySessionContext {
     pub(crate) ctx: SessionContext,

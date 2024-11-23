@@ -17,7 +17,7 @@ use pyo3::{pyclass, pyfunction, pymethods, wrap_pyfunction, PyResult, Python};
 use crate::model::SessionModelRegistry;
 use crate::sql::logical::PyLogicalPlan;
 
-#[pyclass(name = "Optimizer", module = "datafusion", subclass)]
+#[pyclass(name = "Optimizer", module = "let", subclass)]
 #[derive(Clone, Default)]
 pub struct PyOptimizer {
     pub optimizer: Arc<Optimizer>,
@@ -34,7 +34,7 @@ impl PyOptimizer {
     }
 }
 
-#[pyclass(name = "OptimizerRule", module = "datafusion", subclass)]
+#[pyclass(name = "OptimizerRule", module = "let", subclass)]
 #[derive(Debug)]
 pub struct PyOptimizerRule {
     pub(crate) rule: PyObject,
@@ -94,7 +94,7 @@ impl OptimizerRule for PyOptimizerRule {
     }
 }
 
-#[pyclass(name = "OptimizerContext", module = "datafusion", subclass)]
+#[pyclass(name = "OptimizerContext", module = "let", subclass)]
 #[derive(Clone, Default)]
 pub struct PyOptimizerContext {
     pub(crate) context: Arc<OptimizerContext>,

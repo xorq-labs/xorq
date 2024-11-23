@@ -14,7 +14,7 @@ from ibis.expr import types as ir, schema as sch
 from sqlglot import exp, parse_one
 
 import letsql.backends.let.hotfix  # noqa: F401
-from letsql.backends.datafusion import Backend as DataFusionBackend
+from letsql.backends.let.datafusion import Backend as DataFusionBackend
 from letsql.common.collections import SourceDict
 from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.relations import (
@@ -79,10 +79,7 @@ class Backend(DataFusionBackend):
                     backend = backend._sources.get_backend(old_table_expr)
                 source = table_or_expr.to_expr()
 
-            if (
-                isinstance(backend, DataFusionBackend)
-                or getattr(backend, "name", "") == DataFusionBackend.name
-            ):
+            if isinstance(backend, DataFusionBackend):
                 source = _get_datafusion_dataframe(backend, source)
 
         registered_table = super().register(source, table_name=table_name, **kwargs)

@@ -23,7 +23,7 @@ use futures::StreamExt;
 use pyo3::prelude::*;
 use pyo3::{pyclass, pymethods, PyObject, PyResult, Python};
 
-#[pyclass(name = "RecordBatch", module = "datafusion", subclass)]
+#[pyclass(name = "RecordBatch", module = "let", subclass)]
 pub struct PyRecordBatch {
     batch: RecordBatch,
 }
@@ -41,7 +41,7 @@ impl From<RecordBatch> for PyRecordBatch {
     }
 }
 
-#[pyclass(name = "RecordBatchStream", module = "datafusion", subclass)]
+#[pyclass(name = "RecordBatchStream", module = "let", subclass)]
 pub struct PyRecordBatchStream {
     stream: SendableRecordBatchStream,
 }

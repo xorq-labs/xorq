@@ -909,16 +909,17 @@ test = ["pandas[test]", "pre-commit", "pytest", "pytest-cov", "pytest-rerunfailu
 
 [[package]]
 name = "datafusion"
-version = "40.1.0"
+version = "42.0.0"
 description = "Build and run queries against data"
 optional = true
 python-versions = ">=3.6"
 files = [
-    {file = "datafusion-40.1.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:983b5b89a3aaaf2789f0423564cc24dbe5eb3f4f0a7daa8e87b35ce4d2920d6b"},
-    {file = "datafusion-40.1.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:be44d24971e73d324a3f41503bb091f48d171d50d1d2415b469ca5e3953b5a0e"},
-    {file = "datafusion-40.1.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:fd8c3689e9d195a9603a00e399b995a6343587d0763358f2eee65b85d5f56a37"},
-    {file = "datafusion-40.1.0-cp38-abi3-win_amd64.whl", hash = "sha256:2960871ce31ee489ef3b210e77c4048278e9ee873517eff9f46ca52c82eb166d"},
-    {file = "datafusion-40.1.0.tar.gz", hash = "sha256:7c7cfd2bcf491adcf6580f0ff5882ca9fc658dbdab30802ad46889e417965cc6"},
+    {file = "datafusion-42.0.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:e9506356ad5d5f7b0f2d636cea24c5fc72518305aacf81207ecb4d59d0ea6866"},
+    {file = "datafusion-42.0.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:63a07e3779d3bdca0ecafd2eedf6948feff3ecd496a1fcf93baac122a48c6f4f"},
+    {file = "datafusion-42.0.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:b4f04adbef61e70a3f56c6fcf6b615f75bbc42610947092870acff03171a456b"},
+    {file = "datafusion-42.0.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:1fb4a7f34225948d7a5db2ee3b3a578dd6b95c2bae39fd940dfd2de90a34088d"},
+    {file = "datafusion-42.0.0-cp38-abi3-win_amd64.whl", hash = "sha256:71d9af5a9a6852f8121e4811a913cfec596f4c36240149edea57d27af7318749"},
+    {file = "datafusion-42.0.0.tar.gz", hash = "sha256:c88955a9ac59504d9d302be03158e692b9f99c3bf53dca0e84252d81f8c5ca91"},
 ]
 
 [package.dependencies]
@@ -4663,4 +4664,4 @@ snowflake = ["snowflake-connector-python"]
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10"
-content-hash = "50cdc093eb3cdbc551f1744f12c9464579bd3962c212efc4dfc171684a6c413d"
+content-hash = "ccfea77c52aceb273183924088cd01c697a5e9d2fd81c8cd5109c706ad66b733"

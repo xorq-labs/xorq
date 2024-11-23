@@ -27,7 +27,7 @@ fn create_table_source(fields: Vec<Field>) -> Arc<dyn TableSource> {
     )))
 }
 
-#[pyclass(name = "ContextProvider", module = "datafusion", subclass)]
+#[pyclass(name = "ContextProvider", module = "let", subclass)]
 #[derive(Clone, Default)]
 pub struct PyContextProvider {
     options: ConfigOptions,

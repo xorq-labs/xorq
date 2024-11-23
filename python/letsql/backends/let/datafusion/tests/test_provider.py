@@ -8,7 +8,7 @@ import xgboost as xgb
 
 import letsql as ls
 from ibis import udf
-from letsql.backends.datafusion.provider import IbisTableProvider
+from letsql.backends.let.datafusion.provider import IbisTableProvider
 from sklearn.model_selection import train_test_split
 
 
@@ -55,7 +55,7 @@ def train_xgb(
 
 @pytest.fixture(scope="session")
 def data_dir():
-    root = Path(__file__).absolute().parents[5]
+    root = Path(__file__).absolute().parents[6]
     data_dir = root / "ci" / "ibis-testing-data"
     return data_dir
 

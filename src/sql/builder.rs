@@ -8,7 +8,7 @@ use datafusion_expr::{table_scan, Expr, LogicalPlanBuilder, SortExpr};
 
 use pyo3::prelude::*;
 
-#[pyclass(name = "LogicalPlanBuilder", module = "datafusion", subclass)]
+#[pyclass(name = "LogicalPlanBuilder", module = "let", subclass)]
 #[derive(Clone)]
 pub struct PyLogicalPlanBuilder {
     builder: LogicalPlanBuilder,

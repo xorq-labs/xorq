@@ -54,7 +54,7 @@ duckb = [
     "duckdb>=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 datafusion = [
-    "datafusion>=34.0.0,<41; python_version >= '3.10' and python_version < '4.0'"
+    "datafusion>=0.6,<43 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 snowflake = [
     "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'"
@@ -108,7 +108,7 @@ pyarrow-hotfix = ">=0.4,<1"
 geoarrow-types = ">=0.2,<1"
 duckdb = {version = ">=0.10.3,<2", optional = true}
 snowflake-connector-python = {version = ">=3.10.1,<4", optional = true}
-datafusion = {version = ">=34.0.0,<41", optional = true}
+datafusion = {version = ">=0.6,<43", optional = true}
 structlog = "^24.2.0"
 pytest-mock = "^3.14.0"
 fsspec = { version = ">=2024.6.1,<2024.10.1", optional = true }

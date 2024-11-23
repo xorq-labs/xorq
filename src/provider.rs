@@ -17,7 +17,7 @@ use crate::ibis_table_exec::IbisTableExec;
 
 use pyo3::prelude::*;
 
-#[pyclass(name = "TableProvider", module = "datafusion", subclass)]
+#[pyclass(name = "TableProvider", module = "let", subclass)]
 #[derive(Debug)]
 pub struct PyTableProvider {
     table_provider: PyObject,
