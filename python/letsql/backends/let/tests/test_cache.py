@@ -819,8 +819,8 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
 
     t = ls_con.register(alltypes_df, "alltypes")
     agg_udf = agg.pandas_df(
-        t[cols],
         my_mul_sum,
+        t[cols].schema(),
         ibis_output_type,
         name=name,
     )

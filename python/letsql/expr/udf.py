@@ -34,10 +34,11 @@ class agg(_UDF):
         return result
 
     @classmethod
+    @toolz.curry
     def pandas_df(
         cls,
-        expr,
         fn,
+        schema,
         return_type,
         database=None,
         catalog=None,
@@ -48,7 +49,7 @@ class agg(_UDF):
 
         def fn_from_arrays(*arrays):
             df = pd.DataFrame(
-                {name: array.to_pandas() for (name, array) in zip(expr.columns, arrays)}
+                {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
             )
             return fn(df)
 
@@ -56,7 +57,7 @@ class agg(_UDF):
         bases = (cls._base,)
         fields = {
             arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
-            for (arg_name, typ) in expr.schema().items()
+            for (arg_name, typ) in schema.items()
         }
         meta = {
             "dtype": return_type,
@@ -88,9 +89,10 @@ class agg(_UDF):
             return node(*args, **kwargs).to_expr()
 
         def on_expr(e, **kwargs):
-            return construct(*(e[c] for c in expr.columns), **kwargs)
+            return construct(*(e[c] for c in schema), **kwargs)
 
         construct.on_expr = on_expr
+        construct.fn = fn
         return construct
 
 

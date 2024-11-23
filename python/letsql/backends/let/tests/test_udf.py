@@ -108,28 +108,28 @@ def test_group_by_udf_agg_pyarrow(ls_con, alltypes_df):
 
 
 def test_udf_agg_pandas_df(ls_con, alltypes):
-    def sum_sum(df):
-        return df.sum().sum()
-
     name = "sum_sum"
     alltypes = ls_con.register(letsql.execute(alltypes), "pg-alltypes")
     cols = (by, _) = ["year", "month"]
     expr = alltypes
-    agg_udf = udf.agg.pandas_df(
-        expr=expr[cols],
-        fn=sum_sum,
+
+    @udf.agg.pandas_df(
+        schema=expr[cols].schema(),
         return_type=dt.int64(),
         name=name,
     )
+    def sum_sum(df):
+        return df.sum().sum()
+
     actual = (
         expr.group_by(by)
-        .agg(agg_udf(*(expr[c] for c in cols)).name(name))
+        .agg(sum_sum(*(expr[c] for c in cols)).name(name))
         .execute()
         .sort_values(by, ignore_index=True)
     )
     actual2 = (
         expr.group_by(by)
-        .agg(agg_udf.on_expr(expr).name(name))
+        .agg(sum_sum.on_expr(expr).name(name))
         .execute()
         .sort_values(by, ignore_index=True)
     )
@@ -137,7 +137,7 @@ def test_udf_agg_pandas_df(ls_con, alltypes):
         alltypes[cols]
         .execute()
         .groupby(by)
-        .apply(sum_sum)
+        .apply(sum_sum.fn)
         .rename(name)
         .reset_index()
         .sort_values(by, ignore_index=True)
