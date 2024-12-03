@@ -76,8 +76,10 @@ def convert_limit(limit, catalog):
     for i in limit.input():
         table = convert(i.to_variant(), catalog=catalog)
 
-    if table.has_name():
+    try:
         name = table.get_name()
+    except AttributeError:
+        pass
 
     fetch = getattr(limit.fetch(), "real", None)
     skip = limit.skip() or 0
@@ -101,8 +103,10 @@ def convert_projection(projection, catalog):
     for i in projection.input():
         table = convert(i.to_variant(), catalog=catalog)
 
-    if table.has_name():
+    try:
         name = table.get_name()
+    except AttributeError:
+        pass
 
     projections = [
         pr
@@ -124,7 +128,7 @@ def convert_sort(sort, catalog):
     for i in sort.input():
         table = convert(i.to_variant(), catalog)
 
-    if table.has_name():
+    if table.get_name():
         name = table.get_name()
 
     if expressions := sort.sort_exprs():
@@ -165,14 +169,17 @@ def convert_filter(_filter, catalog):
     for i in _filter.input():
         table = convert(i.to_variant(), catalog)
 
-    if table.has_name():
+    try:
         name = table.get_name()
+    except AttributeError:
+        pass
 
     if predicate := _filter.predicate():
         predicate = convert(predicate.to_variant(), catalog)
         table = table.filter(predicate)
 
-    catalog[name] = table
+    if name:
+        catalog[name] = table
 
     return table
 
@@ -211,8 +218,10 @@ def convert_aggregate(aggregate, catalog):
     for i in aggregate.input():
         table = convert(i.to_variant(), catalog)
 
-    if table.has_name():
+    try:
         name = table.get_name()
+    except AttributeError:
+        pass
 
     metrics = []
     if aggregates := aggregate.aggregate_exprs():
@@ -241,8 +250,10 @@ def convert_subquery_alias(subquery, catalog):
     for i in subquery.input():
         table = convert(i.to_variant(), catalog=catalog)
 
-    if table.has_name():
+    try:
         name = table.get_name()
+    except AttributeError:
+        pass
 
     if alias is not None:
         catalog[alias] = table
@@ -282,11 +293,10 @@ def convert_join(join, catalog):
     right = convert(join.right().to_variant(), catalog=catalog)
 
     left_name, right_name = None, None
-    if left.has_name():
-        left_name = left.get_name()
-
-    if right.has_name():
-        right_name = right.get_name()
+    try:
+        left_name, right_name = left.get_name(), right.get_name()
+    except AttributeError:
+        pass
 
     how = str(join.join_type()).lower()
 
