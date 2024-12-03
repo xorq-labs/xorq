@@ -130,7 +130,7 @@ class SnapshotStrategy(CacheStrategy):
             with patch_normalize_token(
                 ops.DatabaseTable, f=self.normalize_databasetable
             ):
-                tokenized = dask.base.tokenize(expr)
+                tokenized = dask.tokenize.tokenize(expr)
                 return "-".join(("snapshot", tokenized))
 
     @staticmethod
@@ -143,12 +143,9 @@ class SnapshotStrategy(CacheStrategy):
 
     @staticmethod
     def normalize_databasetable(dt):
-        return dask.base.normalize_token(
-            {
-                argname: getattr(dt, argname)
-                # argnames: name, schema, source, namespace
-                for argname in dt.argnames
-            }
+        keys = ["name", "schema", "source", "namespace"]
+        return dask.tokenize._normalize_seq_func(
+            (key, getattr(dt, key)) for key in keys
         )
 
 

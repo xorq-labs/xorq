@@ -39,7 +39,7 @@ def normalize_memory_databasetable(dt):
 
     if dt.source.name not in ("pandas", "let", "datafusion", "duckdb"):
         raise ValueError
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             # we are normalizing the data, we don't care about the connection
             # dt.source,
@@ -65,7 +65,7 @@ def normalize_datafusion_databasetable(dt):
     table = dt.source.con.table(dt.name)
     ep_str = str(table.execution_plan())
     if ep_str.startswith(("ParquetExec:", "CsvExec:")):
-        return dask.base._normalize_seq_func(
+        return dask.tokenize._normalize_seq_func(
             (
                 dt.schema.to_pandas(),
                 # ep_str denotes the parquet files to be read
@@ -76,13 +76,13 @@ def normalize_datafusion_databasetable(dt):
     elif ep_str.startswith("MemoryExec:"):
         return normalize_memory_databasetable(dt)
     elif ep_str.startswith("CustomExec"):
-        return dask.base._normalize_seq_func((dt.schema.to_pandas(), dt.name))
+        return dask.tokenize._normalize_seq_func((dt.schema.to_pandas(), dt.name))
     else:
         raise ValueError
 
 
 def normalize_remote_databasetable(dt):
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             dt.name,
             dt.schema,
@@ -97,7 +97,7 @@ def normalize_postgres_databasetable(dt):
 
     if dt.source.name != "postgres":
         raise ValueError
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             dt.name,
             dt.schema,
@@ -113,7 +113,7 @@ def normalize_snowflake_databasetable(dt):
 
     if dt.source.name != "snowflake":
         raise ValueError
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             dt.name,
             dt.schema,
@@ -132,7 +132,7 @@ def normalize_duckdb_databasetable(dt):
     )
 
     if isinstance(dt, (MarkedRemoteTable, RemoteTable)):
-        return dask.base._normalize_seq_func(
+        return dask.tokenize._normalize_seq_func(
             (
                 dt.schema.to_pandas(),
                 str(dt.remote_expr),
@@ -157,7 +157,7 @@ def normalize_duckdb_file_read(dt):
     (sql_ddl_statement,) = dt.source.con.sql(
         f"select sql from duckdb_views() where view_name = {name} UNION select sql from duckdb_tables() where table_name = {name}"
     ).fetchone()
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             dt.schema.to_pandas(),
             # sql_ddl_statement denotes the definition of the table, expressed as SQL DDL-statement.
@@ -171,7 +171,7 @@ def normalize_letsql_databasetable(dt):
         raise ValueError
     native_source = dt.source._sources.get_backend(dt)
     if isinstance(dt, (MarkedRemoteTable, RemoteTable)):
-        return dask.base._normalize_seq_func(
+        return dask.tokenize._normalize_seq_func(
             (
                 dt.schema.to_pandas(),
                 str(dt.remote_expr),
@@ -186,7 +186,7 @@ def normalize_letsql_databasetable(dt):
 
 @dask.base.normalize_token.register(types.ModuleType)
 def normalize_module(module):
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             module.__name__,
             module.__package__,
@@ -229,7 +229,7 @@ def normalize_read(read):
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
         raise NotImplementedError
-    return dask.base._normalize_seq_func((read.schema, dct))
+    return dask.tokenize._normalize_seq_func((read.schema, dct))
 
 
 @dask.base.normalize_token.register(ir.DatabaseTable)
@@ -265,12 +265,12 @@ def normalize_backend(con):
 
 @dask.base.normalize_token.register(ir.Schema)
 def normalize_schema(schema):
-    return dask.base._normalize_seq_func((schema.to_pandas(),))
+    return dask.tokenize._normalize_seq_func((schema.to_pandas(),))
 
 
 @dask.base.normalize_token.register(ir.Namespace)
 def normalize_namespace(ns):
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             ns.catalog,
             ns.database,
@@ -281,7 +281,7 @@ def normalize_namespace(ns):
 @dask.base.normalize_token.register(ScalarUDF)
 def normalize_scalar_udf(udf):
     typs = tuple(arg.dtype for arg in udf.args)
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             ScalarUDF,
             typs,
@@ -302,7 +302,7 @@ def normalize_agg_udf(udf):
         #       the relevant information of `where`
         raise NotImplementedError
     typs = tuple(arg.dtype for arg in args)
-    return dask.base._normalize_seq_func(
+    return dask.tokenize._normalize_seq_func(
         (
             AggUDF,
             typs,
@@ -329,7 +329,7 @@ def normalize_expr(expr):
     reads = op.find(Read)
     dts = op.find(ir.DatabaseTable)
     udfs = op.find((AggUDF, ScalarUDF))
-    return dask.base._normalize_seq_func(
+    token = dask.tokenize._normalize_seq_func(
         (
             sql,
             reads,
@@ -337,3 +337,4 @@ def normalize_expr(expr):
             udfs,
         )
     )
+    return token

@@ -24,6 +24,7 @@ from letsql.common.caching import (
     SnapshotStorage,
     SourceStorage,
 )
+from letsql.common.utils.inspect_utils import get_python_version_no_dot
 from letsql.common.utils.postgres_utils import (
     do_analyze,
     get_postgres_n_scans,
@@ -805,7 +806,8 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
     from_pandas = alltypes_df[cols].assign(mulled=wrapper(my_mul))
     assert from_ls.equals(from_pandas)
 
-    snapshot.assert_match(expr.ls.get_key(), "udf_caching.txt")
+    py_version = f"py{get_python_version_no_dot()}"
+    snapshot.assert_match(expr.ls.get_key(), f"{py_version}_udf_caching.txt")
 
 
 def test_udaf_caching(ls_con, alltypes_df, snapshot):
@@ -847,8 +849,9 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
     assert expr.ls.exists()
     assert on_expr.ls.exists()
 
-    snapshot.assert_match(expr.ls.get_key(), "test_udaf_caching.txt")
-    snapshot.assert_match(on_expr.ls.get_key(), "test_udaf_caching.txt")
+    py_version = f"py{get_python_version_no_dot()}"
+    snapshot.assert_match(expr.ls.get_key(), f"{py_version}_test_udaf_caching.txt")
+    snapshot.assert_match(on_expr.ls.get_key(), f"{py_version}_test_udaf_caching.txt")
 
 
 def test_caching_pandas(csv_dir):

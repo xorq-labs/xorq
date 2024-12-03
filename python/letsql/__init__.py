@@ -82,4 +82,4 @@ def __getattr__(name):
     return load_backend(name) or ibis.__getattr__(name)
 
 
-__version__ = importlib_metadata.version(__name__)
+__version__ = importlib_metadata.version(__package__)

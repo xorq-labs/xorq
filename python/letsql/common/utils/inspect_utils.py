@@ -1,4 +1,5 @@
 import inspect
+from sysconfig import get_python_version
 
 
 def maybe_unwrap_curry(func, *args, **kwargs):
@@ -37,3 +38,7 @@ def get_partial_arguments(f, *args, **kwargs):
     bound.apply_defaults()
     arguments = bound.arguments
     return arguments
+
+
+def get_python_version_no_dot():
+    return get_python_version().replace(".", "")

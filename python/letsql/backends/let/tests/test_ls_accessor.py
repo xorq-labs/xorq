@@ -1,6 +1,8 @@
 import pytest
 
-import letsql.backends.let
+import letsql
+
+from letsql.backends.let import Backend
 from letsql.common.caching import (
     ParquetCacheStorage,
 )
@@ -71,11 +73,11 @@ def test_is_multiengine(duck_batting_raw, cached_two, cached_two_joined):
 def test_dts(cached_two, cached_two_joined):
     dts = cached_two.ls.dts
     assert len(dts) == 1
-    assert not any(dt.source.name == letsql.backends.let.Backend.name for dt in dts)
+    assert not any(dt.source.name == Backend.name for dt in dts)
 
     dts = cached_two_joined.ls.dts
     assert len(dts) == 2
-    assert not any(dt.source.name == letsql.backends.let.Backend.name for dt in dts)
+    assert not any(dt.source.name == Backend.name for dt in dts)
 
 
 def test_is_cached(cached_two, cached_two_joined):
