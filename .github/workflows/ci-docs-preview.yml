@@ -38,18 +38,20 @@ jobs:
       - name: download test data
         run: just download-data
 
+      - name: Rust latest
+        run: rustup update
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Rust latest
-        run: rustup update
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
-
-      - name: Poetry install
-        run: poetry install --with="dev,test,docs" --extras="duckdb snowflake datafusion"
+      - name: Install the project
+        run: uv sync --all-extras --all-groups
         working-directory: ${{ github.workspace }}
 
       - uses: quarto-dev/quarto-actions/setup@v2
@@ -57,7 +59,7 @@ jobs:
           version: 1.4.515
 
       - name: maturin develop
-        run: poetry run maturin develop --release
+        run: uv run maturin develop
         working-directory: ${{ github.workspace }}
 
       - name: start services

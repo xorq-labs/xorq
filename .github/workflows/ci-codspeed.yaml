@@ -15,10 +15,6 @@ jobs:
       - uses: extractions/setup-just@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
 
       - name: download test data
         run: just download-data
@@ -26,15 +22,21 @@ jobs:
       - name: Rust latest
         run: rustup update
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
 
-      - name: Poetry install
-        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --all-extras --all-groups
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: poetry run maturin develop --release
+        run: uv run maturin develop
         working-directory: ${{ github.workspace }}
 
       - name: start services
@@ -42,7 +44,7 @@ jobs:
 
       - uses: CodSpeedHQ/action@v3
         with:
-          run: poetry run pytest --import-mode=importlib --codspeed
+          run: uv run pytest --import-mode=importlib --codspeed
           token: ${{ secrets.CODSPEED_TOKEN }}
           working-directory: ${{ github.workspace }}
         env:

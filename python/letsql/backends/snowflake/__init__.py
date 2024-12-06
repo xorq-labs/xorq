@@ -3,6 +3,7 @@ from typing import Mapping, Any
 import ibis.expr.types as ir
 from ibis.backends.snowflake import Backend as IbisSnowflakeBackend
 
+from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.relations import CachedNode, replace_cache_table
 
 
@@ -28,7 +29,7 @@ class Backend(IbisSnowflakeBackend):
             return node
 
         op = expr.op()
-        out = op.replace(fn)
+        out = op.replace(replace_fix(fn))
 
         return out.to_expr()
 

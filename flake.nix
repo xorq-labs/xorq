@@ -1,132 +1,116 @@
 {
-  description = "Application packaged using poetry2nix";
+  description = "A modern data processing library focused on composability, portability, and performance.";
 
   inputs = {
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    poetry2nix = {
-      url = "github:nix-community/poetry2nix";
+    pyproject-nix = {
+      url = "github:pyproject-nix/pyproject.nix";
       inputs.nixpkgs.follows = "nixpkgs";
+    };
+    uv2nix = {
+      url = "github:pyproject-nix/uv2nix";
+      inputs.pyproject-nix.follows = "pyproject-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    pyproject-build-systems = {
+      url = "github:pyproject-nix/build-system-pkgs";
+      inputs = {
+        pyproject-nix.follows = "pyproject-nix";
+        uv2nix.follows = "uv2nix";
+        nixpkgs.follows = "nixpkgs";
+      };
     };
     rust-overlay.url = "github:oxalica/rust-overlay";
     crane = {
       url = "github:ipetkov/crane";
+    };
+    nix-utils = {
+      url = "github:letsql/nix-utils";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, flake-utils, poetry2nix, rust-overlay, crane }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs =
+    {
+      self,
+      nixpkgs,
+      flake-utils,
+      pyproject-nix,
+      uv2nix,
+      pyproject-build-systems,
+      rust-overlay,
+      crane,
+      nix-utils,
+    }:
+    flake-utils.lib.eachDefaultSystem (
+      system:
       let
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [
-            (import rust-overlay)
-            poetry2nix.overlays.default
-          ];
+          overlays = [ (import rust-overlay) ];
         };
-        mkLETSQL = (import ./nix/letsql.nix { inherit system pkgs poetry2nix crane; }) ./.;
-        mkCommands = python: import ./nix/commands.nix {
-          inherit pkgs python;
+        inherit (nix-utils.lib.${system}.utils) drvToApp;
+
+        src = ./.;
+        mkLETSQL = import ./nix/letsql.nix {
+          inherit
+            system
+            pkgs
+            pyproject-nix
+            uv2nix
+            pyproject-build-systems
+            crane
+            src
+            ;
         };
-        mkShellHook = python: let
-          commands = mkCommands python;
-        in ''
-          export PYTHON_KEYRING_BACKEND=keyring.backends.null.Keyring
-          ${commands.letsql-commands.letsql-ensure-download-data}/bin/letsql-ensure-download-data
-        '';
-        mkToolsPackages = python: let
-          commands = mkCommands python;
-          letsql = mkLETSQL python;
-        in pkgs.buildEnv {
-          name = "tools-${python.pythonVersion}";
-          paths = [
-            letsql.toolchain
-            pkgs.poetry
-            python
-            commands.letsql-commands-star
-          ];
-        };
-        mkToolsShell = python: let
-          toolsPackages = mkToolsPackages python;
-          shellHook = mkShellHook python;
-        in pkgs.mkShell {
-          packages = [
-            toolsPackages
-            pkgs.maturin
-          ];
-          inherit shellHook;
-        };
-        mkDevShell = python: let
-          toolsPackages = mkToolsPackages python;
-          letsql = mkLETSQL python;
-          shellHook = mkShellHook python;
-        in pkgs.mkShell {
-          packages = [
-            letsql.appFromWheel
-            toolsPackages
-          ];
-          inherit shellHook;
-        };
-        letsql310 = mkLETSQL pkgs.python310;
-        letsql311 = mkLETSQL pkgs.python311;
-        letsql312 = mkLETSQL pkgs.python312;
-        toolsPackages310 = mkToolsPackages pkgs.python310;
-        toolsPackages311 = mkToolsPackages pkgs.python311;
-        toolsPackages312 = mkToolsPackages pkgs.python312;
-        tools310 = mkToolsShell pkgs.python310;
-        tools311 = mkToolsShell pkgs.python311;
-        tools312 = mkToolsShell pkgs.python312;
-        dev310 = mkDevShell pkgs.python310;
-        dev311 = mkDevShell pkgs.python311;
-        dev312 = mkDevShell pkgs.python312;
-        #
-        mkShellApp = drv: name: bin-name: pkgs.writeShellApplication {
-          inherit name;
-          runtimeInputs = [ ];
-          text = pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
-            export PINS_DATA_DIR="$HOME/Library/Application Support/pins-py"
-            export PINS_CACHE_DIR="$HOME/Library/Caches/pins-py"
-          '' + ''
-            export IPYTHONDIR="$HOME/.ipython"
-            bash <(
-              cat <(grep ^declare ${drv} | grep -v "SSL_CERT_FILE=") <(echo ${bin-name} "''${@}")
-            )
-          '';
-        };
-        letsql-ipython-310 = mkShellApp dev310 "letsql-ipython-310" "ipython";
-        letsql-ipython-311 = mkShellApp dev311 "letsql-ipython-311" "ipython";
-        letsql-ipython-312 = mkShellApp dev312 "letsql-ipython-312" "ipython";
+        letsql-310 = mkLETSQL pkgs.python310;
+        letsql-311 = mkLETSQL pkgs.python311;
+        letsql-312 = mkLETSQL pkgs.python312;
       in
       {
-        packages = {
-          app310 = letsql310.app;
-          appFromWheel310 = letsql310.appFromWheel;
-          app311 = letsql311.app;
-          appFromWheel311 = letsql311.appFromWheel;
-          app312 = letsql312.app;
-          appFromWheel312 = letsql312.appFromWheel;
-          inherit toolsPackages310 toolsPackages311 toolsPackages312;
-          inherit letsql-ipython-310 letsql-ipython-311 letsql-ipython-312;
-          #
-          app = self.packages.${system}.app310;
-          appFromWheel = self.packages.${system}.appFromWheel310;
-          toolsPackages = self.packages.${system}.toolsPackages310;
-          letsql = self.packages.${system}.letsql-ipython-310;
-          #
-          default = self.packages.${system}.letsql;
+        formatter = pkgs.nixfmt-rfc-style;
+        apps = {
+          ipython-310 = drvToApp {
+            drv = letsql-310.virtualenv;
+            name = "ipython";
+          };
+          ipython-311 = drvToApp {
+            drv = letsql-311.virtualenv;
+            name = "ipython";
+          };
+          ipython-312 = drvToApp {
+            drv = letsql-312.virtualenv;
+            name = "ipython";
+          };
+          default = self.apps.${system}.ipython-310;
         };
         lib = {
-          inherit (letsql310) poetryOverrides maturinOverride toolchain;
-          inherit mkLETSQL mkCommands mkShellHook mkToolsPackages mkDevShell;
-          inherit pkgs;
+          inherit
+            pkgs
+            mkLETSQL
+            letsql-310
+            letsql-311
+            letsql-312
+            ;
         };
         devShells = {
-          inherit tools310 tools311 tools312;
-          tools = self.devShells.${system}.tools310;
-          inherit dev310 dev311 dev312;
-          dev = self.devShells.${system}.dev310;
-          default = self.devShells.${system}.dev;
+          impure = pkgs.mkShell {
+            packages = [
+              pkgs.python310
+            ] ++ letsql-310.toolsPackages;
+            shellHook = ''
+              unset PYTHONPATH
+            '';
+          };
+          virtualenv-310 = letsql-310.shell;
+          virtualenv-editable-310 = letsql-310.editableShell;
+          virtualenv-311 = letsql-311.shell;
+          virtualenv-editable-311 = letsql-311.editableShell;
+          virtualenv-312 = letsql-312.shell;
+          virtualenv-editable-312 = letsql-312.editableShell;
+          default = self.devShells.${system}.virtualenv-310;
         };
-      });
+      }
+    );
 }

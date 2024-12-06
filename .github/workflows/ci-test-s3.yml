@@ -40,22 +40,24 @@ jobs:
       - name: Rust latest
         run: rustup update
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
-      - name: Poetry install
-        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
+      - name: Install the project
+        run: uv sync --all-extras --all-groups
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: poetry run maturin develop
+        run: uv run maturin develop
         working-directory: ${{ github.workspace }}
 
       - name: start services
         run: docker compose up --build --wait
 
-      - name: poetry pytest
-        run: poetry run pytest --import-mode=importlib python/letsql/tests/test_register.py -v --cov --cov-report=xml
+      - name: pytest
+        run: uv run pytest --import-mode=importlib python/letsql/tests/test_register.py -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}

@@ -39,15 +39,11 @@ repos:
         pass_filenames: false
         types: [file, rust]
         language: system
-  -   repo: https://github.com/python-poetry/poetry
-      rev: 1.8.2
-      hooks:
-      -   id: poetry-check
-      -   id: poetry-lock
-          args: ["--no-update"]
-      -   id: poetry-install
-  -   repo: https://github.com/python-poetry/poetry-plugin-export
-      rev: 1.8.0
-      hooks:
-      -   id: poetry-export
-          args: ["--with", "dev", "--no-ansi", "--without-hashes", "-f", "requirements.txt", "-o", "requirements-dev.txt"]
+  - repo: https://github.com/astral-sh/uv-pre-commit
+    # uv version.
+    rev: 0.5.4
+    hooks:
+      # Update the uv lockfile
+      - id: uv-lock
+      - id: uv-export
+        args: ["--frozen", "--no-hashes", "--no-emit-project", "--all-groups",  "--output-file=requirements-dev.txt"]

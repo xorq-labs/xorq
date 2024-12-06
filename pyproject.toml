@@ -20,6 +20,7 @@ dependencies = [
     "pandas>=1.5.3,<3 ; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow-hotfix>=0.4,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "geoarrow-types>=0.2,<1 ; python_version >= '3.10' and python_version < '4.0'",
+    "pythran>=0.17.0 ; sys_platform == 'darwin'",
 ]
 requires-python = ">=3.10"
 authors = [
@@ -66,6 +67,35 @@ examples = [
     "duckdb >=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 
+[dependency-groups]
+dev = [
+    "black==24.10.0",
+    "blackdoc==0.3.9",
+    "codespell[hard-encoding-detection,toml]==2.3.0",
+    "coverage[toml]==7.6.8",
+    "git-cliff<3.0.0,>=2.2.1",
+    "ipython<9.0.0,>=8.19.0",
+    "pre-commit==4.0.1",
+    "pytest==8.3.4",
+    "pytest-cov==6.0.0",
+    "ruff==0.8.1",
+    "trino==0.330.0",
+    "pytest-codspeed<4.0.0,>=3.0.0",
+    "maturin>=1.7.4",
+    "pip>=24.3.1",
+]
+test = [
+    "pytest-snapshot<1.0.0,>=0.9.0",
+    "scikit-learn<2.0.0,>=1.4.0",
+    "xgboost>=1.6.1",
+]
+docs = [
+    "quartodoc<0.10.0,>=0.7.2",
+    "nbformat<6.0.0,>=5.10.4",
+    "nbclient<1.0.0,>=0.10.0",
+    "ipykernel<7.0.0,>=6.29.4",
+]
+
 [project.entry-points."letsql.backends"]
 let = "letsql.backends.let"
 postgres = "letsql.backends.postgres"
@@ -83,81 +113,6 @@ features = ["pyo3/extension-module"]
 skip = "*.lock,.direnv,.git,docs/_freeze/**/html.json"
 ignore-regex = '\b(DOUB|i[if]f|I[IF]F|lamduh|AFE|crate|ba)\b'
 builtin = "clear,rare,names"
-
-[tool.poetry]
-name = "letsql"
-# this is just a placeholder https://github.com/tiangolo/poetry-version-plugin?tab=readme-ov-file#version-in-pyprojecttoml
-version = "0"
-description = ""
-authors = ["Hussain Sultan <hussain@letsql.com>", "Dan Lovell <dan@letsql.com>", "Daniel Mesejo <mesejo@letsql.com>"]
-packages = [
-	{ include = "letsql", from = "python" },
-]
-
-[tool.poetry.dependencies]
-python = "^3.10"
-maturin = "^1.4.0"
-ibis-framework = ">=9.4.0,<10"
-dask = "2024.12.0"
-attrs = "^24.0.0"
-connectorx = "^0.3.2 || ^0.4.0"
-psycopg2-binary = "^2.9.9"
-sqlalchemy = "^2.0.29"
-pyarrow = ">=13.0.0,<19"
-pyarrow-hotfix = ">=0.4,<1"
-geoarrow-types = ">=0.2,<1"
-duckdb = {version = ">=0.10.3,<2", optional = true}
-snowflake-connector-python = {version = ">=3.10.1,<4", optional = true}
-datafusion = {version = ">=0.6,<43", optional = true}
-structlog = "^24.2.0"
-pytest-mock = "^3.14.0"
-fsspec = { version = ">=2024.6.1,<2024.10.1", optional = true }
-pins = { version = ">=0.8.3,<1", extras = ["gcs"], optional = true }
-xgboost = { version = ">=1.6.1", optional = true}
-cityhash = { version = ">=0.4.7,<1" }
-adbc-driver-postgresql = "^1.2.0"
-pandas = ">=1.5.3,<3"
-
-[tool.poetry.group.dev.dependencies]
-python = "^3.10"
-black = "24.10.0"
-blackdoc = "0.3.9"
-codespell = {version = "2.3.0", extras = ["hard-encoding-detection", "toml"]}
-coverage = {version = "7.6.8", extras = ["toml"]}
-git-cliff = "^2.2.1"
-ipython = "^8.19.0"
-pre-commit = "4.0.1"
-pytest = "8.3.4"
-pytest-cov = "6.0.0"
-ruff = "0.8.1"
-trino = "0.330.0"
-pytest-codspeed = "^3.0.0"
-
-[tool.poetry.group.test.dependencies]
-python = "^3.10"
-pytest-snapshot = "^0.9.0"
-scikit-learn = "^1.4.0"
-xgboost = ">=1.6.1"
-
-[tool.poetry.group.docs.dependencies]
-python = "^3.10"
-quartodoc = "^0.7.2 || ^0.9.0"
-nbformat = "^5.10.4"
-nbclient = "^0.10.0"
-ipykernel = "^6.29.4"
-
-[tool.poetry.extras]
-datafusion = ["datafusion"]
-duckdb = ["duckdb"]
-snowflake = ["snowflake-connector-python"]
-examples = ["pins", "fsspec", "duckdb", "xgboost"]
-
-[tool.poetry.plugins."letsql.backends"]
-let = "letsql.backends.let"
-postgres = "letsql.backends.postgres"
-snowflake = "letsql.backends.snowflake"
-datafusion = "letsql.backends.datafusion"
-duckdb = "letsql.backends.duckdb"
 
 [tool.pytest.ini_options]
 filterwarnings = [

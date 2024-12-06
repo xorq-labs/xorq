@@ -1,4 +1,5 @@
-{ pkgs, python }: let
+{ pkgs, python }:
+let
 
   letsql-pytest = pkgs.writeShellScriptBin "letsql-pytest" ''
     set -eux
@@ -60,7 +61,7 @@
     set -eux
 
     backends=''${@}
-    docker compose up --build --wait ''${backends[@]}
+    ${pkgs.docker-compose}/bin/docker-compose up --build --wait ''${backends[@]}
   '';
 
   letsql-newgrp-docker-compose-up = pkgs.writeShellScriptBin "letsql-newgrp-docker-compose-up" ''
@@ -91,13 +92,24 @@
   '';
 
   letsql-commands = {
-    inherit letsql-pytest letsql-fmt letsql-lint letsql-ensure-download-data letsql-docker-compose-up letsql-newgrp-docker-compose-up letsql-git-fetch-origin-pull letsql-git-config-blame-ignore-revs letsql-maturin-build;
+    inherit
+      letsql-pytest
+      letsql-fmt
+      letsql-lint
+      letsql-ensure-download-data
+      letsql-docker-compose-up
+      letsql-newgrp-docker-compose-up
+      letsql-git-fetch-origin-pull
+      letsql-git-config-blame-ignore-revs
+      letsql-maturin-build
+      ;
   };
 
   letsql-commands-star = pkgs.buildEnv {
     name = "letsql-commands-star";
     paths = builtins.attrValues letsql-commands;
   };
-in {
+in
+{
   inherit letsql-commands letsql-commands-star;
 }

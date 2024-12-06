@@ -45,22 +45,24 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Install Poetry
-        uses: snok/install-poetry@v1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
 
-      - name: Poetry install
-        run: poetry install --with="dev,test" --extras="duckdb snowflake datafusion examples"
+      - name: Install the project
+        run: uv sync --all-extras --all-groups
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: poetry run maturin develop --release
+        run: uv run maturin develop
         working-directory: ${{ github.workspace }}
 
       - name: start services
         run: docker compose up --build --wait
 
-      - name: poetry pytest
-        run: poetry run pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution'
+      - name: pytest
+        run: uv run pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution'
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres

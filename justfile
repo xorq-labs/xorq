@@ -42,16 +42,16 @@ up *backends:
 
 # generate API documentation
 docs-apigen *args:
-    cd docs && poetry run quartodoc interlinks
-    poetry run quartodoc build {{ args }} --config docs/_quarto.yml
+    cd docs && uv run quartodoc interlinks
+    uv run quartodoc build {{ args }} --config docs/_quarto.yml
 
 # build documentation
 docs-render:
-    poetry run quarto render docs
+    uv run quarto render docs
 
 # deploy docs to netlify
 docs-deploy:
-    poetry run quarto publish --no-prompt --no-browser --no-render netlify docs
+    uv run quarto publish --no-prompt --no-browser --no-render netlify docs
 
 # run the entire docs build pipeline
 docs-build-all:
