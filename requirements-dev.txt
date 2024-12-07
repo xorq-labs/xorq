@@ -8,6 +8,7 @@ asttokens==2.4.1
 atpublic==5.0 ; python_full_version < '4.0'
 attrs==24.2.0
 beartype==0.19.0
+beniget==0.4.2.post1 ; sys_platform == 'darwin'
 black==24.10.0
 blackdoc==0.3.9
 certifi==2024.8.30
@@ -22,7 +23,7 @@ codespell==2.3.0
 colorama==0.4.6
 comm==0.2.2
 connectorx==0.4.0 ; python_full_version < '4.0'
-coverage==7.6.8
+coverage==7.6.9
 dask==2024.12.0 ; python_full_version < '4.0'
 debugpy==1.8.9
 decorator==5.1.1
@@ -32,6 +33,7 @@ executing==2.1.0
 fastjsonschema==2.20.0
 filelock==3.16.1
 fsspec==2024.10.0 ; python_full_version < '4.0'
+gast==0.6.0 ; sys_platform == 'darwin'
 geoarrow-types==0.2.0 ; python_full_version < '4.0'
 git-cliff==2.7.0
 greenlet==3.1.1 ; (python_full_version < '3.13' and platform_machine == 'AMD64') or (python_full_version < '3.13' and platform_machine == 'WIN32') or (python_full_version < '3.13' and platform_machine == 'aarch64') or (python_full_version < '3.13' and platform_machine == 'amd64') or (python_full_version < '3.13' and platform_machine == 'ppc64le') or (python_full_version < '3.13' and platform_machine == 'win32') or (python_full_version < '3.13' and platform_machine == 'x86_64')
@@ -74,6 +76,7 @@ pip==24.3.1
 platformdirs==4.3.6
 pluggy==1.5.0
 plum-dispatch==2.5.3
+ply==3.11 ; sys_platform == 'darwin'
 pre-commit==4.0.1
 prompt-toolkit==3.0.48
 psutil==6.1.0
@@ -92,6 +95,7 @@ pytest-cov==6.0.0
 pytest-mock==3.14.0 ; python_full_version < '4.0'
 pytest-snapshot==0.9.0
 python-dateutil==2.9.0.post0
+pythran==0.17.0 ; sys_platform == 'darwin'
 pytz==2024.2
 pywin32==308 ; platform_python_implementation != 'PyPy' and sys_platform == 'win32'
 pyyaml==6.0.2
@@ -104,7 +108,7 @@ rpds-py==0.21.0
 ruff==0.8.1
 scikit-learn==1.5.2
 scipy==1.14.1
-setuptools==75.6.0 ; python_full_version >= '3.12'
+setuptools==75.6.0 ; sys_platform == 'darwin' or python_full_version >= '3.12'
 six==1.16.0
 sphobjinv==2.3.1.1
 sqlalchemy==2.0.36 ; python_full_version < '4.0'
