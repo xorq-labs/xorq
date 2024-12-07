@@ -16,7 +16,7 @@ from letsql.common.utils.logging_utils import get_logger
 logger = get_logger(__name__)
 
 
-none_tokenized = "8c9f081a88f539969f3dff99d6e05e36"
+none_tokenized = dask.base.tokenize(None)
 
 
 @toolz.curry
