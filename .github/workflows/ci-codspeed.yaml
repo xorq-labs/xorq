@@ -36,8 +36,12 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: uv run maturin develop
+        run: uv run maturin develop --release
         working-directory: ${{ github.workspace }}
+        env:
+          # make sure profiling information is present
+          CARGO_PROFILE_RELEASE_DEBUG: "line-tables-only"
+          CARGO_PROFILE_RELEASE_STRIP: false
 
       - name: start services
         run: docker compose up --build --wait
