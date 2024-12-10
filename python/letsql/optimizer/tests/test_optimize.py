@@ -1,4 +1,3 @@
-import ibis
 import pyarrow as pa
 import pytest
 from pandas.testing import assert_frame_equal, assert_series_equal
@@ -9,7 +8,7 @@ import letsql
 
 @pytest.fixture(scope="session")
 def con():
-    return ibis.connect("duckdb://")
+    return letsql.duckdb.connect()
 
 
 @pytest.fixture(scope="session")
@@ -256,7 +255,6 @@ def test_roundtrip_sort(con, g, limit, offset):
     assert_frame_equal(expected, actual)
 
 
-@pytest.mark.xfail(reason="bug in ibis duckdb")
 def test_roundtrip_case(con, t):
     original = t.a.case().when("a1", 1).when("a2", 2).else_(3).end()
     expr = optimize_ibis(original, {"t": t.schema()}, dialect="duckdb")

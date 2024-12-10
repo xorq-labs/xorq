@@ -7,6 +7,8 @@ from ibis.expr import types as ir
 from letsql.backends.duckdb.compiler import DuckDBCompiler
 from letsql.expr.relations import register_and_transform_remote_tables
 
+import pyarrow as pa
+
 
 @contextmanager
 def _transform_expr(expr):
@@ -29,5 +31,20 @@ class Backend(IbisDuckDBBackend):
         limit: str | None = "default",
         **_: Any,
     ) -> Any:
-        with _transform_expr(expr) as expr:
-            return super().execute(expr, params=params, limit=limit)
+        batch_reader = self.to_pyarrow_batches(expr, params=params, limit=limit)
+        return expr.__pandas_result__(
+            batch_reader.read_pandas(timestamp_as_object=True)
+        )
+
+    def to_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        chunk_size: int = 10_000,
+        **_: Any,
+    ) -> pa.ipc.RecordBatchReader:
+        return self._to_duckdb_relation(
+            expr, params=params, limit=limit
+        ).fetch_arrow_reader(chunk_size)
