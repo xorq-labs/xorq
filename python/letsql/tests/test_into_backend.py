@@ -8,7 +8,7 @@ from ibis import _
 
 import letsql as ls
 from letsql.common.caching import SourceStorage, ParquetCacheStorage
-from letsql.expr.relations import into_backend, RemoteTableReplacer
+from letsql.expr.relations import into_backend, register_and_transform_remote_tables
 
 expected_tables = (
     "array_types",
@@ -163,15 +163,14 @@ def test_into_backend_duckdb(pg):
         .select(player_id="playerID", year_id="yearID_right")
     )
 
-    replacer = RemoteTableReplacer()
-    expr = expr.op().replace(replacer).to_expr()
+    expr, created = register_and_transform_remote_tables(expr)
     query = ibis.to_sql(expr, dialect="duckdb")
 
     res = ddb.con.sql(query).df()
 
     assert query.count("ls_batting") == 2
     assert 0 < len(res) <= 15
-    assert len(replacer.created) == 3
+    assert len(created) == 3
 
 
 def test_into_backend_duckdb_expr(pg):
@@ -179,30 +178,28 @@ def test_into_backend_duckdb_expr(pg):
     t = into_backend(pg.table("batting"), ddb, "ls_batting")
     expr = t.join(t, "playerID").limit(15).select(_.playerID * 2)
 
-    replacer = RemoteTableReplacer()
-    expr = expr.op().replace(replacer).to_expr()
+    expr, created = register_and_transform_remote_tables(expr)
     query = ibis.to_sql(expr, dialect="duckdb")
 
     res = ddb.con.sql(query).df()
 
     assert query.count("ls_batting") == 2
     assert 0 < len(res) <= 15
-    assert len(replacer.created) == 3
+    assert len(created) == 3
 
 
 def test_into_backend_duckdb_trino(trino_table):
     db_con = ibis.duckdb.connect()
     expr = trino_table.head(10_000).pipe(into_backend, db_con).pipe(make_merged)
 
-    replacer = RemoteTableReplacer()
-    expr = expr.op().replace(replacer).to_expr()
+    expr, created = register_and_transform_remote_tables(expr)
     query = ibis.to_sql(expr, dialect="duckdb")
 
     df = db_con.con.sql(query).df()  # to bypass execute hotfix
 
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
-    assert len(replacer.created) == 3
+    assert len(created) == 3
 
 
 def test_multiple_into_backend_duckdb_letsql(trino_table):
@@ -216,13 +213,13 @@ def test_multiple_into_backend_duckdb_letsql(trino_table):
         .pipe(into_backend, ls_con)[lambda t: t.orderstatus == "F"]
     )
 
-    replacer = RemoteTableReplacer()
-    expr = expr.op().replace(replacer).to_expr()
+    expr, created = register_and_transform_remote_tables(expr)
+
     df = ls.execute(expr)
 
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
-    assert len(replacer.created) == 5
+    assert len(created) == 2
 
 
 @pytest.mark.benchmark
@@ -237,3 +234,30 @@ def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
     df = ls.execute(expr)
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
+
+
+def test_into_backend_to_pyarrow_batches(trino_table):
+    db_con = ls.duckdb.connect()
+    df = (
+        trino_table.head(10_000)
+        .pipe(into_backend, db_con)
+        .pipe(make_merged)
+        .pipe(ls.to_pyarrow_batches)
+        .read_pandas()
+    )
+    assert not df.empty
+
+
+def test_to_pyarrow_batches_simple(pg):
+    con = ls.duckdb.connect()
+
+    t = into_backend(pg.table("batting"), con, "ls_batting")
+
+    expr = (
+        t.join(t, "playerID")
+        .limit(15)
+        .select(player_id="playerID", year_id="yearID_right")
+    )
+
+    df = ls.to_pyarrow_batches(expr).read_pandas()
+    assert not df.empty

@@ -518,7 +518,7 @@ def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con, function, remote):
 
 def test_to_pyarrow_native_execution(pg, mocker):
     table_name = "batting"
-    spy = mocker.spy(pg, "to_pyarrow")
+    spy = mocker.spy(pg, "to_pyarrow_batches")
 
     pg_t = pg.table(table_name)[lambda t: t.yearID == 2015]
     db_t = pg.table(table_name)[lambda t: t.yearID == 2014]
@@ -560,7 +560,7 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
     native_backend = (
         backend := left_t._find_backend(use_default=False)
     ) is right_t._find_backend(use_default=False) and backend.name != "let"
-    spy = mocker.spy(backend, "execute") if native_backend else None
+    spy = mocker.spy(backend, "to_pyarrow_batches") if native_backend else None
 
     assert letsql.execute(expr) is not None
     assert getattr(spy, "call_count", 0) == int(native_backend)

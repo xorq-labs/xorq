@@ -1630,7 +1630,6 @@ def to_pyarrow_batches(
     for t in expr.op().find(ops.DatabaseTable):
         if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
-
     return con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
 

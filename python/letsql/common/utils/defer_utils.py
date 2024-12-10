@@ -122,3 +122,11 @@ def visit_Read(
 ) -> sg.table:
     new_op = op.make_unbound_dt()
     return self.visit_node(new_op, **dict(zip(new_op.argnames, new_op.args)))
+
+
+def rbr_wrapper(reader, clean_up):
+    def gen():
+        yield from reader
+        clean_up()
+
+    return pa.RecordBatchReader.from_batches(reader.schema, gen())

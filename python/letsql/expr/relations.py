@@ -1,15 +1,16 @@
 import functools
-import itertools
+from collections import defaultdict
 from typing import Any
 
 import ibis
 import pyarrow as pa
 from ibis import Schema, Expr
 from ibis.common.collections import FrozenDict
+from ibis.common.graph import Graph
 from ibis.expr import operations as ops
 from ibis.expr.operations import Relation, Node
 
-from letsql.common.utils.graph_utils import replace_fix, get_args
+from letsql.common.utils.graph_utils import replace_fix
 
 
 def replace_cache_table(node, _, **kwargs):
@@ -49,20 +50,6 @@ class SafeTee(object):
         return tuple(cls(teeobj, lock) for teeobj in tee(iterable, n))
 
 
-class RemoteTableCounter:
-    def __init__(self, table):
-        self.table = table
-        self.count = itertools.count()
-
-    @property
-    def remote_expr(self):
-        return self.table.remote_expr
-
-    @property
-    def source(self):
-        return self.table.source
-
-
 def recursive_update(obj, replacements):
     if isinstance(obj, Node):
         if obj in replacements:
@@ -83,79 +70,6 @@ def recursive_update(obj, replacements):
         }
     else:
         return obj
-
-
-class RemoteTableReplacer:
-    def __init__(self):
-        self.tables = {}
-        self.count = itertools.count()
-        self.created = {}
-        self.seen_expr = {}
-
-    def __call__(self, *args, **kwargs):
-        node, _, kwargs = get_args(*args, **kwargs)
-        if isinstance(node, Relation):
-            updated = {}
-            for k, v in list(kwargs.items()):
-                try:
-                    if v in self.tables:
-                        remote: RemoteTableCounter = self.tables[v]
-                        name = f"{v.name}_{next(remote.count)}"
-                        kwargs[k] = MarkedRemoteTable(
-                            name,
-                            schema=v.schema,
-                            source=v.source,
-                            namespace=v.namespace,
-                            remote_expr=v.remote_expr,
-                        )
-
-                        batches = self.get_batches(remote.remote_expr)
-                        remote.source.register(batches, table_name=name)
-                        updated[v] = kwargs[k]
-                        self.created[name] = remote.source
-
-                except TypeError:  # v may not be hashable
-                    continue
-
-            if len(updated) > 0:
-                kwargs = {k: recursive_update(v, updated) for k, v in kwargs.items()}
-
-        node = node.__recreate__(kwargs)
-        if isinstance(node, RemoteTable):
-            result = MarkedRemoteTable(
-                node.name,
-                schema=node.schema,
-                source=node.source,
-                namespace=node.namespace,
-                remote_expr=node.remote_expr,
-            )
-            self.tables[result] = RemoteTableCounter(node)
-            batches = self.get_batches(node.remote_expr)
-            node.source.register(batches, table_name=node.name)
-            self.created[node.name] = node.source
-            node = result
-
-        return node
-
-    def get_batches(self, expr):
-        if not expr.op().find((RemoteTable, MarkedRemoteTable)):
-            if expr not in self.seen_expr:
-                batches = expr.to_pyarrow_batches()
-                result, keep = SafeTee.tee(batches, 2)
-                self.seen_expr[expr] = keep
-            else:
-                result, keep = SafeTee.tee(self.seen_expr[expr], 2)
-                self.seen_expr[expr] = keep
-        elif expr not in self.seen_expr:
-            batches = expr.op().replace(self).to_expr().to_pyarrow_batches()
-            result, keep = SafeTee.tee(batches, 2)
-            self.seen_expr[expr] = keep
-        else:
-            result, keep = SafeTee.tee(self.seen_expr[expr], 2)
-            self.seen_expr[expr] = keep
-
-        schema = expr.as_table().schema()
-        return pa.RecordBatchReader.from_batches(schema.to_pyarrow(), result)
 
 
 def replace_source_factory(source: Any):
@@ -236,3 +150,73 @@ class Read(ops.Relation):
             name=name,
             schema=self.schema,
         )
+
+
+def register_and_transform_remote_tables(expr):
+    import letsql as ls
+
+    created = {}
+
+    op = expr.op()
+    graph, _ = Graph.from_bfs(op).toposort()
+    counts = defaultdict(int)
+    for node in graph:
+        if isinstance(node, RemoteTable):
+            counts[node] += 1
+
+        if isinstance(node, Relation):
+            for arg in node.__args__:
+                if isinstance(arg, RemoteTable):
+                    counts[arg] += 1
+
+    batches_table = {}
+    for arg, count in counts.items():
+        ex = arg.remote_expr
+        if not ex.op().find((RemoteTable, MarkedRemoteTable, CachedNode, Read)):
+            batches = ex.to_pyarrow_batches()  # execute in native backend
+        else:
+            batches = ls.to_pyarrow_batches(ex)
+        schema = ex.as_table().schema().to_pyarrow()
+        replicas = SafeTee.tee(batches, count)
+        batches_table[arg] = (schema, list(replicas))
+
+    def mark_remote_table(node):
+        schema, batchess = batches_table[node]
+        name = f"{node.name}_{len(batchess)}"
+        result = MarkedRemoteTable(
+            name,
+            schema=node.schema,
+            source=node.source,
+            namespace=node.namespace,
+            remote_expr=node.remote_expr,
+        )
+        reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
+        node.source.register(reader, table_name=name)
+        created[name] = node.source
+        return result
+
+    def replacer(node, _, **kwargs):
+        if isinstance(node, Relation):
+            updated = {}
+            for k, v in list(kwargs.items()):
+                try:
+                    if v in batches_table:
+                        result = mark_remote_table(v)
+                        updated[v] = kwargs[k] = result
+
+                except TypeError:  # v may not be hashable
+                    continue
+
+            if len(updated) > 0:
+                kwargs = {k: recursive_update(v, updated) for k, v in kwargs.items()}
+
+        node = node.__recreate__(kwargs)
+        if isinstance(node, RemoteTable):
+            result = mark_remote_table(node)
+            batches_table[result] = batches_table.pop(node)
+            node = result
+
+        return node
+
+    expr = op.replace(replace_fix(replacer)).to_expr()
+    return expr, created
