@@ -51,9 +51,9 @@ def log_initial_state(hash_diffs=False, cwd=None):
                 **git_state,
             )
         else:
-            import letsql
+            import letsql as ls
 
-            logger.info("letsql version", version=letsql.__version__)
+            logger.info("letsql version", version=ls.__version__)
     except Exception:
         logger.exception("failed to log git repo info")
 

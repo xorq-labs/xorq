@@ -7,7 +7,7 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pytest
 
-import letsql
+import letsql as ls
 
 
 @pytest.fixture
@@ -116,5 +116,5 @@ def test_register_dataset(con):
 
 def test_register_memtable(con):
     data = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [2, 3, 4, 5, 6]})
-    t = letsql.memtable(data).pipe(con.register, "data")
+    t = ls.memtable(data).pipe(con.register, "data")
     assert t.a.sum().execute() == 15

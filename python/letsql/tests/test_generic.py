@@ -13,12 +13,12 @@ from ibis import _
 from ibis.common.annotations import ValidationError
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 
 def test_null_literal(con):
-    expr = letsql.null()
+    expr = ls.null()
     assert pd.isna(con.execute(expr))
     assert con.execute(expr.typeof()) == "Null"
 
@@ -27,7 +27,7 @@ def test_null_literal(con):
 
 
 def test_boolean_literal(con):
-    expr = letsql.literal(False, type=dt.boolean)
+    expr = ls.literal(False, type=dt.boolean)
     result = con.execute(expr)
     assert not result
     assert type(result) in (np.bool_, bool)
@@ -37,10 +37,10 @@ def test_boolean_literal(con):
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
-        param(letsql.null().fill_null(5), 5, id="na_fillna"),
-        param(letsql.literal(5).fill_null(10), 5, id="non_na_fillna"),
-        param(letsql.literal(5).nullif(5), None, id="nullif_null"),
-        param(letsql.literal(10).nullif(5), 10, id="nullif_not_null"),
+        param(ls.null().fill_null(5), 5, id="na_fillna"),
+        param(ls.literal(5).fill_null(10), 5, id="non_na_fillna"),
+        param(ls.literal(5).nullif(5), None, id="nullif_null"),
+        param(ls.literal(10).nullif(5), 10, id="nullif_not_null"),
     ],
 )
 def test_scalar_fillna_nullif(con, expr, expected):
@@ -67,9 +67,9 @@ def test_scalar_fillna_nullif(con, expr, expected):
 )
 def test_isna(alltypes, col, filt):
     table = alltypes.select(
-        nan_col=letsql.literal(np.nan), none_col=letsql.null().cast("float64")
+        nan_col=ls.literal(np.nan), none_col=ls.null().cast("float64")
     )
-    df = letsql.execute(table)
+    df = ls.execute(table)
 
     result = table[filt].execute().reset_index(drop=True)
     expected = df[df[col].isna()].reset_index(drop=True)
@@ -84,8 +84,8 @@ def test_isna(alltypes, col, filt):
     ],
 )
 def test_column_fillna(alltypes, value):
-    table = alltypes.mutate(missing=letsql.literal(value).cast("float64"))
-    pd_table = letsql.execute(table)
+    table = alltypes.mutate(missing=ls.literal(value).cast("float64"))
+    pd_table = ls.execute(table)
 
     res = table.mutate(missing=table.missing.fill_null(0.0)).execute()
     sol = pd_table.assign(missing=pd_table.missing.fillna(0.0))
@@ -95,10 +95,10 @@ def test_column_fillna(alltypes, value):
 @pytest.mark.parametrize(
     ("expr", "expected"),
     [
-        param(letsql.coalesce(5, None, 4), 5, id="generic"),
-        param(letsql.coalesce(letsql.null(), 4, letsql.null()), 4, id="null_start_end"),
+        param(ls.coalesce(5, None, 4), 5, id="generic"),
+        param(ls.coalesce(ls.null(), 4, ls.null()), 4, id="null_start_end"),
         param(
-            letsql.coalesce(letsql.null(), letsql.null(), 3.14),
+            ls.coalesce(ls.null(), ls.null(), 3.14),
             3.14,
             id="non_null_last",
         ),
@@ -132,7 +132,7 @@ def test_isin(alltypes, sorted_df, column, elements):
     expr = sorted_alltypes[
         "id", sorted_alltypes[column].isin(elements).name("tmp")
     ].order_by("id")
-    result = letsql.execute(expr).tmp
+    result = ls.execute(expr).tmp
 
     expected = sorted_df[column].isin(elements)
     assert_series_equal(result, expected)
@@ -154,7 +154,7 @@ def test_notin(alltypes, sorted_df, column, elements):
     expr = sorted_alltypes[
         "id", sorted_alltypes[column].notin(elements).name("tmp")
     ].order_by("id")
-    result = letsql.execute(expr).tmp
+    result = ls.execute(expr).tmp
 
     expected = ~sorted_df[column].isin(elements)
     assert_series_equal(result, expected)
@@ -185,7 +185,7 @@ def test_notin(alltypes, sorted_df, column, elements):
 def test_filter(alltypes, sorted_df, predicate_fn, expected_fn):
     sorted_alltypes = alltypes.order_by("id")
     table = sorted_alltypes[predicate_fn(sorted_alltypes)].order_by("id")
-    result = letsql.execute(table)
+    result = ls.execute(table)
     expected = sorted_df[expected_fn(sorted_df)]
 
     assert_frame_equal(result, expected)
@@ -195,7 +195,7 @@ def test_case_where(alltypes, df):
     table = alltypes
     table = table.mutate(
         new_col=(
-            letsql.case()
+            ls.case()
             .when(table["int_col"] == 1, 20)
             .when(table["int_col"] == 0, 10)
             .else_(0)
@@ -204,7 +204,7 @@ def test_case_where(alltypes, df):
         )
     )
 
-    result = letsql.execute(table)
+    result = ls.execute(table)
 
     expected = df.copy()
     mask_0 = expected["int_col"] == 1
@@ -254,7 +254,7 @@ def test_table_fillna_mapping(alltypes, replacements):
         double_col=alltypes.double_col.nullif(3.0),
         string_col=alltypes.string_col.nullif("2"),
     ).select("id", "int_col", "double_col", "string_col")
-    pd_table = letsql.execute(table)
+    pd_table = ls.execute(table)
 
     result = table.fill_null(replacements).execute().reset_index(drop=True)
     expected = pd_table.fillna(replacements).reset_index(drop=True)
@@ -268,7 +268,7 @@ def test_table_fillna_scalar(alltypes):
         double_col=alltypes.double_col.nullif(3.0),
         string_col=alltypes.string_col.nullif("2"),
     ).select("id", "int_col", "double_col", "string_col")
-    pd_table = letsql.execute(table)
+    pd_table = ls.execute(table)
 
     res = table[["int_col", "double_col"]].fill_null(0).execute().reset_index(drop=True)
     sol = pd_table[["int_col", "double_col"]].fillna(0).reset_index(drop=True)
@@ -282,7 +282,7 @@ def test_table_fillna_scalar(alltypes):
 def test_mutate_rename(alltypes):
     table = alltypes.select(["bool_col", "string_col"])
     table = table.mutate(dupe_col=table["bool_col"])
-    result = letsql.execute(table)
+    result = ls.execute(table)
     # check_dtype is False here because there are dtype diffs between
     # Pyspark and Pandas on Java 8 - filling the 'none_col' with an int
     # results in float in Pyspark, and int in Pandas. This diff does
@@ -309,12 +309,12 @@ def test_dropna_table(alltypes, how, subset):
     is_four = alltypes.int_col == 4
 
     table = alltypes.mutate(
-        col_1=is_two.ifelse(letsql.null(), alltypes.float_col),
-        col_2=is_four.ifelse(letsql.null(), alltypes.float_col),
-        col_3=(is_two | is_four).ifelse(letsql.null(), alltypes.float_col),
+        col_1=is_two.ifelse(ls.null(), alltypes.float_col),
+        col_2=is_four.ifelse(ls.null(), alltypes.float_col),
+        col_3=(is_two | is_four).ifelse(ls.null(), alltypes.float_col),
     ).select("col_1", "col_2", "col_3")
 
-    table_pandas = letsql.execute(table)
+    table_pandas = ls.execute(table)
     result = table.drop_null(subset, how).execute().reset_index(drop=True)
     expected = table_pandas.dropna(how=how, subset=subset).reset_index(drop=True)
 
@@ -333,7 +333,7 @@ def test_select_sort_sort(alltypes):
         param(_.id, {"by": "id"}),
         param(lambda _: _.id, {"by": "id"}),
         param(
-            letsql.desc("id"),
+            ls.desc("id"),
             {"by": "id", "ascending": False},
         ),
         param(
@@ -341,7 +341,7 @@ def test_select_sort_sort(alltypes):
             {"by": ["id", "int_col"]},
         ),
         param(
-            ["id", letsql.desc("int_col")],
+            ["id", ls.desc("int_col")],
             {"by": ["id", "int_col"], "ascending": [True, False]},
         ),
     ],
@@ -353,9 +353,9 @@ def test_order_by(alltypes, df, key, df_kwargs):
 
 
 def test_order_by_random(alltypes):
-    expr = alltypes.filter(_.id < 100).order_by(letsql.random()).limit(5)
-    r1 = letsql.execute(expr)
-    r2 = letsql.execute(expr)
+    expr = alltypes.filter(_.id < 100).order_by(ls.random()).limit(5)
+    r1 = ls.execute(expr)
+    r2 = ls.execute(expr)
     assert len(r1) == 5
     assert len(r2) == 5
     # Ensure that multiple executions returns different results
@@ -390,7 +390,7 @@ def test_order_by_random(alltypes):
 def test_isin_notin(alltypes, df, ibis_op, pandas_op):
     expr = alltypes[ibis_op]
     expected = df.loc[pandas_op(df)].sort_values(["id"]).reset_index(drop=True)
-    result = letsql.execute(expr).sort_values(["id"]).reset_index(drop=True)
+    result = ls.execute(expr).sort_values(["id"]).reset_index(drop=True)
     assert_frame_equal(result, expected)
 
 
@@ -406,7 +406,7 @@ def test_isin_notin(alltypes, df, ibis_op, pandas_op):
     ],
 )
 def test_logical_negation_literal(con, expr, expected, op):
-    assert con.execute(op(letsql.literal(expr)).name("tmp")) == expected
+    assert con.execute(op(ls.literal(expr)).name("tmp")) == expected
 
 
 @pytest.mark.parametrize(
@@ -428,15 +428,11 @@ def test_ifelse_select(alltypes, df):
     table = table.select(
         [
             "int_col",
-            (
-                letsql.ifelse(table["int_col"] == 0, 42, -1)
-                .cast("int64")
-                .name("where_col")
-            ),
+            (ls.ifelse(table["int_col"] == 0, 42, -1).cast("int64").name("where_col")),
         ]
     )
 
-    result = letsql.execute(table)
+    result = ls.execute(table)
 
     expected = df.loc[:, ["int_col"]].copy()
 
@@ -447,10 +443,8 @@ def test_ifelse_select(alltypes, df):
 
 
 def test_ifelse_column(alltypes, df):
-    expr = (
-        letsql.ifelse(alltypes["int_col"] == 0, 42, -1).cast("int64").name("where_col")
-    )
-    result = letsql.execute(expr)
+    expr = ls.ifelse(alltypes["int_col"] == 0, 42, -1).cast("int64").name("where_col")
+    result = ls.execute(expr)
 
     expected = pd.Series(
         np.where(df.int_col == 0, 42, -1),
@@ -465,7 +459,7 @@ def test_select_filter(alltypes, df):
     t = alltypes
 
     expr = t.select("int_col", "string_col").filter(t.string_col == "4")
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
 
     expected = df.loc[df.string_col == "4", ["int_col", "string_col"]].reset_index(
         drop=True
@@ -476,19 +470,19 @@ def test_select_filter(alltypes, df):
 def test_select_filter_select(alltypes, df):
     t = alltypes
     expr = t.select("int_col", "string_col").filter(t.string_col == "4").int_col
-    result = letsql.execute(expr).rename("int_col")
+    result = ls.execute(expr).rename("int_col")
 
     expected = df.loc[df.string_col == "4", "int_col"].reset_index(drop=True)
     assert_series_equal(result, expected)
 
 
 def test_interactive(alltypes, monkeypatch):
-    monkeypatch.setattr(letsql.options, "interactive", True)
+    monkeypatch.setattr(ls.options, "interactive", True)
 
     expr = alltypes.mutate(
         str_col=_.string_col.replace("1", "").nullif("2"),
         date_col=_.timestamp_col.date(),
-        delta_col=lambda t: letsql.now() - t.timestamp_col,
+        delta_col=lambda t: ls.now() - t.timestamp_col,
     )
 
     repr(expr)
@@ -502,22 +496,22 @@ def test_correlated_subquery(alltypes):
 def test_uncorrelated_subquery(batting, batting_df):
     subset_batting = batting[batting.yearID <= 2000]
     expr = batting[_.yearID == subset_batting.yearID.max()]["playerID", "yearID"]
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
 
     expected = batting_df[batting_df.yearID == 2000][["playerID", "yearID"]]
     assert_frame_equal(result, expected)
 
 
 def test_int_column(alltypes):
-    expr = alltypes.mutate(x=letsql.literal(1)).x
-    result = letsql.execute(expr)
+    expr = alltypes.mutate(x=ls.literal(1)).x
+    result = ls.execute(expr)
     assert expr.type() == dt.int8
     assert result.dtype == np.int8
 
 
 def test_int_scalar(alltypes):
     expr = alltypes.smallint_col.min()
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     assert expr.type() == dt.int16
     assert result.dtype == np.int16
 
@@ -542,19 +536,19 @@ def test_int_scalar(alltypes):
     ],
 )
 def test_literal_na(con, dtype):
-    expr = letsql.literal(None, type=dtype)
+    expr = ls.literal(None, type=dtype)
     result = con.execute(expr)
     assert pd.isna(result)
 
 
 def test_memtable_bool_column(con):
-    t = letsql.memtable({"a": [True, False, True]})
+    t = ls.memtable({"a": [True, False, True]})
     assert_series_equal(con.execute(t.a), pd.Series([True, False, True], name="a"))
 
 
 def test_memtable_construct(con, monkeypatch):
     pa = pytest.importorskip("pyarrow")
-    monkeypatch.setattr(letsql.options, "backend", con)
+    monkeypatch.setattr(ls.options, "backend", con)
 
     pa_t = pa.Table.from_pydict(
         {
@@ -564,8 +558,8 @@ def test_memtable_construct(con, monkeypatch):
             "d": [None, "b", None],
         }
     )
-    t = letsql.memtable(pa_t)
-    assert_frame_equal(letsql.execute(t).fillna(pd.NA), pa_t.to_pandas().fillna(pd.NA))
+    t = ls.memtable(pa_t)
+    assert_frame_equal(ls.execute(t).fillna(pd.NA), pa_t.to_pandas().fillna(pd.NA))
 
 
 def test_pivot_wider(diamonds):
@@ -576,9 +570,9 @@ def test_pivot_wider(diamonds):
             names_from="cut", values_from="carat", names_sort=True, values_agg="mean"
         )
     )
-    df = letsql.execute(expr)
+    df = ls.execute(expr)
     assert set(df.columns) == {"color"} | set(
-        letsql.execute(diamonds[["cut"]].distinct().cut)
+        ls.execute(diamonds[["cut"]].distinct().cut)
     )
     assert len(df) == diamonds.color.nunique().execute()
 
@@ -649,7 +643,7 @@ def test_sample(functional_alltypes):
 
 def test_sample_memtable(con):
     df = pd.DataFrame({"x": [1, 2, 3, 4]})
-    res = con.execute(letsql.memtable(df).sample(0.5))
+    res = con.execute(ls.memtable(df).sample(0.5))
     assert len(res) <= 4
     assert_frame_equal(res.iloc[:0], df.iloc[:0])
 
@@ -671,7 +665,7 @@ def test_hexdigest(alltypes):
 
 def test_typeof(con):
     # Other tests also use the typeof operation, but only this test has this operation required.
-    expr = letsql.literal(1).typeof()
+    expr = ls.literal(1).typeof()
     result = con.execute(expr)
 
     assert result is not None

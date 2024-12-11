@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import numpy as np
 
-import letsql
+import letsql as ls
 
 
 @pytest.fixture
@@ -55,6 +55,6 @@ def ddb_con(quotes_df):
 @pytest.fixture
 def con(trades_df):
     """Create DataFusion connection with LetSQL"""
-    con = letsql.datafusion.connect()
+    con = ls.datafusion.connect()
     con.create_table("trades", trades_df, temp=False)
     return con

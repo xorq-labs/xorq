@@ -5,7 +5,7 @@ import pytest
 from ibis import _
 
 
-import letsql
+import letsql as ls
 from letsql.expr.udf import pyarrow_udwf
 from letsql.internal import WindowEvaluator
 
@@ -175,7 +175,7 @@ def smooth_two_col(self, values: list[pa.Array], num_rows: int) -> pa.Array:
     ],
 )
 def test_smooth_default(df, window, expected):
-    con = letsql.connect()
+    con = ls.connect()
     t = con.register(df, table_name="t")
 
     expr = t.select(
@@ -190,7 +190,7 @@ def test_smooth_default(df, window, expected):
 
 
 def test_smooth_bounded(df):
-    con = letsql.connect()
+    con = ls.connect()
     t = con.register(df, table_name="t")
 
     expr = t.select(
@@ -205,7 +205,7 @@ def test_smooth_bounded(df):
 
 
 def test_smooth_two_column(df):
-    con = letsql.connect()
+    con = ls.connect()
     t = con.register(df, table_name="t")
 
     expr = t.select(
@@ -220,7 +220,7 @@ def test_smooth_two_column(df):
 
 
 def test_smooth_rank(df):
-    con = letsql.connect()
+    con = ls.connect()
     t = con.register(df, table_name="t")
 
     expr = t.select(
@@ -246,7 +246,7 @@ def test_smooth_rank(df):
     ],
 )
 def test_smooth_frame_bounded(df, window, expected):
-    con = letsql.connect()
+    con = ls.connect()
     t = con.register(df, table_name="t")
 
     expr = t.select(

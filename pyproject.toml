@@ -103,11 +103,16 @@ snowflake = "letsql.backends.snowflake"
 datafusion = "letsql.backends.datafusion"
 duckdb = "letsql.backends.duckdb"
 
-
 [tool.maturin]
 module-name = "letsql._internal"
 python-source = "python"
 features = ["pyo3/extension-module"]
+
+[tool.ruff.lint]
+extend-select = ["ICN"]
+
+[tool.ruff.lint.flake8-import-conventions.extend-aliases]
+"letsql" = "ls"
 
 [tool.codespell]
 skip = "*.lock,.direnv,.git,docs/_freeze/**/html.json"

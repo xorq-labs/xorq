@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.util import assert_series_equal, assert_frame_equal
 
 
@@ -24,10 +24,10 @@ def flatten_data():
 
 
 def test_array_column(alltypes, df):
-    expr = letsql.array([alltypes["double_col"], alltypes["double_col"]])
+    expr = ls.array([alltypes["double_col"], alltypes["double_col"]])
     assert isinstance(expr, ir.ArrayColumn)
 
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = df.apply(
         lambda row: [row["double_col"], row["double_col"]],
         axis=1,
@@ -36,7 +36,7 @@ def test_array_column(alltypes, df):
 
 
 def test_array_scalar(con):
-    expr = letsql.array([1.0, 2.0, 3.0])
+    expr = ls.array([1.0, 2.0, 3.0])
     assert isinstance(expr, ir.ArrayScalar)
 
     result = con.execute(expr.name("tmp"))
@@ -46,7 +46,7 @@ def test_array_scalar(con):
 
 
 def test_array_repeat(con):
-    expr = letsql.array([1.0, 2.0]) * 2
+    expr = ls.array([1.0, 2.0]) * 2
 
     result = con.execute(expr.name("tmp"))
     expected = np.array([1.0, 2.0, 1.0, 2.0])
@@ -55,8 +55,8 @@ def test_array_repeat(con):
 
 
 def test_array_concat(con):
-    left = letsql.literal([1, 2, 3])
-    right = letsql.literal([2, 1])
+    left = ls.literal([1, 2, 3])
+    right = ls.literal([2, 1])
     expr = left + right
     result = con.execute(expr.name("tmp"))
     expected = np.array([1, 2, 3, 2, 1])
@@ -64,8 +64,8 @@ def test_array_concat(con):
 
 
 def test_array_concat_variadic(con):
-    left = letsql.literal([1, 2, 3])
-    right = letsql.literal([2, 1])
+    left = ls.literal([1, 2, 3])
+    right = ls.literal([2, 1])
     expr = left.concat(right, right, right)
     result = con.execute(expr.name("tmp"))
     expected = np.array([1, 2, 3, 2, 1, 2, 1, 2, 1])
@@ -74,7 +74,7 @@ def test_array_concat_variadic(con):
 
 def test_array_radd_concat(con):
     left = [1]
-    right = letsql.literal([2])
+    right = ls.literal([2])
     expr = left + right
     result = con.execute(expr.name("tmp"))
     expected = np.array([1, 2])
@@ -83,13 +83,13 @@ def test_array_radd_concat(con):
 
 
 def test_array_length(con):
-    expr = letsql.literal([1, 2, 3]).length()
+    expr = ls.literal([1, 2, 3]).length()
     assert con.execute(expr.name("tmp")) == 3
 
 
 def test_list_literal(con):
     arr = [1, 2, 3]
-    expr = letsql.literal(arr)
+    expr = ls.literal(arr)
     result = con.execute(expr.name("tmp"))
 
     assert np.array_equal(result, arr)
@@ -97,7 +97,7 @@ def test_list_literal(con):
 
 def test_np_array_literal(con):
     arr = np.array([1, 2, 3])
-    expr = letsql.literal(arr)
+    expr = ls.literal(arr)
     result = con.execute(expr.name("tmp"))
 
     assert np.array_equal(result, arr)
@@ -107,13 +107,13 @@ def test_array_contains(con, array_types):
     t = array_types
     expr = t.x.contains(1)
     result = con.execute(expr)
-    expected = letsql.execute(t.x).map(lambda lst: 1 in lst)
+    expected = ls.execute(t.x).map(lambda lst: 1 in lst)
     assert_series_equal(result, expected, check_names=False)
 
 
 @pytest.mark.skip(reason="failing in datafusion 34+ version")
 def test_array_position(con):
-    t = letsql.memtable({"a": [[1], [], [42, 42], []]})
+    t = ls.memtable({"a": [[1], [], [42, 42], []]})
     expr = t.a.index(42)
     result = con.execute(expr)
     expected = pd.Series([-1, -1, 0, -1], dtype="object")
@@ -121,7 +121,7 @@ def test_array_position(con):
 
 
 def test_array_remove(con):
-    t = letsql.memtable({"a": [[3, 2], [], [42, 2], [2, 2], []]})
+    t = ls.memtable({"a": [[3, 2], [], [42, 2], [2, 2], []]})
     expr = t.a.remove(2)
     result = con.execute(expr)
     expected = pd.Series([[3], [], [42], [], []], dtype="object")
@@ -139,7 +139,7 @@ def test_array_remove(con):
 )
 def test_array_flatten(con, flatten_data, column, expected):
     data = flatten_data[column]
-    t = letsql.memtable({column: data["data"]}, schema={column: data["type"]})
+    t = ls.memtable({column: data["data"]}, schema={column: data["type"]})
     expr = t[column].flatten()
     result = con.execute(expr)
     assert_series_equal(
@@ -164,14 +164,14 @@ def test_array_flatten(con, flatten_data, column, expected):
     ],
 )
 def test_range_start_stop_step(con, start, stop, step):
-    expr = letsql.range(start, stop, step)
+    expr = ls.range(start, stop, step)
     result = con.execute(expr)
     assert list(result) == list(range(start, stop, step))
 
 
 @pytest.mark.parametrize("n", [-2, 0, 2])
 def test_range_single_argument(con, n):
-    expr = letsql.range(n)
+    expr = ls.range(n)
     result = con.execute(expr)
     assert list(result) == list(range(n))
 
@@ -187,7 +187,7 @@ def test_range_single_argument(con, n):
     ],
 )
 def test_array_unique(con, data, expected):
-    t = letsql.memtable(data)
+    t = ls.memtable(data)
     expr = t.a.unique()
     result = con.execute(expr)
     assert_series_equal(result, pd.Series(expected, dtype="object"))
@@ -195,20 +195,20 @@ def test_array_unique(con, data, expected):
 
 def test_unnest_simple(array_types):
     expected = (
-        letsql.execute(array_types)
+        ls.execute(array_types)
         .x.explode()
         .reset_index(drop=True)
         .astype("Float64")
         .rename("tmp")
     )
     expr = array_types.x.cast("!array<float64>").unnest()
-    result = letsql.execute(expr).astype("Float64").rename("tmp")
+    result = ls.execute(expr).astype("Float64").rename("tmp")
 
     assert_series_equal(result, expected)
 
 
 def test_unnest_complex(array_types):
-    df = letsql.execute(array_types)
+    df = ls.execute(array_types)
     expr = (
         array_types.select(["grouper", "x"])
         .mutate(x=lambda t: t.x.unnest())
@@ -226,7 +226,7 @@ def test_unnest_complex(array_types):
         .sort_values("grouper")
         .reset_index(drop=True)
     )
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     assert_frame_equal(result, expected)
 
     # test that unnest works with to_pyarrow
@@ -234,7 +234,7 @@ def test_unnest_complex(array_types):
 
 
 def test_unnest_idempotent(array_types):
-    df = letsql.execute(array_types)
+    df = ls.execute(array_types)
     expr = (
         array_types.select(
             ["scalar_column", array_types.x.cast("!array<int64>").unnest().name("x")]
@@ -243,7 +243,7 @@ def test_unnest_idempotent(array_types):
         .aggregate(x=lambda t: t.x.collect())
         .order_by("scalar_column")
     )
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = (
         df[["scalar_column", "x"]]
         .assign(x=df.x.map(lambda arr: sorted(i for i in arr if not pd.isna(i))))
@@ -254,7 +254,7 @@ def test_unnest_idempotent(array_types):
 
 
 def test_unnest_no_nulls(array_types):
-    df = letsql.execute(array_types)
+    df = ls.execute(array_types)
     expr = (
         array_types.select(
             ["scalar_column", array_types.x.cast("!array<int64>").unnest().name("y")]
@@ -264,7 +264,7 @@ def test_unnest_no_nulls(array_types):
         .aggregate(x=lambda t: t.y.collect())
         .order_by("scalar_column")
     )
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = (
         df[["scalar_column", "x"]]
         .explode("x")
@@ -277,9 +277,9 @@ def test_unnest_no_nulls(array_types):
 
 
 def test_unnest_default_name(array_types):
-    df = letsql.execute(array_types)
+    df = ls.execute(array_types)
     expr = (
-        array_types.x.cast("!array<int64>") + letsql.array([1]).cast("!array<int64>")
+        array_types.x.cast("!array<int64>") + ls.array([1]).cast("!array<int64>")
     ).unnest()
     assert expr.get_name().startswith("ArrayConcat(")
 
@@ -306,6 +306,6 @@ def test_unnest_default_name(array_types):
 )
 def test_array_slice(array_types, start, stop):
     expr = array_types.select(sliced=array_types.y[start:stop])
-    expected = letsql.execute(array_types.y).map(lambda x: x[start:stop])
-    result = letsql.execute(expr.sliced)
+    expected = ls.execute(array_types.y).map(lambda x: x[start:stop])
+    result = ls.execute(expr.sliced)
     assert_series_equal(result, expected)

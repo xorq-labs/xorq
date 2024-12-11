@@ -1,6 +1,6 @@
 import pytest
 
-import letsql
+import letsql as ls
 
 from letsql.backends.let import Backend
 from letsql.common.caching import (
@@ -20,7 +20,7 @@ def cached_two(ls_con, batting, tmp_path):
 
 @pytest.fixture
 def duck_batting_raw(batting_df):
-    return letsql.duckdb.connect().register(
+    return ls.duckdb.connect().register(
         batting_df,
         table_name="batting_df",
     )
@@ -110,7 +110,7 @@ def test_exists(cached_two):
     assert not cached_two.ls.exists()
     assert not tuple(storage.path.iterdir())
 
-    letsql.execute(cached_two)
+    ls.execute(cached_two)
     assert cached_two.ls.exists()
     assert len(tuple(storage.path.iterdir())) == 1
 

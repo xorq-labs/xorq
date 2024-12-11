@@ -14,7 +14,7 @@ from ibis.expr.operations.relations import (
     Namespace,
 )
 
-import letsql
+import letsql as ls
 from letsql.common.utils.hotfix_utils import (
     hotfix,
 )
@@ -170,7 +170,7 @@ def create_table(
 
     if obj is not None:
         if not isinstance(obj, ir.Expr):
-            table = letsql.memtable(obj)
+            table = ls.memtable(obj)
         else:
             table = obj
 

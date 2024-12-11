@@ -172,7 +172,7 @@ def _backend_init():
     if (backend := options.backend) is not None:
         return backend
 
-    import letsql
+    import letsql as ls
 
-    options.backend = con = letsql.connect()
+    options.backend = con = ls.connect()
     return con

@@ -3,7 +3,7 @@ import pyarrow as pa
 from datafusion import udwf
 from datafusion.udf import WindowEvaluator
 
-import letsql
+import letsql as ls
 from letsql.expr.relations import into_backend
 
 
@@ -61,7 +61,7 @@ def test_cross_engine_analytics(con, ddb_con):
     asof_result = (
         ddb_con.table("quotes")
         .asof_join(trades, predicates=["symbol"], on="timestamp")
-        .pipe(letsql.execute)
+        .pipe(ls.execute)
     )
 
     assert isinstance(asof_result, pd.DataFrame)

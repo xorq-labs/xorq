@@ -34,7 +34,7 @@ from ibis.formats.pyarrow import PyArrowType
 from ibis.util import gen_name, normalize_filename
 from ibis.formats.pyarrow import _from_pyarrow_types
 
-import letsql
+import letsql as ls
 import letsql.internal as df
 from letsql.backends.let.datafusion.compiler import compiler
 from letsql.backends.let.datafusion.provider import IbisTableProvider
@@ -189,7 +189,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     @property
     def version(self):
-        return letsql.__version__
+        return ls.__version__
 
     def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
         df_config = SessionConfig(
@@ -829,7 +829,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                table = letsql.memtable(obj)
+                table = ls.memtable(obj)
             else:
                 table = obj
 
@@ -918,12 +918,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         params: Mapping[ir.Scalar, Any] | None = None,
         **kwargs: Any,
     ) -> None:
-        import letsql
-
         self._import_pyarrow()
         import pyarrow.parquet as pq
 
-        with letsql.to_pyarrow_batches(expr, params=params) as batch_reader:
+        with ls.to_pyarrow_batches(expr, params=params) as batch_reader:
             with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
                 for batch in batch_reader:
                     writer.write_batch(batch)

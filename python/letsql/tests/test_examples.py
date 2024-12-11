@@ -4,10 +4,10 @@ import runpy
 import pytest
 from pytest import param
 
-import letsql
+import letsql as ls
 
 
-KEY_PREFIX = letsql.config.options.cache.key_prefix
+KEY_PREFIX = ls.config.options.cache.key_prefix
 LIBRARY_SCRIPTS = ("pandas_example", "penguins_example")
 
 file_path = pathlib.Path(__file__).absolute()

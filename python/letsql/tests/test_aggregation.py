@@ -10,7 +10,7 @@ from ibis import _
 from ibis import literal as L
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.util import assert_frame_equal, reduction_tolerance
 
 
@@ -42,7 +42,7 @@ aggregate_test_params = [
 )
 def test_aggregate(alltypes, df, result_fn, expected_fn):
     expr = alltypes.aggregate(tmp=result_fn)
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
 
     # Create a single-row single-column dataframe with the Pandas `agg` result
     # (to match the output format of Ibis `aggregate`)
@@ -63,8 +63,8 @@ def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
     #  2) `aggregate` with `by`
     expr1 = alltypes.group_by(grouping_key_col).aggregate(tmp=result_fn)
     expr2 = alltypes.aggregate(tmp=result_fn, by=grouping_key_col)
-    result1 = letsql.execute(expr1)
-    result2 = letsql.execute(expr2)
+    result1 = ls.execute(expr1)
+    result2 = ls.execute(expr2)
 
     # Note: Using `reset_index` to get the grouping key as a column
     expected = (
@@ -216,7 +216,7 @@ def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
             id="is_in",
         ),
         param(
-            lambda _: letsql._.string_col.isin(["1", "7"]),
+            lambda _: ls._.string_col.isin(["1", "7"]),
             lambda t: t.string_col.isin(["1", "7"]),
             id="is_in_deferred",
         ),
@@ -231,7 +231,7 @@ def test_reduction_ops(
     pandas_cond,
 ):
     expr = alltypes.agg(tmp=result_fn(alltypes, ibis_cond(alltypes))).tmp
-    result = letsql.execute(expr).squeeze()
+    result = ls.execute(expr).squeeze()
     expected = expected_fn(df, pandas_cond(df))
 
     try:
@@ -304,7 +304,7 @@ def test_corr_cov(
     pandas_cond,
 ):
     expr = result_fn(batting, ibis_cond(batting)).name("tmp")
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
 
     expected = expected_fn(batting_df, pandas_cond(batting_df))
 
@@ -313,13 +313,13 @@ def test_corr_cov(
 
 def test_approx_median(alltypes):
     expr = alltypes.double_col.approx_median()
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     assert isinstance(result, float)
 
 
 def test_median(alltypes, df):
     expr = alltypes.double_col.median()
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = df.double_col.median()
     assert result == expected
 
@@ -332,7 +332,7 @@ def test_topk_op(alltypes, df):
     t = alltypes.order_by(alltypes.string_col)
     df = df.sort_values("string_col")
     expr = t.string_col.topk(3)
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = df.groupby("string_col")["string_col"].count().head(3)
     assert all(result.iloc[:, 1].values == expected.values)
 
@@ -359,7 +359,7 @@ def test_topk_filter_op(alltypes, df, result_fn, expected_fn):
     t = alltypes.order_by(alltypes.string_col)
     df = df.sort_values("string_col")
     expr = result_fn(t)
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = expected_fn(df)
     assert result.shape[0] == expected.shape[0]
 
@@ -371,7 +371,7 @@ def test_binds_are_cast(alltypes):
         )
     )
 
-    letsql.execute(expr)
+    ls.execute(expr)
 
 
 def test_agg_sort(alltypes):
@@ -388,7 +388,7 @@ def test_filter(alltypes, df):
         .aggregate(sum=_.double_col.sum())
     )
 
-    result = letsql.execute(expr).astype({"x": "int64"})
+    result = ls.execute(expr).astype({"x": "int64"})
     expected = (
         df.loc[df.string_col == "1", :]
         .assign(x=1)
@@ -402,17 +402,15 @@ def test_filter(alltypes, df):
 
 def test_agg_name_in_output_column(alltypes):
     query = alltypes.aggregate([alltypes.int_col.min(), alltypes.int_col.max()])
-    df = letsql.execute(query)
+    df = ls.execute(query)
     assert "min" in df.columns[0].lower()
     assert "max" in df.columns[1].lower()
 
 
 def test_grouped_case(con):
-    table = letsql.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
+    table = ls.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
 
-    case_expr = (
-        letsql.case().when(table.value < 25, table.value).else_(letsql.null()).end()
-    )
+    case_expr = ls.case().when(table.value < 25, table.value).else_(ls.null()).end()
 
     expr = table.group_by("key").aggregate(mx=case_expr.max()).order_by("key")
     result = con.execute(expr)
@@ -424,7 +422,7 @@ def test_value_counts_on_expr(alltypes, df):
     expr = alltypes.bigint_col.add(1).value_counts()
     columns = expr.columns
     expr = expr.order_by(columns)
-    result = letsql.execute(expr).sort_values(columns).reset_index(drop=True)
+    result = ls.execute(expr).sort_values(columns).reset_index(drop=True)
     expected = df.bigint_col.add(1).value_counts().reset_index()
     expected.columns = columns
     expected = expected.sort_values(by=columns).reset_index(drop=True)

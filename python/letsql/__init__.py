@@ -37,7 +37,7 @@ def load_backend(name):
         (ep for ep in _load_entry_points() if ep.name == name), None
     ):
         import types
-        import letsql
+        import letsql as ls
 
         module = entry_point.load()
         backend = module.Backend()
@@ -51,7 +51,7 @@ def load_backend(name):
         connect.__module__ = f"letsql.{name}"
 
         proxy = types.ModuleType(f"letsql.{name}")
-        setattr(letsql, name, proxy)
+        setattr(ls, name, proxy)
         proxy.connect = connect
         proxy.compile = backend.compile
         proxy.has_operation = backend.has_operation

@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.util import assert_frame_equal
 
 
@@ -46,22 +46,22 @@ def test_mutating_join(batting, awards_players, how):
     left = batting[batting.yearID == 2015]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
 
-    left_df = letsql.execute(left)
-    right_df = letsql.execute(right)
+    left_df = ls.execute(left)
+    right_df = ls.execute(right)
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
     expr = left.join(right, predicate, how=how)
     if how == "inner":
         result = (
-            letsql.execute(expr)
+            ls.execute(expr)
             .fillna(np.nan)[left.columns]
             .sort_values(result_order)
             .reset_index(drop=True)
         )
     else:
         result = (
-            letsql.execute(expr)
+            ls.execute(expr)
             .fillna(np.nan)
             .assign(
                 playerID=lambda df: df.playerID.where(
@@ -94,14 +94,14 @@ def test_filtering_join(batting, awards_players, how):
     left = batting[batting.yearID == 2015]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
 
-    left_df = letsql.execute(left)
-    right_df = letsql.execute(right)
+    left_df = ls.execute(left)
+    right_df = ls.execute(right)
     predicate = ["playerID"]
     result_order = ["playerID", "yearID", "lgID", "stint"]
 
     expr = left.join(right, predicate, how=how)
     result = (
-        letsql.execute(expr)
+        ls.execute(expr)
         .fillna(np.nan)
         .sort_values(result_order)[left.columns]
         .reset_index(drop=True)
@@ -127,7 +127,7 @@ def test_join_then_filter_no_column_overlap(awards_players, batting):
     expr = left.join(right, left.year == right.yearID)
     filters = [expr.RBI == 9]
     q = expr.filter(filters)
-    assert not letsql.execute(q).empty
+    assert not ls.execute(q).empty
 
 
 def test_mutate_then_join_no_column_overlap(batting, awards_players):
@@ -161,7 +161,7 @@ def test_join_with_pandas(batting, awards_players):
     awards_players_filt = awards_players[lambda t: t.yearID < 1900].execute()
     assert isinstance(awards_players_filt, pd.DataFrame)
     expr = batting_filt.join(awards_players_filt, "yearID")
-    df = letsql.execute(expr)
+    df = ls.execute(expr)
     assert df.yearID.nunique() == 7
 
 
@@ -179,7 +179,7 @@ def test_join_with_pandas_non_null_typed_columns(batting, awards_players):
     assert sch.infer(awards_players_filt) == sch.Schema(dict(yearID="int"))
     assert isinstance(awards_players_filt, pd.DataFrame)
     expr = batting_filt.join(awards_players_filt, "yearID")
-    df = letsql.execute(expr)
+    df = ls.execute(expr)
     assert df.yearID.nunique() == 7
 
 
@@ -188,32 +188,32 @@ def test_join_with_pandas_non_null_typed_columns(batting, awards_players):
     [
         # Trues
         param(True, True, id="true"),
-        param(letsql.literal(True), True, id="true-literal"),
+        param(ls.literal(True), True, id="true-literal"),
         param([True], True, id="true-list"),
-        param([letsql.literal(True)], True, id="true-literal-list"),
+        param([ls.literal(True)], True, id="true-literal-list"),
         # only trues
         param([True, True], True, id="true-true-list"),
         param(
-            [letsql.literal(True), letsql.literal(True)],
+            [ls.literal(True), ls.literal(True)],
             True,
             id="true-true-literal-list",
         ),
-        param([True, letsql.literal(True)], True, id="true-true-const-expr-list"),
-        param([letsql.literal(True), True], True, id="true-true-expr-const-list"),
+        param([True, ls.literal(True)], True, id="true-true-const-expr-list"),
+        param([ls.literal(True), True], True, id="true-true-expr-const-list"),
         # Falses
         param(False, False, id="false"),
-        param(letsql.literal(False), False, id="false-literal"),
+        param(ls.literal(False), False, id="false-literal"),
         param([False], False, id="false-list"),
-        param([letsql.literal(False)], False, id="false-literal-list"),
+        param([ls.literal(False)], False, id="false-literal-list"),
         # only falses
         param([False, False], False, id="false-false-list"),
         param(
-            [letsql.literal(False), letsql.literal(False)],
+            [ls.literal(False), ls.literal(False)],
             False,
             id="false-false-literal-list",
         ),
-        param([False, letsql.literal(False)], False, id="false-false-const-expr-list"),
-        param([letsql.literal(False), False], False, id="false-false-expr-const-list"),
+        param([False, ls.literal(False)], False, id="false-false-const-expr-list"),
+        param([ls.literal(False), False], False, id="false-false-expr-const-list"),
     ],
 )
 @pytest.mark.parametrize(

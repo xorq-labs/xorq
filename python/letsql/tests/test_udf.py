@@ -8,7 +8,7 @@ import pyarrow as pa
 import pytest
 from ibis import udf
 
-import letsql
+import letsql as ls
 
 pc = pytest.importorskip("pyarrow.compute")
 
@@ -35,19 +35,19 @@ def my_mean(arr: dt.float64) -> dt.float64:
 
 
 def test_udf(alltypes):
-    data_string_col = letsql.execute(alltypes.date_string_col)
+    data_string_col = ls.execute(alltypes.date_string_col)
     expected = data_string_col.str.len() * 2
 
     expr = my_string_length(alltypes.date_string_col)
     assert isinstance(expr, ir.Column)
 
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     tm.assert_series_equal(result, expected, check_names=False)
 
 
 def test_multiple_argument_udf(alltypes):
     expr = small_add(alltypes.smallint_col, alltypes.int_col).name("tmp")
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
 
     df = alltypes[["smallint_col", "int_col"]].execute()
     expected = (df.smallint_col + df.int_col).astype("int64")
@@ -72,7 +72,7 @@ def test_builtin_agg_udf(con):
 
     expr = median(con.tables.batting.G)
     result = con.execute(expr)
-    assert result == letsql.execute(con.tables.batting.G).median()
+    assert result == ls.execute(con.tables.batting.G).median()
 
 
 def test_builtin_agg_udf_filtered(con):
@@ -80,4 +80,4 @@ def test_builtin_agg_udf_filtered(con):
     def median(a: float, where: bool = True) -> float:
         """Median of a column."""
 
-    letsql.execute(median(con.tables.batting.G))
+    ls.execute(median(con.tables.batting.G))

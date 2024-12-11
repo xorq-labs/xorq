@@ -6,7 +6,7 @@ import ibis.expr.types as ir
 import pytest
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.conftest import TEST_TABLES
 
 
@@ -74,7 +74,7 @@ def test_tables_accessor_repr(con):
 )
 def test_limit_chain(alltypes, expr_fn):
     expr = expr_fn(alltypes)
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     assert len(result) == 5
 
 
@@ -86,7 +86,7 @@ def test_limit_chain(alltypes, expr_fn):
     ],
 )
 def test_unbind(alltypes, expr_fn: Callable):
-    letsql.options.interactive = False
+    ls.options.interactive = False
 
     expr = expr_fn(alltypes)
     assert expr.unbind() != expr
@@ -98,10 +98,10 @@ def test_unbind(alltypes, expr_fn: Callable):
 
 @pytest.mark.parametrize(
     ("extension", "method"),
-    [("parquet", letsql.read_parquet), ("csv", letsql.read_csv)],
+    [("parquet", ls.read_parquet), ("csv", ls.read_csv)],
 )
 def test_read(data_dir, extension, method):
     table = method(
         data_dir / extension / f"batting.{extension}", table_name=f"batting-{extension}"
     )
-    assert letsql.execute(table) is not None
+    assert ls.execute(table) is not None

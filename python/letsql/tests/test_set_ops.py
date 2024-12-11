@@ -8,7 +8,7 @@ import pytest
 from ibis import _
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.util import assert_frame_equal
 
 
@@ -37,8 +37,8 @@ def union_subsets(alltypes, df):
 def test_union(union_subsets, distinct):
     (a, b, c), (da, db, dc) = union_subsets
 
-    expr = letsql.union(a, b, distinct=distinct).order_by("id")
-    result = letsql.execute(expr)
+    expr = ls.union(a, b, distinct=distinct).order_by("id")
+    result = ls.execute(expr)
 
     expected = pd.concat([da, db], axis=0).sort_values("id").reset_index(drop=True)
     if distinct:
@@ -51,7 +51,7 @@ def test_union_mixed_distinct(union_subsets):
     (a, b, c), (da, db, dc) = union_subsets
 
     expr = a.union(b, distinct=True).union(c, distinct=False).order_by("id")
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = pd.concat(
         [pd.concat([da, db], axis=0).drop_duplicates("id"), dc], axis=0
     ).sort_values("id")
@@ -77,8 +77,8 @@ def test_intersect(alltypes, df, distinct):
     db = df[(df.id >= 5205) & (df.id <= 5215)]
     dc = df[(df.id >= 5195) & (df.id <= 5208)]
 
-    expr = letsql.intersect(a, b, c, distinct=distinct).order_by("id")
-    result = letsql.execute(expr)
+    expr = ls.intersect(a, b, c, distinct=distinct).order_by("id")
+    result = ls.execute(expr)
 
     index = da.index.intersection(db.index).intersection(dc.index)
     expected = df.iloc[index].sort_values("id").reset_index(drop=True)
@@ -106,8 +106,8 @@ def test_difference(alltypes, df, distinct):
     db = df[(df.id >= 5205) & (df.id <= 5215)]
     dc = df[(df.id >= 5195) & (df.id <= 5202)]
 
-    expr = letsql.difference(a, b, c, distinct=distinct).order_by("id")
-    result = letsql.execute(expr)
+    expr = ls.difference(a, b, c, distinct=distinct).order_by("id")
+    result = ls.execute(expr)
 
     index = da.index.difference(db.index).difference(dc.index)
     expected = df.iloc[index].sort_values("id").reset_index(drop=True)
@@ -120,7 +120,7 @@ def test_difference(alltypes, df, distinct):
 @pytest.mark.parametrize("method", ["intersect", "difference", "union"])
 def test_table_set_operations_api(alltypes, method):
     # top level variadic
-    result = getattr(letsql, method)(alltypes)
+    result = getattr(ls, method)(alltypes)
     assert result.equals(alltypes)
 
     # table level methods require at least one argument

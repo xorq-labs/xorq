@@ -11,7 +11,7 @@ from ibis.expr.operations.udf import (
     ScalarUDF,
 )
 
-import letsql
+import letsql as ls
 from letsql.common.utils.defer_utils import (
     Read,
 )
@@ -30,12 +30,12 @@ def expr_is_bound(expr):
 def unbound_expr_to_default_sql(expr):
     if expr_is_bound(expr):
         raise ValueError
-    default_sql = letsql.to_sql(expr)
+    default_sql = ls.to_sql(expr)
     return str(default_sql)
 
 
 def normalize_memory_databasetable(dt):
-    import letsql
+    import letsql as ls
 
     if dt.source.name not in ("pandas", "let", "datafusion", "duckdb"):
         raise ValueError
@@ -47,7 +47,7 @@ def normalize_memory_databasetable(dt):
             # in memory: so we can assume it's reasonable to hash the data
             tuple(
                 dask.base.tokenize(el.serialize().to_pybytes())
-                for el in letsql.to_pyarrow_batches(dt.to_expr())
+                for el in ls.to_pyarrow_batches(dt.to_expr())
             ),
         )
     )

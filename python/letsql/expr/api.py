@@ -1606,10 +1606,10 @@ def _check_collisions(expr: ir.Expr):
 
 
 def execute(expr: ir.Expr, **kwargs: Any):
-    import letsql
+    import letsql as ls
 
     _check_collisions(expr)
-    con = letsql.connect()
+    con = ls.connect()
     for t in expr.op().find(ops.DatabaseTable):
         if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
@@ -1623,10 +1623,10 @@ def to_pyarrow_batches(
     chunk_size: int = 1_000_000,
     **kwargs: Any,
 ):
-    import letsql
+    import letsql as ls
 
     _check_collisions(expr)
-    con = letsql.connect()
+    con = ls.connect()
     for t in expr.op().find(ops.DatabaseTable):
         if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
@@ -1634,10 +1634,10 @@ def to_pyarrow_batches(
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
-    import letsql
+    import letsql as ls
 
     _check_collisions(expr)
-    con = letsql.connect()
+    con = ls.connect()
     for t in expr.op().find(ops.DatabaseTable):
         if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)
@@ -1646,10 +1646,10 @@ def to_pyarrow(expr: ir.Expr, **kwargs: Any):
 
 
 def to_parquet(expr: ir.Expr, path: str | Path, **kwargs: Any):
-    import letsql
+    import letsql as ls
 
     _check_collisions(expr)
-    con = letsql.connect()
+    con = ls.connect()
     for t in expr.op().find(ops.DatabaseTable):
         if t not in con._sources.sources and not isinstance(t, RemoteTable):
             con.register(t.to_expr(), t.name)

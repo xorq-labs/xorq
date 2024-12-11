@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import letsql
+import letsql as ls
 import ibis.expr.datatypes as dt
 import pytest
 
@@ -17,7 +17,7 @@ from letsql.tests.util import default_series_rename, assert_series_equal
     ],
 )
 def test_floating_scalar_parameter(alltypes, df, column, raw_value):
-    value = letsql.param(dt.double)
+    value = ls.param(dt.double)
     expr = (alltypes[column] + value).name("tmp")
     expected = df[column] + raw_value
     result = expr.execute(params={value: raw_value})

@@ -3,12 +3,12 @@ import pytest
 from pandas.testing import assert_frame_equal, assert_series_equal
 
 from letsql.optimizer import optimize_ibis, optimize_sql
-import letsql
+import letsql as ls
 
 
 @pytest.fixture(scope="session")
 def con():
-    return letsql.duckdb.connect()
+    return ls.duckdb.connect()
 
 
 @pytest.fixture(scope="session")
@@ -88,7 +88,7 @@ def test_roundtrip(con, t):
     original = t.select([t.a, t.b, t.c]).filter([t.c > 1])
     expr = optimize_ibis(original, {"t": t.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert_frame_equal(expected, actual)
@@ -97,7 +97,7 @@ def test_roundtrip(con, t):
 def test_roundtrip_agg(con, t):
     original = t.aggregate([t.b.sum()])
     expr = optimize_ibis(original, {"t": t.schema()}, dialect="duckdb")
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert expr is not None
@@ -115,7 +115,7 @@ def test_roundtrip_agg(con, t):
 def test_roundtrip_join(con, t, s, how):
     original = t.join(s, "a", how=how)
     expr = optimize_ibis(original, {"t": t.schema(), "s": s.schema()}, dialect="duckdb")
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert expr is not None
@@ -126,7 +126,7 @@ def test_roundtrip_group(con, g):
     original = g.group_by("a").aggregate(f_sum=g.f.sum(), f_mean=g.f.mean())
     expr = optimize_ibis(original, {"g": g.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original).sort_values(by="a").reset_index(drop=True)
+    expected = ls.execute(original).sort_values(by="a").reset_index(drop=True)
     actual = con.execute(expr).sort_values(by="a").reset_index(drop=True)
 
     assert expr is not None
@@ -146,7 +146,7 @@ def test_roundtrip_join_with_filter(con, t, s, how):
     original = t.join(s, "a", how=how).filter(t.b > 3)
     expr = optimize_ibis(original, {"t": t.schema(), "s": s.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert expr is not None
@@ -168,7 +168,7 @@ def test_roundtrip_filter(con, t, condition):
     original = condition(t.select([t.a, t.b, t.c]))
     expr = optimize_ibis(original, {"t": t.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert_frame_equal(expected, actual)
@@ -187,7 +187,7 @@ def test_roundtrip_boolean_filter(con, s, condition):
     original = condition(s.select([s.g, s.a]))
     expr = optimize_ibis(original, {"s": s.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert_frame_equal(expected, actual)
@@ -206,7 +206,7 @@ def test_roundtrip_arithmetic(con, t, operation):
     original = operation(t)
     expr = optimize_ibis(original, {"t": t.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr).squeeze()
 
     assert_series_equal(expected, actual)
@@ -223,7 +223,7 @@ def test_roundtrip_nested_agg(con, g):
     expr = optimize_ibis(original, {"g": g.schema()}, dialect="duckdb")
 
     # sorting is required to avoid shuffling
-    expected = letsql.execute(original).sort_values(by="a").reset_index(drop=True)
+    expected = ls.execute(original).sort_values(by="a").reset_index(drop=True)
     actual = con.execute(expr).sort_values(by="a").reset_index(drop=True)
 
     assert_frame_equal(expected, actual)
@@ -234,7 +234,7 @@ def test_roundtrip_all(con, t):
     original = t[t]
     expr = optimize_ibis(original, {"t": t.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert_frame_equal(expected, actual)
@@ -249,7 +249,7 @@ def test_roundtrip_sort(con, g, limit, offset):
     original = g.order_by(g.f).limit(limit, offset=offset)
     expr = optimize_ibis(original, {"g": g.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert_frame_equal(expected, actual)
@@ -259,7 +259,7 @@ def test_roundtrip_case(con, t):
     original = t.a.case().when("a1", 1).when("a2", 2).else_(3).end()
     expr = optimize_ibis(original, {"t": t.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr).squeeze()
 
     assert_series_equal(expected, actual)
@@ -272,7 +272,7 @@ def test_roundtrip_distinct(con, g):
 
     # sort to bypass shuffling
     expected = (
-        letsql.execute(original).sort_values(by=["a", "f", "g"]).reset_index(drop=True)
+        ls.execute(original).sort_values(by=["a", "f", "g"]).reset_index(drop=True)
     )
     actual = con.execute(expr).sort_values(by=["a", "f", "g"]).reset_index(drop=True)
 
@@ -283,7 +283,7 @@ def test_roundtrip_nunique(con, g):
     original = g.a.nunique()
     expr = optimize_ibis(original, {"g": g.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     # actual is a DataFrame and expected is a scalar value
@@ -295,7 +295,7 @@ def test_roundtrip_topk(con, g):
     original = g.a.topk(3)
     expr = optimize_ibis(original, {"g": g.schema()}, dialect="duckdb")
 
-    expected = letsql.execute(original)
+    expected = ls.execute(original)
     actual = con.execute(expr)
 
     assert_frame_equal(expected, actual)

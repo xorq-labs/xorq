@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 
@@ -27,7 +27,7 @@ from letsql.tests.util import assert_frame_equal, assert_series_equal
     ],
 )
 def test_string_literal(con, text_value):
-    expr = letsql.literal(text_value)
+    expr = ls.literal(text_value)
     result = con.execute(expr)
     assert result == text_value
 
@@ -40,7 +40,7 @@ def test_string_col_is_unicode(alltypes, df):
     dtype = alltypes.string_col.type()
     assert dtype == dt.String(nullable=dtype.nullable)
     assert df.string_col.map(is_text_type).all()
-    result = letsql.execute(alltypes.string_col)
+    result = ls.execute(alltypes.string_col)
     assert result.map(is_text_type).all()
 
 
@@ -268,7 +268,7 @@ def test_string_col_is_unicode(alltypes, df):
             id="expr_slice_begin_end",
         ),
         param(
-            lambda t: letsql.literal("-").join(["a", t.string_col, "c"]),
+            lambda t: ls.literal("-").join(["a", t.string_col, "c"]),
             lambda t: "a-" + t.string_col + "-c",
             id="join",
         ),
@@ -296,27 +296,27 @@ def test_string_col_is_unicode(alltypes, df):
 )
 def test_string(alltypes, df, result_func, expected_func):
     expr = result_func(alltypes).name("tmp")
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
 
     expected = expected_func(df)
     assert_series_equal(result, expected)
 
 
 def test_re_replace_global(con):
-    expr = letsql.literal("aba").re_replace("a", "c")
+    expr = ls.literal("aba").re_replace("a", "c")
     result = con.execute(expr)
     assert result == "cbc"
 
 
 def test_substr_with_null_values(alltypes, df):
     table = alltypes.mutate(
-        substr_col_null=letsql.case()
+        substr_col_null=ls.case()
         .when(alltypes["bool_col"], alltypes["string_col"])
         .else_(None)
         .end()
         .substr(0, 2)
     )
-    result = letsql.execute(table)
+    result = ls.execute(table)
 
     expected = df.copy()
     mask = ~expected["bool_col"]
@@ -350,7 +350,7 @@ def test_substr_with_null_values(alltypes, df):
         param(lambda d: d.query(), "name=networking", id="query"),
         param(lambda d: d.query("name"), "networking", id="query-key"),
         param(
-            lambda d: d.query(letsql.literal("na") + letsql.literal("me")),
+            lambda d: d.query(ls.literal("na") + ls.literal("me")),
             "networking",
             id="query-dynamic-key",
         ),
@@ -359,27 +359,27 @@ def test_substr_with_null_values(alltypes, df):
 )
 def test_parse_url(con, result_func, expected):
     url = "http://user:pass@example.com:80/docs/books/tutorial/index.html?name=networking#DOWNLOADING"
-    expr = result_func(letsql.literal(url))
+    expr = result_func(ls.literal(url))
     result = con.execute(expr)
     assert result == expected
 
 
 def test_capitalize(con):
-    s = letsql.literal("aBc")
+    s = ls.literal("aBc")
     expected = "Abc"
     expr = s.capitalize()
     assert con.execute(expr) == expected
 
 
 def test_subs_with_re_replace(con):
-    expr = letsql.literal("hi").re_replace("i", "a").substitute({"d": "b"}, else_="k")
+    expr = ls.literal("hi").re_replace("i", "a").substitute({"d": "b"}, else_="k")
     result = con.execute(expr)
     assert result == "k"
 
 
 def test_multiple_subs(con):
     m = {"foo": "FOO", "bar": "BAR"}
-    expr = letsql.literal("foo").substitute(m)
+    expr = ls.literal("foo").substitute(m)
     result = con.execute(expr)
     assert result == "FOO"
 
@@ -387,8 +387,8 @@ def test_multiple_subs(con):
 @pytest.mark.parametrize(
     "expr",
     [
-        param(letsql.case().when(True, "%").end(), id="case"),
-        param(letsql.ifelse(True, "%", letsql.null()), id="ifelse"),
+        param(ls.case().when(True, "%").end(), id="case"),
+        param(ls.ifelse(True, "%", ls.null()), id="ifelse"),
     ],
 )
 def test_no_conditional_percent_escape(con, expr):
@@ -396,5 +396,5 @@ def test_no_conditional_percent_escape(con, expr):
 
 
 def test_string_length(con):
-    t = letsql.memtable({"s": ["aaa", "a", "aa"]})
+    t = ls.memtable({"s": ["aaa", "a", "aa"]})
     assert con.execute(t.s.length()).gt(0).all()

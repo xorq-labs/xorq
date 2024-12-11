@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from pytest import param
 
-import letsql
+import letsql as ls
 from letsql.tests.util import assert_series_equal, assert_frame_equal
 
 
@@ -30,14 +30,14 @@ from letsql.tests.util import assert_series_equal, assert_frame_equal
 )
 def test_single_field(struct, field, expected):
     expr = struct.select(field=lambda t: t.abc[field]).order_by("field")
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     assert_series_equal(
         result.field, pd.Series(expected, name="field"), check_dtype=False
     )
 
 
 def test_all_fields(struct, struct_df):
-    result = letsql.execute(struct.abc)
+    result = ls.execute(struct.abc)
     expected = struct_df.abc
 
     assert {
@@ -48,11 +48,11 @@ def test_all_fields(struct, struct_df):
 
 
 _SIMPLE_DICT = dict(a=1, b="2", c=3.0)
-_STRUCT_LITERAL = letsql.struct(
+_STRUCT_LITERAL = ls.struct(
     _SIMPLE_DICT,
     type="struct<a: int64, b: string, c: float64>",
 )
-_NULL_STRUCT_LITERAL = letsql.null().cast("struct<a: int64, b: string, c: float64>")
+_NULL_STRUCT_LITERAL = ls.null().cast("struct<a: int64, b: string, c: float64>")
 
 
 @pytest.mark.parametrize("field", ["a", "b", "c"])
@@ -67,9 +67,9 @@ def test_literal(con, field):
 
 def test_struct_column(alltypes, df):
     t = alltypes
-    expr = t.select(s=letsql.struct(dict(a=t.string_col, b=1, c=t.bigint_col)))
+    expr = t.select(s=ls.struct(dict(a=t.string_col, b=1, c=t.bigint_col)))
     assert expr.s.type() == dt.Struct(dict(a=dt.string, b=dt.int8, c=dt.int64))
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     expected = pd.DataFrame(
         {"s": [dict(a=a, b=1, c=c) for a, c in zip(df.string_col, df.bigint_col)]}
     )
@@ -77,8 +77,8 @@ def test_struct_column(alltypes, df):
 
 
 def test_field_access_after_case(con):
-    s = letsql.struct({"a": 3})
-    x = letsql.case().when(True, s).else_(letsql.struct({"a": 4})).end()
+    s = ls.struct({"a": 3})
+    x = ls.case().when(True, s).else_(ls.struct({"a": 4})).end()
     y = x.a
     assert con.to_pandas(y) == 3
 
@@ -91,12 +91,12 @@ def test_collect_into_struct(alltypes):
         t[_.string_col.isin(("0", "1"))]
         .group_by(group="string_col")
         .agg(
-            val=lambda t: letsql.struct(
+            val=lambda t: ls.struct(
                 dict(key=t.bigint_col.collect().cast("array<int64>"))
             )
         )
     )
-    result = letsql.execute(expr)
+    result = ls.execute(expr)
     assert result.shape == (2, 2)
     assert set(result.group) == {"0", "1"}
     val = result.val

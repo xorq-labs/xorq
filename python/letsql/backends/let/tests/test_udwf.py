@@ -1,7 +1,7 @@
 import numpy as np
 import pyarrow as pa
 
-import letsql
+import letsql as ls
 from letsql.internal import WindowEvaluator, udwf
 
 
@@ -184,7 +184,7 @@ smooth_two_col = udwf(
 
 
 def test_smooth_frame(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_frame)
 
@@ -199,7 +199,7 @@ def test_smooth_frame(df):
 
 
 def test_smooth_default(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_default)
 
@@ -214,7 +214,7 @@ def test_smooth_default(df):
 
 
 def test_smooth_default_partitioned(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_default)
 
@@ -229,7 +229,7 @@ def test_smooth_default_partitioned(df):
 
 
 def test_smooth_default_ordered(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_default)
 
@@ -244,7 +244,7 @@ def test_smooth_default_ordered(df):
 
 
 def test_smooth_bounded(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_bounded)
 
@@ -259,7 +259,7 @@ def test_smooth_bounded(df):
 
 
 def test_smooth_bounded_ignores_frame(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_bounded)
 
@@ -279,7 +279,7 @@ def test_smooth_bounded_ignores_frame(df):
 
 
 def test_smooth_frame_bounded(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_frame)
 
@@ -298,7 +298,7 @@ def test_smooth_frame_bounded(df):
 
 
 def test_smooth_frame_unbounded(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_frame)
 
@@ -317,7 +317,7 @@ def test_smooth_frame_unbounded(df):
 
 
 def test_smooth_rank(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_rank)
 
@@ -332,7 +332,7 @@ def test_smooth_rank(df):
 
 
 def test_smooth_two_column(df):
-    con = letsql.connect()
+    con = ls.connect()
     con.register(df, table_name="t")
     con.register_udwf(smooth_two_col)
 

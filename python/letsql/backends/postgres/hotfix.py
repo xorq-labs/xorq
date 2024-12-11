@@ -3,7 +3,7 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
 
-import letsql
+import letsql as ls
 from letsql.common.utils.hotfix_utils import (
     hotfix,
     none_tokenized,
@@ -56,5 +56,5 @@ def clone(self, password=None, **kwargs):
         },
         **kwargs,
     }
-    con = letsql.postgres.connect(**dct)
+    con = ls.postgres.connect(**dct)
     return con

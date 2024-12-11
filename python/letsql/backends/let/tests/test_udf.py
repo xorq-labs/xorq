@@ -4,7 +4,7 @@ import pytest
 from ibis import _
 from ibis import literal as L
 
-import letsql
+import letsql as ls
 from letsql.expr import udf
 from letsql.tests.util import assert_frame_equal
 
@@ -44,16 +44,16 @@ def centroid_list(a: dt.float64, b: dt.float64, c: dt.float64) -> pa.list_(
 
 
 def test_udf_agg_pyarrow(ls_con, batting):
-    batting = ls_con.register(letsql.execute(batting), "pg-batting")
+    batting = ls_con.register(ls.execute(batting), "pg-batting")
     result = my_mean(batting.G).execute()
 
-    assert result == letsql.execute(batting.G).mean()
+    assert result == ls.execute(batting.G).mean()
 
 
 def test_multiple_arguments_udf_agg_pyarrow(ls_con, batting):
-    batting = ls_con.register(letsql.execute(batting), "pg-batting")
+    batting = ls_con.register(ls.execute(batting), "pg-batting")
     actual = add_mean(batting.G, batting.G).execute()
-    expected = letsql.execute(batting.G)
+    expected = ls.execute(batting.G)
     expected = (expected + expected).mean()
 
     assert actual == expected
@@ -62,9 +62,9 @@ def test_multiple_arguments_udf_agg_pyarrow(ls_con, batting):
 def test_multiple_arguments_struct_udf_agg_pyarrow(ls_con, batting):
     from math import isclose
 
-    batting = ls_con.register(letsql.execute(batting), "pg-batting")
+    batting = ls_con.register(ls.execute(batting), "pg-batting")
     actual = centroid(batting.G, batting.G, batting.G).execute()
-    expected = letsql.execute(batting.G).mean()
+    expected = ls.execute(batting.G).mean()
 
     assert all(isclose(value, expected) for value in actual.values())
 
@@ -72,9 +72,9 @@ def test_multiple_arguments_struct_udf_agg_pyarrow(ls_con, batting):
 def test_multiple_arguments_list_udf_agg_pyarrow(ls_con, batting):
     from math import isclose
 
-    batting = ls_con.register(letsql.execute(batting), "pg-batting")
+    batting = ls_con.register(ls.execute(batting), "pg-batting")
     actual = centroid_list(batting.G, batting.G, batting.G).execute()
-    expected = letsql.execute(batting.G).mean()
+    expected = ls.execute(batting.G).mean()
 
     assert all(isclose(value, expected) for value in actual)
 
@@ -94,7 +94,7 @@ def test_group_by_udf_agg_pyarrow(ls_con, alltypes_df):
         .aggregate(sum=my_sum(_.double_col))
     )
 
-    result = letsql.execute(expr).astype({"x": "int64"})
+    result = ls.execute(expr).astype({"x": "int64"})
     expected = (
         alltypes_df.loc[alltypes_df.string_col == "1", :]
         .assign(x=1)
@@ -109,7 +109,7 @@ def test_group_by_udf_agg_pyarrow(ls_con, alltypes_df):
 
 def test_udf_agg_pandas_df(ls_con, alltypes):
     name = "sum_sum"
-    alltypes = ls_con.register(letsql.execute(alltypes), "pg-alltypes")
+    alltypes = ls_con.register(ls.execute(alltypes), "pg-alltypes")
     cols = (by, _) = ["year", "month"]
     expr = alltypes
 
