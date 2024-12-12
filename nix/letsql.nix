@@ -41,7 +41,7 @@ let
             );
         });
       mkEditableScopeOverride =
-        final: root:
+        final: project: root:
         final.callPackage (
           {
             python,
@@ -80,12 +80,24 @@ let
       crateWheelSrc = mkCrateWheelSrc { inherit python; };
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
       overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
-      project = injectProjectVersion "0.1.10" (
-        pyproject-nix.lib.project.loadUVPyproject { projectRoot = src; }
-      );
       letsqlEditableOverride = final: _prev: {
         # necessary because uv2nix wants to read project for itself and we can't inject version there
-        letsql = mkEditableScopeOverride final "$REPO_ROOT/python";
+        letsql = let
+          project = injectProjectVersion "0.1.10" (
+            pyproject-nix.lib.project.loadUVPyproject { projectRoot = src; }
+          );
+        in mkEditableScopeOverride final project "$REPO_ROOT/python";
+      };
+      letsqlCrateWheelSrcOverride = old: {
+        src = crateWheelSrc;
+        format = "wheel";
+        nativeBuildInputs =
+          (builtins.filter
+            # all the hooks have the same name and we fail if we have the previous one
+            (drv: drv.name != "pyproject-hook")
+            (old.nativeBuildInputs or [ ])
+          )
+          ++ [ pythonSet.pyprojectWheelHook ];
       };
 
       darwinPyprojectOverrides = final: prev: {
@@ -140,17 +152,7 @@ let
         ]);
       };
       pyprojectOverrides = final: prev: {
-        letsql = prev.letsql.overrideAttrs (old: {
-          src = crateWheelSrc;
-          format = "wheel";
-          nativeBuildInputs =
-            (builtins.filter
-              # all the hooks have the same name and we fail if we have the previous one
-              (drv: drv.name != "pyproject-hook")
-              (old.nativeBuildInputs or [ ])
-            )
-            ++ [ pythonSet.pyprojectWheelHook ];
-        });
+        letsql = prev.letsql.overrideAttrs letsqlCrateWheelSrcOverride;
         cityhash = prev.cityhash.overrideAttrs (
           addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
         );
@@ -214,7 +216,7 @@ let
       inherit
         (import ./commands.nix {
           inherit pkgs;
-          python = virtualenv;
+          python = virtualenv-editable;
         })
         letsql-commands-star
         ;
@@ -255,6 +257,7 @@ let
         toolsPackages
         shell
         editableShell
+        letsqlCrateWheelSrcOverride
         ;
     };
 in
