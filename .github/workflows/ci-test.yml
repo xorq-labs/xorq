@@ -38,8 +38,19 @@ jobs:
       - name: download test data
         run: just download-data
 
-      - name: Rust latest
+      - name: rust latest
         run: rustup update
+
+      - name: cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ./target/
+          key:  cargo-${{ matrix.target }}-cache-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
 
       - uses: actions/setup-python@v5
         with:
