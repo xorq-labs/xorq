@@ -55,7 +55,7 @@ duckb = [
     "duckdb>=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 datafusion = [
-    "datafusion>=0.6,<43 ; python_version >= '3.10' and python_version < '4.0'"
+    "datafusion>=0.6,<44; python_version >= '3.10' and python_version < '4.0'"
 ]
 snowflake = [
     "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'"

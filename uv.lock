@@ -1420,7 +1420,7 @@ requires-dist = [
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4.7,<1" },
     { name = "connectorx", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.3.2,<0.5.0" },
     { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = "==2024.12.0" },
-    { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'datafusion'", specifier = ">=0.6,<43" },
+    { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'datafusion'", specifier = ">=0.6,<44" },
     { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'duckb'", specifier = ">=0.10.3,<2" },
     { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=0.10.3,<2" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=2024.6.1,<2024.10.1" },
