@@ -10,6 +10,10 @@ jobs:
   codspeed:
     name: Run benchmarks
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        target: [ x86_64 ]
+        python-version: [ "3.12" ]
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v2
@@ -22,6 +26,17 @@ jobs:
       - name: Rust latest
         run: rustup update
 
+      - name: cargo cache
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ./target/
+          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -32,12 +47,17 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --all-extras --all-groups
+        run: uv sync --all-extras --all-groups --no-install-project
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: uv run maturin develop --release
-        working-directory: ${{ github.workspace }}
+        uses: PyO3/maturin-action@v1
+        with:
+          command: 'develop'
+          args: --release
+          sccache: 'true'
+          manylinux: 'auto'
+          working-directory: ${{ github.workspace }}
         env:
           # make sure profiling information is present
           CARGO_PROFILE_RELEASE_DEBUG: "line-tables-only"
@@ -48,7 +68,7 @@ jobs:
 
       - uses: CodSpeedHQ/action@v3
         with:
-          run: uv run pytest --import-mode=importlib --codspeed
+          run: uv run --no-sync pytest --import-mode=importlib --codspeed
           token: ${{ secrets.CODSPEED_TOKEN }}
           working-directory: ${{ github.workspace }}
         env:

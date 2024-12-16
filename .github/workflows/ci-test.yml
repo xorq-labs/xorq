@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, x86, aarch64]
+        target: [x86_64, x86]
         python-version: ["3.10", "3.11"]
     steps:
       - uses: actions/checkout@v4
@@ -50,7 +50,7 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             ./target/
-          key:  cargo-${{ matrix.target }}-cache-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
 
       - uses: actions/setup-python@v5
         with:
@@ -66,14 +66,18 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: uv run maturin develop
-        working-directory: ${{ github.workspace }}
+        uses: PyO3/maturin-action@v1
+        with:
+          command: 'develop'
+          target: ${{ matrix.target }}
+          sccache: 'true'
+          manylinux: 'auto'
 
       - name: start services
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution'
+        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution'
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
