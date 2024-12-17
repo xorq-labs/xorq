@@ -1347,7 +1347,7 @@ wheels = [
 
 [[package]]
 name = "letsql"
-version = "0.1.10"
+version = "0.1.11"
 source = { editable = "." }
 dependencies = [
     { name = "adbc-driver-postgresql", marker = "python_full_version < '4.0'" },

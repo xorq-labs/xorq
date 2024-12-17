@@ -5,6 +5,66 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.11] - 2024-12-17
+### Details
+Improve CI/CD, migrate to uv, update dependencies. 
+
+#### Added
+- Add reading parquet from http by @mesejo in [#370](https://github.com/letsql/letsql/pull/370)
+- Add codspeed by @mesejo in [#374](https://github.com/letsql/letsql/pull/374)
+
+#### Changed
+- Update dependency ruff to v0.7.4 by @renovate[bot] in [#353](https://github.com/letsql/letsql/pull/353)
+- Update codecov/codecov-action action to v5.0.2 by @renovate[bot] in [#355](https://github.com/letsql/letsql/pull/355)
+- Update dependency coverage to v7.6.7 by @renovate[bot] in [#357](https://github.com/letsql/letsql/pull/357)
+- Pin cargo dependencies version by @mesejo in [#358](https://github.com/letsql/letsql/pull/358)
+- Update codecov/codecov-action action to v5.0.4 by @renovate[bot] in [#363](https://github.com/letsql/letsql/pull/363)
+- Update codecov/codecov-action action to v5.0.7 by @renovate[bot] in [#365](https://github.com/letsql/letsql/pull/365)
+- Update trinodb/trino docker tag to v465 by @renovate[bot] in [#369](https://github.com/letsql/letsql/pull/369)
+- Update dependency ruff to v0.8.0 by @renovate[bot] in [#371](https://github.com/letsql/letsql/pull/371)
+- Udf.agg.pandas_df: enableuse as a decorator by @dlovell in [#375](https://github.com/letsql/letsql/pull/375)
+- Use bare datafusion by @mesejo in [#346](https://github.com/letsql/letsql/pull/346)
+- Update dependency coverage to v7.6.8 by @renovate[bot] in [#378](https://github.com/letsql/letsql/pull/378)
+- Update trinodb/trino docker tag to v466 by @renovate[bot] in [#382](https://github.com/letsql/letsql/pull/382)
+- Update postgres docker tag to v17.2 by @renovate[bot] in [#377](https://github.com/letsql/letsql/pull/377)
+- Update dependency ruff to v0.8.1 by @renovate[bot] in [#383](https://github.com/letsql/letsql/pull/383)
+- Update dependency pytest to v8.3.4 by @renovate[bot] in [#384](https://github.com/letsql/letsql/pull/384)
+- Move to uv by @mesejo in [#380](https://github.com/letsql/letsql/pull/380)
+- Update trinodb/trino docker tag to v467 by @renovate[bot] in [#395](https://github.com/letsql/letsql/pull/395)
+- Update dependency coverage to v7.6.9 by @renovate[bot] in [#392](https://github.com/letsql/letsql/pull/392)
+- Update codecov/codecov-action action to v5.1.1 by @renovate[bot] in [#391](https://github.com/letsql/letsql/pull/391)
+- Update astral-sh/setup-uv action to v4 by @renovate[bot] in [#394](https://github.com/letsql/letsql/pull/394)
+- Update dependency ruff to v0.8.2 by @renovate[bot] in [#390](https://github.com/letsql/letsql/pull/390)
+- Enable codspeed profiling by @mesejo in [#399](https://github.com/letsql/letsql/pull/399)
+- Use python 3.12 in codspeed by @mesejo in [#400](https://github.com/letsql/letsql/pull/400)
+- Update dependency trino to v0.331.0 by @renovate[bot] in [#401](https://github.com/letsql/letsql/pull/401)
+- Enforce letsql as ls alias import by @mesejo in [#403](https://github.com/letsql/letsql/pull/403)
+- Use cache for compiling rust by @mesejo in [#406](https://github.com/letsql/letsql/pull/406)
+- Use maturin action with sccache by @mesejo in [#410](https://github.com/letsql/letsql/pull/410)
+- Update dependency ruff to v0.8.3 by @renovate[bot] in [#407](https://github.com/letsql/letsql/pull/407)
+- Update actions/cache action to v4 by @renovate[bot] in [#409](https://github.com/letsql/letsql/pull/409)
+- Update bitnami/minio docker tag to v2024.12.13 by @renovate[bot] in [#411](https://github.com/letsql/letsql/pull/411)
+
+#### Fixed
+- Update rust crate datafusion to v43 by @renovate[bot] in [#340](https://github.com/letsql/letsql/pull/340)
+- Update dependency ibis-framework to v9.5.0 by @renovate[bot] in [#324](https://github.com/letsql/letsql/pull/324)
+- Pin dependencies by @renovate[bot] in [#359](https://github.com/letsql/letsql/pull/359)
+- Update rust crate object_store to v0.11.1 by @renovate[bot] in [#360](https://github.com/letsql/letsql/pull/360)
+- Update aws-sdk-rust monorepo to v0.101.0 by @renovate[bot] in [#361](https://github.com/letsql/letsql/pull/361)
+- Update rust crate arrow-ord to v53.3.0 by @renovate[bot] in [#368](https://github.com/letsql/letsql/pull/368)
+- Update rust crate arrow to v53.3.0 by @renovate[bot] in [#367](https://github.com/letsql/letsql/pull/367)
+- Fix performance regression by only parsing metadata once by @dlovell in [#373](https://github.com/letsql/letsql/pull/373)
+- Update rust crate url to v2.5.4 by @renovate[bot] in [#376](https://github.com/letsql/letsql/pull/376)
+- Update rust crate tokio to v1.42.0 by @renovate[bot] in [#386](https://github.com/letsql/letsql/pull/386)
+- Update dependency dask to v2024.12.0 by @renovate[bot] in [#387](https://github.com/letsql/letsql/pull/387)
+- Dynamically generate `none_tokenized` by @dlovell in [#396](https://github.com/letsql/letsql/pull/396)
+- Update rust crate prost to v0.13.4 by @renovate[bot] in [#393](https://github.com/letsql/letsql/pull/393)
+- To_pyarrow_batches by @mesejo in [#398](https://github.com/letsql/letsql/pull/398)
+- Update dependency datafusion to v43 by @renovate[bot] in [#408](https://github.com/letsql/letsql/pull/408)
+
+#### Removed
+- Remove xfail markers, clean warnings by @mesejo in [#385](https://github.com/letsql/letsql/pull/385)
+
 ## [0.1.10] - 2024-11-15
 ### Details
 This release introduces UDWF and RemoteTables functionality.
