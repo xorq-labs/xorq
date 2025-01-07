@@ -105,7 +105,7 @@ referencing==0.35.1
 requests==2.32.3
 rich==13.9.4
 rpds-py==0.21.0
-ruff==0.8.3
+ruff==0.8.6
 scikit-learn==1.5.2
 scipy==1.14.1
 setuptools==75.6.0 ; sys_platform == 'darwin' or python_full_version >= '3.12'
