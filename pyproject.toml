@@ -61,7 +61,7 @@ snowflake = [
     "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'"
 ]
 examples = [
-    "fsspec>=2024.6.1,<2024.10.1; python_version >= '3.10' and python_version < '4.0'",
+    "fsspec>=2024.6.1,<2024.12.1; python_version >= '3.10' and python_version < '4.0'",
     "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "xgboost >=1.6.1 ; python_version >= '3.10' and python_version < '4.0'",
     "duckdb >=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'"
