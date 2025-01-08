@@ -28,7 +28,7 @@ use datafusion::datasource::file_format::file_compression_type::FileCompressionT
 use datafusion::datasource::MemTable;
 use datafusion::datasource::TableProvider;
 use datafusion::execution::context::{SessionConfig, SessionContext, SessionState};
-use datafusion::execution::runtime_env::{RuntimeConfig, RuntimeEnv};
+use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::config::ConfigFileType;
@@ -94,8 +94,8 @@ impl PySessionState {
         } else {
             SessionConfig::default().with_information_schema(true)
         };
-        let runtime_config = RuntimeConfig::default();
-        let runtime = Arc::new(RuntimeEnv::try_new(runtime_config).unwrap());
+        let runtime_config = RuntimeEnvBuilder::default();
+        let runtime = Arc::new(runtime_config.build().unwrap());
 
         let session_state = SessionStateBuilder::new()
             .with_config(config)
@@ -155,8 +155,8 @@ impl PySessionContext {
         let predict_xgb = ScalarUDF::from(PredictUdf::new_with_model_registry(registry.clone()));
         let rule = PredictXGBoostAnalyzerRule::new(registry.clone());
 
-        let runtime_config = RuntimeConfig::default();
-        let runtime = Arc::new(RuntimeEnv::try_new(runtime_config)?);
+        let runtime_config = RuntimeEnvBuilder::default();
+        let runtime = Arc::new(runtime_config.build()?);
         let mut session_state = match (session_state, config) {
             (Some(s), _) => s.session_state,
             (None, Some(c)) => SessionStateBuilder::new()

@@ -8,6 +8,8 @@ use std::sync::Arc;
 
 use futures::{stream, TryStreamExt};
 
+use crate::errors::DataFusionError;
+use crate::pyarrow_filter_expression::PyArrowFilterExpression;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::error::ArrowError;
 use datafusion::arrow::error::Result as ArrowResult;
@@ -17,15 +19,13 @@ use datafusion::error::{DataFusionError as InnerDataFusionError, Result as DFRes
 use datafusion::execution::context::TaskContext;
 use datafusion::logical_expr::utils::conjunction;
 use datafusion::logical_expr::Expr;
-use datafusion::physical_expr::{EquivalenceProperties, PhysicalSortExpr};
+use datafusion::physical_expr::{EquivalenceProperties, LexOrdering};
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
-    DisplayAs, DisplayFormatType, ExecutionMode, ExecutionPlan, ExecutionPlanProperties,
-    Partitioning, SendableRecordBatchStream, Statistics,
+    DisplayAs, DisplayFormatType, ExecutionPlan, ExecutionPlanProperties, Partitioning,
+    SendableRecordBatchStream, Statistics,
 };
-
-use crate::errors::DataFusionError;
-use crate::pyarrow_filter_expression::PyArrowFilterExpression;
 
 struct PyArrowBatchesAdapter {
     batches: Py<PyIterator>,
@@ -119,7 +119,8 @@ impl DatasetExec {
         let plan_properties = datafusion::physical_plan::PlanProperties::new(
             EquivalenceProperties::new(schema.clone()),
             Partitioning::UnknownPartitioning(fragments.len()),
-            ExecutionMode::Bounded,
+            EmissionType::Incremental,
+            Boundedness::Bounded,
         );
 
         Ok(DatasetExec {
@@ -234,12 +235,16 @@ impl ExecutionPlanProperties for DatasetExec {
         self.plan_properties.output_partitioning()
     }
 
-    fn execution_mode(&self) -> ExecutionMode {
-        self.plan_properties.execution_mode
+    fn output_ordering(&self) -> Option<&LexOrdering> {
+        None
     }
 
-    fn output_ordering(&self) -> Option<&[PhysicalSortExpr]> {
-        None
+    fn boundedness(&self) -> Boundedness {
+        self.plan_properties.boundedness
+    }
+
+    fn pipeline_behavior(&self) -> EmissionType {
+        self.plan_properties.emission_type
     }
 
     fn equivalence_properties(&self) -> &EquivalenceProperties {

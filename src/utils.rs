@@ -4,7 +4,8 @@ use std::sync::Arc;
 use arrow::array::ArrayRef;
 use arrow::datatypes::SchemaRef;
 use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
-use datafusion::physical_plan::{ExecutionMode, PlanProperties};
+use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
+use datafusion::physical_plan::PlanProperties;
 use datafusion_common::{Result, ScalarValue};
 use datafusion_expr::Volatility;
 use datafusion_expr::{ColumnarValue, ScalarFunctionImplementation};
@@ -58,7 +59,8 @@ pub fn compute_properties(schema: SchemaRef) -> PlanProperties {
     PlanProperties::new(
         eq_properties,
         Partitioning::UnknownPartitioning(1),
-        ExecutionMode::Bounded,
+        EmissionType::Incremental,
+        Boundedness::Bounded,
     )
 }
 
