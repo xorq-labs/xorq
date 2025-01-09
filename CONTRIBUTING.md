@@ -29,6 +29,16 @@ Download example data to run the tests successfully.
 just download-data
 ```
 
+Populate the environment variables:
+
+```bash
+export POSTGRES_DATABASE=ibis_testing
+export POSTGRES_HOST=localhost
+export POSTGRES_USER=postgres
+export POSTGRES_PASSWORD=postgres
+export POSTGRES_PORT=5432
+```
+
 To test the code:
 ```bash
 # make sure you activate the venv using "source venv/bin/activate" first

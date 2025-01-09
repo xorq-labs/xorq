@@ -46,4 +46,4 @@ repos:
       # Update the uv lockfile
       - id: uv-lock
       - id: uv-export
-        args: ["--frozen", "--no-hashes", "--no-emit-project", "--all-groups",  "--output-file=requirements-dev.txt"]
+        args: ["--frozen", "--no-hashes", "--no-emit-project", "--all-groups", "--all-extras", "--output-file=requirements-dev.txt"]
