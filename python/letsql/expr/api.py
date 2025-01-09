@@ -6,7 +6,7 @@ import datetime
 import functools
 import operator
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Union, overload
+from typing import TYPE_CHECKING, Any, Union, overload, Mapping
 
 import ibis
 import ibis.expr.builders as bl
@@ -35,8 +35,12 @@ from ibis.expr.types import (
     struct,
 )
 
+from letsql.common.utils.caching_utils import find_backend
+from letsql.common.utils.defer_utils import rbr_wrapper
+from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.relations import (
-    RemoteTable,
+    CachedNode,
+    register_and_transform_remote_tables,
 )
 
 
@@ -1605,16 +1609,50 @@ def _check_collisions(expr: ir.Expr):
         raise ValueError(f"name collision detected: {bad_names}")
 
 
-def execute(expr: ir.Expr, **kwargs: Any):
-    import letsql as ls
+def _register_and_transform_cache_tables(expr):
+    """This function will sequentially execute any cache node that is not already cached"""
 
+    def fn(node, _, **kwargs):
+        node = node.__recreate__(kwargs)
+        if isinstance(node, CachedNode):
+            uncached, storage = node.parent, node.storage
+            node = storage.set_default(uncached, uncached.op())
+        return node
+
+    op = expr.op()
+    out = op.replace(replace_fix(fn))
+
+    return out.to_expr()
+
+
+def _transform_deferred_reads(expr):
+    dt_to_read = {}
+
+    def replace_read(node, _, **_kwargs):
+        from letsql.expr.relations import Read
+
+        if isinstance(node, Read):
+            if node.source.name == "pandas":
+                # FIXME: pandas read is not lazy, leave it to the pandas executor to do
+                node = dt_to_read[node] = node.make_dt()
+            else:
+                node = dt_to_read[node] = node.make_dt()
+        else:
+            node = node.__recreate__(_kwargs)
+        return node
+
+    expr = expr.op().replace(replace_fix(replace_read)).to_expr()
+    return expr, dt_to_read
+
+
+def _pre_register(expr):
     _check_collisions(expr)
-    con = ls.connect()
-    for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources and not isinstance(t, RemoteTable):
-            con.register(t.to_expr(), t.name)
+    return expr
 
-    return con.execute(expr, **kwargs)
+
+def execute(expr: ir.Expr, **kwargs: Any):
+    batch_reader = to_pyarrow_batches(expr, **kwargs)
+    return expr.__pandas_result__(batch_reader.read_pandas(timestamp_as_object=True))
 
 
 def to_pyarrow_batches(
@@ -1623,35 +1661,43 @@ def to_pyarrow_batches(
     chunk_size: int = 1_000_000,
     **kwargs: Any,
 ):
-    import letsql as ls
+    expr = _pre_register(expr)
 
-    _check_collisions(expr)
-    con = ls.connect()
-    for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources and not isinstance(t, RemoteTable):
-            con.register(t.to_expr(), t.name)
-    return con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+    expr = _register_and_transform_cache_tables(expr)
+    expr, created = register_and_transform_remote_tables(expr)
+    expr, dt_to_read = _transform_deferred_reads(expr)
+
+    con, _ = find_backend(expr.op(), use_default=True)
+
+    reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
+
+    def clean_up():
+        for table_name, conn in created.items():
+            try:
+                conn.drop_table(table_name)
+            except Exception:
+                conn.drop_view(table_name)
+
+    return rbr_wrapper(reader, clean_up)
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
-    import letsql as ls
-
-    _check_collisions(expr)
-    con = ls.connect()
-    for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources and not isinstance(t, RemoteTable):
-            con.register(t.to_expr(), t.name)
-
-    return con.to_pyarrow(expr, **kwargs)
+    batch_reader = to_pyarrow_batches(expr, **kwargs)
+    arrow_table = batch_reader.read_all()
+    return expr.__pyarrow_result__(arrow_table)
 
 
-def to_parquet(expr: ir.Expr, path: str | Path, **kwargs: Any):
-    import letsql as ls
+def to_parquet(
+    expr: ir.Expr,
+    path: str | Path,
+    params: Mapping[ir.Scalar, Any] | None = None,
+    **kwargs: Any,
+):
+    import pyarrow  # noqa: ICN001, F401
+    import pyarrow_hotfix  # noqa: F401
+    import pyarrow.parquet as pq
 
-    _check_collisions(expr)
-    con = ls.connect()
-    for t in expr.op().find(ops.DatabaseTable):
-        if t not in con._sources.sources and not isinstance(t, RemoteTable):
-            con.register(t.to_expr(), t.name)
-
-    return con.to_parquet(expr, path, **kwargs)
+    with to_pyarrow_batches(expr, params=params) as batch_reader:
+        with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
+            for batch in batch_reader:
+                writer.write_batch(batch)

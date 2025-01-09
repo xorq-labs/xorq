@@ -546,9 +546,8 @@ def test_memtable_bool_column(con):
     assert_series_equal(con.execute(t.a), pd.Series([True, False, True], name="a"))
 
 
-def test_memtable_construct(con, monkeypatch):
+def test_memtable_construct():
     pa = pytest.importorskip("pyarrow")
-    monkeypatch.setattr(ls.options, "backend", con)
 
     pa_t = pa.Table.from_pydict(
         {

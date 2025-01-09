@@ -1,3 +1,5 @@
+import ibis.formats.pyarrow
+import ibis.expr.datatypes.core
 import ibis.expr.operations as ops
 import ibis.expr.types.core
 import ibis.expr.types.relations
@@ -14,7 +16,9 @@ from ibis.common.exceptions import (
 
 from letsql.common.caching import (
     SourceStorage,
+    maybe_prevent_cross_source_caching,
 )
+from letsql.common.utils.caching_utils import find_backend
 from letsql.common.utils.hotfix_utils import (
     hotfix,
     none_tokenized,
@@ -25,6 +29,7 @@ from letsql.config import (
 from letsql.expr.relations import (
     CachedNode,
     Read,
+    RemoteTable,
     replace_cache_table,
 )
 
@@ -40,7 +45,17 @@ class LETSQLAccessor:
 
     @property
     def cached_nodes(self):
-        return self.op.find(CachedNode)
+        def _find(node):
+            cached = node.find((CachedNode, RemoteTable))
+            for no in cached:
+                if isinstance(no, RemoteTable):
+                    yield from _find(no.remote_expr.op())
+                else:
+                    yield from _find(no.parent.op())
+                    yield no
+
+        op = self.expr.op()
+        return tuple(_find(op))
 
     @property
     def storage(self):
@@ -55,8 +70,21 @@ class LETSQLAccessor:
 
     @property
     def backends(self):
-        (_backends, _) = self.expr._find_backends()
-        return tuple(set(_backends))
+        def _find_backends(expr):
+            _backends, _ = expr._find_backends()
+            _backends = set(_backends)
+
+            for node in expr.op().find_topmost(CachedNode):
+                _backends.update(_find_backends(node.parent))
+
+            for node in expr.op().find_topmost(RemoteTable):
+                _backends.update(_find_backends(node.remote_expr))
+
+            return _backends
+
+        backends = _find_backends(self.expr)
+
+        return tuple(backends)
 
     @property
     def is_multiengine(self):
@@ -65,7 +93,16 @@ class LETSQLAccessor:
 
     @property
     def dts(self):
-        return self.op.find(self.node_types)
+        nodes = set(self.op.find(self.node_types))
+        for node in self.cached_nodes:
+            candidates = node.parent.op().find(self.node_types)
+            nodes.update(
+                candidate
+                for candidate in candidates
+                if not isinstance(candidate, RemoteTable)
+            )
+
+        return tuple(nodes)
 
     @property
     def is_cached(self):
@@ -73,29 +110,35 @@ class LETSQLAccessor:
 
     @property
     def has_cached(self):
-        return bool(tuple(self.op.find_topmost(CachedNode)))
+        def _has_cached(node):
+            if tuple(node.find_topmost(CachedNode)):
+                return True
+            elif tables := node.find_topmost(RemoteTable):
+                return any(_has_cached(table.remote_expr.op()) for table in tables)
+            else:
+                return False
+
+        return _has_cached(self.op)
 
     @property
     def uncached(self):
         if self.has_cached:
-            return self.op.map_clear(replace_cache_table).to_expr()
+            op = self.expr.op()
+            return op.map_clear(replace_cache_table).to_expr()
         else:
             return self.expr
 
     @property
     def uncached_one(self):
         if self.is_cached:
-            return self.op.parent.to_expr()
+            op = self.expr.op()
+            return op.parent
         else:
             return self.expr
 
     def get_key(self):
         if self.is_cached and (self.exists() or not self.uncached_one.ls.has_cached):
-            return self.storage.get_key(
-                self.storage.source._register_and_transform_cache_tables(
-                    self.uncached_one
-                )
-            )
+            return self.storage.get_key(self.uncached_one)
         else:
             return None
 
@@ -108,15 +151,8 @@ class LETSQLAccessor:
 
     def exists(self):
         if self.is_cached:
-            # must iterate from the bottom up else we execute downstream cached tables
-            return all(
-                cn.storage.exists(
-                    cn.storage.source._register_and_transform_cache_tables(
-                        cn.parent.to_expr()
-                    )
-                )
-                for cn in self.cached_nodes[::-1]
-            )
+            cn = self.op
+            return cn.storage.exists(cn.parent)
         else:
             return None
 
@@ -151,16 +187,17 @@ def _letsql_find_backend(self, *, use_default=True):
 def letsql_cache(self, storage=None):
     # FIXME: push this into LETSQLAccessor
     try:
-        current_backend = self._find_backend(use_default=True)
+        current_backend, _ = find_backend(self.op(), use_default=True)
     except IbisError as e:
         if "Multiple backends found" in e.args[0]:
             current_backend = _backend_init()
         else:
             raise e
     storage = storage or SourceStorage(source=current_backend)
+    expr = maybe_prevent_cross_source_caching(self, storage)
     op = CachedNode(
-        schema=self.schema(),
-        parent=self.op(),
+        schema=expr.schema(),
+        parent=expr,
         source=current_backend,
         storage=storage,
     )

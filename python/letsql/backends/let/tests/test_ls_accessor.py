@@ -60,13 +60,13 @@ def test_storages(cached_two):
 
 def test_backends(duck_batting_raw, cached_two, cached_two_joined):
     assert len(duck_batting_raw.ls.backends) == 1
-    assert len(cached_two.ls.backends) == 1
-    assert len(cached_two_joined.ls.backends) == 2
+    assert len(cached_two.ls.backends) == 2
+    assert len(cached_two_joined.ls.backends) == 3
 
 
 def test_is_multiengine(duck_batting_raw, cached_two, cached_two_joined):
     assert not duck_batting_raw.ls.is_multiengine
-    assert not cached_two.ls.is_multiengine
+    assert cached_two.ls.is_multiengine
     assert cached_two_joined.ls.is_multiengine
 
 

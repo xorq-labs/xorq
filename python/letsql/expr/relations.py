@@ -15,9 +15,9 @@ from letsql.common.utils.graph_utils import replace_fix
 
 def replace_cache_table(node, _, **kwargs):
     if isinstance(node, CachedNode):
-        return kwargs["parent"]
+        return kwargs["parent"].op().replace(replace_fix(replace_cache_table))
     elif isinstance(node, RemoteTable):
-        return kwargs["remote_expr"].op()
+        return kwargs["remote_expr"].op().replace(replace_fix(replace_cache_table))
     else:
         return node.__recreate__(kwargs)
 
@@ -154,6 +154,7 @@ class Read(ops.Relation):
 
 def register_and_transform_remote_tables(expr):
     import letsql as ls
+    from letsql.backends.postgres import Backend as PGBackend
 
     created = {}
 
@@ -191,7 +192,10 @@ def register_and_transform_remote_tables(expr):
             remote_expr=node.remote_expr,
         )
         reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
-        node.source.register(reader, table_name=name)
+        if isinstance(node.source, PGBackend):
+            node.source.read_record_batches(reader, table_name=name)
+        else:
+            node.source.register(reader, table_name=name)
         created[name] = node.source
         return result
 

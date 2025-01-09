@@ -1,5 +1,3 @@
-from operator import methodcaller
-
 import ibis
 import pandas as pd
 import pyarrow as pa
@@ -95,16 +93,16 @@ def test_multiple_record_batches(pg):
         .cache(SourceStorage(source=con))
     )
 
-    res = expr.execute()
+    res = ls.execute(expr)
     assert isinstance(res, pd.DataFrame)
     assert 0 < len(res) <= 15
 
 
-@pytest.mark.parametrize("method", ["to_pyarrow", "to_pyarrow_batches", "execute"])
+@pytest.mark.parametrize("method", [ls.to_pyarrow, ls.to_pyarrow_batches, ls.execute])
 def test_into_backend_simple(pg, method):
     con = ls.connect()
     expr = into_backend(pg.table("batting"), con, "ls_batting")
-    res = methodcaller(method)(expr)
+    res = method(expr)
 
     if isinstance(res, pa.RecordBatchReader):
         res = next(res)
@@ -112,7 +110,7 @@ def test_into_backend_simple(pg, method):
     assert len(res) > 0
 
 
-@pytest.mark.parametrize("method", ["to_pyarrow", "to_pyarrow_batches", "execute"])
+@pytest.mark.parametrize("method", [ls.to_pyarrow, ls.to_pyarrow_batches, ls.execute])
 def test_into_backend_complex(pg, method):
     con = ls.connect()
 
@@ -125,13 +123,33 @@ def test_into_backend_complex(pg, method):
         .cache(SourceStorage(source=con))
     )
 
-    assert ls.to_sql(expr).count("ls_batting") == 2
-    res = methodcaller(method)(expr)
+    assert ls.to_sql(expr).count("batting") == 2
+    res = method(expr)
 
     if isinstance(res, pa.RecordBatchReader):
         res = next(res)
 
     assert 0 < len(res) <= 15
+
+
+def test_double_into_backend_batches(pg):
+    con = ls.connect()
+    ddb_con = ls.duckdb.connect()
+
+    t = into_backend(pg.table("batting"), con, "ls_batting")
+
+    expr = (
+        t.join(t, "playerID")
+        .limit(15)
+        .pipe(into_backend, ddb_con)
+        .select(player_id="playerID", year_id="yearID_right")
+        .cache(SourceStorage(source=con))
+    )
+
+    res = ls.to_pyarrow_batches(expr)
+    res = next(res)
+
+    assert len(res) == 15
 
 
 @pytest.mark.benchmark

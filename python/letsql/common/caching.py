@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import functools
 import operator
 import pathlib
@@ -22,11 +23,18 @@ from attr.validators import (
 
 import letsql as ls
 import letsql.common.utils.dask_normalize  # noqa: F401
+
 from letsql.common.utils.dask_normalize import (
     patch_normalize_token,
 )
 from letsql.common.utils.dask_normalize_expr import (
     normalize_backend,
+    normalize_read,
+    normalize_remote_table,
+)
+from letsql.expr.relations import (
+    Read,
+    RemoteTable,
 )
 
 
@@ -78,7 +86,11 @@ class Cache:
         return self.storage.key_exists(key)
 
     def get_key(self, expr):
-        # FIXME: let strategy solely determine key
+        # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
+        if expr.ls.is_cached and expr.ls.storage.cache is self:
+            expr = expr.ls.uncached_one
+        expr = maybe_prevent_cross_source_caching(expr, self)
+        # FIXME: let strategy solely determine key by giving it key_prefix
         return self.key_prefix + self.strategy.get_key(expr)
 
     def get(self, expr: ir.Expr):
@@ -119,34 +131,114 @@ class ModificationTimeStragegy(CacheStrategy):
     )
 
     def get_key(self, expr: ir.Expr):
+        expr = self.replace_remote_table(expr)
         return self.key_prefix + dask.base.tokenize(expr)
+
+    @staticmethod
+    @functools.cache
+    def cached_replace_remote_table(op):
+        from letsql.common.utils.graph_utils import replace_fix
+
+        def rename_remote_table(node, _, **kwargs):
+            if isinstance(node, RemoteTable):
+                # name doesn't matter for key
+                name = "static-name"
+                rt = RemoteTable(
+                    name=name,
+                    schema=node.schema,
+                    source=node.source,
+                    remote_expr=node.remote_expr,
+                    namespace=node.namespace,
+                )
+                return rt
+            else:
+                return node.__recreate__(kwargs)
+
+        return op.replace(replace_fix(rename_remote_table))
+
+    def replace_remote_table(self, expr):
+        """replace remote table with deterministic name ***strictly for key calculation***"""
+        if expr.op().find(RemoteTable):
+            expr = self.cached_replace_remote_table(expr.op()).to_expr()
+        return expr
 
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
-    def get_key(self, expr: ir.Expr):
+    @contextlib.contextmanager
+    def normalization_context(self, expr):
         typs = map(type, expr.ls.backends)
         with patch_normalize_token(*typs, f=self.normalize_backend):
             with patch_normalize_token(
-                ops.DatabaseTable, f=self.normalize_databasetable
+                ops.DatabaseTable,
+                f=self.normalize_databasetable,
             ):
-                tokenized = dask.tokenize.tokenize(expr)
-                return "-".join(("snapshot", tokenized))
+                with patch_normalize_token(
+                    Read,
+                    f=self.cached_normalize_read,
+                ):
+                    yield
+
+    @staticmethod
+    @functools.cache
+    def cached_normalize_read(op):
+        return normalize_read(op)
+
+    @staticmethod
+    @functools.cache
+    def cached_replace_remote_table(op):
+        from letsql.common.utils.graph_utils import replace_fix
+
+        def rename_remote_table(node, _, **kwargs):
+            if isinstance(node, RemoteTable):
+                # FIXME: how to verify that we're always within a self.normalization_context?
+                name = dask.base.tokenize(node)
+                rt = RemoteTable(
+                    name=name,
+                    schema=node.schema,
+                    source=node.source,
+                    remote_expr=node.remote_expr,
+                    namespace=node.namespace,
+                )
+                return rt
+            else:
+                return node.__recreate__(kwargs)
+
+        return op.replace(replace_fix(rename_remote_table))
+
+    def replace_remote_table(self, expr):
+        """replace remote table with deterministic name ***strictly for key calculation***"""
+        if expr.op().find(RemoteTable):
+            expr = self.cached_replace_remote_table(expr.op()).to_expr()
+        return expr
+
+    def get_key(self, expr: ir.Expr):
+        # can we cache this?
+        with self.normalization_context(expr):
+            replaced = self.replace_remote_table(expr)
+            tokenized = dask.tokenize.tokenize(replaced)
+            return "-".join(("snapshot", tokenized))
 
     @staticmethod
     def normalize_backend(con):
         name = con.name
-        if name in ("pandas", "duckdb", "datafusion"):
+        if name in ("pandas", "duckdb", "datafusion", "let"):
             return (name, None)
         else:
             return normalize_backend(con)
 
     @staticmethod
     def normalize_databasetable(dt):
-        keys = ["name", "schema", "source", "namespace"]
-        return dask.tokenize._normalize_seq_func(
-            (key, getattr(dt, key)) for key in keys
-        )
+        if isinstance(dt, RemoteTable):
+            # one alternative is to explicitly iterate over the fields name, schema, source, namespace
+            # but explicit is better than implicit, additionally the name is not a safe bet for caching
+            # RemoteTable
+            return normalize_remote_table(dt)
+        else:
+            keys = ["name", "schema", "source", "namespace"]
+            return dask.tokenize._normalize_seq_func(
+                (key, getattr(dt, key)) for key in keys
+            )
 
 
 @frozen
@@ -189,33 +281,23 @@ class ParquetStorage(CacheStorage):
 # named with underscore prefix until we swap out SourceStorage
 @frozen
 class _SourceStorage(CacheStorage):
-    _source = field(
+    source = field(
         validator=instance_of(ibis.backends.BaseBackend),
         factory=letsql.config._backend_init,
     )
 
     def key_exists(self, key):
-        return key in self._source.tables
+        return key in self.source.tables
 
     def _get(self, key):
-        return self._source.table(key).op()
+        return self.source.table(key).op()
 
     def _put(self, key, value):
-        expr = value.to_expr()
-        backends, _ = expr._find_backends()
-        # FIXME what happens when the backend is LETSQL, to_pyarrow won't work
-        if (
-            len(backends) == 1
-            and backends[0].name != "pandas"
-            and backends[0] is self._source
-        ):
-            self._source.create_table(key, expr)
-        else:
-            self._source.create_table(key, ls.to_pyarrow(expr))
+        self.source.create_table(key, ls.to_pyarrow(value.to_expr()))
         return self._get(key)
 
     def _drop(self, key):
-        self._source.drop_table(key)
+        self.source.drop_table(key)
 
 
 ###############
@@ -256,6 +338,9 @@ class ParquetSnapshot:
             ),
         )
         object.__setattr__(self, "cache", cache)
+
+    def exists(self, expr: ir.Expr) -> bool:
+        return self.cache.exists(expr)
 
     __getattr__ = chained_getattr
 
@@ -316,3 +401,13 @@ class SnapshotStorage:
         object.__setattr__(self, "cache", cache)
 
     __getattr__ = chained_getattr
+
+
+def maybe_prevent_cross_source_caching(expr, storage):
+    from letsql.expr.relations import (
+        into_backend,
+    )
+
+    if storage.storage.source != expr._find_backend():
+        expr = into_backend(expr, storage.storage.source)
+    return expr

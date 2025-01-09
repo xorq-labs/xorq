@@ -14,7 +14,5 @@ expr = (
     .cache(SourceStorage(source=con))
 )
 
-res = expr.compile(pretty=True)
-print(res)
-print(expr.execute())
+print(ls.execute(expr))
 print(con.list_tables())

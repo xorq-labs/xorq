@@ -1,7 +1,7 @@
 import letsql as ls
+from letsql.expr.relations import into_backend
 
-
-pg = ls.postgres.connect_examples()
+pg = ls.postgres.connect_env()
 db = ls.duckdb.connect()
 
 
@@ -12,7 +12,7 @@ awards_players = db.register(
 )
 left = batting[batting.yearID == 2015]
 right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
-expr = left.join(right, ["playerID"], how="semi")[["yearID", "stint"]]
+expr = left.join(into_backend(right, pg), ["playerID"], how="semi")[["yearID", "stint"]]
 
 
 result = ls.execute(expr)

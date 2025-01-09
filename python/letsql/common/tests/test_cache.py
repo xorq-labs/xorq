@@ -38,11 +38,12 @@ def test_default_connection(tmp_path, parquet_dir):
     con = ls.datafusion.connect()
     t = con.register(batting_path, table_name="astronauts")
 
-    storage = ParquetCacheStorage(path=tmp_path)
+    # if we do cross source caching, then we get a random name and storage.get_key result isn't stable
+    storage = ParquetCacheStorage(source=con, path=tmp_path)
     storage.put(t, t.op())
 
     get_node = storage.get(t)
     assert get_node is not None
-    assert get_node.source.name == "let"
+    assert get_node.source.name == con.name
     assert letsql.options.backend is not None
     assert get_node.to_expr().execute is not None

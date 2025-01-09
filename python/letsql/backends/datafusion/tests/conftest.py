@@ -1,7 +1,6 @@
-import ibis
+import numpy as np
 import pandas as pd
 import pytest
-import numpy as np
 
 import letsql as ls
 
@@ -44,7 +43,7 @@ def trades_df():
 @pytest.fixture
 def ddb_con(quotes_df):
     """Create DuckDB connection with Ibis"""
-    duckdb_connection = ibis.duckdb.connect()
+    duckdb_connection = ls.duckdb.connect()
     duckdb_connection.create_table(
         "quotes",
         quotes_df,

@@ -1,26 +1,22 @@
 from __future__ import annotations
 
 import urllib.parse
-from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Mapping
 
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
-from ibis import BaseBackend
 from ibis.expr import types as ir, schema as sch
 from sqlglot import exp, parse_one
 
 import letsql.backends.let.hotfix  # noqa: F401
 from letsql.backends.let.datafusion import Backend as DataFusionBackend
 from letsql.common.collections import SourceDict
-from letsql.common.utils.defer_utils import rbr_wrapper
 from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
-    register_and_transform_remote_tables,
 )
 from letsql.internal import WindowUDF
 
@@ -215,17 +211,6 @@ class Backend(DataFusionBackend):
         self._sources[registered_table.op()] = registered_table.op()
         return registered_table
 
-    def _transform_to_native_backend(self, expr):
-        native_backend = self._get_source(expr) is not self
-        if native_backend:
-
-            def replace_table(node, _, **_kwargs):
-                return self._sources.get_table_or_op(node, node.__recreate__(_kwargs))
-
-            expr = expr.op().replace(replace_fix(replace_table)).to_expr()
-
-        return expr
-
     def execute(self, expr: ir.Expr, **kwargs: Any):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
         return expr.__pandas_result__(
@@ -244,41 +229,7 @@ class Backend(DataFusionBackend):
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ) -> pa.ipc.RecordBatchReader:
-        expr = self._transform_to_native_backend(expr)
-        expr, created = register_and_transform_remote_tables(expr)
-        expr = self._register_and_transform_cache_tables(expr)
-        expr, dt_to_read = self._transform_deferred_reads(expr)
-        backend = self._get_source(expr)
-        if isinstance(backend, self.__class__):
-            backend = super(self.__class__, backend)
-        reader = backend.to_pyarrow_batches(
-            expr.unbind(), chunk_size=chunk_size, **kwargs
-        )
-
-        def clean_up():
-            for table, con in created.items():
-                try:
-                    con.drop_table(table)
-                except Exception:
-                    con.drop_view(table)
-
-        return rbr_wrapper(reader, clean_up)
-
-    @contextmanager
-    def _get_backend_and_expr(self, expr):
-        expr = self._transform_to_native_backend(expr)
-        expr, created = register_and_transform_remote_tables(expr)
-        expr = self._register_and_transform_cache_tables(expr)
-        expr, dt_to_read = self._transform_deferred_reads(expr)
-        backend = self._get_source(expr)
-        if isinstance(backend, self.__class__):
-            backend = super(self.__class__, backend)
-        yield backend, expr.unbind()
-        for table, con in created.items():
-            try:
-                con.drop_table(table)
-            except Exception:
-                con.drop_view(table)
+        return super().to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
     def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
         """Creates a connection.
@@ -296,44 +247,6 @@ class Backend(DataFusionBackend):
         """
         super().do_connect(config=config)
 
-    def _get_source(self, expr: ir.Expr):
-        """Find the source"""
-
-        tables = expr.op().find(
-            lambda n: (s := getattr(n, "source", None)) and isinstance(s, BaseBackend)
-        )
-
-        # assumes only one backend per DB type
-        sources = []
-        for table in tables:
-            source = self._sources.get_backend(table, getattr(table, "source", self))
-            if all(source is not seen for seen in sources):
-                sources.append(source)
-
-        if len(sources) != 1:
-            return self
-        else:
-            return sources[0]
-
-    def _transform_deferred_reads(self, expr, **kwargs):
-        dt_to_read = {}
-
-        def replace_read(node, _, **_kwargs):
-            from letsql.expr.relations import Read
-
-            if isinstance(node, Read):
-                if node.source.name == "pandas":
-                    # FIXME: pandas read is not lazy, leave it to the pandas executor to do
-                    node = dt_to_read[node] = node.make_dt()
-                else:
-                    node = dt_to_read[node] = node.make_dt()
-            else:
-                node = node.__recreate__(_kwargs)
-            return node
-
-        expr = expr.op().replace(replace_fix(replace_read)).to_expr()
-        return expr, dt_to_read
-
     def _register_and_transform_cache_tables(self, expr):
         """This function will sequentially execute any cache node that is not already cached"""
 
@@ -341,7 +254,7 @@ class Backend(DataFusionBackend):
             node = node.__recreate__(kwargs)
             if isinstance(node, CachedNode):
                 uncached, storage = node.parent, node.storage
-                node = storage.set_default(uncached.to_expr(), uncached)
+                node = storage.set_default(uncached, uncached.op())
                 table = node.to_expr()
                 if node.source is self:
                     table = _get_datafusion_table(self.con, node.name)
