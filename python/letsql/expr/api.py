@@ -1570,6 +1570,18 @@ def interval(
     )
 
 
+@functools.cache
+def _cached_with_op(op, pretty):
+    from letsql.config import _backend_init
+
+    con = _backend_init()
+
+    expr = op.to_expr()
+    sg_expr = con.compiler.to_sqlglot(expr)
+    sql = sg_expr.sql(dialect=DataFusion, pretty=pretty)
+    return sql
+
+
 def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
     """Return the formatted SQL string for an expression.
 
@@ -1586,12 +1598,8 @@ def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
         Formatted SQL string
 
     """
-    from letsql.config import _backend_init
 
-    con = _backend_init()
-    sg_expr = con.compiler.to_sqlglot(expr.unbind())
-    sql = sg_expr.sql(dialect=DataFusion, pretty=pretty)
-    return SQLString(sql)
+    return SQLString(_cached_with_op(expr.unbind().op(), pretty))
 
 
 def _check_collisions(expr: ir.Expr):
