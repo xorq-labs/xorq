@@ -28,7 +28,6 @@ __all__ = [
     "OptimizerContext",
     "LogicalPlan",
     "LogicalPlanBuilder",
-    "SessionConfig",
     "ScalarUDF",
     "AggregateUDF",
     "OptimizerRule",

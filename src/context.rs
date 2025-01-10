@@ -67,8 +67,68 @@ impl PySessionConfig {
         Self { config }
     }
 
+    fn with_create_default_catalog_and_schema(&self, enabled: bool) -> Self {
+        Self::from(
+            self.config
+                .clone()
+                .with_create_default_catalog_and_schema(enabled),
+        )
+    }
+
+    fn with_default_catalog_and_schema(&self, catalog: &str, schema: &str) -> Self {
+        Self::from(
+            self.config
+                .clone()
+                .with_default_catalog_and_schema(catalog, schema),
+        )
+    }
+
     fn with_information_schema(&self, enabled: bool) -> Self {
         Self::from(self.config.clone().with_information_schema(enabled))
+    }
+
+    fn with_batch_size(&self, batch_size: usize) -> Self {
+        Self::from(self.config.clone().with_batch_size(batch_size))
+    }
+
+    fn with_target_partitions(&self, target_partitions: usize) -> Self {
+        Self::from(
+            self.config
+                .clone()
+                .with_target_partitions(target_partitions),
+        )
+    }
+
+    fn with_repartition_aggregations(&self, enabled: bool) -> Self {
+        Self::from(self.config.clone().with_repartition_aggregations(enabled))
+    }
+
+    fn with_repartition_joins(&self, enabled: bool) -> Self {
+        Self::from(self.config.clone().with_repartition_joins(enabled))
+    }
+
+    fn with_repartition_windows(&self, enabled: bool) -> Self {
+        Self::from(self.config.clone().with_repartition_windows(enabled))
+    }
+
+    fn with_repartition_sorts(&self, enabled: bool) -> Self {
+        Self::from(self.config.clone().with_repartition_sorts(enabled))
+    }
+
+    fn with_repartition_file_scans(&self, enabled: bool) -> Self {
+        Self::from(self.config.clone().with_repartition_file_scans(enabled))
+    }
+
+    fn with_repartition_file_min_size(&self, size: usize) -> Self {
+        Self::from(self.config.clone().with_repartition_file_min_size(size))
+    }
+
+    fn with_parquet_pruning(&self, enabled: bool) -> Self {
+        Self::from(self.config.clone().with_parquet_pruning(enabled))
+    }
+
+    fn set(&self, key: &str, value: &str) -> Self {
+        Self::from(self.config.clone().set_str(key, value))
     }
 }
 

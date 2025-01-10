@@ -191,19 +191,16 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def version(self):
         return ls.__version__
 
-    def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
-        df_config = SessionConfig(
-            {"datafusion.sql_parser.dialect": "PostgreSQL"}
-        ).with_information_schema(True)
-        self.con = SessionContext(config=df_config)
+    def do_connect(self, config: SessionConfig | None = None) -> None:
+        if config is None:
+            config = SessionConfig()
+        config = config.with_information_schema(True).set(
+            "datafusion.sql_parser.dialect", "PostgreSQL"
+        )
+
+        self.con = SessionContext(config=config)
 
         self._register_builtin_udfs()
-
-        if not config:
-            config = {}
-
-        for name, path in config.items():
-            self.register(path, table_name=name)
 
     def disconnect(self) -> None:
         pass

@@ -9,6 +9,7 @@ from letsql.config import options
 from letsql.expr import api
 from letsql.expr.api import *  # noqa: F403
 from letsql.backends.let import Backend
+from letsql.internal import SessionConfig
 
 
 try:
@@ -21,6 +22,7 @@ __all__ = [  # noqa: PLE0604
     "examples",
     "connect",
     "options",
+    "SessionConfig",
     *api.__all__,
 ]
 
@@ -64,10 +66,10 @@ def load_backend(name):
         return proxy
 
 
-def connect() -> Backend:
+def connect(session_config: SessionConfig | None = None) -> Backend:
     """Create a LETSQL backend."""
     instance = Backend()
-    instance.do_connect()
+    instance.do_connect(session_config)
     return instance
 
 

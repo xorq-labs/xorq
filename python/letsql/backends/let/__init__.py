@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import urllib.parse
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import pandas as pd
 import pyarrow as pa
@@ -18,7 +18,7 @@ from letsql.expr.relations import (
     CachedNode,
     replace_cache_table,
 )
-from letsql.internal import WindowUDF
+from letsql.internal import WindowUDF, SessionConfig
 
 
 def _get_datafusion_table(con, table_name, database="public"):
@@ -231,7 +231,7 @@ class Backend(DataFusionBackend):
     ) -> pa.ipc.RecordBatchReader:
         return super().to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
-    def do_connect(self, config: Mapping[str, str | Path] | None = None) -> None:
+    def do_connect(self, config: SessionConfig | None = None) -> None:
         """Creates a connection.
 
         Parameters

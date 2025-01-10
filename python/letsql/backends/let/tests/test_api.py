@@ -2,7 +2,6 @@ from pathlib import Path
 
 import pytest
 
-
 import letsql as ls
 
 
@@ -80,3 +79,31 @@ def test_read_sqlite(tmp_path):
     res = ls.execute(t)
 
     assert res is not None and len(res)
+
+
+@pytest.mark.parametrize(
+    ("with_repartition_file_scans", "keep_partition_by_columns"),
+    [(True, True), (True, False), (False, True), (False, False)],
+)
+def test_with_config(
+    with_repartition_file_scans, keep_partition_by_columns, parquet_dir
+):
+    from letsql import SessionConfig
+    import pandas as pd
+
+    session_config = (
+        SessionConfig()
+        .with_repartition_file_scans(with_repartition_file_scans)
+        .set(
+            "datafusion.execution.keep_partition_by_columns",
+            str(keep_partition_by_columns).lower(),
+        )
+    )
+
+    con = ls.connect(session_config=session_config)
+
+    expr = con.read_parquet(parquet_dir / "batting.parquet").limit(10)
+    result = expr.execute()
+
+    assert isinstance(result, pd.DataFrame)
+    assert len(result) == 10
