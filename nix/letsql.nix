@@ -204,7 +204,17 @@ let
         esac
         source=$repo_dir/target/release/maturin/libletsql.$suffix
         target=$repo_dir/python/letsql/_internal.abi3.so
-        if [ ! -e "$source" ]; then
+
+        if [ -e "$target" ]; then
+          for other in $(find src -name '*rs'); do
+            if [ "$target" -ot "$other" ]; then
+              rm -f "$target"
+              break
+            fi
+          done
+        fi
+
+        if [ ! -e "$source" -o ! -e "$target" ]; then
           maturin build --release
         fi
         if [ ! -L "$target" -o "$(realpath "$source")" != "$(realpath "$target")" ]; then
