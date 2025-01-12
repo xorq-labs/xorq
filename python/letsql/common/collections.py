@@ -4,20 +4,17 @@ from typing import Dict
 
 from ibis.expr.operations import relations as ops
 from letsql.expr.relations import (
+    CachedNode,
     Read,
 )
 
 
 def _find_backend(value):
-    backends = set()
-    node_types = (ops.UnboundTable, ops.DatabaseTable, ops.SQLQueryResult, Read)
-    for table in value.find(node_types):
-        backends.add(table.source)
-
-    if len(backends) > 1:
+    node_types = (ops.UnboundTable, ops.DatabaseTable, ops.SQLQueryResult, CachedNode, Read)
+    (backend, *rest) = set(table.source for table in value.find(node_types))
+    if len(rest) > 1:
         raise ValueError("Multiple backends found for this expression")
-
-    return backends.pop()
+    return backend
 
 
 class SourceDict:

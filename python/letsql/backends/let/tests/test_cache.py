@@ -940,3 +940,17 @@ def test_ls_exists_doesnt_materialize(cached_two):
     ls.execute(cached_two.count())
     assert cached_two.ls.exists()
     assert storage.exists(cached_two)
+
+
+@pytest.mark.parametrize(
+    "con", [ls.connect(), ls.datafusion.connect(), ls.duckdb.connect()]
+)
+@pytest.mark.parametrize(
+    "cls", [ParquetSnapshot, ParquetCacheStorage, SnapshotStorage, SourceStorage]
+)
+def test_cache_find_backend(con, cls):
+    storage = cls(source=con)
+    expr = con.read_parquet(ls.options.pins.get_path("astronauts")).cache(
+        storage=storage
+    )
+    assert expr._find_backend().name == "let"

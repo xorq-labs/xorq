@@ -73,6 +73,8 @@ class LETSQLAccessor:
         def _find_backends(expr):
             _backends, _ = expr._find_backends()
             _backends = set(_backends)
+            if backend := expr._find_backend():
+                _backends.add(backend)
 
             for node in expr.op().find_topmost(CachedNode):
                 _backends.update(_find_backends(node.parent))
@@ -165,7 +167,7 @@ class LETSQLAccessor:
 def _letsql_find_backend(self, *, use_default=True):
     # FIXME: push this into LETSQLAccessor
     try:
-        if tuple(op.source for op in self.op().find(Read)):
+        if tuple(op.source for op in self.op().find((Read, CachedNode))):
             current_backend = _backend_init()
         else:
             current_backend = self._find_backend._original(
