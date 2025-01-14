@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import datetime
 import functools
-import operator
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Union, overload, Mapping
 
@@ -14,7 +13,6 @@ import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
-import toolz
 from ibis import api
 from ibis.backends.sql.dialects import DataFusion
 from ibis.common.deferred import Deferred, _, deferrable
@@ -1602,21 +1600,6 @@ def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
     return SQLString(_cached_with_op(expr.unbind().op(), pretty))
 
 
-def _check_collisions(expr: ir.Expr):
-    names_to_backends = toolz.groupby(
-        operator.itemgetter(0),
-        ((t.name, t.source, id(t.source)) for t in expr.op().find(ops.DatabaseTable)),
-    )
-    bad_names = tuple(
-        (name, tuple(con for _, con, _ in vs))
-        for name, vs in names_to_backends.items()
-        if len(vs) > 1
-    )
-
-    if bad_names:
-        raise ValueError(f"name collision detected: {bad_names}")
-
-
 def _register_and_transform_cache_tables(expr):
     """This function will sequentially execute any cache node that is not already cached"""
 
@@ -1653,11 +1636,6 @@ def _transform_deferred_reads(expr):
     return expr, dt_to_read
 
 
-def _pre_register(expr):
-    _check_collisions(expr)
-    return expr
-
-
 def execute(expr: ir.Expr, **kwargs: Any):
     batch_reader = to_pyarrow_batches(expr, **kwargs)
     return expr.__pandas_result__(batch_reader.read_pandas(timestamp_as_object=True))
@@ -1669,8 +1647,6 @@ def to_pyarrow_batches(
     chunk_size: int = 1_000_000,
     **kwargs: Any,
 ):
-    expr = _pre_register(expr)
-
     expr = _register_and_transform_cache_tables(expr)
     expr, created = register_and_transform_remote_tables(expr)
     expr, dt_to_read = _transform_deferred_reads(expr)
