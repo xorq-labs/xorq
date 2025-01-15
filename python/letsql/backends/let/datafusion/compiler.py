@@ -576,6 +576,9 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_ArrayFlatten(self, op, *, arg):
         return self.if_(arg.is_(NULL), NULL, self.f.flatten(arg))
 
+    def visit_Hash(self, op, *, arg):
+        return self.f.hash_int(arg)
+
     def visit_MarkedRemoteTable(
         self,
         op,

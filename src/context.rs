@@ -8,6 +8,7 @@ use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
 use crate::functions::greatest::GreatestFunc;
+use crate::functions::hash_int::HashIntFunc;
 use crate::functions::least::LeastFunc;
 use crate::ibis_table::IbisTable;
 use crate::model::{ModelRegistry, SessionModelRegistry};
@@ -240,6 +241,7 @@ impl PySessionContext {
         ctx.register_udf(predict_xgb.clone());
         ctx.register_udf(ScalarUDF::from(GreatestFunc::new()));
         ctx.register_udf(ScalarUDF::from(LeastFunc::new()));
+        ctx.register_udf(ScalarUDF::from(HashIntFunc::new()));
 
         Ok(PySessionContext {
             ctx,

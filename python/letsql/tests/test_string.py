@@ -398,3 +398,15 @@ def test_no_conditional_percent_escape(con, expr):
 def test_string_length(con):
     t = ls.memtable({"s": ["aaa", "a", "aa"]})
     assert con.execute(t.s.length()).gt(0).all()
+
+
+def test_hash(con):
+    s = ls.literal("aBc")
+    expected = 5357040098349975229
+    expr = s.hash()
+    assert con.execute(expr) == expected
+
+
+def test_hash_column(alltypes):
+    res = ls.execute(alltypes.string_col.hash().name("tmp"))
+    assert res is not None
