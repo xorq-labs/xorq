@@ -2,6 +2,7 @@ import functools
 import itertools
 import pathlib
 
+import duckdb
 import pandas as pd
 import pytest
 from adbc_driver_manager import ProgrammingError
@@ -177,7 +178,7 @@ def test_deferred_read_temporary(con, pins_resource, request):
     "con,pins_resource,filter_",
     (
         (con, pins_resource, filter_)
-        for con in (ls.pandas.connect(), ls.postgres.connect_env())
+        for con in (ls.pandas.connect(), ls.postgres.connect_env(), ls.duckdb.connect())
         for (pins_resource, filter_) in (
             ("iris_csv", filter_sepal_length),
             ("astronauts_parquet", filter_field21),
@@ -202,7 +203,11 @@ def test_cached_deferred_read(con, pins_resource, filter_, request, tmp_path):
     assert storage.exists(expr)
 
     # we read from cache even if the table disappears
-    con.drop_table(t.op().name, force=True)
+    try:
+        con.drop_table(t.op().name, force=True)
+    except duckdb.duckdb.CatalogException:
+        con.drop_view(t.op().name)
+
     assert ls.execute(expr).equals(df)
     assert pins_resource.table_name not in con.tables
 
