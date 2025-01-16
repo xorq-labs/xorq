@@ -11,6 +11,7 @@ from letsql.common.utils.aws_utils import (
     make_s3_credentials_defaults,
 )
 
+
 TEST_TABLES = {
     "functional_alltypes": ibis.schema(
         {
