@@ -75,6 +75,7 @@ __all__ = (
     "e",
     "execute",
     "following",
+    "get_plans",
     "greatest",
     "ifelse",
     "infer_dtype",
@@ -1642,16 +1643,20 @@ def execute(expr: ir.Expr, **kwargs: Any):
     return expr.__pandas_result__(batch_reader.read_pandas(timestamp_as_object=True))
 
 
+def _transform_expr(expr):
+    expr = _register_and_transform_cache_tables(expr)
+    expr, created = register_and_transform_remote_tables(expr)
+    expr, dt_to_read = _transform_deferred_reads(expr)
+    return (expr, created)
+
+
 def to_pyarrow_batches(
     expr: ir.Expr,
     *,
     chunk_size: int = 1_000_000,
     **kwargs: Any,
 ):
-    expr = _register_and_transform_cache_tables(expr)
-    expr, created = register_and_transform_remote_tables(expr)
-    expr, dt_to_read = _transform_deferred_reads(expr)
-
+    (expr, created) = _transform_expr(expr)
     con, _ = find_backend(expr.op(), use_default=True)
 
     reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
@@ -1686,3 +1691,10 @@ def to_parquet(
         with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
             for batch in batch_reader:
                 writer.write_batch(batch)
+
+
+def get_plans(expr):
+    _expr, _ = _transform_expr(expr)
+    con, _ = find_backend(_expr.op())
+    sql = f"EXPLAIN {to_sql(_expr)}"
+    return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
