@@ -152,7 +152,7 @@ sphobjinv==2.3.1.2
 sqlalchemy==2.0.37 ; python_full_version < '4.0'
 sqlglot==25.20.2 ; python_full_version < '4.0'
 stack-data==0.6.3
-structlog==24.4.0 ; python_full_version < '4.0'
+structlog==25.1.0 ; python_full_version < '4.0'
 tabulate==0.9.0
 threadpoolctl==3.5.0
 tomli==2.2.1
