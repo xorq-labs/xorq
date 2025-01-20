@@ -3,6 +3,7 @@ from typing import Mapping, Any
 
 from ibis.backends.duckdb import Backend as IbisDuckDBBackend
 from ibis.expr import types as ir
+from ibis.util import gen_name
 
 from letsql.backends.duckdb.compiler import DuckDBCompiler
 from letsql.expr.relations import register_and_transform_remote_tables
@@ -35,6 +36,11 @@ class Backend(IbisDuckDBBackend):
         return expr.__pandas_result__(
             batch_reader.read_pandas(timestamp_as_object=True)
         )
+
+    def read_record_batches(self, source, table_name=None):
+        table_name = table_name or gen_name("read_record_batches")
+        self.con.register(table_name, source)
+        return self.table(table_name)
 
     def to_pyarrow_batches(
         self,

@@ -5,6 +5,7 @@ import re
 import dask
 import pytest
 
+import letsql as ls
 import letsql.common.utils.dask_normalize  # noqa: F401
 from letsql.common.caching import (
     SnapshotStorage,
@@ -28,7 +29,7 @@ def test_unregistered_raises():
 
 
 def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
-    con = letsql.datafusion.connect()
+    con = ls.datafusion.connect()
     typ = type(con)
     t = con.register(alltypes_df, "t")
     with patch_normalize_token(type(con)) as mocks:
@@ -40,7 +41,7 @@ def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
 def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     path = pathlib.Path(tmp_path).joinpath("data.parquet")
     alltypes_df.to_parquet(path)
-    con = letsql.datafusion.connect()
+    con = ls.datafusion.connect()
     t = con.register(path, "t")
     # work around tmp_path variation
     (prefix, suffix) = (
@@ -60,7 +61,7 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
 
 
 def test_tokenize_pandas_expr(alltypes_df, snapshot):
-    con = letsql.pandas.connect()
+    con = ls.pandas.connect()
     typ = type(con)
     t = con.create_table("t", alltypes_df)
     with patch_normalize_token(type(t.op().source)) as mocks:
@@ -70,7 +71,7 @@ def test_tokenize_pandas_expr(alltypes_df, snapshot):
 
 
 def test_tokenize_duckdb_expr(batting, snapshot):
-    con = letsql.duckdb.connect()
+    con = ls.duckdb.connect()
     typ = type(con)
     t = con.register(batting.to_pyarrow(), "dashed-name")
     with patch_normalize_token(type(con)) as mocks:
@@ -81,7 +82,7 @@ def test_tokenize_duckdb_expr(batting, snapshot):
 
 
 def test_pandas_snapshot_key(alltypes_df, snapshot):
-    con = letsql.pandas.connect()
+    con = ls.pandas.connect()
     t = con.create_table("t", alltypes_df)
     storage = SnapshotStorage(source=con)
     actual = storage.get_key(t)
@@ -89,7 +90,7 @@ def test_pandas_snapshot_key(alltypes_df, snapshot):
 
 
 def test_duckdb_snapshot_key(batting, snapshot):
-    con = letsql.duckdb.connect()
+    con = ls.duckdb.connect()
     t = con.register(batting.to_pyarrow(), "dashed-name")
     storage = SnapshotStorage(source=con)
     actual = storage.get_key(t)

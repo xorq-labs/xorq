@@ -208,7 +208,7 @@ def test_cache_recreate(alltypes):
 
     alltypes_df = ls.execute(alltypes)
     cons = (con0, con1) = ls.connect(), ls.connect()
-    ts = tuple(con.register(alltypes_df, "alltypes") for con in cons)
+    ts = tuple(con.create_table("alltypes", alltypes_df) for con in cons)
     exprs = tuple(make_expr(t) for t in ts)
 
     for con, expr in zip(cons, exprs):
@@ -271,7 +271,7 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
 
     con = ls.connect()
     alltypes_df.to_parquet(path)
-    t = con.register(path, "t")
+    t = con.read_parquet(path, "t")
     cols = ["id", "bool_col", "float_col", "string_col"]
     expr = t[cols]
     expected = alltypes_df[cols]
@@ -525,7 +525,7 @@ def test_duckdb_cache_arrow(con, pg, tmp_path):
     name = "batting"
     expr = (
         ls.duckdb.connect()
-        .register(pg.table(name).to_pyarrow(), name)[lambda t: t.yearID > 2000]
+        .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
     )
     ls.execute(expr)
@@ -535,7 +535,7 @@ def test_cross_source_storage(pg):
     name = "batting"
     expr = (
         ls.duckdb.connect()
-        .register(pg.table(name).to_pyarrow(), name)[lambda t: t.yearID > 2000]
+        .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
         .cache(storage=SourceStorage(source=pg))
     )
     ls.execute(expr)
@@ -602,9 +602,9 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
 def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID > 2014]
-    db_t = other_con.register(pg.table(table_name).to_pyarrow(), f"db-{table_name}")[
-        lambda t: t.stint == 1
-    ].pipe(into_backend, pg)
+    db_t = other_con.create_table(
+        f"db-{table_name}", pg.table(table_name).to_pyarrow()
+    )[lambda t: t.stint == 1].pipe(into_backend, pg)
 
     expr = pg_t.join(
         db_t,
@@ -649,7 +649,7 @@ def test_register_with_different_name_and_cache(csv_dir, get_expr):
 
     datafusion_con = ls.datafusion.connect()
     letsql_table_name = f"{datafusion_con.name}_{table_name}"
-    t = datafusion_con.register(
+    t = datafusion_con.read_csv(
         batting_path, table_name=table_name, schema_infer_max_records=50_000
     )
     expr = t.pipe(get_expr).cache()
@@ -690,7 +690,7 @@ def test_pandas_snapshot(ls_con, alltypes_df):
     # create a temp table we can mutate
     pd_con = ls.pandas.connect()
     table = pd_con.create_table(name, alltypes_df)
-    # t = ls_con.register(table, f"let_{table.op().name}")
+
     cached_expr = (
         table.group_by(group_by)
         .agg({f"count_{col}": table[col].count() for col in table.columns})
@@ -716,7 +716,7 @@ def test_pandas_snapshot(ls_con, alltypes_df):
     # test NO cache invalidation
     pd_con.reconnect()
     table2 = pd_con.create_table(name, pd.concat((alltypes_df, alltypes_df)))
-    # t = ls_con.register(table2, f"let_{table2.op().name}")
+
     cached_expr = (
         table2.group_by(group_by)
         .agg({f"count_{col}": table2[col].count() for col in table2.columns})
@@ -743,7 +743,7 @@ def test_duckdb_snapshot(ls_con, alltypes_df):
     # create a temp table we can mutate
     db_con = ls.duckdb.connect()
     table = db_con.create_table(name, alltypes_df)
-    # t = ls_con.register(table, f"let_{table.op().name}")
+
     cached_expr = (
         table.group_by(group_by)
         .agg({f"count_{col}": table[col].count() for col in table.columns})
@@ -777,7 +777,7 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     # create a temp table we can mutate
     df_con = ls.datafusion.connect()
     table = df_con.create_table(name, alltypes_df)
-    # t = ls_con.register(table, f"let_{table.op().name}")
+
     cached_expr = (
         table.group_by(group_by)
         .agg({f"count_{col}": table[col].count() for col in table.columns})
@@ -820,7 +820,7 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
     cols = list(inspect.signature(my_mul).parameters)
 
     expr = (
-        ls_con.register(alltypes_df, "alltypes")[cols]
+        ls_con.create_table("alltypes", alltypes_df)[cols]
         .pipe(lambda t: t.mutate(mulled=my_mul(*(t[col] for col in cols))))
         .cache()
     )
@@ -841,7 +841,7 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
     by = "bool_col"
     name = "my_mul_sum"
 
-    t = ls_con.register(alltypes_df, "alltypes")
+    t = ls_con.create_table("alltypes", alltypes_df)
     agg_udf = agg.pandas_df(
         my_mul_sum,
         t[cols].schema(),

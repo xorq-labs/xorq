@@ -206,13 +206,15 @@ def statements(ddl_file: Path):
 def con(data_dir, ddl_file):
     conn = ls.connect()
     parquet_dir = data_dir / "parquet"
-    conn.register(parquet_dir / "functional_alltypes.parquet", "functional_alltypes")
-    conn.register(parquet_dir / "batting.parquet", "batting")
-    conn.register(parquet_dir / "diamonds.parquet", "diamonds")
-    conn.register(parquet_dir / "astronauts.parquet", "astronauts")
-    conn.register(parquet_dir / "awards_players.parquet", "awards_players")
+    conn.read_parquet(
+        parquet_dir / "functional_alltypes.parquet", "functional_alltypes"
+    )
+    conn.read_parquet(parquet_dir / "batting.parquet", "batting")
+    conn.read_parquet(parquet_dir / "diamonds.parquet", "diamonds")
+    conn.read_parquet(parquet_dir / "astronauts.parquet", "astronauts")
+    conn.read_parquet(parquet_dir / "awards_players.parquet", "awards_players")
 
-    conn.register(array_types_df, "array_types")
+    conn.create_table("array_types", array_types_df)
 
     if ddl_file.is_file() and ddl_file.name.endswith(".sql"):
         for statement in statements(ddl_file):

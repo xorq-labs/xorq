@@ -7,6 +7,8 @@ import functools
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Union, overload, Iterable, Mapping
 
+import pyarrow as pa
+import pyarrow.dataset as ds
 import ibis
 import ibis.expr.builders as bl
 import ibis.expr.datatypes as dt
@@ -336,6 +338,13 @@ def memtable(
           1     2  baz
 
     """
+
+    if isinstance(data, ds.InMemoryDataset):
+        data = data.to_table()
+
+    if isinstance(data, pa.RecordBatch):
+        data = data.to_pandas()
+
     return api.memtable(data, columns=columns, schema=schema, name=name)
 
 

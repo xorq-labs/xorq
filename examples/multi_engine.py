@@ -6,12 +6,12 @@ db = ls.duckdb.connect()
 
 
 batting = pg.table("batting")
-awards_players = db.register(
+awards_players = db.read_parquet(
     ls.config.options.pins.get_path("awards_players"),
     table_name="awards_players",
 )
-left = batting[batting.yearID == 2015]
-right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
+left = batting.filter(batting.yearID == 2015)
+right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 expr = left.join(into_backend(right, pg), ["playerID"], how="semi")[["yearID", "stint"]]
 
 

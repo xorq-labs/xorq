@@ -20,9 +20,9 @@ def cached_two(ls_con, batting, tmp_path):
 
 @pytest.fixture
 def duck_batting_raw(batting_df):
-    return ls.duckdb.connect().register(
+    return ls.duckdb.connect().create_table(
+        "batting_df",
         batting_df,
-        table_name="batting_df",
     )
 
 

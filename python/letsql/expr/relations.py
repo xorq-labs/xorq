@@ -154,7 +154,6 @@ class Read(ops.Relation):
 
 def register_and_transform_remote_tables(expr):
     import letsql as ls
-    from letsql.backends.postgres import Backend as PGBackend
 
     created = {}
 
@@ -192,10 +191,7 @@ def register_and_transform_remote_tables(expr):
             remote_expr=node.remote_expr,
         )
         reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
-        if isinstance(node.source, PGBackend):
-            node.source.read_record_batches(reader, table_name=name)
-        else:
-            node.source.register(reader, table_name=name)
+        node.source.read_record_batches(reader, table_name=name)
         created[name] = node.source
         return result
 

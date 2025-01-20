@@ -120,16 +120,16 @@ def ls_batting(parquet_batting):
 
 @pytest.fixture(scope="function")
 def ddb_batting(duckdb_con):
-    return duckdb_con.register(
-        duckdb_con.table("batting").to_pyarrow(),
+    return duckdb_con.create_table(
         "db-batting",
+        duckdb_con.table("batting").to_pyarrow(),
     )
 
 
 def test_join(ls_con, alltypes, alltypes_df):
     first_10 = alltypes_df.head(10)
     in_memory = into_backend(
-        ls_con.register(first_10, table_name="in_memory"), alltypes.op().source
+        ls_con.create_table("in_memory", first_10), alltypes.op().source
     )
     expr = alltypes.join(in_memory, predicates=[alltypes.id == in_memory.id])
     actual = ls.execute(expr).sort_values("id")
@@ -173,7 +173,7 @@ def test_filtering_join(batting, awards_players, how):
 def test_union(ls_con, union_subsets, distinct):
     (a, _, _), (da, db, dc) = union_subsets
 
-    b = ls_con.register(db, table_name="b")
+    b = ls_con.create_table("b", db)
     expr = ibis.union(into_backend(a, ls_con), b, distinct=distinct).order_by("id")
     result = ls.execute(expr)
 
@@ -189,8 +189,8 @@ def test_union_mixed_distinct(ls_con, union_subsets):
     (a, _, _), (da, db, dc) = union_subsets
 
     a = into_backend(a, ls_con)
-    b = ls_con.register(db, table_name="b")
-    c = ls_con.register(dc, table_name="c")
+    b = ls_con.create_table("b", db)
+    c = ls_con.create_table("c", dc)
 
     expr = a.union(b, distinct=True).union(c, distinct=False).order_by("id")
     result = ls.execute(expr)
@@ -364,7 +364,7 @@ def test_sql_execution(ls_con, duckdb_con, awards_players, batting):
 
 def test_multiple_execution_letsql_register_table(ls_con, csv_dir):
     table_name = "csv_players"
-    t = ls_con.register(csv_dir / "awards_players.csv", table_name=table_name)
+    t = ls_con.read_csv(csv_dir / "awards_players.csv", table_name=table_name)
     ls_con.register(t, table_name=f"{ls_con.name}_{table_name}")
 
     assert (first := ls.execute(t)) is not None
@@ -398,7 +398,7 @@ def test_expr_over_same_table_multiple_times(ls_con, parquet_dir, other_con):
     if other_con.name == "postgres":
         t = other_con.table(table_name)
     else:
-        t = other_con.register(batting_path, table_name=table_name)
+        t = other_con.read_parquet(batting_path, table_name=table_name)
 
     ls_table_name = f"{other_con.name}_{table_name}"
     ls_con.register(t, ls_table_name)
@@ -483,7 +483,7 @@ def test_multiple_pipes(pg, new_con):
 
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID == 2015]
-    db_t = new_con.register(pg_t.to_pyarrow(), f"db-{table_name}")[
+    db_t = new_con.create_table(f"db-{table_name}", pg_t.to_pyarrow())[
         lambda t: t.yearID == 2014
     ]
 
@@ -507,7 +507,7 @@ def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con, function, remote):
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID == 2015].cache(storage)
 
-    db_t = duckdb_con.register(ls.to_pyarrow_batches(pg_t), f"ls-{table_name}")[
+    db_t = duckdb_con.create_table(f"ls-{table_name}", ls.to_pyarrow(pg_t))[
         lambda t: t.yearID == 2014
     ]
 
@@ -627,18 +627,14 @@ def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
     assert_frame_equal(actual.sort_values(columns), expected.sort_values(columns))
 
 
-@pytest.mark.xfail(reason="not implemented yet")
 def test_no_registration_same_table_name(ls_con, pg_batting):
     ddb_con = ls.duckdb.connect()
-    ddb_batting = ddb_con.register(
-        pg_batting[["playerID", "yearID"]].to_pyarrow_batches(), "batting"
-    )
-    ls_batting = ls_con.register(
-        pg_batting[["playerID", "stint"]].to_pyarrow_batches(), "batting"
-    )
+    table = pg_batting[["playerID", "yearID"]].to_pyarrow()
+    ddb_batting = ddb_con.create_table("batting", table)
+    ls_batting = ls_con.register(table, "batting")
 
     expr = ddb_batting.join(
-        ls_batting,
+        into_backend(ls_batting, ddb_con),
         "playerID",
     )
 

@@ -173,7 +173,7 @@ def test_into_backend_cache(pg, tmp_path):
 
 
 def test_into_backend_duckdb(pg):
-    ddb = ibis.duckdb.connect()
+    ddb = ls.duckdb.connect()
     t = into_backend(pg.table("batting"), ddb, "ls_batting")
     expr = (
         t.join(t, "playerID")
@@ -192,7 +192,7 @@ def test_into_backend_duckdb(pg):
 
 
 def test_into_backend_duckdb_expr(pg):
-    ddb = ibis.duckdb.connect()
+    ddb = ls.duckdb.connect()
     t = into_backend(pg.table("batting"), ddb, "ls_batting")
     expr = t.join(t, "playerID").limit(15).select(_.playerID * 2)
 
@@ -207,7 +207,7 @@ def test_into_backend_duckdb_expr(pg):
 
 
 def test_into_backend_duckdb_trino(trino_table):
-    db_con = ibis.duckdb.connect()
+    db_con = ls.duckdb.connect()
     expr = trino_table.head(10_000).pipe(into_backend, db_con).pipe(make_merged)
 
     expr, created = register_and_transform_remote_tables(expr)

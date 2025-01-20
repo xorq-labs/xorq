@@ -102,6 +102,7 @@ postgres = "letsql.backends.postgres"
 snowflake = "letsql.backends.snowflake"
 datafusion = "letsql.backends.datafusion"
 duckdb = "letsql.backends.duckdb"
+pandas = "letsql.backends.pandas"
 
 [tool.maturin]
 module-name = "letsql._internal"
