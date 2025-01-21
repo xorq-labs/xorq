@@ -85,3 +85,5 @@ ci/ibis_testing.db
 .direnv/
 
 .codspeed
+
+.envrc.secrets
