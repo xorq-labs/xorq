@@ -44,7 +44,7 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --all-extras --all-groups
+        run: uv sync --all-extras --all-groups --no-install-project
         working-directory: ${{ github.workspace }}
 
       - uses: quarto-dev/quarto-actions/setup@v2
@@ -52,8 +52,12 @@ jobs:
           version: 1.4.515
 
       - name: maturin develop
-        run: uv run maturin develop
-        working-directory: ${{ github.workspace }}
+        uses: PyO3/maturin-action@v1
+        with:
+          command: 'develop'
+          target: ${{ matrix.target }}
+          sccache: 'true'
+          manylinux: 'auto'
 
       - name: start services
         run: docker compose up --build --wait
