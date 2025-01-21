@@ -69,7 +69,7 @@ jobs:
         run: just docs-render
 
       - name: check that all frozen computations were done before push
-        run: git diff --exit-code --stat
+        run: git diff --exit-code --stat ':!uv.lock'
 
       - name: deploy docs
         run: just docs-deploy
