@@ -63,7 +63,7 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
             .agg({f"min_{col}": table[col].min() for col in table.columns})
             .cache(storage)
         )
-        (storage, uncached) = get_storage_uncached(con, cached_expr)
+        (storage, uncached) = get_storage_uncached(cached_expr)
         unbound_sql = re.sub(
             r"\s+",
             " ",
@@ -126,7 +126,6 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
     group_by = "key"
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
-    con = ls.connect()
     storage = SnapshotStorage(source=ls.duckdb.connect())
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
@@ -141,7 +140,7 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
             .agg({f"count_{col}": table[col].count() for col in table.columns})
             .cache(storage)
         )
-        (storage, uncached) = get_storage_uncached(con, cached_expr)
+        (storage, uncached) = get_storage_uncached(cached_expr)
         unbound_sql = re.sub(
             r"\s+",
             " ",
@@ -166,7 +165,7 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
 
         # test NO cache invalidation
         sf_con.insert(name, df, database=f"{temp_catalog}.{temp_db}")
-        (storage, uncached) = get_storage_uncached(con, cached_expr)
+        (storage, uncached) = get_storage_uncached(cached_expr)
         assert storage.exists(uncached)
         executed2 = ls.execute(cached_expr.ls.uncached)
         assert not executed0.equals(executed2)
