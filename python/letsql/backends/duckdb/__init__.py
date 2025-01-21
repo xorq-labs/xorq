@@ -1,25 +1,11 @@
-from contextlib import contextmanager
 from typing import Mapping, Any
 
+import pyarrow as pa
 from ibis.backends.duckdb import Backend as IbisDuckDBBackend
 from ibis.expr import types as ir
 from ibis.util import gen_name
 
 from letsql.backends.duckdb.compiler import DuckDBCompiler
-from letsql.expr.relations import register_and_transform_remote_tables
-
-import pyarrow as pa
-
-
-@contextmanager
-def _transform_expr(expr):
-    expr, created = register_and_transform_remote_tables(expr)
-    yield expr
-    for table, con in created.items():
-        try:
-            con.drop_table(table)
-        except Exception:
-            con.drop_view(table)
 
 
 class Backend(IbisDuckDBBackend):

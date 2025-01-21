@@ -18,7 +18,6 @@ from letsql.common.utils.defer_utils import (
 from letsql.expr.relations import (
     make_native_op,
     RemoteTable,
-    MarkedRemoteTable,
 )
 
 
@@ -244,9 +243,9 @@ def normalize_databasetable(dt):
     return f(dt)
 
 
-@dask.base.normalize_token.register((RemoteTable, MarkedRemoteTable))
+@dask.base.normalize_token.register(RemoteTable)
 def normalize_remote_table(dt):
-    if not isinstance(dt, (RemoteTable, MarkedRemoteTable)):
+    if not isinstance(dt, RemoteTable):
         raise ValueError
 
     return dask.base.normalize_token(

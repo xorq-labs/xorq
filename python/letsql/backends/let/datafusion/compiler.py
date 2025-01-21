@@ -579,20 +579,6 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_Hash(self, op, *, arg):
         return self.f.hash_int(arg)
 
-    def visit_MarkedRemoteTable(
-        self,
-        op,
-        *,
-        name: str,
-        schema,
-        source,
-        namespace: ops.Namespace,
-        remote_expr,
-    ):
-        return sg.table(
-            name, db=namespace.database, catalog=namespace.catalog, quoted=self.quoted
-        )
-
     def to_sqlglot(
         self,
         expr: ir.Expr,
