@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 
 
-# pre-emptively cause registration of numpy, pandas
+# preemptively cause registration of numpy, pandas
 dask.base.normalize_token.dispatch(np.dtype)
 dask.base.normalize_token.dispatch(pd.DataFrame)
 

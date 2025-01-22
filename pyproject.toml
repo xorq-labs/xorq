@@ -71,7 +71,7 @@ examples = [
 dev = [
     "black==24.10.0",
     "blackdoc==0.3.9",
-    "codespell[hard-encoding-detection,toml]==2.3.0",
+    "codespell[hard-encoding-detection,toml]==2.4.0",
     "coverage[toml]==7.6.10",
     "git-cliff<3.0.0,>=2.2.1",
     "ipython<9.0.0,>=8.19.0",
