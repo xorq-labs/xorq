@@ -7,11 +7,11 @@ aiohttp==3.11.11 ; python_full_version < '4.0'
 aiosignal==1.3.2 ; python_full_version < '4.0'
 annotated-types==0.7.0
 appdirs==1.4.4 ; python_full_version < '4.0'
-appnope==0.1.4 ; platform_system == 'Darwin'
+appnope==0.1.4 ; sys_platform == 'darwin'
 asn1crypto==1.5.1 ; python_full_version < '4.0'
 asttokens==3.0.0
 async-timeout==5.0.1 ; python_full_version < '3.11'
-atpublic==5.0 ; python_full_version < '4.0'
+atpublic==5.1 ; python_full_version < '4.0'
 attrs==24.3.0
 beartype==0.19.0
 beniget==0.4.2.post1 ; sys_platform == 'darwin'
@@ -29,7 +29,7 @@ cloudpickle==3.1.1 ; python_full_version < '4.0'
 codespell==2.4.0
 colorama==0.4.6
 comm==0.2.2
-connectorx==0.4.0 ; python_full_version < '4.0'
+connectorx==0.4.1 ; python_full_version < '4.0'
 coverage==7.6.10
 cryptography==44.0.0 ; python_full_version < '4.0'
 dask==2025.1.0 ; python_full_version < '4.0'
@@ -39,7 +39,7 @@ decorator==5.1.1
 distlib==0.3.9
 duckdb==1.1.3
 exceptiongroup==1.2.2 ; python_full_version < '3.11'
-executing==2.1.0
+executing==2.2.0
 fastjsonschema==2.21.1
 filelock==3.17.0
 frozenlist==1.5.0 ; python_full_version < '4.0'
@@ -47,9 +47,9 @@ fsspec==2024.12.0 ; python_full_version < '4.0'
 gast==0.6.0 ; sys_platform == 'darwin'
 gcsfs==2024.12.0 ; python_full_version < '4.0'
 geoarrow-types==0.2.0 ; python_full_version < '4.0'
-git-cliff==2.7.0
+git-cliff==2.8.0
 google-api-core==2.24.0 ; python_full_version < '4.0'
-google-auth==2.37.0 ; python_full_version < '4.0'
+google-auth==2.38.0 ; python_full_version < '4.0'
 google-auth-oauthlib==1.2.1 ; python_full_version < '4.0'
 google-cloud-core==2.4.1 ; python_full_version < '4.0'
 google-cloud-storage==2.19.0 ; python_full_version < '4.0'
@@ -89,7 +89,7 @@ nbformat==5.10.4
 nest-asyncio==1.6.0
 nodeenv==1.9.1
 numpy==2.2.2
-nvidia-nccl-cu12==2.24.3 ; platform_machine != 'aarch64' and platform_system == 'Linux'
+nvidia-nccl-cu12==2.25.1 ; platform_machine != 'aarch64' and sys_platform == 'linux'
 oauthlib==3.2.2 ; python_full_version < '4.0'
 packaging==24.2
 pandas==2.2.3 ; python_full_version < '4.0'
@@ -118,7 +118,7 @@ pyarrow-hotfix==0.6 ; python_full_version < '4.0'
 pyasn1==0.6.1 ; python_full_version < '4.0'
 pyasn1-modules==0.4.1 ; python_full_version < '4.0'
 pycparser==2.22
-pydantic==2.10.5
+pydantic==2.10.6
 pydantic-core==2.27.2
 pygments==2.19.1
 pyjwt==2.10.1 ; python_full_version < '4.0'
@@ -135,7 +135,7 @@ pywin32==308 ; platform_python_implementation != 'PyPy' and sys_platform == 'win
 pyyaml==6.0.2
 pyzmq==26.2.0
 quartodoc==0.9.1
-referencing==0.36.1
+referencing==0.36.2
 requests==2.32.3
 requests-oauthlib==2.0.0 ; python_full_version < '4.0'
 rich==13.9.4
@@ -146,7 +146,7 @@ scikit-learn==1.6.1
 scipy==1.15.1
 setuptools==75.8.0 ; sys_platform == 'darwin'
 six==1.17.0
-snowflake-connector-python==3.12.4 ; python_full_version < '4.0'
+snowflake-connector-python==3.13.0 ; python_full_version < '4.0'
 sortedcontainers==2.4.0 ; python_full_version < '4.0'
 sphobjinv==2.3.1.2
 sqlalchemy==2.0.37 ; python_full_version < '4.0'
@@ -162,7 +162,7 @@ tornado==6.4.2
 traitlets==5.14.3
 trino==0.332.0
 typing-extensions==4.12.2
-tzdata==2025.1 ; python_full_version < '4.0' or platform_system == 'Windows'
+tzdata==2025.1 ; python_full_version < '4.0' or sys_platform == 'win32'
 tzlocal==5.2
 urllib3==2.3.0
 virtualenv==20.29.1
