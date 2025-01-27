@@ -1,5 +1,4 @@
 import letsql as ls
-
 from letsql import _
 from letsql.common.utils.defer_utils import (
     deferred_read_csv,

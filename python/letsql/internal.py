@@ -6,6 +6,7 @@ import pyarrow as pa
 from letsql._internal import (
     AggregateUDF,
     ContextProvider,
+    DataFrame,
     LogicalPlan,
     LogicalPlanBuilder,
     OptimizerContext,
@@ -14,11 +15,11 @@ from letsql._internal import (
     SessionConfig,  # noqa: F401
     SessionContext,  # noqa: F401
     SessionState,  # noqa: F401
-    TableProvider,
     Table,
-    DataFrame,
+    TableProvider,
     WindowUDF,
 )
+
 
 __all__ = [
     "SessionContext",

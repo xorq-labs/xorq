@@ -4,11 +4,11 @@ from typing import Any
 
 import ibis
 import pyarrow as pa
-from ibis import Schema, Expr
+from ibis import Expr, Schema
 from ibis.common.collections import FrozenDict
 from ibis.common.graph import Graph
 from ibis.expr import operations as ops
-from ibis.expr.operations import Relation, Node
+from ibis.expr.operations import Node, Relation
 
 from letsql.common.utils.graph_utils import replace_fix
 

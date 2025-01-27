@@ -1,8 +1,8 @@
-import ibis.formats.pyarrow
 import ibis.expr.datatypes.core
 import ibis.expr.operations as ops
 import ibis.expr.types.core
 import ibis.expr.types.relations
+import ibis.formats.pyarrow
 from attr import (
     field,
     frozen,

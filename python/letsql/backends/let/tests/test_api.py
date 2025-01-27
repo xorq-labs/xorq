@@ -88,8 +88,9 @@ def test_read_sqlite(tmp_path):
 def test_with_config(
     with_repartition_file_scans, keep_partition_by_columns, parquet_dir
 ):
-    from letsql import SessionConfig
     import pandas as pd
+
+    from letsql import SessionConfig
 
     session_config = (
         SessionConfig()

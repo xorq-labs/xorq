@@ -1,7 +1,7 @@
 import letsql as ls
-
 from letsql import _
 from letsql.common.caching import SourceStorage
+
 
 con = ls.connect()
 ddb = ls.duckdb.connect()

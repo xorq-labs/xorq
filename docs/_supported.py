@@ -13,32 +13,33 @@ from ibis.expr.types.arrays import ArrayValue
 from ibis.expr.types.binary import BinaryValue
 from ibis.expr.types.collections import SetValue
 from ibis.expr.types.core import Expr
-from ibis.expr.types.generic import Value, Scalar, Column
+from ibis.expr.types.generic import Column, Scalar, Value
 from ibis.expr.types.geospatial import GeoSpatialValue
-from ibis.expr.types.inet import MACADDRValue, INETValue
+from ibis.expr.types.inet import INETValue, MACADDRValue
 from ibis.expr.types.joins import Join
 from ibis.expr.types.json import JSONValue
-from ibis.expr.types.logical import BooleanValue, BooleanColumn
+from ibis.expr.types.logical import BooleanColumn, BooleanValue
 from ibis.expr.types.maps import MapValue
 from ibis.expr.types.numeric import (
-    NumericColumn,
-    IntegerColumn,
-    FloatingColumn,
     DecimalColumn,
+    FloatingColumn,
+    IntegerColumn,
+    NumericColumn,
 )
 from ibis.expr.types.relations import Table
 from ibis.expr.types.strings import StringValue
 from ibis.expr.types.structs import StructValue
 from ibis.expr.types.temporal import (
-    TimeValue,
     DateValue,
-    TimestampValue,
-    IntervalValue,
     DayOfWeek,
+    IntervalValue,
+    TimestampValue,
+    TimeValue,
 )
 from ibis.expr.types.uuid import UUIDValue
 
 from letsql.backends.let import Backend as LETSQLBackend
+
 
 support_matrix_ignored_operations = (ops.ScalarParameter,)
 

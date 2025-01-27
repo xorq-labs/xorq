@@ -1,6 +1,6 @@
 from functools import partial
 from pathlib import Path
-from typing import Mapping, Any
+from typing import Any, Mapping
 
 import ibis.expr.schema as sch
 import pyarrow as pa

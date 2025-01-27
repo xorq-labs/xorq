@@ -20,8 +20,8 @@ from letsql.backends.conftest import (
     get_storage_uncached,
 )
 from letsql.common.caching import (
-    ParquetSnapshot,
     ParquetCacheStorage,
+    ParquetSnapshot,
     SnapshotStorage,
     SourceStorage,
 )

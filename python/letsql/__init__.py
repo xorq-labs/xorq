@@ -11,7 +11,6 @@ from letsql.expr.api import *  # noqa: F403
 from letsql.backends.let import Backend
 from letsql.internal import SessionConfig
 
-
 try:
     import importlib.metadata as importlib_metadata
 except ModuleNotFoundError:
@@ -39,6 +38,7 @@ def load_backend(name):
         (ep for ep in _load_entry_points() if ep.name == name), None
     ):
         import types
+
         import letsql as ls
 
         module = entry_point.load()

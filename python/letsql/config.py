@@ -1,5 +1,5 @@
 import pathlib
-from typing import Union, Optional, Any
+from typing import Any, Optional, Union
 
 import ibis
 from ibis.config import Config

@@ -3,6 +3,7 @@ import warnings
 import dask
 import toolz
 
+
 try:
     import cityhash  # noqa: F401
 except ImportError:

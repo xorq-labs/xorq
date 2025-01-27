@@ -1,4 +1,4 @@
-from typing import Mapping, Any
+from typing import Any, Mapping
 
 import ibis.expr.types as ir
 from ibis.backends.snowflake import Backend as IbisSnowflakeBackend

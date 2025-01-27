@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from ibis import memtable
+import pandas as pd
 import pytest
+from ibis import memtable
+
 import letsql as ls
 from letsql.expr.ml import _calculate_bounds
-import pandas as pd
 from letsql.tests.util import assert_frame_equal
 
 

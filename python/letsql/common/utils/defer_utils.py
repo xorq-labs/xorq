@@ -3,6 +3,7 @@ import pandas as pd
 import pyarrow as pa
 import sqlglot as sg
 import toolz
+from ibis.backends.sql.compilers.base import SQLGlotCompiler
 from ibis.util import (
     gen_name,
 )
@@ -19,7 +20,6 @@ from letsql.expr.relations import (
     Read,
 )
 
-from ibis.backends.sql.compilers.base import SQLGlotCompiler
 
 DEFAULT_CHUNKSIZE = 10_000
 

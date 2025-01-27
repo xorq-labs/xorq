@@ -1,8 +1,8 @@
 from pathlib import Path
 
-import letsql as ls
 import pytest
 
+import letsql as ls
 import letsql.backends.let
 from letsql.common.caching import ParquetCacheStorage
 

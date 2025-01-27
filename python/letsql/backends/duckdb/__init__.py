@@ -1,4 +1,4 @@
-from typing import Mapping, Any
+from typing import Any, Mapping
 
 import pyarrow as pa
 from ibis.backends.duckdb import Backend as IbisDuckDBBackend

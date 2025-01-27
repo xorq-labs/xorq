@@ -1,7 +1,6 @@
 import pytest
 
 import letsql as ls
-
 from letsql.backends.let import Backend
 from letsql.common.caching import (
     ParquetCacheStorage,

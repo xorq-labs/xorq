@@ -16,8 +16,8 @@ from letsql.common.utils.defer_utils import (
     Read,
 )
 from letsql.expr.relations import (
-    make_native_op,
     RemoteTable,
+    make_native_op,
 )
 
 

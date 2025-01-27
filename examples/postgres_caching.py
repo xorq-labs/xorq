@@ -2,6 +2,7 @@ import letsql as ls
 from letsql import _
 from letsql.common.caching import ParquetCacheStorage
 
+
 pg = ls.postgres.connect_examples()
 con = ls.connect()
 

@@ -1,6 +1,7 @@
 import letsql as ls
 from letsql.expr.relations import into_backend
 
+
 pg = ls.postgres.connect_env()
 db = ls.duckdb.connect()
 

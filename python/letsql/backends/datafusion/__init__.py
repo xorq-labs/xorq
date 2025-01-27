@@ -11,10 +11,10 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
-
 from ibis.backends.datafusion import Backend as IbisDatafusionBackend
 from ibis.common.dispatch import lazy_singledispatch
 from ibis.util import gen_name
+
 
 if TYPE_CHECKING:
     import pandas as pd

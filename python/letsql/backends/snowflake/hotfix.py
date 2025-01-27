@@ -3,8 +3,8 @@ import itertools
 import warnings
 
 import ibis
-import ibis.expr.types as ir
 import ibis.expr.schema as sch
+import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import sqlglot as sg

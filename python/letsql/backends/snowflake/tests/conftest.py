@@ -1,10 +1,11 @@
 from contextlib import contextmanager
 
-import letsql as ls
 import pytest
 import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.util import gen_name
+
+import letsql as ls
 
 
 SU = pytest.importorskip("letsql.common.utils.snowflake_utils")

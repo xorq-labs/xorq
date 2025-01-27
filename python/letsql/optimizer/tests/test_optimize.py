@@ -2,8 +2,8 @@ import pyarrow as pa
 import pytest
 from pandas.testing import assert_frame_equal, assert_series_equal
 
-from letsql.optimizer import optimize_ibis, optimize_sql
 import letsql as ls
+from letsql.optimizer import optimize_ibis, optimize_sql
 
 
 @pytest.fixture(scope="session")

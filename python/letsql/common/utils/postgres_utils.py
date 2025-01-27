@@ -19,6 +19,7 @@ from letsql.backends.postgres import (
     Backend as PGBackend,
 )
 
+
 try:
     from sqlglot.expressions import Alter
 except ImportError:

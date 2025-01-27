@@ -1,6 +1,8 @@
+from pathlib import Path
+
 import letsql as ls
 from letsql.common.caching import ParquetCacheStorage
-from pathlib import Path
+
 
 t = ls.examples.penguins.fetch()
 

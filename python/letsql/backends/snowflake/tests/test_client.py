@@ -1,5 +1,6 @@
 import pytest
 
+
 SU = pytest.importorskip("letsql.common.utils.snowflake_utils")
 
 

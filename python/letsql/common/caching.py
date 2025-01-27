@@ -12,7 +12,6 @@ import dask
 import ibis
 import ibis.expr.operations as ops
 import toolz
-from ibis.expr import types as ir
 from attr import (
     field,
     frozen,
@@ -20,10 +19,10 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
+from ibis.expr import types as ir
 
 import letsql as ls
 import letsql.common.utils.dask_normalize  # noqa: F401
-
 from letsql.common.utils.dask_normalize import (
     patch_normalize_token,
 )

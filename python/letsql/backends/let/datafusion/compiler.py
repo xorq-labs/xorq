@@ -4,7 +4,7 @@ import calendar
 import math
 from functools import partial
 from itertools import starmap
-from typing import Mapping, Any
+from typing import Any, Mapping
 
 import ibis.common.exceptions as com
 import ibis.expr.datatypes as dt
@@ -18,6 +18,7 @@ from ibis.backends.sql.rewrites import split_select_distinct_with_order_by
 from ibis.common.temporal import IntervalUnit, TimestampUnit
 from ibis.expr import types as ir
 from ibis.expr.operations.udf import InputType
+
 
 _UNIX_EPOCH = "1970-01-01T00:00:00Z"
 

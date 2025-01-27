@@ -10,6 +10,7 @@ from ibis import udf
 
 import letsql as ls
 
+
 pc = pytest.importorskip("pyarrow.compute")
 
 

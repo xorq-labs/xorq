@@ -29,11 +29,9 @@ from ibis.backends.sql.compilers.base import C
 from ibis.common.annotations import Argument
 from ibis.common.dispatch import lazy_singledispatch
 from ibis.expr.operations import Namespace
-from ibis.expr.operations.udf import InputType
-from ibis.expr.operations.udf import ScalarUDF
-from ibis.formats.pyarrow import PyArrowType
+from ibis.expr.operations.udf import InputType, ScalarUDF
+from ibis.formats.pyarrow import PyArrowType, _from_pyarrow_types
 from ibis.util import gen_name, normalize_filename
-from ibis.formats.pyarrow import _from_pyarrow_types
 
 import letsql as ls
 import letsql.internal as df
@@ -51,6 +49,7 @@ from letsql.internal import (
     WindowEvaluator,
     udwf,
 )
+
 
 if TYPE_CHECKING:
     import pandas as pd

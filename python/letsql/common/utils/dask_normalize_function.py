@@ -3,9 +3,11 @@ import types
 
 import dask.base
 import toolz
+
 from letsql.common.utils.inspect_utils import (
     get_partial_arguments,
 )
+
 
 CODE_ATTRS = (
     "co_argcount",

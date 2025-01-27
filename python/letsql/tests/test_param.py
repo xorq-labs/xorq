@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-import letsql as ls
 import ibis.expr.datatypes as dt
 import pytest
 
-from letsql.tests.util import default_series_rename, assert_series_equal
+import letsql as ls
+from letsql.tests.util import assert_series_equal, default_series_rename
 
 
 @pytest.mark.parametrize(

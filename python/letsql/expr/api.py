@@ -5,16 +5,16 @@ from __future__ import annotations
 import datetime
 import functools
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Union, overload, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Union, overload
 
-import pyarrow as pa
-import pyarrow.dataset as ds
 import ibis
 import ibis.expr.builders as bl
 import ibis.expr.datatypes as dt
 import ibis.expr.operations as ops
 import ibis.expr.schema as sch
 import ibis.expr.types as ir
+import pyarrow as pa
+import pyarrow.dataset as ds
 from ibis import api
 from ibis.backends.sql.dialects import DataFusion
 from ibis.common.deferred import Deferred, _, deferrable
@@ -38,19 +38,20 @@ from ibis.expr.types import (
 from letsql.common.utils.caching_utils import find_backend
 from letsql.common.utils.defer_utils import rbr_wrapper
 from letsql.common.utils.graph_utils import replace_fix
+from letsql.expr.ml import train_test_splits
 from letsql.expr.relations import (
     CachedNode,
     register_and_transform_remote_tables,
 )
-from letsql.expr.ml import train_test_splits
+
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
     from pathlib import Path
 
-    from ibis.expr.schema import SchemaLike
-    import pyarrow as pa
     import pandas as pd
+    import pyarrow as pa
+    from ibis.expr.schema import SchemaLike
 
 __all__ = (
     "Column",
@@ -1693,8 +1694,8 @@ def to_parquet(
     **kwargs: Any,
 ):
     import pyarrow  # noqa: ICN001, F401
-    import pyarrow_hotfix  # noqa: F401
     import pyarrow.parquet as pq
+    import pyarrow_hotfix  # noqa: F401
 
     with to_pyarrow_batches(expr, params=params) as batch_reader:
         with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:

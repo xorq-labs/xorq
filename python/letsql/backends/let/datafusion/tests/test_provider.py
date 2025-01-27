@@ -1,15 +1,15 @@
 import os
 from pathlib import Path
 
-import pyarrow as pa
 import pandas as pd
+import pyarrow as pa
 import pytest
 import xgboost as xgb
+from ibis import udf
+from sklearn.model_selection import train_test_split
 
 import letsql as ls
-from ibis import udf
 from letsql.backends.let.datafusion.provider import IbisTableProvider
-from sklearn.model_selection import train_test_split
 
 
 @pytest.fixture

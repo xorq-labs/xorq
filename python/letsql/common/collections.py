@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Dict
 
 from ibis.expr.operations import relations as ops
+
 from letsql.expr.relations import (
     CachedNode,
     Read,
@@ -10,7 +11,13 @@ from letsql.expr.relations import (
 
 
 def _find_backend(value):
-    node_types = (ops.UnboundTable, ops.DatabaseTable, ops.SQLQueryResult, CachedNode, Read)
+    node_types = (
+        ops.UnboundTable,
+        ops.DatabaseTable,
+        ops.SQLQueryResult,
+        CachedNode,
+        Read,
+    )
     (backend, *rest) = set(table.source for table in value.find(node_types))
     if len(rest) > 1:
         raise ValueError("Multiple backends found for this expression")

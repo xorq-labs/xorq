@@ -1,5 +1,5 @@
 from random import Random
-from typing import Tuple, Iterable, List, Iterator
+from typing import Iterable, Iterator, List, Tuple
 
 # TODO: How should we / should we enforce letsql table ?
 import ibis.expr.types as ir

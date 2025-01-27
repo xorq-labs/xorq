@@ -9,7 +9,7 @@ import pytest
 from pytest import param
 
 import letsql as ls
-from letsql.tests.util import assert_series_equal, assert_frame_equal
+from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 
 @pytest.mark.parametrize(

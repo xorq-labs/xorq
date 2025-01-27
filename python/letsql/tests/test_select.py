@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-from letsql.tests.util import assert_frame_equal
-
 import letsql as ls
+from letsql.tests.util import assert_frame_equal
 
 
 def test_where_multiple_conditions(alltypes, df):

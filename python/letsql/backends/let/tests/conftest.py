@@ -1,5 +1,5 @@
-import pytest
 import pyarrow as pa
+import pytest
 
 import letsql as ls
 

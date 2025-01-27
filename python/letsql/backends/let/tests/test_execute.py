@@ -9,11 +9,11 @@ import pytest
 from pytest import param
 
 import letsql as ls
+from letsql.common.caching import SourceStorage
 from letsql.expr.relations import into_backend
 from letsql.tests.util import (
     assert_frame_equal,
 )
-from letsql.common.caching import SourceStorage
 
 
 KEY_PREFIX = ls.config.options.cache.key_prefix

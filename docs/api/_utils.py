@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 from quartodoc import MdRenderer, get_object
 
+
 if TYPE_CHECKING:
     from collections.abc import Iterator
 

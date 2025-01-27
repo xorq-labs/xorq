@@ -5,8 +5,9 @@ import pytest
 from ibis import _
 
 import letsql as ls
-from letsql.common.caching import SourceStorage, ParquetCacheStorage
+from letsql.common.caching import ParquetCacheStorage, SourceStorage
 from letsql.expr.relations import into_backend, register_and_transform_remote_tables
+
 
 expected_tables = (
     "array_types",
