@@ -18,6 +18,7 @@ let
         (append src "pyproject.toml")
         (append src "README.md")
         (append src "LICENSE")
+        (append src "python/letsql/internal.py")
         (fileFilter (file: file.hasExt "rs") (append src "src"))
       ];
       pySrcSet = unions [
@@ -80,6 +81,7 @@ let
         // {
           pname = "crateWheel-deps";
           src = rustSrc;
+          doNotPostBuildInstallCargoBinaries = true;
           inherit buildPhaseCargoCommand;
           doInstallCargoArtifacts = true;
           installPhaseCommand = "mkdir -p $out";
@@ -90,6 +92,7 @@ let
         // {
           cargoArtifacts = crateWheelDeps;
           src = pySrc;
+          doNotPostBuildInstallCargoBinaries = true;
           inherit buildPhaseCargoCommand;
           installPhaseCommand = ''
             ls target/wheels/*

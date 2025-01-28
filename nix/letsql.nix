@@ -174,14 +174,13 @@ let
           );
 
       # # issue is that this doesn't exist: project.pyproject.project.version
-      # virtualenv-editable =
-      #   let
-      #   editableOverlay = workspace.mkEditablePyprojectOverlay {
-      #     root = "$REPO_ROOT";
-      #   };
-      #   editablePythonSet = pythonSet.overrideScope editableOverlay;
-      #   in editablePythonSet.mkVirtualEnv "letsql-dev-env" workspace.deps.all;
-      virtualenv-editable = (pythonSet.overrideScope letsqlEditableOverride).mkVirtualEnv "letsql-dev-env" workspace.deps.all;
+      virtualenv-editable =
+        let
+        editableOverlay = workspace.mkEditablePyprojectOverlay {
+          root = "$REPO_ROOT";
+        };
+        editablePythonSet = pythonSet.overrideScope editableOverlay;
+        in editablePythonSet.mkVirtualEnv "letsql-dev-env" workspace.deps.all;
       virtualenv = pythonSet.mkVirtualEnv "letsql-env" workspace.deps.all;
 
       editableShellHook = ''
