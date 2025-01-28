@@ -60,6 +60,9 @@ datafusion = [
 snowflake = [
     "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'"
 ]
+quickgrove = [
+    "quickgrove>=0.1.2",
+]
 examples = [
     "fsspec>=2024.6.1,<2024.12.1; python_version >= '3.10' and python_version < '4.0'",
     "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'",
@@ -83,6 +86,7 @@ dev = [
     "pytest-codspeed<4.0.0,>=3.0.0",
     "maturin>=1.7.4",
     "pip>=24.3.1",
+    "quickgrove>=0.1.2",
 ]
 test = [
     "datafusion>=43.1.0",
@@ -90,6 +94,7 @@ test = [
     "pytest-snapshot<1.0.0,>=0.9.0",
     "scikit-learn<2.0.0,>=1.4.0",
     "xgboost>=1.6.1",
+    "quickgrove>=0.1.2",
 ]
 docs = [
     "quartodoc<0.10.0,>=0.7.2",
