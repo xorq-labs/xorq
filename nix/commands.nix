@@ -5,6 +5,11 @@ let
     set -eux
 
     # see https://docs.pytest.org/en/latest/explanation/pythonpath.html#import-mode-importlib
+    required_dir="$(git rev-parse --show-toplevel)/python/letsql"
+    if [ "$(pwd)" != "$required_dir" ]; then
+      echo "must run from $required_dir"
+      exit 1
+    fi
     ${python}/bin/python -m pytest --import-mode=importlib "''${@}"
   '';
 
