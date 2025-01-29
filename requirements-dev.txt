@@ -15,7 +15,7 @@ atpublic==5.1 ; python_full_version < '4.0'
 attrs==25.1.0
 beartype==0.19.0
 beniget==0.4.2.post1 ; sys_platform == 'darwin'
-black==24.10.0
+black==25.1.0
 blackdoc==0.3.9
 cachetools==5.5.1 ; python_full_version < '4.0'
 certifi==2024.12.14
