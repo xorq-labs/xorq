@@ -1,11 +1,10 @@
 version = 1
 requires-python = ">=3.10"
 resolution-markers = [
-    "python_full_version >= '4.0'",
-    "python_full_version < '3.11'",
-    "python_full_version == '3.11.*'",
+    "python_full_version >= '3.13'",
     "python_full_version == '3.12.*'",
-    "python_full_version >= '3.13' and python_full_version < '4.0'",
+    "python_full_version == '3.11.*'",
+    "python_full_version < '3.11'",
 ]
 
 [[package]]
@@ -13,7 +12,7 @@ name = "adbc-driver-manager"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '4.0'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/20/2c/580f0e2024ce0c6330c5e990eaeffd2b206355b5929d19889b3eac008064/adbc_driver_manager-1.4.0.tar.gz", hash = "sha256:fb8437f3e3aad9aa119ccbdfe05b83418ae552ca7e1e3f6d46d53e1f316610b8", size = 107712 }
 wheels = [
@@ -44,8 +43,8 @@ name = "adbc-driver-postgresql"
 version = "1.4.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "adbc-driver-manager", marker = "python_full_version < '4.0'" },
-    { name = "importlib-resources", marker = "python_full_version < '4.0'" },
+    { name = "adbc-driver-manager" },
+    { name = "importlib-resources" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/2a/8b/5d088a3c4d739a3a62df081a819117df924318b5044ab3214d72723591ad/adbc_driver_postgresql-1.4.0.tar.gz", hash = "sha256:0bc9c34911b8d1a2e333ee5ef3d284a6517a8f20d5509b2c183cb4cf8337efc7", size = 18402 }
 wheels = [
@@ -70,14 +69,14 @@ name = "aiohttp"
 version = "3.11.11"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohappyeyeballs", marker = "python_full_version < '4.0'" },
-    { name = "aiosignal", marker = "python_full_version < '4.0'" },
+    { name = "aiohappyeyeballs" },
+    { name = "aiosignal" },
     { name = "async-timeout", marker = "python_full_version < '3.11'" },
-    { name = "attrs", marker = "python_full_version < '4.0'" },
-    { name = "frozenlist", marker = "python_full_version < '4.0'" },
-    { name = "multidict", marker = "python_full_version < '4.0'" },
-    { name = "propcache", marker = "python_full_version < '4.0'" },
-    { name = "yarl", marker = "python_full_version < '4.0'" },
+    { name = "attrs" },
+    { name = "frozenlist" },
+    { name = "multidict" },
+    { name = "propcache" },
+    { name = "yarl" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/fe/ed/f26db39d29cd3cb2f5a3374304c713fe5ab5a0e4c8ee25a0c45cc6adf844/aiohttp-3.11.11.tar.gz", hash = "sha256:bb49c7f1e6ebf3821a42d81d494f538107610c3a705987f53068546b0e90303e", size = 7669618 }
 wheels = [
@@ -148,7 +147,7 @@ name = "aiosignal"
 version = "1.3.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "frozenlist", marker = "python_full_version < '4.0'" },
+    { name = "frozenlist" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ba/b5/6d55e80f6d8a08ce22b982eafa278d823b541c925f11ee774b0b9c43473d/aiosignal-1.3.2.tar.gz", hash = "sha256:a8c255c66fafb1e499c9351d0bf32ff2d8a0321595ebac3b93713656d2436f54", size = 19424 }
 wheels = [
@@ -477,7 +476,7 @@ name = "click"
 version = "8.1.8"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "colorama", marker = "platform_system == 'Windows'" },
+    { name = "colorama", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b9/2e/0090cbf739cee7d23781ad4b89a9894a41538e4fcf4c31dcdd705b78eb8b/click-8.1.8.tar.gz", hash = "sha256:ed53c9d8990d83c2a27deae68e4ee337473f6330c040a31d4225c9574d16096a", size = 226593 }
 wheels = [
@@ -495,11 +494,11 @@ wheels = [
 
 [[package]]
 name = "codespell"
-version = "2.4.0"
+version = "2.4.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b0/2f/706691245790ae6c63252d48b7ff5e3635951d55b3ce3c0ac13d898bf70b/codespell-2.4.0.tar.gz", hash = "sha256:587d45b14707fb8ce51339ba4cce50ae0e98ce228ef61f3c5e160e34f681be58", size = 344743 }
+sdist = { url = "https://files.pythonhosted.org/packages/15/e0/709453393c0ea77d007d907dd436b3ee262e28b30995ea1aa36c6ffbccaf/codespell-2.4.1.tar.gz", hash = "sha256:299fcdcb09d23e81e35a671bbe746d5ad7e8385972e65dbb833a2eaac33c01e5", size = 344740 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/19/ce/39bfb82aa428a3ac4d94cc8c9faa3eadeadb2606eee3b584f68d9b575b43/codespell-2.4.0-py3-none-any.whl", hash = "sha256:b4c5b779f747dd481587aeecb5773301183f52b94b96ed51a28126d0482eec1d", size = 344508 },
+    { url = "https://files.pythonhosted.org/packages/20/01/b394922252051e97aab231d416c86da3d8a6d781eeadcdca1082867de64e/codespell-2.4.1-py3-none-any.whl", hash = "sha256:3dadafa67df7e4a3dbf51e0d7315061b80d265f9552ebd699b3dd6834b47e425", size = 344501 },
 ]
 
 [package.optional-dependencies]
@@ -623,7 +622,7 @@ name = "cryptography"
 version = "44.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cffi", marker = "python_full_version < '4.0' and platform_python_implementation != 'PyPy'" },
+    { name = "cffi", marker = "platform_python_implementation != 'PyPy'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/91/4c/45dfa6829acffa344e3967d6006ee4ae8be57af746ae2eba1c431949b32c/cryptography-44.0.0.tar.gz", hash = "sha256:cd4e834f340b4293430701e772ec543b0fbe6c2dea510a5286fe0acabe153a02", size = 710657 }
 wheels = [
@@ -660,14 +659,14 @@ name = "dask"
 version = "2025.1.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "click", marker = "python_full_version < '4.0'" },
-    { name = "cloudpickle", marker = "python_full_version < '4.0'" },
-    { name = "fsspec", marker = "python_full_version < '4.0'" },
+    { name = "click" },
+    { name = "cloudpickle" },
+    { name = "fsspec" },
     { name = "importlib-metadata", marker = "python_full_version < '3.12'" },
-    { name = "packaging", marker = "python_full_version < '4.0'" },
-    { name = "partd", marker = "python_full_version < '4.0'" },
-    { name = "pyyaml", marker = "python_full_version < '4.0'" },
-    { name = "toolz", marker = "python_full_version < '4.0'" },
+    { name = "packaging" },
+    { name = "partd" },
+    { name = "pyyaml" },
+    { name = "toolz" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ff/41/43eb54e0f6d1ba971d5adcad8f0862b327af6a2041aa134acbcec630ad43/dask-2025.1.0.tar.gz", hash = "sha256:bb807586ff20f0f59f3d36fe34eb4a95f75a1aae2a775b521de6dd53727d2063", size = 10758681 }
 wheels = [
@@ -902,13 +901,13 @@ name = "gcsfs"
 version = "2024.12.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "aiohttp", marker = "python_full_version < '4.0'" },
-    { name = "decorator", marker = "python_full_version < '4.0'" },
-    { name = "fsspec", marker = "python_full_version < '4.0'" },
-    { name = "google-auth", marker = "python_full_version < '4.0'" },
-    { name = "google-auth-oauthlib", marker = "python_full_version < '4.0'" },
-    { name = "google-cloud-storage", marker = "python_full_version < '4.0'" },
-    { name = "requests", marker = "python_full_version < '4.0'" },
+    { name = "aiohttp" },
+    { name = "decorator" },
+    { name = "fsspec" },
+    { name = "google-auth" },
+    { name = "google-auth-oauthlib" },
+    { name = "google-cloud-storage" },
+    { name = "requests" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/20/a2/310a6f1cfdb39b2385af38620f299a8acb427b5c1fc36aa1037a81eea0d8/gcsfs-2024.12.0.tar.gz", hash = "sha256:e672413922108300ebc1fe78b8f99f3c7c1b94e7e088f5a6dc88de6d5a93d156", size = 80258 }
 wheels = [
@@ -943,18 +942,18 @@ wheels = [
 
 [[package]]
 name = "google-api-core"
-version = "2.24.0"
+version = "2.24.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-auth", marker = "python_full_version < '4.0'" },
-    { name = "googleapis-common-protos", marker = "python_full_version < '4.0'" },
-    { name = "proto-plus", marker = "python_full_version < '4.0'" },
-    { name = "protobuf", marker = "python_full_version < '4.0'" },
-    { name = "requests", marker = "python_full_version < '4.0'" },
+    { name = "google-auth" },
+    { name = "googleapis-common-protos" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+    { name = "requests" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/81/56/d70d66ed1b5ab5f6c27bf80ec889585ad8f865ff32acbafd3b2ef0bfb5d0/google_api_core-2.24.0.tar.gz", hash = "sha256:e255640547a597a4da010876d333208ddac417d60add22b6851a0c66a831fcaf", size = 162647 }
+sdist = { url = "https://files.pythonhosted.org/packages/b8/b7/481c83223d7b4f02c7651713fceca648fa3336e1571b9804713f66bca2d8/google_api_core-2.24.1.tar.gz", hash = "sha256:f8b36f5456ab0dd99a1b693a40a31d1e7757beea380ad1b38faaf8941eae9d8a", size = 163508 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/a1/76/65b8b94e74bf1b6d1cc38d916089670c4da5029d25762441d8c5c19e51dd/google_api_core-2.24.0-py3-none-any.whl", hash = "sha256:10d82ac0fca69c82a25b3efdeefccf6f28e02ebb97925a8cce8edbfe379929d9", size = 158576 },
+    { url = "https://files.pythonhosted.org/packages/b1/a6/8e30ddfd3d39ee6d2c76d3d4f64a83f77ac86a4cab67b286ae35ce9e4369/google_api_core-2.24.1-py3-none-any.whl", hash = "sha256:bc78d608f5a5bf853b80bd70a795f703294de656c096c0968320830a4bc280f1", size = 160059 },
 ]
 
 [[package]]
@@ -962,9 +961,9 @@ name = "google-auth"
 version = "2.38.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cachetools", marker = "python_full_version < '4.0'" },
-    { name = "pyasn1-modules", marker = "python_full_version < '4.0'" },
-    { name = "rsa", marker = "python_full_version < '4.0'" },
+    { name = "cachetools" },
+    { name = "pyasn1-modules" },
+    { name = "rsa" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c6/eb/d504ba1daf190af6b204a9d4714d457462b486043744901a6eeea711f913/google_auth-2.38.0.tar.gz", hash = "sha256:8285113607d3b80a3f1543b75962447ba8a09fe85783432a784fdeef6ac094c4", size = 270866 }
 wheels = [
@@ -976,8 +975,8 @@ name = "google-auth-oauthlib"
 version = "1.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-auth", marker = "python_full_version < '4.0'" },
-    { name = "requests-oauthlib", marker = "python_full_version < '4.0'" },
+    { name = "google-auth" },
+    { name = "requests-oauthlib" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/cc/0f/1772edb8d75ecf6280f1c7f51cbcebe274e8b17878b382f63738fd96cee5/google_auth_oauthlib-1.2.1.tar.gz", hash = "sha256:afd0cad092a2eaa53cd8e8298557d6de1034c6cb4a740500b5357b648af97263", size = 24970 }
 wheels = [
@@ -989,8 +988,8 @@ name = "google-cloud-core"
 version = "2.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", marker = "python_full_version < '4.0'" },
-    { name = "google-auth", marker = "python_full_version < '4.0'" },
+    { name = "google-api-core" },
+    { name = "google-auth" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b8/1f/9d1e0ba6919668608570418a9a51e47070ac15aeff64261fb092d8be94c0/google-cloud-core-2.4.1.tar.gz", hash = "sha256:9b7749272a812bde58fff28868d0c5e2f585b82f37e09a1f6ed2d4d10f134073", size = 35587 }
 wheels = [
@@ -1002,12 +1001,12 @@ name = "google-cloud-storage"
 version = "2.19.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-api-core", marker = "python_full_version < '4.0'" },
-    { name = "google-auth", marker = "python_full_version < '4.0'" },
-    { name = "google-cloud-core", marker = "python_full_version < '4.0'" },
-    { name = "google-crc32c", marker = "python_full_version < '4.0'" },
-    { name = "google-resumable-media", marker = "python_full_version < '4.0'" },
-    { name = "requests", marker = "python_full_version < '4.0'" },
+    { name = "google-api-core" },
+    { name = "google-auth" },
+    { name = "google-cloud-core" },
+    { name = "google-crc32c" },
+    { name = "google-resumable-media" },
+    { name = "requests" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/36/76/4d965702e96bb67976e755bed9828fa50306dca003dbee08b67f41dd265e/google_cloud_storage-2.19.0.tar.gz", hash = "sha256:cd05e9e7191ba6cb68934d8eb76054d9be4562aa89dbc4236feee4d7d51342b2", size = 5535488 }
 wheels = [
@@ -1045,7 +1044,7 @@ name = "google-resumable-media"
 version = "2.7.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "google-crc32c", marker = "python_full_version < '4.0'" },
+    { name = "google-crc32c" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/58/5a/0efdc02665dca14e0837b62c8a1a93132c264bd02054a15abb2218afe0ae/google_resumable_media-2.7.2.tar.gz", hash = "sha256:5280aed4629f2b60b847b0d42f9857fd4935c11af266744df33d8074cae92fe0", size = 2163099 }
 wheels = [
@@ -1057,7 +1056,7 @@ name = "googleapis-common-protos"
 version = "1.66.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "protobuf", marker = "python_full_version < '4.0'" },
+    { name = "protobuf" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/ff/a7/8e9cccdb1c49870de6faea2a2764fa23f627dd290633103540209f03524c/googleapis_common_protos-1.66.0.tar.gz", hash = "sha256:c3e7b33d15fdca5374cc0a7346dd92ffa847425cc4ea941d970f13680052ec8c", size = 114376 }
 wheels = [
@@ -1141,13 +1140,13 @@ name = "ibis-framework"
 version = "9.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "atpublic", marker = "python_full_version < '4.0'" },
-    { name = "parsy", marker = "python_full_version < '4.0'" },
-    { name = "python-dateutil", marker = "python_full_version < '4.0'" },
-    { name = "pytz", marker = "python_full_version < '4.0'" },
-    { name = "sqlglot", marker = "python_full_version < '4.0'" },
-    { name = "toolz", marker = "python_full_version < '4.0'" },
-    { name = "typing-extensions", marker = "python_full_version < '4.0'" },
+    { name = "atpublic" },
+    { name = "parsy" },
+    { name = "python-dateutil" },
+    { name = "pytz" },
+    { name = "sqlglot" },
+    { name = "toolz" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/32/86/31c9a61eb2c9c7ffe8959ff8c3e4a5d2e15d8e896e7562ba7796abeb5af9/ibis_framework-9.5.0.tar.gz", hash = "sha256:1c8a29277e63ee0dfc289bc8f550164b5e3bdaec1b76b62436c37d331bb4ef84", size = 1270088 }
 wheels = [
@@ -1207,7 +1206,7 @@ name = "ipykernel"
 version = "6.29.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "appnope", marker = "platform_system == 'Darwin'" },
+    { name = "appnope", marker = "sys_platform == 'darwin'" },
     { name = "comm" },
     { name = "debugpy" },
     { name = "ipython" },
@@ -1265,7 +1264,7 @@ name = "jinja2"
 version = "3.1.5"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "markupsafe", marker = "python_full_version < '4.0'" },
+    { name = "markupsafe" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/af/92/b3130cbbf5591acf9ade8708c365f3238046ac7cb8ccba6e81abccb0ccff/jinja2-3.1.5.tar.gz", hash = "sha256:8fefff8dc3034e27bb80d67c671eb8a9bc424c0ef4c0826edbff304cceff43bb", size = 244674 }
 wheels = [
@@ -1443,7 +1442,7 @@ requires-dist = [
 dev = [
     { name = "black", specifier = "==24.10.0" },
     { name = "blackdoc", specifier = "==0.3.9" },
-    { name = "codespell", extras = ["hard-encoding-detection", "toml"], specifier = "==2.4.0" },
+    { name = "codespell", extras = ["hard-encoding-detection", "toml"], specifier = "==2.4.1" },
     { name = "coverage", extras = ["toml"], specifier = "==7.6.10" },
     { name = "git-cliff", specifier = ">=2.2.1,<3.0.0" },
     { name = "ipython", specifier = ">=8.19.0,<9.0.0" },
@@ -1859,10 +1858,10 @@ name = "pandas"
 version = "2.2.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "numpy", marker = "python_full_version < '4.0'" },
-    { name = "python-dateutil", marker = "python_full_version < '4.0'" },
-    { name = "pytz", marker = "python_full_version < '4.0'" },
-    { name = "tzdata", marker = "python_full_version < '4.0'" },
+    { name = "numpy" },
+    { name = "python-dateutil" },
+    { name = "pytz" },
+    { name = "tzdata" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/9c/d6/9f8431bacc2e19dca897724cd097b1bb224a6ad5433784a44b587c7c13af/pandas-2.2.3.tar.gz", hash = "sha256:4f18ba62b61d7e192368b84517265a99b4d7ee8912f8708660fb4a366cc82667", size = 4399213 }
 wheels = [
@@ -1925,8 +1924,8 @@ name = "partd"
 version = "1.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "locket", marker = "python_full_version < '4.0'" },
-    { name = "toolz", marker = "python_full_version < '4.0'" },
+    { name = "locket" },
+    { name = "toolz" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b2/3a/3f06f34820a31257ddcabdfafc2672c5816be79c7e353b02c1f318daa7d4/partd-1.4.2.tar.gz", hash = "sha256:d022c33afbdc8405c226621b015e8067888173d85f7f5ecebb3cafed9a20f02c", size = 21029 }
 wheels = [
@@ -1959,17 +1958,17 @@ name = "pins"
 version = "0.8.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "appdirs", marker = "python_full_version < '4.0'" },
-    { name = "fsspec", marker = "python_full_version < '4.0'" },
-    { name = "humanize", marker = "python_full_version < '4.0'" },
-    { name = "importlib-metadata", marker = "python_full_version < '4.0'" },
-    { name = "importlib-resources", marker = "python_full_version < '4.0'" },
-    { name = "jinja2", marker = "python_full_version < '4.0'" },
-    { name = "joblib", marker = "python_full_version < '4.0'" },
-    { name = "pandas", marker = "python_full_version < '4.0'" },
-    { name = "pyyaml", marker = "python_full_version < '4.0'" },
-    { name = "requests", marker = "python_full_version < '4.0'" },
-    { name = "xxhash", marker = "python_full_version < '4.0'" },
+    { name = "appdirs" },
+    { name = "fsspec" },
+    { name = "humanize" },
+    { name = "importlib-metadata" },
+    { name = "importlib-resources" },
+    { name = "jinja2" },
+    { name = "joblib" },
+    { name = "pandas" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "xxhash" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/58/61/b68b19ee5ff98cc2fd783822680f1dbfba18d9519e9893ea3e7dd303ce38/pins-0.8.7.tar.gz", hash = "sha256:82678c649d9216662ac38c08d6f5cd2385c638dbbe3c6ea5b68951eb46cbd32e", size = 114860 }
 wheels = [
@@ -1978,7 +1977,7 @@ wheels = [
 
 [package.optional-dependencies]
 gcs = [
-    { name = "gcsfs", marker = "python_full_version < '4.0'" },
+    { name = "gcsfs" },
 ]
 
 [[package]]
@@ -2134,14 +2133,14 @@ wheels = [
 
 [[package]]
 name = "proto-plus"
-version = "1.25.0"
+version = "1.26.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "protobuf", marker = "python_full_version < '4.0'" },
+    { name = "protobuf" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/7e/05/74417b2061e1bf1b82776037cad97094228fa1c1b6e82d08a78d3fb6ddb6/proto_plus-1.25.0.tar.gz", hash = "sha256:fbb17f57f7bd05a68b7707e745e26528b0b3c34e378db91eef93912c54982d91", size = 56124 }
+sdist = { url = "https://files.pythonhosted.org/packages/26/79/a5c6cbb42268cfd3ddc652dc526889044a8798c688a03ff58e5e92b743c8/proto_plus-1.26.0.tar.gz", hash = "sha256:6e93d5f5ca267b54300880fff156b6a3386b3fa3f43b1da62e680fc0c586ef22", size = 56136 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/dd/25/0b7cc838ae3d76d46539020ec39fc92bfc9acc29367e58fe912702c2a79e/proto_plus-1.25.0-py3-none-any.whl", hash = "sha256:c91fc4a65074ade8e458e95ef8bac34d4008daa7cce4a12d6707066fca648961", size = 50126 },
+    { url = "https://files.pythonhosted.org/packages/42/c3/59308ccc07b34980f9d532f7afc718a9f32b40e52cde7a740df8d55632fb/proto_plus-1.26.0-py3-none-any.whl", hash = "sha256:bf2dfaa3da281fc3187d12d224c707cb57214fb2c22ba854eb0c105a3fb2d4d7", size = 50166 },
 ]
 
 [[package]]
@@ -2311,7 +2310,7 @@ name = "pyasn1-modules"
 version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyasn1", marker = "python_full_version < '4.0'" },
+    { name = "pyasn1" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/1d/67/6afbf0d507f73c32d21084a79946bfcfca5fbc62a72057e9c23797a737c9/pyasn1_modules-0.4.1.tar.gz", hash = "sha256:c28e2dbf9c06ad61c71a075c7e0f9fd0f1b0bb2d2ad4377f240d33ac2ab60a7c", size = 310028 }
 wheels = [
@@ -2439,7 +2438,7 @@ name = "pyopenssl"
 version = "24.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "cryptography", marker = "python_full_version < '4.0'" },
+    { name = "cryptography" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c1/d4/1067b82c4fc674d6f6e9e8d26b3dff978da46d351ca3bac171544693e085/pyopenssl-24.3.0.tar.gz", hash = "sha256:49f7a019577d834746bc55c5fce6ecbcec0f2b4ec5ce1cf43a9a173b8138bb36", size = 178944 }
 wheels = [
@@ -2503,7 +2502,7 @@ name = "pytest-mock"
 version = "3.14.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pytest", marker = "python_full_version < '4.0'" },
+    { name = "pytest" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/c6/90/a955c3ab35ccd41ad4de556596fa86685bf4fc5ffcc62d22d856cfd4e29a/pytest-mock-3.14.0.tar.gz", hash = "sha256:2719255a1efeceadbc056d6bf3df3d1c5015530fb40cf347c0f9afac88410bd0", size = 32814 }
 wheels = [
@@ -2788,8 +2787,8 @@ name = "requests-oauthlib"
 version = "2.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "oauthlib", marker = "python_full_version < '4.0'" },
-    { name = "requests", marker = "python_full_version < '4.0'" },
+    { name = "oauthlib" },
+    { name = "requests" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/42/f2/05f29bc3913aea15eb670be136045bf5c5bbf4b99ecb839da9b422bb2c85/requests-oauthlib-2.0.0.tar.gz", hash = "sha256:b3dffaebd884d8cd778494369603a9e7b58d29111bf6b41bdc2dcd87203af4e9", size = 55650 }
 wheels = [
@@ -2900,7 +2899,7 @@ name = "rsa"
 version = "4.9"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "pyasn1", marker = "python_full_version < '4.0'" },
+    { name = "pyasn1" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/aa/65/7d973b89c4d2351d7fb232c2e452547ddfa243e93131e7cfa766da627b52/rsa-4.9.tar.gz", hash = "sha256:e38464a49c6c85d7f1351b0126661487a7e0a14a50f1675ec50eb34d4f20ef21", size = 29711 }
 wheels = [
@@ -3043,22 +3042,22 @@ name = "snowflake-connector-python"
 version = "3.13.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "asn1crypto", marker = "python_full_version < '4.0'" },
-    { name = "certifi", marker = "python_full_version < '4.0'" },
-    { name = "cffi", marker = "python_full_version < '4.0'" },
-    { name = "charset-normalizer", marker = "python_full_version < '4.0'" },
-    { name = "cryptography", marker = "python_full_version < '4.0'" },
-    { name = "filelock", marker = "python_full_version < '4.0'" },
-    { name = "idna", marker = "python_full_version < '4.0'" },
-    { name = "packaging", marker = "python_full_version < '4.0'" },
-    { name = "platformdirs", marker = "python_full_version < '4.0'" },
-    { name = "pyjwt", marker = "python_full_version < '4.0'" },
-    { name = "pyopenssl", marker = "python_full_version < '4.0'" },
-    { name = "pytz", marker = "python_full_version < '4.0'" },
-    { name = "requests", marker = "python_full_version < '4.0'" },
-    { name = "sortedcontainers", marker = "python_full_version < '4.0'" },
-    { name = "tomlkit", marker = "python_full_version < '4.0'" },
-    { name = "typing-extensions", marker = "python_full_version < '4.0'" },
+    { name = "asn1crypto" },
+    { name = "certifi" },
+    { name = "cffi" },
+    { name = "charset-normalizer" },
+    { name = "cryptography" },
+    { name = "filelock" },
+    { name = "idna" },
+    { name = "packaging" },
+    { name = "platformdirs" },
+    { name = "pyjwt" },
+    { name = "pyopenssl" },
+    { name = "pytz" },
+    { name = "requests" },
+    { name = "sortedcontainers" },
+    { name = "tomlkit" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/69/24/2a17664965c6d116ad6a5a2ae1ff81fdf4710864f6929765b9de3dc3db45/snowflake_connector_python-3.13.0.tar.gz", hash = "sha256:5081d21638fdda98f27be976dde6c8ca79eb8b5493cf5dfbb2614c94b6fb3e10", size = 745110 }
 wheels = [
@@ -3105,7 +3104,7 @@ version = "2.0.37"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "greenlet", marker = "(python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')" },
-    { name = "typing-extensions", marker = "python_full_version < '4.0'" },
+    { name = "typing-extensions" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/3b/20/93ea2518df4d7a14ebe9ace9ab8bb92aaf7df0072b9007644de74172b06c/sqlalchemy-2.0.37.tar.gz", hash = "sha256:12b28d99a9c14eaf4055810df1001557176716de0167b91026e648e65229bffb", size = 9626249 }
 wheels = [
@@ -3321,7 +3320,7 @@ name = "tzlocal"
 version = "5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "tzdata", marker = "platform_system == 'Windows'" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/04/d3/c19d65ae67636fe63953b20c2e4a8ced4497ea232c43ff8d01db16de8dc0/tzlocal-5.2.tar.gz", hash = "sha256:8d399205578f1a9342816409cc1e46a93ebd5755e39ea2d85334bea911bf0e6e", size = 30201 }
 wheels = [
@@ -3398,7 +3397,7 @@ version = "2.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
-    { name = "nvidia-nccl-cu12", marker = "platform_machine != 'aarch64' and platform_system == 'Linux'" },
+    { name = "nvidia-nccl-cu12", marker = "platform_machine != 'aarch64' and sys_platform == 'linux'" },
     { name = "scipy" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/48/b0/131ffc4a15fd3acee9be3a7baa6b2fa6faa479799c51b880de9fc3ddf550/xgboost-2.1.3.tar.gz", hash = "sha256:7699ec4226156887d3afc665c63ab87469db9d46e361c702ba9fccd22535730c", size = 1090326 }
@@ -3490,9 +3489,9 @@ name = "yarl"
 version = "1.18.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "idna", marker = "python_full_version < '4.0'" },
-    { name = "multidict", marker = "python_full_version < '4.0'" },
-    { name = "propcache", marker = "python_full_version < '4.0'" },
+    { name = "idna" },
+    { name = "multidict" },
+    { name = "propcache" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/b7/9d/4b94a8e6d2b51b599516a5cb88e5bc99b4d8d4583e468057eaa29d5f0918/yarl-1.18.3.tar.gz", hash = "sha256:ac1801c45cbf77b6c99242eeff4fffb5e4e73a800b5c4ad4fc0be5def634d2e1", size = 181062 }
 wheels = [
