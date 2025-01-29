@@ -13,14 +13,20 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 from ibis.backends.sql.compilers.base import FALSE, NULL, STAR, AggGen, SQLGlotCompiler
 from ibis.backends.sql.datatypes import PostgresType
-from ibis.backends.sql.dialects import DataFusion
 from ibis.backends.sql.rewrites import split_select_distinct_with_order_by
 from ibis.common.temporal import IntervalUnit, TimestampUnit
 from ibis.expr import types as ir
 from ibis.expr.operations.udf import InputType
+from sqlglot import exp, transforms
+from sqlglot.dialects import Postgres
+from sqlglot.dialects.dialect import rename_func
+
+from letsql.expr.datatypes import LargeString
 
 
 _UNIX_EPOCH = "1970-01-01T00:00:00Z"
+
+typecode = sge.DataType.Type
 
 
 def _replace_offset(offset):
@@ -30,6 +36,33 @@ def _replace_offset(offset):
 
 class DataFusionType(PostgresType):
     unknown_type_strings = {"utf8": dt.string, "float64": dt.float64, "date32": dt.date}
+
+    @classmethod
+    def _from_ibis_LargeString(cls, dtype: LargeString) -> sge.DataType:
+        return sge.DataType(this=typecode.LONGTEXT)
+
+    @classmethod
+    def _from_sqlglot_LONGTEXT(cls, nullable: bool | None = None) -> LargeString:
+        return LargeString(nullable=nullable)
+
+
+class DataFusion(Postgres):
+    class Generator(Postgres.Generator):
+        TRANSFORMS = Postgres.Generator.TRANSFORMS.copy() | {
+            sge.Select: transforms.preprocess([transforms.eliminate_qualify]),
+            sge.Pow: rename_func("pow"),
+            sge.IsNan: rename_func("isnan"),
+            sge.CurrentTimestamp: rename_func("now"),
+            sge.CurrentDate: rename_func("today"),
+            sge.Split: rename_func("string_to_array"),
+            sge.Array: rename_func("make_array"),
+            sge.ArrayContains: rename_func("array_has"),
+            sge.ArraySize: rename_func("array_length"),
+        }
+
+        TYPE_MAPPING = Postgres.Generator.TYPE_MAPPING.copy() | {
+            exp.DataType.Type.LONGTEXT: "'LargeUtf8'",
+        }
 
 
 class DataFusionCompiler(SQLGlotCompiler):
@@ -146,6 +179,10 @@ class DataFusionCompiler(SQLGlotCompiler):
             from ibis.formats.pyarrow import PyArrowType
 
             return self.f.arrow_cast(arg, f"{PyArrowType.from_ibis(to)}".capitalize())
+
+        if isinstance(to, LargeString):
+            return self.f.arrow_cast(arg, "LargeUtf8")
+
         return self.cast(arg, to)
 
     def visit_Arbitrary(self, op, *, arg, where):

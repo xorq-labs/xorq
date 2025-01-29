@@ -30,7 +30,7 @@ from ibis.common.annotations import Argument
 from ibis.common.dispatch import lazy_singledispatch
 from ibis.expr.operations import Namespace
 from ibis.expr.operations.udf import InputType, ScalarUDF
-from ibis.formats.pyarrow import PyArrowType, _from_pyarrow_types
+from ibis.formats.pyarrow import PyArrowType, _from_pyarrow_types, _to_pyarrow_types
 from ibis.util import gen_name, normalize_filename
 
 import letsql as ls
@@ -40,6 +40,7 @@ from letsql.backends.let.datafusion.provider import IbisTableProvider
 from letsql.common.utils.aws_utils import (
     make_s3_connection,
 )
+from letsql.expr.datatypes import LargeString
 from letsql.expr.pyaggregator import PyAggregator, make_struct_type
 from letsql.internal import (
     DataFrame,
@@ -56,6 +57,8 @@ if TYPE_CHECKING:
 
 # include string view
 _from_pyarrow_types[pa.string_view()] = dt.String
+_from_pyarrow_types[pa.large_string()] = LargeString
+_to_pyarrow_types[LargeString] = pa.large_string()
 
 
 def _compile_pyarrow_udwf(udwf_node):
@@ -833,7 +836,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                table = ls.memtable(obj)
+                table = ls.memtable(obj, schema=schema)
             else:
                 table = obj
 
@@ -846,6 +849,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     compiler.cast(
                         sg.column(col, table=relname, quoted=quoted), dtype
                     ).as_(col, quoted=quoted)
+                    if not isinstance(dtype, LargeString)
+                    else compiler.f.arrow_cast(
+                        sg.column(col, table=relname, quoted=quoted), "LargeUtf8"
+                    ).as_(col, quoted=quoted)
                     for col, dtype in table.schema().items()
                 )
             ).from_(
@@ -857,7 +864,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             query = None
 
         table_ident = sg.to_identifier(name, quoted=quoted)
-
         if query is None:
             column_defs = [
                 sge.ColumnDef(
@@ -871,7 +877,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 )
                 for colname, typ in (schema or table.schema()).items()
             ]
-
             target = sge.Schema(this=table_ident, expressions=column_defs)
         else:
             target = table_ident
