@@ -103,6 +103,16 @@
               unset PYTHONPATH
             '';
           };
+          uv = pkgs.mkShell {
+            packages = [
+              pkgs.python310
+              pkgs.uv
+              letsql-310.toolchain
+            ];
+            shellHook = ''
+              unset PYTHONPATH
+            '';
+          };
           virtualenv-310 = letsql-310.shell;
           virtualenv-editable-310 = letsql-310.editableShell;
           virtualenv-311 = letsql-311.shell;
