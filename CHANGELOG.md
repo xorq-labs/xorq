@@ -5,6 +5,76 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.12] - 2025-01-29
+### Details
+This release introduces several key features including segmentation support, SQL caching optimization, a new hash(string) function, and QuickGrove UDF integration. 
+Notable infrastructure improvements include upgrading to DataFusion v44, adding LargeUtf8 as a DataType, and implementing a standalone UV + Rust shell. 
+The codebase underwent maintenance with multiple dependency updates and quality improvements, while fixes addressed DuckDB integration and documentation issues. 
+Several components were removed for cleanup, including pre-register functionality and MarkedRemoteTable.
+
+#### Added
+- Add segmentation by @mesejo in [#389](https://github.com/letsql/letsql/pull/389)
+- Add caching for to_sql by @mesejo in [#404](https://github.com/letsql/letsql/pull/404)
+- Add hash(string) function by @mesejo in [#451](https://github.com/letsql/letsql/pull/451)
+- Add get_plans by @dlovell in [#447](https://github.com/letsql/letsql/pull/447)
+- Add quickgrove udf by @hussainsultan in [#475](https://github.com/letsql/letsql/pull/475)
+- Add LargeUtf8 as a DataType by @mesejo in [#462](https://github.com/letsql/letsql/pull/462)
+- Add requirement for letsql-pytest by @dlovell
+- Add stand alone uv + rust shell by @dlovell in [#482](https://github.com/letsql/letsql/pull/482)
+
+#### Changed
+- Update trinodb/trino docker tag to v468 by @renovate[bot] in [#421](https://github.com/letsql/letsql/pull/421)
+- Update astral-sh/setup-uv action to v5 by @renovate[bot] in [#420](https://github.com/letsql/letsql/pull/420)
+- Update actions/create-github-app-token action to v1.11.1 by @renovate[bot] in [#414](https://github.com/letsql/letsql/pull/414)
+- Update bitnami/minio docker tag to v2024.12.18 by @renovate[bot] in [#415](https://github.com/letsql/letsql/pull/415)
+- Update codecov/codecov-action action to v5.1.2 by @renovate[bot] in [#416](https://github.com/letsql/letsql/pull/416)
+- Update dependency ruff to v0.8.6 by @renovate[bot] in [#417](https://github.com/letsql/letsql/pull/417)
+- Update to datafusion v44 by @mesejo in [#435](https://github.com/letsql/letsql/pull/435)
+- Update dependency coverage to v7.6.10 by @renovate[bot] in [#424](https://github.com/letsql/letsql/pull/424)
+- Uv lock --upgrade-package jinja2 by @mesejo in [#436](https://github.com/letsql/letsql/pull/436)
+- Update contributing workflow by @mesejo in [#437](https://github.com/letsql/letsql/pull/437)
+- Update dependency ruff to v0.9.0 by @renovate[bot] in [#439](https://github.com/letsql/letsql/pull/439)
+- Expose full SessionConfig by @mesejo in [#440](https://github.com/letsql/letsql/pull/440)
+- Update dependency ruff to v0.9.1 by @renovate[bot] in [#441](https://github.com/letsql/letsql/pull/441)
+- Update dependency trino to v0.332.0 by @renovate[bot] in [#449](https://github.com/letsql/letsql/pull/449)
+- Update dependency ruff to v0.9.2 by @renovate[bot] in [#453](https://github.com/letsql/letsql/pull/453)
+- Update dependency pre-commit to v4.1.0 by @renovate[bot] in [#463](https://github.com/letsql/letsql/pull/463)
+- Update dependency codespell to v2.4.0 by @renovate[bot] in [#468](https://github.com/letsql/letsql/pull/468)
+- Update codecov/codecov-action action to v5.2.0 by @renovate[bot] in [#469](https://github.com/letsql/letsql/pull/469)
+- Update dependency ruff to v0.9.3 by @renovate[bot] in [#471](https://github.com/letsql/letsql/pull/471)
+- Update codecov/codecov-action action to v5.3.1 by @renovate[bot] in [#472](https://github.com/letsql/letsql/pull/472)
+- Enforce import order by @mesejo in [#476](https://github.com/letsql/letsql/pull/476)
+- Update trinodb/trino docker tag to v469 by @renovate[bot] in [#478](https://github.com/letsql/letsql/pull/478)
+- Update dependency codespell to v2.4.1 by @renovate[bot] in [#481](https://github.com/letsql/letsql/pull/481)
+- Update dependency black to v25 by @renovate[bot] in [#483](https://github.com/letsql/letsql/pull/483)
+- Update bitnami/minio docker tag to v2025 by @renovate[bot] in [#484](https://github.com/letsql/letsql/pull/484)
+- Extend ruff select rules instead of overriding by @mesejo in [#485](https://github.com/letsql/letsql/pull/485)
+
+#### Fixed
+- Update rust crate object_store to v0.11.2 by @renovate[bot] in [#422](https://github.com/letsql/letsql/pull/422)
+- Update rust crate async-trait to v0.1.84 by @renovate[bot] in [#425](https://github.com/letsql/letsql/pull/425)
+- Update dependency dask to v2024.12.1 by @renovate[bot] in [#418](https://github.com/letsql/letsql/pull/418)
+- Update dependency fsspec to >=2024.6.1,<2024.12.1 by @renovate[bot] in [#419](https://github.com/letsql/letsql/pull/419)
+- Update rust crate async-trait to v0.1.85 by @renovate[bot] in [#432](https://github.com/letsql/letsql/pull/432)
+- Update rust crate tokio to v1.43.0 by @renovate[bot] in [#438](https://github.com/letsql/letsql/pull/438)
+- Invoke maturin on changes to rust by @dlovell in [#445](https://github.com/letsql/letsql/pull/445)
+- Identify correct kwarg for duckdb by @dlovell in [#452](https://github.com/letsql/letsql/pull/452)
+- Update dependency pyarrow to v19 by @renovate[bot] in [#454](https://github.com/letsql/letsql/pull/454)
+- Update dependency structlog to v25 by @renovate[bot] in [#455](https://github.com/letsql/letsql/pull/455)
+- Update dependency dask to v2025 by @renovate[bot] in [#458](https://github.com/letsql/letsql/pull/458)
+- Failing docs deployment by @mesejo in [#465](https://github.com/letsql/letsql/pull/465)
+- Fix dependency groups by @mesejo in [#448](https://github.com/letsql/letsql/pull/448)
+- Get_storage_uncached args by @mesejo in [#466](https://github.com/letsql/letsql/pull/466)
+- Update dependency attrs to v25 by @renovate[bot] in [#473](https://github.com/letsql/letsql/pull/473)
+- Ensure dependencies are in sync by @mesejo in [#480](https://github.com/letsql/letsql/pull/480)
+- Update for changes to uv/uv2nix by @dlovell
+
+#### Removed
+- Remove pre-register by @mesejo in [#450](https://github.com/letsql/letsql/pull/450)
+- Remove warnings by @mesejo in [#457](https://github.com/letsql/letsql/pull/457)
+- Remove uv.lock from git diff by @mesejo in [#467](https://github.com/letsql/letsql/pull/467)
+- Remove MarkedRemoteTable by @mesejo in [#459](https://github.com/letsql/letsql/pull/459)
+
 ## [0.1.11] - 2024-12-17
 ### Details
 Improve CI/CD, migrate to uv, update dependencies. 
