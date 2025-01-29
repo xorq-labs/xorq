@@ -117,8 +117,7 @@ python-source = "python"
 features = ["pyo3/extension-module"]
 
 [tool.ruff.lint]
-select = ["I"]
-extend-select = ["ICN"]
+extend-select = ["I", "ICN"]
 
 [tool.ruff.lint.per-file-ignores]
 "python/letsql/__init__.py" = ["I001"]
