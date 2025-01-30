@@ -52,7 +52,7 @@ google-api-core==2.24.1 ; python_full_version < '4.0'
 google-auth==2.38.0 ; python_full_version < '4.0'
 google-auth-oauthlib==1.2.1 ; python_full_version < '4.0'
 google-cloud-core==2.4.1 ; python_full_version < '4.0'
-google-cloud-storage==2.19.0 ; python_full_version < '4.0'
+google-cloud-storage==3.0.0 ; python_full_version < '4.0'
 google-crc32c==1.6.0 ; python_full_version < '4.0'
 google-resumable-media==2.7.2 ; python_full_version < '4.0'
 googleapis-common-protos==1.66.0 ; python_full_version < '4.0'
@@ -147,7 +147,7 @@ scikit-learn==1.6.1
 scipy==1.15.1
 setuptools==75.8.0 ; sys_platform == 'darwin'
 six==1.17.0
-snowflake-connector-python==3.13.0 ; python_full_version < '4.0'
+snowflake-connector-python==3.13.2 ; python_full_version < '4.0'
 sortedcontainers==2.4.0 ; python_full_version < '4.0'
 sphobjinv==2.3.1.2
 sqlalchemy==2.0.37 ; python_full_version < '4.0'
