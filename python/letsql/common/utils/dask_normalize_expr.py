@@ -123,6 +123,25 @@ def normalize_snowflake_databasetable(dt):
     )
 
 
+def normalize_bigquery_databasetable(dt):
+    # https://stackoverflow.com/questions/44288261/get-the-last-modified-date-for-all-bigquery-tables-in-a-bigquery-project/44290543#44290543
+    if dt.source.name != "bigquery":
+        raise ValueError
+    # https://stackoverflow.com/a/44290543
+    query = f"""
+    SELECT last_modified_time
+    FROM `{dt.namespace.database}.__TABLES__` where table_id = '{dt.name}'
+    """
+    ((last_modified_time,),) = dt.source.raw_sql(query).to_dataframe()
+    return (
+        dt.name,
+        dt.schema,
+        dt.source,
+        dt.namespace,
+        last_modified_time,
+    )
+
+
 def normalize_duckdb_databasetable(dt):
     if dt.source.name != "duckdb":
         raise ValueError
@@ -238,6 +257,7 @@ def normalize_databasetable(dt):
         "let": normalize_letsql_databasetable,
         "duckdb": normalize_duckdb_databasetable,
         "trino": normalize_remote_databasetable,
+        "bigquery": normalize_bigquery_databasetable,
     }
     f = dct[dt.source.name]
     return f(dt)
@@ -272,6 +292,11 @@ def normalize_backend(con):
         con_details = id(con.con)
     elif name == "trino":
         con_details = con.con.host
+    elif name == "bigquery":
+        con_details = (
+            con.project_id,
+            con.dataset_id,
+        )
     else:
         raise ValueError
     return (name, con_details)
