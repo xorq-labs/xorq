@@ -27,8 +27,8 @@ authors = [
     { name = "Hussain Sultan", email = "hussain@letsql.com" },
 ]
 maintainers = [
-    { email = "Dan Lovell <dan@letsql.com>" },
-    { email = "Daniel Mesejo <mesejo@letsql.com>" },
+    { name = "Dan Lovell", email = "dan@letsql.com" },
+    { name = "Daniel Mesejo", email ="mesejo@letsql.com" },
 ]
 description = "Data processing library built on top of Ibis and DataFusion to write multi-engine data workflows."
 readme = "README.md"

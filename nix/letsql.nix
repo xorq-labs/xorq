@@ -14,92 +14,6 @@ let
       inherit (pkgs.lib) nameValuePair;
       inherit (pkgs.lib.path) append;
       compose = pkgs.lib.trivial.flip pkgs.lib.trivial.pipe;
-
-      injectProjectVersion =
-        version: project:
-        pkgs.lib.attrsets.updateManyAttrsByPath [
-          {
-            path = [
-              "pyproject"
-              "project"
-            ];
-            update = old: { inherit version; } // old;
-          }
-        ] project;
-      addNativeBuildInputs =
-        drvs:
-        (old: {
-          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ drvs;
-        });
-      addResolved =
-        final: names:
-        (old: {
-          nativeBuildInputs =
-            (old.nativeBuildInputs or [ ])
-            ++ final.resolveBuildSystem (
-              pkgs.lib.listToAttrs (map (name: pkgs.lib.nameValuePair name [ ]) names)
-            );
-        });
-      mkEditableScopeOverride =
-        final: project: root:
-        final.callPackage (
-          {
-            python,
-            stdenv,
-            pyprojectHook,
-            resolveBuildSystem,
-            pythonPkgsBuildHost,
-          }:
-          stdenv.mkDerivation (
-            pyproject-nix.build.lib.renderers.mkDerivationEditable
-              {
-                inherit project root;
-                environ = pyproject-nix.lib.pep508.mkEnviron python;
-              }
-              {
-                inherit
-                  python
-                  pyprojectHook
-                  resolveBuildSystem
-                  pythonPkgsBuildHost
-                  ;
-              }
-          )
-        ) { };
-
-      toolchain = pkgs.rust-bin.fromRustupToolchainFile (append src "rust-toolchain.toml");
-      mkCrateWheelSrc = import ./crate-wheel.nix {
-        inherit
-          system
-          pkgs
-          crane
-          src
-          toolchain
-          ;
-      };
-      crateWheelSrc = mkCrateWheelSrc { inherit python; };
-      workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
-      overlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
-      letsqlEditableOverride = final: _prev: {
-        # necessary because uv2nix wants to read project for itself and we can't inject version there
-        letsql = let
-          project = injectProjectVersion "0.1.10" (
-            pyproject-nix.lib.project.loadUVPyproject { projectRoot = src; }
-          );
-        in mkEditableScopeOverride final project "$REPO_ROOT/python";
-      };
-      letsqlCrateWheelSrcOverride = old: {
-        src = crateWheelSrc;
-        format = "wheel";
-        nativeBuildInputs =
-          (builtins.filter
-            # all the hooks have the same name and we fail if we have the previous one
-            (drv: drv.name != "pyproject-hook")
-            (old.nativeBuildInputs or [ ])
-          )
-          ++ [ pythonSet.pyprojectWheelHook ];
-      };
-
       darwinPyprojectOverrides = final: prev: {
         scipy = prev.scipy.overrideAttrs (compose [
           (addResolved final [
@@ -151,13 +65,52 @@ let
           pkgs.openssl
         ]);
       };
-      pyprojectOverrides = final: prev: {
-        letsql = prev.letsql.overrideAttrs letsqlCrateWheelSrcOverride;
+      addNativeBuildInputs =
+        drvs:
+        (old: {
+          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ drvs;
+        });
+      addResolved =
+        final: names:
+        (old: {
+          nativeBuildInputs =
+            (old.nativeBuildInputs or [ ])
+            ++ final.resolveBuildSystem (
+              pkgs.lib.listToAttrs (map (name: pkgs.lib.nameValuePair name [ ]) names)
+            );
+        });
+      toolchain = pkgs.rust-bin.fromRustupToolchainFile (append src "rust-toolchain.toml");
+      crateWheelLib = import ./crate-wheel.nix {
+        inherit
+          system
+          pkgs
+          crane
+          src
+          toolchain
+          ;
+        };
+      workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
+      wheelOverlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
+      editableOverlay = workspace.mkEditablePyprojectOverlay {
+        root = "$REPO_ROOT";
+      };
+      pyprojectOverrides-base = final: prev: {
         cityhash = prev.cityhash.overrideAttrs (
           addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
         );
       };
-      pythonSet =
+      pyprojectOverrides-wheel = crateWheelLib.mkPyprojectOverrides-wheel python pythonSet-base;
+      pyprojectOverrides-editable = final: prev: {
+        letsql = prev.letsql.overrideAttrs (old: {
+          patches = (old.patches or [ ]) ++ [
+            ./pyproject.build-system.diff
+          ];
+          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ final.resolveBuildSystem {
+            setuptools = [ ];
+          };
+        });
+      };
+      pythonSet-base =
         # Use base package set from pyproject.nix builders
         (pkgs.callPackage pyproject-nix.build.packages {
           inherit python;
@@ -166,22 +119,17 @@ let
             pkgs.lib.composeManyExtensions (
               [
                 pyproject-build-systems.overlays.default
-                overlay
-                pyprojectOverrides
+                wheelOverlay
+                pyprojectOverrides-base
               ]
               ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ darwinPyprojectOverrides ]
             )
           );
-
-      # # issue is that this doesn't exist: project.pyproject.project.version
-      virtualenv-editable =
-        let
-        editableOverlay = workspace.mkEditablePyprojectOverlay {
-          root = "$REPO_ROOT";
-        };
-        editablePythonSet = pythonSet.overrideScope editableOverlay;
-        in editablePythonSet.mkVirtualEnv "letsql-dev-env" workspace.deps.all;
-      virtualenv = pythonSet.mkVirtualEnv "letsql-env" workspace.deps.all;
+      overridePythonSet = overrides: pythonSet-base.overrideScope (pkgs.lib.composeManyExtensions overrides);
+      pythonSet-editable = overridePythonSet [ pyprojectOverrides-editable editableOverlay ];
+      pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
+      virtualenv-editable = pythonSet-editable.mkVirtualEnv "letsql-dev-env" workspace.deps.all;
+      virtualenv = pythonSet-wheel.mkVirtualEnv "letsql-env" workspace.deps.all;
 
       editableShellHook = ''
         # Undo dependency propagation by nixpkgs.
@@ -256,17 +204,18 @@ let
     in
     {
       inherit
-        editableShellHook
-        maybeMaturinBuildHook
-        crateWheelSrc
+        pythonSet-base
+        pythonSet-editable
+        pythonSet-wheel
         virtualenv
         virtualenv-editable
+        editableShellHook
+        maybeMaturinBuildHook
         toolchain
         letsql-commands-star
         toolsPackages
         shell
         editableShell
-        letsqlCrateWheelSrcOverride
         ;
     };
 in
