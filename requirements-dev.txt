@@ -18,7 +18,7 @@ beniget==0.4.2.post1 ; sys_platform == 'darwin'
 black==25.1.0
 blackdoc==0.3.9
 cachetools==5.5.1 ; python_full_version < '4.0'
-certifi==2024.12.14
+certifi==2025.1.31
 cffi==1.17.1
 cfgv==3.4.0
 chardet==5.2.0
@@ -57,7 +57,7 @@ google-crc32c==1.6.0 ; python_full_version < '4.0'
 google-resumable-media==2.7.2 ; python_full_version < '4.0'
 googleapis-common-protos==1.66.0 ; python_full_version < '4.0'
 greenlet==3.1.1 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
-griffe==1.5.5
+griffe==1.5.6
 humanize==4.11.0 ; python_full_version < '4.0'
 ibis-framework==9.5.0 ; python_full_version < '4.0'
 identify==2.6.6
@@ -66,7 +66,7 @@ importlib-metadata==8.6.1
 importlib-resources==6.5.2
 iniconfig==2.0.0
 ipykernel==6.29.5
-ipython==8.31.0
+ipython==8.32.0
 jedi==0.19.2
 jinja2==3.1.5 ; python_full_version < '4.0'
 joblib==1.4.2
@@ -124,16 +124,16 @@ pygments==2.19.1
 pyjwt==2.10.1 ; python_full_version < '4.0'
 pyopenssl==24.3.0 ; python_full_version < '4.0'
 pytest==8.3.4
-pytest-codspeed==3.1.2
+pytest-codspeed==3.2.0
 pytest-cov==6.0.0
 pytest-mock==3.14.0 ; python_full_version < '4.0'
 pytest-snapshot==0.9.0
 python-dateutil==2.9.0.post0
 pythran==0.17.0 ; sys_platform == 'darwin'
-pytz==2024.2
+pytz==2025.1
 pywin32==308 ; platform_python_implementation != 'PyPy' and sys_platform == 'win32'
 pyyaml==6.0.2
-pyzmq==26.2.0
+pyzmq==26.2.1
 quartodoc==0.9.1
 quickgrove==0.1.2
 referencing==0.36.2
@@ -142,7 +142,7 @@ requests-oauthlib==2.0.0 ; python_full_version < '4.0'
 rich==13.9.4
 rpds-py==0.22.3
 rsa==4.9 ; python_full_version < '4.0'
-ruff==0.9.3
+ruff==0.9.4
 scikit-learn==1.6.1
 scipy==1.15.1
 setuptools==75.8.0 ; sys_platform == 'darwin'
