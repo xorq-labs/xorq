@@ -104,7 +104,8 @@ let
       crateWheelSrc = "${crateWheel}/${wheelName}";
     in
     crateWheelSrc;
-  usePyprojectWheelHook = old: pythonSet:
+  usePyprojectWheelHook =
+    old: pythonSet:
     (builtins.filter
       # all the hooks have the same name and we fail if we have the previous one
       (drv: drv.name != "pyproject-hook")
@@ -115,10 +116,16 @@ let
     src = mkCrateWheelSrc { inherit python; };
     format = "wheel";
     nativeBuildInputs = usePyprojectWheelHook old pythonSet;
-    };
+  };
   mkPyprojectOverrides-wheel = python: pythonSet: final: prev: {
     letsql = prev.letsql.overrideAttrs (mkLetsqlCrateWheelSrcOverride python pythonSet);
   };
-in {
-  inherit mkCrateWheelSrc mkLetsqlCrateWheelSrcOverride mkPyprojectOverrides-wheel usePyprojectWheelHook;
+in
+{
+  inherit
+    mkCrateWheelSrc
+    mkLetsqlCrateWheelSrcOverride
+    mkPyprojectOverrides-wheel
+    usePyprojectWheelHook
+    ;
 }

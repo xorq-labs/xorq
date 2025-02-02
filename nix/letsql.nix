@@ -88,7 +88,7 @@ let
           src
           toolchain
           ;
-        };
+      };
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
       wheelOverlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
       editableOverlay = workspace.mkEditablePyprojectOverlay {
@@ -105,9 +105,11 @@ let
           patches = (old.patches or [ ]) ++ [
             ./pyproject.build-system.diff
           ];
-          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ final.resolveBuildSystem {
-            setuptools = [ ];
-          };
+          nativeBuildInputs =
+            (old.nativeBuildInputs or [ ])
+            ++ final.resolveBuildSystem {
+              setuptools = [ ];
+            };
         });
       };
       pythonSet-base =
@@ -135,8 +137,12 @@ let
           nativeBuildInputs = crateWheelLib.usePyprojectWheelHook old pythonSet-base;
         });
       };
-      overridePythonSet = overrides: pythonSet-base.overrideScope (pkgs.lib.composeManyExtensions overrides);
-      pythonSet-editable = overridePythonSet [ pyprojectOverrides-editable editableOverlay ];
+      overridePythonSet =
+        overrides: pythonSet-base.overrideScope (pkgs.lib.composeManyExtensions overrides);
+      pythonSet-editable = overridePythonSet [
+        pyprojectOverrides-editable
+        editableOverlay
+      ];
       pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
       pythonSet-pypi = overridePythonSet [ pyprojectOverrides-pypi ];
       virtualenv-editable = pythonSet-editable.mkVirtualEnv "letsql-dev-env" workspace.deps.all;
