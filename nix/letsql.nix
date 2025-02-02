@@ -132,13 +132,7 @@ let
             sha256 = "sha256-1SSYEzLzPYt1dE1q4s7sEbVRA6Sc0j3/VSWx1Q0kGRk=";
           };
           format = "wheel";
-          nativeBuildInputs =
-            (builtins.filter
-              # all the hooks have the same name and we fail if we have the previous one
-              (drv: drv.name != "pyproject-hook")
-              (old.nativeBuildInputs or [ ])
-            )
-            ++ [ pythonSet-base.pyprojectWheelHook ];
+          nativeBuildInputs = crateWheelLib.usePyprojectWheelHook old pythonSet-base;
         });
       };
       overridePythonSet = overrides: pythonSet-base.overrideScope (pkgs.lib.composeManyExtensions overrides);
