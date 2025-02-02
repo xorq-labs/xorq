@@ -83,6 +83,10 @@
             drv = letsql-312.virtualenv;
             name = "ipython";
           };
+          ipython-310-v0-1-12 = drvToApp {
+            drv = letsql-310.virtualenv-pypi;
+            name = "ipython";
+          };
           default = self.apps.${system}.ipython-310;
         };
         lib = {
@@ -119,6 +123,7 @@
           virtualenv-editable-311 = letsql-311.editableShell;
           virtualenv-312 = letsql-312.shell;
           virtualenv-editable-312 = letsql-312.editableShell;
+          virtualenv-pypi-310 = letsql-310.pypiShell;
           default = self.devShells.${system}.virtualenv-310;
         };
       }

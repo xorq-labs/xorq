@@ -125,11 +125,29 @@ let
               ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ darwinPyprojectOverrides ]
             )
           );
+      pyprojectOverrides-pypi = final: prev: {
+        letsql = prev.letsql.overrideAttrs (old: {
+          src = pkgs.fetchurl {
+            url = "https://files.pythonhosted.org/packages/82/7c/4f6fa35ac8bc4aeef68f94c91f2001a799aa6210456c2d806d3574f7ea1f/letsql-0.1.12-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl";
+            sha256 = "sha256-1SSYEzLzPYt1dE1q4s7sEbVRA6Sc0j3/VSWx1Q0kGRk=";
+          };
+          format = "wheel";
+          nativeBuildInputs =
+            (builtins.filter
+              # all the hooks have the same name and we fail if we have the previous one
+              (drv: drv.name != "pyproject-hook")
+              (old.nativeBuildInputs or [ ])
+            )
+            ++ [ pythonSet-base.pyprojectWheelHook ];
+        });
+      };
       overridePythonSet = overrides: pythonSet-base.overrideScope (pkgs.lib.composeManyExtensions overrides);
       pythonSet-editable = overridePythonSet [ pyprojectOverrides-editable editableOverlay ];
       pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
+      pythonSet-pypi = overridePythonSet [ pyprojectOverrides-pypi ];
       virtualenv-editable = pythonSet-editable.mkVirtualEnv "letsql-dev-env" workspace.deps.all;
       virtualenv = pythonSet-wheel.mkVirtualEnv "letsql-env" workspace.deps.all;
+      virtualenv-pypi = pythonSet-pypi.mkVirtualEnv "letsql-pypi-env" workspace.deps.all;
 
       editableShellHook = ''
         # Undo dependency propagation by nixpkgs.
@@ -190,6 +208,14 @@ let
           unset PYTHONPATH
         '';
       };
+      pypiShell = pkgs.mkShell {
+        packages = [
+          virtualenv-pypi
+        ];
+        shellHook = ''
+          unset PYTHONPATH
+        '';
+      };
       editableShell = pkgs.mkShell {
         packages = [
           virtualenv-editable
@@ -209,6 +235,7 @@ let
         pythonSet-wheel
         virtualenv
         virtualenv-editable
+        virtualenv-pypi
         editableShellHook
         maybeMaturinBuildHook
         toolchain
@@ -216,6 +243,7 @@ let
         toolsPackages
         shell
         editableShell
+        pypiShell
         ;
     };
 in
