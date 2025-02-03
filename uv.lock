@@ -1369,6 +1369,7 @@ examples = [
     { name = "duckdb", marker = "python_full_version < '4.0'" },
     { name = "fsspec", marker = "python_full_version < '4.0'" },
     { name = "pins", extra = ["gcs"], marker = "python_full_version < '4.0'" },
+    { name = "quickgrove" },
     { name = "xgboost", marker = "python_full_version < '4.0'" },
 ]
 quickgrove = [
@@ -1431,6 +1432,7 @@ requires-dist = [
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4,<1" },
     { name = "pytest-mock", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=3.14.0,<4" },
     { name = "pythran", marker = "sys_platform == 'darwin'", specifier = ">=0.17.0" },
+    { name = "quickgrove", marker = "extra == 'examples'", specifier = ">=0.1.2" },
     { name = "quickgrove", marker = "extra == 'quickgrove'", specifier = ">=0.1.2" },
     { name = "snowflake-connector-python", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'snowflake'", specifier = ">=3.10.1,<4" },
     { name = "sqlalchemy", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=2.0.29,<3" },
