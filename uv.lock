@@ -1456,7 +1456,7 @@ dev = [
     { name = "pytest-cov", specifier = "==6.0.0" },
     { name = "quickgrove", specifier = ">=0.1.2" },
     { name = "ruff", specifier = "==0.9.4" },
-    { name = "trino", specifier = "==0.332.0" },
+    { name = "trino", specifier = "==0.333.0" },
 ]
 docs = [
     { name = "ipykernel", specifier = ">=6.29.4,<7.0.0" },
@@ -3287,7 +3287,7 @@ wheels = [
 
 [[package]]
 name = "trino"
-version = "0.332.0"
+version = "0.333.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "lz4" },
@@ -3297,9 +3297,9 @@ dependencies = [
     { name = "tzlocal" },
     { name = "zstandard" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/19/3b/8a4eeee6b2665b8383708d9def34cff22e5ce4fadeb22e6e6b1e43155cbd/trino-0.332.0.tar.gz", hash = "sha256:23fb44d0bafb5175f1111fef5a2f0caf32c751c32a26c0126553777f91bd2f56", size = 54726 }
+sdist = { url = "https://files.pythonhosted.org/packages/60/52/b7921d9bebb63ae48a6a660db1a24e8cc7bcc7965a927c1c9ef11a571d5d/trino-0.333.0.tar.gz", hash = "sha256:f301f54900182fa8f07de9198a3f0cdfb68216db0c61558d324bf42f1582fe45", size = 54887 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c5/d9/f8a65d6e53f39c58acea7cd30ead79b0ecc773659687b1fe1ae74a1b3b34/trino-0.332.0-py3-none-any.whl", hash = "sha256:24ef06c231578cff55b966a585a177d847bcb77a02504ac9c96394676a884952", size = 57321 },
+    { url = "https://files.pythonhosted.org/packages/9c/51/abc14ec1e6c940b78589b3fb1fa5495152d3e1999244736e8299a1996c12/trino-0.333.0-py3-none-any.whl", hash = "sha256:9954e59e32c5d562e1def5307d466a6cdd986b3c9ac6979d07d4fe023968da6b", size = 57450 },
 ]
 
 [[package]]
