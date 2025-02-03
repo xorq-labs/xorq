@@ -1,0 +1,87 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "maple",
+  "name": "LETSQL Documentation",
+  "colors": {
+    "primary": "#7DF8FE",
+    "light": "#7DF8FE",
+    "dark": "#5CDBF7"
+  },
+  "favicon": "/favicon.svg",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "User Guide",
+        "groups": [
+          {
+            "group": "User Guide",
+            "pages": [
+              "overview",
+              "core_concepts",
+              "development"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Expression API",
+            "pages": [
+              "api-reference/expression-generic",
+              "api-reference/expression-numeric",
+              "api-reference/expression-relations",
+              "api-reference/expression-strings",
+              "api-reference/expression-temporal"
+            ]
+          },
+          {
+            "group": "Functions API",
+            "pages": [
+              "api-reference/toplevel-api",
+              "api-reference/ml-api"
+            ]
+          }
+        ]
+      }
+    ],
+    "global": {
+      "anchors": [
+        {
+          "anchor": "Documentation",
+          "href": "https://docs.letsql.com/",
+          "icon": "book-open-cover"
+        },
+        {
+          "anchor": "Community",
+          "href": "https://discord.gg/8Kma9DhcJG",
+          "icon": "slack"
+        },
+        {
+          "anchor": "Blog",
+          "href": "https://www.letsql.com/posts",
+          "icon": "newspaper"
+        }
+      ]
+    }
+  },
+  "logo": {
+    "light": "/logo/xorq_light.png",
+    "dark": "/logo/xorq_dark.png"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Support",
+        "href": "mailto:mesejo@letsql.com"
+      }
+    ]
+  },
+  "footer": {
+    "socials": {
+      "github": "https://github.com/letsql/",
+      "linkedin": "https://www.linkedin.com/company/letsql/"
+    }
+  }
+}

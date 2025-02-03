@@ -1,0 +1,285 @@
+---
+title: 'Core Concepts'
+description: 'The core concepts to understand what is LetSQL'
+---
+
+# Caching System
+
+LetSQL provides a sophisticated caching system that enables efficient iterative development of ML pipelines. The caching system allows you to:
+
+- Cache results from upstream query engines
+- Persist data locally or in remote storage
+- Automatically invalidate cache when source data changes
+- Chain caches across multiple engines
+
+## Storage Types
+
+LetSQL supports two main types of cache storage:
+
+### 1. SourceStorage
+
+- Automatically invalidates cache when upstream data changes
+- Persistence depends on the source backend
+- Supports both remote (Snowflake, Postgres) and in-process (pandas, DuckDB) backends
+
+```python
+
+```
+
+### 2. SnapshotStorage
+
+- No automatic invalidation
+- Ideal for one-off analyses
+- Persistence depends on source backend
+
+### 3. ParquetCacheStorage
+
+- Special case of SourceStorage
+- Caches results as Parquet files on local disk
+- Uses source backend for writing
+- Ensures durable persistence
+
+## Hashing Strategies
+
+Cache invalidation uses different hashing strategies based on the storage type:
+
+| Storage Type | Hash Components |
+| --- | --- |
+| In-Memory | Data bytes + Schema |
+| Disk-Based | Query plan + Schema |
+| Remote | Table metadata + Last modified time |
+
+## Key Benefits
+
+1. **Faster Iteration**:
+    - Reduce network calls to source systems
+    - Minimize recomputation of expensive operations
+    - Cache intermediate results for complex pipelines
+2. **Declarative Integration**:
+    - Chain cache operations anywhere in the expression
+    - Transparent integration with existing pipelines
+    - Multiple storage options for different use cases
+3. **Automatic Management**:
+    - Smart invalidation based on source changes
+    - No manual cache management required
+    - Efficient storage utilization
+4. **Multi-Engine Support**:
+    - Cache data between different engines
+    - Optimize storage location for performance
+    - Flexible persistence options
+
+# Multi-Engine System
+
+LetSQL's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
+
+## The `into_backend` Operator
+
+The core of LetSQL's multi-engine capability is the `into_backend` operator, which enables:
+
+- Transparent data movement between engines
+- Zero-copy data transfer using Apache Arrow
+- Automatic optimization of data placement
+
+```python
+
+```
+
+## Supported Engines
+
+LetSQL currently supports:
+
+1. **In-Process Engines**
+    - DuckDB
+    - DataFusion
+    - Pandas
+2. **Distributed Engines**
+    - Trino
+    - Snowflake
+    - BigQuery
+
+## Engine Selection Guidelines
+
+Choose engines based on their strengths:
+
+1. **DuckDB**: Local processing, AsOf joins, efficient file formats
+2. **DataFusion**: Custom UDFs, streaming processing
+3. **Trino**: Distributed queries, federation, security
+4. **Snowflake/BigQuery**: Managed infrastructure, scalability
+
+## Data Transfer
+
+Data movement between engines is handled through:
+
+1. **Arrow Flight**: Zero-copy data transfer protocol
+2. **Memory Management**: Automatic spilling to disk
+3. **Batching**: Efficient chunk-based processing
+
+# Custom UD(X)F System
+
+LetSQL provides a powerful system for extending query engines with custom User-Defined X Functions (where X can be Scalar, Aggregate, or Window).
+
+## Types of UDXFs
+
+### 1. User-Defined Scalar Functions (UDF)
+
+- Basic transformations
+- Feature engineering
+- Metric calculations
+
+```python
+
+```
+
+### 2. User-Defined Aggregate Functions (UDAF)
+
+- Complex metric computations
+- Statistical aggregations
+- Time-window calculations
+
+```python
+
+```
+
+### 3. User-Defined Window Functions (UDWF)
+
+- Time-based comparisons
+- Relative metrics
+- Cohort analysis
+
+# Ephemeral Flight Service
+
+LetSQL's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service:
+
+1. **Automatic Lifecycle Management**
+
+    ```python
+    import letsql as ls
+
+    with ls.flight_context() as flight:
+
+    # Service cleaned up after context exit
+
+    ```
+
+2. **Zero-Copy Data Movement**
+    - Direct memory transfer between processes
+    - No serialization/deserialization overhead
+    - Efficient handling of large datasets
+3. **Process Isolation**
+    - Separate processes for different engines
+    - Independent resource management
+    - Fault isolation
+4. **Resource Management**
+5. **Security Integration**
+
+## Implementation Details
+
+### Service Lifecycle
+
+1. **Startup**
+    - Dynamic port allocation
+    - Resource reservation
+    - Backend initialization
+2. **Operation**
+    - Streaming data transfer
+    - Memory management
+    - Error handling
+3. **Shutdown**
+    - Resource cleanup
+    - Connection termination
+    - Memory release
+
+# Comparison with Ibis
+
+While LetSQL is built on top of Ibis, it extends its capabilities in several key ways:
+
+## 1. Multi-Engine Execution
+
+Ibis:
+
+```python
+# Ibis: Single backend at a time
+conn = ibis.connect('duckdb://...')
+table = conn.table('data')
+result = table.execute()
+
+```
+
+LetSQL:
+
+```python
+result = (
+    trino_table
+    .pipe(into_backend, duckdb)
+    .asof_join(other_table)
+    .pipe(into_backend, trino)
+    .execute()
+)
+
+```
+
+## 2. Caching Capabilities
+
+Ibis:
+
+```python
+# Ibis: Backend-specific caching
+table.cache().execute()# Creates temporary table ** Not Deferred**
+
+```
+
+LetSQL:
+
+```python
+# LetSQL: Flexible, cross-engine caching
+(table
+ .cache(storage=ParquetCacheStorage())# Persistent cache
+ .pipe(into_backend, next_engine)
+ .execute())
+
+```
+
+## 3. UDF System
+
+Ibis:
+
+```python
+# Ibis: Backend-specific UDF registration
+
+```
+
+LetSQL:
+
+```python
+
+```
+
+## 4. Data Transfer
+
+## 5. Pipeline Management
+
+Ibis:
+
+- Focus on query expression building
+- Limited pipeline tooling
+- Backend-specific optimizations
+
+LetSQL:
+
+- End-to-end pipeline support
+- Built-in development tools
+- Cross-engine optimization
+
+## Key Advantages over Ibis
+
+1. **Unified Experience**
+    - Consistent API across engines
+    - Seamless engine transitions
+    - Integrated caching system
+2. **ML Focus**
+    - Built-in ML tooling
+    - Efficient feature engineering
+    - Model training integration
+3. **Development Workflow**
+    - Interactive development support
+    - Caching for iteration
