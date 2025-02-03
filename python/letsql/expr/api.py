@@ -913,7 +913,7 @@ def register(
     from letsql.config import _backend_init
 
     con = _backend_init()
-    return con.read_parquet(source, table_name=table_name, **kwargs)
+    return con.register(source, table_name=table_name, **kwargs)
 
 
 def read_postgres(
