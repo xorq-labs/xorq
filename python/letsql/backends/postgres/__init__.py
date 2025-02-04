@@ -7,12 +7,14 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlglot as sg
 import sqlglot.expressions as sge
+import toolz
 from ibis.backends.postgres import Backend as IbisPostgresBackend
 from ibis.expr import types as ir
 from ibis.util import (
     gen_name,
 )
 
+import letsql as ls
 from letsql.backends.postgres.compiler import compiler
 from letsql.common.utils.defer_utils import (
     read_csv_rbr,
@@ -198,3 +200,41 @@ class Backend(IbisPostgresBackend):
             mode=mode,
             **kwargs,
         )
+
+    def create_catalog(self, name: str, force: bool = False) -> None:
+        # https://stackoverflow.com/a/43634941
+        if force:
+            raise ValueError
+        quoted = self.compiler.quoted
+        create_stmt = sge.Create(
+            this=sg.to_identifier(name, quoted=quoted), kind="DATABASE", exists=force
+        )
+        (prev_autocommit, self.con.autocommit) = (self.con.autocommit, True)
+        with self._safe_raw_sql(create_stmt):
+            pass
+        self.con.autocommit = prev_autocommit
+
+    def clone(self, password=None, **kwargs):
+        """necessary because "UnsupportedOperationError: postgres does not support creating a database in a different catalog" """
+        from letsql.common.utils.postgres_utils import make_credential_defaults
+
+        password = password or make_credential_defaults()["password"]
+        if password is None:
+            raise ValueError(
+                "password is required if POSTGRES_PASSWORD env var is not populated"
+            )
+        dsn_parameters = self.con.get_dsn_parameters()
+        dct = {
+            **toolz.dissoc(
+                dsn_parameters,
+                "dbname",
+                "options",
+            ),
+            **{
+                "database": dsn_parameters["dbname"],
+                "password": password,
+            },
+            **kwargs,
+        }
+        con = ls.postgres.connect(**dct)
+        return con

@@ -14,7 +14,6 @@ from attr.validators import (
     optional,
 )
 
-import letsql.backends.postgres.hotfix  # noqa: F401
 from letsql.backends.postgres import (
     Backend as PGBackend,
 )
