@@ -1,5 +1,6 @@
 from typing import MutableMapping
 
+import ibis.common.exceptions as com
 import pandas as pd
 from ibis.backends.pandas import Backend as IbisPandasBackend
 
@@ -24,3 +25,11 @@ class Backend(IbisPandasBackend):
         """
         self.dictionary = dictionary or {}
         self.schemas = {}
+
+    def drop_table(self, name: str, *, force: bool = False) -> None:
+        if not force and name in self.dictionary:
+            raise com.IbisError(
+                "Cannot drop existing table. Call drop_table with force=True to drop existing table."
+            )
+        del self.dictionary[name]
+        del self.schemas[name]
