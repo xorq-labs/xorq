@@ -2,7 +2,7 @@ name: ci-test-snowflake
 
 on:
   workflow_dispatch:
-  pull_request_target:
+  pull_request:
     types:
       - labeled
 
@@ -17,7 +17,7 @@ jobs:
     strategy:
       matrix:
         target: ["x86_64"]
-        python-version: ["3.11"]
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v2
@@ -40,14 +40,14 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: uv run maturin develop
+        run: uv run --no-project maturin develop
         working-directory: ${{ github.workspace }}
 
       - name: start services
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run pytest --import-mode=importlib python/letsql/backends/snowflake -v --cov --cov-report=xml
+        run: uv run --no-project pytest --import-mode=importlib python/letsql/backends/snowflake -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_GH_USER_PASSWORD }}

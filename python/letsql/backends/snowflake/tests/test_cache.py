@@ -58,12 +58,11 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
             name=name,
             obj=df,
         )
-        cached_expr = (
-            table.group_by(group_by)
-            .agg({f"min_{col}": table[col].min() for col in table.columns})
-            .cache(storage)
+        uncached = table.group_by(group_by).agg(
+            {f"min_{col}": table[col].min() for col in table.columns}
         )
-        (storage, uncached) = get_storage_uncached(cached_expr)
+        cached_expr = uncached.cache(storage)
+        (storage, _) = get_storage_uncached(cached_expr)
         unbound_sql = re.sub(
             r"\s+",
             " ",
@@ -135,12 +134,11 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
             name=name,
             obj=df,
         )
-        cached_expr = (
-            table.group_by(group_by)
-            .agg({f"count_{col}": table[col].count() for col in table.columns})
-            .cache(storage)
+        uncached = table.group_by(group_by).agg(
+            {f"count_{col}": table[col].count() for col in table.columns}
         )
-        (storage, uncached) = get_storage_uncached(cached_expr)
+        cached_expr = uncached.cache(storage)
+        (storage, _) = get_storage_uncached(cached_expr)
         unbound_sql = re.sub(
             r"\s+",
             " ",

@@ -57,9 +57,11 @@ def inside_temp_schema(con, temp_catalog, temp_db):
             kind="SCHEMA", this=sg.table(temp_db, db=temp_catalog, quoted=True)
         ).sql(dialect=con.name),
     )
-    yield
-    con.raw_sql(
-        sge.Use(
-            kind="SCHEMA", this=sg.table(prev_db, db=prev_catalog, quoted=True)
-        ).sql(dialect=con.name),
-    )
+    try:
+        yield
+    finally:
+        con.raw_sql(
+            sge.Use(
+                kind="SCHEMA", this=sg.table(prev_db, db=prev_catalog, quoted=True)
+            ).sql(dialect=con.name),
+        )

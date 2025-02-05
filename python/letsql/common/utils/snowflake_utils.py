@@ -4,7 +4,6 @@ import pandas as pd
 import snowflake.connector
 
 import letsql as ls
-import letsql.backends.snowflake.hotfix  # noqa: F401
 
 
 def make_credential_defaults():
