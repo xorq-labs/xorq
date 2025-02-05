@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.13] - 2025-02-05
+### Details
+Enable caching for BigQuery
+
+#### Added
+- Add quickgrove example by @hussainsultan in [#499](https://github.com/letsql/letsql/pull/499)
+- Add quickgrove to examples optional by @mesejo in [#501](https://github.com/letsql/letsql/pull/501)
+
+#### Changed
+- Enable caching bigquery exprs by @dlovell in [#486](https://github.com/letsql/letsql/pull/486)
+- Snowflake-connector-python security update by @mesejo in [#489](https://github.com/letsql/letsql/pull/489)
+- Update actions/create-github-app-token action to v1.11.2 by @renovate[bot] in [#492](https://github.com/letsql/letsql/pull/492)
+- Update dependency ruff to v0.9.4 by @renovate[bot] in [#493](https://github.com/letsql/letsql/pull/493)
+- Enable running entirely from pypi by @dlovell
+- Invoke nix fmt by @dlovell
+- Update dependency trino to v0.333.0 by @renovate[bot] in [#502](https://github.com/letsql/letsql/pull/502)
+- Update actions/create-github-app-token action to v1.11.3 by @renovate[bot] in [#505](https://github.com/letsql/letsql/pull/505)
+- Update bitnami/minio docker tag to v2025.2.3 by @renovate[bot] in [#507](https://github.com/letsql/letsql/pull/507)
+
+#### Fixed
+- Update rust crate async-trait to v0.1.86 by @renovate[bot] in [#494](https://github.com/letsql/letsql/pull/494)
+- Update dependency fsspec to v2025 by @renovate[bot] in [#495](https://github.com/letsql/letsql/pull/495)
+- Enable no rust build drv by @dlovell
+- Ls.register: invoke correct method by @dlovell in [#500](https://github.com/letsql/letsql/pull/500)
+
+#### Removed
+- Remove poetry.lock by @mesejo in [#488](https://github.com/letsql/letsql/pull/488)
+- Remove optimizer module by @mesejo in [#506](https://github.com/letsql/letsql/pull/506)
+- Remove hotfix for Postgres by @mesejo in [#503](https://github.com/letsql/letsql/pull/503)
+- Remove hotfix pandas by @mesejo in [#504](https://github.com/letsql/letsql/pull/504)
+
 ## [0.1.12] - 2025-01-29
 ### Details
 This release introduces several key features including segmentation support, SQL caching optimization, a new hash(string) function, and QuickGrove UDF integration. 
