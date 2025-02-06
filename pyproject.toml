@@ -21,6 +21,7 @@ dependencies = [
     "pyarrow-hotfix>=0.4,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "geoarrow-types>=0.2,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "pythran>=0.17.0 ; sys_platform == 'darwin'",
+    "pydantic>=2.10.6",
 ]
 requires-python = ">=3.10"
 authors = [
@@ -92,6 +93,7 @@ dev = [
 test = [
     "datafusion>=43.1.0",
     "duckdb>=1.1.3",
+    "pyopenssl>=24.3.0",
     "pytest-snapshot<1.0.0,>=0.9.0",
     "scikit-learn<2.0.0,>=1.4.0",
     "xgboost>=1.6.1",

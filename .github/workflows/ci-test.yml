@@ -69,6 +69,7 @@ jobs:
         uses: PyO3/maturin-action@v1
         with:
           command: 'develop'
+          args: '--release --strip'
           target: ${{ matrix.target }}
           sccache: 'true'
           manylinux: 'auto'
