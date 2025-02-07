@@ -1,12 +1,8 @@
-use std::collections::{HashMap, HashSet};
-use std::path::PathBuf;
-use std::str::FromStr;
-use std::sync::Arc;
-
 use crate::catalog::{PyCatalog, PyTable};
 use crate::dataframe::PyDataFrame;
 use crate::dataset::Dataset;
 use crate::errors::DataFusionError;
+use crate::expr::sort_expr::PySortExpr;
 use crate::functions::greatest::GreatestFunc;
 use crate::functions::hash_int::HashIntFunc;
 use crate::functions::least::LeastFunc;
@@ -21,6 +17,8 @@ use crate::udaf::PyAggregateUDF;
 use crate::udf::PyScalarUDF;
 use crate::udwf::PyWindowUDF;
 use crate::utils::wait_for_future;
+use arrow::array::RecordBatchReader;
+use arrow_ord::sort::SortOptions;
 use datafusion::arrow::datatypes::{DataType, Schema};
 use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
 use datafusion::arrow::pyarrow::PyArrowType;
@@ -31,14 +29,21 @@ use datafusion::datasource::TableProvider;
 use datafusion::execution::context::{SessionConfig, SessionContext, SessionState};
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::session_state::SessionStateBuilder;
+use datafusion::physical_expr::{expressions, LexOrdering, PhysicalSortExpr};
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::config::ConfigFileType;
 use datafusion_common::ScalarValue;
+use datafusion_expr::Expr;
 use datafusion_expr::ScalarUDF;
 use gbdt::gradient_boost::GBDT;
 use parking_lot::RwLock;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
+use std::collections::{HashMap, HashSet};
+use std::ops::Deref;
+use std::path::PathBuf;
+use std::str::FromStr;
+use std::sync::Arc;
 
 /// Configuration options for a SessionContext
 #[pyclass(name = "SessionConfig", module = "let", subclass)]
@@ -379,13 +384,41 @@ impl PySessionContext {
         Ok(())
     }
 
+    #[pyo3(signature = (name,
+                        reader,
+                        sort_order=None))]
     pub fn register_record_batch_reader(
         &mut self,
         name: &str,
         reader: PyArrowType<ArrowArrayStreamReader>,
+        sort_order: Option<Vec<PySortExpr>>,
     ) -> PyResult<()> {
         let reader = reader.0;
-        let table = PyRecordBatchProvider::new(reader);
+        let schema = reader.schema();
+
+        let mut ordering = LexOrdering::default();
+        if let Some(exprs) = sort_order {
+            for sort in exprs {
+                match sort.sort.expr {
+                    Expr::Column(col) => match expressions::col(&col.name, schema.deref()) {
+                        Ok(expr) => {
+                            ordering.push(PhysicalSortExpr {
+                                expr,
+                                options: SortOptions {
+                                    descending: !sort.sort.asc,
+                                    nulls_first: sort.sort.nulls_first,
+                                },
+                            });
+                        }
+                        Err(_) => break,
+                    },
+                    expr => {
+                        return Err(PyValueError::new_err(format!("Unsupported expr {expr:?}")));
+                    }
+                }
+            }
+        }
+        let table = PyRecordBatchProvider::new(reader, ordering.clone());
         self.ctx
             .register_table(name, Arc::new(table))
             .map_err(DataFusionError::from)?;

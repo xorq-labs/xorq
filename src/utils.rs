@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use arrow::array::ArrayRef;
 use arrow::datatypes::SchemaRef;
-use datafusion::physical_expr::{EquivalenceProperties, Partitioning};
+use datafusion::physical_expr::{EquivalenceProperties, LexOrdering, Partitioning};
 use datafusion::physical_plan::execution_plan::{Boundedness, EmissionType};
 use datafusion::physical_plan::PlanProperties;
 use datafusion_common::{Result, ScalarValue};
@@ -55,6 +55,20 @@ pub(crate) fn parse_volatility(value: &str) -> Result<Volatility, DataFusionErro
 
 pub fn compute_properties(schema: SchemaRef) -> PlanProperties {
     let eq_properties = EquivalenceProperties::new(schema);
+
+    PlanProperties::new(
+        eq_properties,
+        Partitioning::UnknownPartitioning(1),
+        EmissionType::Incremental,
+        Boundedness::Bounded,
+    )
+}
+
+pub fn compute_properties_with_orderings(
+    schema: SchemaRef,
+    orderings: &[LexOrdering],
+) -> PlanProperties {
+    let eq_properties = EquivalenceProperties::new_with_orderings(schema, orderings);
 
     PlanProperties::new(
         eq_properties,

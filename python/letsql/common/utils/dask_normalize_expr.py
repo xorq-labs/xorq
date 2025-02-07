@@ -74,7 +74,7 @@ def normalize_datafusion_databasetable(dt):
         )
     elif ep_str.startswith("MemoryExec:"):
         return normalize_memory_databasetable(dt)
-    elif ep_str.startswith("CustomExec"):
+    elif ep_str.startswith("PyRecordBatchProviderExec"):
         return dask.tokenize._normalize_seq_func((dt.schema.to_pandas(), dt.name))
     else:
         raise ValueError

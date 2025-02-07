@@ -30,6 +30,7 @@ use datafusion_expr::{
     utils::exprlist_to_fields,
     Between, BinaryExpr, Case, Cast, Expr, Like, LogicalPlan, Operator, TryCast,
 };
+use sort_expr::PySortExpr;
 
 use crate::common::data_type::{DataTypeMap, RexType};
 use crate::errors::{py_datafusion_err, py_runtime_err, py_type_err, DataFusionError};
@@ -247,7 +248,7 @@ impl PyExpr {
 
     /// Create a sort PyExpr from an existing PyExpr.
     #[pyo3(signature = (ascending=true, nulls_first=true))]
-    pub fn sort(&self, ascending: bool, nulls_first: bool) -> PyOrdered {
+    pub fn sort(&self, ascending: bool, nulls_first: bool) -> PySortExpr {
         self.expr.clone().sort(ascending, nulls_first).into()
     }
 
@@ -717,6 +718,7 @@ pub(crate) fn init_module(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<window::PyWindowFrame>()?;
     m.add_class::<window::PyWindowFrameBound>()?;
     m.add_class::<PyOrdered>()?;
+    m.add_class::<PySortExpr>()?;
     m.add_class::<PyWildcard>()?;
     Ok(())
 }

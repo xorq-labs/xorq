@@ -40,6 +40,7 @@ from letsql.backends.let.datafusion.provider import IbisTableProvider
 from letsql.common.utils.aws_utils import (
     make_s3_connection,
 )
+from letsql.expr import Expr
 from letsql.expr.datatypes import LargeString
 from letsql.expr.pyaggregator import PyAggregator, make_struct_type
 from letsql.internal import (
@@ -182,6 +183,21 @@ def _fields_to_parameters(fields):
         )
         parameters.append(param)
     return parameters
+
+
+def translate_sort(exprs: list[ir.Expr]):
+    result = []
+    for expr in exprs:
+        node = expr.op()
+        if not isinstance(node, ops.SortKey):
+            raise ValueError(f"Expected SortKey, got {type(node)}")
+
+        column_identifier = str(sg.to_identifier(node.name, quoted=True))
+        result.append(
+            Expr.column(column_identifier).sort(node.ascending, node.nulls_first)
+        )
+
+    return result
 
 
 class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl):
@@ -474,8 +490,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             )
             return self.table(table_name)
         elif isinstance(source, pa.RecordBatchReader):
+            if "ordering" in kwargs:
+                kwargs["sort_order"] = translate_sort(kwargs.pop("ordering"))
+
             self.con.deregister_table(table_ident)
-            self.con.register_record_batch_reader(table_ident, source)
+            self.con.register_record_batch_reader(table_ident, source, **kwargs)
             return self.table(table_name)
         elif isinstance(source, Table):
             self.con.deregister_table(table_ident)

@@ -1,26 +1,10 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
-
 use std::any::Any;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::{fmt, thread};
 
+use crate::utils::compute_properties_with_orderings;
 use async_trait::async_trait;
 use datafusion::arrow::datatypes::SchemaRef;
 use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
@@ -29,6 +13,7 @@ use datafusion::catalog::Session;
 use datafusion::datasource::{TableProvider, TableType};
 use datafusion::error::Result;
 use datafusion::execution::TaskContext;
+use datafusion::physical_expr::LexOrdering;
 use datafusion::physical_plan::stream::RecordBatchStreamAdapter;
 use datafusion::physical_plan::{
     project_schema, DisplayAs, DisplayFormatType, ExecutionPlan, PlanProperties,
@@ -39,12 +24,11 @@ use datafusion_expr::Expr;
 use futures::stream::Stream;
 use futures::task::{Context, Poll};
 
-use crate::utils::compute_properties;
-
 #[derive(Clone, Debug)]
 pub struct PyRecordBatchProvider {
     reader: Arc<Mutex<Option<ArrowArrayStreamReader>>>,
     schema: SchemaRef,
+    ordering: LexOrdering,
 }
 
 impl PyRecordBatchProvider {
@@ -53,14 +37,19 @@ impl PyRecordBatchProvider {
         projections: Option<&Vec<usize>>,
         schema: SchemaRef,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        Ok(Arc::new(CustomExec::new(self.clone(), projections, schema)))
+        Ok(Arc::new(PyRecordBatchProviderExec::new(
+            self.clone(),
+            projections,
+            schema,
+        )))
     }
 
-    pub fn new(aasr: ArrowArrayStreamReader) -> Self {
+    pub fn new(aasr: ArrowArrayStreamReader, ordering: LexOrdering) -> Self {
         let schema = aasr.schema();
         Self {
             reader: Arc::new(Mutex::new(aasr.into())),
             schema,
+            ordering,
         }
     }
 }
@@ -86,7 +75,7 @@ impl TableProvider for PyRecordBatchProvider {
         _filter: &[Expr],
         _limit: Option<usize>,
     ) -> Result<Arc<dyn ExecutionPlan>> {
-        return self.create_physical_plan(projection, self.schema()).await;
+        self.create_physical_plan(projection, self.schema()).await
     }
 }
 
@@ -163,14 +152,14 @@ impl Stream for ProjectedPyRecordBatchProvider {
 }
 
 #[derive(Debug, Clone)]
-struct CustomExec {
+struct PyRecordBatchProviderExec {
     record_batch_provider: PyRecordBatchProvider,
     projected_schema: SchemaRef,
     projections: Option<Vec<usize>>,
-    cache: PlanProperties,
+    plan_properties: PlanProperties,
 }
 
-impl CustomExec {
+impl PyRecordBatchProviderExec {
     fn new(
         record_batch_provider: PyRecordBatchProvider,
         projections: Option<&Vec<usize>>,
@@ -178,23 +167,34 @@ impl CustomExec {
     ) -> Self {
         let projected_schema = project_schema(&schema, projections).unwrap();
         let projections = projections.map(|v| (*v).clone());
-        let cache = compute_properties(projected_schema.clone());
+        let plan_properties = compute_properties_with_orderings(
+            projected_schema.clone(),
+            &[record_batch_provider.ordering.clone()],
+        );
         Self {
             record_batch_provider,
             projected_schema,
             projections,
-            cache,
+            plan_properties,
         }
     }
 }
 
-impl DisplayAs for CustomExec {
+impl DisplayAs for PyRecordBatchProviderExec {
     fn fmt_as(&self, _t: DisplayFormatType, f: &mut fmt::Formatter) -> std::fmt::Result {
-        write!(f, "CustomExec")
+        if let Some(output_ordering) = self.plan_properties.output_ordering() {
+            write!(
+                f,
+                "PyRecordBatchProviderExec ordering=[{}]",
+                output_ordering
+            )
+        } else {
+            write!(f, "PyRecordBatchProviderExec ordering=[None]")
+        }
     }
 }
 
-impl ExecutionPlan for CustomExec {
+impl ExecutionPlan for PyRecordBatchProviderExec {
     fn name(&self) -> &str {
         "py_record_batch_provider"
     }
@@ -208,7 +208,12 @@ impl ExecutionPlan for CustomExec {
     }
 
     fn properties(&self) -> &PlanProperties {
-        &self.cache
+        &self.plan_properties
+    }
+
+    fn maintains_input_order(&self) -> Vec<bool> {
+        // Tell optimizer this operator doesn't reorder its input
+        vec![true]
     }
 
     fn children(&self) -> Vec<&Arc<dyn ExecutionPlan>> {

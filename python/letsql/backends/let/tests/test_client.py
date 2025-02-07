@@ -1,5 +1,7 @@
 import ibis
 import pyarrow as pa
+import pytest
+from pytest import param
 
 import letsql as ls
 from letsql.tests.util import (
@@ -75,3 +77,34 @@ def test_register_table_with_uppercase_multiple_times(ls_con):
     assert uppercase_table_name in ls_con.list_tables()
     assert ls.execute(t) is not None
     assert t.schema() == expected_schema
+
+
+@pytest.mark.parametrize(
+    "keys",
+    [
+        param(tuple(), id="empty"),
+        param((ls.asc("yearID"),), id="one-column"),
+        param((ls.asc("yearID"), ls.desc("stint")), id="two-columns"),
+    ],
+)
+def test_register_record_batch_reader_sorted(batting_df, keys):
+    con = ls.connect()
+    t = con.register(batting_df, "batting")
+
+    if keys:
+        t = t.order_by(*keys)
+
+    record_batch_reader = t.select("yearID", "stint").to_pyarrow_batches()
+    t = con.register(
+        record_batch_reader,
+        "t2",
+        ordering=[key.resolve(t) for key in keys],
+    )
+    expr = t.group_by("yearID").agg(max_tiny=t["stint"].max())
+
+    physical_plan = ls.get_plans(expr)["physical_plan"]
+    ordering_string = "ordering_mode=Sorted"
+    if keys:
+        assert ordering_string in physical_plan
+    else:
+        assert ordering_string not in physical_plan
