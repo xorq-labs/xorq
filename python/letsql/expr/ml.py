@@ -256,7 +256,7 @@ def _create_udf_node(
     udf_name: str,
     extra_meta: dict = None,
 ) -> type:
-    """Dynamically create a subclass of ScalarUDF for an quickgrove-based function."""
+    """Dynamically create a subclass of ScalarUDF for a quickgrove-based function."""
 
     meta = {
         "dtype": dt.float32,
@@ -323,15 +323,27 @@ def _create_udf_function(node_cls: type) -> Callable:
 
 
 def make_quickgrove_udf(
-    model_or_path: Union[str, Path, "PyGradientBoostedDecisionTrees"],
+    model_or_path: Union[str, Path, "PyGradientBoostedDecisionTrees"], model_name=None
 ) -> UDFWrapper:
     """
-    Create a UDF from an quickgrove (quickgrove) model.
-    Accepts either an already-loaded model or a path to the model.
+    Create a UDF from a quickgrove (quickgrove) model.
+
+    :param model_or_path: Either an already-loaded model or a path to the model.
+    :param model_name: Alternative model name, if the name from path is not a valid Python identifier.
+    :return:
     """
 
     model, model_path = _load_quickgrove_model(model_or_path)
-    fn_model_name = _extract_model_name(model_path)
+
+    if not model_name:
+        new_model_name = _extract_model_name(model_path)
+        if not new_model_name.isidentifier():
+            raise ValueError(
+                f"The argument model_name was {model_name} and the name extracted from the path is not a valid Python identifier"
+            )
+        model_name = new_model_name
+    elif not model_name.isidentifier():
+        raise ValueError("The argument model_name is not a valid Python identifier")
 
     _validate_model_features(model, SUPPORTED_TYPES)
 
@@ -355,7 +367,7 @@ def make_quickgrove_udf(
             model=model,
             fn_from_arrays=fn_from_arrays,
             fields=fields,
-            udf_name=fn_model_name,
+            udf_name=model_name,
             extra_meta={"model_path": model_path},
         )
     )

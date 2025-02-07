@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import ibis
@@ -295,6 +296,14 @@ def float_model_path():
 @pytest.fixture(scope="session")
 def mixed_model_path():
     return FIXTURES_DIR / "pretrained_model_mixed.json"
+
+
+@pytest.fixture(scope="session")
+def hyphen_model_path(tmp_path_factory):
+    model_path = FIXTURES_DIR / "pretrained_model.json"
+    fn = tmp_path_factory.mktemp("data") / "diamonds-model.json"
+    shutil.copy(model_path, fn)
+    return fn
 
 
 @pytest.fixture(scope="session")
