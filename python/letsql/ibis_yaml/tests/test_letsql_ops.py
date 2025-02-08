@@ -112,8 +112,10 @@ def test_memtable_cache(prepare_duckdb_con, tmp_path_factory):
     backend = table._find_backend()
     backend.profile_name = "default-duckdb"
     expr = table.mutate(new_val=2 * ls._.val).cache()
+    backend1 = expr._find_backend()
+    backend1.profile_name = "default-let"
 
-    profiles = {"default-duckdb": backend}
+    profiles = {"default-duckdb": backend, "default-let": backend1}
 
     compiler = IbisYamlCompiler()
     compiler.tmp_path = tmp_path_factory.mktemp("duckdb")
@@ -122,6 +124,4 @@ def test_memtable_cache(prepare_duckdb_con, tmp_path_factory):
     yaml_dict = compiler.compile_to_yaml(expr)
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
 
-    expr.equals(roundtrip_expr)
-
-    assert expr.execute().equals(roundtrip_expr.execute())
+    assert ls.execute(expr).equals(ls.execute(roundtrip_expr))

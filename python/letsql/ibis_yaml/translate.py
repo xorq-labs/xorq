@@ -21,7 +21,9 @@ from letsql.expr.relations import CachedNode, RemoteTable, into_backend
 from letsql.ibis_yaml.utils import (
     deserialize_udf_function,
     freeze,
+    load_storage_from_yaml,
     serialize_udf_function,
+    translate_storage,
 )
 
 
@@ -319,14 +321,12 @@ def _cached_node_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
     except KeyError:
         raise ValueError(f"Profile {profile_name!r} not found in compiler.profiles")
     storage = load_storage_from_yaml(yaml_dict["storage"], compiler)
-    values = yaml_dict.get("values", {})
 
     op = CachedNode(
         schema=schema,
-        parent=parent_expr.op(),
+        parent=parent_expr,
         source=source,
         storage=storage,
-        values=values,
     )
     return op.to_expr()
 
