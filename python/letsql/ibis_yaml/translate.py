@@ -11,9 +11,12 @@ import ibis.expr.operations as ops
 import ibis.expr.operations.temporal as tm
 import ibis.expr.rules as rlz
 import ibis.expr.types as ir
+import pyarrow.parquet as pq
 from ibis.common.annotations import Argument
 from ibis.common.exceptions import IbisTypeError
 
+import letsql as ls
+from letsql.expr.relations import RemoteTable, into_backend
 from letsql.ibis_yaml.utils import (
     deserialize_udf_function,
     freeze,
@@ -151,6 +154,11 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
         return value
 
 
+@translate_to_yaml.register(ir.Expr)
+def _expr_to_yaml(expr: ir.Expr, compiler: any) -> dict:
+    return translate_to_yaml(expr.op(), compiler)
+
+
 @translate_to_yaml.register(ops.WindowFunction)
 def _window_function_to_yaml(op: ops.WindowFunction, compiler: Any) -> dict:
     result = {
@@ -249,20 +257,109 @@ def _unbound_table_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
     return ibis.table(schema, name=table_name)
 
 
+@translate_to_yaml.register(ops.DatabaseTable)
+def _database_table_to_yaml(op: ops.DatabaseTable, compiler: Any) -> dict:
+    profile_name = getattr(op.source, "profile_name", None)
+    return freeze(
+        {
+            "op": "DatabaseTable",
+            "table": op.name,
+            "schema": {
+                name: _translate_type(dtype) for name, dtype in op.schema.items()
+            },
+            "profile": profile_name,
+        }
+    )
+
+
+@register_from_yaml_handler("DatabaseTable")
+def _database_table_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
+    profile_name = yaml_dict.get("profile")
+    table_name = yaml_dict.get("table")
+    if not profile_name or not table_name:
+        raise ValueError(
+            "Missing 'profile' or 'table' information in YAML for DatabaseTable."
+        )
+
+    try:
+        con = compiler.profiles[profile_name]
+    except KeyError:
+        raise ValueError(f"Profile {profile_name!r} not found in compiler.profiles")
+
+    return con.table(table_name)
+
+
 @translate_to_yaml.register(ops.InMemoryTable)
 def _memtable_to_yaml(op: ops.InMemoryTable, compiler: Any) -> dict:
-    if not hasattr(compiler, "table_data"):
-        compiler.table_data = {}
-    compiler.table_data[id(op)] = op.data
+    if not hasattr(compiler, "tmp_path"):
+        raise ValueError(
+            "Compiler is missing the 'tmp_path' attribute for memtable serialization"
+        )
 
-    return _unbound_table_to_yaml(
-        ops.UnboundTable(name=op.name, schema=op.schema), compiler
+    arrow_table = op.data.to_pyarrow(op.schema)
+
+    file_path = compiler.tmp_path / f"memtable_{id(op)}.parquet"
+    pq.write_table(arrow_table, str(file_path))
+
+    return freeze(
+        {
+            "op": "InMemoryTable",
+            "table": op.name,
+            "schema": {
+                name: _translate_type(dtype) for name, dtype in op.schema.items()
+            },
+            "file": str(file_path),
+        }
     )
 
 
 @register_from_yaml_handler("InMemoryTable")
-def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
-    return _unbound_table_from_yaml(yaml_dict, compiler)
+def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
+    file_path = yaml_dict["file"]
+    arrow_table = pq.read_table(file_path)
+    df = arrow_table.to_pandas()
+
+    table_name = yaml_dict.get("table", "memtable")
+
+    memtable_expr = ls.memtable(df, columns=list(df.columns), name=table_name)
+    return memtable_expr
+
+
+@translate_to_yaml.register(RemoteTable)
+def _remotetable_to_yaml(op: RemoteTable, compiler: any) -> dict:
+    profile_name = getattr(op.source, "profile_name", None)
+    remote_expr_yaml = translate_to_yaml(op.remote_expr, compiler)
+    return freeze(
+        {
+            "op": "RemoteTable",  # use a distinct op key
+            "table": op.name,  # the table’s name (e.g. "ls_mem")
+            "schema": {
+                name: _translate_type(dtype) for name, dtype in op.schema.items()
+            },
+            "profile": profile_name,  # which connection to use on restore
+            "remote_expr": remote_expr_yaml,  # the remote expression that was “injected”
+        }
+    )
+
+
+@register_from_yaml_handler("RemoteTable")
+def _remotetable_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
+    profile_name = yaml_dict.get("profile")
+    table_name = yaml_dict.get("table")
+    remote_expr_yaml = yaml_dict.get("remote_expr")
+    if not profile_name or not table_name or remote_expr_yaml is None:
+        raise ValueError(
+            "Missing keys in RemoteTable YAML; ensure 'profile', 'table', and 'remote_expr' are present."
+        )
+    try:
+        con = compiler.profiles[profile_name]
+    except KeyError:
+        raise ValueError(f"Profile {profile_name!r} not found in compiler.profiles")
+
+    remote_expr = translate_from_yaml(remote_expr_yaml, compiler)
+
+    remote_table_expr = into_backend(remote_expr, con, table_name)
+    return remote_table_expr
 
 
 @translate_to_yaml.register(ops.Literal)
@@ -367,7 +464,7 @@ def _string_concat_to_yaml(op: ops.StringConcat, compiler: Any) -> dict:
 @register_from_yaml_handler("StringConcat")
 def _string_concat_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
     args = [translate_from_yaml(arg, compiler) for arg in yaml_dict["args"]]
-    return functools.functools.reduce(lambda x, y: x.concat(y), args)
+    return functools.reduce(lambda x, y: x.concat(y), args)
 
 
 @translate_to_yaml.register(ops.BinaryOp)
@@ -909,6 +1006,13 @@ def _binary_arithmetic_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
     if op_func is None:
         raise ValueError(f"Unsupported arithmetic operation: {yaml_dict['op']}")
     return op_func(left, right)
+
+
+@register_from_yaml_handler("Repeat")
+def _repeat_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.expr.types.Expr:
+    arg = translate_from_yaml(yaml_dict["args"][0], compiler)
+    times = translate_from_yaml(yaml_dict["args"][1], compiler)
+    return ops.Repeat(arg, times).to_expr()
 
 
 @register_from_yaml_handler("Sum")
