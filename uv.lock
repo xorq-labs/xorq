@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -1142,6 +1143,20 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/5b/8c/4f2f0784d08a383b5de3d3b1d65a6f204cc5dc487621c91c550388d756af/humanize-4.12.1.tar.gz", hash = "sha256:1338ba97415c96556758a6e2f65977ed406dddf4620d4c6db9bbdfd07f0f1232", size = 80827 }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/32/30/5ef5994b090398f9284d2662f56853e5183ae2cb5d8e3db67e4f4cfea407/humanize-4.12.1-py3-none-any.whl", hash = "sha256:86014ca5c52675dffa1d404491952f1f5bf03b07c175a51891a343daebf01fea", size = 127409 },
+]
+
+[[package]]
+name = "hypothesis"
+version = "6.126.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
+    { name = "sortedcontainers" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a5/8c/8281dd1408dd8374b0ed0528e63fb53a556b3d4f901382f51148345ec9fb/hypothesis-6.126.0.tar.gz", hash = "sha256:648b6215ee0468fa85eaee9dceb5b7766a5861c20ee4801bd904a2c02f1a6c9b", size = 420895 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/98/fc/8e1749aa79631952bf70e57913626fb0a0556eb2ad3c530c5526f6e5ba13/hypothesis-6.126.0-py3-none-any.whl", hash = "sha256:323c58a773482a2b4ba4e35202560cfcba45e8a8e09e7ffb83c0f9bac5b544da", size = 483657 },
 ]
 
 [[package]]
@@ -3327,9 +3342,11 @@ dependencies = [
     { name = "atpublic" },
     { name = "attrs", marker = "python_full_version < '4.0'" },
     { name = "cityhash", marker = "python_full_version < '4.0'" },
+    { name = "cloudpickle" },
     { name = "connectorx", marker = "python_full_version < '4.0'" },
     { name = "dask", marker = "python_full_version < '4.0'" },
     { name = "geoarrow-types", marker = "python_full_version < '4.0'" },
+    { name = "hypothesis" },
     { name = "pandas", marker = "python_full_version < '4.0'" },
     { name = "parsy" },
     { name = "psycopg2-binary", marker = "python_full_version < '4.0'" },
@@ -3340,6 +3357,7 @@ dependencies = [
     { name = "python-dateutil" },
     { name = "pythran", marker = "sys_platform == 'darwin'" },
     { name = "pytz" },
+    { name = "pyyaml" },
     { name = "sqlalchemy", marker = "python_full_version < '4.0'" },
     { name = "sqlglot" },
     { name = "structlog", marker = "python_full_version < '4.0'" },
@@ -3409,6 +3427,7 @@ requires-dist = [
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=24.0.0,<26" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4.7,<1" },
+    { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "connectorx", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.3.2,<0.5.0" },
     { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = "==2025.1.0" },
     { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'datafusion'", specifier = ">=0.6,<44" },
@@ -3416,6 +3435,7 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.3" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=2024.6.1,<2025.2.1" },
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.2,<1" },
+    { name = "hypothesis", specifier = ">=6.124.9" },
     { name = "pandas", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=1.5.3,<3" },
     { name = "parsy", specifier = ">=2" },
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=0.8.3,<1" },
@@ -3427,6 +3447,7 @@ requires-dist = [
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pythran", marker = "sys_platform == 'darwin'", specifier = ">=0.17.0" },
     { name = "pytz", specifier = ">=2022.7" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "quickgrove", marker = "extra == 'examples'", specifier = ">=0.1.2" },
     { name = "quickgrove", marker = "extra == 'quickgrove'", specifier = ">=0.1.2" },
     { name = "snowflake-connector-python", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'snowflake'", specifier = ">=3.10.1,<4" },
@@ -3437,6 +3458,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.3.0" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=1.6.1" },
 ]
+provides-extras = ["duckdb", "datafusion", "snowflake", "quickgrove", "examples"]
 
 [package.metadata.requires-dev]
 dev = [
