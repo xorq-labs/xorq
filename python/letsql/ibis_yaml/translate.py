@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import decimal
 import functools
+import pathlib
 from typing import Any
 
 import ibis
@@ -16,7 +17,7 @@ from ibis.common.annotations import Argument
 from ibis.common.exceptions import IbisTypeError
 
 import letsql as ls
-from letsql.expr.relations import RemoteTable, into_backend
+from letsql.expr.relations import CachedNode, RemoteTable, into_backend
 from letsql.ibis_yaml.utils import (
     deserialize_udf_function,
     freeze,
@@ -289,6 +290,47 @@ def _database_table_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
     return con.table(table_name)
 
 
+@translate_to_yaml.register(CachedNode)
+def _cached_node_to_yaml(op: CachedNode, compiler: any) -> dict:
+    return freeze(
+        {
+            "op": "CachedNode",
+            "schema": {
+                name: _translate_type(dtype) for name, dtype in op.schema.items()
+            },
+            "parent": translate_to_yaml(op.parent, compiler),
+            "source": getattr(op.source, "profile_name", None),
+            "storage": translate_storage(op.storage, compiler),
+            "values": dict(op.values),
+        }
+    )
+
+
+@register_from_yaml_handler("CachedNode")
+def _cached_node_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
+    schema = {
+        name: _type_from_yaml(dtype_yaml)
+        for name, dtype_yaml in yaml_dict["schema"].items()
+    }
+    parent_expr = translate_from_yaml(yaml_dict["parent"], compiler)
+    profile_name = yaml_dict.get("source")
+    try:
+        source = compiler.profiles[profile_name]
+    except KeyError:
+        raise ValueError(f"Profile {profile_name!r} not found in compiler.profiles")
+    storage = load_storage_from_yaml(yaml_dict["storage"], compiler)
+    values = yaml_dict.get("values", {})
+
+    op = CachedNode(
+        schema=schema,
+        parent=parent_expr.op(),
+        source=source,
+        storage=storage,
+        values=values,
+    )
+    return op.to_expr()
+
+
 @translate_to_yaml.register(ops.InMemoryTable)
 def _memtable_to_yaml(op: ops.InMemoryTable, compiler: Any) -> dict:
     if not hasattr(compiler, "tmp_path"):
@@ -331,13 +373,13 @@ def _remotetable_to_yaml(op: RemoteTable, compiler: any) -> dict:
     remote_expr_yaml = translate_to_yaml(op.remote_expr, compiler)
     return freeze(
         {
-            "op": "RemoteTable",  # use a distinct op key
-            "table": op.name,  # the table’s name (e.g. "ls_mem")
+            "op": "RemoteTable",
+            "table": op.name,
             "schema": {
                 name: _translate_type(dtype) for name, dtype in op.schema.items()
             },
-            "profile": profile_name,  # which connection to use on restore
-            "remote_expr": remote_expr_yaml,  # the remote expression that was “injected”
+            "profile": profile_name,
+            "remote_expr": remote_expr_yaml,
         }
     )
 
@@ -347,7 +389,7 @@ def _remotetable_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
     profile_name = yaml_dict.get("profile")
     table_name = yaml_dict.get("table")
     remote_expr_yaml = yaml_dict.get("remote_expr")
-    if not profile_name or not table_name or remote_expr_yaml is None:
+    if profile_name is None:
         raise ValueError(
             "Missing keys in RemoteTable YAML; ensure 'profile', 'table', and 'remote_expr' are present."
         )
@@ -1259,3 +1301,40 @@ REVERSE_TYPE_REGISTRY = {
         nullable=yaml_dict.get("nullable", True),
     ),
 }
+
+# === Helper functions for translating cache storage ===
+
+
+def translate_storage(storage, compiler: any) -> dict:
+    from letsql.common.caching import ParquetStorage, SourceStorage
+
+    if isinstance(storage, ParquetStorage):
+        return {"type": "ParquetStorage", "path": str(storage.path)}
+    elif isinstance(storage, SourceStorage):
+        return {
+            "type": "SourceStorage",
+            "source": getattr(storage.source, "profile_name", None),
+        }
+    else:
+        raise NotImplementedError(f"Unknown storage type: {type(storage)}")
+
+
+def load_storage_from_yaml(storage_yaml: dict, compiler: any):
+    from letsql.expr.relations import ParquetStorage, _SourceStorage
+
+    if storage_yaml["type"] == "ParquetStorage":
+        default_profile = list(compiler.profiles.values())[0]
+        return ParquetStorage(
+            source=default_profile, path=pathlib.Path(storage_yaml["path"])
+        )
+    elif storage_yaml["type"] == "SourceStorage":
+        source_profile_name = storage_yaml["source"]
+        try:
+            source = compiler.profiles[source_profile_name]
+        except KeyError:
+            raise ValueError(
+                f"Source profile {source_profile_name!r} not found in compiler.profiles"
+            )
+        return _SourceStorage(source=source)
+    else:
+        raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")

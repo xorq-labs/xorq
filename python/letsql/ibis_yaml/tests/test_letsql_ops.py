@@ -13,7 +13,6 @@ def duckdb_path(tmp_path_factory):
 
 @pytest.fixture(scope="session")
 def prepare_duckdb_con(duckdb_path):
-    """Load some test data into the DuckDB file outside the main test."""
     con = ls.duckdb.connect(duckdb_path)
     con.profile_name = "my_duckdb"  # patch
 
@@ -106,3 +105,23 @@ def test_into_backend(prepare_duckdb_con, tmp_path_factory):
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
 
     assert ls.execute(expr).equals(ls.execute(roundtrip_expr))
+
+
+def test_memtable_cache(prepare_duckdb_con, tmp_path_factory):
+    table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
+    backend = table._find_backend()
+    backend.profile_name = "default-duckdb"
+    expr = table.mutate(new_val=2 * ls._.val).cache()
+
+    profiles = {"default-duckdb": backend}
+
+    compiler = IbisYamlCompiler()
+    compiler.tmp_path = tmp_path_factory.mktemp("duckdb")
+    compiler.profiles = profiles
+
+    yaml_dict = compiler.compile_to_yaml(expr)
+    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+
+    expr.equals(roundtrip_expr)
+
+    assert expr.execute().equals(roundtrip_expr.execute())

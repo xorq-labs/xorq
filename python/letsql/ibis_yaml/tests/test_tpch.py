@@ -1,8 +1,5 @@
 import pytest
 
-import letsql.ibis_yaml
-import letsql.ibis_yaml.utils
-
 
 TPC_H = [
     "tpc_h01",
@@ -32,18 +29,10 @@ TPC_H = [
 
 @pytest.mark.parametrize("fixture_name", TPC_H)
 def test_yaml_roundtrip(fixture_name, compiler, request):
-    compiler = letsql.ibis_yaml.compiler.IbisYamlCompiler()
     query = request.getfixturevalue(fixture_name)
 
     yaml_dict = compiler.compile_to_yaml(query)
-    print("Original Query:")
-    print(query)
-
     roundtrip_query = compiler.compile_from_yaml(yaml_dict)
-    print("Roundtrip Query:")
-    print(roundtrip_query)
-
-    letsql.ibis_yaml.utils.diff_ibis_exprs(query, roundtrip_query)
 
     assert roundtrip_query.equals(query), (
         f"Roundtrip expression for {fixture_name} does not match the original."
