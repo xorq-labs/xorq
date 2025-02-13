@@ -38,7 +38,10 @@ from ibis.expr.types import (
 from letsql.common.utils.caching_utils import find_backend
 from letsql.common.utils.defer_utils import rbr_wrapper
 from letsql.common.utils.graph_utils import replace_fix
-from letsql.expr.ml import train_test_splits
+from letsql.expr.ml import (
+    calc_split_column,
+    train_test_splits,
+)
 from letsql.expr.relations import (
     CachedNode,
     register_and_transform_remote_tables,
@@ -66,6 +69,7 @@ __all__ = (
     "array",
     "asc",
     "asof_join",
+    "calc_split_column",
     "case",
     "coalesce",
     "cross_join",

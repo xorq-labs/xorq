@@ -165,9 +165,17 @@ def test_train_test_splits_must_sum_one():
         next(ls.train_test_splits(table, "key", [0.1, 0.5]))
 
 
+@pytest.mark.parametrize(
+    "test_sizes",
+    ((1 / n,) * n for n in range(2, 100, 5)),
+)
+def test_approx_sum(test_sizes):
+    _calculate_bounds(test_sizes)
+
+
 def test_calculate_bounds():
     test_sizes = [0.2, 0.3, 0.5]
-    expected_bounds = [(0.0, 0.2), (0.2, 0.5), (0.5, 1.0)]
+    expected_bounds = ((0.0, 0.2), (0.2, 0.5), (0.5, 1.0))
     assert _calculate_bounds(test_sizes) == expected_bounds
 
 
@@ -209,7 +217,7 @@ def test_train_test_splits_intersections_parameterized_pass(connect_method):
     test_df = pd.DataFrame([(i, "val") for i in range(N)], columns=["key1", "val"])
     con = connect_method()
     test_table_name = f"{con.name}_test_df"
-    con.create_table(test_table_name, test_df)
+    con.create_table(test_table_name, test_df, temp=con.name == "postgres")
 
     table = con.table(test_table_name)
 
@@ -253,6 +261,52 @@ def test_train_test_splits_intersections_parameterized_pass(connect_method):
         == 0
     )
     con.drop_table(test_table_name)
+
+
+@pytest.mark.parametrize(
+    "connect_method",
+    (
+        ls.connect,
+        ls.duckdb.connect,
+        ls.postgres.connect_env,
+        pytest.param(
+            ls.datafusion.connect,
+            marks=pytest.mark.xfail(
+                reason="Compilation rule for 'Hash' operation is not define"
+            ),
+        ),
+    ),
+)
+@pytest.mark.parametrize("n", (2, 8, 32))
+@pytest.mark.parametrize("name", ("split", "other"))
+def test_calc_split_column(connect_method, n, name):
+    N = 10000
+    test_sizes = (1 / n,) * n
+    unique_key = "key1"
+
+    # create test table for backend
+    test_df = pd.DataFrame([(i, "val") for i in range(N)], columns=[unique_key, "val"])
+    con = connect_method()
+    test_table_name = f"{con.name}_test_df"
+    con.create_table(test_table_name, test_df, temp=con.name == "postgres")
+
+    table = con.table(test_table_name)
+    expr = (
+        table.mutate(
+            ls.calc_split_column(
+                table,
+                unique_key=unique_key,
+                test_sizes=test_sizes,
+                random_seed=42,
+                name=name,
+            )
+        )[name]
+        .value_counts()
+        .order_by(ls.asc(name))
+    )
+    df = ls.execute(expr)
+    assert tuple(df[name].values) == tuple(range(n))
+    assert df[f"{name}_count"].sum() == N
 
 
 def test_make_quickgrove_udf_predictions(feature_table, float_model_path):
