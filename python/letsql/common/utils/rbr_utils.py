@@ -1,4 +1,3 @@
-import datetime
 import itertools
 import traceback
 
@@ -16,11 +15,15 @@ def excepts_print_exc(exc, func, handler=toolz.functoolz.return_none):
 
 
 def instrument_reader(reader, prefix=""):
+    from letsql.common.utils.logging_utils import get_print_logger
+
+    logger = get_print_logger()
+
     def gen(reader):
-        print(f"{prefix}first batch yielded at {datetime.datetime.now()}")
+        logger.info(f"{prefix:10s}first batch yielded")
         yield next(reader)
         yield from reader
-        print(f"{prefix}last batch yielded at {datetime.datetime.now()}")
+        logger.info(f"{prefix:10s}last batch yielded")
 
     return pa.RecordBatchReader.from_batches(reader.schema, gen(reader))
 

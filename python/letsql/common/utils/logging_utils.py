@@ -66,6 +66,19 @@ def get_log_path(log_path=default_log_path):
     return log_path
 
 
+def get_print_logger():
+    logger = structlog.wrap_logger(
+        structlog.PrintLogger(),
+        processors=[
+            structlog.processors.add_log_level,
+            structlog.processors.TimeStamper(fmt="iso"),
+            structlog.dev.ConsoleRenderer(),
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(log_level),
+    )
+    return logger
+
+
 # https://betterstack.com/community/guides/logging/structlog/
 log_path = get_log_path(log_path=default_log_path)
 log_level = getattr(logging, os.environ.get("LOG_LEVEL", "INFO").upper())
