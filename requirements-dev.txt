@@ -30,8 +30,8 @@ codespell==2.4.1
 colorama==0.4.6
 comm==0.2.2
 connectorx==0.4.1 ; python_full_version < '4.0'
-coverage==7.6.11
-cryptography==44.0.0
+coverage==7.6.12
+cryptography==44.0.1
 dask==2025.1.0 ; python_full_version < '4.0'
 datafusion==43.1.0
 debugpy==1.8.12
@@ -55,9 +55,9 @@ google-cloud-core==2.4.1 ; python_full_version < '4.0'
 google-cloud-storage==3.0.0 ; python_full_version < '4.0'
 google-crc32c==1.6.0 ; python_full_version < '4.0'
 google-resumable-media==2.7.2 ; python_full_version < '4.0'
-googleapis-common-protos==1.66.0 ; python_full_version < '4.0'
+googleapis-common-protos==1.67.0 ; python_full_version < '4.0'
 greenlet==3.1.1 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
-griffe==1.5.6
+griffe==1.5.7
 humanize==4.11.0 ; python_full_version < '4.0'
 ibis-framework==9.5.0 ; python_full_version < '4.0'
 identify==2.6.7
@@ -88,7 +88,7 @@ nbclient==0.10.2
 nbformat==5.10.4
 nest-asyncio==1.6.0
 nodeenv==1.9.1
-numpy==2.2.2
+numpy==2.2.3
 nvidia-nccl-cu12==2.25.1 ; platform_machine != 'aarch64' and sys_platform == 'linux'
 oauthlib==3.2.2 ; python_full_version < '4.0'
 packaging==24.2
@@ -109,7 +109,7 @@ prompt-toolkit==3.0.50
 propcache==0.2.1 ; python_full_version < '4.0'
 proto-plus==1.26.0 ; python_full_version < '4.0'
 protobuf==5.29.3 ; python_full_version < '4.0'
-psutil==6.1.1
+psutil==7.0.0
 psycopg2-binary==2.9.10 ; python_full_version < '4.0'
 ptyprocess==0.7.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
 pure-eval==0.2.3
@@ -164,9 +164,9 @@ traitlets==5.14.3
 trino==0.333.0
 typing-extensions==4.12.2
 tzdata==2025.1 ; python_full_version < '4.0' or sys_platform == 'win32'
-tzlocal==5.2
+tzlocal==5.3
 urllib3==2.3.0
-virtualenv==20.29.1
+virtualenv==20.29.2
 watchdog==6.0.0
 wcwidth==0.2.13
 xgboost==2.1.4
