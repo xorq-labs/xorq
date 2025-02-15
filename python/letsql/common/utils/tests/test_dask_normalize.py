@@ -19,12 +19,11 @@ def test_ensure_deterministic():
     assert dask.config.get("tokenize.ensure-deterministic")
 
 
-@pytest.mark.xfail
 def test_unregistered_raises():
     class Unregistered:
         pass
 
-    with pytest.raises(RuntimeError, match="cannot be deterministically hashed"):
+    with pytest.raises(ValueError, match="cannot be deterministically hashed"):
         dask.base.tokenize(Unregistered())
 
 
