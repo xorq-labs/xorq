@@ -333,14 +333,14 @@ def _cached_node_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
 
 @translate_to_yaml.register(ops.InMemoryTable)
 def _memtable_to_yaml(op: ops.InMemoryTable, compiler: Any) -> dict:
-    if not hasattr(compiler, "tmp_path"):
+    if not hasattr(compiler, "current_path"):
         raise ValueError(
-            "Compiler is missing the 'tmp_path' attribute for memtable serialization"
+            "Compiler is missing the 'current_path' attribute for memtable serialization"
         )
 
     arrow_table = op.data.to_pyarrow(op.schema)
 
-    file_path = compiler.tmp_path / f"memtable_{id(op)}.parquet"
+    file_path = compiler.current_path / f"memtable_{id(op)}.parquet"
     pq.write_table(arrow_table, str(file_path))
 
     return freeze(

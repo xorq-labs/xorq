@@ -3,9 +3,21 @@ from pathlib import Path
 from typing import Any, Dict
 
 import dask
+import ibis.expr.types as ir
 import yaml
+from ibis.common.collections import FrozenOrderedDict
 
 from letsql.ibis_yaml.translate import translate_from_yaml, translate_to_yaml
+
+
+class CleanDictYAMLDumper(yaml.SafeDumper):
+    def represent_frozenordereddict(self, data):
+        return self.represent_dict(dict(data))
+
+
+CleanDictYAMLDumper.add_representer(
+    FrozenOrderedDict, CleanDictYAMLDumper.represent_frozenordereddict
+)
 
 
 class StorageHandler:
@@ -31,6 +43,7 @@ class StorageHandler:
             yaml.dump(
                 data,
                 f,
+                Dumper=CleanDictYAMLDumper,
                 default_flow_style=False,
                 sort_keys=False,
             )
@@ -72,8 +85,7 @@ class BuildManager:
         expr_hash = dask.base.tokenize(expr)
         return expr_hash[:12]  # TODO: make length of hash as a config
 
-    def save_yaml(self, yaml_dict: Dict[str, Any], expr) -> pathlib.Path:
-        expr_hash = self.get_expr_hash(expr)
+    def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash) -> pathlib.Path:
         return self.storage.write_yaml(yaml_dict, expr_hash, "expr.yaml")
 
     def load_yaml(self, expr_hash: str) -> Dict[str, Any]:
@@ -84,11 +96,40 @@ class BuildManager:
 
 
 class IbisYamlCompiler:
-    def __init__(self):
-        pass
+    def __init__(self, build_dir, build_manager=BuildManager):
+        self.build_manager = build_manager(build_dir)
+        self.current_path = None
 
-    def compile_to_yaml(self, expr):
-        return translate_to_yaml(expr.op(), self)
+    def compile(self, expr):
+        yaml_dict = self.compile_to_yaml(expr)
+        expr_hash = self.build_manager.get_expr_hash(expr)
+        self.curent_path = self.build_manager.get_build_path(expr_hash)
+        self.build_manager.save_yaml(yaml_dict, expr_hash)
 
-    def compile_from_yaml(self, yaml_dict):
+    def from_hash(self, expr_hash) -> ir.Expr:
+        yaml_dict = self.build_manager.load_yaml(expr_hash)
+
+        # this is needed for cache to work with ForzenOrderedDict
+        def convert_to_frozen(d):
+            if isinstance(d, dict):
+                items = []
+                for k, v in d.items():
+                    converted_v = convert_to_frozen(v)
+                    if isinstance(converted_v, list):
+                        converted_v = tuple(converted_v)
+                    items.append((k, converted_v))
+                return FrozenOrderedDict(items)
+            elif isinstance(d, list):
+                return [convert_to_frozen(x) for x in d]
+            return d
+
+        yaml_dict = convert_to_frozen(yaml_dict)
+        return self.compile_from_yaml(yaml_dict)
+
+    def compile_from_yaml(self, yaml_dict) -> ir.Expr:
         return translate_from_yaml(yaml_dict, self)
+
+    def compile_to_yaml(self, expr) -> Dict:
+        expr_hash = self.build_manager.get_expr_hash(expr)
+        self.current_path = self.build_manager.get_build_path(expr_hash)
+        return translate_to_yaml(expr.op(), self)

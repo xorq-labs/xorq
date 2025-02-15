@@ -781,7 +781,12 @@ def tpc_h22(customer, orders):
 
 
 @pytest.fixture
-def compiler():
+def build_dir(tmp_path_factory):
+    return tmp_path_factory.mktemp("builds")
+
+
+@pytest.fixture
+def compiler(build_dir):
     from letsql.ibis_yaml.compiler import IbisYamlCompiler
 
-    return IbisYamlCompiler()
+    return IbisYamlCompiler(build_dir)

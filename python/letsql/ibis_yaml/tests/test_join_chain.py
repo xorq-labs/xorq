@@ -1,8 +1,6 @@
 import ibis
 import pytest
 
-from letsql.ibis_yaml.compiler import IbisYamlCompiler
-
 
 @pytest.fixture
 def orders():
@@ -91,7 +89,6 @@ def test_minimal_joinchain_self_reference(
         )
     )
 
-    compiler = IbisYamlCompiler()
     yaml_dict = compiler.compile_to_yaml(q)
     q_roundtrip = compiler.compile_from_yaml(yaml_dict)
 
