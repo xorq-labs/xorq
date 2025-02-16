@@ -34,6 +34,16 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.inspect_utils import get_arguments
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
+import dask
+import toolz
+from attr import (
+    field,
+    frozen,
+)
+from attr.validators import (
+    instance_of,
+    optional,
+)
 
 
 if TYPE_CHECKING:
