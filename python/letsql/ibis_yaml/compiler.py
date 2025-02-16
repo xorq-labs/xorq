@@ -148,6 +148,8 @@ class IbisYamlCompiler:
         expr_hash = self.build_manager.get_expr_hash(expr)
         self.current_path = self.build_manager.get_build_path(expr_hash)
         expr_yaml = translate_to_yaml(expr, self)
+        schema_ref = self.get_expr_schema_ref(expr)
+        expr_yaml = freeze({**dict(expr_yaml), "schema_ref": schema_ref})
 
         schema_definitions = {}
         for schema_id, schema in self.schema_registry.schemas.items():
@@ -156,3 +158,11 @@ class IbisYamlCompiler:
         return freeze(
             {"definitions": {"schemas": schema_definitions}, "expression": expr_yaml}
         )
+
+    def get_expr_schema_ref(self, expr: ir.Expr) -> str:
+        if hasattr(expr, "schema"):
+            schema = expr.schema()
+            schema_ref = self.schema_registry.register_schema(schema)
+        else:
+            schema_ref = None
+        return schema_ref

@@ -2,6 +2,7 @@ import os
 import pathlib
 
 import dask
+import yaml
 from ibis.common.collections import FrozenOrderedDict
 
 import letsql as ls
@@ -123,3 +124,19 @@ def test_compiler_sql(build_dir):
     )
 
     assert sql_text == expected_result
+
+
+def test_ibis_compiler_expr_schema_ref(t, build_dir):
+    t = ls.memtable({"a": [0, 1], "b": [0, 1]})
+    backend = t._find_backend()
+    backend.profile_name = "default"
+    expr = t.filter(t.a == 1).drop("b")
+    compiler = IbisYamlCompiler(build_dir)
+    compiler.profiles = {"default": backend}
+    compiler.compile(expr)
+    expr_hash = dask.base.tokenize(expr)[:12]
+
+    with open(build_dir / expr_hash / "expr.yaml") as f:
+        yaml_dict = yaml.safe_load(f)
+
+    assert yaml_dict["expression"]["schema_ref"]
