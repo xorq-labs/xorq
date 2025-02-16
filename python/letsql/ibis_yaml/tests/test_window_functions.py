@@ -37,8 +37,9 @@ def test_aggregation_window(compiler, t):
         )
 
         yaml_dict = compiler.compile_to_yaml(expr)
-        assert yaml_dict["op"] == "Project"
-        window_func = yaml_dict["values"]["mean_c"]
+        expression = yaml_dict["expression"]
+        assert expression["op"] == "Project"
+        window_func = expression["values"]["mean_c"]
         assert window_func["op"] == "WindowFunction"
         assert window_func["args"][0]["op"] == "Mean"
 
@@ -51,7 +52,5 @@ def test_aggregation_window(compiler, t):
             assert "end" not in window_func
         else:
             assert window_func["end"] == following
-
-        print(yaml_dict)
 
         assert window_func["group_by"][0]["name"] == "a"

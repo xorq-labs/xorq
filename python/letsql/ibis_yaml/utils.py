@@ -1,10 +1,11 @@
 import base64
 from collections.abc import Mapping, Sequence
+from typing import Any, Dict
 
 import cloudpickle
 from ibis.common.collections import FrozenOrderedDict
 
-from letsql.common.caching import ParquetStorage, SourceStorage
+from letsql.common.caching import SourceStorage
 
 
 def serialize_udf_function(fn: callable) -> str:
@@ -129,10 +130,8 @@ def diff_ibis_exprs(expr1, expr2):
     return diffs
 
 
-def translate_storage(storage, compiler: any) -> dict:
-    if isinstance(storage, ParquetStorage):
-        return {"type": "ParquetStorage", "path": str(storage.path)}
-    elif isinstance(storage, SourceStorage):
+def translate_storage(storage, compiler: Any) -> Dict:
+    if isinstance(storage, SourceStorage):
         return {
             "type": "SourceStorage",
             "source": getattr(storage.source, "profile_name", None),
@@ -141,7 +140,7 @@ def translate_storage(storage, compiler: any) -> dict:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
 
 
-def load_storage_from_yaml(storage_yaml: dict, compiler: any):
+def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
     if storage_yaml["type"] == "SourceStorage":
         source_profile_name = storage_yaml["source"]
         try:

@@ -8,9 +8,15 @@ import yaml
 from ibis.common.collections import FrozenOrderedDict
 
 from letsql.ibis_yaml.sql import generate_sql_plans
-from letsql.ibis_yaml.translate import translate_from_yaml, translate_to_yaml
+from letsql.ibis_yaml.translate import (
+    SchemaRegistry,
+    translate_from_yaml,
+    translate_to_yaml,
+)
+from letsql.ibis_yaml.utils import freeze
 
 
+# is this the right way to handle this? or the right place
 class CleanDictYAMLDumper(yaml.SafeDumper):
     def represent_frozenordereddict(self, data):
         return self.represent_dict(dict(data))
@@ -104,6 +110,7 @@ class BuildManager:
 class IbisYamlCompiler:
     def __init__(self, build_dir, build_manager=BuildManager):
         self.build_manager = build_manager(build_dir)
+        self.schema_registry = SchemaRegistry()
         self.current_path = None
 
     def compile(self, expr):
@@ -117,7 +124,6 @@ class IbisYamlCompiler:
     def from_hash(self, expr_hash) -> ir.Expr:
         yaml_dict = self.build_manager.load_yaml(expr_hash)
 
-        # this is needed for cache to work with ForzenOrderedDict
         def convert_to_frozen(d):
             if isinstance(d, dict):
                 items = []
@@ -135,9 +141,18 @@ class IbisYamlCompiler:
         return self.compile_from_yaml(yaml_dict)
 
     def compile_from_yaml(self, yaml_dict) -> ir.Expr:
-        return translate_from_yaml(yaml_dict, self)
+        self.definitions = yaml_dict.get("definitions", {})
+        return translate_from_yaml(yaml_dict["expression"], self)
 
     def compile_to_yaml(self, expr) -> Dict:
         expr_hash = self.build_manager.get_expr_hash(expr)
         self.current_path = self.build_manager.get_build_path(expr_hash)
-        return translate_to_yaml(expr.op(), self)
+        expr_yaml = translate_to_yaml(expr, self)
+
+        schema_definitions = {}
+        for schema_id, schema in self.schema_registry.schemas.items():
+            schema_definitions[schema_id] = schema
+
+        return freeze(
+            {"definitions": {"schemas": schema_definitions}, "expression": expr_yaml}
+        )

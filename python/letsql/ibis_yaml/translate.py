@@ -3,7 +3,6 @@ from __future__ import annotations
 import datetime
 import decimal
 import functools
-import pathlib
 from typing import Any
 
 import ibis
@@ -14,7 +13,6 @@ import ibis.expr.rules as rlz
 import ibis.expr.types as ir
 import pyarrow.parquet as pq
 from ibis.common.annotations import Argument
-from ibis.common.exceptions import IbisTypeError
 
 import letsql as ls
 from letsql.expr.relations import CachedNode, RemoteTable, into_backend
@@ -28,6 +26,26 @@ from letsql.ibis_yaml.utils import (
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
+
+
+class SchemaRegistry:
+    def __init__(self):
+        self.schemas = {}
+        self.counter = 0
+
+    def register_schema(self, schema):
+        frozen_schema = freeze(
+            {name: _translate_type(dtype) for name, dtype in schema.items()}
+        )
+
+        for schema_id, existing_schema in self.schemas.items():
+            if existing_schema == frozen_schema:
+                return schema_id
+
+        schema_id = f"schema_{self.counter}"
+        self.schemas[schema_id] = frozen_schema
+        self.counter += 1
+        return schema_id
 
 
 def register_from_yaml_handler(*op_names: str):
@@ -240,13 +258,12 @@ def _base_op_to_yaml(op: ops.Node, compiler: Any) -> dict:
 
 @translate_to_yaml.register(ops.UnboundTable)
 def _unbound_table_to_yaml(op: ops.UnboundTable, compiler: Any) -> dict:
+    schema_id = compiler.schema_registry.register_schema(op.schema)
     return freeze(
         {
             "op": "UnboundTable",
             "name": op.name,
-            "schema": {
-                name: _translate_type(dtype) for name, dtype in op.schema.items()
-            },
+            "schema_ref": schema_id,
         }
     )
 
@@ -254,52 +271,65 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, compiler: Any) -> dict:
 @register_from_yaml_handler("UnboundTable")
 def _unbound_table_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
     table_name = yaml_dict["name"]
-    schema = [
-        (name, _type_from_yaml(dtype)) for name, dtype in yaml_dict["schema"].items()
-    ]
+    if not hasattr(compiler, "definitions"):
+        raise ValueError("Compiler missing definitions with schemas")
+
+    schema_ref = yaml_dict["schema_ref"]
+    try:
+        schema_def = compiler.definitions["schemas"][schema_ref]
+    except KeyError:
+        raise ValueError(f"Schema {schema_ref} not found in definitions")
+
+    schema = {
+        name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
+    }
     return ibis.table(schema, name=table_name)
 
 
 @translate_to_yaml.register(ops.DatabaseTable)
 def _database_table_to_yaml(op: ops.DatabaseTable, compiler: Any) -> dict:
     profile_name = getattr(op.source, "profile_name", None)
+    schema_id = compiler.schema_registry.register_schema(op.schema)
+
     return freeze(
         {
             "op": "DatabaseTable",
             "table": op.name,
-            "schema": {
-                name: _translate_type(dtype) for name, dtype in op.schema.items()
-            },
+            "schema_ref": schema_id,
             "profile": profile_name,
         }
     )
 
 
 @register_from_yaml_handler("DatabaseTable")
-def _database_table_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
+def database_table_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
     profile_name = yaml_dict.get("profile")
     table_name = yaml_dict.get("table")
-    if not profile_name or not table_name:
-        raise ValueError(
-            "Missing 'profile' or 'table' information in YAML for DatabaseTable."
-        )
+    # we should validate that schema is the same
+    schema_ref = yaml_dict.get("schema_ref")
+
+    if not all([profile_name, table_name, schema_ref]):
+        raise ValueError("Missing required information in YAML for DatabaseTable.")
 
     try:
         con = compiler.profiles[profile_name]
     except KeyError:
         raise ValueError(f"Profile {profile_name!r} not found in compiler.profiles")
 
+    if not hasattr(compiler, "definitions"):
+        raise ValueError("Compiler missing definitions with schemas")
+
     return con.table(table_name)
 
 
 @translate_to_yaml.register(CachedNode)
 def _cached_node_to_yaml(op: CachedNode, compiler: any) -> dict:
+    schema_id = compiler.schema_registry.register_schema(op.schema)
+
     return freeze(
         {
             "op": "CachedNode",
-            "schema": {
-                name: _translate_type(dtype) for name, dtype in op.schema.items()
-            },
+            "schema_ref": schema_id,
             "parent": translate_to_yaml(op.parent, compiler),
             "source": getattr(op.source, "profile_name", None),
             "storage": translate_storage(op.storage, compiler),
@@ -310,10 +340,19 @@ def _cached_node_to_yaml(op: CachedNode, compiler: any) -> dict:
 
 @register_from_yaml_handler("CachedNode")
 def _cached_node_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
+    if not hasattr(compiler, "definitions"):
+        raise ValueError("Compiler missing definitions with schemas")
+
+    schema_ref = yaml_dict["schema_ref"]
+    try:
+        schema_def = compiler.definitions["schemas"][schema_ref]
+    except KeyError:
+        raise ValueError(f"Schema {schema_ref} not found in definitions")
+
     schema = {
-        name: _type_from_yaml(dtype_yaml)
-        for name, dtype_yaml in yaml_dict["schema"].items()
+        name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
     }
+
     parent_expr = translate_from_yaml(yaml_dict["parent"], compiler)
     profile_name = yaml_dict.get("source")
     try:
@@ -339,20 +378,40 @@ def _memtable_to_yaml(op: ops.InMemoryTable, compiler: Any) -> dict:
         )
 
     arrow_table = op.data.to_pyarrow(op.schema)
-
     file_path = compiler.current_path / f"memtable_{id(op)}.parquet"
     pq.write_table(arrow_table, str(file_path))
+    # probably do not need to store schema
+    schema_id = compiler.schema_registry.register_schema(op.schema)
 
     return freeze(
         {
             "op": "InMemoryTable",
             "table": op.name,
-            "schema": {
-                name: _translate_type(dtype) for name, dtype in op.schema.items()
-            },
+            "schema_ref": schema_id,
             "file": str(file_path),
         }
     )
+
+
+@register_from_yaml_handler("InMemoryTable")
+def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
+    if not hasattr(compiler, "definitions"):
+        raise ValueError("Compiler missing definitions with schemas")
+
+    file_path = yaml_dict["file"]
+    schema_ref = yaml_dict["schema_ref"]
+    try:
+        schema_def = compiler.definitions["schemas"][schema_ref]
+    except KeyError:
+        raise ValueError(f"Schema {schema_ref} not found in definitions")
+
+    arrow_table = pq.read_table(file_path)
+    df = arrow_table.to_pandas()
+    table_name = yaml_dict.get("table", "memtable")
+
+    column_names = list(schema_def.keys())
+    memtable_expr = ls.memtable(df, columns=column_names, name=table_name)
+    return memtable_expr
 
 
 @register_from_yaml_handler("InMemoryTable")
@@ -371,13 +430,13 @@ def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
 def _remotetable_to_yaml(op: RemoteTable, compiler: any) -> dict:
     profile_name = getattr(op.source, "profile_name", None)
     remote_expr_yaml = translate_to_yaml(op.remote_expr, compiler)
+    schema_id = compiler.schema_registry.register_schema(op.schema)
+
     return freeze(
         {
             "op": "RemoteTable",
             "table": op.name,
-            "schema": {
-                name: _translate_type(dtype) for name, dtype in op.schema.items()
-            },
+            "schema_ref": schema_id,
             "profile": profile_name,
             "remote_expr": remote_expr_yaml,
         }
@@ -391,7 +450,7 @@ def _remotetable_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
     remote_expr_yaml = yaml_dict.get("remote_expr")
     if profile_name is None:
         raise ValueError(
-            "Missing keys in RemoteTable YAML; ensure 'profile', 'table', and 'remote_expr' are present."
+            "Missing keys in RemoteTable YAML; ensure 'profile_name' are present."
         )
     try:
         con = compiler.profiles[profile_name]
@@ -593,21 +652,25 @@ def _aggregate_to_yaml(op: ops.Aggregate, compiler: Any) -> dict:
 
 @register_from_yaml_handler("Aggregate")
 def _aggregate_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
+    if not hasattr(compiler, "definitions"):
+        raise ValueError("Compiler missing definitions with schemas")
+
     parent = translate_from_yaml(yaml_dict["parent"], compiler)
     groups = tuple(
         translate_from_yaml(group, compiler) for group in yaml_dict.get("by", [])
     )
 
-    raw_metrics = {
+    metrics = {
         name: translate_from_yaml(metric, compiler)
         for name, metric in yaml_dict.get("metrics", {}).items()
     }
-    metrics = raw_metrics
 
-    if groups:
-        return parent.group_by(list(groups)).aggregate(metrics)
-    else:
-        return parent.aggregate(metrics)
+    result = (
+        parent.group_by(list(groups)).aggregate(metrics)
+        if groups
+        else parent.aggregate(metrics)
+    )
+    return result
 
 
 @translate_to_yaml.register(ops.JoinChain)
@@ -773,33 +836,24 @@ def _field_to_yaml(op: ops.Field, compiler: Any) -> dict:
         "relation": translate_to_yaml(op.rel, compiler),
         "type": _translate_type(op.dtype),
     }
+
     if op.args and len(op.args) >= 2 and isinstance(op.args[1], str):
         underlying_name = op.args[1]
         if underlying_name != op.name:
             result["original_name"] = underlying_name
+
     return freeze(result)
 
 
 @register_from_yaml_handler("Field")
 def field_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
-    relation = translate_from_yaml(yaml_dict["relation"], compiler)
+    if not hasattr(compiler, "definitions"):
+        raise ValueError("Compiler missing definitions with schemas")
 
+    relation = translate_from_yaml(yaml_dict["relation"], compiler)
     target_name = yaml_dict["name"]
     source_name = yaml_dict.get("original_name", target_name)
-
-    schema = relation.schema() if callable(relation.schema) else relation.schema
-
-    if source_name not in schema.names:
-        if target_name in schema.names:
-            source_name = target_name
-        else:
-            columns_formatted = ", ".join(schema.names)
-            raise IbisTypeError(
-                f"Column {source_name!r} not found in table. "
-                f"Existing columns: {columns_formatted}."
-            )
     field = relation[source_name]
-
     if target_name != source_name:
         field = field.name(target_name)
 
@@ -1301,40 +1355,3 @@ REVERSE_TYPE_REGISTRY = {
         nullable=yaml_dict.get("nullable", True),
     ),
 }
-
-# === Helper functions for translating cache storage ===
-
-
-def translate_storage(storage, compiler: any) -> dict:
-    from letsql.common.caching import ParquetStorage, SourceStorage
-
-    if isinstance(storage, ParquetStorage):
-        return {"type": "ParquetStorage", "path": str(storage.path)}
-    elif isinstance(storage, SourceStorage):
-        return {
-            "type": "SourceStorage",
-            "source": getattr(storage.source, "profile_name", None),
-        }
-    else:
-        raise NotImplementedError(f"Unknown storage type: {type(storage)}")
-
-
-def load_storage_from_yaml(storage_yaml: dict, compiler: any):
-    from letsql.expr.relations import ParquetStorage, _SourceStorage
-
-    if storage_yaml["type"] == "ParquetStorage":
-        default_profile = list(compiler.profiles.values())[0]
-        return ParquetStorage(
-            source=default_profile, path=pathlib.Path(storage_yaml["path"])
-        )
-    elif storage_yaml["type"] == "SourceStorage":
-        source_profile_name = storage_yaml["source"]
-        try:
-            source = compiler.profiles[source_profile_name]
-        except KeyError:
-            raise ValueError(
-                f"Source profile {source_profile_name!r} not found in compiler.profiles"
-            )
-        return _SourceStorage(source=source)
-    else:
-        raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")

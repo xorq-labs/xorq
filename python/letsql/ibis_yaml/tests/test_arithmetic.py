@@ -7,12 +7,13 @@ def test_add(compiler):
     expr = lit1 + lit2
 
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Add"
-    assert yaml_dict["args"][0]["op"] == "Literal"
-    assert yaml_dict["args"][0]["value"] == 5
-    assert yaml_dict["args"][1]["op"] == "Literal"
-    assert yaml_dict["args"][1]["value"] == 3
-    assert yaml_dict["type"] == {"name": "Int8", "nullable": True}
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Add"
+    assert expression["args"][0]["op"] == "Literal"
+    assert expression["args"][0]["value"] == 5
+    assert expression["args"][1]["op"] == "Literal"
+    assert expression["args"][1]["value"] == 3
+    assert expression["type"] == {"name": "Int8", "nullable": True}
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -24,12 +25,13 @@ def test_subtract(compiler):
     expr = lit1 - lit2
 
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Subtract"
-    assert yaml_dict["args"][0]["op"] == "Literal"
-    assert yaml_dict["args"][0]["value"] == 5
-    assert yaml_dict["args"][1]["op"] == "Literal"
-    assert yaml_dict["args"][1]["value"] == 3
-    assert yaml_dict["type"] == {"name": "Int8", "nullable": True}
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Subtract"
+    assert expression["args"][0]["op"] == "Literal"
+    assert expression["args"][0]["value"] == 5
+    assert expression["args"][1]["op"] == "Literal"
+    assert expression["args"][1]["value"] == 3
+    assert expression["type"] == {"name": "Int8", "nullable": True}
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -41,12 +43,13 @@ def test_multiply(compiler):
     expr = lit1 * lit2
 
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Multiply"
-    assert yaml_dict["args"][0]["op"] == "Literal"
-    assert yaml_dict["args"][0]["value"] == 5
-    assert yaml_dict["args"][1]["op"] == "Literal"
-    assert yaml_dict["args"][1]["value"] == 3
-    assert yaml_dict["type"] == {"name": "Int8", "nullable": True}
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Multiply"
+    assert expression["args"][0]["op"] == "Literal"
+    assert expression["args"][0]["value"] == 5
+    assert expression["args"][1]["op"] == "Literal"
+    assert expression["args"][1]["value"] == 3
+    assert expression["type"] == {"name": "Int8", "nullable": True}
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -58,12 +61,13 @@ def test_divide(compiler):
     expr = lit1 / lit2
 
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Divide"
-    assert yaml_dict["args"][0]["op"] == "Literal"
-    assert yaml_dict["args"][0]["value"] == 6.0
-    assert yaml_dict["args"][1]["op"] == "Literal"
-    assert yaml_dict["args"][1]["value"] == 2.0
-    assert yaml_dict["type"] == {"name": "Float64", "nullable": True}
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Divide"
+    assert expression["args"][0]["op"] == "Literal"
+    assert expression["args"][0]["value"] == 6.0
+    assert expression["args"][1]["op"] == "Literal"
+    assert expression["args"][1]["value"] == 2.0
+    assert expression["type"] == {"name": "Float64", "nullable": True}
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -75,8 +79,9 @@ def test_mixed_arithmetic(compiler):
     expr = i * f
 
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Multiply"
-    assert yaml_dict["type"] == {"name": "Float64", "nullable": True}
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Multiply"
+    assert expression["type"] == {"name": "Float64", "nullable": True}
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -89,8 +94,10 @@ def test_complex_arithmetic(compiler):
     expr = (a + b) * c
 
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Multiply"
-    assert yaml_dict["args"][0]["op"] == "Add"
+    expression = yaml_dict["expression"]
+
+    assert expression["op"] == "Multiply"
+    assert expression["args"][0]["op"] == "Add"
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

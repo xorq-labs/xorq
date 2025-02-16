@@ -6,9 +6,10 @@ import ibis
 
 def test_unbound_table(t, compiler):
     yaml_dict = compiler.compile_to_yaml(t)
-    assert yaml_dict["op"] == "UnboundTable"
-    assert yaml_dict["name"] == "test_table"
-    assert yaml_dict["schema"]["a"] == {"name": "Int64", "nullable": True}
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "UnboundTable"
+    assert expression["name"] == "test_table"
+    assert expression["schema_ref"]
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.schema() == t.schema()
@@ -18,9 +19,10 @@ def test_unbound_table(t, compiler):
 def test_field(t, compiler):
     expr = t.a
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Field"
-    assert yaml_dict["name"] == "a"
-    assert yaml_dict["type"] == {"name": "Int64", "nullable": True}
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Field"
+    assert expression["name"] == "a"
+    assert expression["type"] == {"name": "Int64", "nullable": True}
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -30,9 +32,11 @@ def test_field(t, compiler):
 def test_literal(compiler):
     lit = ibis.literal(42)
     yaml_dict = compiler.compile_to_yaml(lit)
-    assert yaml_dict["op"] == "Literal"
-    assert yaml_dict["value"] == 42
-    assert yaml_dict["type"] == {"name": "Int8", "nullable": True}
+
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Literal"
+    assert expression["value"] == 42
+    assert expression["type"] == {"name": "Int8", "nullable": True}
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
@@ -41,9 +45,10 @@ def test_literal(compiler):
 def test_binary_op(t, compiler):
     expr = t.a + 1
     yaml_dict = compiler.compile_to_yaml(expr)
-    assert yaml_dict["op"] == "Add"
-    assert yaml_dict["args"][0]["op"] == "Field"
-    assert yaml_dict["args"][1]["op"] == "Literal"
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Add"
+    assert expression["args"][0]["op"] == "Field"
+    assert expression["args"][1]["op"] == "Literal"
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -60,8 +65,10 @@ def test_primitive_types(compiler):
     ]
     for lit, expected_type in primitives:
         yaml_dict = compiler.compile_to_yaml(lit)
-        assert yaml_dict["op"] == "Literal"
-        assert yaml_dict["type"]["name"] == expected_type
+
+        expression = yaml_dict["expression"]
+        assert expression["op"] == "Literal"
+        assert expression["type"]["name"] == expected_type
 
         roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
         assert roundtrip_expr.equals(lit)
@@ -79,8 +86,9 @@ def test_temporal_types(compiler):
     ]
     for lit, expected_type in temporals:
         yaml_dict = compiler.compile_to_yaml(lit)
-        assert yaml_dict["op"] == "Literal"
-        assert yaml_dict["type"]["name"] == expected_type
+        expression = yaml_dict["expression"]
+        assert expression["op"] == "Literal"
+        assert expression["type"]["name"] == expected_type
 
         roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
         assert roundtrip_expr.equals(lit)
@@ -91,9 +99,10 @@ def test_decimal_type(compiler):
     dec = decimal.Decimal("123.45")
     lit = ibis.literal(dec)
     yaml_dict = compiler.compile_to_yaml(lit)
-    assert yaml_dict["op"] == "Literal"
-    assert yaml_dict["type"]["name"] == "Decimal"
-    assert yaml_dict["type"]["nullable"]
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Literal"
+    assert expression["type"]["name"] == "Decimal"
+    assert expression["type"]["nullable"]
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
@@ -103,10 +112,11 @@ def test_decimal_type(compiler):
 def test_array_type(compiler):
     lit = ibis.literal([1, 2, 3])
     yaml_dict = compiler.compile_to_yaml(lit)
-    assert yaml_dict["op"] == "Literal"
-    assert yaml_dict["type"]["name"] == "Array"
-    assert yaml_dict["type"]["value_type"]["name"] == "Int8"
-    assert yaml_dict["value"] == (1, 2, 3)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Literal"
+    assert expression["type"]["name"] == "Array"
+    assert expression["type"]["value_type"]["name"] == "Int8"
+    assert expression["value"] == (1, 2, 3)
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
@@ -116,10 +126,11 @@ def test_array_type(compiler):
 def test_map_type(compiler):
     lit = ibis.literal({"a": 1, "b": 2})
     yaml_dict = compiler.compile_to_yaml(lit)
-    assert yaml_dict["op"] == "Literal"
-    assert yaml_dict["type"]["name"] == "Map"
-    assert yaml_dict["type"]["key_type"]["name"] == "String"
-    assert yaml_dict["type"]["value_type"]["name"] == "Int8"
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Literal"
+    assert expression["type"]["name"] == "Map"
+    assert expression["type"]["key_type"]["name"] == "String"
+    assert expression["type"]["value_type"]["name"] == "Int8"
 
     roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
     assert roundtrip_expr.equals(lit)
