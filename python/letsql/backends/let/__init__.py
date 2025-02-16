@@ -7,11 +7,8 @@ from typing import Any
 import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
-from ibis.expr import schema as sch
-from ibis.expr import types as ir
 from sqlglot import exp, parse_one
 
-import letsql.backends.let.hotfix  # noqa: F401
 from letsql.backends.let.datafusion import Backend as DataFusionBackend
 from letsql.common.collections import SourceDict
 from letsql.common.utils.graph_utils import replace_fix
@@ -20,6 +17,8 @@ from letsql.expr.relations import (
     replace_cache_table,
 )
 from letsql.internal import SessionConfig, WindowUDF
+from letsql.vendor.ibis.expr import schema as sch
+from letsql.vendor.ibis.expr import types as ir
 
 
 def _get_datafusion_table(con, table_name, database="public"):

@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import random
 
-import ibis.expr.types as ir
 import pandas as pd
 import pytest
-from ibis import _
 from pytest import param
 
 import letsql as ls
+import letsql.vendor.ibis.expr.types as ir
 from letsql.tests.util import assert_frame_equal
+from letsql.vendor.ibis import _
 
 
 @pytest.fixture

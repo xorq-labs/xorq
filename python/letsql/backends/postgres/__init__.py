@@ -2,25 +2,25 @@ from functools import partial
 from pathlib import Path
 from typing import Any, Mapping
 
-import ibis.expr.schema as sch
 import pyarrow as pa
 import pyarrow.parquet as pq
 import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
-from ibis.backends.postgres import Backend as IbisPostgresBackend
-from ibis.expr import types as ir
-from ibis.util import (
-    gen_name,
-)
 
 import letsql as ls
+import letsql.vendor.ibis.expr.schema as sch
 from letsql.backends.postgres.compiler import compiler
 from letsql.common.utils.defer_utils import (
     read_csv_rbr,
 )
 from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.relations import CachedNode, replace_cache_table
+from letsql.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
+from letsql.vendor.ibis.expr import types as ir
+from letsql.vendor.ibis.util import (
+    gen_name,
+)
 
 
 class Backend(IbisPostgresBackend):

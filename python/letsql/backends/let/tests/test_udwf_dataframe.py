@@ -1,12 +1,12 @@
-import ibis
 import numpy as np
 import pyarrow as pa
 import pytest
-from ibis import _
 
 import letsql as ls
 from letsql.expr.udf import pyarrow_udwf
 from letsql.internal import WindowEvaluator
+from letsql.vendor import ibis
+from letsql.vendor.ibis import _
 
 
 class SmoothBoundedFromPreviousRow(WindowEvaluator):

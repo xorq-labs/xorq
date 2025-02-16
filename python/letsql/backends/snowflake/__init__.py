@@ -3,20 +3,20 @@ import itertools
 import warnings
 from typing import Any, Mapping
 
-import ibis.expr.schema as sch
-import ibis.expr.types as ir
 import pandas as pd
 import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
-from ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
-from ibis.backends.snowflake import Backend as IbisSnowflakeBackend
-from ibis.expr.operations.relations import (
-    Namespace,
-)
 
+import letsql.vendor.ibis.expr.schema as sch
+import letsql.vendor.ibis.expr.types as ir
 from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.relations import CachedNode, replace_cache_table
+from letsql.vendor.ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
+from letsql.vendor.ibis.backends.snowflake import Backend as IbisSnowflakeBackend
+from letsql.vendor.ibis.expr.operations.relations import (
+    Namespace,
+)
 
 
 class Backend(IbisSnowflakeBackend):

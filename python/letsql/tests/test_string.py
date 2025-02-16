@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import ibis.expr.datatypes as dt
 import pandas as pd
 import pytest
 from pytest import param
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 

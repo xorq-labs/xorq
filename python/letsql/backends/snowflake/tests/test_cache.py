@@ -2,13 +2,11 @@ from __future__ import annotations
 
 import re
 
-import ibis
-import ibis.expr.operations as ops
 import pandas as pd
 import pytest
-from ibis.util import gen_name
 
 import letsql as ls
+import letsql.vendor.ibis.expr.operations as ops
 from letsql.backends.conftest import (
     get_storage_uncached,
 )
@@ -23,6 +21,8 @@ from letsql.common.utils.snowflake_utils import (
     get_session_query_df,
     get_snowflake_last_modification_time,
 )
+from letsql.vendor import ibis
+from letsql.vendor.ibis.util import gen_name
 
 
 @pytest.mark.snowflake

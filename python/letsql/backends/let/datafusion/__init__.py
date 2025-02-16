@@ -10,31 +10,21 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-import ibis
-import ibis.common.exceptions as com
-import ibis.expr.datatypes as dt
-import ibis.expr.operations as ops
-import ibis.expr.rules as rlz
-import ibis.expr.schema as sch
-import ibis.expr.types as ir
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
-from ibis.backends import CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl
-from ibis.backends.sql import SQLBackend
-from ibis.backends.sql.compilers.base import C
-from ibis.common.annotations import Argument
-from ibis.common.dispatch import lazy_singledispatch
-from ibis.expr.operations import Namespace
-from ibis.expr.operations.udf import InputType, ScalarUDF
-from ibis.formats.pyarrow import PyArrowType, _from_pyarrow_types, _to_pyarrow_types
-from ibis.util import gen_name, normalize_filename
 
 import letsql as ls
+import letsql.common.exceptions as com
 import letsql.internal as df
+import letsql.vendor.ibis.expr.datatypes as dt
+import letsql.vendor.ibis.expr.operations as ops
+import letsql.vendor.ibis.expr.rules as rlz
+import letsql.vendor.ibis.expr.schema as sch
+import letsql.vendor.ibis.expr.types as ir
 from letsql.backends.let.datafusion.compiler import compiler
 from letsql.backends.let.datafusion.provider import IbisTableProvider
 from letsql.common.utils.aws_utils import (
@@ -51,6 +41,25 @@ from letsql.internal import (
     WindowEvaluator,
     udwf,
 )
+from letsql.vendor import ibis
+from letsql.vendor.ibis.backends import (
+    CanCreateCatalog,
+    CanCreateDatabase,
+    CanCreateSchema,
+    NoUrl,
+)
+from letsql.vendor.ibis.backends.sql import SQLBackend
+from letsql.vendor.ibis.backends.sql.compilers.base import C
+from letsql.vendor.ibis.common.annotations import Argument
+from letsql.vendor.ibis.common.dispatch import lazy_singledispatch
+from letsql.vendor.ibis.expr.operations import Namespace
+from letsql.vendor.ibis.expr.operations.udf import InputType, ScalarUDF
+from letsql.vendor.ibis.formats.pyarrow import (
+    PyArrowType,
+    _from_pyarrow_types,
+    _to_pyarrow_types,
+)
+from letsql.vendor.ibis.util import gen_name, normalize_filename
 
 
 if TYPE_CHECKING:

@@ -1,7 +1,6 @@
-from ibis import BaseBackend
-from ibis.expr import operations as ops
-
 from letsql.expr.relations import CachedNode, Read
+from letsql.vendor.ibis import BaseBackend
+from letsql.vendor.ibis.expr import operations as ops
 
 
 def find_backend(op: ops.Node, use_default=False) -> tuple[BaseBackend, bool]:

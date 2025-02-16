@@ -1,13 +1,20 @@
 import functools
 from typing import Any
 
-import ibis.expr.rules as rlz
-import ibis.expr.types as ir
 import toolz
-from ibis.common.annotations import Argument
-from ibis.common.collections import FrozenDict
-from ibis.expr.operations import Namespace
-from ibis.expr.operations.udf import _UDF, AggUDF, InputType, _make_udf_name, _wrap
+
+import letsql.vendor.ibis.expr.rules as rlz
+import letsql.vendor.ibis.expr.types as ir
+from letsql.vendor.ibis.common.annotations import Argument
+from letsql.vendor.ibis.common.collections import FrozenDict
+from letsql.vendor.ibis.expr.operations import Namespace
+from letsql.vendor.ibis.expr.operations.udf import (
+    _UDF,
+    AggUDF,
+    InputType,
+    _make_udf_name,
+    _wrap,
+)
 
 
 class agg(_UDF):

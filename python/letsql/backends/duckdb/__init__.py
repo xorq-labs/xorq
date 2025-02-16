@@ -1,11 +1,11 @@
 from typing import Any, Mapping
 
 import pyarrow as pa
-from ibis.backends.duckdb import Backend as IbisDuckDBBackend
-from ibis.expr import types as ir
-from ibis.util import gen_name
 
 from letsql.backends.duckdb.compiler import DuckDBCompiler
+from letsql.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
+from letsql.vendor.ibis.expr import types as ir
+from letsql.vendor.ibis.util import gen_name
 
 
 class Backend(IbisDuckDBBackend):

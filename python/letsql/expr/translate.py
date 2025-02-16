@@ -5,11 +5,9 @@ import operator
 from functools import singledispatch
 from typing import Any
 
-import ibis
-import ibis.expr.operations as ops
 import pyarrow as pa
-from ibis.formats.pyarrow import PyArrowTableProxy
 
+import letsql.vendor.ibis.expr.operations as ops
 from letsql.expr import (
     Aggregate,
     AggregateFunction,
@@ -37,6 +35,8 @@ from letsql.expr import (
 )
 from letsql.internal import ContextProvider
 from letsql.sql import parser
+from letsql.vendor import ibis
+from letsql.vendor.ibis.formats.pyarrow import PyArrowTableProxy
 
 
 class Catalog(dict[str, Any]):

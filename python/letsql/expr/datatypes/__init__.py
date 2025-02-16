@@ -1,4 +1,4 @@
-from ibis.expr.datatypes import String
+from letsql.vendor.ibis.expr.datatypes import String
 
 
 class LargeString(String):

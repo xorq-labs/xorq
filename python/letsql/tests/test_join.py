@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import ibis.expr.schema as sch
 import numpy as np
 import pandas as pd
 import pytest
 from pytest import param
 
 import letsql as ls
+import letsql.vendor.ibis.expr.schema as sch
 from letsql.tests.util import assert_frame_equal
 
 

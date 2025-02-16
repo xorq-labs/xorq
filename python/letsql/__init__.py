@@ -74,14 +74,14 @@ def connect(session_config: SessionConfig | None = None) -> Backend:
 
 
 def __getattr__(name):
-    import ibis
+    from letsql.vendor import ibis
 
     try:
         importlib.import_module(f"letsql.backends.{name}.hotfix")
     except ModuleNotFoundError:
         pass
 
-    return load_backend(name) or ibis.__getattr__(name)
+    return load_backend(name) or ibis.load_backend(name)
 
 
 __version__ = importlib_metadata.version(__package__)

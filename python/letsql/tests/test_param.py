@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import ibis.expr.datatypes as dt
 import pytest
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.tests.util import assert_series_equal, default_series_rename
 
 

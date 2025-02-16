@@ -1,12 +1,12 @@
-import ibis.expr.datatypes as dt
 import pyarrow as pa
 import pytest
-from ibis import _
-from ibis import literal as L
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.expr import udf
 from letsql.tests.util import assert_frame_equal
+from letsql.vendor.ibis import _
+from letsql.vendor.ibis import literal as L
 
 
 pc = pytest.importorskip("pyarrow.compute")

@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
 import pytest
 from pytest import param
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.tests.util import assert_frame_equal, assert_series_equal
 
 
@@ -84,7 +84,7 @@ def test_field_access_after_case(con):
 
 
 def test_collect_into_struct(alltypes):
-    from ibis import _
+    from letsql.vendor.ibis import _
 
     t = alltypes
     expr = (

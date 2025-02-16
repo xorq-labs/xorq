@@ -1,12 +1,14 @@
-import ibis
+from operator import methodcaller
+
 import pandas as pd
 import pyarrow as pa
 import pytest
-from ibis import _
 
 import letsql as ls
 from letsql.common.caching import ParquetCacheStorage, SourceStorage
-from letsql.expr.relations import into_backend, register_and_transform_remote_tables
+from letsql.expr.relations import register_and_transform_remote_tables
+from letsql.vendor import ibis
+from letsql.vendor.ibis import _
 
 
 expected_tables = (
@@ -38,7 +40,7 @@ def pg():
 @pytest.fixture(scope="session")
 def trino_table():
     return (
-        ibis.trino.connect(database="tpch", schema="sf1")
+        ls.trino.connect(database="tpch", schema="sf1")
         .table("orders")
         .cast({"orderdate": "date"})
     )
@@ -94,7 +96,7 @@ def test_multiple_record_batches(pg):
         .cache(SourceStorage(source=con))
     )
 
-    res = ls.execute(expr)
+    res = expr.execute()
     assert isinstance(res, pd.DataFrame)
     assert 0 < len(res) <= 15
 
@@ -102,7 +104,7 @@ def test_multiple_record_batches(pg):
 @pytest.mark.parametrize("method", [ls.to_pyarrow, ls.to_pyarrow_batches, ls.execute])
 def test_into_backend_simple(pg, method):
     con = ls.connect()
-    expr = into_backend(pg.table("batting"), con, "ls_batting")
+    expr = pg.table("batting").into_backend(con, "ls_batting")
     res = method(expr)
 
     if isinstance(res, pa.RecordBatchReader):
@@ -111,11 +113,11 @@ def test_into_backend_simple(pg, method):
     assert len(res) > 0
 
 
-@pytest.mark.parametrize("method", [ls.to_pyarrow, ls.to_pyarrow_batches, ls.execute])
+@pytest.mark.parametrize("method", ["to_pyarrow", "to_pyarrow_batches", "execute"])
 def test_into_backend_complex(pg, method):
     con = ls.connect()
 
-    t = into_backend(pg.table("batting"), con, "ls_batting")
+    t = pg.table("batting").into_backend(con, "ls_batting")
 
     expr = (
         t.join(t, "playerID")
@@ -125,7 +127,7 @@ def test_into_backend_complex(pg, method):
     )
 
     assert ls.to_sql(expr).count("batting") == 2
-    res = method(expr)
+    res = methodcaller(method)(expr)
 
     if isinstance(res, pa.RecordBatchReader):
         res = next(res)
@@ -137,17 +139,17 @@ def test_double_into_backend_batches(pg):
     con = ls.connect()
     ddb_con = ls.duckdb.connect()
 
-    t = into_backend(pg.table("batting"), con, "ls_batting")
+    t = pg.table("batting").into_backend(con, "ls_batting")
 
     expr = (
         t.join(t, "playerID")
         .limit(15)
-        .pipe(into_backend, ddb_con)
+        .into_backend(ddb_con)
         .select(player_id="playerID", year_id="yearID_right")
         .cache(SourceStorage(source=con))
     )
 
-    res = ls.to_pyarrow_batches(expr)
+    res = expr.to_pyarrow_batches()
     res = next(res)
 
     assert len(res) == 15
@@ -158,24 +160,24 @@ def test_into_backend_cache(pg, tmp_path):
     con = ls.connect()
     ddb_con = ls.duckdb.connect()
 
-    t = into_backend(pg.table("batting"), con, "ls_batting")
+    t = pg.table("batting").into_backend(con, "ls_batting")
 
     expr = (
         t.join(t, "playerID")
         .limit(15)
         .cache(SourceStorage(source=con))
-        .pipe(into_backend, ddb_con)
+        .into_backend(ddb_con)
         .select(player_id="playerID", year_id="yearID_right")
         .cache(ParquetCacheStorage(source=ddb_con, path=tmp_path))
     )
 
-    res = ls.execute(expr)
+    res = expr.execute()
     assert 0 < len(res) <= 15
 
 
 def test_into_backend_duckdb(pg):
     ddb = ls.duckdb.connect()
-    t = into_backend(pg.table("batting"), ddb, "ls_batting")
+    t = pg.table("batting").into_backend(ddb, "ls_batting")
     expr = (
         t.join(t, "playerID")
         .limit(15)
@@ -194,7 +196,7 @@ def test_into_backend_duckdb(pg):
 
 def test_into_backend_duckdb_expr(pg):
     ddb = ls.duckdb.connect()
-    t = into_backend(pg.table("batting"), ddb, "ls_batting")
+    t = pg.table("batting").into_backend(ddb, "ls_batting")
     expr = t.join(t, "playerID").limit(15).select(_.playerID * 2)
 
     expr, created = register_and_transform_remote_tables(expr)
@@ -209,7 +211,7 @@ def test_into_backend_duckdb_expr(pg):
 
 def test_into_backend_duckdb_trino(trino_table):
     db_con = ls.duckdb.connect()
-    expr = trino_table.head(10_000).pipe(into_backend, db_con).pipe(make_merged)
+    expr = trino_table.head(10_000).into_backend(db_con).pipe(make_merged)
 
     expr, created = register_and_transform_remote_tables(expr)
     query = ibis.to_sql(expr, dialect="duckdb")
@@ -227,14 +229,14 @@ def test_multiple_into_backend_duckdb_letsql(trino_table):
 
     expr = (
         trino_table.head(10_000)
-        .pipe(into_backend, db_con)
+        .into_backend(db_con)
         .pipe(make_merged)
-        .pipe(into_backend, ls_con)[lambda t: t.orderstatus == "F"]
+        .into_backend(ls_con)[lambda t: t.orderstatus == "F"]
     )
 
     expr, created = register_and_transform_remote_tables(expr)
 
-    df = ls.execute(expr)
+    df = expr.execute()
 
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
@@ -246,11 +248,11 @@ def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
     db_con = ls.duckdb.connect()
     expr = (
         trino_table.head(10_000)
-        .pipe(into_backend, db_con)
+        .into_backend(db_con)
         .pipe(make_merged)
         .cache(ParquetCacheStorage(path=tmp_path))
     )
-    df = ls.execute(expr)
+    df = expr.execute()
     assert isinstance(df, pd.DataFrame)
     assert len(df) > 0
 
@@ -259,9 +261,9 @@ def test_into_backend_to_pyarrow_batches(trino_table):
     db_con = ls.duckdb.connect()
     df = (
         trino_table.head(10_000)
-        .pipe(into_backend, db_con)
+        .into_backend(db_con)
         .pipe(make_merged)
-        .pipe(ls.to_pyarrow_batches)
+        .to_pyarrow_batches()
         .read_pandas()
     )
     assert not df.empty
@@ -270,7 +272,7 @@ def test_into_backend_to_pyarrow_batches(trino_table):
 def test_to_pyarrow_batches_simple(pg):
     con = ls.duckdb.connect()
 
-    t = into_backend(pg.table("batting"), con, "ls_batting")
+    t = pg.table("batting").into_backend(con, "ls_batting")
 
     expr = (
         t.join(t, "playerID")
@@ -278,5 +280,5 @@ def test_to_pyarrow_batches_simple(pg):
         .select(player_id="playerID", year_id="yearID_right")
     )
 
-    df = ls.to_pyarrow_batches(expr).read_pandas()
+    df = expr.to_pyarrow_batches().read_pandas()
     assert not df.empty

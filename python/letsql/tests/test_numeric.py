@@ -6,17 +6,17 @@ import operator
 from operator import and_, lshift, or_, rshift, xor
 from typing import Callable
 
-import ibis
 import numpy as np
 import pandas as pd
 import pytest
-from ibis import _
-from ibis import literal as L
-from ibis.expr import datatypes as dt
 from pytest import param
 
 import letsql as ls
 from letsql.tests.util import assert_series_equal, default_series_rename
+from letsql.vendor import ibis
+from letsql.vendor.ibis import _
+from letsql.vendor.ibis import literal as L
+from letsql.vendor.ibis.expr import datatypes as dt
 
 
 @pytest.mark.parametrize(

@@ -1,11 +1,12 @@
 from pathlib import Path
 
 import letsql as ls
+from letsql.common.caching import ParquetCacheStorage
 
 
 pg = ls.postgres.connect_examples()
 con = ls.connect()  # empty connection
-storage = ls.common.caching.ParquetCacheStorage(
+storage = ParquetCacheStorage(
     source=con,
     path=Path.cwd(),
 )

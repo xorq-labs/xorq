@@ -2,15 +2,15 @@ import functools
 from collections import defaultdict
 from typing import Any
 
-import ibis
 import pyarrow as pa
-from ibis import Expr, Schema
-from ibis.common.collections import FrozenDict
-from ibis.common.graph import Graph
-from ibis.expr import operations as ops
-from ibis.expr.operations import Node, Relation
 
 from letsql.common.utils.graph_utils import replace_fix
+from letsql.vendor import ibis
+from letsql.vendor.ibis import Expr, Schema
+from letsql.vendor.ibis.common.collections import FrozenDict
+from letsql.vendor.ibis.common.graph import Graph
+from letsql.vendor.ibis.expr import operations as ops
+from letsql.vendor.ibis.expr.operations import Node, Relation
 
 
 def replace_cache_table(node, _, **kwargs):

@@ -1,12 +1,4 @@
-try:
-    import importlib.metadata as importlib_metadata
-except ModuleNotFoundError:
-    import importlib_metadata
-
-
-version = tuple(
-    int(part) for part in importlib_metadata.version("ibis-framework").split(".")
-)
+version = (9, 5, 0)
 
 
 def replace_fix(fun):

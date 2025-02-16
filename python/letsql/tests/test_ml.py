@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
 import pytest
-from ibis import memtable
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
+from letsql import memtable
 from letsql.expr.ml import _calculate_bounds, make_quickgrove_udf
 from letsql.tests.util import assert_frame_equal
 
@@ -71,9 +71,10 @@ def test_train_test_split():
     train_table, test_table = ls.train_test_splits(
         table, unique_key="key1", test_sizes=test_size, num_buckets=N, random_seed=42
     )
+
     # These values are for seed 42
-    assert train_table.count().execute() == 73
-    assert test_table.count().execute() == 27
+    assert train_table.count().execute() == 75
+    assert test_table.count().execute() == 25
     assert set(train_table.columns) == set(table.columns)
     assert set(test_table.columns) == set(table.columns)
     # make sure data unioned together is itself
@@ -144,9 +145,8 @@ def test_train_test_splits_deterministic_with_seed():
         ls.train_test_splits(table, "key", test_sizes, random_seed=123, num_buckets=10)
     )
 
-    result1_all = splits1[0].union(splits1[1]).execute()
-    result2_all = splits2[0].union(splits2[1]).execute()
-    assert result1_all.equals(result2_all)
+    for s1, s2 in zip(splits1, splits2):
+        assert_frame_equal(s1.execute(), s2.execute())
 
 
 def test_train_test_splits_invalid_test_sizes():

@@ -3,18 +3,18 @@ from __future__ import annotations
 import decimal
 from operator import invert, neg
 
-import ibis.common.exceptions as com
-import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
 import pytest
 import toolz
-from ibis import _
-from ibis.common.annotations import ValidationError
 from pytest import param
 
 import letsql as ls
+import letsql.common.exceptions as com
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.tests.util import assert_frame_equal, assert_series_equal
+from letsql.vendor.ibis import _
+from letsql.vendor.ibis.common.annotations import ValidationError
 
 
 def test_null_literal(con):
@@ -219,17 +219,17 @@ def test_case_where(alltypes, df):
 
 def test_table_fill_null_invalid(alltypes):
     with pytest.raises(
-        com.IbisTypeError, match=r"Column 'invalid_col' is not found in table"
+        com.LetSQLTypeError, match=r"Column 'invalid_col' is not found in table"
     ):
         alltypes.fill_null({"invalid_col": 0.0})
 
     with pytest.raises(
-        com.IbisTypeError, match="Cannot fill_null on column 'string_col' of type.*"
+        com.LetSQLTypeError, match="Cannot fill_null on column 'string_col' of type.*"
     ):
         alltypes[["int_col", "string_col"]].fill_null(0)
 
     with pytest.raises(
-        com.IbisTypeError, match="Cannot fill_null on column 'int_col' of type.*"
+        com.LetSQLTypeError, match="Cannot fill_null on column 'int_col' of type.*"
     ):
         alltypes.fill_null({"int_col": "oops"})
 
@@ -292,7 +292,7 @@ def test_mutate_rename(alltypes):
 
 def test_drop_null_invalid(alltypes):
     with pytest.raises(
-        com.IbisTypeError, match=r"Column 'invalid_col' is not found in table"
+        com.LetSQLTypeError, match=r"Column 'invalid_col' is not found in table"
     ):
         alltypes.drop_null(subset=["invalid_col"])
 

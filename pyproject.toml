@@ -6,7 +6,6 @@ build-backend = "maturin"
 name = "letsql"
 dynamic = ["version"]
 dependencies = [
-    "ibis-framework>=9.4.0,<10 ; python_version >= '3.10' and python_version < '4.0'",
     "dask==2025.1.0; python_version >= '3.10' and python_version < '4.0'",
     "attrs>=24.0.0,<26; python_version >= '3.10' and python_version < '4.0'",
     "connectorx>=0.3.2,<0.5.0; python_version >= '3.10' and python_version < '4.0'",
@@ -22,6 +21,15 @@ dependencies = [
     "geoarrow-types>=0.2,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "pythran>=0.17.0 ; sys_platform == 'darwin'",
     "pydantic>=2.10.6",
+    "atpublic>=5.1",
+    "hatch>=1.14.0",
+    "parsy>=2",
+    "python-dateutil>=2.8.2",
+    "pytz>=2022.7",
+    "sqlglot==25.20.2",
+    "toolz>=0.11",
+    "typing-extensions>=4.3.0",
+    "hypothesis>=6.124.9",
 ]
 requires-python = ">=3.10"
 authors = [
@@ -89,6 +97,7 @@ dev = [
     "maturin>=1.7.4",
     "pip>=24.3.1",
     "quickgrove>=0.1.2",
+    "vendoring>=1.2.0",
 ]
 test = [
     "datafusion>=43.1.0",
@@ -113,11 +122,31 @@ snowflake = "letsql.backends.snowflake"
 datafusion = "letsql.backends.datafusion"
 duckdb = "letsql.backends.duckdb"
 pandas = "letsql.backends.pandas"
+trino = "letsql.backends.trino"
 
 [tool.maturin]
 module-name = "letsql._internal"
 python-source = "python"
 features = ["pyo3/extension-module"]
+
+[tool.vendoring]
+destination = "python/letsql/vendor/"
+requirements = "vendors.txt"
+namespace = "letsql.vendor"
+
+protected-files = ["__init__.py", "README.md", "vendors.txt"]
+patches-dir = "tasks/patches"
+
+[tool.vendoring.transformations]
+substitute = [
+    {match = '__import__("ibis")', replace = '__import__("letsql.vendor.ibis")'}
+]
+drop = [
+    "bin/",
+    "*.so",
+    "typing.*",
+    "*/tests/"
+]
 
 [tool.ruff.lint]
 extend-select = ["I", "ICN"]

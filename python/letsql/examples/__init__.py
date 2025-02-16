@@ -24,3 +24,9 @@ class Example:
 
 
 penguins = Example("penguins", cached_penguins)
+
+
+def __getattr__(name):
+    from letsql.vendor.ibis import examples as ibex
+
+    return getattr(ibex, name)

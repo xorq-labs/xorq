@@ -3,17 +3,18 @@ from __future__ import annotations
 import contextlib
 from typing import TYPE_CHECKING, Any
 
-import ibis
-import ibis.expr.operations as ops
-import ibis.expr.schema as sch
-import ibis.expr.types as ir
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
-from ibis.backends.datafusion import Backend as IbisDatafusionBackend
-from ibis.common.dispatch import lazy_singledispatch
-from ibis.util import gen_name
+
+import letsql.vendor.ibis.expr.operations as ops
+import letsql.vendor.ibis.expr.schema as sch
+import letsql.vendor.ibis.expr.types as ir
+from letsql.vendor import ibis
+from letsql.vendor.ibis.backends.datafusion import Backend as IbisDatafusionBackend
+from letsql.vendor.ibis.common.dispatch import lazy_singledispatch
+from letsql.vendor.ibis.util import gen_name
 
 
 if TYPE_CHECKING:

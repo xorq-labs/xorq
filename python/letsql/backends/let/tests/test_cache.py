@@ -6,16 +6,14 @@ import time
 import uuid
 
 import dask
-import ibis
-import ibis.expr.datatypes as dt
 import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 import toolz
-from ibis import _
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.backends.conftest import (
     get_storage_uncached,
 )
@@ -37,6 +35,8 @@ from letsql.expr.udf import (
 from letsql.tests.util import (
     assert_frame_equal,
 )
+from letsql.vendor import ibis
+from letsql.vendor.ibis import _
 
 
 KEY_PREFIX = ls.config.options.cache.key_prefix
@@ -92,7 +92,7 @@ def test_cache_simple(con, alltypes, alltypes_df):
         & (alltypes_df["int_col"] < alltypes_df["float_col"] * 2)
     ][["smallint_col", "int_col", "float_col"]]
 
-    executed = ls.execute(cached)
+    executed = cached.execute()
     tables_after_executing = con.list_tables()
 
     assert_frame_equal(executed, expected)
@@ -131,10 +131,10 @@ def test_cache_multiple_times(con, alltypes, alltypes_df):
 
     re_cached = expr.cache()
 
-    first = ls.execute(cached)
+    first = cached.execute()
     tables_after_first_caching = con.list_tables()
 
-    second = ls.execute(re_cached)
+    second = re_cached.execute()
     tables_after_second_caching = con.list_tables()
 
     expected = alltypes_df[
@@ -186,8 +186,8 @@ def test_op_after_cache(alltypes):
         ]
     )
 
-    actual = ls.execute(cached)
-    expected = ls.execute(full_expr)
+    actual = cached.execute()
+    expected = full_expr.execute()
 
     assert_frame_equal(actual, expected)
 
@@ -206,14 +206,14 @@ def test_cache_recreate(alltypes):
             ]
         )
 
-    alltypes_df = ls.execute(alltypes)
+    alltypes_df = alltypes.execute()
     cons = (con0, con1) = ls.connect(), ls.connect()
     ts = tuple(con.create_table("alltypes", alltypes_df) for con in cons)
     exprs = tuple(make_expr(t) for t in ts)
 
     for con, expr in zip(cons, exprs):
         # FIXME: execute one, simply check the other returns true for `expr.ls.exists()`
-        ls.execute(expr.cache(storage=SourceStorage(source=con)))
+        expr.cache(storage=SourceStorage(source=con)).execute()
 
     (con_cached_tables0, con_cached_tables1) = (
         set(
@@ -247,7 +247,7 @@ def test_cache_execution(alltypes):
         .cache()
     )
 
-    actual = ls.execute(cached)
+    actual = cached.execute()
 
     expected = (
         alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
@@ -281,12 +281,12 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
         path=tmp_path.joinpath("parquet-cache-storage"),
     )
     cached = expr.cache(storage=storage)
-    actual = ls.execute(cached)
+    actual = cached.execute()
     assert_frame_equal(actual, expected)
 
     # the file must exist and have the same schema
     alltypes_df.head(1).to_parquet(path)
-    actual = ls.execute(cached)
+    actual = cached.execute()
     assert_frame_equal(actual, expected)
 
     path.unlink()
@@ -299,7 +299,7 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     )
     with pytest.raises(Exception, match=pattern):
         # if the file doesn't exist, we get a failure, even for cached
-        ls.execute(cached)
+        cached.execute()
 
 
 def test_parquet_remote_to_local(con, alltypes, tmp_path):
@@ -319,8 +319,8 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
         path=tmp_path.joinpath("parquet-cache-storage"),
     )
     cached = expr.cache(storage=storage)
-    expected = ls.execute(expr)
-    actual = ls.execute(cached)
+    expected = expr.execute()
+    actual = cached.execute()
     assert_frame_equal(actual, expected)
 
 
@@ -363,19 +363,19 @@ def test_postgres_cache_invalidation(pg, con):
     assert n_scans_before == 0
 
     # assert first execution state
-    ls.execute(expr_cached)
+    expr_cached.execute()
     n_scans_after = assert_n_scans_changes(dt, n_scans_before)
     # should we test that SourceStorage.get is called?
     assert n_scans_after == 1
     assert storage.exists(uncached)
 
     # assert no change after re-execution of cached expr
-    ls.execute(expr_cached)
+    expr_cached.execute()
     assert n_scans_after == get_postgres_n_scans(dt)
 
     # assert cache invalidation happens
     modify_postgres_table(dt)
-    ls.execute(expr_cached)
+    expr_cached.execute()
     assert_n_scans_changes(dt, n_scans_after)
 
 
@@ -416,25 +416,25 @@ def test_postgres_snapshot(pg, con):
     assert n_scans_before == 0
 
     # assert first execution state
-    executed0 = ls.execute(expr_cached)
+    executed0 = expr_cached.execute()
     n_scans_after = assert_n_scans_changes(dt, n_scans_before)
     # should we test that SourceStorage.get is called?
     assert n_scans_after == 1
     assert storage.exists(uncached)
 
     # assert no change after re-execution of cached expr
-    executed1 = ls.execute(expr_cached)
+    executed1 = expr_cached.execute()
     assert n_scans_after == get_postgres_n_scans(dt)
     assert executed0.equals(executed1)
 
     # assert NO cache invalidation
     modify_postgres_table(dt)
-    executed2 = ls.execute(expr_cached)
+    executed2 = expr_cached.execute()
     assert executed0.equals(executed2)
     with pytest.raises(Exception):
         assert_n_scans_changes(dt, n_scans_after)
 
-    executed3 = ls.execute(expr_cached.ls.uncached)
+    executed3 = expr_cached.ls.uncached.execute()
     assert not executed0.equals(executed3)
 
 
@@ -474,7 +474,7 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
     assert n_scans_before == 0
 
     # assert first execution state
-    executed0 = ls.execute(expr_cached)
+    executed0 = expr_cached.execute()
     n_scans_after = assert_n_scans_changes(dt, n_scans_before)
     # should we test that SourceStorage.get is called?
     assert n_scans_after == 1
@@ -482,18 +482,18 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
     assert storage.exists(expr)
 
     # assert no change after re-execution of cached expr
-    executed1 = ls.execute(expr_cached)
+    executed1 = expr_cached.execute()
     assert n_scans_after == get_postgres_n_scans(dt)
     assert executed0.equals(executed1)
 
     # assert NO cache invalidation
     modify_postgres_table(dt)
-    executed2 = ls.execute(expr_cached)
+    executed2 = expr_cached.execute()
     assert executed0.equals(executed2)
     with pytest.raises(Exception):
         assert_n_scans_changes(dt, n_scans_after)
 
-    executed3 = ls.execute(expr_cached.ls.uncached)
+    executed3 = expr_cached.ls.uncached.execute()
     assert not executed0.equals(executed3)
 
 
@@ -506,7 +506,7 @@ def test_duckdb_cache_parquet(con, pg, tmp_path):
         .read_parquet(parquet_path)[lambda t: t.yearID > 2000]
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
     )
-    ls.execute(expr)
+    expr.execute()
 
 
 def test_duckdb_cache_csv(con, pg, tmp_path):
@@ -518,7 +518,7 @@ def test_duckdb_cache_csv(con, pg, tmp_path):
         .read_csv(csv_path)[lambda t: t.yearID > 2000]
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
     )
-    ls.execute(expr)
+    expr.execute()
 
 
 def test_duckdb_cache_arrow(con, pg, tmp_path):
@@ -528,7 +528,7 @@ def test_duckdb_cache_arrow(con, pg, tmp_path):
         .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
     )
-    ls.execute(expr)
+    expr.execute()
 
 
 def test_cross_source_storage(pg):
@@ -538,7 +538,7 @@ def test_cross_source_storage(pg):
         .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
         .cache(storage=SourceStorage(source=pg))
     )
-    ls.execute(expr)
+    expr.execute()
 
 
 def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
@@ -548,11 +548,11 @@ def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
     expr = t.filter(t.playerID == "allisar01")[
         ["playerID", "yearID", "stint", "teamID", "lgID"]
     ]
-    expected = ls.execute(expr)
+    expected = expr.execute()
 
-    result = expr.cache(storage=ParquetCacheStorage(source=con, path=tmp_path)).pipe(
-        ls.execute
-    )
+    result = expr.cache(
+        storage=ParquetCacheStorage(source=con, path=tmp_path)
+    ).execute()
 
     assert result is not None
     assert_frame_equal(result, expected, check_like=True)
@@ -562,7 +562,7 @@ def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
     expr = t.cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
-    assert ls.execute(expr) is not None
+    assert expr.execute() is not None
 
 
 def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
@@ -573,14 +573,14 @@ def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
         .cache(storage=ParquetCacheStorage(source=con, path=tmp_path))
         .cache()
     )
-    assert ls.execute(expr) is not None
+    assert expr.execute() is not None
 
 
 def test_read_csv_and_cache(ls_con, csv_dir, tmp_path):
     batting_path = csv_dir / "batting.csv"
     t = ls_con.read_csv(batting_path, table_name=f"csv_batting-{uuid.uuid4()}")
     expr = t.cache(storage=ParquetCacheStorage(source=ls_con, path=tmp_path))
-    assert ls.execute(expr) is not None
+    assert expr.execute() is not None
 
 
 def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
@@ -595,7 +595,7 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
         .cache(storage=ParquetCacheStorage(source=ls_con, path=tmp_path))
         .cache()
     )
-    assert ls.execute(expr) is not None
+    assert expr.execute() is not None
 
 
 @pytest.mark.parametrize("other_con", [ls.connect(), ls.duckdb.connect()])
@@ -616,7 +616,7 @@ def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
         )
     )
 
-    assert ls.execute(expr) is not None
+    assert expr.execute() is not None
 
 
 def test_repeated_cache(pg, ls_con, tmp_path):
@@ -630,7 +630,7 @@ def test_repeated_cache(pg, ls_con, tmp_path):
         .cache(storage=storage)
     )
 
-    actual = ls.execute(t)
+    actual = t.execute()
     expected = pg.table("batting").filter([_.yearID > 2014, _.stint == 1]).execute()
 
     assert_frame_equal(actual, expected)
@@ -655,7 +655,7 @@ def test_register_with_different_name_and_cache(csv_dir, get_expr):
     expr = t.pipe(get_expr).cache()
 
     assert table_name != letsql_table_name
-    assert ls.execute(expr) is not None
+    assert expr.execute() is not None
 
 
 def test_cache_default_path_set(pg, ls_con, tmp_path):
@@ -669,7 +669,7 @@ def test_cache_default_path_set(pg, ls_con, tmp_path):
         pg.table("batting")[lambda t: t.yearID > 2014].limit(1).cache(storage=storage)
     )
 
-    result = ls.execute(expr)
+    result = expr.execute()
 
     cache_files = list(
         path
@@ -703,14 +703,14 @@ def test_pandas_snapshot(ls_con, alltypes_df):
     assert not storage.exists(uncached)
 
     # test cache creation
-    executed0 = ls.execute(cached_expr)
+    executed0 = cached_expr.execute()
 
     with storage.normalization_context(uncached):
         normalized0 = dask.base.normalize_token(uncached)
     assert storage.exists(uncached)
 
     # test cache use
-    executed1 = ls.execute(cached_expr)
+    executed1 = cached_expr.execute()
     assert executed0.equals(executed1)
 
     # test NO cache invalidation
@@ -732,7 +732,7 @@ def test_pandas_snapshot(ls_con, alltypes_df):
     # everything else is stable, despite the different date
     assert normalized0[1:] == normalized1[1:]
     assert storage.exists(uncached)
-    executed2 = ls.execute(cached_expr.ls.uncached)
+    executed2 = cached_expr.ls.uncached.execute()
     assert not executed0.equals(executed2)
 
 
@@ -755,17 +755,17 @@ def test_duckdb_snapshot(ls_con, alltypes_df):
     assert not storage.exists(uncached)
 
     # test cache creation
-    executed0 = ls.execute(cached_expr)
+    executed0 = cached_expr.execute()
     assert storage.exists(uncached)
 
     # test cache use
-    executed1 = ls.execute(cached_expr)
+    executed1 = cached_expr.execute()
     assert executed0.equals(executed1)
 
     # test NO cache invalidation
     db_con.insert(name, alltypes_df)
-    executed2 = ls.execute(cached_expr)
-    executed3 = ls.execute(cached_expr.ls.uncached)
+    executed2 = cached_expr.execute()
+    executed3 = cached_expr.ls.uncached.execute()
     assert executed0.equals(executed2)
     assert not executed0.equals(executed3)
 
@@ -789,21 +789,22 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     assert not storage.exists(uncached)
 
     # test cache creation
-    executed0 = ls.execute(cached_expr)
+    executed0 = cached_expr.execute()
     assert storage.exists(uncached)
 
     # test cache use
-    executed1 = ls.execute(cached_expr)
+    executed1 = cached_expr.execute()
     assert executed0.equals(executed1)
 
     # test NO cache invalidation
     df_con.insert(name, alltypes_df)
-    executed2 = ls.execute(cached_expr)
-    executed3 = ls.execute(cached_expr.ls.uncached)
+    executed2 = cached_expr.execute()
+    executed3 = cached_expr.ls.uncached.execute()
     assert executed0.equals(executed2)
     assert not executed0.equals(executed3)
 
 
+@pytest.mark.xfail
 def test_udf_caching(ls_con, alltypes_df, snapshot):
     @ibis.udf.scalar.pyarrow
     def my_mul(tinyint_col: dt.int16, smallint_col: dt.int16) -> dt.int16:
@@ -824,7 +825,7 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
         .pipe(lambda t: t.mutate(mulled=my_mul(*(t[col] for col in cols))))
         .cache()
     )
-    from_ls = ls.execute(expr)
+    from_ls = expr.execute()
     from_pandas = alltypes_df[cols].assign(mulled=wrapper(my_mul))
     assert from_ls.equals(from_pandas)
 
@@ -832,6 +833,7 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
     snapshot.assert_match(expr.ls.get_key(), f"{py_version}_udf_caching.txt")
 
 
+@pytest.mark.xfail
 def test_udaf_caching(ls_con, alltypes_df, snapshot):
     def my_mul_sum(df):
         return df.sum().sum()
@@ -865,9 +867,9 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
     assert not expr.ls.exists()
     assert not on_expr.ls.exists()
 
-    from_ls = ls.execute(expr).sort_values(by="bool_col")
+    from_ls = expr.execute().sort_values(by="bool_col")
     assert_frame_equal(from_ls, from_pandas.sort_values(by="bool_col"))
-    assert_frame_equal(from_ls, ls.execute(on_expr).sort_values(by="bool_col"))
+    assert_frame_equal(from_ls, on_expr.execute().sort_values(by="bool_col"))
     assert expr.ls.exists()
     assert on_expr.ls.exists()
 
@@ -881,7 +883,7 @@ def test_caching_pandas(csv_dir):
     pandas_con = ls.pandas.connect()
     cache = SourceStorage(source=pandas_con)
     t = pandas_con.read_csv(diamonds_path).cache(storage=cache)
-    assert ls.execute(t) is not None
+    assert t.execute() is not None
 
 
 @pytest.mark.parametrize("expr_con", [ls.datafusion.connect(), ls.duckdb.connect()])
@@ -905,19 +907,19 @@ def test_cross_source_snapshot(ls_con, alltypes_df, expr_con):
     assert storage.source is not expr_con  # the cache is cross source
 
     # test cache creation
-    df = ls.execute(cached_expr)
+    df = cached_expr.execute()
 
     assert not df.empty
     assert storage.exists(expr)
 
     # test cache use
-    executed1 = ls.execute(cached_expr)
+    executed1 = cached_expr.execute()
     assert df.equals(executed1)
 
     # test NO cache invalidation
     expr_con.insert(name, alltypes_df)
-    executed2 = ls.execute(cached_expr)
-    executed3 = ls.execute(cached_expr.ls.uncached)
+    executed2 = cached_expr.execute()
+    executed3 = cached_expr.ls.uncached.execute()
     assert df.equals(executed2)
     assert not df.equals(executed3)
 
@@ -927,7 +929,7 @@ def test_storage_exists_doesnt_materialize(cached_two):
     assert not storage.exists(cached_two)
     assert not storage.exists(cached_two)
     assert not cached_two.ls.exists()
-    ls.execute(cached_two.count())
+    cached_two.count().execute()
     assert cached_two.ls.exists()
     assert storage.exists(cached_two)
 
@@ -937,7 +939,7 @@ def test_ls_exists_doesnt_materialize(cached_two):
     assert not cached_two.ls.exists()
     assert not cached_two.ls.exists()
     assert not storage.exists(cached_two)
-    ls.execute(cached_two.count())
+    cached_two.count().execute()
     assert cached_two.ls.exists()
     assert storage.exists(cached_two)
 

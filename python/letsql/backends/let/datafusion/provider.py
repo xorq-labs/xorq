@@ -1,5 +1,4 @@
-import ibis.expr.types as ir
-
+import letsql.vendor.ibis.expr.types as ir
 from letsql.internal import AbstractTableProvider
 
 

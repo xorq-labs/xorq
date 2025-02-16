@@ -5,11 +5,11 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 import xgboost as xgb
-from ibis import udf
 from sklearn.model_selection import train_test_split
 
 import letsql as ls
 from letsql.backends.let.datafusion.provider import IbisTableProvider
+from letsql.vendor.ibis import udf
 
 
 @pytest.fixture

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ibis.backends.sql.compilers.postgres import (
+from letsql.vendor.ibis.backends.sql.compilers.postgres import (
     PostgresCompiler as IbisPostgresCompiler,
 )
 

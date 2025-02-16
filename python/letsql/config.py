@@ -1,8 +1,8 @@
 import pathlib
 from typing import Any, Optional, Union
 
-import ibis
-from ibis.config import Config
+from letsql.vendor import ibis
+from letsql.vendor.ibis.config import Config
 
 
 class Cache(Config):

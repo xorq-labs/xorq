@@ -9,8 +9,6 @@ from abc import (
 )
 
 import dask
-import ibis
-import ibis.expr.operations as ops
 import toolz
 from attr import (
     field,
@@ -19,10 +17,10 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
-from ibis.expr import types as ir
 
 import letsql as ls
 import letsql.common.utils.dask_normalize  # noqa: F401
+import letsql.vendor.ibis.expr.operations as ops
 from letsql.common.utils.dask_normalize import (
     patch_normalize_token,
 )
@@ -35,6 +33,8 @@ from letsql.expr.relations import (
     Read,
     RemoteTable,
 )
+from letsql.vendor import ibis
+from letsql.vendor.ibis.expr import types as ir
 
 
 abs_path_converter = toolz.compose(

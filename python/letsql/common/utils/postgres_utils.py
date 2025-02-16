@@ -1,7 +1,6 @@
 import os
 
 import adbc_driver_postgresql.dbapi
-import ibis
 import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
@@ -17,6 +16,7 @@ from attr.validators import (
 from letsql.backends.postgres import (
     Backend as PGBackend,
 )
+from letsql.vendor import ibis
 
 
 try:

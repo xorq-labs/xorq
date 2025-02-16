@@ -1,14 +1,14 @@
 from __future__ import annotations
 
-import ibis
-import ibis.expr.datatypes as dt
-import ibis.expr.types as ir
 import pandas.testing as tm
 import pyarrow as pa
 import pytest
-from ibis import udf
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
+import letsql.vendor.ibis.expr.types as ir
+from letsql.vendor import ibis
+from letsql.vendor.ibis import udf
 
 
 pc = pytest.importorskip("pyarrow.compute")

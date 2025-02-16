@@ -1,4 +1,3 @@
-import ibis
 import pandas as pd
 import pyarrow as pa
 from pandas.testing import assert_series_equal
@@ -6,6 +5,7 @@ from pandas.testing import assert_series_equal
 import letsql as ls
 from letsql.expr.udf import pyarrow_udwf
 from letsql.internal import WindowEvaluator
+from letsql.vendor import ibis
 
 
 class ExponentialSmoothDefault(WindowEvaluator):

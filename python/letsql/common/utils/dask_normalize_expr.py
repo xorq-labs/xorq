@@ -3,22 +3,22 @@ import re
 import types
 
 import dask
-import ibis
-import ibis.expr.datatypes as dat
-import ibis.expr.operations.relations as ir
 import sqlglot as sg
-from ibis.expr.operations.udf import (
-    AggUDF,
-    ScalarUDF,
-)
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dat
+import letsql.vendor.ibis.expr.operations.relations as ir
 from letsql.common.utils.defer_utils import (
     Read,
 )
 from letsql.expr.relations import (
     RemoteTable,
     make_native_op,
+)
+from letsql.vendor import ibis
+from letsql.vendor.ibis.expr.operations.udf import (
+    AggUDF,
+    ScalarUDF,
 )
 
 

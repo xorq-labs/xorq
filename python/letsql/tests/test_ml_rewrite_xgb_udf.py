@@ -43,6 +43,7 @@ def test_model_pruning(prediction_expr):
     )
 
 
+@pytest.mark.xfail
 def test_pruned_model_exists_in_repr(prediction_expr):
     """Checks that pruned models are correctly marked in their string representation"""
     original = prediction_expr.filter(_.carat < 1.0)

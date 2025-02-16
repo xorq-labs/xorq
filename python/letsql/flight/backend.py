@@ -1,13 +1,8 @@
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
-import ibis
 import pandas as pd
 import pyarrow as pa
-from ibis import util
-from ibis.backends.sql import SQLBackend
-from ibis.expr import schema as sch
-from ibis.expr import types as ir
 
 from letsql.flight.action import (
     DropTableAction,
@@ -19,6 +14,11 @@ from letsql.flight.action import (
     VersionAction,
 )
 from letsql.flight.client import FlightClient
+from letsql.vendor import ibis
+from letsql.vendor.ibis import util
+from letsql.vendor.ibis.backends.sql import SQLBackend
+from letsql.vendor.ibis.expr import schema as sch
+from letsql.vendor.ibis.expr import types as ir
 
 
 class Backend(SQLBackend):

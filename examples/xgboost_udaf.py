@@ -1,9 +1,9 @@
-import ibis.expr.datatypes as dt
 import pandas as pd
 import toolz
 import xgboost as xgb
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.expr import udf
 
 

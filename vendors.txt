@@ -1,0 +1,1 @@
+ibis-framework==9.5.0 ; python_full_version < '4.0'

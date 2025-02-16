@@ -1,10 +1,10 @@
-import ibis
 import pandas as pd
-from ibis.expr.datatypes import Int64, String
 
 import letsql as ls
 from letsql.expr.datatypes import LargeString
 from letsql.tests.util import assert_frame_equal, assert_series_equal
+from letsql.vendor import ibis
+from letsql.vendor.ibis.expr.datatypes import Int64, String
 
 
 def test_can_create_table(utf8_data):

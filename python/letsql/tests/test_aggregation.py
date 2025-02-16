@@ -1,17 +1,17 @@
 from __future__ import annotations
 
-import ibis
-import ibis.common.exceptions as com
-import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
 import pytest
-from ibis import _
-from ibis import literal as L
 from pytest import param
 
 import letsql as ls
+import letsql.common.exceptions as com
+import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.tests.util import assert_frame_equal, reduction_tolerance
+from letsql.vendor import ibis
+from letsql.vendor.ibis import _
+from letsql.vendor.ibis import literal as L
 
 
 @ibis.udf.agg.builtin

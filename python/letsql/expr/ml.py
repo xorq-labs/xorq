@@ -8,21 +8,22 @@ from pathlib import Path
 from random import Random
 from typing import TYPE_CHECKING, Callable, Iterable, Iterator, List, Tuple, Union
 
-# TODO: How should we / should we enforce letsql table ?
-import ibis.expr.datatypes as dt
-import ibis.expr.operations as ops
-import ibis.expr.types as ir
 import pandas as pd
 import toolz
-from ibis import literal
-from ibis.common.annotations import Argument
-from ibis.common.collections import FrozenDict
-from ibis.common.patterns import pattern, replace
-from ibis.expr.operations.udf import InputType, ScalarUDF
-from ibis.expr.rules import ValueOf
-from ibis.util import Namespace
 
 import letsql as ls
+import letsql.vendor.ibis.expr.datatypes as dt
+import letsql.vendor.ibis.expr.operations as ops
+
+# TODO: How should we / should we enforce letsql table ?
+import letsql.vendor.ibis.expr.types as ir
+from letsql.vendor.ibis import literal
+from letsql.vendor.ibis.common.annotations import Argument
+from letsql.vendor.ibis.common.collections import FrozenDict
+from letsql.vendor.ibis.common.patterns import pattern, replace
+from letsql.vendor.ibis.expr.operations.udf import InputType, ScalarUDF
+from letsql.vendor.ibis.expr.rules import ValueOf
+from letsql.vendor.ibis.util import Namespace
 
 
 if TYPE_CHECKING:
@@ -284,8 +285,7 @@ def train_test_splits(
     Examples
     --------
     >>> import letsql as ls
-    >>> import ibis
-    >>> table = ibis.memtable({"key": range(100), "value": range(100,200)})
+    >>> table = ls.memtable({"key": range(100), "value": range(100,200)})
     >>> unique_key = "key"
     >>> test_sizes = [0.2, 0.3, 0.5]
     >>> splits = ls.train_test_splits(table, unique_key, test_sizes, num_buckets=10, random_seed=42)

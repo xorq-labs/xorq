@@ -6,22 +6,28 @@ from functools import partial
 from itertools import starmap
 from typing import Any, Mapping
 
-import ibis.common.exceptions as com
-import ibis.expr.datatypes as dt
-import ibis.expr.operations as ops
 import sqlglot as sg
 import sqlglot.expressions as sge
-from ibis.backends.sql.compilers.base import FALSE, NULL, STAR, AggGen, SQLGlotCompiler
-from ibis.backends.sql.datatypes import PostgresType
-from ibis.backends.sql.rewrites import split_select_distinct_with_order_by
-from ibis.common.temporal import IntervalUnit, TimestampUnit
-from ibis.expr import types as ir
-from ibis.expr.operations.udf import InputType
 from sqlglot import exp, transforms
 from sqlglot.dialects import Postgres
 from sqlglot.dialects.dialect import rename_func
 
+import letsql.common.exceptions as com
+import letsql.vendor.ibis.expr.datatypes as dt
+import letsql.vendor.ibis.expr.operations as ops
 from letsql.expr.datatypes import LargeString
+from letsql.vendor.ibis.backends.sql.compilers.base import (
+    FALSE,
+    NULL,
+    STAR,
+    AggGen,
+    SQLGlotCompiler,
+)
+from letsql.vendor.ibis.backends.sql.datatypes import PostgresType
+from letsql.vendor.ibis.backends.sql.rewrites import split_select_distinct_with_order_by
+from letsql.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit
+from letsql.vendor.ibis.expr import types as ir
+from letsql.vendor.ibis.expr.operations.udf import InputType
 
 
 _UNIX_EPOCH = "1970-01-01T00:00:00Z"
@@ -176,7 +182,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         if to.is_timestamp():
             return self._to_timestamp(arg, to)
         if to.is_decimal():
-            from ibis.formats.pyarrow import PyArrowType
+            from letsql.vendor.ibis.formats.pyarrow import PyArrowType
 
             return self.f.arrow_cast(arg, f"{PyArrowType.from_ibis(to)}".capitalize())
 

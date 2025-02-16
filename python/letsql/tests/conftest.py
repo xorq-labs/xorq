@@ -1,7 +1,6 @@
 import shutil
 from pathlib import Path
 
-import ibis
 import numpy as np
 import pandas as pd
 import pytest
@@ -11,6 +10,7 @@ from letsql.common.utils.aws_utils import (
     connection_is_set,
     make_s3_credentials_defaults,
 )
+from letsql.vendor import ibis
 
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
