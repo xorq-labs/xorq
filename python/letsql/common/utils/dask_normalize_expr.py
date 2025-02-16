@@ -119,7 +119,7 @@ def normalize_snowflake_databasetable(dt):
             dt.schema,
             dt.source,
             dt.namespace,
-            get_snowflake_last_modification_time(dt),
+            get_snowflake_last_modification_time(dt).tobytes(),
         )
     )
 
