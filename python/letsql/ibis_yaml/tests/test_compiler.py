@@ -1,7 +1,10 @@
 import os
+import pathlib
 
+import dask
 from ibis.common.collections import FrozenOrderedDict
 
+import letsql as ls
 from letsql.ibis_yaml.compiler import BuildManager, IbisYamlCompiler
 
 
@@ -22,6 +25,8 @@ def test_build_manager_roundtrip(t, build_dir):
         out = f.read()
     assert out == "a: string\n"
     result = build_manager.load_yaml(expr_hash)
+
+    # assert os.path.exists(build_dir/ expr_hash / "sql.yaml")
     assert result == yaml_dict
 
 
@@ -55,10 +60,66 @@ none: null
 
 
 def test_ibis_compiler(t, build_dir):
+    t = ls.memtable({"a": [0, 1], "b": [0, 1]})
+    backend = t._find_backend()
+    backend.profile_name = "default"
+    expr = t.filter(t.a == 1).drop("b")
     compiler = IbisYamlCompiler(build_dir)
-    compiler.compile(t)
-    expr_hash = "c6527994ad9a"
+    compiler.profiles = {"default": backend}
+    compiler.compile(expr)
+    expr_hash = dask.base.tokenize(expr)[:12]
 
     roundtrip_expr = compiler.from_hash(expr_hash)
 
-    assert t.equals(roundtrip_expr)
+    assert expr.execute().equals(roundtrip_expr.execute())
+
+
+def test_ibis_compiler_parquet_reader(t, build_dir):
+    backend = ls.datafusion.connect()
+    backend.profile_name = "default"
+    awards_players = backend.read_parquet(
+        ls.config.options.pins.get_path("awards_players"),
+        table_name="awards_players",
+    )
+    expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
+
+    compiler = IbisYamlCompiler(build_dir)
+    compiler.profiles = {"default": backend}
+    compiler.compile(expr)
+    expr_hash = "5ebaf6a7a02d"
+    roundtrip_expr = compiler.from_hash(expr_hash)
+
+    assert expr.execute().equals(roundtrip_expr.execute())
+
+
+def test_compiler_sql(build_dir):
+    backend = ls.datafusion.connect()
+    backend.profile_name = "default"
+    awards_players = backend.read_parquet(
+        ls.config.options.pins.get_path("awards_players"),
+        table_name="awards_players",
+    )
+    expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
+
+    compiler = IbisYamlCompiler(build_dir)
+    compiler.profiles = {"default": backend}
+    compiler.compile(expr)
+    expr_hash = "5ebaf6a7a02d"
+    _roundtrip_expr = compiler.from_hash(expr_hash)
+
+    assert os.path.exists(build_dir / expr_hash / "sql.yaml")
+
+    sql_text = pathlib.Path(build_dir / expr_hash / "sql.yaml").read_text()
+    expected_result = (
+        "queries:\n"
+        "  main:\n"
+        "    engine: datafusion\n"
+        "    profile_name: default\n"
+        '    sql: "SELECT\\n  \\"t0\\".\\"playerID\\",\\n  '
+        '\\"t0\\".\\"awardID\\",\\n  \\"t0\\".\\"tie\\"\\\n'
+        '      ,\\n  \\"t0\\".\\"notes\\"\\nFROM \\"awards_players\\" AS '
+        '\\"t0\\"\\nWHERE\\n  \\"t0\\".\\"\\\n'
+        "      lgID\\\" = 'NL'\"\n"
+    )
+
+    assert sql_text == expected_result

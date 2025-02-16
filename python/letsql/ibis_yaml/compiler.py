@@ -7,6 +7,7 @@ import ibis.expr.types as ir
 import yaml
 from ibis.common.collections import FrozenOrderedDict
 
+from letsql.ibis_yaml.sql import generate_sql_plans
 from letsql.ibis_yaml.translate import translate_from_yaml, translate_to_yaml
 
 
@@ -86,7 +87,12 @@ class BuildManager:
         return expr_hash[:12]  # TODO: make length of hash as a config
 
     def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash) -> pathlib.Path:
-        return self.storage.write_yaml(yaml_dict, expr_hash, "expr.yaml")
+        filename = (
+            "sql.yaml"
+            if isinstance(yaml_dict, dict) and "queries" in yaml_dict
+            else "expr.yaml"
+        )
+        return self.storage.write_yaml(yaml_dict, expr_hash, filename)
 
     def load_yaml(self, expr_hash: str) -> Dict[str, Any]:
         return self.storage.read_yaml(expr_hash, "expr.yaml")
@@ -105,6 +111,8 @@ class IbisYamlCompiler:
         expr_hash = self.build_manager.get_expr_hash(expr)
         self.curent_path = self.build_manager.get_build_path(expr_hash)
         self.build_manager.save_yaml(yaml_dict, expr_hash)
+        plans = generate_sql_plans(expr)
+        self.build_manager.save_yaml(plans, expr_hash)
 
     def from_hash(self, expr_hash) -> ir.Expr:
         yaml_dict = self.build_manager.load_yaml(expr_hash)
