@@ -938,6 +938,20 @@ def _count_distinct_to_yaml(op: ops.CountDistinct, compiler: Any) -> dict:
     )
 
 
+@translate_to_yaml.register(ops.RankBase)
+def _rank_base_to_yaml(op: ops.RankBase, compiler: Any) -> dict:
+    return freeze(
+        {
+            "op": type(op).__name__,
+        }
+    )
+
+
+@register_from_yaml_handler("RowNumber")
+def _row_number_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
+    return ibis.row_number()
+
+
 @register_from_yaml_handler("CountDistinct")
 def _count_distinct_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], compiler)

@@ -54,3 +54,47 @@ def test_aggregation_window(compiler, t):
             assert window_func["end"] == following
 
         assert window_func["group_by"][0]["name"] == "a"
+
+
+def test_row_number_simple_roundtrip(compiler, t):
+    expr = t.select([ibis.row_number().name("row_num")])
+    yaml_dict = compiler.compile_to_yaml(expr)
+    reconstructed_expr = compiler.compile_from_yaml(yaml_dict)
+    assert expr.equals(reconstructed_expr)
+
+
+def test_row_number_window_roundtrip(compiler, t):
+    expr = t.select(
+        [
+            ibis.row_number()
+            .over(
+                ibis.window(
+                    group_by=[t.a, t.b],
+                    order_by=[t.c.desc(), t.d],
+                    preceding=5,
+                    following=0,
+                )
+            )
+            .name("row_num")
+        ]
+    )
+    yaml_dict = compiler.compile_to_yaml(expr)
+    reconstructed_expr = compiler.compile_from_yaml(yaml_dict)
+    assert expr.equals(reconstructed_expr)
+
+
+def test_multiple_rank_expressions_roundtrip(compiler, t):
+    expr = t.select(
+        [
+            ibis.row_number().over(ibis.window(group_by=t.a)).name("simple_row_num"),
+            ibis.row_number()
+            .over(ibis.window(group_by=[t.a, t.b], order_by=t.c.desc()))
+            .name("ordered_row_num"),
+            t.c.mean()
+            .over(ibis.window(preceding=3, following=0, group_by=t.a))
+            .name("mean_c"),
+        ]
+    )
+    yaml_dict = compiler.compile_to_yaml(expr)
+    reconstructed_expr = compiler.compile_from_yaml(yaml_dict)
+    assert expr.equals(reconstructed_expr)
