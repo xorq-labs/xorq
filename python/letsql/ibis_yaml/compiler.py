@@ -27,7 +27,7 @@ CleanDictYAMLDumper.add_representer(
 )
 
 
-class StorageHandler:
+class ArtifactStore:
     def __init__(self, root_path: pathlib.Path):
         self.root_path = (
             Path(root_path) if not isinstance(root_path, Path) else root_path
@@ -45,7 +45,6 @@ class StorageHandler:
     def write_yaml(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
         path = self.get_path(*path_parts)
         path.parent.mkdir(parents=True, exist_ok=True)
-
         with path.open("w") as f:
             yaml.dump(
                 data,
@@ -60,14 +59,12 @@ class StorageHandler:
         path = self.get_path(*path_parts)
         if not path.exists():
             raise FileNotFoundError(f"File not found: {path}")
-
         with path.open("r") as f:
             return yaml.safe_load(f)
 
     def write_text(self, content: str, *path_parts) -> pathlib.Path:
         path = self.get_path(*path_parts)
         path.parent.mkdir(parents=True, exist_ok=True)
-
         with path.open("w") as f:
             f.write(content)
         return path
@@ -76,93 +73,90 @@ class StorageHandler:
         path = self.get_path(*path_parts)
         if not path.exists():
             raise FileNotFoundError(f"File not found: {path}")
-
         with path.open("r") as f:
             return f.read()
 
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
 
-
-class BuildManager:
-    def __init__(self, storage_path: pathlib.Path):
-        self.storage = StorageHandler(storage_path)
-
     def get_expr_hash(self, expr) -> str:
         expr_hash = dask.base.tokenize(expr)
         return expr_hash[:12]  # TODO: make length of hash as a config
 
-    def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash) -> pathlib.Path:
-        filename = (
-            "sql.yaml"
-            if isinstance(yaml_dict, dict) and "queries" in yaml_dict
-            else "expr.yaml"
-        )
-        return self.storage.write_yaml(yaml_dict, expr_hash, filename)
+    def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash, filename) -> pathlib.Path:
+        return self.write_yaml(yaml_dict, expr_hash, filename)
 
-    def load_yaml(self, expr_hash: str) -> Dict[str, Any]:
-        return self.storage.read_yaml(expr_hash, "expr.yaml")
+    def load_yaml(self, expr_hash: str, filename) -> Dict[str, Any]:
+        return self.read_yaml(expr_hash, filename)
 
     def get_build_path(self, expr_hash: str) -> pathlib.Path:
-        return self.storage.ensure_dir(expr_hash)
+        return self.ensure_dir(expr_hash)
 
 
-class IbisYamlCompiler:
-    def __init__(self, build_dir, build_manager=BuildManager):
-        self.build_manager = build_manager(build_dir)
-        self.schema_registry = SchemaRegistry()
-        self.current_path = None
+class YamlExpressionTranslator:
+    def __init__(
+        self,
+        schema_registry: SchemaRegistry = None,
+        profiles: Dict = None,
+        current_path: Path = None,
+    ):
+        self.schema_registry = schema_registry or SchemaRegistry()
+        self.definitions = {}
+        self.profiles = profiles or {}
+        self.current_path = current_path
 
-    def compile(self, expr):
-        yaml_dict = self.compile_to_yaml(expr)
-        expr_hash = self.build_manager.get_expr_hash(expr)
-        self.curent_path = self.build_manager.get_build_path(expr_hash)
-        self.build_manager.save_yaml(yaml_dict, expr_hash)
-        plans = generate_sql_plans(expr)
-        self.build_manager.save_yaml(plans, expr_hash)
-
-    def from_hash(self, expr_hash) -> ir.Expr:
-        yaml_dict = self.build_manager.load_yaml(expr_hash)
-
-        def convert_to_frozen(d):
-            if isinstance(d, dict):
-                items = []
-                for k, v in d.items():
-                    converted_v = convert_to_frozen(v)
-                    if isinstance(converted_v, list):
-                        converted_v = tuple(converted_v)
-                    items.append((k, converted_v))
-                return FrozenOrderedDict(items)
-            elif isinstance(d, list):
-                return [convert_to_frozen(x) for x in d]
-            return d
-
-        yaml_dict = convert_to_frozen(yaml_dict)
-        return self.compile_from_yaml(yaml_dict)
-
-    def compile_from_yaml(self, yaml_dict) -> ir.Expr:
-        self.definitions = yaml_dict.get("definitions", {})
-        return translate_from_yaml(yaml_dict["expression"], self)
-
-    def compile_to_yaml(self, expr) -> Dict:
-        expr_hash = self.build_manager.get_expr_hash(expr)
-        self.current_path = self.build_manager.get_build_path(expr_hash)
-        expr_yaml = translate_to_yaml(expr, self)
-        schema_ref = self.get_expr_schema_ref(expr)
-        expr_yaml = freeze({**dict(expr_yaml), "schema_ref": schema_ref})
-
-        schema_definitions = {}
-        for schema_id, schema in self.schema_registry.schemas.items():
-            schema_definitions[schema_id] = schema
+    def to_yaml(self, expr: ir.Expr) -> Dict[str, Any]:
+        schema_ref = self._register_expr_schema(expr)
+        expr_dict = translate_to_yaml(expr, self)
+        expr_dict = freeze({**dict(expr_dict), "schema_ref": schema_ref})
 
         return freeze(
-            {"definitions": {"schemas": schema_definitions}, "expression": expr_yaml}
+            {
+                "definitions": {"schemas": self.schema_registry.schemas},
+                "expression": expr_dict,
+            }
         )
 
-    def get_expr_schema_ref(self, expr: ir.Expr) -> str:
+    def from_yaml(self, yaml_dict: Dict[str, Any]) -> ir.Expr:
+        self.definitions = yaml_dict.get("definitions", {})
+        expr_dict = freeze(yaml_dict["expression"])
+        return translate_from_yaml(expr_dict, self)
+
+    def _register_expr_schema(self, expr: ir.Expr) -> str:
         if hasattr(expr, "schema"):
             schema = expr.schema()
-            schema_ref = self.schema_registry.register_schema(schema)
-        else:
-            schema_ref = None
-        return schema_ref
+            return self.schema_registry.register_schema(schema)
+        return None
+
+
+class BuildManager:
+    def __init__(self, build_dir: pathlib.Path):
+        self.artifact_store = ArtifactStore(build_dir)
+        self.profiles = {}
+
+    def compile_expr(self, expr: ir.Expr) -> None:
+        expr_hash = self.artifact_store.get_expr_hash(expr)
+        current_path = self.artifact_store.get_build_path(expr_hash)
+
+        translator = YamlExpressionTranslator(
+            profiles=self.profiles, current_path=current_path
+        )
+        # metadata.yaml (uv.lock, git commit version, version==xorq_internal_version, user, hostname, ip_address(host ip))
+        yaml_dict = translator.to_yaml(expr)
+        self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
+
+        sql_plans = generate_sql_plans(expr)
+        self.artifact_store.save_yaml(sql_plans, expr_hash, "sql.yaml")
+
+    def load_expr(self, expr_hash: str) -> ir.Expr:
+        build_path = self.artifact_store.get_build_path(expr_hash)
+        translator = YamlExpressionTranslator(
+            current_path=build_path, profiles=self.profiles
+        )
+
+        yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
+        return translator.from_yaml(yaml_dict)
+
+    # TODO: maybe change name
+    def load_sql_plans(self, expr_hash: str) -> Dict[str, Any]:
+        return self.artifact_store.load_yaml(expr_hash, "sql.yaml")

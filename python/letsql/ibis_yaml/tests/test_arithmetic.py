@@ -6,7 +6,7 @@ def test_add(compiler):
     lit2 = ibis.literal(3)
     expr = lit1 + lit2
 
-    yaml_dict = compiler.compile_to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Add"
     assert expression["args"][0]["op"] == "Literal"
@@ -15,7 +15,7 @@ def test_add(compiler):
     assert expression["args"][1]["value"] == 3
     assert expression["type"] == {"name": "Int8", "nullable": True}
 
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
 
@@ -24,7 +24,7 @@ def test_subtract(compiler):
     lit2 = ibis.literal(3)
     expr = lit1 - lit2
 
-    yaml_dict = compiler.compile_to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Subtract"
     assert expression["args"][0]["op"] == "Literal"
@@ -33,7 +33,7 @@ def test_subtract(compiler):
     assert expression["args"][1]["value"] == 3
     assert expression["type"] == {"name": "Int8", "nullable": True}
 
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
 
@@ -42,7 +42,7 @@ def test_multiply(compiler):
     lit2 = ibis.literal(3)
     expr = lit1 * lit2
 
-    yaml_dict = compiler.compile_to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Multiply"
     assert expression["args"][0]["op"] == "Literal"
@@ -51,7 +51,7 @@ def test_multiply(compiler):
     assert expression["args"][1]["value"] == 3
     assert expression["type"] == {"name": "Int8", "nullable": True}
 
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
 
@@ -60,7 +60,7 @@ def test_divide(compiler):
     lit2 = ibis.literal(2.0)
     expr = lit1 / lit2
 
-    yaml_dict = compiler.compile_to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Divide"
     assert expression["args"][0]["op"] == "Literal"
@@ -69,7 +69,7 @@ def test_divide(compiler):
     assert expression["args"][1]["value"] == 2.0
     assert expression["type"] == {"name": "Float64", "nullable": True}
 
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
 
@@ -78,12 +78,12 @@ def test_mixed_arithmetic(compiler):
     f = ibis.literal(2.5)
     expr = i * f
 
-    yaml_dict = compiler.compile_to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Multiply"
     assert expression["type"] == {"name": "Float64", "nullable": True}
 
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
 
@@ -93,11 +93,11 @@ def test_complex_arithmetic(compiler):
     c = ibis.literal(2.0)
     expr = (a + b) * c
 
-    yaml_dict = compiler.compile_to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Multiply"
     assert expression["args"][0]["op"] == "Add"
 
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

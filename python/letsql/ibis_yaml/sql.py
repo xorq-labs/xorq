@@ -63,6 +63,7 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
     return remote_tables
 
 
+# TODO: rename to sqls
 def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
     remote_tables = find_remote_tables(expr.op())
 

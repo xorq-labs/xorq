@@ -8,6 +8,6 @@ def test_selection_on_view(compiler):
     q = q.select({"alias_name": T_view.name})
     q = q.filter(q.alias_name == "X")
 
-    yaml_dict = compiler.compile_to_yaml(q)
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(q)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(q)

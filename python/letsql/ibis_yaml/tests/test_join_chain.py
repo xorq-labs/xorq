@@ -89,8 +89,8 @@ def test_minimal_joinchain_self_reference(
         )
     )
 
-    yaml_dict = compiler.compile_to_yaml(q)
-    q_roundtrip = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(q)
+    q_roundtrip = compiler.from_yaml(yaml_dict)
 
     try:
         _ = q_roundtrip["cust_nation"]

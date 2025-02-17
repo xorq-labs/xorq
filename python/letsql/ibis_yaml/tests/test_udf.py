@@ -13,8 +13,8 @@ def test_built_in_udf_properties(compiler):
         return x + 1
 
     expr = t.mutate(new=add_one(t.a))
-    yaml_dict = compiler.compile_to_yaml(expr)
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
 
     original_mutation = expr.op()
     roundtrip_mutation = roundtrip_expr.op()
@@ -50,8 +50,8 @@ def test_built_in_udf(compiler):
         pass
 
     expr = t.mutate(new=add_one(t.a))
-    yaml_dict = compiler.compile_to_yaml(expr)
-    roundtrip_expr = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
     print(f"Original {expr}")
     print(f"Roundtrip {roundtrip_expr}")
     letsql.ibis_yaml.utils.diff_ibis_exprs(expr, roundtrip_expr)

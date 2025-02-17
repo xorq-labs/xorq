@@ -31,8 +31,8 @@ TPC_H = [
 def test_yaml_roundtrip(fixture_name, compiler, request):
     query = request.getfixturevalue(fixture_name)
 
-    yaml_dict = compiler.compile_to_yaml(query)
-    roundtrip_query = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(query)
+    roundtrip_query = compiler.from_yaml(yaml_dict)
 
     assert roundtrip_query.equals(query), (
         f"Roundtrip expression for {fixture_name} does not match the original."

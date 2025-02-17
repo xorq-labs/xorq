@@ -787,6 +787,6 @@ def build_dir(tmp_path_factory):
 
 @pytest.fixture
 def compiler(build_dir):
-    from letsql.ibis_yaml.compiler import IbisYamlCompiler
+    from letsql.ibis_yaml.compiler import YamlExpressionTranslator
 
-    return IbisYamlCompiler(build_dir)
+    return YamlExpressionTranslator()

@@ -10,9 +10,9 @@ def test_window_function_roundtrip(compiler, t):
         ]
     )
 
-    yaml_dict = compiler.compile_to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr)
 
-    reconstructed_expr = compiler.compile_from_yaml(yaml_dict)
+    reconstructed_expr = compiler.from_yaml(yaml_dict)
 
     assert expr.equals(reconstructed_expr)
 
@@ -36,7 +36,7 @@ def test_aggregation_window(compiler, t):
             ]
         )
 
-        yaml_dict = compiler.compile_to_yaml(expr)
+        yaml_dict = compiler.to_yaml(expr)
         expression = yaml_dict["expression"]
         assert expression["op"] == "Project"
         window_func = expression["values"]["mean_c"]
@@ -58,8 +58,8 @@ def test_aggregation_window(compiler, t):
 
 def test_row_number_simple_roundtrip(compiler, t):
     expr = t.select([ibis.row_number().name("row_num")])
-    yaml_dict = compiler.compile_to_yaml(expr)
-    reconstructed_expr = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(expr)
+    reconstructed_expr = compiler.from_yaml(yaml_dict)
     assert expr.equals(reconstructed_expr)
 
 
@@ -78,8 +78,8 @@ def test_row_number_window_roundtrip(compiler, t):
             .name("row_num")
         ]
     )
-    yaml_dict = compiler.compile_to_yaml(expr)
-    reconstructed_expr = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(expr)
+    reconstructed_expr = compiler.from_yaml(yaml_dict)
     assert expr.equals(reconstructed_expr)
 
 
@@ -95,6 +95,6 @@ def test_multiple_rank_expressions_roundtrip(compiler, t):
             .name("mean_c"),
         ]
     )
-    yaml_dict = compiler.compile_to_yaml(expr)
-    reconstructed_expr = compiler.compile_from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(expr)
+    reconstructed_expr = compiler.from_yaml(yaml_dict)
     assert expr.equals(reconstructed_expr)
