@@ -29,16 +29,9 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
         if isinstance(node, ops.Node) and isinstance(node, RemoteTable):
             remote_expr = node.remote_expr
             original_backend = remote_expr._find_backend()
-            if (
-                not hasattr(original_backend, "profile_name")
-                or original_backend.profile_name is None
-            ):
-                raise AttributeError(
-                    "Backend does not have a valid 'profile_name' attribute."
-                )
 
             engine_name = original_backend.name
-            profile_name = original_backend.profile_name
+            profile_name = original_backend._profile.hash_name
             remote_tables[node.name] = {
                 "engine": engine_name,
                 "profile_name": profile_name,
@@ -69,11 +62,8 @@ def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
     main_sql = ibis.to_sql(expr)
     backend = expr._find_backend()
 
-    if not hasattr(backend, "profile_name") or backend.profile_name is None:
-        raise AttributeError("Backend does not have a valid 'profile_name' attribute.")
-
     engine_name = backend.name
-    profile_name = backend.profile_name
+    profile_name = backend._profile.hash_name
 
     plans: SQLPlans = {
         "queries": {

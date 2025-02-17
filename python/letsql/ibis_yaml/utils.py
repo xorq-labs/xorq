@@ -1,10 +1,12 @@
 import base64
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict
+from typing import Any, Dict, Tuple
 
 import cloudpickle
 
+import letsql.vendor.ibis.expr.operations as ops
 from letsql.common.caching import SourceStorage
+from letsql.expr.relations import RemoteTable
 from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -134,7 +136,7 @@ def translate_storage(storage, compiler: Any) -> Dict:
     if isinstance(storage, SourceStorage):
         return {
             "type": "SourceStorage",
-            "source": getattr(storage.source, "profile_name", None),
+            "source": storage.source._profile.hash_name,
         }
     else:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
@@ -152,3 +154,36 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
         return SourceStorage(source=source)
     else:
         raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")
+
+
+def find_remote_backends(op) -> Tuple:
+    remote_backends = ()
+    seen = set()
+
+    def traverse(node):
+        nonlocal remote_backends
+        if node is None or id(node) in seen:
+            return
+
+        seen.add(id(node))
+
+        if isinstance(node, ops.Node) and isinstance(node, RemoteTable):
+            remote_expr = node.remote_expr
+            original_backend = remote_expr._find_backend()
+            remote_backends += (original_backend,)
+
+        if isinstance(node, ops.Node):
+            for arg in node.args:
+                if isinstance(arg, ops.Node):
+                    traverse(arg)
+                elif isinstance(arg, (list, tuple)):
+                    for item in arg:
+                        if isinstance(item, ops.Node):
+                            traverse(item)
+                elif isinstance(arg, dict):
+                    for v in arg.values():
+                        if isinstance(v, ops.Node):
+                            traverse(v)
+
+    traverse(op)
+    return remote_backends

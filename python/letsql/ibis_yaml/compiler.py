@@ -12,7 +12,8 @@ from letsql.ibis_yaml.translate import (
     translate_from_yaml,
     translate_to_yaml,
 )
-from letsql.ibis_yaml.utils import freeze
+from letsql.ibis_yaml.utils import find_remote_backends, freeze
+from letsql.vendor.ibis.backends import Profile
 from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -138,20 +139,39 @@ class BuildManager:
         expr_hash = self.artifact_store.get_expr_hash(expr)
         current_path = self.artifact_store.get_build_path(expr_hash)
 
+        backends = (expr._find_backend(), *find_remote_backends(expr.op()))
+        profiles = {
+            backend._profile.hash_name: backend._profile.as_dict()
+            for backend in backends
+        }
+
         translator = YamlExpressionTranslator(
-            profiles=self.profiles, current_path=current_path
+            profiles=profiles, current_path=current_path
         )
         # metadata.yaml (uv.lock, git commit version, version==xorq_internal_version, user, hostname, ip_address(host ip))
         yaml_dict = translator.to_yaml(expr)
         self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
+
+        self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
         sql_plans = generate_sql_plans(expr)
         self.artifact_store.save_yaml(sql_plans, expr_hash, "sql.yaml")
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
         build_path = self.artifact_store.get_build_path(expr_hash)
+        profiles_dict = self.artifact_store.load_yaml(expr_hash, "profiles.yaml")
+
+        def f(values):
+            dct = dict(values)
+            dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
+            return dct
+
+        profiles = {
+            profile: Profile(**f(values)).get_con()
+            for profile, values in profiles_dict.items()
+        }
         translator = YamlExpressionTranslator(
-            current_path=build_path, profiles=self.profiles
+            current_path=build_path, profiles=profiles
         )
 
         yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")

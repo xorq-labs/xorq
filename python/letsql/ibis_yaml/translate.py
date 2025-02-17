@@ -288,7 +288,7 @@ def _unbound_table_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
 
 @translate_to_yaml.register(ops.DatabaseTable)
 def _database_table_to_yaml(op: ops.DatabaseTable, compiler: Any) -> dict:
-    profile_name = getattr(op.source, "profile_name", None)
+    profile_name = op.source._profile.hash_name
     schema_id = compiler.schema_registry.register_schema(op.schema)
 
     return freeze(
@@ -325,13 +325,14 @@ def database_table_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
 @translate_to_yaml.register(CachedNode)
 def _cached_node_to_yaml(op: CachedNode, compiler: any) -> dict:
     schema_id = compiler.schema_registry.register_schema(op.schema)
+    # source should be called profile_name
 
     return freeze(
         {
             "op": "CachedNode",
             "schema_ref": schema_id,
             "parent": translate_to_yaml(op.parent, compiler),
-            "source": getattr(op.source, "profile_name", None),
+            "source": op.source._profile.hash_name,
             "storage": translate_storage(op.storage, compiler),
             "values": dict(op.values),
         }
@@ -395,27 +396,6 @@ def _memtable_to_yaml(op: ops.InMemoryTable, compiler: Any) -> dict:
 
 @register_from_yaml_handler("InMemoryTable")
 def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
-    if not hasattr(compiler, "definitions"):
-        raise ValueError("Compiler missing definitions with schemas")
-
-    file_path = yaml_dict["file"]
-    schema_ref = yaml_dict["schema_ref"]
-    try:
-        schema_def = compiler.definitions["schemas"][schema_ref]
-    except KeyError:
-        raise ValueError(f"Schema {schema_ref} not found in definitions")
-
-    arrow_table = pq.read_table(file_path)
-    df = arrow_table.to_pandas()
-    table_name = yaml_dict.get("table", "memtable")
-
-    column_names = list(schema_def.keys())
-    memtable_expr = ls.memtable(df, columns=column_names, name=table_name)
-    return memtable_expr
-
-
-@register_from_yaml_handler("InMemoryTable")
-def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
     file_path = yaml_dict["file"]
     arrow_table = pq.read_table(file_path)
     df = arrow_table.to_pandas()
@@ -428,10 +408,10 @@ def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
 
 @translate_to_yaml.register(RemoteTable)
 def _remotetable_to_yaml(op: RemoteTable, compiler: any) -> dict:
-    profile_name = getattr(op.source, "profile_name", None)
+    profile_name = op.source._profile.hash_name
     remote_expr_yaml = translate_to_yaml(op.remote_expr, compiler)
     schema_id = compiler.schema_registry.register_schema(op.schema)
-
+    # TODO: change profile to profile_name
     return freeze(
         {
             "op": "RemoteTable",

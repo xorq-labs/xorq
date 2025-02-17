@@ -37,7 +37,7 @@ def prepare_duckdb_con(duckdb_path):
 def test_duckdb_database_table_roundtrip(prepare_duckdb_con, build_dir):
     con = prepare_duckdb_con
 
-    profiles = {"my_duckdb": con}
+    profiles = {con._profile.hash_name: con}
 
     table_expr = con.table("mytable")
 
@@ -59,10 +59,9 @@ def test_duckdb_database_table_roundtrip(prepare_duckdb_con, build_dir):
 def test_memtable(prepare_duckdb_con, build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()
-    backend.profile_name = "default-duckdb"
     expr = table.mutate(new_val=2 * ls._.val)
 
-    profiles = {"default-duckdb": backend}
+    profiles = {backend._profile.hash_name: backend}
 
     compiler = YamlExpressionTranslator(current_path=build_dir, profiles=profiles)
 
@@ -77,21 +76,18 @@ def test_memtable(prepare_duckdb_con, build_dir):
 def test_into_backend(prepare_duckdb_con, build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()
-    backend.profile_name = "default-duckdb"
     expr = table.mutate(new_val=2 * ls._.val)
 
     con2 = ls.connect()
-    con2.profile_name = "default-let"
     con3 = ls.connect()
-    con3.profile_name = "default-datafusion"
 
     expr = into_backend(expr, con2, "ls_mem").mutate(x=4 * ls._.val)
     expr = into_backend(expr, con3, "df_mem")
 
     profiles = {
-        "default-duckdb": backend,
-        "default-let": con2,
-        "default-datafusion": con3,
+        backend._profile.hash_name: backend,
+        con2._profile.hash_name: con2,
+        con3._profile.hash_name: con3,
     }
 
     compiler = YamlExpressionTranslator(current_path=build_dir, profiles=profiles)
@@ -105,15 +101,15 @@ def test_into_backend(prepare_duckdb_con, build_dir):
 def test_memtable_cache(prepare_duckdb_con, build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()
-    backend.profile_name = "default-duckdb"
     expr = table.mutate(new_val=2 * ls._.val).cache()
     backend1 = expr._find_backend()
-    backend1.profile_name = "default-let"
 
-    profiles = {"default-duckdb": backend, "default-let": backend1}
+    profiles = {
+        backend._profile.hash_name: backend,
+        backend1._profile.hash_name: backend1,
+    }
 
     compiler = YamlExpressionTranslator(profiles=profiles, current_path=build_dir)
-    compiler.profiles = profiles
 
     yaml_dict = compiler.to_yaml(expr)
     roundtrip_expr = compiler.from_yaml(yaml_dict)

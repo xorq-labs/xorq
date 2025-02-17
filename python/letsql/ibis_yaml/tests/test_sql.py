@@ -1,5 +1,3 @@
-import pytest
-
 import letsql as ls
 import letsql.vendor.ibis.expr.operations as ops
 from letsql.expr.relations import RemoteTable, into_backend
@@ -20,23 +18,6 @@ def test_find_remote_tables_simple():
     table_name = next(iter(remote_tables))
     assert table_name.startswith("ibis_remote")
     assert remote_tables[table_name]["engine"] == "duckdb"
-
-
-def test_find_remote_tables_raises():
-    db = ls.connect()
-
-    awards_players = db.read_parquet(
-        ls.config.options.pins.get_path("awards_players"),
-        table_name="awards_players",
-    )
-
-    db2 = ls.datafusion.connect()
-
-    remote_expr = into_backend(awards_players, db2)
-    with pytest.raises(
-        AttributeError, match="Backend does not have a valid 'profile_name' attribute."
-    ):
-        find_remote_tables(remote_expr.op())
 
 
 def test_find_remote_tables_nested():
@@ -110,16 +91,6 @@ def test_generate_sql_plans_simple():
     assert "main" in plans["queries"]
     assert len(plans["queries"]) == 2
     assert all("sql" in q and "engine" in q for q in plans["queries"].values())
-
-
-def test_generate_sql_plans_raises():
-    db = ls.duckdb.connect()
-    table = ls.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
-    expr = into_backend(table, db).filter(ls._.id > 1)
-    with pytest.raises(
-        AttributeError, match="Backend does not have a valid 'profile_name' attribute."
-    ):
-        generate_sql_plans(expr)
 
 
 def test_generate_sql_plans_complex_example():
