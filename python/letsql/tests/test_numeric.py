@@ -425,7 +425,7 @@ def test_binary_arithmetic_operations(alltypes, df, op):
 
     expr = op(alltypes.double_col, smallint_col).name("tmp")
 
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = op(df.double_col, smallint_series)
     if op is operator.floordiv:
         # defined in ops.FloorDivide.output_type
@@ -439,7 +439,7 @@ def test_binary_arithmetic_operations(alltypes, df, op):
 def test_mod(alltypes, df):
     expr = operator.mod(alltypes.smallint_col, alltypes.smallint_col + 1).name("tmp")
 
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = operator.mod(df.smallint_col, df.smallint_col + 1)
     assert_series_equal(result, expected, check_dtype=False)
 
@@ -447,7 +447,7 @@ def test_mod(alltypes, df):
 def test_floating_mod(alltypes, df):
     expr = operator.mod(alltypes.double_col, alltypes.smallint_col + 1).name("tmp")
 
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = operator.mod(df.double_col, df.smallint_col + 1)
     assert_series_equal(result, expected, check_exact=False)
 
@@ -526,7 +526,7 @@ def test_histogram(con, alltypes):
     n = 10
     hist = con.execute(alltypes.int_col.histogram(n).name("hist"))
     vc = hist.value_counts().sort_index()
-    vc_np, _bin_edges = np.histogram(ls.execute(alltypes.int_col), bins=n)
+    vc_np, _bin_edges = np.histogram(alltypes.int_col.execute(), bins=n)
     assert vc.tolist() == vc_np.tolist()
 
 
@@ -577,7 +577,7 @@ def test_bitwise_columns(con, alltypes, df, op, left_fn, right_fn):
 )
 def test_bitwise_shift(alltypes, df, op, left_fn, right_fn):
     expr = op(left_fn(alltypes), right_fn(alltypes)).name("tmp")
-    result = ls.execute(expr)
+    result = expr.execute()
 
     pandas_left = getattr(left := left_fn(df), "values", left)
     pandas_right = getattr(right := right_fn(df), "values", right)
@@ -619,7 +619,7 @@ def test_bitwise_not_scalar(con):
 
 def test_bitwise_not_col(alltypes, df):
     expr = (~alltypes.int_col).name("tmp")
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = ~df.int_col
     assert_series_equal(result, expected.rename("tmp"))
 

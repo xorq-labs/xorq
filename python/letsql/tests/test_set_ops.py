@@ -38,7 +38,7 @@ def test_union(union_subsets, distinct):
     (a, b, c), (da, db, dc) = union_subsets
 
     expr = ls.union(a, b, distinct=distinct).order_by("id")
-    result = ls.execute(expr)
+    result = expr.execute()
 
     expected = pd.concat([da, db], axis=0).sort_values("id").reset_index(drop=True)
     if distinct:
@@ -51,7 +51,7 @@ def test_union_mixed_distinct(union_subsets):
     (a, b, c), (da, db, dc) = union_subsets
 
     expr = a.union(b, distinct=True).union(c, distinct=False).order_by("id")
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = pd.concat(
         [pd.concat([da, db], axis=0).drop_duplicates("id"), dc], axis=0
     ).sort_values("id")
@@ -78,7 +78,7 @@ def test_intersect(alltypes, df, distinct):
     dc = df[(df.id >= 5195) & (df.id <= 5208)]
 
     expr = ls.intersect(a, b, c, distinct=distinct).order_by("id")
-    result = ls.execute(expr)
+    result = expr.execute()
 
     index = da.index.intersection(db.index).intersection(dc.index)
     expected = df.iloc[index].sort_values("id").reset_index(drop=True)
@@ -107,7 +107,7 @@ def test_difference(alltypes, df, distinct):
     dc = df[(df.id >= 5195) & (df.id <= 5202)]
 
     expr = ls.difference(a, b, c, distinct=distinct).order_by("id")
-    result = ls.execute(expr)
+    result = expr.execute()
 
     index = da.index.difference(db.index).difference(dc.index)
     expected = df.iloc[index].sort_values("id").reset_index(drop=True)

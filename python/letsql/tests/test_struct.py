@@ -30,7 +30,7 @@ from letsql.tests.util import assert_frame_equal, assert_series_equal
 )
 def test_single_field(struct, field, expected):
     expr = struct.select(field=lambda t: t.abc[field]).order_by("field")
-    result = ls.execute(expr)
+    result = expr.execute()
     assert_series_equal(
         result.field, pd.Series(expected, name="field"), check_dtype=False
     )

@@ -27,7 +27,7 @@ def test_array_column(alltypes, df):
     expr = ls.array([alltypes["double_col"], alltypes["double_col"]])
     assert isinstance(expr, ir.ArrayColumn)
 
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = df.apply(
         lambda row: [row["double_col"], row["double_col"]],
         axis=1,
@@ -107,7 +107,7 @@ def test_array_contains(con, array_types):
     t = array_types
     expr = t.x.contains(1)
     result = con.execute(expr)
-    expected = ls.execute(t.x).map(lambda lst: 1 in lst)
+    expected = t.x.execute().map(lambda lst: 1 in lst)
     assert_series_equal(result, expected, check_names=False)
 
 
@@ -195,20 +195,20 @@ def test_array_unique(con, data, expected):
 
 def test_unnest_simple(array_types):
     expected = (
-        ls.execute(array_types)
+        array_types.execute()
         .x.explode()
         .reset_index(drop=True)
         .astype("Float64")
         .rename("tmp")
     )
     expr = array_types.x.cast("!array<float64>").unnest()
-    result = ls.execute(expr).astype("Float64").rename("tmp")
+    result = expr.execute().astype("Float64").rename("tmp")
 
     assert_series_equal(result, expected)
 
 
 def test_unnest_complex(array_types):
-    df = ls.execute(array_types)
+    df = array_types.execute()
     expr = (
         array_types.select(["grouper", "x"])
         .mutate(x=lambda t: t.x.unnest())
@@ -226,7 +226,7 @@ def test_unnest_complex(array_types):
         .sort_values("grouper")
         .reset_index(drop=True)
     )
-    result = ls.execute(expr)
+    result = expr.execute()
     assert_frame_equal(result, expected)
 
     # test that unnest works with to_pyarrow
@@ -234,7 +234,7 @@ def test_unnest_complex(array_types):
 
 
 def test_unnest_idempotent(array_types):
-    df = ls.execute(array_types)
+    df = array_types.execute()
     expr = (
         array_types.select(
             ["scalar_column", array_types.x.cast("!array<int64>").unnest().name("x")]
@@ -243,7 +243,7 @@ def test_unnest_idempotent(array_types):
         .aggregate(x=lambda t: t.x.collect())
         .order_by("scalar_column")
     )
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = (
         df[["scalar_column", "x"]]
         .assign(x=df.x.map(lambda arr: sorted(i for i in arr if not pd.isna(i))))
@@ -254,7 +254,7 @@ def test_unnest_idempotent(array_types):
 
 
 def test_unnest_no_nulls(array_types):
-    df = ls.execute(array_types)
+    df = array_types.execute()
     expr = (
         array_types.select(
             ["scalar_column", array_types.x.cast("!array<int64>").unnest().name("y")]
@@ -264,7 +264,7 @@ def test_unnest_no_nulls(array_types):
         .aggregate(x=lambda t: t.y.collect())
         .order_by("scalar_column")
     )
-    result = ls.execute(expr)
+    result = expr.execute()
     expected = (
         df[["scalar_column", "x"]]
         .explode("x")
@@ -277,7 +277,7 @@ def test_unnest_no_nulls(array_types):
 
 
 def test_unnest_default_name(array_types):
-    df = ls.execute(array_types)
+    df = array_types.execute()
     expr = (
         array_types.x.cast("!array<int64>") + ls.array([1]).cast("!array<int64>")
     ).unnest()
@@ -306,6 +306,6 @@ def test_unnest_default_name(array_types):
 )
 def test_array_slice(array_types, start, stop):
     expr = array_types.select(sliced=array_types.y[start:stop])
-    expected = ls.execute(array_types.y).map(lambda x: x[start:stop])
-    result = ls.execute(expr.sliced)
+    expected = array_types.y.execute().map(lambda x: x[start:stop])
+    result = expr.sliced.execute()
     assert_series_equal(result, expected)

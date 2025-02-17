@@ -60,7 +60,7 @@ def test_complex_storage(cls, cross_source_caching, tmp_path):
     expr = asof_join_flight_data(con, tail, flight)
     cached = expr.cache(storage=storage)
     assert not storage.cache.exists(expr)
-    out = ls.execute(cached.count())
+    out = cached.count().execute()
     assert out == 44260
     assert cached.ls.exists()
     assert storage.exists(cached)

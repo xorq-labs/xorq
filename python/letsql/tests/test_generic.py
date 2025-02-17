@@ -132,7 +132,7 @@ def test_isin(alltypes, sorted_df, column, elements):
     expr = sorted_alltypes[
         "id", sorted_alltypes[column].isin(elements).name("tmp")
     ].order_by("id")
-    result = ls.execute(expr).tmp
+    result = expr.execute().tmp
 
     expected = sorted_df[column].isin(elements)
     assert_series_equal(result, expected)
@@ -154,7 +154,7 @@ def test_notin(alltypes, sorted_df, column, elements):
     expr = sorted_alltypes[
         "id", sorted_alltypes[column].notin(elements).name("tmp")
     ].order_by("id")
-    result = ls.execute(expr).tmp
+    result = expr.execute().tmp
 
     expected = ~sorted_df[column].isin(elements)
     assert_series_equal(result, expected)
@@ -185,7 +185,7 @@ def test_notin(alltypes, sorted_df, column, elements):
 def test_filter(alltypes, sorted_df, predicate_fn, expected_fn):
     sorted_alltypes = alltypes.order_by("id")
     table = sorted_alltypes[predicate_fn(sorted_alltypes)].order_by("id")
-    result = ls.execute(table)
+    result = table.execute()
     expected = sorted_df[expected_fn(sorted_df)]
 
     assert_frame_equal(result, expected)
@@ -204,7 +204,7 @@ def test_case_where(alltypes, df):
         )
     )
 
-    result = ls.execute(table)
+    result = table.execute()
 
     expected = df.copy()
     mask_0 = expected["int_col"] == 1
@@ -254,7 +254,7 @@ def test_table_fillna_mapping(alltypes, replacements):
         double_col=alltypes.double_col.nullif(3.0),
         string_col=alltypes.string_col.nullif("2"),
     ).select("id", "int_col", "double_col", "string_col")
-    pd_table = ls.execute(table)
+    pd_table = table.execute()
 
     result = table.fill_null(replacements).execute().reset_index(drop=True)
     expected = pd_table.fillna(replacements).reset_index(drop=True)
@@ -268,7 +268,7 @@ def test_table_fillna_scalar(alltypes):
         double_col=alltypes.double_col.nullif(3.0),
         string_col=alltypes.string_col.nullif("2"),
     ).select("id", "int_col", "double_col", "string_col")
-    pd_table = ls.execute(table)
+    pd_table = table.execute()
 
     res = table[["int_col", "double_col"]].fill_null(0).execute().reset_index(drop=True)
     sol = pd_table[["int_col", "double_col"]].fillna(0).reset_index(drop=True)
@@ -282,7 +282,7 @@ def test_table_fillna_scalar(alltypes):
 def test_mutate_rename(alltypes):
     table = alltypes.select(["bool_col", "string_col"])
     table = table.mutate(dupe_col=table["bool_col"])
-    result = ls.execute(table)
+    result = table.execute()
     # check_dtype is False here because there are dtype diffs between
     # Pyspark and Pandas on Java 8 - filling the 'none_col' with an int
     # results in float in Pyspark, and int in Pandas. This diff does
@@ -390,7 +390,7 @@ def test_order_by_random(alltypes):
 def test_isin_notin(alltypes, df, ibis_op, pandas_op):
     expr = alltypes[ibis_op]
     expected = df.loc[pandas_op(df)].sort_values(["id"]).reset_index(drop=True)
-    result = ls.execute(expr).sort_values(["id"]).reset_index(drop=True)
+    result = expr.execute().sort_values(["id"]).reset_index(drop=True)
     assert_frame_equal(result, expected)
 
 
@@ -432,7 +432,7 @@ def test_ifelse_select(alltypes, df):
         ]
     )
 
-    result = ls.execute(table)
+    result = table.execute()
 
     expected = df.loc[:, ["int_col"]].copy()
 
@@ -459,7 +459,7 @@ def test_select_filter(alltypes, df):
     t = alltypes
 
     expr = t.select("int_col", "string_col").filter(t.string_col == "4")
-    result = ls.execute(expr)
+    result = expr.execute()
 
     expected = df.loc[df.string_col == "4", ["int_col", "string_col"]].reset_index(
         drop=True
@@ -470,7 +470,7 @@ def test_select_filter(alltypes, df):
 def test_select_filter_select(alltypes, df):
     t = alltypes
     expr = t.select("int_col", "string_col").filter(t.string_col == "4").int_col
-    result = ls.execute(expr).rename("int_col")
+    result = expr.execute().rename("int_col")
 
     expected = df.loc[df.string_col == "4", "int_col"].reset_index(drop=True)
     assert_series_equal(result, expected)
@@ -496,7 +496,7 @@ def test_correlated_subquery(alltypes):
 def test_uncorrelated_subquery(batting, batting_df):
     subset_batting = batting[batting.yearID <= 2000]
     expr = batting[_.yearID == subset_batting.yearID.max()]["playerID", "yearID"]
-    result = ls.execute(expr)
+    result = expr.execute()
 
     expected = batting_df[batting_df.yearID == 2000][["playerID", "yearID"]]
     assert_frame_equal(result, expected)
@@ -504,14 +504,14 @@ def test_uncorrelated_subquery(batting, batting_df):
 
 def test_int_column(alltypes):
     expr = alltypes.mutate(x=ls.literal(1)).x
-    result = ls.execute(expr)
+    result = expr.execute()
     assert expr.type() == dt.int8
     assert result.dtype == np.int8
 
 
 def test_int_scalar(alltypes):
     expr = alltypes.smallint_col.min()
-    result = ls.execute(expr)
+    result = expr.execute()
     assert expr.type() == dt.int16
     assert result.dtype == np.int16
 
@@ -569,9 +569,9 @@ def test_pivot_wider(diamonds):
             names_from="cut", values_from="carat", names_sort=True, values_agg="mean"
         )
     )
-    df = ls.execute(expr)
+    df = expr.execute()
     assert set(df.columns) == {"color"} | set(
-        ls.execute(diamonds[["cut"]].distinct().cut)
+        diamonds[["cut"]].distinct().cut.execute()
     )
     assert len(df) == diamonds.color.nunique().execute()
 

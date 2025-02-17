@@ -475,63 +475,10 @@ class Expr(Immutable, Coercible):
             self, limit=limit, params=params, pretty=pretty
         )
 
-    def _register_and_transform_cache_tables(expr):
-        """This function will sequentially execute any cache node that is not already cached"""
-
-        from letsql.common.utils.graph_utils import replace_fix
-        from letsql.expr.relations import CachedNode
-
-        def fn(node, _, **kwargs):
-            node = node.__recreate__(kwargs)
-
-            if isinstance(node, CachedNode):
-                uncached, storage = node.parent, node.storage
-                node = storage.set_default(uncached, uncached.op())
-            return node
-
-        op = expr.op()
-        out = op.replace(replace_fix(fn))
-
-        return out.to_expr()
-
-    def _transform_deferred_reads(expr):
-        from letsql.common.utils.graph_utils import replace_fix
-
-        dt_to_read = {}
-
-        def replace_read(node, _, **_kwargs):
-            from letsql.expr.relations import Read
-
-            if isinstance(node, Read):
-                if node.source.name == "pandas":
-                    # FIXME: pandas read is not lazy, leave it to the pandas executor to do
-                    node = dt_to_read[node] = node.make_dt()
-                else:
-                    node = dt_to_read[node] = node.make_dt()
-            else:
-                node = node.__recreate__(_kwargs)
-            return node
-
-        expr = expr.op().replace(replace_fix(replace_read)).to_expr()
-        return expr, dt_to_read
-
     def execute(self: ir.Expr, **kwargs: Any):
-        batch_reader = self.to_pyarrow_batches(**kwargs)
-        return self.__pandas_result__(
-            batch_reader.read_pandas(timestamp_as_object=True)
-        )
+        from letsql.expr.api import execute
 
-    def _transform_expr(self):
-        from letsql.expr.api import (
-            _register_and_transform_cache_tables,
-            _transform_deferred_reads,
-        )
-        from letsql.expr.relations import register_and_transform_remote_tables
-
-        expr = _register_and_transform_cache_tables(self)
-        expr, created = register_and_transform_remote_tables(expr)
-        expr, dt_to_read = _transform_deferred_reads(expr)
-        return (expr, created)
+        return execute(self, **kwargs)
 
     def to_pyarrow_batches(
         self: ir.Expr,
@@ -539,27 +486,14 @@ class Expr(Immutable, Coercible):
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ):
-        from letsql.common.utils.caching_utils import find_backend
-        from letsql.common.utils.defer_utils import rbr_wrapper
+        from letsql.expr.api import to_pyarrow_batches
 
-        (expr, created) = self._transform_expr()
-        con, _ = find_backend(expr.op(), use_default=True)
-
-        reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
-
-        def clean_up():
-            for table_name, conn in created.items():
-                try:
-                    conn.drop_table(table_name)
-                except Exception:
-                    conn.drop_view(table_name)
-
-        return rbr_wrapper(reader, clean_up)
+        return to_pyarrow_batches(self, chunk_size=chunk_size, **kwargs)
 
     def to_pyarrow(self: ir.Expr, **kwargs: Any):
-        batch_reader = self.to_pyarrow_batches(**kwargs)
-        arrow_table = batch_reader.read_all()
-        return self.__pyarrow_result__(arrow_table)
+        from letsql.expr.api import to_pyarrow
+
+        return to_pyarrow(self, **kwargs)
 
     def to_parquet(
         self: ir.Expr,
@@ -567,14 +501,9 @@ class Expr(Immutable, Coercible):
         params: Mapping[ir.Scalar, Any] | None = None,
         **kwargs: Any,
     ):
-        import pyarrow  # noqa: ICN001, F401
-        import pyarrow.parquet as pq
-        import pyarrow_hotfix  # noqa: F401
+        from letsql.expr.api import to_parquet
 
-        with self.to_pyarrow_batches(params=params) as batch_reader:
-            with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
-                for batch in batch_reader:
-                    writer.write_batch(batch)
+        return to_parquet(self, path=path, params=params, **kwargs)
 
     @experimental
     def to_csv(
