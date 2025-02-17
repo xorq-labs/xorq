@@ -10,7 +10,7 @@ class Example:
     def __init__(self, name):
         self.name = name
 
-    def fetch(self, table_name=None, backend=None):
+    def fetch(self, backend=None, table_name=None):
         if backend is None:
             backend = ls.connect()
         return get_table_from_name(self.name, backend, table_name or self.name)
