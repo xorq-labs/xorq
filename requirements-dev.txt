@@ -31,7 +31,7 @@ cloudpickle==3.1.1 ; python_full_version < '4.0'
 codespell==2.4.1
 colorama==0.4.6
 comm==0.2.2
-connectorx==0.4.1 ; python_full_version < '4.0'
+connectorx==0.4.2 ; python_full_version < '4.0'
 coverage==7.6.12
 cryptography==44.0.1
 dask==2025.1.0 ; python_full_version < '4.0'
@@ -65,9 +65,9 @@ hatch==1.14.0
 hatchling==1.27.0
 httpcore==1.0.7
 httpx==0.28.1
-humanize==4.11.0 ; python_full_version < '4.0'
+humanize==4.12.0 ; python_full_version < '4.0'
 hyperlink==21.0.0
-hypothesis==6.125.2
+hypothesis==6.125.3
 identify==2.6.7
 idna==3.10
 importlib-metadata==8.6.1
@@ -156,9 +156,9 @@ requests-oauthlib==2.0.0 ; python_full_version < '4.0'
 rich==13.9.4
 rpds-py==0.22.3
 rsa==4.9 ; python_full_version < '4.0'
-ruff==0.9.5
+ruff==0.9.6
 scikit-learn==1.6.1
-scipy==1.15.1
+scipy==1.15.2
 secretstorage==3.3.3 ; sys_platform == 'linux'
 setuptools==75.8.0 ; sys_platform == 'darwin'
 shellingham==1.5.4
@@ -187,7 +187,7 @@ tzdata==2025.1 ; python_full_version < '4.0' or sys_platform == 'win32'
 tzlocal==5.3
 urllib3==2.3.0
 userpath==1.9.2
-uv==0.5.29
+uv==0.6.0
 vendoring==1.2.0
 virtualenv==20.29.2
 watchdog==6.0.0
