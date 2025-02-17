@@ -51,7 +51,7 @@ jobs:
       - name: install dependencies
         run: |
           source .venv/bin/activate
-          python -m pip install pytest maturin
+          python -m pip install pytest maturin pytest-cov
 
       - name: develop
         run: |
@@ -61,7 +61,7 @@ jobs:
       - name: pytest
         run: |
           source .venv/bin/activate
-          python -m pytest --import-mode=importlib python/letsql/tests/test_examples.py -v
+          python -m pytest --import-mode=importlib python/letsql/tests/test_examples.py -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
@@ -69,3 +69,8 @@ jobs:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5.3.1
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}

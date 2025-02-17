@@ -7,8 +7,6 @@ from letsql.common.utils.defer_utils import (
 
 csv_name = "iris"
 csv_path = ls.options.pins.get_path(csv_name)
-parquet_name = "astronauts"
-parquet_path = ls.options.pins.get_path(parquet_name)
 
 
 # we can work with a pandas expr without having read it yet

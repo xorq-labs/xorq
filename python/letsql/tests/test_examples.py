@@ -8,7 +8,7 @@ import letsql as ls
 
 
 KEY_PREFIX = ls.config.options.cache.key_prefix
-LIBRARY_SCRIPTS = ("pandas_example", "penguins_example")
+LIBRARY_SCRIPTS = ("pandas_example",)
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent
