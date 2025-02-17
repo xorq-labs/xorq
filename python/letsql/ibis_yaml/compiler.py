@@ -3,10 +3,9 @@ from pathlib import Path
 from typing import Any, Dict
 
 import dask
-import ibis.expr.types as ir
 import yaml
-from ibis.common.collections import FrozenOrderedDict
 
+import letsql.vendor.ibis.expr.types as ir
 from letsql.ibis_yaml.sql import generate_sql_plans
 from letsql.ibis_yaml.translate import (
     SchemaRegistry,
@@ -14,6 +13,7 @@ from letsql.ibis_yaml.translate import (
     translate_to_yaml,
 )
 from letsql.ibis_yaml.utils import freeze
+from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 # is this the right way to handle this? or the right place

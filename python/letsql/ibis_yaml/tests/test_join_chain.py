@@ -1,5 +1,6 @@
-import ibis
 import pytest
+
+import letsql.vendor.ibis as ibis
 
 
 @pytest.fixture

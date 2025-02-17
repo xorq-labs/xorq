@@ -5,16 +5,15 @@ import decimal
 import functools
 from typing import Any
 
-import ibis
-import ibis.expr.datatypes as dt
-import ibis.expr.operations as ops
-import ibis.expr.operations.temporal as tm
-import ibis.expr.rules as rlz
-import ibis.expr.types as ir
 import pyarrow.parquet as pq
-from ibis.common.annotations import Argument
 
 import letsql as ls
+import letsql.vendor.ibis as ibis
+import letsql.vendor.ibis.expr.datatypes as dt
+import letsql.vendor.ibis.expr.operations as ops
+import letsql.vendor.ibis.expr.operations.temporal as tm
+import letsql.vendor.ibis.expr.rules as rlz
+import letsql.vendor.ibis.expr.types as ir
 from letsql.expr.relations import CachedNode, RemoteTable, into_backend
 from letsql.ibis_yaml.utils import (
     deserialize_udf_function,
@@ -23,6 +22,7 @@ from letsql.ibis_yaml.utils import (
     serialize_udf_function,
     translate_storage,
 )
+from letsql.vendor.ibis.common.annotations import Argument
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}

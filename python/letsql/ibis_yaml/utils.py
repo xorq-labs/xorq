@@ -3,9 +3,9 @@ from collections.abc import Mapping, Sequence
 from typing import Any, Dict
 
 import cloudpickle
-from ibis.common.collections import FrozenOrderedDict
 
 from letsql.common.caching import SourceStorage
+from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 def serialize_udf_function(fn: callable) -> str:

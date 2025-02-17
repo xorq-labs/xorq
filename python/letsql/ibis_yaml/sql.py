@@ -1,9 +1,8 @@
 from typing import Any, Dict, TypedDict
 
-import ibis
-import ibis.expr.operations as ops
-import ibis.expr.types as ir
-
+import letsql.vendor.ibis as ibis
+import letsql.vendor.ibis.expr.operations as ops
+import letsql.vendor.ibis.expr.types as ir
 from letsql.expr.relations import RemoteTable
 
 

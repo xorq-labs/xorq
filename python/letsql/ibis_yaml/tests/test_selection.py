@@ -1,4 +1,4 @@
-import ibis
+import letsql.vendor.ibis as ibis
 
 
 def test_selection_on_view(compiler):

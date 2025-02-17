@@ -1,8 +1,8 @@
-import ibis
 import pytest
 
 import letsql.ibis_yaml
 import letsql.ibis_yaml.utils
+import letsql.vendor.ibis as ibis
 
 
 def test_built_in_udf_properties(compiler):

@@ -1,7 +1,7 @@
-import ibis.expr.operations as ops
 import pytest
 
 import letsql as ls
+import letsql.vendor.ibis.expr.operations as ops
 from letsql.expr.relations import RemoteTable, into_backend
 from letsql.ibis_yaml.sql import find_remote_tables, generate_sql_plans
 

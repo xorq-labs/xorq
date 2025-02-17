@@ -3,10 +3,10 @@ import pathlib
 
 import dask
 import yaml
-from ibis.common.collections import FrozenOrderedDict
 
 import letsql as ls
 from letsql.ibis_yaml.compiler import ArtifactStore, BuildManager
+from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 def test_build_manager_expr_hash(t, build_dir):
