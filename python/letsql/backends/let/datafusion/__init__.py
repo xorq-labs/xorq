@@ -8,8 +8,9 @@ import types
 import typing
 from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
+import pandas as pd
 import pyarrow as pa
 import pyarrow.dataset as ds
 import pyarrow_hotfix  # noqa: F401
@@ -33,6 +34,7 @@ from letsql.common.utils.aws_utils import (
 from letsql.expr import Expr
 from letsql.expr.datatypes import LargeString
 from letsql.expr.pyaggregator import PyAggregator, make_struct_type
+from letsql.expr.udf import ExprScalarUDF
 from letsql.internal import (
     DataFrame,
     SessionConfig,
@@ -61,9 +63,6 @@ from letsql.vendor.ibis.formats.pyarrow import (
 )
 from letsql.vendor.ibis.util import gen_name, normalize_filename
 
-
-if TYPE_CHECKING:
-    import pandas as pd
 
 # include string view
 _from_pyarrow_types[pa.string_view()] = dt.String
@@ -296,7 +295,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def _register_udfs(self, expr: ir.Expr) -> None:
         for udf_node in expr.op().find(ops.ScalarUDF):
             if udf_node.__input_type__ == InputType.PYARROW:
-                udf = self._compile_pyarrow_udf(udf_node)
+                if isinstance(udf_node, ExprScalarUDF):
+                    udf = self._compile_pyarrow_expr_udf(udf_node)
+                else:
+                    udf = self._compile_pyarrow_udf(udf_node)
                 self.con.register_udf(udf)
 
         for udf_node in expr.op().find(ops.ElementWiseVectorizedUDF):
@@ -311,6 +313,28 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 else:
                     udaf = _compile_pyarrow_udaf(agg_node)
                     self.con.register_udaf(udaf)
+
+    def _compile_pyarrow_expr_udf(self, udf_node):
+        def extract_computed_kwargs(expr):
+            # user can do Scalar.to_table() if they want to cache it
+            value = ls.execute(expr)
+            if isinstance(value, pd.DataFrame):
+                if value.shape != (1, 1):
+                    raise ValueError
+                ((value,),) = value.values
+            value = udf_node.post_process_fn(value)
+            return value
+
+        computed_kwargs = extract_computed_kwargs(udf_node.computed_kwargs_expr)
+        return df.udf(
+            functools.partial(udf_node.__func__, **computed_kwargs),
+            input_types=[PyArrowType.from_ibis(arg.dtype) for arg in udf_node.args],
+            return_type=PyArrowType.from_ibis(udf_node.dtype),
+            volatility=getattr(udf_node, "__config__", {}).get(
+                "volatility", "volatile"
+            ),
+            name=udf_node.__func_name__,
+        )
 
     def _compile_pyarrow_udf(self, udf_node):
         return df.udf(

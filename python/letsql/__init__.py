@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
-
 from letsql import examples
 from letsql.config import options
 from letsql.expr import api
@@ -75,11 +73,6 @@ def connect(session_config: SessionConfig | None = None) -> Backend:
 
 def __getattr__(name):
     from letsql.vendor import ibis
-
-    try:
-        importlib.import_module(f"letsql.backends.{name}.hotfix")
-    except ModuleNotFoundError:
-        pass
 
     return load_backend(name) or ibis.load_backend(name)
 

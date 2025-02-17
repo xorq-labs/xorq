@@ -1,12 +1,20 @@
+import operator
+import pickle
+
+import pandas as pd
 import pyarrow as pa
 import pytest
+import toolz
+import xgboost as xgb
 
 import letsql as ls
 import letsql.vendor.ibis.expr.datatypes as dt
 from letsql.expr import udf
+from letsql.expr.udf import make_pandas_expr_udf, make_pandas_udf
 from letsql.tests.util import assert_frame_equal
 from letsql.vendor.ibis import _
 from letsql.vendor.ibis import literal as L
+from letsql.vendor.ibis.selectors import of_type
 
 
 pc = pytest.importorskip("pyarrow.compute")
@@ -144,3 +152,88 @@ def test_udf_agg_pandas_df(ls_con, alltypes):
     )
     assert actual.equals(expected)
     assert actual2.equals(expected)
+
+
+def test_udf_pandas_df(ls_con, batting):
+    typ = "int64"
+    name = "my_least"
+    batting = ls_con.register(ls.execute(batting), "pg-batting")
+    my_least = operator.methodcaller("min", axis=1)
+    schema = batting.select(of_type(typ)).schema()
+    return_type = dt.dtype(typ)
+    udf = make_pandas_udf(my_least, schema, return_type, name=name)
+    order_by = ("playerID", "yearID", "stint")
+
+    from_builtin = ls_con.execute(
+        batting.mutate(ls.least(*(ls._[name] for name in schema)).name(name)).order_by(
+            order_by
+        )
+    )
+    from_udf = ls_con.execute(
+        batting.mutate(udf.on_expr(batting).name(name)).order_by(order_by)
+    )
+    from_pd = (
+        ls_con.execute(batting)
+        .assign(**{name: lambda t: my_least(t[list(schema)])})
+        .sort_values(list(order_by), ignore_index=True)
+    )
+    assert from_builtin.equals(from_udf)
+    assert from_builtin.equals(from_pd)
+
+
+def test_pandas_expr_udf():
+    @toolz.curry
+    def train_xgboost_model(df, features, target, seed=0):
+        param = {"max_depth": 4, "eta": 1, "objective": "binary:logistic", "seed": seed}
+        num_round = 10
+        X = df[list(features)]
+        y = df[target]
+        dtrain = xgb.DMatrix(X, y)
+        bst = xgb.train(param, dtrain, num_boost_round=num_round)
+        return pickle.dumps({"model": bst})
+
+    def predict_xgboost_model(df, model):
+        return model.predict(xgb.DMatrix(df))
+
+    features = (
+        "emp_length",
+        "dti",
+        "annual_inc",
+        "loan_amnt",
+        "fico_range_high",
+        "cr_age_days",
+    )
+    target = "event_occurred"
+    train_fn = train_xgboost_model(features=features, target=target)
+    name = "predicted"
+    typ = "float64"
+
+    con = ls.connect()
+    t = con.read_parquet(ls.config.options.pins.get_path("lending-club"))
+
+    # manual run
+    df = ls.execute(t)
+    model = pickle.loads(train_fn(df))["model"]
+    from_pd = df.assign(
+        **{name: predict_xgboost_model(df[list(features)], model)}
+    ).astype({name: typ})
+
+    # using expr-scalar-udf
+    model_udaf = udf.agg.pandas_df(
+        fn=train_fn,
+        schema=t[features + (target,)].schema(),
+        return_type=dt.binary,
+        name="xgboost_model",
+    )
+    computed_kwargs_expr = model_udaf.on_expr(t)
+    predict_expr_udf = make_pandas_expr_udf(
+        computed_kwargs_expr,
+        fn=predict_xgboost_model,
+        schema=t[features].schema(),
+        return_type=dt.dtype(typ),
+        name=name,
+    )
+    expr = t.mutate(predict_expr_udf.on_expr(t).name(name))
+    from_ls = con.execute(expr)
+
+    pd._testing.assert_frame_equal(from_ls, from_pd)

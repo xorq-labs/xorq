@@ -337,6 +337,9 @@ def normalize_scalar_udf(udf):
             typs,
             udf.dtype,
             udf.__func__,
+            #
+            # ExprScalarUDF
+            udf.__config__.get("computed_kwargs_expr"),
             # we are insensitive to these for now
             # udf.__udf_namespace__,
             # udf.__func_name__,
