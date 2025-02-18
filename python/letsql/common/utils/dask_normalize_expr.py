@@ -228,34 +228,34 @@ def normalize_read(read):
 
             resp = requests.head(path)
             resp.raise_for_status()
-            dct = {
-                k: resp.headers[k]
+            tpls = tuple(
+                (k, resp.headers[k])
                 for k in (
                     "Last-Modified",
                     "Content-Length",
                     "Content-Type",
                 )
-            }
+            )
         elif path.startswith("s3"):
             raise NotImplementedError
         elif (path := pathlib.Path(path)).exists():
             stat = path.stat()
-            dct = {
-                attrname: getattr(stat, attrname)
+            tpls = tuple(
+                (attrname, getattr(stat, attrname))
                 for attrname in (
                     "st_mtime",
                     "st_size",
                     # mtime, size <?-?> md5sum
                     "st_ino",
                 )
-            }
+            )
         else:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
         raise NotImplementedError
     else:
         raise NotImplementedError
-    return dask.tokenize._normalize_seq_func((read.schema, dct))
+    return dask.tokenize._normalize_seq_func((read.schema, tpls))
 
 
 @dask.base.normalize_token.register(ir.DatabaseTable)
