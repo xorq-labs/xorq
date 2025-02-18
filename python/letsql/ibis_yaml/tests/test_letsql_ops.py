@@ -1,6 +1,10 @@
 import pytest
 
 import letsql as ls
+from letsql import _
+from letsql.common.utils.defer_utils import (
+    deferred_read_csv,
+)
 from letsql.expr.relations import into_backend
 from letsql.ibis_yaml.compiler import YamlExpressionTranslator
 
@@ -56,7 +60,7 @@ def test_duckdb_database_table_roundtrip(prepare_duckdb_con, build_dir):
     assert df_original.equals(df_roundtrip), "Roundtrip expression data differs!"
 
 
-def test_memtable(prepare_duckdb_con, build_dir):
+def test_memtable(build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()
     expr = table.mutate(new_val=2 * ls._.val)
@@ -73,7 +77,7 @@ def test_memtable(prepare_duckdb_con, build_dir):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_into_backend(prepare_duckdb_con, build_dir):
+def test_into_backend(build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()
     expr = table.mutate(new_val=2 * ls._.val)
@@ -98,7 +102,7 @@ def test_into_backend(prepare_duckdb_con, build_dir):
     assert ls.execute(expr).equals(ls.execute(roundtrip_expr))
 
 
-def test_memtable_cache(prepare_duckdb_con, build_dir):
+def test_memtable_cache(build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()
     expr = table.mutate(new_val=2 * ls._.val).cache()
@@ -111,6 +115,22 @@ def test_memtable_cache(prepare_duckdb_con, build_dir):
 
     compiler = YamlExpressionTranslator(profiles=profiles, current_path=build_dir)
 
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+
+    assert ls.execute(expr).equals(ls.execute(roundtrip_expr))
+
+
+def test_deferred_read_csv(build_dir):
+    csv_name = "iris"
+    csv_path = ls.options.pins.get_path(csv_name)
+    pd_con = ls.pandas.connect()
+    expr = deferred_read_csv(con=pd_con, path=csv_path, table_name=csv_name).filter(
+        _.sepal_length > 6
+    )
+
+    profiles = {pd_con._profile.hash_name: pd_con}
+    compiler = YamlExpressionTranslator(profiles=profiles, current_path=build_dir)
     yaml_dict = compiler.to_yaml(expr)
     roundtrip_expr = compiler.from_yaml(yaml_dict)
 

@@ -14,7 +14,7 @@ import letsql.vendor.ibis.expr.operations as ops
 import letsql.vendor.ibis.expr.operations.temporal as tm
 import letsql.vendor.ibis.expr.rules as rlz
 import letsql.vendor.ibis.expr.types as ir
-from letsql.expr.relations import CachedNode, RemoteTable, into_backend
+from letsql.expr.relations import CachedNode, Read, RemoteTable, into_backend
 from letsql.ibis_yaml.utils import (
     deserialize_udf_function,
     freeze,
@@ -441,6 +441,52 @@ def _remotetable_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
 
     remote_table_expr = into_backend(remote_expr, con, table_name)
     return remote_table_expr
+
+
+@translate_to_yaml.register(Read)
+def _read_to_yaml(op: Read, compiler: Any) -> dict:
+    schema_id = compiler.schema_registry.register_schema(op.schema)
+    profile_hash_name = (
+        op.source._profile.hash_name if hasattr(op.source, "_profile") else None
+    )
+
+    return freeze(
+        {
+            "op": "Read",
+            "method_name": op.method_name,
+            "name": op.name,
+            "schema_ref": schema_id,
+            "profile": profile_hash_name,
+            "read_kwargs": dict(op.read_kwargs) if op.read_kwargs else {},
+        }
+    )
+
+
+@register_from_yaml_handler("Read")
+def _read_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
+    if not hasattr(compiler, "definitions"):
+        raise ValueError("Compiler missing definitions with schemas")
+
+    schema_ref = yaml_dict["schema_ref"]
+    schema_def = compiler.definitions["schemas"][schema_ref]
+
+    schema = {
+        name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
+    }
+
+    profile_hash_name = yaml_dict.get("profile")
+
+    source = compiler.profiles[profile_hash_name]
+
+    read_op = Read(
+        method_name=yaml_dict["method_name"],
+        name=yaml_dict["name"],
+        schema=schema,
+        source=source,
+        read_kwargs=yaml_dict.get("read_kwargs", {}),
+    )
+
+    return read_op.to_expr()
 
 
 @translate_to_yaml.register(ops.Literal)
