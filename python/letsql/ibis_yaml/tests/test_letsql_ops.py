@@ -4,6 +4,7 @@ import letsql as ls
 from letsql import _
 from letsql.common.utils.defer_utils import (
     deferred_read_csv,
+    deferred_read_parquet,
 )
 from letsql.expr.relations import into_backend
 from letsql.ibis_yaml.compiler import YamlExpressionTranslator
@@ -60,6 +61,7 @@ def test_duckdb_database_table_roundtrip(prepare_duckdb_con, build_dir):
     assert df_original.equals(df_roundtrip), "Roundtrip expression data differs!"
 
 
+@pytest.mark.xfail(reason="MemTable is not serializable")
 def test_memtable(build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()
@@ -78,14 +80,15 @@ def test_memtable(build_dir):
 
 
 def test_into_backend(build_dir):
-    table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
-    backend = table._find_backend()
-    expr = table.mutate(new_val=2 * ls._.val)
+    parquet_path = ls.config.options.pins.get_path("awards_players")
+    backend = ls.duckdb.connect()
+    table = deferred_read_parquet(backend, parquet_path, table_name="award_players")
+    expr = table.mutate(new_id=2 * ls._.playerID)
 
     con2 = ls.connect()
     con3 = ls.connect()
 
-    expr = into_backend(expr, con2, "ls_mem").mutate(x=4 * ls._.val)
+    expr = into_backend(expr, con2, "ls_mem").mutate(x=4 * ls._.new_id)
     expr = into_backend(expr, con3, "df_mem")
 
     profiles = {
@@ -102,6 +105,7 @@ def test_into_backend(build_dir):
     assert ls.execute(expr).equals(ls.execute(roundtrip_expr))
 
 
+@pytest.mark.xfail(reason="MemTable is not serializable")
 def test_memtable_cache(build_dir):
     table = ls.memtable([(i, "val") for i in range(10)], columns=["key1", "val"])
     backend = table._find_backend()

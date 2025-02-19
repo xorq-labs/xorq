@@ -5,9 +5,6 @@ import decimal
 import functools
 from typing import Any
 
-import pyarrow.parquet as pq
-
-import letsql as ls
 import letsql.vendor.ibis as ibis
 import letsql.vendor.ibis.expr.datatypes as dt
 import letsql.vendor.ibis.expr.operations as ops
@@ -369,41 +366,6 @@ def _cached_node_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
         storage=storage,
     )
     return op.to_expr()
-
-
-@translate_to_yaml.register(ops.InMemoryTable)
-def _memtable_to_yaml(op: ops.InMemoryTable, compiler: Any) -> dict:
-    if not hasattr(compiler, "current_path"):
-        raise ValueError(
-            "Compiler is missing the 'current_path' attribute for memtable serialization"
-        )
-
-    arrow_table = op.data.to_pyarrow(op.schema)
-    file_path = compiler.current_path / f"memtable_{id(op)}.parquet"
-    pq.write_table(arrow_table, str(file_path))
-    # probably do not need to store schema
-    schema_id = compiler.schema_registry.register_schema(op.schema)
-
-    return freeze(
-        {
-            "op": "InMemoryTable",
-            "table": op.name,
-            "schema_ref": schema_id,
-            "file": str(file_path),
-        }
-    )
-
-
-@register_from_yaml_handler("InMemoryTable")
-def _memtable_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
-    file_path = yaml_dict["file"]
-    arrow_table = pq.read_table(file_path)
-    df = arrow_table.to_pandas()
-
-    table_name = yaml_dict.get("table", "memtable")
-
-    memtable_expr = ls.memtable(df, columns=list(df.columns), name=table_name)
-    return memtable_expr
 
 
 @translate_to_yaml.register(RemoteTable)
