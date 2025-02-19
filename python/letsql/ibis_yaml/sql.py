@@ -3,7 +3,7 @@ from typing import Any, Dict, TypedDict
 import letsql.vendor.ibis as ibis
 import letsql.vendor.ibis.expr.operations as ops
 import letsql.vendor.ibis.expr.types as ir
-from letsql.expr.relations import RemoteTable
+from letsql.expr.relations import Read, RemoteTable
 
 
 class QueryInfo(TypedDict):
@@ -37,6 +37,17 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
                 "profile_name": profile_name,
                 "sql": ibis.to_sql(remote_expr),
             }
+        if isinstance(node, Read):
+            backend = node.source
+            if backend is not None:
+                engine_name = backend.name
+                profile_name = backend._profile.hash_name
+
+                remote_tables[node.name] = {
+                    "engine": engine_name,
+                    "profile_name": profile_name,
+                    "sql": ibis.to_sql(node.make_unbound_dt().to_expr()),
+                }
 
         if isinstance(node, ops.Node):
             for arg in node.args:
