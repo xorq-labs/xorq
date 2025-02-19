@@ -31,6 +31,18 @@ def test_built_in_udf_properties(compiler):
         assert orig_arg.dtype == rt_arg.dtype
 
 
+def test_compiler_raises(compiler):
+    t = ibis.table({"a": "int64"}, name="t")
+
+    @ibis.udf.scalar.python
+    def add_one(x: int) -> int:
+        pass
+
+    expr = t.mutate(new=add_one(t.a))
+    with pytest.raises(NotImplementedError):
+        compiler.to_yaml(expr)
+
+
 @pytest.mark.xfail(
     reason="UDFs do not have the same memory address when pickled/unpickled"
 )

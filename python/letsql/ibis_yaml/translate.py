@@ -1049,6 +1049,11 @@ def _searched_case_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
 
 @translate_to_yaml.register(ops.ScalarUDF)
 def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
+    print(dir(op))
+    if getattr(op.__class__, "__input_type__", None) != ops.udf.InputType.BUILTIN:
+        raise NotImplementedError(
+            f"Translation of UDFs with input type {getattr(op.__class__, '__input_type__', None)} is not supported"
+        )
     arg_names = [
         name
         for name in dir(op)
