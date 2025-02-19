@@ -2,10 +2,10 @@ import os
 import pathlib
 
 import dask
-import pytest
 import yaml
 
 import letsql as ls
+from letsql.common.utils.defer_utils import deferred_read_parquet
 from letsql.ibis_yaml.compiler import ArtifactStore, BuildManager
 from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 
@@ -71,28 +71,26 @@ def test_ibis_compiler(t, build_dir):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-@pytest.mark.xfail
-def test_ibis_compiler_parquet_reader(t, build_dir):
-    backend = ls.datafusion.connect()
-    awards_players = backend.read_parquet(
-        ls.config.options.pins.get_path("awards_players"),
-        table_name="awards_players",
+def test_ibis_compiler_parquet_reader(build_dir):
+    backend = ls.duckdb.connect()
+    parquet_path = ls.config.options.pins.get_path("awards_players")
+    awards_players = deferred_read_parquet(
+        backend, parquet_path, table_name="award_players"
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
-
     compiler = BuildManager(build_dir)
     compiler.compile_expr(expr)
-    expr_hash = "5ebaf6a7a02d"
+    print(dask.base.tokenize(expr)[:12])
+    expr_hash = "9a7d0b20d41a"
     roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-# TODO: how to not use parquet reader or used deferred read
-@pytest.mark.xfail
 def test_compiler_sql(build_dir):
     backend = ls.datafusion.connect()
-    awards_players = backend.read_parquet(
+    awards_players = deferred_read_parquet(
+        backend,
         ls.config.options.pins.get_path("awards_players"),
         table_name="awards_players",
     )
@@ -100,7 +98,7 @@ def test_compiler_sql(build_dir):
 
     compiler = BuildManager(build_dir)
     compiler.compile_expr(expr)
-    expr_hash = "5ebaf6a7a02d"
+    expr_hash = "79d83e9c89ad"
     _roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert os.path.exists(build_dir / expr_hash / "sql.yaml")
@@ -109,13 +107,12 @@ def test_compiler_sql(build_dir):
     expected_result = (
         "queries:\n"
         "  main:\n"
-        "    engine: datafusion\n"
-        "    profile_name: default\n"
+        "    engine: let\n"
+        f"    profile_name: {expr._find_backend()._profile.hash_name}\n"
         '    sql: "SELECT\\n  \\"t0\\".\\"playerID\\",\\n  '
         '\\"t0\\".\\"awardID\\",\\n  \\"t0\\".\\"tie\\"\\\n'
-        '      ,\\n  \\"t0\\".\\"notes\\"\\nFROM \\"awards_players\\" AS '
-        '\\"t0\\"\\nWHERE\\n  \\"t0\\".\\"\\\n'
-        "      lgID\\\" = 'NL'\"\n"
+        '      ,\\n  \\"t0\\".\\"notes\\"\\nFROM \\"awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\\"\\'
+        '\n      \\ AS \\"t0\\"\\nWHERE\\n  \\"t0\\".\\"lgID\\" = \'NL\'"\n'
     )
 
     assert sql_text == expected_result

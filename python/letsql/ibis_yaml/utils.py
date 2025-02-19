@@ -5,9 +5,12 @@ from typing import Any, Dict, Tuple
 import cloudpickle
 
 import letsql.vendor.ibis.expr.operations as ops
+import letsql.vendor.ibis.expr.types as ir
 from letsql.common.caching import SourceStorage
-from letsql.expr.relations import RemoteTable
+from letsql.expr.relations import CachedNode, Read
+from letsql.vendor.ibis.backends import BaseBackend
 from letsql.vendor.ibis.common.collections import FrozenOrderedDict
+from letsql.vendor.ibis.expr.types.relations import Table
 
 
 def serialize_udf_function(fn: callable) -> str:
@@ -145,32 +148,38 @@ def translate_storage(storage, compiler: Any) -> Dict:
 def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
     if storage_yaml["type"] == "SourceStorage":
         source_profile_name = storage_yaml["source"]
-        try:
-            source = compiler.profiles[source_profile_name]
-        except KeyError:
-            raise ValueError(
-                f"Source profile {source_profile_name!r} not found in compiler.profiles"
-            )
+        source = compiler.profiles[source_profile_name]
         return SourceStorage(source=source)
     else:
         raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")
 
 
-def find_remote_backends(op) -> Tuple:
-    remote_backends = ()
+def find_all_backends(expr: ir.Expr) -> Tuple[BaseBackend, ...]:
+    backends = set()
     seen = set()
 
     def traverse(node):
-        nonlocal remote_backends
         if node is None or id(node) in seen:
             return
-
         seen.add(id(node))
 
-        if isinstance(node, ops.Node) and isinstance(node, RemoteTable):
-            remote_expr = node.remote_expr
-            original_backend = remote_expr._find_backend()
-            remote_backends += (original_backend,)
+        if isinstance(node, Table):
+            traverse(node.op())
+            return
+
+        if isinstance(node, Read):
+            backend = node.source
+            if backend is not None:
+                backends.add(backend)
+
+        elif isinstance(node, ops.DatabaseTable):
+            backends.add(node.source)
+
+        elif isinstance(node, ops.SQLQueryResult):  # caching_utils uses
+            backends.add(node.source)
+
+        elif isinstance(node, CachedNode):
+            backends.add(node.source)
 
         if isinstance(node, ops.Node):
             for arg in node.args:
@@ -185,5 +194,6 @@ def find_remote_backends(op) -> Tuple:
                         if isinstance(v, ops.Node):
                             traverse(v)
 
-    traverse(op)
-    return remote_backends
+    traverse(expr)
+
+    return tuple(backends)

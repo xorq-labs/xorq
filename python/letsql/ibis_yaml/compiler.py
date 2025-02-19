@@ -12,7 +12,7 @@ from letsql.ibis_yaml.translate import (
     translate_from_yaml,
     translate_to_yaml,
 )
-from letsql.ibis_yaml.utils import find_remote_backends, freeze
+from letsql.ibis_yaml.utils import find_all_backends, freeze
 from letsql.vendor.ibis.backends import Profile
 from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 
@@ -139,11 +139,13 @@ class BuildManager:
         expr_hash = self.artifact_store.get_expr_hash(expr)
         current_path = self.artifact_store.get_build_path(expr_hash)
 
-        backends = (expr._find_backend(), *find_remote_backends(expr.op()))
+        backends = find_all_backends(expr.op())
         profiles = {
             backend._profile.hash_name: backend._profile.as_dict()
             for backend in backends
         }
+
+        print(profiles)
 
         translator = YamlExpressionTranslator(
             profiles=profiles, current_path=current_path
