@@ -12,17 +12,14 @@ name = "batting"
 right = (
     ls.examples.get_table_from_name(name, backend=ddb)
     .filter(_.yearID == 2014)
-    .pipe(con.register, table_name=f"ddb-{name}")
+    .into_backend(con)
 )
-
-left = (
-    pg.table(name).filter(_.yearID == 2015).pipe(con.register, table_name=f"pg-{name}")
-)
+left = pg.table(name).filter(_.yearID == 2015).into_backend(con)
 
 expr = left.join(
     right,
     "playerID",
 ).cache(SourceStorage(source=pg))
 
-res = ls.execute(expr)
+res = expr.execute()
 print(res)

@@ -4,8 +4,7 @@ import letsql as ls
 from letsql.common.caching import ParquetCacheStorage
 
 
-t = ls.examples.penguins.fetch()
-
+t = ls.examples.penguins.fetch(deferred=False)
 con = t.op().source
 storage = ParquetCacheStorage(source=con, path=Path.cwd())
 
