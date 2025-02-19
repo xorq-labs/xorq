@@ -4,6 +4,7 @@ import letsql.vendor.ibis as ibis
 import letsql.vendor.ibis.expr.operations as ops
 import letsql.vendor.ibis.expr.types as ir
 from letsql.expr.relations import Read, RemoteTable
+from letsql.ibis_yaml.utils import find_relations
 
 
 class QueryInfo(TypedDict):
@@ -35,6 +36,7 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
             remote_tables[node.name] = {
                 "engine": engine_name,
                 "profile_name": profile_name,
+                "relations": find_relations(remote_expr),
                 "sql": ibis.to_sql(remote_expr),
             }
         if isinstance(node, Read):
@@ -42,10 +44,10 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
             if backend is not None:
                 engine_name = backend.name
                 profile_name = backend._profile.hash_name
-
-                remote_tables[node.name] = {
+                remote_tables[node.make_unbound_dt().name] = {
                     "engine": engine_name,
                     "profile_name": profile_name,
+                    "relations": node.make_unbound_dt().name,
                     "sql": ibis.to_sql(node.make_unbound_dt().to_expr()),
                 }
 
@@ -81,6 +83,7 @@ def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
             "main": {
                 "engine": engine_name,
                 "profile_name": profile_name,
+                "relations": list(find_relations(expr)),
                 "sql": main_sql.strip(),
             }
         }
@@ -89,6 +92,7 @@ def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
     for table_name, info in remote_tables.items():
         plans["queries"][table_name] = {
             "engine": info["engine"],
+            "relations": info["relations"],
             "profile_name": info["profile_name"],
             "sql": info["sql"].strip(),
         }

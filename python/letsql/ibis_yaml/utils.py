@@ -1,13 +1,13 @@
 import base64
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 import cloudpickle
 
 import letsql.vendor.ibis.expr.operations as ops
 import letsql.vendor.ibis.expr.types as ir
 from letsql.common.caching import SourceStorage
-from letsql.expr.relations import CachedNode, Read
+from letsql.expr.relations import CachedNode, Read, RemoteTable
 from letsql.vendor.ibis.backends import BaseBackend
 from letsql.vendor.ibis.common.collections import FrozenOrderedDict
 from letsql.vendor.ibis.expr.types.relations import Table
@@ -197,3 +197,36 @@ def find_all_backends(expr: ir.Expr) -> Tuple[BaseBackend, ...]:
     traverse(expr)
 
     return tuple(backends)
+
+
+def find_relations(expr: ir.Expr) -> List[str]:
+    relations = []
+    seen = set()
+
+    def traverse(node):
+        if node is None or id(node) in seen:
+            return
+        seen.add(id(node))
+
+        if isinstance(node, ops.Node):
+            if isinstance(node, RemoteTable):
+                relations.append(node.name)
+            elif isinstance(node, Read):
+                relations.append(node.make_unbound_dt().name)
+            elif isinstance(node, ops.DatabaseTable):
+                relations.append(node.name)
+
+            for arg in node.args:
+                if isinstance(arg, ops.Node):
+                    traverse(arg)
+                elif isinstance(arg, (list, tuple)):
+                    for item in arg:
+                        if isinstance(item, ops.Node):
+                            traverse(item)
+                elif isinstance(arg, dict):
+                    for v in arg.values():
+                        if isinstance(v, ops.Node):
+                            traverse(v)
+
+    traverse(expr.op())
+    return list(dict.fromkeys(relations))

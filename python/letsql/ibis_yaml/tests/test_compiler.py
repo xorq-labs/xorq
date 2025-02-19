@@ -109,12 +109,17 @@ def test_compiler_sql(build_dir):
         "  main:\n"
         "    engine: let\n"
         f"    profile_name: {expr._find_backend()._profile.hash_name}\n"
-        '    sql: "SELECT\\n  \\"t0\\".\\"playerID\\",\\n  '
-        '\\"t0\\".\\"awardID\\",\\n  \\"t0\\".\\"tie\\"\\\n'
-        '      ,\\n  \\"t0\\".\\"notes\\"\\nFROM \\"awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\\"\\'
-        '\n      \\ AS \\"t0\\"\\nWHERE\\n  \\"t0\\".\\"lgID\\" = \'NL\'"\n'
+        "    relations:\n"
+        "    - awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
+        '    sql: "SELECT\\n  \\"t0\\".\\"playerID\\",\\n  \\"t0\\".\\"awardID\\",\\n  \\"t0\\".\\"tie\\"'
+        '\\\n      ,\\n  \\"t0\\".\\"notes\\"\\nFROM \\"awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\\"'
+        '\\\n      \\ AS \\"t0\\"\\nWHERE\\n  \\"t0\\".\\"lgID\\" = \'NL\'"\n'
+        "  awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f:\n"
+        "    engine: datafusion\n"
+        "    relations: awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
+        "    profile_name: a506210f56203e8f9b4a84ef73d95eaa\n"
+        '    sql: "SELECT\\n  *\\nFROM \\"awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\\""\n'
     )
-
     assert sql_text == expected_result
 
 
