@@ -1,10 +1,10 @@
-from typing import Any, Dict, TypedDict
+from typing import Any, Dict, List, TypedDict
 
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.expr.relations import Read, RemoteTable
-from xorq.ibis_yaml.utils import find_all_backends, find_relations
 
 
 class QueryInfo(TypedDict):
@@ -17,9 +17,66 @@ class SQLPlans(TypedDict):
     queries: Dict[str, QueryInfo]
 
 
-def get_read_options(read_instance):
-    read_kwargs_list = [{k: v} for k, v in read_instance.read_kwargs]
+def find_relations(expr: ir.Expr) -> List[str]:
+    node_types = (RemoteTable, Read, ops.DatabaseTable)
+    nodes = walk_nodes(node_types, expr)
+    relations = []
+    seen = set()
+    for node in nodes:
+        name = None
+        if isinstance(node, RemoteTable):
+            name = node.name
+        elif isinstance(node, Read):
+            name = node.make_unbound_dt().name
+        elif isinstance(node, ops.DatabaseTable):
+            name = node.name
+        if name and name not in seen:
+            seen.add(name)
+            relations.append(name)
+    return relations
 
+
+def find_remote_tables(expr: ir.Expr) -> dict:
+    node_types = (RemoteTable, Read)
+    nodes = walk_nodes(node_types, expr)
+    remote_tables = {}
+
+    for node in nodes:
+        if isinstance(node, RemoteTable):
+            remote_expr = node.remote_expr
+            backends = find_all_sources(node)
+            if len(backends) > 1:
+                backends = tuple(
+                    x for x in backends if x != node.to_expr()._find_backend()
+                )
+            for backend in backends:
+                engine_name = backend.name
+                profile_name = backend._profile.hash_name
+                key = f"{node.name}"
+                remote_tables[key] = {
+                    "engine": engine_name,
+                    "profile_name": profile_name,
+                    "relations": find_relations(remote_expr),
+                    "sql": ibis.to_sql(remote_expr).strip(),
+                    "options": {},
+                }
+        elif isinstance(node, Read):
+            backend = node.source
+            if backend is not None:
+                dt = node.make_unbound_dt()
+                key = dt.name
+                remote_tables[key] = {
+                    "engine": backend.name,
+                    "profile_name": backend._profile.hash_name,
+                    "relations": [dt.name],
+                    "sql": ibis.to_sql(dt.to_expr()).strip(),
+                    "options": get_read_options(node),
+                }
+    return remote_tables
+
+
+def get_read_options(read_instance) -> Dict[str, Any]:
+    read_kwargs_list = [{k: v} for k, v in read_instance.read_kwargs]
     return {
         "method_name": read_instance.method_name,
         "name": read_instance.name,
@@ -27,77 +84,17 @@ def get_read_options(read_instance):
     }
 
 
-def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
-    remote_tables = {}
-    seen = set()
-
-    def traverse(node):
-        if node is None or id(node) in seen:
-            return
-
-        seen.add(id(node))
-
-        if isinstance(node, ops.Node) and isinstance(node, RemoteTable):
-            remote_expr = node.remote_expr
-            original_backend = find_all_backends(remote_expr)[
-                0
-            ]  # this was _find_backend before
-
-            engine_name = original_backend.name
-            profile_name = original_backend._profile.hash_name
-            remote_tables[node.name] = {
-                "engine": engine_name,
-                "profile_name": profile_name,
-                "relations": find_relations(remote_expr),
-                "sql": ibis.to_sql(remote_expr),
-                "options": {},
-            }
-        if isinstance(node, Read):
-            backend = node.source
-            if backend is not None:
-                engine_name = backend.name
-                profile_name = backend._profile.hash_name
-                remote_tables[node.make_unbound_dt().name] = {
-                    "engine": engine_name,
-                    "profile_name": profile_name,
-                    "relations": [node.make_unbound_dt().name],
-                    "sql": ibis.to_sql(node.make_unbound_dt().to_expr()),
-                    "options": get_read_options(node),
-                }
-
-        if isinstance(node, ops.Node):
-            for arg in node.args:
-                if isinstance(arg, ops.Node):
-                    traverse(arg)
-                elif isinstance(arg, (list, tuple)):
-                    for item in arg:
-                        if isinstance(item, ops.Node):
-                            traverse(item)
-                elif isinstance(arg, dict):
-                    for v in arg.values():
-                        if isinstance(v, ops.Node):
-                            traverse(v)
-
-    traverse(op)
-    return remote_tables
-
-
-# TODO: rename to sqls
 def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
-    remote_tables = find_remote_tables(expr.op())
-
+    remote_tables = find_remote_tables(expr)
     main_sql = ibis.to_sql(expr)
     backend = expr._find_backend()
-
-    engine_name = backend.name
-    profile_name = backend._profile.hash_name
 
     plans: SQLPlans = {
         "queries": {
             "main": {
-                "engine": engine_name,
-                "profile_name": profile_name,
-                "relations": list(find_relations(expr)),
+                "engine": backend.name,
+                "profile_name": backend._profile.hash_name,
+                "relations": find_relations(expr),
                 "sql": main_sql.strip(),
                 "options": {},
             }
@@ -107,9 +104,9 @@ def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
     for table_name, info in remote_tables.items():
         plans["queries"][table_name] = {
             "engine": info["engine"],
-            "relations": info["relations"],
             "profile_name": info["profile_name"],
-            "sql": info["sql"].strip(),
+            "relations": info["relations"],
+            "sql": info["sql"],
             "options": info["options"],
         }
 

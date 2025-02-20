@@ -28,7 +28,8 @@ def walk_nodes(node_types, expr):
         rest.update(set(new).difference(seen))
         return inner(rest, seen)
 
-    rest = process_node(expr.op())
+    initial_op = expr.op() if hasattr(expr, "op") else expr
+    rest = process_node(initial_op)
     return inner(set(rest), set())
 
 

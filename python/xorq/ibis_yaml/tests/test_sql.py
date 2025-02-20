@@ -1,18 +1,14 @@
 import xorq as xo
-import xorq.vendor.ibis.expr.operations as ops
-from xorq.expr.relations import RemoteTable, into_backend
+from xorq.expr.relations import into_backend
 from xorq.ibis_yaml.sql import find_remote_tables, generate_sql_plans
 
 
 def test_find_remote_tables_simple():
     db = xo.duckdb.connect()
-    db.profile_name = "duckdb"
     table = xo.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
-    backend = table._find_backend()
-    backend.profile_name = "duckdb"
     remote_expr = into_backend(table, db)
 
-    remote_tables = find_remote_tables(remote_expr.op())
+    remote_tables = find_remote_tables(remote_expr)
 
     assert len(remote_tables) == 1
     table_name = next(iter(remote_tables))
@@ -58,21 +54,9 @@ def test_find_remote_tables():
         ["yearID", "stint"]
     ]
 
-    def print_tree(node, level=0):
-        indent = "  " * level
-        print(f"{indent}{type(node).__name__}")
-        if hasattr(node, "args"):
-            for arg in node.args:
-                if isinstance(arg, (ops.Node, RemoteTable)):
-                    print_tree(arg, level + 1)
-
-    print_tree(expr.op())
-
     remote_tables = find_remote_tables(expr.op())
 
-    assert len(remote_tables) == 1, (
-        f"Expected 1 remote table, found {len(remote_tables)}"
-    )
+    assert len(remote_tables) == 1
 
     first_table = next(iter(remote_tables.values()))
     assert "sql" in first_table, "SQL query missing from remote table info"

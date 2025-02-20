@@ -1,16 +1,11 @@
 import base64
 from collections.abc import Mapping, Sequence
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict
 
 import cloudpickle
 
-import xorq.vendor.ibis.expr.operations as ops
-import xorq.vendor.ibis.expr.types as ir
 from xorq.common.caching import SourceStorage
-from xorq.expr.relations import CachedNode, Read, RemoteTable
-from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-from xorq.vendor.ibis.expr.types.relations import Table
 
 
 def serialize_udf_function(fn: callable) -> str:
@@ -152,85 +147,3 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
         return SourceStorage(source=source)
     else:
         raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")
-
-
-def find_all_backends(expr: ir.Expr) -> Tuple[BaseBackend, ...]:
-    backends = set()
-    seen = set()
-
-    def traverse(node):
-        if node is None or id(node) in seen:
-            return
-        seen.add(id(node))
-
-        if isinstance(node, Table):
-            traverse(node.op())
-            return
-
-        if isinstance(node, Read):
-            backend = node.source
-            if backend is not None:
-                backends.add(backend)
-        elif isinstance(node, RemoteTable):
-            # this needs to habdle when a RemoteTable has Read op since the backend for the op is
-            # not the same as _find_backend()
-            backends.add(*find_all_backends(node.remote_expr))
-
-        elif isinstance(node, ops.DatabaseTable):
-            backends.add(node.source)
-
-        elif isinstance(node, ops.SQLQueryResult):  # caching_utils uses
-            backends.add(node.source)
-
-        elif isinstance(node, CachedNode):
-            backends.add(node.source)
-
-        if isinstance(node, ops.Node):
-            for arg in node.args:
-                if isinstance(arg, ops.Node):
-                    traverse(arg)
-                elif isinstance(arg, (list, tuple)):
-                    for item in arg:
-                        if isinstance(item, ops.Node):
-                            traverse(item)
-                elif isinstance(arg, dict):
-                    for v in arg.values():
-                        if isinstance(v, ops.Node):
-                            traverse(v)
-
-    traverse(expr)
-
-    return tuple(backends)
-
-
-def find_relations(expr: ir.Expr) -> List[str]:
-    relations = []
-    seen = set()
-
-    def traverse(node):
-        if node is None or id(node) in seen:
-            return
-        seen.add(id(node))
-
-        if isinstance(node, ops.Node):
-            if isinstance(node, RemoteTable):
-                relations.append(node.name)
-            elif isinstance(node, Read):
-                relations.append(node.make_unbound_dt().name)
-            elif isinstance(node, ops.DatabaseTable):
-                relations.append(node.name)
-
-            for arg in node.args:
-                if isinstance(arg, ops.Node):
-                    traverse(arg)
-                elif isinstance(arg, (list, tuple)):
-                    for item in arg:
-                        if isinstance(item, ops.Node):
-                            traverse(item)
-                elif isinstance(arg, dict):
-                    for v in arg.values():
-                        if isinstance(v, ops.Node):
-                            traverse(v)
-
-    traverse(expr.op())
-    return list(dict.fromkeys(relations))

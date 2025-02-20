@@ -82,7 +82,6 @@ def test_ibis_compiler_parquet_reader(build_dir):
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
     compiler = BuildManager(build_dir)
     compiler.compile_expr(expr)
-    print(dask.base.tokenize(expr)[:12])
     expr_hash = "9a7d0b20d41a"
     roundtrip_expr = compiler.load_expr(expr_hash)
 
@@ -113,14 +112,20 @@ def test_compiler_sql(build_dir):
         f"    profile_name: {expr._find_backend()._profile.hash_name}\n"
         "    relations:\n"
         "    - awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
-        '    sql: "SELECT\\n  \\"t0\\".\\"playerID\\",\\n  \\"t0\\".\\"awardID\\",\\n  \\"t0\\".\\"tie\\"'
-        '\\\n      ,\\n  \\"t0\\".\\"notes\\"\\nFROM \\"awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\\"'
-        '\\\n      \\ AS \\"t0\\"\\nWHERE\\n  \\"t0\\".\\"lgID\\" = \'NL\'"\n'
+        "    options: {}\n"
+        "    sql_file: df34d95d62bc.sql\n"
         "  awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f:\n"
         "    engine: datafusion\n"
-        "    relations: awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
         "    profile_name: a506210f56203e8f9b4a84ef73d95eaa\n"
-        '    sql: "SELECT\\n  *\\nFROM \\"awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\\""\n'
+        "    relations:\n"
+        "    - awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
+        "    options:\n"
+        "      method_name: read_parquet\n"
+        "      name: awards_players\n"
+        "      read_kwargs:\n"
+        "      - path: /home/hussainsultan/.cache/pins-py/gs_d3037fb8920d01eb3b262ab08d52335c89ba62aa41299e5236f01807aa8b726d/awards_players/20240711T171119Z-886c4/awards_players.parquet\n"
+        "      - table_name: awards_players\n"
+        "    sql_file: c0907dab80b0.sql\n"
     )
     assert sql_text == expected_result
 

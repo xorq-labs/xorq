@@ -6,13 +6,14 @@ import dask
 import yaml
 
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.graph_utils import find_all_sources
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.translate import (
     SchemaRegistry,
     translate_from_yaml,
     translate_to_yaml,
 )
-from xorq.ibis_yaml.utils import find_all_backends, freeze
+from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
@@ -163,7 +164,7 @@ class BuildManager:
         expr_hash = self.artifact_store.get_expr_hash(expr)
         current_path = self.artifact_store.get_build_path(expr_hash)
 
-        backends = find_all_backends(expr.op())
+        backends = find_all_sources(expr)
         profiles = {
             backend._profile.hash_name: backend._profile.as_dict()
             for backend in backends
