@@ -17,9 +17,11 @@ awards_players = deferred_read_parquet(
 )
 left = batting.filter(batting.yearID == 2015)
 right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
-expr = left.join(into_backend(right, pg), ["playerID"], how="semi")[["yearID", "stint"]]
+expr = left.join(
+    into_backend(right, pg, "pg-filtered-table"), ["playerID"], how="semi"
+)[["yearID", "stint"]]
 
 build_manager = BuildManager("builds")
-build_manager.compile_expr(expr)
+expr_hash = build_manager.compile_expr(expr)
 
-roundtrip_expr = build_manager.load_expr("c6a24bb85380")
+roundtrip_expr = build_manager.load_expr(expr_hash)

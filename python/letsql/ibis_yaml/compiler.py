@@ -183,6 +183,7 @@ class BuildManager:
         sql_plans = generate_sql_plans(expr)
         updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
         self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
+        return expr_hash
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
         build_path = self.artifact_store.get_build_path(expr_hash)

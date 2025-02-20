@@ -4,7 +4,7 @@ import letsql.vendor.ibis as ibis
 import letsql.vendor.ibis.expr.operations as ops
 import letsql.vendor.ibis.expr.types as ir
 from letsql.expr.relations import Read, RemoteTable
-from letsql.ibis_yaml.utils import find_relations
+from letsql.ibis_yaml.utils import find_all_backends, find_relations
 
 
 class QueryInfo(TypedDict):
@@ -39,7 +39,9 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
 
         if isinstance(node, ops.Node) and isinstance(node, RemoteTable):
             remote_expr = node.remote_expr
-            original_backend = remote_expr._find_backend()
+            original_backend = find_all_backends(remote_expr)[
+                0
+            ]  # this was _find_backend before
 
             engine_name = original_backend.name
             profile_name = original_backend._profile.hash_name
