@@ -312,10 +312,6 @@ def database_table_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
         con = compiler.profiles[profile_name]
     except KeyError:
         raise ValueError(f"Profile {profile_name!r} not found in compiler.profiles")
-
-    if not hasattr(compiler, "definitions"):
-        raise ValueError("Compiler missing definitions with schemas")
-
     return con.table(table_name)
 
 
@@ -640,9 +636,6 @@ def _aggregate_to_yaml(op: ops.Aggregate, compiler: Any) -> dict:
 
 @register_from_yaml_handler("Aggregate")
 def _aggregate_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
-    if not hasattr(compiler, "definitions"):
-        raise ValueError("Compiler missing definitions with schemas")
-
     parent = translate_from_yaml(yaml_dict["parent"], compiler)
     groups = tuple(
         translate_from_yaml(group, compiler) for group in yaml_dict.get("by", [])
@@ -835,9 +828,6 @@ def _field_to_yaml(op: ops.Field, compiler: Any) -> dict:
 
 @register_from_yaml_handler("Field")
 def field_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
-    if not hasattr(compiler, "definitions"):
-        raise ValueError("Compiler missing definitions with schemas")
-
     relation = translate_from_yaml(yaml_dict["relation"], compiler)
     target_name = yaml_dict["name"]
     source_name = yaml_dict.get("original_name", target_name)

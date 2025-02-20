@@ -17,6 +17,16 @@ class SQLPlans(TypedDict):
     queries: Dict[str, QueryInfo]
 
 
+def get_read_options(read_instance):
+    read_kwargs_list = [{k: v} for k, v in read_instance.read_kwargs]
+
+    return {
+        "method_name": read_instance.method_name,
+        "name": read_instance.name,
+        "read_kwargs": read_kwargs_list,
+    }
+
+
 def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
     remote_tables = {}
     seen = set()
@@ -38,6 +48,7 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
                 "profile_name": profile_name,
                 "relations": find_relations(remote_expr),
                 "sql": ibis.to_sql(remote_expr),
+                "options": {},
             }
         if isinstance(node, Read):
             backend = node.source
@@ -47,8 +58,9 @@ def find_remote_tables(op) -> Dict[str, Dict[str, Any]]:
                 remote_tables[node.make_unbound_dt().name] = {
                     "engine": engine_name,
                     "profile_name": profile_name,
-                    "relations": node.make_unbound_dt().name,
+                    "relations": [node.make_unbound_dt().name],
                     "sql": ibis.to_sql(node.make_unbound_dt().to_expr()),
+                    "options": get_read_options(node),
                 }
 
         if isinstance(node, ops.Node):
@@ -85,6 +97,7 @@ def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
                 "profile_name": profile_name,
                 "relations": list(find_relations(expr)),
                 "sql": main_sql.strip(),
+                "options": {},
             }
         }
     }
@@ -95,6 +108,7 @@ def generate_sql_plans(expr: ir.Expr) -> SQLPlans:
             "relations": info["relations"],
             "profile_name": info["profile_name"],
             "sql": info["sql"].strip(),
+            "options": info["options"],
         }
 
     return plans

@@ -135,6 +135,30 @@ class BuildManager:
         self.artifact_store = ArtifactStore(build_dir)
         self.profiles = {}
 
+    def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
+        sql_hash = dask.base.tokenize(sql)[:12]
+        filename = f"{sql_hash}.sql"
+        sql_path = self.artifact_store.get_build_path(expr_hash) / filename
+        sql_path.write_text(sql)
+        return filename
+
+    def _process_sql_plans(
+        self, sql_plans: Dict[str, Any], expr_hash: str
+    ) -> Dict[str, Any]:
+        updated_plans = {"queries": {}}
+
+        for query_name, query_info in sql_plans["queries"].items():
+            sql_filename = self._write_sql_file(
+                query_info["sql"], expr_hash, query_name
+            )
+
+            updated_query_info = query_info.copy()
+            updated_query_info["sql_file"] = sql_filename
+            updated_query_info.pop("sql")
+            updated_plans["queries"][query_name] = updated_query_info
+
+        return updated_plans
+
     def compile_expr(self, expr: ir.Expr) -> None:
         expr_hash = self.artifact_store.get_expr_hash(expr)
         current_path = self.artifact_store.get_build_path(expr_hash)
@@ -157,7 +181,8 @@ class BuildManager:
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
         sql_plans = generate_sql_plans(expr)
-        self.artifact_store.save_yaml(sql_plans, expr_hash, "sql.yaml")
+        updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
+        self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
         build_path = self.artifact_store.get_build_path(expr_hash)

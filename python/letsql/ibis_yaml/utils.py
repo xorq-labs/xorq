@@ -171,6 +171,10 @@ def find_all_backends(expr: ir.Expr) -> Tuple[BaseBackend, ...]:
             backend = node.source
             if backend is not None:
                 backends.add(backend)
+        elif isinstance(node, RemoteTable):
+            # this needs to habdle when a RemoteTable has Read op since the backend for the op is
+            # not the same as _find_backend()
+            backends.add(*find_all_backends(node.remote_expr))
 
         elif isinstance(node, ops.DatabaseTable):
             backends.add(node.source)
