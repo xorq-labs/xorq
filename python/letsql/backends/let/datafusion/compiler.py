@@ -631,9 +631,9 @@ class DataFusionCompiler(SQLGlotCompiler):
         params: Mapping[ir.Expr, Any] | None = None,
     ):
         op = expr.op()
-        from letsql.expr.relations import replace_cache_table
+        from letsql.expr.relations import legacy_replace_cache_table
 
-        out = op.map_clear(replace_cache_table)
+        out = op.map_clear(legacy_replace_cache_table)
         return super().to_sqlglot(out.to_expr(), limit=limit, params=params)
 
 

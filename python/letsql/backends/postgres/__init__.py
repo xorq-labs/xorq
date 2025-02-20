@@ -1,6 +1,6 @@
 from functools import partial
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -14,8 +14,7 @@ from letsql.backends.postgres.compiler import compiler
 from letsql.common.utils.defer_utils import (
     read_csv_rbr,
 )
-from letsql.common.utils.graph_utils import replace_fix
-from letsql.expr.relations import CachedNode, replace_cache_table
+from letsql.expr.relations import replace_cache_table
 from letsql.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
 from letsql.vendor.ibis.expr import types as ir
 from letsql.vendor.ibis.util import (
@@ -41,32 +40,6 @@ class Backend(IbisPostgresBackend):
             password="letsql",
             database="letsql",
         )
-
-    @staticmethod
-    def _register_and_transform_cache_tables(expr):
-        """This function will sequentially execute any cache node that is not already cached"""
-
-        def fn(node, _, **kwargs):
-            node = node.__recreate__(kwargs)
-            if isinstance(node, CachedNode):
-                uncached, storage = node.parent, node.storage
-                node = storage.set_default(uncached, uncached.op())
-            return node
-
-        op = expr.op()
-        out = op.replace(replace_fix(fn))
-
-        return out.to_expr()
-
-    def execute(
-        self,
-        expr: ir.Expr,
-        params: Mapping | None = None,
-        limit: str | None = "default",
-        **kwargs: Any,
-    ) -> Any:
-        expr = self._register_and_transform_cache_tables(expr)
-        return super().execute(expr, params=params, limit=limit, **kwargs)
 
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any

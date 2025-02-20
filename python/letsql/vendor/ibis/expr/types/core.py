@@ -671,12 +671,12 @@ class LETSQLAccessor:
     @property
     def uncached(self):
         from letsql.expr.relations import (
-            replace_cache_table,
+            legacy_replace_cache_table,
         )
 
         if self.has_cached:
             op = self.expr.op()
-            return op.map_clear(replace_cache_table).to_expr()
+            return op.map_clear(legacy_replace_cache_table).to_expr()
         else:
             return self.expr
 

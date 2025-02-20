@@ -136,9 +136,7 @@ class ModificationTimeStragegy(CacheStrategy):
     @staticmethod
     @functools.cache
     def cached_replace_remote_table(op):
-        from letsql.common.utils.graph_utils import replace_fix
-
-        def rename_remote_table(node, _, **kwargs):
+        def rename_remote_table(node, kwargs):
             if isinstance(node, RemoteTable):
                 # name doesn't matter for key
                 name = "static-name"
@@ -151,9 +149,11 @@ class ModificationTimeStragegy(CacheStrategy):
                 )
                 return rt
             else:
-                return node.__recreate__(kwargs)
+                if kwargs:
+                    return node.__recreate__(kwargs)
+                return node
 
-        return op.replace(replace_fix(rename_remote_table))
+        return op.replace(rename_remote_table)
 
     def replace_remote_table(self, expr):
         """replace remote table with deterministic name ***strictly for key calculation***"""
@@ -186,8 +186,6 @@ class SnapshotStrategy(CacheStrategy):
     @staticmethod
     @functools.cache
     def cached_replace_remote_table(op):
-        from letsql.common.utils.graph_utils import replace_fix
-
         def rename_remote_table(node, _, **kwargs):
             if isinstance(node, RemoteTable):
                 # FIXME: how to verify that we're always within a self.normalization_context?
@@ -203,7 +201,7 @@ class SnapshotStrategy(CacheStrategy):
             else:
                 return node.__recreate__(kwargs)
 
-        return op.replace(replace_fix(rename_remote_table))
+        return op.replace(rename_remote_table)
 
     def replace_remote_table(self, expr):
         """replace remote table with deterministic name ***strictly for key calculation***"""

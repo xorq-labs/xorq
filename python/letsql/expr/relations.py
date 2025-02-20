@@ -4,7 +4,6 @@ from typing import Any
 
 import pyarrow as pa
 
-from letsql.common.utils.graph_utils import replace_fix
 from letsql.vendor import ibis
 from letsql.vendor.ibis import Expr, Schema
 from letsql.vendor.ibis.common.collections import FrozenDict
@@ -13,13 +12,20 @@ from letsql.vendor.ibis.expr import operations as ops
 from letsql.vendor.ibis.expr.operations import Node, Relation
 
 
-def replace_cache_table(node, _, **kwargs):
+def replace_cache_table(node, kwargs):
+    if kwargs:
+        node = node.__recreate__(kwargs)
+
     if isinstance(node, CachedNode):
-        return kwargs["parent"].op().replace(replace_fix(replace_cache_table))
+        return node.parent.op().replace(replace_cache_table)
     elif isinstance(node, RemoteTable):
-        return kwargs["remote_expr"].op().replace(replace_fix(replace_cache_table))
+        return node.remote_expr.op().replace(replace_cache_table)
     else:
-        return node.__recreate__(kwargs)
+        return node
+
+
+def legacy_replace_cache_table(node, _, **kwargs):
+    return replace_cache_table(node, (kwargs or dict(zip(node.argnames, node.args))))
 
 
 # https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
@@ -90,10 +96,12 @@ def make_native_op(node):
     if native_source.name == "let":
         raise ValueError
 
-    def replace_table(_node, _, **_kwargs):
-        return sources.get_table_or_op(_node, _node.__recreate__(_kwargs))
+    def replace_table(_node, _kwargs):
+        return sources.get_table_or_op(
+            _node, _node.__recreate__(_kwargs) if _kwargs else _node
+        )
 
-    return node.replace(replace_fix(replace_table)).to_expr()
+    return node.replace(replace_table).to_expr()
 
 
 class CachedNode(ops.Relation):
@@ -184,7 +192,8 @@ def register_and_transform_remote_tables(expr):
         created[name] = node.source
         return result.op()
 
-    def replacer(node, _, **kwargs):
+    def replacer(node, kwargs):
+        kwargs = kwargs or {}
         if isinstance(node, Relation):
             updated = {}
             for k, v in list(kwargs.items()):
@@ -198,7 +207,8 @@ def register_and_transform_remote_tables(expr):
             if len(updated) > 0:
                 kwargs = {k: recursive_update(v, updated) for k, v in kwargs.items()}
 
-        node = node.__recreate__(kwargs)
+        if kwargs:
+            node = node.__recreate__(kwargs)
         if isinstance(node, RemoteTable):
             result = mark_remote_table(node)
             batches_table[result] = batches_table.pop(node)
@@ -206,5 +216,5 @@ def register_and_transform_remote_tables(expr):
 
         return node
 
-    expr = op.replace(replace_fix(replacer)).to_expr()
+    expr = op.replace(replacer).to_expr()
     return expr, created

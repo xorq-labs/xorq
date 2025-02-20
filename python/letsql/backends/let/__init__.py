@@ -11,11 +11,7 @@ from sqlglot import exp, parse_one
 
 from letsql.backends.let.datafusion import Backend as DataFusionBackend
 from letsql.common.collections import SourceDict
-from letsql.common.utils.graph_utils import replace_fix
-from letsql.expr.relations import (
-    CachedNode,
-    replace_cache_table,
-)
+from letsql.expr.relations import replace_cache_table
 from letsql.internal import SessionConfig, WindowUDF
 from letsql.vendor.ibis.expr import schema as sch
 from letsql.vendor.ibis.expr import types as ir
@@ -246,25 +242,6 @@ class Backend(DataFusionBackend):
 
         """
         super().do_connect(config=config)
-
-    def _register_and_transform_cache_tables(self, expr):
-        """This function will sequentially execute any cache node that is not already cached"""
-
-        def fn(node, _, **kwargs):
-            node = node.__recreate__(kwargs)
-            if isinstance(node, CachedNode):
-                uncached, storage = node.parent, node.storage
-                node = storage.set_default(uncached, uncached.op())
-                table = node.to_expr()
-                if node.source is self:
-                    table = _get_datafusion_table(self.con, node.name)
-                node = self.register(table, table_name=node.name).op()
-            return node
-
-        op = expr.op()
-        out = op.replace(replace_fix(fn))
-
-        return out.to_expr()
 
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any

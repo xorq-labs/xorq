@@ -12,7 +12,6 @@ import pyarrow.dataset as ds
 import letsql.vendor.ibis.expr.types as ir
 from letsql.common.utils.caching_utils import find_backend
 from letsql.common.utils.defer_utils import rbr_wrapper
-from letsql.common.utils.graph_utils import replace_fix
 from letsql.expr.ml import (
     calc_split_column,
     train_test_splits,
@@ -327,15 +326,16 @@ def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
 def _register_and_transform_cache_tables(expr):
     """This function will sequentially execute any cache node that is not already cached"""
 
-    def fn(node, _, **kwargs):
-        node = node.__recreate__(kwargs)
+    def fn(node, kwargs):
+        if kwargs:
+            node = node.__recreate__(kwargs)
         if isinstance(node, CachedNode):
             uncached, storage = node.parent, node.storage
             node = storage.set_default(uncached, uncached.op())
         return node
 
     op = expr.op()
-    out = op.replace(replace_fix(fn))
+    out = op.replace(fn)
 
     return out.to_expr()
 
@@ -343,7 +343,7 @@ def _register_and_transform_cache_tables(expr):
 def _transform_deferred_reads(expr):
     dt_to_read = {}
 
-    def replace_read(node, _, **_kwargs):
+    def replace_read(node, _kwargs):
         from letsql.expr.relations import Read
 
         if isinstance(node, Read):
@@ -353,10 +353,11 @@ def _transform_deferred_reads(expr):
             else:
                 node = dt_to_read[node] = node.make_dt()
         else:
-            node = node.__recreate__(_kwargs)
+            if _kwargs:
+                node = node.__recreate__(_kwargs)
         return node
 
-    expr = expr.op().replace(replace_fix(replace_read)).to_expr()
+    expr = expr.op().replace(replace_read).to_expr()
     return expr, dt_to_read
 
 
