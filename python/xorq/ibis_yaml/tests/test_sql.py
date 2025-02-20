@@ -1,13 +1,13 @@
-import letsql as ls
-import letsql.vendor.ibis.expr.operations as ops
-from letsql.expr.relations import RemoteTable, into_backend
-from letsql.ibis_yaml.sql import find_remote_tables, generate_sql_plans
+import xorq as xo
+import xorq.vendor.ibis.expr.operations as ops
+from xorq.expr.relations import RemoteTable, into_backend
+from xorq.ibis_yaml.sql import find_remote_tables, generate_sql_plans
 
 
 def test_find_remote_tables_simple():
-    db = ls.duckdb.connect()
+    db = xo.duckdb.connect()
     db.profile_name = "duckdb"
-    table = ls.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
+    table = xo.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
     backend = table._find_backend()
     backend.profile_name = "duckdb"
     remote_expr = into_backend(table, db)
@@ -21,13 +21,13 @@ def test_find_remote_tables_simple():
 
 
 def test_find_remote_tables_nested():
-    db1 = ls.duckdb.connect()
+    db1 = xo.duckdb.connect()
     db1.profile_name = "duckdb"
-    db2 = ls.datafusion.connect()
+    db2 = xo.datafusion.connect()
     db2.profile_name = "datafusion"
 
-    table1 = ls.memtable([(1, "a"), (2, "b")], columns=["id", "val1"])
-    table2 = ls.memtable([(1, "x"), (2, "y")], columns=["id", "val2"])
+    table1 = xo.memtable([(1, "a"), (2, "b")], columns=["id", "val1"])
+    table2 = xo.memtable([(1, "x"), (2, "y")], columns=["id", "val2"])
 
     remote1 = into_backend(table1, db1)
     remote2 = into_backend(table2, db2)
@@ -41,14 +41,14 @@ def test_find_remote_tables_nested():
 
 
 def test_find_remote_tables():
-    pg = ls.postgres.connect_examples()
+    pg = xo.postgres.connect_examples()
     pg.profile_name = "postgres"
-    db = ls.duckdb.connect()
+    db = xo.duckdb.connect()
     db.profile_name = "duckdb"
 
     batting = pg.table("batting")
     awards_players = db.read_parquet(
-        ls.config.options.pins.get_path("awards_players"),
+        xo.config.options.pins.get_path("awards_players"),
         table_name="awards_players",
     )
 
@@ -80,10 +80,10 @@ def test_find_remote_tables():
 
 
 def test_generate_sql_plans_simple():
-    db = ls.duckdb.connect()
+    db = xo.duckdb.connect()
     db.profile_name = "duckdb"
-    table = ls.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
-    expr = into_backend(table, db).filter(ls._.id > 1)
+    table = xo.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
+    expr = into_backend(table, db).filter(xo._.id > 1)
 
     plans = generate_sql_plans(expr)
 
@@ -94,15 +94,15 @@ def test_generate_sql_plans_simple():
 
 
 def test_generate_sql_plans_complex_example():
-    pg = ls.postgres.connect_examples()
+    pg = xo.postgres.connect_examples()
     pg.profile_name = "postgres"
 
-    db = ls.duckdb.connect()
+    db = xo.duckdb.connect()
     db.profile_name = "duckdb"
 
     batting = pg.table("batting")
     awards_players = db.read_parquet(
-        ls.config.options.pins.get_path("awards_players"),
+        xo.config.options.pins.get_path("awards_players"),
         table_name="awards_players",
     )
 

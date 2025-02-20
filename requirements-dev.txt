@@ -59,6 +59,7 @@ googleapis-common-protos==1.68.0 ; python_full_version < '4.0'
 greenlet==3.1.1 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
 griffe==1.5.7
 humanize==4.12.1 ; python_full_version < '4.0'
+hypothesis==6.126.0
 identify==2.6.7
 idna==3.10
 importlib-metadata==8.6.1
@@ -147,7 +148,7 @@ scipy==1.15.2
 setuptools==75.8.0 ; sys_platform == 'darwin'
 six==1.17.0
 snowflake-connector-python==3.13.2 ; python_full_version < '4.0'
-sortedcontainers==2.4.0 ; python_full_version < '4.0'
+sortedcontainers==2.4.0
 sphobjinv==2.3.1.2
 sqlalchemy==2.0.38 ; python_full_version < '4.0'
 sqlglot==25.20.2

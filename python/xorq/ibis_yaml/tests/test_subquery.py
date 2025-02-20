@@ -1,5 +1,5 @@
-import letsql.vendor.ibis as ibis
-import letsql.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.operations as ops
 
 
 def test_scalar_subquery(compiler, t):

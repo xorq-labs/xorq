@@ -1,8 +1,8 @@
 import pytest
 
-import letsql.ibis_yaml
-import letsql.ibis_yaml.utils
-import letsql.vendor.ibis as ibis
+import xorq.ibis_yaml
+import xorq.ibis_yaml.utils
+import xorq.vendor.ibis as ibis
 
 
 def test_built_in_udf_properties(compiler):
@@ -66,6 +66,6 @@ def test_built_in_udf(compiler):
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     print(f"Original {expr}")
     print(f"Roundtrip {roundtrip_expr}")
-    letsql.ibis_yaml.utils.diff_ibis_exprs(expr, roundtrip_expr)
+    xorq.ibis_yaml.utils.diff_ibis_exprs(expr, roundtrip_expr)
 
     assert roundtrip_expr.equals(expr)

@@ -1,10 +1,10 @@
 from typing import Any, Dict, TypedDict
 
-import letsql.vendor.ibis as ibis
-import letsql.vendor.ibis.expr.operations as ops
-import letsql.vendor.ibis.expr.types as ir
-from letsql.expr.relations import Read, RemoteTable
-from letsql.ibis_yaml.utils import find_all_backends, find_relations
+import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis.expr.types as ir
+from xorq.expr.relations import Read, RemoteTable
+from xorq.ibis_yaml.utils import find_all_backends, find_relations
 
 
 class QueryInfo(TypedDict):

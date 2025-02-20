@@ -5,10 +5,10 @@ import dask
 import pytest
 import yaml
 
-import letsql as ls
-from letsql.common.utils.defer_utils import deferred_read_parquet
-from letsql.ibis_yaml.compiler import ArtifactStore, BuildManager
-from letsql.vendor.ibis.common.collections import FrozenOrderedDict
+import xorq as xo
+from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 def test_build_manager_expr_hash(t, build_dir):
@@ -62,7 +62,7 @@ none: null
 
 @pytest.mark.xfail(reason="MemTable is not serializable")
 def test_ibis_compiler(t, build_dir):
-    t = ls.memtable({"a": [0, 1], "b": [0, 1]})
+    t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
     compiler = BuildManager(build_dir)
     compiler.compile_expr(expr)
@@ -74,8 +74,8 @@ def test_ibis_compiler(t, build_dir):
 
 
 def test_ibis_compiler_parquet_reader(build_dir):
-    backend = ls.duckdb.connect()
-    parquet_path = ls.config.options.pins.get_path("awards_players")
+    backend = xo.duckdb.connect()
+    parquet_path = xo.config.options.pins.get_path("awards_players")
     awards_players = deferred_read_parquet(
         backend, parquet_path, table_name="award_players"
     )
@@ -90,10 +90,10 @@ def test_ibis_compiler_parquet_reader(build_dir):
 
 
 def test_compiler_sql(build_dir):
-    backend = ls.datafusion.connect()
+    backend = xo.datafusion.connect()
     awards_players = deferred_read_parquet(
         backend,
-        ls.config.options.pins.get_path("awards_players"),
+        xo.config.options.pins.get_path("awards_players"),
         table_name="awards_players",
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
@@ -126,7 +126,7 @@ def test_compiler_sql(build_dir):
 
 
 def test_ibis_compiler_expr_schema_ref(t, build_dir):
-    t = ls.memtable({"a": [0, 1], "b": [0, 1]})
+    t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
     compiler = BuildManager(build_dir)
     compiler.compile_expr(expr)

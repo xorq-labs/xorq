@@ -4,13 +4,13 @@ from typing import Any, Dict, List, Tuple
 
 import cloudpickle
 
-import letsql.vendor.ibis.expr.operations as ops
-import letsql.vendor.ibis.expr.types as ir
-from letsql.common.caching import SourceStorage
-from letsql.expr.relations import CachedNode, Read, RemoteTable
-from letsql.vendor.ibis.backends import BaseBackend
-from letsql.vendor.ibis.common.collections import FrozenOrderedDict
-from letsql.vendor.ibis.expr.types.relations import Table
+import xorq.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis.expr.types as ir
+from xorq.common.caching import SourceStorage
+from xorq.expr.relations import CachedNode, Read, RemoteTable
+from xorq.vendor.ibis.backends import BaseBackend
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.types.relations import Table
 
 
 def serialize_udf_function(fn: callable) -> str:

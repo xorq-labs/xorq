@@ -1,6 +1,6 @@
 import pytest
 
-import letsql.vendor.ibis as ibis
+import xorq.vendor.ibis as ibis
 
 
 @pytest.fixture

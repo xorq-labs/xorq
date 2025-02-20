@@ -1,4 +1,4 @@
-import letsql.vendor.ibis as ibis
+import xorq.vendor.ibis as ibis
 
 
 def test_window_function_roundtrip(compiler, t):

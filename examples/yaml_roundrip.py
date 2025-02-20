@@ -1,18 +1,18 @@
-import letsql as ls
-from letsql.common.utils.defer_utils import deferred_read_parquet
-from letsql.expr.relations import into_backend
-from letsql.ibis_yaml.compiler import BuildManager
+import xorq as xo
+from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.expr.relations import into_backend
+from xorq.ibis_yaml.compiler import BuildManager
 
 
-pg = ls.postgres.connect_examples()
-db = ls.duckdb.connect()
+pg = xo.postgres.connect_examples()
+db = xo.duckdb.connect()
 
 batting = pg.table("batting")
 
-backend = ls.duckdb.connect()
+backend = xo.duckdb.connect()
 awards_players = deferred_read_parquet(
     backend,
-    ls.config.options.pins.get_path("awards_players"),
+    xo.config.options.pins.get_path("awards_players"),
     table_name="award_players",
 )
 left = batting.filter(batting.yearID == 2015)

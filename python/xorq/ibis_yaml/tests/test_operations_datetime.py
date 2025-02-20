@@ -2,9 +2,9 @@
 
 from datetime import datetime
 
-import letsql.vendor.ibis as ibis
-import letsql.vendor.ibis.expr.datatypes as dt
-import letsql.vendor.ibis.expr.operations.temporal as tm
+import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations.temporal as tm
 
 
 def test_date_extract(compiler):

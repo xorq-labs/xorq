@@ -1,7 +1,7 @@
 import datetime
 import decimal
 
-import letsql.vendor.ibis as ibis
+import xorq.vendor.ibis as ibis
 
 
 def test_unbound_table(t, compiler):

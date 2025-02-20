@@ -5,21 +5,21 @@ import decimal
 import functools
 from typing import Any
 
-import letsql.vendor.ibis as ibis
-import letsql.vendor.ibis.expr.datatypes as dt
-import letsql.vendor.ibis.expr.operations as ops
-import letsql.vendor.ibis.expr.operations.temporal as tm
-import letsql.vendor.ibis.expr.rules as rlz
-import letsql.vendor.ibis.expr.types as ir
-from letsql.expr.relations import CachedNode, Read, RemoteTable, into_backend
-from letsql.ibis_yaml.utils import (
+import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations as ops
+import xorq.vendor.ibis.expr.operations.temporal as tm
+import xorq.vendor.ibis.expr.rules as rlz
+import xorq.vendor.ibis.expr.types as ir
+from xorq.expr.relations import CachedNode, Read, RemoteTable, into_backend
+from xorq.ibis_yaml.utils import (
     deserialize_udf_function,
     freeze,
     load_storage_from_yaml,
     serialize_udf_function,
     translate_storage,
 )
-from letsql.vendor.ibis.common.annotations import Argument
+from xorq.vendor.ibis.common.annotations import Argument
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}

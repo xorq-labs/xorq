@@ -5,16 +5,16 @@ from typing import Any, Dict
 import dask
 import yaml
 
-import letsql.vendor.ibis.expr.types as ir
-from letsql.ibis_yaml.sql import generate_sql_plans
-from letsql.ibis_yaml.translate import (
+import xorq.vendor.ibis.expr.types as ir
+from xorq.ibis_yaml.sql import generate_sql_plans
+from xorq.ibis_yaml.translate import (
     SchemaRegistry,
     translate_from_yaml,
     translate_to_yaml,
 )
-from letsql.ibis_yaml.utils import find_all_backends, freeze
-from letsql.vendor.ibis.backends import Profile
-from letsql.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.ibis_yaml.utils import find_all_backends, freeze
+from xorq.vendor.ibis.backends import Profile
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 # is this the right way to handle this? or the right place

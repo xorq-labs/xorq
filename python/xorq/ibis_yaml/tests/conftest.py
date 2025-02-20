@@ -2,8 +2,8 @@ from datetime import date
 
 import pytest
 
-import letsql.vendor.ibis as ibis
-import letsql.vendor.ibis.expr.datatypes as dt
+import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.datatypes as dt
 
 
 # Fixtures from: https://github.com/ibis-project/ibis-substrait/blob/main/ibis_substrait/tests/compiler/test_tpch.py
@@ -250,8 +250,8 @@ def tpc_h03(customer, orders, lineitem):
 
 @pytest.fixture
 def tpc_h04(orders, lineitem):
-    from letsql.vendor.ibis import _
-    from letsql.vendor.ibis.expr.operations import ExistsSubquery
+    from xorq.vendor.ibis import _
+    from xorq.vendor.ibis.expr.operations import ExistsSubquery
 
     lineitem_filtered = lineitem.filter(
         [
@@ -788,6 +788,6 @@ def build_dir(tmp_path_factory):
 
 @pytest.fixture
 def compiler(build_dir):
-    from letsql.ibis_yaml.compiler import YamlExpressionTranslator
+    from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 
     return YamlExpressionTranslator()
