@@ -5,7 +5,7 @@ let
     set -eux
 
     # see https://docs.pytest.org/en/latest/explanation/pythonpath.html#import-mode-importlib
-    required_dir="$(git rev-parse --show-toplevel)/python/letsql"
+    required_dir="$(git rev-parse --show-toplevel)/python/xorq"
 
     case $PWD/ in
       "$required_dir"*) true;;
@@ -59,7 +59,7 @@ let
   letsql-ensure-download-data = pkgs.writeShellScriptBin "letsql-ensure-download-data" ''
     git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit
     repo_dir=$(realpath "$git_dir/..")
-    if [ "$(dirname "$repo_dir")" = "letsql" ] && [ ! -d "$repo_dir/ci/ibis-testing-data" ]; then
+    if [ "$(dirname "$repo_dir")" = "xorq" ] && [ ! -d "$repo_dir/ci/ibis-testing-data" ]; then
       ${letsql-download-data}/bin/letsql-download-data
     fi
   '';

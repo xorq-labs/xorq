@@ -101,7 +101,7 @@ let
       };
       pyprojectOverrides-wheel = crateWheelLib.mkPyprojectOverrides-wheel python pythonSet-base;
       pyprojectOverrides-editable = final: prev: {
-        letsql = prev.letsql.overrideAttrs (old: {
+        xorq = prev.xorq.overrideAttrs (old: {
           patches = (old.patches or [ ]) ++ [
             ./pyproject.build-system.diff
           ];
@@ -128,7 +128,7 @@ let
             )
           );
       pyprojectOverrides-pypi = final: prev: {
-        letsql = prev.letsql.overrideAttrs (old: {
+        xorq = prev.xorq.overrideAttrs (old: {
           src = pkgs.fetchurl {
             url = "https://files.pythonhosted.org/packages/82/7c/4f6fa35ac8bc4aeef68f94c91f2001a799aa6210456c2d806d3574f7ea1f/letsql-0.1.12-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl";
             sha256 = "sha256-1SSYEzLzPYt1dE1q4s7sEbVRA6Sc0j3/VSWx1Q0kGRk=";
@@ -145,9 +145,9 @@ let
       ];
       pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
       pythonSet-pypi = overridePythonSet [ pyprojectOverrides-pypi ];
-      virtualenv-editable = pythonSet-editable.mkVirtualEnv "letsql-dev-env" workspace.deps.all;
-      virtualenv = pythonSet-wheel.mkVirtualEnv "letsql-env" workspace.deps.all;
-      virtualenv-pypi = pythonSet-pypi.mkVirtualEnv "letsql-pypi-env" workspace.deps.all;
+      virtualenv-editable = pythonSet-editable.mkVirtualEnv "xorq" workspace.deps.all;
+      virtualenv = pythonSet-wheel.mkVirtualEnv "xorq" workspace.deps.all;
+      virtualenv-pypi = pythonSet-pypi.mkVirtualEnv "xorq" workspace.deps.all;
 
       editableShellHook = ''
         # Undo dependency propagation by nixpkgs.
@@ -159,8 +159,8 @@ let
         set -eu
 
         repo_dir=$(git rev-parse --show-toplevel)
-        if [ "$(basename "$repo_dir")" != "letsql" ]; then
-          echo "not in letsql, exiting"
+        if [ "$(basename "$repo_dir")" != "xorq" ]; then
+          echo "not in xorq, exiting"
           exit 1
         fi
         case $(uname) in
@@ -168,7 +168,7 @@ let
           *)      suffix=so    ;;
         esac
         source=$repo_dir/target/release/maturin/libletsql.$suffix
-        target=$repo_dir/python/letsql/_internal.abi3.so
+        target=$repo_dir/python/xorq/_internal.abi3.so
 
         if [ -e "$target" ]; then
           for other in $(find src -name '*rs'); do

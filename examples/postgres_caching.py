@@ -1,24 +1,24 @@
-import letsql as ls
-from letsql import _
-from letsql.common.caching import ParquetCacheStorage
+import xorq as xo
+from xorq import _
+from xorq.common.caching import ParquetCacheStorage
 
 
-pg = ls.postgres.connect_examples()
-con = ls.connect()
+pg = xo.postgres.connect_examples()
+con = xo.connect()
 
 for table_name in pg.list_tables():
-    if table_name.startswith(ls.config.options.cache.key_prefix):
+    if table_name.startswith(xo.config.options.cache.key_prefix):
         pg.drop_table(table_name)
 
 cache = ParquetCacheStorage(source=con)
 
 t = (
     pg.table("batting")
-    .mutate(row_number=ls.row_number().over(group_by=[_.playerID], order_by=[_.yearID]))
+    .mutate(row_number=xo.row_number().over(group_by=[_.playerID], order_by=[_.yearID]))
     .filter(_.row_number == 1)
     .cache(storage=cache)
 )
 print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
-res = ls.execute(t)
+res = xo.execute(t)
 print(res)
 print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")

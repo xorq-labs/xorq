@@ -47,7 +47,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-project pytest --import-mode=importlib python/letsql/backends/snowflake -v --cov --cov-report=xml
+        run: uv run --no-project pytest --import-mode=importlib python/xorq/backends/snowflake -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_GH_USER_PASSWORD }}

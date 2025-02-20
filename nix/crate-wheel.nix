@@ -18,7 +18,7 @@ let
         (append src "pyproject.toml")
         (append src "README.md")
         (append src "LICENSE")
-        (append src "python/letsql/internal.py")
+        (append src "python/xorq/internal.py")
         (fileFilter (file: file.hasExt "rs") (append src "src"))
       ];
       pySrcSet = unions [
@@ -118,7 +118,7 @@ let
     nativeBuildInputs = usePyprojectWheelHook old pythonSet;
   };
   mkPyprojectOverrides-wheel = python: pythonSet: final: prev: {
-    letsql = prev.letsql.overrideAttrs (mkLetsqlCrateWheelSrcOverride python pythonSet);
+    xorq = prev.xorq.overrideAttrs (mkLetsqlCrateWheelSrcOverride python pythonSet);
   };
 in
 {

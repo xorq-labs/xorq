@@ -1,16 +1,16 @@
-import letsql as ls
-from letsql import _
-from letsql.common.caching import SourceStorage
+import xorq as xo
+from xorq import _
+from xorq.common.caching import SourceStorage
 
 
-con = ls.connect()
-ddb = ls.duckdb.connect()
-pg = ls.postgres.connect_env()
+con = xo.connect()
+ddb = xo.duckdb.connect()
+pg = xo.postgres.connect_env()
 
 name = "batting"
 
 right = (
-    ls.examples.get_table_from_name(name, backend=ddb)
+    xo.examples.get_table_from_name(name, backend=ddb)
     .filter(_.yearID == 2014)
     .into_backend(con)
 )

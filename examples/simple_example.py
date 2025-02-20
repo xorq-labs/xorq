@@ -1,8 +1,8 @@
-import letsql as ls
+import xorq as xo
 
 
-con = ls.connect()
-iris = ls.examples.iris.fetch(backend=con, table_name="iris")
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con, table_name="iris")
 res = (
     iris.filter([iris.sepal_length > 5])
     .group_by("species")

@@ -2,10 +2,10 @@ import pandas as pd
 import toolz
 import xgboost as xgb
 
-import letsql as ls
-import letsql.expr.udf as udf
-import letsql.vendor.ibis.expr.datatypes as dt
-from letsql.expr.udf import (
+import xorq as xo
+import xorq.expr.udf as udf
+import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.expr.udf import (
     make_pandas_expr_udf,
     wrap_model,
 )
@@ -49,17 +49,17 @@ train_fn = train_xgboost_model(features=features, target=target)
 predict_fn = predict_xgboost_model(features=features)
 
 
-con = ls.connect()
-t = con.read_parquet(ls.config.options.pins.get_path("lending-club"))
-(train, test) = ls.train_test_splits(
+con = xo.connect()
+t = con.read_parquet(xo.config.options.pins.get_path("lending-club"))
+(train, test) = xo.train_test_splits(
     t,
     unique_key=ROWNUM,
     test_sizes=0.7,
 )
 
 # manual run
-model = train_fn(ls.execute(train))
-from_pd = ls.execute(test).assign(
+model = train_fn(xo.execute(train))
+from_pd = xo.execute(test).assign(
     **{prediction_key: predict_fn(**{model_key: model})},
 )
 

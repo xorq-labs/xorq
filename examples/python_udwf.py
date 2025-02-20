@@ -2,10 +2,10 @@ import pandas as pd
 import pyarrow as pa
 from pandas.testing import assert_series_equal
 
-import letsql as ls
-from letsql.expr.udf import pyarrow_udwf
-from letsql.internal import WindowEvaluator
-from letsql.vendor import ibis
+import xorq as xo
+from xorq.expr.udf import pyarrow_udwf
+from xorq.internal import WindowEvaluator
+from xorq.vendor import ibis
 
 
 class ExponentialSmoothDefault(WindowEvaluator):
@@ -276,7 +276,7 @@ def smooth_two_col(self, values: list[pa.Array], num_rows: int) -> pa.Array:
     return pa.array(results)
 
 
-con = ls.connect()
+con = xo.connect()
 t = con.register(
     pa.Table.from_batches(
         [
@@ -307,7 +307,7 @@ expr = (
         .round(3)
     )
 )
-result = ls.execute(expr).sort_values(["c", "a"], ignore_index=True)
+result = xo.execute(expr).sort_values(["c", "a"], ignore_index=True)
 expected = (
     t.execute()
     .combine_first(

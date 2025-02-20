@@ -1,4 +1,4 @@
-# LETSQL
+# xorq (formerly LETSQL)
 
 [![Downloads](https://static.pepy.tech/badge/letsql)](https://pepy.tech/project/letsql)
 ![PyPI - Version](https://img.shields.io/pypi/v/letsql)
@@ -9,6 +9,9 @@
 
 Data processing library built on top of **Ibis** and **DataFusion** to write multi-engine data workflows.
 
+> [!NOTE]  
+> We are changing the name from LETSQL to xorq.
+
 > [!CAUTION]
 > This library does not currently have a stable release. Both the API and implementation are subject to change, and future updates may not be backward compatible.
 
@@ -16,10 +19,10 @@ Data processing library built on top of **Ibis** and **DataFusion** to write mul
 
 ### Installation
 
-LETSQL is available as [`letsql`](https://pypi.org/project/letsql/) on PyPI:
+LETSQL is available as [`xorq`](https://pypi.org/project/xorq/) on PyPI:
 
 ```shell
-pip install letsql
+pip install xorq
 ```
 
 ### Usage
@@ -27,11 +30,11 @@ pip install letsql
 ```python
 import urllib.request
 
-import letsql as ls
+import xorq as xq
 
 urllib.request.urlretrieve("https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv", "iris.csv")
 
-con = ls.connect()
+con = xq.connect()
 iris_table = con.read_csv("iris.csv", table_name="iris")
 
 res = (
@@ -42,20 +45,20 @@ res = (
 )
 ```
 
-for more examples on how to use letsql, check the [examples](https://github.com/letsql/letsql/tree/main/examples) directory, 
+for more examples on how to use letsql, check the [examples](https://github.com/letsql/xorq/tree/main/examples) directory, 
 note that in order to run some of the scripts in there, you need to install the library with `examples` extra:
 
 ```shell
-pip install 'letsql[examples]'
+pip install 'xorq[examples]'
 ```
 
 ## Contributing
 
-Contributions are welcome and highly appreciated. To get started, check out the [contributing guidelines](https://github.com/letsql/letsql/blob/main/CONTRIBUTING.md).
+Contributions are welcome and highly appreciated. To get started, check out the [contributing guidelines](https://github.com/letsql/xorq/blob/main/CONTRIBUTING.md).
 
 ## Support
 
-If you have any issues with this repository, please don't hesitate to [raise them](https://github.com/letsql/letsql/issues/new).
+If you have any issues with this repository, please don't hesitate to [raise them](https://github.com/letsql/xorq/issues/new).
 It is actively maintained, and we will do our best to help you.
 
 ## Acknowledgements

@@ -4,14 +4,14 @@ import pickle
 import pandas as pd
 import pyarrow as pa
 
-import letsql as ls
-from letsql.common.utils.rbr_utils import (
+import xorq as xo
+from xorq.common.utils.rbr_utils import (
     instrument_reader,
     streaming_split_exchange,
 )
-from letsql.flight import FlightServer, make_con
-from letsql.flight.action import AddExchangeAction
-from letsql.flight.exchanger import AbstractExchanger
+from xorq.flight import FlightServer, make_con
+from xorq.flight.action import AddExchangeAction
+from xorq.flight.exchanger import AbstractExchanger
 
 
 SPLIT_KEY = "split"
@@ -86,16 +86,16 @@ class IterativeSplitTrainExchanger(AbstractExchanger):
 
 
 def train_test_split_union(expr, name=SPLIT_KEY, *args, **kwargs):
-    splits = ls.expr.ml.train_test_splits(expr, *args, **kwargs)
-    return ls.union(
+    splits = xo.expr.ml.train_test_splits(expr, *args, **kwargs)
+    return xo.union(
         *(
-            split.mutate(**{name: ls.literal(i, "int64")})
+            split.mutate(**{name: xo.literal(i, "int64")})
             for i, split in enumerate(splits)
         )
     )
 
 
-con = ls.connect()
+con = xo.connect()
 N = 10_000
 df = pd.DataFrame({"a": range(N), "b": range(N, 2 * N)})
 t = con.register(df, "t")
@@ -104,7 +104,7 @@ expr = train_test_split_union(
 )
 
 
-rbr_in = instrument_reader(ls.to_pyarrow_batches(expr), prefix="input ::")
+rbr_in = instrument_reader(xo.to_pyarrow_batches(expr), prefix="input ::")
 with FlightServer() as server:
     client = make_con(server).con
     client.do_action(

@@ -57,7 +57,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run pytest --import-mode=importlib python/letsql/tests/test_register.py -v --cov --cov-report=xml
+        run: uv run pytest --import-mode=importlib python/xorq/tests/test_register.py -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
