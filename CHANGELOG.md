@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.14] - 2025-02-20
+### Details
+This release marks the project's rebranding to xorq, accompanied by significant architectural improvements including the 
+addition of FlightServer and ExprScalarUDF. The update integrates ibis functionality, enhances logging systems, 
+and includes various dependency updates. Notable bug fixes address Python identifier validation and hash stability, 
+while unnecessary dependencies have been removed to streamline the codebase.
+
+#### Added
+- Add FlightServer by @mesejo in [#474](https://github.com/letsql/letsql/pull/474)
+- Add ordering arg to register_record_batch_reader by @mesejo in [#479](https://github.com/letsql/letsql/pull/479)
+- Add ExprScalarUDF by @dlovell in [#532](https://github.com/letsql/letsql/pull/532)
+
+#### Changed
+- Refactor out hotfixing snowflake by @mesejo in [#509](https://github.com/letsql/letsql/pull/509)
+- Update trinodb/trino docker tag to v470 by @renovate[bot] in [#512](https://github.com/letsql/letsql/pull/512)
+- Update dependency ruff to v0.9.5 by @renovate[bot] in [#514](https://github.com/letsql/letsql/pull/514)
+- Update bitnami/minio docker tag to v2025.2.7 by @renovate[bot] in [#526](https://github.com/letsql/letsql/pull/526)
+- Update dependency coverage to v7.6.11 by @renovate[bot] in [#527](https://github.com/letsql/letsql/pull/527)
+- Use get_print_logger instead of print by @dlovell in [#533](https://github.com/letsql/letsql/pull/533)
+- Update dependency coverage to v7.6.12 by @renovate[bot] in [#530](https://github.com/letsql/letsql/pull/530)
+- Update postgres docker tag to v17.3 by @renovate[bot] in [#535](https://github.com/letsql/letsql/pull/535)
+- Register ibis datatypes, raise if not registered by @mesejo in [#538](https://github.com/letsql/letsql/pull/538)
+- Transform datetime to bytes by @mesejo in [#540](https://github.com/letsql/letsql/pull/540)
+- Vendor ibis by @mesejo in [#529](https://github.com/letsql/letsql/pull/529)
+- Update actions/create-github-app-token action to v1.11.5 by @renovate[bot] in [#539](https://github.com/letsql/letsql/pull/539)
+- Update dependency ruff to v0.9.6 by @renovate[bot] in [#528](https://github.com/letsql/letsql/pull/528)
+- Wrap pins with examples by @mesejo in [#511](https://github.com/letsql/letsql/pull/511)
+- Enable kwargless use of default name by @dlovell in [#545](https://github.com/letsql/letsql/pull/545)
+- Clean vendoring by @mesejo in [#546](https://github.com/letsql/letsql/pull/546)
+- Update bitnami/minio docker tag to v2025.2.18 by @renovate[bot] in [#554](https://github.com/letsql/letsql/pull/554)
+- Update trinodb/trino docker tag to v471 by @renovate[bot] in [#555](https://github.com/letsql/letsql/pull/555)
+- Rename to xorq by @mesejo in [#550](https://github.com/letsql/letsql/pull/550)
+
+#### Fixed
+- Convert name to valid Python identifier by @mesejo in [#508](https://github.com/letsql/letsql/pull/508)
+- Update rust crate prost to v0.13.5 by @renovate[bot] in [#531](https://github.com/letsql/letsql/pull/531)
+- Ensure stable hash for normalize_read by @dlovell in [#549](https://github.com/letsql/letsql/pull/549)
+
+#### Removed
+- Remove unwanted dependencies by @mesejo in [#551](https://github.com/letsql/letsql/pull/551)
+- Remove replace_fix wrapper by @mesejo in [#553](https://github.com/letsql/letsql/pull/553)
+
 ## [0.1.13] - 2025-02-05
 ### Details
 Enable caching for BigQuery
