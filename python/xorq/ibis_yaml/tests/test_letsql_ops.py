@@ -41,19 +41,14 @@ def prepare_duckdb_con(duckdb_path):
 
 def test_duckdb_database_table_roundtrip(prepare_duckdb_con, build_dir):
     con = prepare_duckdb_con
-
     profiles = {con._profile.hash_name: con}
-
     table_expr = con.table("mytable")
 
     expr1 = table_expr.mutate(new_val=(table_expr.val + "_extra"))
-    compiler = YamlExpressionTranslator(current_path=build_dir, profiles=profiles)
+    compiler = YamlExpressionTranslator()
 
-    yaml_dict = compiler.to_yaml(expr1)
-
-    print("Serialized YAML:\n", yaml_dict)
-
-    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(expr1, profiles)
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
 
     df_original = expr1.execute()
     df_roundtrip = roundtrip_expr.execute()
@@ -69,9 +64,9 @@ def test_memtable(build_dir):
 
     profiles = {backend._profile.hash_name: backend}
 
-    compiler = YamlExpressionTranslator(current_path=build_dir, profiles=profiles)
+    compiler = YamlExpressionTranslator()
 
-    yaml_dict = compiler.to_yaml(expr)
+    yaml_dict = compiler.to_yaml(expr, profiles, build_dir)
     roundtrip_expr = compiler.from_yaml(yaml_dict)
 
     expr.equals(roundtrip_expr)
@@ -97,10 +92,10 @@ def test_into_backend(build_dir):
         con3._profile.hash_name: con3,
     }
 
-    compiler = YamlExpressionTranslator(current_path=build_dir, profiles=profiles)
+    compiler = YamlExpressionTranslator()
 
-    yaml_dict = compiler.to_yaml(expr)
-    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    yaml_dict = compiler.to_yaml(expr, profiles)
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
 
     assert xo.execute(expr).equals(xo.execute(roundtrip_expr))
 
@@ -117,7 +112,7 @@ def test_memtable_cache(build_dir):
         backend1._profile.hash_name: backend1,
     }
 
-    compiler = YamlExpressionTranslator(profiles=profiles, current_path=build_dir)
+    compiler = YamlExpressionTranslator(profiles=profiles)
 
     yaml_dict = compiler.to_yaml(expr)
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -134,8 +129,8 @@ def test_deferred_read_csv(build_dir):
     )
 
     profiles = {pd_con._profile.hash_name: pd_con}
-    compiler = YamlExpressionTranslator(profiles=profiles, current_path=build_dir)
-    yaml_dict = compiler.to_yaml(expr)
-    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    compiler = YamlExpressionTranslator()
+    yaml_dict = compiler.to_yaml(expr, profiles)
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
 
     assert xo.execute(expr).equals(xo.execute(roundtrip_expr))

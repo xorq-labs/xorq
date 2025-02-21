@@ -44,6 +44,12 @@ class SchemaRegistry:
         self.counter += 1
         return schema_id
 
+    def _register_expr_schema(self, expr: ir.Expr) -> str:
+        if hasattr(expr, "schema"):
+            schema = expr.schema()
+            return self.register_schema(schema)
+        return None
+
 
 def register_from_yaml_handler(*op_names: str):
     def decorator(func):

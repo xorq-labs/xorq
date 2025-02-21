@@ -139,7 +139,7 @@ def test_deferred_reads_yaml(build_dir):
         "reads:\n"
         "  awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f:\n"
         "    engine: datafusion\n"
-        "    profile_name: a506210f56203e8f9b4a84ef73d95eaa\n"
+        "    profile_name: 30174be6bf62a829d7e62af391fc53b2\n"
         "    relations:\n"
         "    - awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
         "    options:\n"

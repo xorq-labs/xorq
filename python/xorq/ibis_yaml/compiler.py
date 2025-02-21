@@ -2,6 +2,7 @@ import pathlib
 from pathlib import Path
 from typing import Any, Dict
 
+import attr
 import dask
 import yaml
 
@@ -95,39 +96,57 @@ class ArtifactStore:
         return self.ensure_dir(expr_hash)
 
 
-class YamlExpressionTranslator:
-    def __init__(
-        self,
-        schema_registry: SchemaRegistry = None,
-        profiles: Dict = None,
-        current_path: Path = None,
-    ):
-        self.schema_registry = schema_registry or SchemaRegistry()
-        self.definitions = {}
-        self.profiles = profiles or {}
-        self.current_path = current_path
+@attr.s(frozen=True, auto_attribs=True)
+class TranslationContext:
+    schema_registry: SchemaRegistry = attr.ib(factory=SchemaRegistry)
+    profiles: FrozenOrderedDict = attr.ib(factory=FrozenOrderedDict)
+    definitions: FrozenOrderedDict = attr.ib(factory=lambda: freeze({"schemas": {}}))
 
-    def to_yaml(self, expr: ir.Expr) -> Dict[str, Any]:
-        schema_ref = self._register_expr_schema(expr)
-        expr_dict = translate_to_yaml(expr, self)
+    def update_definitions(self, new_definitions: FrozenOrderedDict):
+        return attr.evolve(self, definitions=new_definitions)
+
+
+class YamlExpressionTranslator:
+    def __init__(self):
+        pass
+
+    def to_yaml(
+        self,
+        expr: ir.Expr,
+        profiles=None,
+    ) -> Dict[str, Any]:
+        context = TranslationContext(
+            schema_registry=SchemaRegistry(),
+            profiles=freeze(profiles or {}),
+        )
+        schema_ref = context.schema_registry._register_expr_schema(expr)
+        expr_dict = translate_to_yaml(expr, context)
         expr_dict = freeze({**dict(expr_dict), "schema_ref": schema_ref})
 
         return freeze(
             {
-                "definitions": {"schemas": self.schema_registry.schemas},
+                "definitions": {"schemas": context.schema_registry.schemas},
                 "expression": expr_dict,
             }
         )
 
-    def from_yaml(self, yaml_dict: Dict[str, Any]) -> ir.Expr:
-        self.definitions = yaml_dict.get("definitions", {})
+    def from_yaml(
+        self,
+        yaml_dict: Dict[str, Any],
+        profiles=None,
+    ) -> ir.Expr:
+        context = TranslationContext(
+            schema_registry=SchemaRegistry(),
+            profiles=freeze(profiles or {}),
+        )
+        context = context.update_definitions(freeze(yaml_dict.get("definitions", {})))
         expr_dict = freeze(yaml_dict["expression"])
-        return translate_from_yaml(expr_dict, self)
+        return translate_from_yaml(expr_dict, freeze(context))
 
     def _register_expr_schema(self, expr: ir.Expr) -> str:
         if hasattr(expr, "schema"):
             schema = expr.schema()
-            return self.schema_registry.register_schema(schema)
+            return self.context.schema_registry.register_schema(schema)
         return None
 
 
@@ -177,7 +196,6 @@ class BuildManager:
 
     def compile_expr(self, expr: ir.Expr) -> str:
         expr_hash = self.artifact_store.get_expr_hash(expr)
-        current_path = self.artifact_store.get_build_path(expr_hash)
 
         backends = find_all_sources(expr)
         profiles = {
@@ -185,12 +203,8 @@ class BuildManager:
             for backend in backends
         }
 
-        print(profiles)
-
-        translator = YamlExpressionTranslator(
-            profiles=profiles, current_path=current_path
-        )
-        yaml_dict = translator.to_yaml(expr)
+        translator = YamlExpressionTranslator()
+        yaml_dict = translator.to_yaml(expr, profiles)
         self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
@@ -207,7 +221,6 @@ class BuildManager:
         return expr_hash
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
-        build_path = self.artifact_store.get_build_path(expr_hash)
         profiles_dict = self.artifact_store.load_yaml(expr_hash, "profiles.yaml")
 
         def f(values):
@@ -219,12 +232,10 @@ class BuildManager:
             profile: Profile(**f(values)).get_con()
             for profile, values in profiles_dict.items()
         }
-        translator = YamlExpressionTranslator(
-            current_path=build_path, profiles=profiles
-        )
+        translator = YamlExpressionTranslator()
 
         yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
-        return translator.from_yaml(yaml_dict)
+        return translator.from_yaml(yaml_dict, profiles=profiles)
 
     # TODO: maybe change name
     def load_sql_plans(self, expr_hash: str) -> Dict[str, Any]:
