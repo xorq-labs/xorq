@@ -114,6 +114,29 @@ def test_compiler_sql(build_dir):
         "    - awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
         "    options: {}\n"
         "    sql_file: df34d95d62bc.sql\n"
+    )
+    assert sql_text == expected_result
+
+
+def test_deferred_reads_yaml(build_dir):
+    backend = xo.datafusion.connect()
+    awards_players = deferred_read_parquet(
+        backend,
+        xo.config.options.pins.get_path("awards_players"),
+        table_name="awards_players",
+    )
+    expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
+
+    compiler = BuildManager(build_dir)
+    compiler.compile_expr(expr)
+    expr_hash = "79d83e9c89ad"
+    _roundtrip_expr = compiler.load_expr(expr_hash)
+    assert os.path.exists(build_dir / expr_hash / "deferred_reads.yaml")
+
+    sql_text = pathlib.Path(build_dir / expr_hash / "deferred_reads.yaml").read_text()
+
+    expected_result = (
+        "reads:\n"
         "  awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f:\n"
         "    engine: datafusion\n"
         "    profile_name: a506210f56203e8f9b4a84ef73d95eaa\n"
@@ -141,3 +164,22 @@ def test_ibis_compiler_expr_schema_ref(t, build_dir):
         yaml_dict = yaml.safe_load(f)
 
     assert yaml_dict["expression"]["schema_ref"]
+
+
+def test_multi_engine_deferred_reads(build_dir):
+    con0 = xo.connect()
+    con1 = xo.connect()
+    con2 = xo.duckdb.connect()
+    con3 = xo.connect()
+
+    awards_players = xo.examples.awards_players.fetch(con0).into_backend(con1)
+    batting = xo.examples.batting.fetch(con2).into_backend(con1)
+    expr = awards_players.join(
+        batting, predicates=["playerID", "yearID", "lgID"]
+    ).into_backend(con3)[lambda t: t.G == 1]
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert expr.execute().equals(roundtrip_expr.execute())

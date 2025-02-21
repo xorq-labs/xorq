@@ -1,14 +1,14 @@
 import xorq as xo
 from xorq.expr.relations import into_backend
-from xorq.ibis_yaml.sql import find_remote_tables, generate_sql_plans
+from xorq.ibis_yaml.sql import find_tables, generate_sql_plans
 
 
-def test_find_remote_tables_simple():
+def test_find_tables_simple():
     db = xo.duckdb.connect()
     table = xo.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
     remote_expr = into_backend(table, db)
 
-    remote_tables = find_remote_tables(remote_expr)
+    remote_tables, _ = find_tables(remote_expr)
 
     assert len(remote_tables) == 1
     table_name = next(iter(remote_tables))
@@ -16,7 +16,7 @@ def test_find_remote_tables_simple():
     assert remote_tables[table_name]["engine"] == "duckdb"
 
 
-def test_find_remote_tables_nested():
+def test_find_tables_nested():
     db1 = xo.duckdb.connect()
     db1.profile_name = "duckdb"
     db2 = xo.datafusion.connect()
@@ -29,14 +29,14 @@ def test_find_remote_tables_nested():
     remote2 = into_backend(table2, db2)
     expr = remote1.join(remote2, "id")
 
-    remote_tables = find_remote_tables(expr.op())
+    remote_tables, _ = find_tables(expr.op())
 
     assert len(remote_tables) == 2
     assert all(name.startswith("ibis_remote") for name in remote_tables)
     assert all("engine" in info and "sql" in info for info in remote_tables.values())
 
 
-def test_find_remote_tables():
+def test_find_tables():
     pg = xo.postgres.connect_examples()
     pg.profile_name = "postgres"
     db = xo.duckdb.connect()
@@ -54,7 +54,7 @@ def test_find_remote_tables():
         ["yearID", "stint"]
     ]
 
-    remote_tables = find_remote_tables(expr.op())
+    remote_tables, _ = find_tables(expr.op())
 
     assert len(remote_tables) == 1
 
@@ -69,7 +69,7 @@ def test_generate_sql_plans_simple():
     table = xo.memtable([(1, "a"), (2, "b")], columns=["id", "val"])
     expr = into_backend(table, db).filter(xo._.id > 1)
 
-    plans = generate_sql_plans(expr)
+    plans, _deferred_reads = generate_sql_plans(expr)
 
     assert "queries" in plans
     assert "main" in plans["queries"]
@@ -96,7 +96,7 @@ def test_generate_sql_plans_complex_example():
         ["yearID", "stint"]
     ]
 
-    plans = generate_sql_plans(expr)
+    plans, _deferred_reads = generate_sql_plans(expr)
 
     assert "queries" in plans
     assert len(plans["queries"]) == 2

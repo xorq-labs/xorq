@@ -160,7 +160,22 @@ class BuildManager:
 
         return updated_plans
 
-    def compile_expr(self, expr: ir.Expr) -> None:
+    def _process_deferred_reads(
+        self, deferred_reads: Dict[str, Any], expr_hash: str
+    ) -> Dict[str, Any]:
+        updated_reads = {"reads": {}}
+
+        for read_name, read_info in deferred_reads["reads"].items():
+            sql_filename = self._write_sql_file(read_info["sql"], expr_hash, read_name)
+
+            updated_read_info = read_info.copy()
+            updated_read_info["sql_file"] = sql_filename
+            updated_read_info.pop("sql")
+            updated_reads["reads"][read_name] = updated_read_info
+
+        return updated_reads
+
+    def compile_expr(self, expr: ir.Expr) -> str:
         expr_hash = self.artifact_store.get_expr_hash(expr)
         current_path = self.artifact_store.get_build_path(expr_hash)
 
@@ -175,15 +190,20 @@ class BuildManager:
         translator = YamlExpressionTranslator(
             profiles=profiles, current_path=current_path
         )
-        # metadata.yaml (uv.lock, git commit version, version==xorq_internal_version, user, hostname, ip_address(host ip))
         yaml_dict = translator.to_yaml(expr)
         self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
-
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
-        sql_plans = generate_sql_plans(expr)
+        sql_plans, deferred_reads = generate_sql_plans(expr)
+
         updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
         self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
+
+        updated_deferred_reads = self._process_deferred_reads(deferred_reads, expr_hash)
+        self.artifact_store.save_yaml(
+            updated_deferred_reads, expr_hash, "deferred_reads.yaml"
+        )
+
         return expr_hash
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
@@ -209,3 +229,6 @@ class BuildManager:
     # TODO: maybe change name
     def load_sql_plans(self, expr_hash: str) -> Dict[str, Any]:
         return self.artifact_store.load_yaml(expr_hash, "sql.yaml")
+
+    def load_deferred_reads(self, expr_hash: str) -> Dict[str, Any]:
+        return self.artifact_store.load_yaml(expr_hash, "deferred_reads.yaml")
