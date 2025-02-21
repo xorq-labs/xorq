@@ -3,9 +3,9 @@
   "theme": "maple",
   "name": "LETSQL Documentation",
   "colors": {
-    "primary": "#7DF8FE",
-    "light": "#7DF8FE",
-    "dark": "#5CDBF7"
+    "primary": "#0ABAB5",
+    "light": "#0ABAB5",
+    "dark": "#0ABAB5"
   },
   "favicon": "/favicon.svg",
   "navigation": {
@@ -67,8 +67,8 @@
     }
   },
   "logo": {
-    "light": "/logo/xorq_light.png",
-    "dark": "/logo/xorq_dark.png"
+    "light": "/logo/xorq_light_green.png",
+    "dark": "/logo/xorq_dark_green.png"
   },
   "navbar": {
     "links": [
