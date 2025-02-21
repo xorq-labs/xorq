@@ -327,7 +327,7 @@ def _cached_node_to_yaml(op: CachedNode, compiler: any) -> dict:
             "parent": translate_to_yaml(op.parent, compiler),
             "source": op.source._profile.hash_name,
             "storage": translate_storage(op.storage, compiler),
-            "values": dict(op.values),
+            "values": freeze(op.values),
         }
     )
 
@@ -415,7 +415,7 @@ def _read_to_yaml(op: Read, compiler: Any) -> dict:
             "name": op.name,
             "schema_ref": schema_id,
             "profile": profile_hash_name,
-            "read_kwargs": dict(op.read_kwargs) if op.read_kwargs else {},
+            "read_kwargs": freeze(op.read_kwargs if op.read_kwargs else {}),
         }
     )
 

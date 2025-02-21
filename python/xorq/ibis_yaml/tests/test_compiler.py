@@ -174,9 +174,32 @@ def test_multi_engine_deferred_reads(build_dir):
 
     awards_players = xo.examples.awards_players.fetch(con0).into_backend(con1)
     batting = xo.examples.batting.fetch(con2).into_backend(con1)
-    expr = awards_players.join(
-        batting, predicates=["playerID", "yearID", "lgID"]
-    ).into_backend(con3)[lambda t: t.G == 1]
+    expr = (
+        awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
+        .into_backend(con3)
+        .filter(xo._.G == 1)
+    )
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert expr.execute().equals(roundtrip_expr.execute())
+
+
+def test_multi_engine_with_caching(build_dir):
+    con0 = xo.connect()
+    con1 = xo.connect()
+    con2 = xo.duckdb.connect()
+    con3 = xo.connect()
+
+    awards_players = xo.examples.awards_players.fetch(con0).into_backend(con1).cache()
+    batting = xo.examples.batting.fetch(con2).into_backend(con1).cache()
+    expr = (
+        awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
+        .into_backend(con3)
+        .filter(xo._.G == 1)
+    )
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)
 
