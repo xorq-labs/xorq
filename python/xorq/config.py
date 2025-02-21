@@ -136,6 +136,10 @@ class Pins(Config):
         return path
 
 
+class Profiles(Config):
+    profile_dir: pathlib.Path = pathlib.Path("~/.config/letsql/profiles").expanduser()
+
+
 class Options(Config):
     """xorq configuration options
 
@@ -154,6 +158,7 @@ class Options(Config):
     repr: Repr = Repr()
     sql: SQL = SQL()
     pins: Pins = Pins()
+    profiles: Profiles = Profiles()
 
     @property
     def interactive(self) -> bool:

@@ -23,6 +23,10 @@ from xorq.vendor.ibis.expr import types as ir
 
 class Backend(SQLBackend):
     @property
+    def name(self):
+        return "xorq_flight"
+
+    @property
     def version(self) -> str:
         return self.con.do_action(VersionAction.name, options=self.con._options)[0]
 
