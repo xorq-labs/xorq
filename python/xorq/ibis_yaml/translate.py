@@ -274,8 +274,6 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, compiler: Any) -> dict:
 @register_from_yaml_handler("UnboundTable")
 def _unbound_table_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
     table_name = yaml_dict["name"]
-    if not hasattr(compiler, "definitions"):
-        raise ValueError("Compiler missing definitions with schemas")
 
     schema_ref = yaml_dict["schema_ref"]
     try:
@@ -340,9 +338,6 @@ def _cached_node_to_yaml(op: CachedNode, compiler: any) -> dict:
 
 @register_from_yaml_handler("CachedNode")
 def _cached_node_from_yaml(yaml_dict: dict, compiler: any) -> ibis.Expr:
-    if not hasattr(compiler, "definitions"):
-        raise ValueError("Compiler missing definitions with schemas")
-
     schema_ref = yaml_dict["schema_ref"]
     try:
         schema_def = compiler.definitions["schemas"][schema_ref]
@@ -428,9 +423,6 @@ def _read_to_yaml(op: Read, compiler: Any) -> dict:
 
 @register_from_yaml_handler("Read")
 def _read_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
-    if not hasattr(compiler, "definitions"):
-        raise ValueError("Compiler missing definitions with schemas")
-
     schema_ref = yaml_dict["schema_ref"]
     schema_def = compiler.definitions["schemas"][schema_ref]
 
@@ -1293,10 +1285,6 @@ def _string_sql_like_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
 
 
 def _type_from_yaml(yaml_dict: dict) -> dt.DataType:
-    if isinstance(yaml_dict, str):
-        raise ValueError(
-            f"Unexpected string value '{yaml_dict}' - type definitions should be dictionaries"
-        )
     type_name = yaml_dict["name"]
     base_type = REVERSE_TYPE_REGISTRY.get(type_name)
     if base_type is None:

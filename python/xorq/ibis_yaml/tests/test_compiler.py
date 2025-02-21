@@ -1,7 +1,6 @@
 import os
 import pathlib
 
-import dask
 import pytest
 import yaml
 
@@ -65,8 +64,7 @@ def test_ibis_compiler(t, build_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
     compiler = BuildManager(build_dir)
-    compiler.compile_expr(expr)
-    expr_hash = dask.base.tokenize(expr)[:12]
+    expr_hash = compiler.compile_expr(expr)
 
     roundtrip_expr = compiler.load_expr(expr_hash)
 
@@ -157,8 +155,7 @@ def test_ibis_compiler_expr_schema_ref(t, build_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
     compiler = BuildManager(build_dir)
-    compiler.compile_expr(expr)
-    expr_hash = dask.base.tokenize(expr)[:12]
+    expr_hash = compiler.compile_expr(expr)
 
     with open(build_dir / expr_hash / "expr.yaml") as f:
         yaml_dict = yaml.safe_load(f)

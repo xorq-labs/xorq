@@ -8,6 +8,7 @@ import yaml
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.translate import (
     SchemaRegistry,
@@ -23,6 +24,9 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 class CleanDictYAMLDumper(yaml.SafeDumper):
     def represent_frozenordereddict(self, data):
         return self.represent_dict(dict(data))
+
+    def ignore_aliases(self, data):
+        return True
 
 
 CleanDictYAMLDumper.add_representer(
@@ -84,7 +88,8 @@ class ArtifactStore:
 
     def get_expr_hash(self, expr) -> str:
         expr_hash = dask.base.tokenize(expr)
-        return expr_hash[:12]  # TODO: make length of hash as a config
+        hash_length = config.hash_length
+        return expr_hash[:hash_length]  # TODO: make length of hash as a config
 
     def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash, filename) -> pathlib.Path:
         return self.write_yaml(yaml_dict, expr_hash, filename)
@@ -143,12 +148,6 @@ class YamlExpressionTranslator:
         expr_dict = freeze(yaml_dict["expression"])
         return translate_from_yaml(expr_dict, freeze(context))
 
-    def _register_expr_schema(self, expr: ir.Expr) -> str:
-        if hasattr(expr, "schema"):
-            schema = expr.schema()
-            return self.context.schema_registry.register_schema(schema)
-        return None
-
 
 class BuildManager:
     def __init__(self, build_dir: pathlib.Path):
@@ -156,7 +155,8 @@ class BuildManager:
         self.profiles = {}
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
-        sql_hash = dask.base.tokenize(sql)[:12]
+        hash_length = config.hash_length
+        sql_hash = dask.base.tokenize(sql)[:hash_length]
         filename = f"{sql_hash}.sql"
         sql_path = self.artifact_store.get_build_path(expr_hash) / filename
         sql_path.write_text(sql)
