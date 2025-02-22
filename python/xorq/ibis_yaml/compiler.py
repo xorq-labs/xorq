@@ -199,7 +199,10 @@ class BuildManager:
 
         backends = find_all_sources(expr)
         profiles = {
-            backend._profile.hash_name: backend._profile.as_dict()
+            backend._profile.hash_name: {
+                **backend._profile.as_dict(),
+                "kwargs_tuple": dict(backend._profile.as_dict()["kwargs_tuple"]),
+            }
             for backend in backends
         }
 
@@ -225,7 +228,10 @@ class BuildManager:
 
         def f(values):
             dct = dict(values)
-            dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
+            if isinstance(dct["kwargs_tuple"], dict):
+                dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
+            else:
+                dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
             return dct
 
         profiles = {
