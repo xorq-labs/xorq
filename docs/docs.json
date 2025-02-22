@@ -20,6 +20,15 @@
               "core_concepts",
               "development"
             ]
+          },
+          {
+            "group": "Tutorials",
+            "pages": [
+              "tutorials/10_minutes_tour",
+              "tutorials/build_and_run",
+              "tutorials/pipelines_as_expressions",
+              "tutorials/udxf"
+            ]
           }
         ]
       },
@@ -67,8 +76,8 @@
     }
   },
   "logo": {
-    "light": "/logo/xorq_light_green.png",
-    "dark": "/logo/xorq_dark_green.png"
+    "light": "/logo/green_black_xorq_horz.png",
+    "dark": "/logo/green_white_xorq_horz.png"
   },
   "navbar": {
     "links": [
