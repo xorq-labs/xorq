@@ -446,6 +446,7 @@ def _read_to_yaml(op: Read, compiler: Any) -> dict:
             "schema_ref": schema_id,
             "profile": profile_hash_name,
             "read_kwargs": freeze(op.read_kwargs if op.read_kwargs else {}),
+            "values": freeze(op.values),
         }
     )
 
@@ -697,10 +698,9 @@ def _join_to_yaml(op: ops.JoinChain, compiler: Any) -> dict:
             for link in op.rest
         ],
     }
-    if hasattr(op, "values") and op.values:
-        result["values"] = {
-            name: translate_to_yaml(val, compiler) for name, val in op.values.items()
-        }
+    result["values"] = {
+        name: translate_to_yaml(val, compiler) for name, val in op.values.items()
+    }
     return freeze(result)
 
 
@@ -716,12 +716,11 @@ def _join_chain_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
         ]
         result = result.join(table, predicates, how=join["how"])
 
-    if "values" in yaml_dict:
-        values = {
-            name: translate_from_yaml(val, compiler)
-            for name, val in yaml_dict["values"].items()
-        }
-        result = result.select(values)
+    values = {
+        name: translate_from_yaml(val, compiler)
+        for name, val in yaml_dict["values"].items()
+    }
+    result = result.select(values)
     return result
 
 
