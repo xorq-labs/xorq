@@ -165,3 +165,10 @@ def test_aggregation_roundtrip(t, compiler):
     yaml_dict = compiler.to_yaml(expr)
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.schema() == expr.schema()
+
+
+def test_table_perserves_namespace(compiler):
+    expr = ibis.table({"b": "int64"}, name="t2", database="db", catalog="catalog")
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.op().namespace == expr.op().namespace

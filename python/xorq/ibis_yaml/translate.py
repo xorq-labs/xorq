@@ -20,6 +20,7 @@ from xorq.ibis_yaml.utils import (
     translate_storage,
 )
 from xorq.vendor.ibis.common.annotations import Argument
+from xorq.vendor.ibis.expr.operations.relations import Namespace
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
@@ -262,11 +263,18 @@ def _base_op_to_yaml(op: ops.Node, compiler: Any) -> dict:
 @translate_to_yaml.register(ops.UnboundTable)
 def _unbound_table_to_yaml(op: ops.UnboundTable, compiler: Any) -> dict:
     schema_id = compiler.schema_registry.register_schema(op.schema)
+    namespace_dict = freeze(
+        {
+            "catalog": op.namespace.catalog,
+            "database": op.namespace.database,
+        }
+    )
     return freeze(
         {
             "op": "UnboundTable",
             "name": op.name,
             "schema_ref": schema_id,
+            "namespace": namespace_dict,
         }
     )
 
@@ -280,17 +288,26 @@ def _unbound_table_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
         schema_def = compiler.definitions["schemas"][schema_ref]
     except KeyError:
         raise ValueError(f"Schema {schema_ref} not found in definitions")
-
+    namespace_dict = yaml_dict.get("namespace", {})
+    catalog = namespace_dict.get("catalog")
+    database = namespace_dict.get("database")
     schema = {
         name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
     }
-    return ibis.table(schema, name=table_name)
+    # TODO: use UnboundTable node to construct instead of builder API
+    return ibis.table(schema, name=table_name, catalog=catalog, database=database)
 
 
 @translate_to_yaml.register(ops.DatabaseTable)
 def _database_table_to_yaml(op: ops.DatabaseTable, compiler: Any) -> dict:
     profile_name = op.source._profile.hash_name
     schema_id = compiler.schema_registry.register_schema(op.schema)
+    namespace_dict = freeze(
+        {
+            "catalog": op.namespace.catalog,
+            "database": op.namespace.database,
+        }
+    )
 
     return freeze(
         {
@@ -298,6 +315,7 @@ def _database_table_to_yaml(op: ops.DatabaseTable, compiler: Any) -> dict:
             "table": op.name,
             "schema_ref": schema_id,
             "profile": profile_name,
+            "namespace": namespace_dict,
         }
     )
 
@@ -306,17 +324,28 @@ def _database_table_to_yaml(op: ops.DatabaseTable, compiler: Any) -> dict:
 def database_table_from_yaml(yaml_dict: dict, compiler: Any) -> ibis.Expr:
     profile_name = yaml_dict.get("profile")
     table_name = yaml_dict.get("table")
+    namespace_dict = yaml_dict.get("namespace", {})
+    catalog = namespace_dict.get("catalog")
+    database = namespace_dict.get("database")
     # we should validate that schema is the same
     schema_ref = yaml_dict.get("schema_ref")
-
-    if not all([profile_name, table_name, schema_ref]):
-        raise ValueError("Missing required information in YAML for DatabaseTable.")
+    schema_def = compiler.definitions["schemas"][schema_ref]
+    fields = []
+    for name, dtype_yaml in schema_def.items():
+        dtype = _type_from_yaml(dtype_yaml)
+        fields.append((name, dtype))
+    schema = ibis.Schema.from_tuples(fields)
 
     try:
         con = compiler.profiles[profile_name]
     except KeyError:
         raise ValueError(f"Profile {profile_name!r} not found in compiler.profiles")
-    return con.table(table_name)
+    return ops.DatabaseTable(
+        schema=schema,
+        source=con,
+        name=table_name,
+        namespace=Namespace(catalog=catalog, database=database),
+    ).to_expr()
 
 
 @translate_to_yaml.register(CachedNode)
