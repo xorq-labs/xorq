@@ -13,11 +13,11 @@ asttokens==3.0.0
 async-timeout==5.0.1 ; python_full_version < '3.11'
 atpublic==5.1
 attrs==25.1.0
-beartype==0.19.0
+beartype==0.20.0
 beniget==0.4.2.post1 ; sys_platform == 'darwin'
 black==25.1.0
 blackdoc==0.3.9
-cachetools==5.5.1 ; python_full_version < '4.0'
+cachetools==5.5.2 ; python_full_version < '4.0'
 certifi==2025.1.31
 cffi==1.17.1
 cfgv==3.4.0
@@ -35,7 +35,7 @@ cryptography==44.0.1
 dask==2025.1.0 ; python_full_version < '4.0'
 datafusion==43.1.0
 debugpy==1.8.12
-decorator==5.1.1
+decorator==5.2.0
 distlib==0.3.9
 duckdb==1.2.0
 exceptiongroup==1.2.2 ; python_full_version < '3.11'
@@ -51,11 +51,11 @@ git-cliff==2.8.0
 google-api-core==2.24.1 ; python_full_version < '4.0'
 google-auth==2.38.0 ; python_full_version < '4.0'
 google-auth-oauthlib==1.2.1 ; python_full_version < '4.0'
-google-cloud-core==2.4.1 ; python_full_version < '4.0'
+google-cloud-core==2.4.2 ; python_full_version < '4.0'
 google-cloud-storage==3.0.0 ; python_full_version < '4.0'
 google-crc32c==1.6.0 ; python_full_version < '4.0'
 google-resumable-media==2.7.2 ; python_full_version < '4.0'
-googleapis-common-protos==1.67.0 ; python_full_version < '4.0'
+googleapis-common-protos==1.68.0 ; python_full_version < '4.0'
 greenlet==3.1.1 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
 griffe==1.5.7
 humanize==4.12.1 ; python_full_version < '4.0'
@@ -105,7 +105,7 @@ plum-dispatch==2.5.7
 ply==3.11 ; sys_platform == 'darwin'
 pre-commit==4.1.0
 prompt-toolkit==3.0.50
-propcache==0.2.1 ; python_full_version < '4.0'
+propcache==0.3.0 ; python_full_version < '4.0'
 proto-plus==1.26.0 ; python_full_version < '4.0'
 protobuf==5.29.3 ; python_full_version < '4.0'
 psutil==7.0.0
@@ -139,9 +139,9 @@ referencing==0.36.2
 requests==2.32.3
 requests-oauthlib==2.0.0 ; python_full_version < '4.0'
 rich==13.9.4
-rpds-py==0.22.3
+rpds-py==0.23.1
 rsa==4.9 ; python_full_version < '4.0'
-ruff==0.9.6
+ruff==0.9.7
 scikit-learn==1.6.1
 scipy==1.15.2
 setuptools==75.8.0 ; sys_platform == 'darwin'
