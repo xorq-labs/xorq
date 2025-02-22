@@ -3,7 +3,6 @@ import pathlib
 from pathlib import Path
 from typing import Any, Dict
 
-import attr
 import dask
 import yaml
 
@@ -11,7 +10,7 @@ import xorq as xo
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
-from xorq.ibis_yaml.common import SchemaRegistry
+from xorq.ibis_yaml.common import SchemaRegistry, TranslationContext
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.translate import (
@@ -108,16 +107,6 @@ class ArtifactStore:
 
     def get_build_path(self, expr_hash: str) -> pathlib.Path:
         return self.ensure_dir(expr_hash)
-
-
-@attr.s(frozen=True)
-class TranslationContext:
-    schema_registry: SchemaRegistry = attr.ib(factory=SchemaRegistry)
-    profiles: FrozenOrderedDict = attr.ib(factory=FrozenOrderedDict)
-    definitions: FrozenOrderedDict = attr.ib(factory=lambda: freeze({"schemas": {}}))
-
-    def update_definitions(self, new_definitions: FrozenOrderedDict):
-        return attr.evolve(self, definitions=new_definitions)
 
 
 class YamlExpressionTranslator:
