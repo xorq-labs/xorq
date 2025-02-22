@@ -101,7 +101,10 @@ def test_compiler_sql(build_dir):
     _roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert os.path.exists(build_dir / expr_hash / "sql.yaml")
+    assert os.path.exists(build_dir / expr_hash / "metadata.json")
+    metadata = compiler.artifact_store.read_json(build_dir, expr_hash, "metadata.json")
 
+    assert "current_library_version" in metadata
     sql_text = pathlib.Path(build_dir / expr_hash / "sql.yaml").read_text()
     expected_result = (
         "queries:\n"

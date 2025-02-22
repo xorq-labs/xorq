@@ -17,6 +17,9 @@ from xorq.ibis_yaml.common import (
     translate_from_yaml,
     translate_to_yaml,
 )
+
+# ruff: noqa: F401
+from xorq.ibis_yaml.udf import _scalar_udf_from_yaml, _scalar_udf_to_yaml
 from xorq.ibis_yaml.utils import (
     freeze,
     load_storage_from_yaml,

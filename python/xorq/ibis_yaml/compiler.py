@@ -1,3 +1,4 @@
+import json
 import pathlib
 from pathlib import Path
 from typing import Any, Dict
@@ -6,6 +7,8 @@ import attr
 import dask
 import yaml
 
+import xorq as xo
+import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
 from xorq.ibis_yaml.common import SchemaRegistry
@@ -67,6 +70,13 @@ class ArtifactStore:
             raise FileNotFoundError(f"File not found: {path}")
         with path.open("r") as f:
             return yaml.safe_load(f)
+
+    def read_json(self, *path_parts) -> Dict[str, Any]:
+        path = self.get_path(*path_parts)
+        if not path.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+        with path.open("r") as f:
+            return json.load(f)
 
     def write_text(self, content: str, *path_parts) -> pathlib.Path:
         path = self.get_path(*path_parts)
@@ -178,6 +188,19 @@ class BuildManager:
 
         return updated_plans
 
+    def _make_metadata(self) -> str:
+        metadata = {
+            "current_library_version": xo.__version__,
+            "metadata_version": "0.0.0",  # TODO: make it a real thing
+        }
+        if lu._git_is_present():
+            git_state = lu.get_git_state(hash_diffs=False)
+            metadata["git_state"] = git_state
+
+        metadata_json = json.dumps(metadata, indent=2)
+
+        return metadata_json
+
     def _process_deferred_reads(
         self, deferred_reads: Dict[str, Any], expr_hash: str
     ) -> Dict[str, Any]:
@@ -219,6 +242,9 @@ class BuildManager:
         self.artifact_store.save_yaml(
             updated_deferred_reads, expr_hash, "deferred_reads.yaml"
         )
+
+        metadata_json = self._make_metadata()
+        self.artifact_store.write_text(metadata_json, expr_hash, "metadata.json")
 
         return expr_hash
 
