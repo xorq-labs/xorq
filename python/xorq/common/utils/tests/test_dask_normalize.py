@@ -10,7 +10,7 @@ import xorq.common.utils.dask_normalize  # noqa: F401
 from xorq.common.caching import (
     SnapshotStorage,
 )
-from xorq.common.utils.dask_normalize import (
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
 )
 

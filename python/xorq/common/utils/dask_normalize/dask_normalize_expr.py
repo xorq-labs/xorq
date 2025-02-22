@@ -1,4 +1,3 @@
-import inspect
 import pathlib
 import re
 import types
@@ -9,6 +8,9 @@ import sqlglot as sg
 import xorq as xo
 import xorq.vendor.ibis.expr.datatypes as dat
 import xorq.vendor.ibis.expr.operations.relations as ir
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_seq_with_caller,
+)
 from xorq.common.utils.defer_utils import (
     Read,
 )
@@ -21,21 +23,6 @@ from xorq.vendor.ibis.expr.operations.udf import (
     AggUDF,
     ScalarUDF,
 )
-
-
-def get_enclosing_function(level=2):
-    # let caller inspect it's caller's name with level=2
-    return inspect.stack()[level].function
-
-
-def normalize_seq_with_caller(*args):
-    caller = get_enclosing_function(level=2)
-    return dask.tokenize._normalize_seq_func(
-        (
-            caller,
-            args,
-        )
-    )
 
 
 def expr_is_bound(expr):
@@ -193,11 +180,6 @@ def normalize_letsql_databasetable(dt):
     return dask.base.normalize_token(new_dt)
 
 
-@dask.base.normalize_token.register(object)
-def raise_generic_object(o):
-    raise ValueError(f"Object {o!r} cannot be deterministically hashed")
-
-
 @dask.base.normalize_token.register(types.ModuleType)
 def normalize_module(module):
     return normalize_seq_with_caller(
@@ -208,7 +190,7 @@ def normalize_module(module):
 
 @dask.base.normalize_token.register(dat.DataType)
 def normalize_ibis_datatype(datatype):
-    return dask.tokenize._normalize_seq_func((datatype.name.lower(), *datatype.args))
+    return normalize_seq_with_caller(datatype.name.lower(), *datatype.args)
 
 
 @dask.base.normalize_token.register(Read)
