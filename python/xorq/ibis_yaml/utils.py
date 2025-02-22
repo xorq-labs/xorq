@@ -1,22 +1,8 @@
-import base64
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict
 
-import cloudpickle
-
 from xorq.common.caching import SourceStorage
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-
-
-def serialize_udf_function(fn: callable) -> str:
-    pickled = cloudpickle.dumps(fn)
-    encoded = base64.b64encode(pickled).decode("ascii")
-    return encoded
-
-
-def deserialize_udf_function(encoded_fn: str) -> callable:
-    pickled = base64.b64decode(encoded_fn)
-    return cloudpickle.loads(pickled)
 
 
 def freeze(obj):

@@ -8,10 +8,10 @@ import yaml
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.ibis_yaml.common import SchemaRegistry
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.translate import (
-    SchemaRegistry,
     translate_from_yaml,
     translate_to_yaml,
 )
@@ -20,7 +20,6 @@ from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
-# is this the right way to handle this? or the right place
 class CleanDictYAMLDumper(yaml.SafeDumper):
     def represent_frozenordereddict(self, data):
         return self.represent_dict(dict(data))
@@ -89,7 +88,7 @@ class ArtifactStore:
     def get_expr_hash(self, expr) -> str:
         expr_hash = dask.base.tokenize(expr)
         hash_length = config.hash_length
-        return expr_hash[:hash_length]  # TODO: make length of hash as a config
+        return expr_hash[:hash_length]
 
     def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash, filename) -> pathlib.Path:
         return self.write_yaml(yaml_dict, expr_hash, filename)
@@ -101,7 +100,7 @@ class ArtifactStore:
         return self.ensure_dir(expr_hash)
 
 
-@attr.s(frozen=True, auto_attribs=True)
+@attr.s(frozen=True)
 class TranslationContext:
     schema_registry: SchemaRegistry = attr.ib(factory=SchemaRegistry)
     profiles: FrozenOrderedDict = attr.ib(factory=FrozenOrderedDict)

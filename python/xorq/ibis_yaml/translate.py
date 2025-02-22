@@ -9,76 +9,20 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
-import xorq.vendor.ibis.expr.rules as rlz
 import xorq.vendor.ibis.expr.types as ir
 from xorq.expr.relations import CachedNode, Read, RemoteTable, into_backend
+from xorq.ibis_yaml.common import (
+    _translate_type,
+    register_from_yaml_handler,
+    translate_from_yaml,
+    translate_to_yaml,
+)
 from xorq.ibis_yaml.utils import (
-    deserialize_udf_function,
     freeze,
     load_storage_from_yaml,
-    serialize_udf_function,
     translate_storage,
 )
-from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.expr.operations.relations import Namespace
-
-
-FROM_YAML_HANDLERS: dict[str, Any] = {}
-
-
-class SchemaRegistry:
-    def __init__(self):
-        self.schemas = {}
-        self.counter = 0
-
-    def register_schema(self, schema):
-        frozen_schema = freeze(
-            {name: _translate_type(dtype) for name, dtype in schema.items()}
-        )
-
-        for schema_id, existing_schema in self.schemas.items():
-            if existing_schema == frozen_schema:
-                return schema_id
-
-        schema_id = f"schema_{self.counter}"
-        self.schemas[schema_id] = frozen_schema
-        self.counter += 1
-        return schema_id
-
-    def _register_expr_schema(self, expr: ir.Expr) -> str:
-        if hasattr(expr, "schema"):
-            schema = expr.schema()
-            return self.register_schema(schema)
-        return None
-
-
-def register_from_yaml_handler(*op_names: str):
-    def decorator(func):
-        for name in op_names:
-            FROM_YAML_HANDLERS[name] = func
-        return func
-
-    return decorator
-
-
-@functools.cache
-@functools.singledispatch
-def translate_from_yaml(yaml_dict: dict, compiler: Any) -> Any:
-    op_type = yaml_dict["op"]
-    if op_type not in FROM_YAML_HANDLERS:
-        raise NotImplementedError(f"No handler for operation {op_type}")
-    return FROM_YAML_HANDLERS[op_type](yaml_dict, compiler)
-
-
-@functools.cache
-@functools.singledispatch
-def translate_to_yaml(op: Any, compiler: Any) -> dict:
-    raise NotImplementedError(f"No translation rule for {type(op)}")
-
-
-@functools.singledispatch
-def _translate_type(dtype: dt.DataType) -> dict:
-    return freeze({"name": type(dtype).__name__, "nullable": dtype.nullable})
 
 
 @_translate_type.register(dt.Timestamp)
@@ -1023,77 +967,6 @@ def _searched_case_from_yaml(yaml_dict: dict, compiler: Any) -> ir.Expr:
     default = translate_from_yaml(yaml_dict["default"], compiler)
     op = ops.SearchedCase(cases, results, default)
     return op.to_expr()
-
-
-@translate_to_yaml.register(ops.ScalarUDF)
-def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
-    print(dir(op))
-    if getattr(op.__class__, "__input_type__", None) != ops.udf.InputType.BUILTIN:
-        raise NotImplementedError(
-            f"Translation of UDFs with input type {getattr(op.__class__, '__input_type__', None)} is not supported"
-        )
-    arg_names = [
-        name
-        for name in dir(op)
-        if not name.startswith("__") and name not in op.__class__.__slots__
-    ]
-
-    return freeze(
-        {
-            "op": "ScalarUDF",
-            "unique_name": op.__func_name__,
-            "input_type": "builtin",
-            "args": [translate_to_yaml(arg, compiler) for arg in op.args],
-            "type": _translate_type(op.dtype),
-            "pickle": serialize_udf_function(op.__func__),
-            "module": op.__module__,
-            "class_name": op.__class__.__name__,
-            "arg_names": arg_names,
-        }
-    )
-
-
-@register_from_yaml_handler("ScalarUDF")
-def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
-    encoded_fn = yaml_dict.get("pickle")
-    if not encoded_fn:
-        raise ValueError("Missing pickle data for ScalarUDF")
-    fn = deserialize_udf_function(encoded_fn)
-
-    args = tuple(
-        translate_from_yaml(arg, compiler) for arg in yaml_dict.get("args", [])
-    )
-    if not args:
-        raise ValueError("ScalarUDF requires at least one argument")
-
-    arg_names = yaml_dict.get("arg_names", [f"arg{i}" for i in range(len(args))])
-
-    fields = {
-        name: Argument(pattern=rlz.ValueOf(arg.type()), typehint=arg.type())
-        for name, arg in zip(arg_names, args)
-    }
-
-    bases = (ops.ScalarUDF,)
-    meta = {
-        "dtype": dt.dtype(yaml_dict["type"]["name"]),
-        "__input_type__": ops.udf.InputType.BUILTIN,
-        "__func__": property(fget=lambda _, f=fn: f),
-        "__config__": {"volatility": "immutable"},
-        "__udf_namespace__": None,
-        "__module__": yaml_dict.get("module", "__main__"),
-        "__func_name__": yaml_dict["unique_name"],
-    }
-
-    kwds = {**fields, **meta}
-    class_name = yaml_dict.get("class_name", yaml_dict["unique_name"])
-
-    node = type(
-        class_name,
-        bases,
-        kwds,
-    )
-
-    return node(*args).to_expr()
 
 
 @register_from_yaml_handler("View")
