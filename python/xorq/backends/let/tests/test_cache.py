@@ -728,9 +728,9 @@ def test_pandas_snapshot(ls_con, alltypes_df):
         normalized1 = dask.base.normalize_token(uncached)
 
     # the "stable rename" occurs inside of SnapshotStrategy.get_key
-    assert normalized0[0] != normalized1[0]
+    assert normalized0[1][1][0] != normalized1[1][1][0]
     # everything else is stable, despite the different date
-    assert normalized0[1:] == normalized1[1:]
+    assert normalized0[1][1][1:] == normalized1[1][1][1:]
     assert storage.exists(uncached)
     executed2 = cached_expr.ls.uncached.execute()
     assert not executed0.equals(executed2)

@@ -21,13 +21,13 @@ from attr.validators import (
 import xorq as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.dask_normalize import (
-    patch_normalize_token,
-)
-from xorq.common.utils.dask_normalize_expr import (
+from xorq.common.utils.dask_normalize.dask_normalize_expr import (
     normalize_backend,
     normalize_read,
     normalize_remote_table,
+)
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    patch_normalize_token,
 )
 from xorq.expr.relations import (
     Read,

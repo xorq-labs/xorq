@@ -1,3 +1,4 @@
+import inspect
 from contextlib import contextmanager
 from unittest.mock import (
     Mock,
@@ -6,13 +7,6 @@ from unittest.mock import (
 
 import dask
 import toolz
-
-import xorq.common.utils.dask_normalize_expr  # noqa: F401
-import xorq.common.utils.dask_normalize_function  # noqa: F401
-import xorq.common.utils.dask_normalize_other  # noqa: F401
-
-
-dask.config.set({"tokenize.ensure-deterministic": True})
 
 
 @contextmanager
@@ -23,3 +17,18 @@ def patch_normalize_token(*typs, f=toolz.functoolz.return_none):
     ) as dct:
         mocks = {typ: dct[typ] for typ in typs}
         yield mocks
+
+
+def get_enclosing_function(level=2):
+    # let caller inspect it's caller's name with level=2
+    return inspect.stack()[level].function
+
+
+def normalize_seq_with_caller(*args):
+    caller = get_enclosing_function(level=2)
+    return dask.tokenize._normalize_seq_func(
+        (
+            caller,
+            args,
+        )
+    )
