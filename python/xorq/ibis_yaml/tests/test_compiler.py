@@ -79,8 +79,7 @@ def test_ibis_compiler_parquet_reader(build_dir):
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
     compiler = BuildManager(build_dir)
-    compiler.compile_expr(expr)
-    expr_hash = "9a7d0b20d41a"
+    expr_hash = compiler.compile_expr(expr)
     roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert expr.execute().equals(roundtrip_expr.execute())
@@ -96,8 +95,7 @@ def test_compiler_sql(build_dir):
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
     compiler = BuildManager(build_dir)
-    compiler.compile_expr(expr)
-    expr_hash = "79d83e9c89ad"
+    expr_hash = compiler.compile_expr(expr)
     _roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert os.path.exists(build_dir / expr_hash / "sql.yaml")
@@ -129,8 +127,7 @@ def test_deferred_reads_yaml(build_dir):
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
     compiler = BuildManager(build_dir)
-    compiler.compile_expr(expr)
-    expr_hash = "79d83e9c89ad"
+    expr_hash = compiler.compile_expr(expr)
     _roundtrip_expr = compiler.load_expr(expr_hash)
     assert os.path.exists(build_dir / expr_hash / "deferred_reads.yaml")
 
