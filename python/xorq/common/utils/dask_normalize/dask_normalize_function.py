@@ -4,6 +4,9 @@ import types
 import dask.base
 import toolz
 
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_seq_with_caller,
+)
 from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
 )
@@ -40,8 +43,8 @@ FUNCTION_ATTRS = (
 
 @toolz.curry
 def normalize_by_attrs(attrs, obj):
-    objs = tuple(dask.base.normalize_token(getattr(obj, attr, None)) for attr in attrs)
-    return objs
+    objs = tuple(getattr(obj, attr, None) for attr in attrs)
+    return normalize_seq_with_caller(*objs)
 
 
 @dask.base.normalize_token.register(
@@ -72,12 +75,10 @@ dask.base.normalize_token.register(property, normalize_code)
 
 @dask.base.normalize_token.register(toolz.functoolz.Compose)
 def normalize_toolz_compose(composed):
-    return dask.base._normalize_seq_func(
-        (
-            toolz.functoolz.Compose,
-            composed.first,
-            composed.funcs,
-        )
+    return normalize_seq_with_caller(
+        toolz.functoolz.Compose,
+        composed.first,
+        composed.funcs,
     )
 
 
