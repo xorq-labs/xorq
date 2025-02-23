@@ -1,12 +1,15 @@
 import os
 import pathlib
 
+import dask
 import pytest
 import yaml
 
 import xorq as xo
+import xorq.vendor.ibis as ibis
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
+from xorq.ibis_yaml.sql import find_relations
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -97,6 +100,8 @@ def test_compiler_sql(build_dir):
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)
     _roundtrip_expr = compiler.load_expr(expr_hash)
+    expected_relation = find_relations(awards_players)[0]
+    expted_sql_hash = dask.base.tokenize(str(ibis.to_sql(expr)))[:12]
 
     assert os.path.exists(build_dir / expr_hash / "sql.yaml")
     assert os.path.exists(build_dir / expr_hash / "metadata.json")
@@ -110,44 +115,57 @@ def test_compiler_sql(build_dir):
         "    engine: let\n"
         f"    profile_name: {expr._find_backend()._profile.hash_name}\n"
         "    relations:\n"
-        "    - awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
+        f"    - {expected_relation}\n"
         "    options: {}\n"
-        "    sql_file: df34d95d62bc.sql\n"
+        f"    sql_file: {expted_sql_hash}.sql\n"
     )
     assert sql_text == expected_result
 
 
 def test_deferred_reads_yaml(build_dir):
     backend = xo.datafusion.connect()
+    # Factor out the config path
+    config_path = xo.config.options.pins.get_path("awards_players")
     awards_players = deferred_read_parquet(
         backend,
-        xo.config.options.pins.get_path("awards_players"),
+        config_path,
         table_name="awards_players",
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
+    # Get the dynamic relation and profile hash
+    expected_relation = find_relations(awards_players)[0]
+    expected_profile = backend._profile.hash_name
+
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)
     _roundtrip_expr = compiler.load_expr(expr_hash)
-    assert os.path.exists(build_dir / expr_hash / "deferred_reads.yaml")
 
-    sql_text = pathlib.Path(build_dir / expr_hash / "deferred_reads.yaml").read_text()
+    yaml_path = build_dir / expr_hash / "deferred_reads.yaml"
+    assert os.path.exists(yaml_path)
+    sql_text = pathlib.Path(yaml_path).read_text()
+
+    sql_str = str(ibis.to_sql(awards_players))
+    expected_sql_file = dask.base.tokenize(sql_str)[:12] + ".sql"
+
+    expected_read_path = str(config_path)
 
     expected_result = (
         "reads:\n"
-        "  awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f:\n"
+        f"  {expected_relation}:\n"
         "    engine: datafusion\n"
-        "    profile_name: 30174be6bf62a829d7e62af391fc53b2\n"
+        f"    profile_name: {expected_profile}\n"
         "    relations:\n"
-        "    - awards_players-eaf5fdf4554ae9098af6c7e7dfea1a9f\n"
+        f"    - {expected_relation}\n"
         "    options:\n"
         "      method_name: read_parquet\n"
         "      name: awards_players\n"
         "      read_kwargs:\n"
-        "      - path: /home/hussainsultan/.cache/pins-py/gs_d3037fb8920d01eb3b262ab08d52335c89ba62aa41299e5236f01807aa8b726d/awards_players/20240711T171119Z-886c4/awards_players.parquet\n"
+        f"      - path: {expected_read_path}\n"
         "      - table_name: awards_players\n"
-        "    sql_file: c0907dab80b0.sql\n"
+        f"    sql_file: {expected_sql_file}\n"
     )
+
     assert sql_text == expected_result
 
 
