@@ -76,8 +76,8 @@
     }
   },
   "logo": {
-    "light": "/logo/green_black_xorq_horz.png",
-    "dark": "/logo/green_white_xorq_horz.png"
+    "light": "/logo/green_black_xorq_side.png",
+    "dark": "/logo/green_white_xorq_side.png"
   },
   "navbar": {
     "links": [
