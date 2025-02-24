@@ -1,4 +1,6 @@
+import contextlib
 import json
+import operator
 import pathlib
 from pathlib import Path
 from typing import Any, Dict
@@ -50,10 +52,29 @@ class ArtifactStore:
         path.mkdir(parents=True, exist_ok=True)
         return path
 
-    def write_yaml(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
+    def _read(self, read_f, *parts):
+        path = self.get_path(*parts)
+        with path.open("r") as f:
+            return read_f(f)
+
+    def read_yaml(self, *path_parts) -> Dict[str, Any]:
+        return self._read(yaml.safe_load, *path_parts)
+
+    def read_json(self, *path_parts) -> Dict[str, Any]:
+        return self._read(json.load, *path_parts)
+
+    def read_text(self, *path_parts) -> str:
+        return self._read(operator.methodcaller("read"), *path_parts)
+
+    @contextlib.contextmanager
+    def _write(self, *path_parts):
         path = self.get_path(*path_parts)
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("w") as f:
+            yield (path, f)
+
+    def write_yaml(self, data: Dict[str, Any], *path_parts) -> pathlib.Path:
+        with self._write(*path_parts) as (path, f):
             yaml.dump(
                 data,
                 f,
@@ -63,27 +84,10 @@ class ArtifactStore:
             )
         return path
 
-    def read_yaml(self, *path_parts) -> Dict[str, Any]:
-        path = self.get_path(*path_parts)
-        with path.open("r") as f:
-            return yaml.safe_load(f)
-
-    def read_json(self, *path_parts) -> Dict[str, Any]:
-        path = self.get_path(*path_parts)
-        with path.open("r") as f:
-            return json.load(f)
-
     def write_text(self, content: str, *path_parts) -> pathlib.Path:
-        path = self.get_path(*path_parts)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("w") as f:
+        with self._write(*path_parts) as (path, f):
             f.write(content)
         return path
-
-    def read_text(self, *path_parts) -> str:
-        path = self.get_path(*path_parts)
-        with path.open("r") as f:
-            return f.read()
 
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
