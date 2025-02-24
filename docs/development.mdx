@@ -18,7 +18,7 @@ nix run github:letsql/xorq
 
 ## Quick Start
 
-Let's build a simple data pipeline using xorq to analyze the iris dataset:
+Let's build a simple data pipeline using xorq to analyze the Palmer Penguins dataset:
 
 ```python
 import xorq as xo
@@ -26,18 +26,19 @@ import xorq as xo
 # Create a connection
 con = xo.connect()
 
-# Load the iris dataset
-iris = xo.examples.iris.fetch(backend=con, table_name="iris")
+# Load the penguins dataset
+penguins = xo.examples.penguins.fetch(backend=con)
 
-# Perform analysis: average sepal width by species where sepal length > 5
+# Analyze bill dimensions by species for large penguins
 result = (
-    iris.filter([iris.sepal_length > 5])
+    penguins.filter([penguins.body_mass_g > 4000])  # Focus on larger penguins
     .group_by("species")
-    .agg(iris.sepal_width.mean().name("avg_sepal_width"))
+    .agg([
+        penguins.bill_length_mm.mean().name("avg_bill_length"),
+        penguins.bill_depth_mm.mean().name("avg_bill_depth")
+    ])
     .execute()
 )
-
-print(result)
 ```
 
 ## First Pipeline Walk-through

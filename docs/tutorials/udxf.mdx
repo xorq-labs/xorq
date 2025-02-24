@@ -1,3 +1,123 @@
 ---
-title: 'UD(X)F'
+title: 'User Defined Functions'
 ---
+
+## Overview
+
+XORQ supports three types of user-defined functions (UDFs):
+- Scalar UDFs: Process data row by row
+- UDAFs: Aggregate functions that process groups of rows
+- UDWFs: Window functions that operate over partitions and frames
+
+All UDFs integrate with XORQ's execution engine for optimal performance.
+
+## Scalar UDFs
+
+The simplest type - processes one row at a time.
+
+```python
+import xorq as xo
+from xorq.expr.udf import make_pandas_udf
+import xorq.vendor.ibis.expr.datatypes as dt
+
+# Create sample data
+df = pd.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
+con = xo.connect()
+t = con.register(df, "t")
+
+# Define UDF that takes minimum value across columns
+my_least = lambda df: df.min(axis=1)
+schema = t.select(["a", "b"]).schema()
+udf = make_pandas_udf(my_least, schema, dt.int64(), name="my_least")
+
+# Apply UDF
+result = t.mutate(min_val=udf.on_expr(t)).execute()
+```
+
+## UDAFs (Aggregation Functions)
+
+Process groups of rows to produce aggregate values.
+
+```python
+from xorq.expr.udf import agg
+import pyarrow.compute as pc
+
+# Sample UDAF using PyArrow
+@agg.pyarrow
+def my_mean(arr: dt.float64) -> dt.float64:
+    return pc.mean(arr)
+
+# Using UDAF in groupby
+t = con.table("batting")
+result = t.group_by("yearID").agg(mean_games=my_mean(t.G)).execute()
+```
+
+## UDWFs (Window Functions)
+
+Process partitions of data with ordering and framing.
+
+```python
+from xorq.internal import WindowEvaluator
+import pyarrow as pa
+
+class ExponentialSmooth(WindowEvaluator):
+    def __init__(self, alpha: float):
+        self.alpha = alpha
+
+    def evaluate_all(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+        results = []
+        curr_value = 0.0
+        values = values[0]
+
+        for idx in range(num_rows):
+            if idx == 0:
+                curr_value = values[idx].as_py()
+            else:
+                curr_value = (values[idx].as_py() * self.alpha +
+                            curr_value * (1.0 - self.alpha))
+            results.append(curr_value)
+
+        return pa.array(results)
+
+# Register and use UDWF
+window_fn = udwf(ExponentialSmooth(0.9),
+                 pa.float64(),
+                 pa.float64(),
+                 volatility="immutable",
+                 name="exp_smooth")
+
+con.register_udwf(window_fn)
+
+t = con.register(pd.DataFrame({"val": [1.0, 2.0, 3.0, 4.0]}))
+result = t.mutate(smoothed=window_fn.on_expr(t.val)).execute()
+```
+
+## Expr Scalar UDF
+
+A variant of scalar UDF that can incorporate pre-computed values.
+
+```python
+from xorq.expr.udf import make_pandas_expr_udf, agg
+
+# Train a model first via UDAF
+model_udaf = agg.pandas_df(
+    fn=train_model_fn,  # Function that returns pickled model
+    schema=training_schema,
+    return_type=dt.binary,
+    name="model"
+)
+
+# Create prediction UDF using model
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=model_udaf.on_expr(train_data),
+    fn=predict_fn,
+    schema=features_schema,
+    return_type=dt.float64,
+    name="predictions"
+)
+
+# Apply prediction
+results = test_data.mutate(
+    predictions=predict_udf.on_expr(test_data)
+).execute()
+```
