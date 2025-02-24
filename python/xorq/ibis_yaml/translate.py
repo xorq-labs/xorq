@@ -3,6 +3,7 @@ from __future__ import annotations
 import datetime
 import decimal
 import functools
+import operator
 from typing import Any
 
 import xorq.vendor.ibis as ibis
@@ -1000,10 +1001,10 @@ def _binary_arithmetic_from_yaml(
     left = translate_from_yaml(yaml_dict["args"][0], context)
     right = translate_from_yaml(yaml_dict["args"][1], context)
     op_map = {
-        "Add": lambda left, right: left + right,
-        "Subtract": lambda left, right: left - right,
-        "Multiply": lambda left, right: left * right,
-        "Divide": lambda left, right: left / right,
+        "Add": operator.add,
+        "Subtract": operator.sub,
+        "Multiply": operator.mul,
+        "Divide": operator.truediv,
     }
     op_func = op_map.get(yaml_dict["op"])
     if op_func is None:
@@ -1064,12 +1065,12 @@ def _binary_compare_from_yaml(yaml_dict: dict, context: TranslationContext) -> i
     right = translate_from_yaml(yaml_dict["args"][1], context)
 
     op_map = {
-        "Equals": lambda left, right: left == right,
-        "NotEquals": lambda left, right: left != right,
-        "GreaterThan": lambda left, right: left > right,
-        "GreaterEqual": lambda left, right: left >= right,
-        "LessThan": lambda left, right: left < right,
-        "LessEqual": lambda left, right: left <= right,
+        "Equals": operator.eq,
+        "NotEquals": operator.ne,
+        "GreaterThan": operator.gt,
+        "GreaterEqual": operator.ge,
+        "LessThan": operator.lt,
+        "LessEqual": operator.le,
     }
 
     op_func = op_map.get(yaml_dict["op"])
@@ -1089,8 +1090,8 @@ def _boolean_ops_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
     args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
     op_name = yaml_dict["op"]
     op_map = {
-        "Greater": lambda left, right: left > right,
-        "Less": lambda left, right: left < right,
+        "Greater": operator.gt,
+        "Less": operator.lt,
     }
     return op_map[op_name](*args)
 
@@ -1100,7 +1101,7 @@ def _boolean_and_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
     args = [translate_from_yaml(arg, context) for arg in yaml_dict.get("args", [])]
     if not args:
         raise ValueError("And operator requires at least one argument")
-    return functools.reduce(lambda x, y: x & y, args)
+    return functools.reduce(operator.and_, args)
 
 
 @register_from_yaml_handler("Or")
@@ -1108,7 +1109,7 @@ def _boolean_or_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Ex
     args = [translate_from_yaml(arg, context) for arg in yaml_dict.get("args", [])]
     if not args:
         raise ValueError("Or operator requires at least one argument")
-    return functools.reduce(lambda x, y: x | y, args)
+    return functools.reduce(operator.or_, args)
 
 
 @register_from_yaml_handler("Not")
@@ -1134,12 +1135,12 @@ def _is_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 def _extract_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
     op_map = {
-        "ExtractYear": lambda x: x.year(),
-        "ExtractMonth": lambda x: x.month(),
-        "ExtractDay": lambda x: x.day(),
-        "ExtractHour": lambda x: x.hour(),
-        "ExtractMinute": lambda x: x.minute(),
-        "ExtractSecond": lambda x: x.second(),
+        "ExtractYear": operator.methodcaller("year"),
+        "ExtractMonth": operator.methodcaller("month"),
+        "ExtractDay": operator.methodcaller("day"),
+        "ExtractHour": operator.methodcaller("hour"),
+        "ExtractMinute": operator.methodcaller("minute"),
+        "ExtractSecond": operator.methodcaller("second"),
     }
     return op_map[yaml_dict["op"]](arg)
 
