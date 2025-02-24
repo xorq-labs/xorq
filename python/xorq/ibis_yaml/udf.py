@@ -42,7 +42,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
     return freeze(
         {
             "op": "ScalarUDF",
-            "unique_name": op.__func_name__,
+            "func_name": op.__func_name__,
             "input_type": "builtin",
             "args": [translate_to_yaml(arg, compiler) for arg in op.args],
             "type": _translate_type(op.dtype),
@@ -82,11 +82,11 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         "__config__": {"volatility": "immutable"},
         "__udf_namespace__": None,
         "__module__": yaml_dict.get("module", "__main__"),
-        "__func_name__": yaml_dict["unique_name"],
+        "__func_name__": yaml_dict["func_name"],
     }
 
     kwds = {**fields, **meta}
-    class_name = yaml_dict.get("class_name", yaml_dict["unique_name"])
+    class_name = yaml_dict.get("class_name", yaml_dict["func_name"])
 
     node = type(
         class_name,
