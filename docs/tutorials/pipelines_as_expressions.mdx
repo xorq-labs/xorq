@@ -30,14 +30,14 @@ def hackernews_stories():
         df = df[df.type == "story"]
         df = df[~df.title.isna()]
 
-    return pa.Table.from_pandas(df).to_reader()
+    return df
 ```
 
 We then load this data into xorq:
 
 ```python
 con = xo.connect()
-t = con.read_record_batches(hackernews_stories())
+t = con.register(hackernews_stories(), table_name="hackernews_stories")
 ```
 
 ## Text Vectorization
