@@ -25,7 +25,7 @@ chardet==5.2.0
 charset-normalizer==3.4.1
 cityhash==0.4.7 ; python_full_version < '4.0'
 click==8.1.8
-cloudpickle==3.1.1 ; python_full_version < '4.0'
+cloudpickle==3.1.1
 codespell==2.4.1
 colorama==0.4.6
 comm==0.2.2
