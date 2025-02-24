@@ -1145,20 +1145,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hypothesis"
-version = "6.126.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "attrs" },
-    { name = "exceptiongroup", marker = "python_full_version < '3.11'" },
-    { name = "sortedcontainers" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/a5/8c/8281dd1408dd8374b0ed0528e63fb53a556b3d4f901382f51148345ec9fb/hypothesis-6.126.0.tar.gz", hash = "sha256:648b6215ee0468fa85eaee9dceb5b7766a5861c20ee4801bd904a2c02f1a6c9b", size = 420895 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/98/fc/8e1749aa79631952bf70e57913626fb0a0556eb2ad3c530c5526f6e5ba13/hypothesis-6.126.0-py3-none-any.whl", hash = "sha256:323c58a773482a2b4ba4e35202560cfcba45e8a8e09e7ffb83c0f9bac5b544da", size = 483657 },
-]
-
-[[package]]
 name = "identify"
 version = "2.6.7"
 source = { registry = "https://pypi.org/simple" }
@@ -3345,7 +3331,6 @@ dependencies = [
     { name = "connectorx", marker = "python_full_version < '4.0'" },
     { name = "dask", marker = "python_full_version < '4.0'" },
     { name = "geoarrow-types", marker = "python_full_version < '4.0'" },
-    { name = "hypothesis" },
     { name = "pandas", marker = "python_full_version < '4.0'" },
     { name = "parsy" },
     { name = "psycopg2-binary", marker = "python_full_version < '4.0'" },
@@ -3434,7 +3419,6 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.3" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=2024.6.1,<2025.2.1" },
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.2,<1" },
-    { name = "hypothesis", specifier = ">=6.124.9" },
     { name = "pandas", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=1.5.3,<3" },
     { name = "parsy", specifier = ">=2" },
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=0.8.3,<1" },
@@ -3457,7 +3441,6 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.3.0" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=1.6.1" },
 ]
-provides-extras = ["duckdb", "datafusion", "snowflake", "quickgrove", "examples"]
 
 [package.metadata.requires-dev]
 dev = [

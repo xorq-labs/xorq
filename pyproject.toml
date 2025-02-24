@@ -28,7 +28,6 @@ dependencies = [
     "sqlglot==25.20.2",
     "toolz>=0.11",
     "typing-extensions>=4.3.0",
-    "hypothesis>=6.124.9",
     "pyyaml>=6.0.2",
     "cloudpickle>=3.1.1",
 ]
