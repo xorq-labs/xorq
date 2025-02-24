@@ -1,11 +1,11 @@
 ---
 title: 'Core Concepts'
-description: 'The core concepts to understand what is LetSQL'
+description: 'The core concepts to understand what is xorq'
 ---
 
 ## Caching System
 
-LetSQL provides a sophisticated caching system that enables efficient iterative development of ML pipelines. The caching system allows you to:
+xorq provides a sophisticated caching system that enables efficient iterative development of ML pipelines. The caching system allows you to:
 
 - Cache results from upstream query engines
 - Persist data locally or in remote storage
@@ -14,7 +14,7 @@ LetSQL provides a sophisticated caching system that enables efficient iterative 
 
 ### Storage Types
 
-LetSQL supports two main types of cache storage:
+xorq supports two main types of cache storage:
 
 #### 1. SourceStorage
 
@@ -90,11 +90,11 @@ Cache invalidation uses different hashing strategies based on the storage type:
 
 ## Multi-Engine System
 
-LetSQL's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
+xorq's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
 
 ### The `into_backend` Operator
 
-The core of LetSQL's multi-engine capability is the `into_backend` operator, which enables:
+The core of xorq's multi-engine capability is the `into_backend` operator, which enables:
 
 - Transparent data movement between engines
 - Zero-copy data transfer using Apache Arrow
@@ -131,7 +131,7 @@ result = expr.execute()
 
 ### Supported Engines
 
-LetSQL currently supports:
+xorq currently supports:
 
 1. **In-Process Engines**
     - DuckDB
@@ -161,7 +161,7 @@ Data movement between engines is handled through:
 
 ## Custom UD(X)F System
 
-LetSQL provides a powerful system for extending query engines with custom User-Defined Functions (UDFs). Here are three key types supported:
+xorq provides a powerful system for extending query engines with custom User-Defined Functions (UDFs). Here are three key types supported:
 
 ### 1. Scalar UDF with Model Integration
 
@@ -257,7 +257,7 @@ result = expr.execute()
 
 ## Ephemeral Flight Service
 
-LetSQL's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service provides:
+xorq's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service provides:
 
 1. **Automatic Lifecycle Management**
 2. **Zero-Copy Data Movement**
@@ -273,7 +273,7 @@ LetSQL's Ephemeral Flight Service provides a high-performance data transfer mech
 
 ## Comparison with Ibis
 
-While LetSQL is built on top of Ibis, it extends its capabilities in several key ways. Here's a comprehensive example showing the differences:
+While xorq is built on top of Ibis, it extends its capabilities in several key ways. Here's a comprehensive example showing the differences:
 
 ```python
 import xorq as xo
@@ -281,7 +281,7 @@ from xorq.common.caching import ParquetCacheStorage
 from xorq.expr.relations import into_backend
 import pathlib
 
-# LetSQL multi-engine workflow
+# xorq multi-engine workflow
 # 1. Connect to different engines
 pg = xo.postgres.connect_env()
 ddb = xo.duckdb.connect()
