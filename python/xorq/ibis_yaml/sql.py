@@ -22,11 +22,7 @@ class DeferredReadsPlan(TypedDict):
 
 
 def find_relations(expr: ir.Expr) -> List[str]:
-    node_types = (RemoteTable, Read, ops.DatabaseTable)
-    nodes = walk_nodes(node_types, expr)
-    relations = []
-    seen = set()
-    for node in nodes:
+    def get_name(node):
         name = None
         if isinstance(node, RemoteTable):
             name = node.name
@@ -34,9 +30,11 @@ def find_relations(expr: ir.Expr) -> List[str]:
             name = node.make_unbound_dt().name
         elif isinstance(node, ops.DatabaseTable):
             name = node.name
-        if name and name not in seen:
-            seen.add(name)
-            relations.append(name)
+        return name
+
+    node_types = (RemoteTable, Read, ops.DatabaseTable)
+    nodes = walk_nodes(node_types, expr)
+    relations = list(set(filter(None, map(get_name, nodes))))
     return relations
 
 
