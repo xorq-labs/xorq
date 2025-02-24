@@ -20,7 +20,6 @@ datafusion-sql = "=44.0.0"
 futures = "=0.3.31"
 async-trait = "=0.1.86"
 arrow = "=53.3.0"
-gbdt = { git = "https://github.com/letsql/gbdt-rs.git", rev = "8262de1d20ab6dc7c7e6778b243578d190fb6a62" }
 parking_lot = { version = "=0.12.3" }
 arrow-ord = "=53.3.0"
 datafusion-functions-aggregate = { version = "=44.0.0" }

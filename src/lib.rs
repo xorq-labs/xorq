@@ -17,7 +17,6 @@ mod ibis_table_exec;
 pub mod model;
 mod optimizer;
 pub mod physical_plan;
-pub mod predict_udf;
 mod provider;
 mod py_record_batch_provider;
 mod pyarrow_filter_expression;
