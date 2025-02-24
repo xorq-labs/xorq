@@ -1,4 +1,5 @@
 import functools
+import itertools
 from typing import Any
 
 import attr
@@ -15,7 +16,7 @@ FROM_YAML_HANDLERS: dict[str, Any] = {}
 class SchemaRegistry:
     def __init__(self):
         self.schemas = {}
-        self.counter = 0
+        self.counter = itertools.count()
 
     def register_schema(self, schema):
         frozen_schema = freeze(
@@ -26,9 +27,8 @@ class SchemaRegistry:
             if existing_schema == frozen_schema:
                 return schema_id
 
-        schema_id = f"schema_{self.counter}"
+        schema_id = f"schema_{next(self.counter)}"
         self.schemas[schema_id] = frozen_schema
-        self.counter += 1
         return schema_id
 
     def _register_expr_schema(self, expr: ir.Expr) -> str:
