@@ -9,6 +9,7 @@ import xorq as xo
 import xorq.vendor.ibis as ibis
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
+from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import find_relations
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
@@ -101,7 +102,7 @@ def test_compiler_sql(build_dir):
     expr_hash = compiler.compile_expr(expr)
     _roundtrip_expr = compiler.load_expr(expr_hash)
     expected_relation = find_relations(awards_players)[0]
-    expted_sql_hash = dask.base.tokenize(str(ibis.to_sql(expr)))[:12]
+    expted_sql_hash = dask.base.tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
 
     assert os.path.exists(build_dir / expr_hash / "sql.yaml")
     assert os.path.exists(build_dir / expr_hash / "metadata.json")
@@ -146,7 +147,7 @@ def test_deferred_reads_yaml(build_dir):
     sql_text = pathlib.Path(yaml_path).read_text()
 
     sql_str = str(ibis.to_sql(awards_players))
-    expected_sql_file = dask.base.tokenize(sql_str)[:12] + ".sql"
+    expected_sql_file = dask.base.tokenize(sql_str)[: config.hash_length] + ".sql"
 
     expected_read_path = str(config_path)
 
