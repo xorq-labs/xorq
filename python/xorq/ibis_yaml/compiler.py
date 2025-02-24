@@ -65,15 +65,11 @@ class ArtifactStore:
 
     def read_yaml(self, *path_parts) -> Dict[str, Any]:
         path = self.get_path(*path_parts)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {path}")
         with path.open("r") as f:
             return yaml.safe_load(f)
 
     def read_json(self, *path_parts) -> Dict[str, Any]:
         path = self.get_path(*path_parts)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {path}")
         with path.open("r") as f:
             return json.load(f)
 
@@ -86,8 +82,6 @@ class ArtifactStore:
 
     def read_text(self, *path_parts) -> str:
         path = self.get_path(*path_parts)
-        if not path.exists():
-            raise FileNotFoundError(f"File not found: {path}")
         with path.open("r") as f:
             return f.read()
 
