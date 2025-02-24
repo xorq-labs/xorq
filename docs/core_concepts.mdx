@@ -3,7 +3,7 @@ title: 'Core Concepts'
 description: 'The core concepts to understand what is LetSQL'
 ---
 
-# Caching System
+## Caching System
 
 LetSQL provides a sophisticated caching system that enables efficient iterative development of ML pipelines. The caching system allows you to:
 
@@ -12,34 +12,54 @@ LetSQL provides a sophisticated caching system that enables efficient iterative 
 - Automatically invalidate cache when source data changes
 - Chain caches across multiple engines
 
-## Storage Types
+### Storage Types
 
 LetSQL supports two main types of cache storage:
 
-### 1. SourceStorage
+#### 1. SourceStorage
 
 - Automatically invalidates cache when upstream data changes
 - Persistence depends on the source backend
 - Supports both remote (Snowflake, Postgres) and in-process (pandas, DuckDB) backends
 
 ```python
+import xorq as xo
+from xorq.common.caching import SourceStorage
 
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()  # empty connection
+
+# Create source storage
+storage = SourceStorage(source=con)
+
+# Register table from postgres and cache it
+batting = pg.table("batting")
+
+# Cache the filtered data in the source backend
+cached = (
+    batting.filter(batting.yearID == 2015)
+    .cache(storage=storage)  # cache expression
+)
+
+# Execute the query - results will be cached
+result = xo.execute(cached)
 ```
 
-### 2. SnapshotStorage
+#### 2. SnapshotStorage
 
 - No automatic invalidation
 - Ideal for one-off analyses
 - Persistence depends on source backend
 
-### 3. ParquetCacheStorage
+#### 3. ParquetCacheStorage
 
 - Special case of SourceStorage
 - Caches results as Parquet files on local disk
 - Uses source backend for writing
 - Ensures durable persistence
 
-## Hashing Strategies
+### Hashing Strategies
 
 Cache invalidation uses different hashing strategies based on the storage type:
 
@@ -49,7 +69,7 @@ Cache invalidation uses different hashing strategies based on the storage type:
 | Disk-Based | Query plan + Schema |
 | Remote | Table metadata + Last modified time |
 
-## Key Benefits
+### Key Benefits
 
 1. **Faster Iteration**:
     - Reduce network calls to source systems
@@ -68,11 +88,11 @@ Cache invalidation uses different hashing strategies based on the storage type:
     - Optimize storage location for performance
     - Flexible persistence options
 
-# Multi-Engine System
+## Multi-Engine System
 
 LetSQL's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
 
-## The `into_backend` Operator
+### The `into_backend` Operator
 
 The core of LetSQL's multi-engine capability is the `into_backend` operator, which enables:
 
@@ -81,10 +101,35 @@ The core of LetSQL's multi-engine capability is the `into_backend` operator, whi
 - Automatic optimization of data placement
 
 ```python
+import xorq as xo
+from xorq.expr.relations import into_backend
 
+# Connect to different engines
+pg = xo.postgres.connect_env()
+db = xo.duckdb.connect()
+
+# Get tables from different sources
+batting = pg.table("batting")
+
+# Load awards_players into DuckDB
+awards_players = xo.examples.awards_players.fetch(backend=db)
+
+# Filter data in respective engines
+left = batting.filter(batting.yearID == 2015)
+right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
+
+# Move right table into postgres for efficient join
+expr = left.join(
+    into_backend(right, pg),
+    ["playerID"],
+    how="semi"
+)[["yearID", "stint"]]
+
+# Execute the multi-engine query
+result = expr.execute()
 ```
 
-## Supported Engines
+### Supported Engines
 
 LetSQL currently supports:
 
@@ -97,7 +142,7 @@ LetSQL currently supports:
     - Snowflake
     - BigQuery
 
-## Engine Selection Guidelines
+### Engine Selection Guidelines
 
 Choose engines based on their strengths:
 
@@ -106,7 +151,7 @@ Choose engines based on their strengths:
 3. **Trino**: Distributed queries, federation, security
 4. **Snowflake/BigQuery**: Managed infrastructure, scalability
 
-## Data Transfer
+### Data Transfer
 
 Data movement between engines is handled through:
 
@@ -114,53 +159,107 @@ Data movement between engines is handled through:
 2. **Memory Management**: Automatic spilling to disk
 3. **Batching**: Efficient chunk-based processing
 
-# Custom UD(X)F System
+## Custom UD(X)F System
 
-LetSQL provides a powerful system for extending query engines with custom User-Defined X Functions (where X can be Scalar, Aggregate, or Window).
+LetSQL provides a powerful system for extending query engines with custom User-Defined Functions (UDFs). Here are three key types supported:
 
-## Types of UDXFs
-
-### 1. User-Defined Scalar Functions (UDF)
-
-- Basic transformations
-- Feature engineering
-- Metric calculations
+### 1. Scalar UDF with Model Integration
 
 ```python
+import xorq as xo
+from xorq.expr.ml import make_quickgrove_udf
+from pathlib import Path
+from xorq import _
 
+t = xo.examples.diamonds.fetch()
+
+model_path = Path(xo.options.pins.get_path("diamonds-model"))
+model = make_quickgrove_udf(model_path, model_name="diamonds_model")
+expr = t.mutate(pred=model.on_expr).filter(_.carat < 1).select(_.pred).execute()
 ```
 
-### 2. User-Defined Aggregate Functions (UDAF)
-
-- Complex metric computations
-- Statistical aggregations
-- Time-window calculations
-
+### 2. User Defined Aggregate Functions
 ```python
+from xorq.expr import udf
+import xorq.vendor.ibis.expr.datatypes as dt
 
+alltypes = xo.examples.functional_alltypes.fetch()
+cols = (by, _) = ["year", "month"]
+name = "sum_sum"
+
+@udf.agg.pandas_df(
+    schema=alltypes[cols].schema(),
+    return_type=dt.int64(),
+    name=name,
+)
+def sum_sum(df):
+    return df.sum().sum()
+
+actual = (
+    alltypes.group_by(by)
+    .agg(sum_sum(*(alltypes[c] for c in cols)).name(name))
+    .execute()
+)
 ```
 
-### 3. User-Defined Window Functions (UDWF)
+Additionally you can use UDAF for training ML models, see the [example](https://github.com/letsql/xorq/blob/main/examples/xgboost_udaf.py) for training an XGBoost model
 
-- Time-based comparisons
-- Relative metrics
-- Cohort analysis
+### 3. Window UDF for Analysis
+```python
+import pyarrow as pa
+from xorq.expr.udf import pyarrow_udwf
+from xorq.vendor import ibis
 
-# Ephemeral Flight Service
 
-LetSQL's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service:
+@pyarrow_udwf(
+    schema=ibis.schema({"a": float}),
+    return_type=ibis.dtype(float),
+    alpha=0.9,
+)
+def exp_smooth(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+    results = []
+    curr_value = 0.0
+    values = values[0]
+    for idx in range(num_rows):
+        if idx == 0:
+            curr_value = values[idx].as_py()
+        else:
+            curr_value = values[idx].as_py() * self.alpha + curr_value * (
+                1.0 - self.alpha
+            )
+        results.append(curr_value)
+
+    return pa.array(results)
+
+
+df = pd.DataFrame(
+    [
+        (0, 7, "A"),
+        (1, 4, "A"),
+        (2, 3, "A"),
+        (3, 8, "A"),
+        (4, 9, "B"),
+        (5, 1, "B"),
+        (6, 6, "B"),
+    ],
+    columns=["a", "b", "c"],
+)
+
+t = xo.register(df, table_name="t")
+
+expr = t.select(
+    t.a,
+    udwf=exp_smooth.on_expr(t).over(ibis.window()),
+).order_by(t.a)
+
+result = expr.execute()
+```
+
+## Ephemeral Flight Service
+
+LetSQL's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service provides:
 
 1. **Automatic Lifecycle Management**
-
-    ```python
-    import letsql as ls
-
-    with ls.flight_context() as flight:
-
-    # Service cleaned up after context exit
-
-    ```
-
 2. **Zero-Copy Data Movement**
     - Direct memory transfer between processes
     - No serialization/deserialization overhead
@@ -172,105 +271,54 @@ LetSQL's Ephemeral Flight Service provides a high-performance data transfer mech
 4. **Resource Management**
 5. **Security Integration**
 
-## Implementation Details
+## Comparison with Ibis
 
-### Service Lifecycle
-
-1. **Startup**
-    - Dynamic port allocation
-    - Resource reservation
-    - Backend initialization
-2. **Operation**
-    - Streaming data transfer
-    - Memory management
-    - Error handling
-3. **Shutdown**
-    - Resource cleanup
-    - Connection termination
-    - Memory release
-
-# Comparison with Ibis
-
-While LetSQL is built on top of Ibis, it extends its capabilities in several key ways:
-
-## 1. Multi-Engine Execution
-
-Ibis:
+While LetSQL is built on top of Ibis, it extends its capabilities in several key ways. Here's a comprehensive example showing the differences:
 
 ```python
-# Ibis: Single backend at a time
-conn = ibis.connect('duckdb://...')
-table = conn.table('data')
-result = table.execute()
+import xorq as xo
+from xorq.common.caching import ParquetCacheStorage
+from xorq.expr.relations import into_backend
+import pathlib
 
-```
+# LetSQL multi-engine workflow
+# 1. Connect to different engines
+pg = xo.postgres.connect_env()
+ddb = xo.duckdb.connect()
 
-LetSQL:
+# 2. Set up caching
+storage = ParquetCacheStorage(
+    source=ddb,
+    path=pathlib.Path.cwd(),
+)
 
-```python
+# 3. Create a complex workflow
+# - Load data from postgres
+# - Cache intermediate results
+# - Process in DuckDB
+# - Return to postgres
 result = (
-    trino_table
-    .pipe(into_backend, duckdb)
-    .asof_join(other_table)
-    .pipe(into_backend, trino)
+    pg.table("batting")
+    .filter(lambda t: t.yearID > 2014)
+    .cache(storage=storage)
+    .pipe(into_backend, ddb)
+    .join(
+        xo.examples.awards_players.fetch(backend=ddb),
+        "playerID"
+    )
+    .pipe(into_backend, pg)
     .execute()
 )
 
+# The above workflow demonstrates:
+# 1. Multi-engine execution
+# 2. Persistent caching
+# 3. Seamless data movement
+# 4. Integrated example data
+# 5. Pipeline optimization
 ```
 
-## 2. Caching Capabilities
-
-Ibis:
-
-```python
-# Ibis: Backend-specific caching
-table.cache().execute()# Creates temporary table ** Not Deferred**
-
-```
-
-LetSQL:
-
-```python
-# LetSQL: Flexible, cross-engine caching
-(table
- .cache(storage=ParquetCacheStorage())# Persistent cache
- .pipe(into_backend, next_engine)
- .execute())
-
-```
-
-## 3. UDF System
-
-Ibis:
-
-```python
-# Ibis: Backend-specific UDF registration
-
-```
-
-LetSQL:
-
-```python
-
-```
-
-## 4. Data Transfer
-
-## 5. Pipeline Management
-
-Ibis:
-
-- Focus on query expression building
-- Limited pipeline tooling
-- Backend-specific optimizations
-
-LetSQL:
-
-- End-to-end pipeline support
-- Built-in development tools
-- Cross-engine optimization
-
-## Key Advantages over Ibis
+### Key Advantages over Ibis
 
 1. **Unified Experience**
     - Consistent API across engines
