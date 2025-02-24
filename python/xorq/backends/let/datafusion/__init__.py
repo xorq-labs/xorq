@@ -4,7 +4,6 @@ import contextlib
 import functools
 import inspect
 import json
-import types
 import typing
 from collections.abc import Mapping
 from pathlib import Path
@@ -16,14 +15,12 @@ import pyarrow.dataset as ds
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
-import toolz
 
 import xorq as xo
 import xorq.common.exceptions as com
 import xorq.internal as df
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-import xorq.vendor.ibis.expr.rules as rlz
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.let.datafusion.compiler import compiler
@@ -52,10 +49,8 @@ from xorq.vendor.ibis.backends import (
 )
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.backends.sql.compilers.base import C
-from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
-from xorq.vendor.ibis.expr.operations import Namespace
-from xorq.vendor.ibis.expr.operations.udf import InputType, ScalarUDF
+from xorq.vendor.ibis.expr.operations.udf import InputType
 from xorq.vendor.ibis.formats.pyarrow import (
     PyArrowType,
     _from_pyarrow_types,
@@ -588,93 +583,6 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if self.supports_in_memory_tables:
             for memtable in expr.op().find(ops.InMemoryTable):
                 self._register_in_memory_table(memtable)
-
-    def register_xgb_model(
-        self, model_name: str, source: str | Path
-    ) -> typing.Callable:
-        """Register an XGBoost model as a UDF in the `xorq` Backend.
-
-        Parameters
-        ----------
-        model_name
-            The name of the model
-        source
-            The path to the JSON file containing the XGBoost model
-
-        Returns
-        -------
-        typing.Callable
-            A function that can be used to call the XGBoost model as an Ibis UDF
-        """
-        source = str(source)
-        metadata = _inspect_xgboost_model_from_json(source)
-        self.con.register_xgb_json_model(model_name, source)
-        features = metadata["feature_names"]
-        feature_types = [
-            dt.dtype(feature_type) for feature_type in metadata["feature_types"]
-        ]
-        return_type = dt.dtype("float64")
-        bases = (ScalarUDF,)
-        fields = {
-            k: v
-            for k, v in (
-                ("model_name", Argument(pattern=rlz.ValueOf(str), typehint=str)),
-            )
-            + tuple(
-                (arg_name, Argument(pattern=rlz.ValueOf(typ), typehint=typ))
-                for (arg_name, typ) in zip(features, feature_types)
-            )
-        }
-
-        fn = toolz.functoolz.return_none
-
-        meta = {
-            "dtype": return_type,
-            "__input_type__": InputType.BUILTIN,
-            "__func__": property(fget=lambda _, fn=fn: fn),
-            "__config__": {"volatility": "immutable"},
-            "__udf_namespace__": Namespace(database=None, catalog=None),
-            "__module__": self.__module__,
-            "__func_name__": "predict_xgb",
-        }
-        kwds = {
-            **fields,
-            **meta,
-        }
-
-        node = type(
-            "predict_xgb",
-            bases,
-            kwds,
-        )
-
-        @functools.wraps(fn)
-        def construct(*args: Any, **kwargs: Any) -> ir.Value:
-            return node(*args, **kwargs).to_expr()
-
-        partial = toolz.functoolz.partial(construct, model_name)
-
-        def on_expr(expr, *args, **kwargs):
-            return partial(*(expr[c] for c in features), *args, **kwargs)
-
-        def create_named_wrapper(func, name, signature):
-            def predict_xgb(*args, **kwargs):
-                return func(*args, **kwargs)
-
-            new_func = types.FunctionType(
-                predict_xgb.__code__,
-                predict_xgb.__globals__,
-                name=name,
-                argdefs=predict_xgb.__defaults__,
-                closure=predict_xgb.__closure__,
-            )
-            new_func.__signature__ = signature
-            return new_func
-
-        new_signature = inspect.Signature(_fields_to_parameters(fields)[1:])
-        wrapper = create_named_wrapper(partial, model_name, new_signature)
-        wrapper.on_expr = on_expr
-        return wrapper
 
     def read_csv(
         self, path: str | Path, table_name: str | None = None, **kwargs: Any

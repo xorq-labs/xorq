@@ -7,10 +7,8 @@ use crate::functions::greatest::GreatestFunc;
 use crate::functions::hash_int::HashIntFunc;
 use crate::functions::least::LeastFunc;
 use crate::ibis_table::IbisTable;
-use crate::model::{ModelRegistry, SessionModelRegistry};
 use crate::object_storage::register_object_store_and_config_extensions;
-use crate::optimizer::{PredictXGBoostAnalyzerRule, PyOptimizerRule};
-use crate::predict_udf::PredictUdf;
+use crate::optimizer::PyOptimizerRule;
 use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
 use crate::udaf::PyAggregateUDF;
@@ -35,8 +33,6 @@ use datafusion_common::config::ConfigFileType;
 use datafusion_common::ScalarValue;
 use datafusion_expr::Expr;
 use datafusion_expr::ScalarUDF;
-use gbdt::gradient_boost::GBDT;
-use parking_lot::RwLock;
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::{HashMap, HashSet};
@@ -190,22 +186,6 @@ impl PySessionState {
 #[derive(Clone)]
 pub(crate) struct PySessionContext {
     pub(crate) ctx: SessionContext,
-    /// Shared session state for the session
-    model_registry: Arc<RwLock<SessionModelRegistry>>,
-}
-
-impl ModelRegistry for PySessionContext {
-    fn register_model(&self, name: &str, path: &str, objective: &str) {
-        let mut registry = self.model_registry.write();
-        let model = GBDT::from_xgboost_dump(path, objective).expect("failed to load model");
-        registry.models.insert(name.to_string(), Arc::new(model));
-    }
-
-    fn register_json_model(&self, name: &str, path: &str) {
-        let mut registry = self.model_registry.write();
-        let model = GBDT::from_xgboost_json_used_feature(path).expect("failed to load model");
-        registry.models.insert(name.to_string(), Arc::new(model));
-    }
 }
 
 #[pymethods]
@@ -216,14 +196,9 @@ impl PySessionContext {
         session_state: Option<PySessionState>,
         config: Option<PySessionConfig>,
     ) -> PyResult<Self> {
-        let model_registry = SessionModelRegistry::new();
-        let registry = Arc::new(RwLock::new(model_registry));
-        let predict_xgb = ScalarUDF::from(PredictUdf::new_with_model_registry(registry.clone()));
-        let rule = PredictXGBoostAnalyzerRule::new(registry.clone());
-
         let runtime_config = RuntimeEnvBuilder::default();
         let runtime = Arc::new(runtime_config.build()?);
-        let mut session_state = match (session_state, config) {
+        let session_state = match (session_state, config) {
             (Some(s), _) => s.session_state,
             (None, Some(c)) => SessionStateBuilder::new()
                 .with_config(c.config)
@@ -240,18 +215,13 @@ impl PySessionContext {
             }
         };
 
-        let session_state = session_state.add_analyzer_rule(Arc::new(rule));
         let ctx = SessionContext::new_with_state(session_state.clone());
         // register the UDF with the context, so it can be invoked by name and from SQL
-        ctx.register_udf(predict_xgb.clone());
         ctx.register_udf(ScalarUDF::from(GreatestFunc::new()));
         ctx.register_udf(ScalarUDF::from(LeastFunc::new()));
         ctx.register_udf(ScalarUDF::from(HashIntFunc::new()));
 
-        Ok(PySessionContext {
-            ctx,
-            model_registry: registry,
-        })
+        Ok(PySessionContext { ctx })
     }
 
     /// Returns a PyDataFrame whose plan corresponds to the SQL statement.
@@ -525,18 +495,6 @@ impl PySessionContext {
 
     pub fn register_udwf(&mut self, udwf: PyWindowUDF) -> PyResult<()> {
         self.ctx.register_udwf(udwf.function);
-        Ok(())
-    }
-
-    #[pyo3(signature = (name, path, objective))]
-    fn register_xgb_model(&mut self, name: &str, path: &str, objective: &str) -> PyResult<()> {
-        self.register_model(name, path, objective);
-        Ok(())
-    }
-
-    #[pyo3(signature = (name, path))]
-    fn register_xgb_json_model(&mut self, name: &str, path: &str) -> PyResult<()> {
-        self.register_json_model(name, path);
         Ok(())
     }
 
