@@ -379,6 +379,10 @@ def to_pyarrow_batches(
     chunk_size: int = 1_000_000,
     **kwargs: Any,
 ):
+    from xorq.expr.relations import FlightExchange
+
+    if isinstance(expr.op(), FlightExchange):
+        return expr.op().to_rbr()
     (expr, created) = _transform_expr(expr)
     con, _ = find_backend(expr.op(), use_default=True)
 
