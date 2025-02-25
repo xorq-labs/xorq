@@ -547,6 +547,21 @@ class String(Variadic, Singleton):
 
 
 @public
+class LargeString(String):
+    """A type representing a large_string.
+
+    Notes
+    -----
+    Because of differences in the way different backends handle strings, we
+    cannot assume that strings are UTF-8 encoded.
+
+    """
+
+    scalar = "StringScalar"
+    column = "StringColumn"
+
+
+@public
 class Binary(Variadic, Singleton):
     """A type representing a sequence of bytes.
 
