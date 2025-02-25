@@ -40,6 +40,7 @@ class ExprScalarUDF(ScalarUDF):
         return self.__config__["post_process_fn"]
 
 
+@toolz.curry
 def make_pandas_expr_udf(
     computed_kwargs_expr,
     fn,
@@ -107,6 +108,7 @@ def make_pandas_expr_udf(
     return construct
 
 
+@toolz.curry
 def make_pandas_udf(
     fn, schema, return_type, database=None, catalog=None, name=None, **kwargs
 ):
