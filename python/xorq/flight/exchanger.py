@@ -327,7 +327,7 @@ class UrlOperatorExchanger(AbstractExchanger):
         return "url-response-length"
 
 
-class UDFExchanger(AbstractExchanger):
+class PandasUDFExchanger(AbstractExchanger):
     def __init__(self, f, schema_in, name, typ, append=True):
         self.f = f
         self.schema_in = schema_in

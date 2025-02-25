@@ -7,7 +7,7 @@ import pytest
 import xorq as xo
 from xorq.flight import FlightServer, FlightUrl, make_con
 from xorq.flight.action import AddExchangeAction
-from xorq.flight.exchanger import UDFExchanger
+from xorq.flight.exchanger import PandasUDFExchanger
 
 
 @pytest.mark.parametrize(
@@ -119,7 +119,7 @@ def test_exchange(connection, port):
         connection=connection,
     ) as main:
         client = make_con(main).con
-        udf_exchanger = UDFExchanger(
+        udf_exchanger = PandasUDFExchanger(
             my_f,
             schema_in=pa.schema(
                 (
