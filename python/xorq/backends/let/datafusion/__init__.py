@@ -29,7 +29,6 @@ from xorq.common.utils.aws_utils import (
     make_s3_connection,
 )
 from xorq.expr import Expr
-from xorq.expr.datatypes import LargeString
 from xorq.expr.pyaggregator import PyAggregator, make_struct_type
 from xorq.expr.udf import ExprScalarUDF
 from xorq.internal import (
@@ -53,16 +52,8 @@ from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
 from xorq.vendor.ibis.expr.operations.udf import InputType
 from xorq.vendor.ibis.formats.pyarrow import (
     PyArrowType,
-    _from_pyarrow_types,
-    _to_pyarrow_types,
 )
 from xorq.vendor.ibis.util import gen_name, normalize_filename
-
-
-# include string view
-_from_pyarrow_types[pa.string_view()] = dt.String
-_from_pyarrow_types[pa.large_string()] = LargeString
-_to_pyarrow_types[LargeString] = pa.large_string()
 
 
 def _compile_pyarrow_udwf(udwf_node):
@@ -809,7 +800,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     compiler.cast(
                         sg.column(col, table=relname, quoted=quoted), dtype
                     ).as_(col, quoted=quoted)
-                    if not isinstance(dtype, LargeString)
+                    if not isinstance(dtype, dt.LargeString)
                     else compiler.f.arrow_cast(
                         sg.column(col, table=relname, quoted=quoted), "LargeUtf8"
                     ).as_(col, quoted=quoted)

@@ -16,6 +16,11 @@ if TYPE_CHECKING:
     import polars as pl
 
 
+# _from_pyarrow_types[pa.string_view()] = dt.String
+# _from_pyarrow_types[pa.large_string()] = LargeString
+# _to_pyarrow_types[LargeString] = pa.large_string()
+
+
 _from_pyarrow_types = {
     pa.int8(): dt.Int8,
     pa.int16(): dt.Int16,
@@ -38,6 +43,9 @@ _from_pyarrow_types = {
     pa.large_binary(): dt.Binary,
     pa.large_string(): dt.String,
     pa.binary(): dt.Binary,
+    pa.binary_view(): dt.Binary,
+    pa.string_view(): dt.String,
+    pa.large_string(): dt.LargeString,
 }
 
 
@@ -64,6 +72,7 @@ _to_pyarrow_types = {
     dt.INET: pa.string(),
     dt.UUID: pa.string(),
     dt.JSON: pa.string(),
+    dt.LargeString: pa.large_string(),
 }
 
 
