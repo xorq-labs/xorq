@@ -1571,9 +1571,6 @@ class Profile:
             None,
         )
 
-    # def as_yaml(self):
-    #     return yaml.safe_dump(self.as_dict())
-
     def __attrs_post_init__(self):
         # Sort kwargs_tuple after initialization
         object.__setattr__(self, "kwargs_tuple", tuple(sorted(self.kwargs_tuple)))
@@ -1684,9 +1681,6 @@ class Profile:
     @classmethod
     def load(cls, name, profile_dir=None):
         path = cls.get_path(name, profile_dir=profile_dir)
-        # dct = json.loads(path.read_text())
-        # dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-        # parse ENV
         env = EnvYAML(path)
         con_name = env.get("con_name")
         kwargs_dict = env.get("kwargs_dict")
@@ -1705,6 +1699,6 @@ class Profile:
             **toolz.dissoc(arguments, "args", kwargs_name),
             **arguments.get(kwargs_name, {}),
         }
-        if "port" in kwargs:
+        if "port" in kwargs and kwargs["port"] is not None:
             kwargs["port"] = int(kwargs["port"])
         return cls(con_name=con.name, kwargs_tuple=tuple(kwargs.items()))
