@@ -54,7 +54,7 @@ def test_build_command_not_implemented(monkeypatch, capsys):
 
     # Check output
     captured = capsys.readouterr()
-    assert "Expected one, and only one expression" in captured.out
+    assert "Expected one, and only one expression" in captured.err
 
 
 @pytest.mark.parametrize(
@@ -89,4 +89,4 @@ def test_build_command_bad_expr_name(
 
     # Check output
     captured = capsys.readouterr()
-    assert message in captured.out
+    assert message in captured.err

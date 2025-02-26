@@ -49,35 +49,38 @@ def build_command(script_path, expression, target_dir="build"):
     """
 
     if len(expression) > 1 or len(expression) == 0:
-        print("Expected one, and only one expression")
+        print("Expected one, and only one expression", file=sys.stderr)
         sys.exit(1)
 
     (expression,) = expression
 
     if not os.path.exists(script_path):
-        print(f"Error: Script not found at {script_path}")
+        print(f"Error: Script not found at {script_path}", file=sys.stderr)
         sys.exit(1)
 
     print(f"Building {expression} from {script_path}")
-
-    # Create the target directory if it doesn't exist
-    os.makedirs(target_dir, exist_ok=True)
 
     build_manager = BuildManager(target_dir)
 
     script_vars = load_variables_from_script(script_path)
 
     if not hasattr(script_vars, expression):
-        print(f"Expression {expression} not found")
+        print(f"Expression {expression} not found", file=sys.stderr)
         sys.exit(1)
 
     expr = getattr(script_vars, expression)
 
     if not isinstance(expr, Expr):
-        print(f"The object {expression} must be an instance of {type(expr)}")
+        print(
+            f"The object {expression} must be an instance of {type(expr)}",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
-    build_manager.compile_expr(expr)
+    expr_hash = build_manager.compile_expr(expr)
+    print(
+        f"Written '{expression}' to {build_manager.artifact_store.get_path(expr_hash)}"
+    )
 
 
 def main():
