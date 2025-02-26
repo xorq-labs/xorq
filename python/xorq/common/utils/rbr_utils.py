@@ -14,6 +14,17 @@ def excepts_print_exc(exc, func, handler=toolz.functoolz.return_none):
     return toolz.excepts(exc, func, _handler)
 
 
+def copy_rbr_batches(reader):
+    manager = pa.default_cpu_memory_manager()
+    gen = (batch.copy_to(manager) for batch in reader)
+    return pa.RecordBatchReader.from_batches(reader.schema, gen)
+
+
+def make_filtered_reader(reader):
+    gen = (chunk.data for chunk in reader if chunk.data)
+    return pa.RecordBatchReader.from_batches(reader.schema, gen)
+
+
 def instrument_reader(reader, prefix=""):
     from xorq.common.utils.logging_utils import get_print_logger
 
@@ -35,7 +46,8 @@ def streaming_split_exchange(
     started = False
     g = excepts_print_exc(Exception, f)
     for split_reader in ReaderSplitter(
-        (chunk.data for chunk in reader if chunk.data), split_key
+        make_filtered_reader(reader),
+        split_key,
     ):
         batch = g(split_reader)
         if not started:

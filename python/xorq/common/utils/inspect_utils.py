@@ -2,6 +2,11 @@ import inspect
 from sysconfig import get_python_version
 
 
+def get_enclosing_function(level=2):
+    # let caller inspect it's caller's name with level=2
+    return inspect.stack()[level].function
+
+
 def maybe_unwrap_curry(func, *args, **kwargs):
     # from toolz.curry.__init__
     if (

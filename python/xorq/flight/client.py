@@ -14,6 +14,7 @@ executor = ThreadPoolExecutor()
 logger = logging.getLogger(__name__)
 
 
+# fixme: make port dynamic and automagically find an open one
 class FlightClient:
     def __init__(
         self,
