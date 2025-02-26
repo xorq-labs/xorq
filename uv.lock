@@ -535,29 +535,6 @@ wheels = [
 ]
 
 [[package]]
-name = "connectorx"
-version = "0.4.2"
-source = { registry = "https://pypi.org/simple" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/21/7e/cbf49bc18bffab2a56ee1fe403ffb16a3ca020603de9b5873571b003c247/connectorx-0.4.2-cp310-cp310-macosx_10_7_x86_64.whl", hash = "sha256:fcb1dc988efbb2491375b36024a0123e8316f494bac3d4704ed6bd9eaf2df03c", size = 35474153 },
-    { url = "https://files.pythonhosted.org/packages/ce/95/7c64d8707d7b3bf89b10b2a83ec60992da16e6b067281bfe78770c0fbd14/connectorx-0.4.2-cp310-cp310-macosx_11_0_arm64.whl", hash = "sha256:ed234727049008c5bfa4a956714fff874cc210f03bfa1ac3e2dbe6a21128d497", size = 33724194 },
-    { url = "https://files.pythonhosted.org/packages/08/0f/7d6be0d97476d7fe2850c5aea43a2720419518b72a4fe3e2d02779890fbb/connectorx-0.4.2-cp310-cp310-manylinux_2_28_x86_64.whl", hash = "sha256:90673abfc30bc540088fd08e4e9b9c50a6ab85044609a1556c9f8905f4aed895", size = 40729551 },
-    { url = "https://files.pythonhosted.org/packages/e0/06/3fa984e89b4ba7c4d95570e43eb56b762b2220b3c0c3730fadf74e222380/connectorx-0.4.2-cp310-none-win_amd64.whl", hash = "sha256:05933ef59456786d0428d4d3e201579cedc8e09338ef44cd7f82ddf4ffad4c08", size = 32420569 },
-    { url = "https://files.pythonhosted.org/packages/2f/93/546de30f48b80779e9b59600116e6149cfc9d69a424966de17eee9a9641e/connectorx-0.4.2-cp311-cp311-macosx_10_7_x86_64.whl", hash = "sha256:22415c1dc6efb132409822f91ab90111535a507560b616f5bf1f88a64ae9c046", size = 35473179 },
-    { url = "https://files.pythonhosted.org/packages/ce/9d/57ff9c115b750d3a300bb67e192aa4d4a6f508f4597c45843e8aef1047b2/connectorx-0.4.2-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:5e7c8c0b8fd6b1a1e341c873256d995cd255fedfec6b84c79c0e89864866e75f", size = 33722864 },
-    { url = "https://files.pythonhosted.org/packages/6d/97/c7f5d64e0f2ba4dd36e9692d67d513daab6e2cada67588c2c5a3587dad89/connectorx-0.4.2-cp311-cp311-manylinux_2_28_x86_64.whl", hash = "sha256:327dd33f11fa75e7c48195bea1702aafd0f59173d5798c8c9e2c487a7e0ebd98", size = 40729764 },
-    { url = "https://files.pythonhosted.org/packages/ee/27/0d670ef66a6af77ffc1d310d51b658a84442e82b6b2b394084d0fe30a370/connectorx-0.4.2-cp311-none-win_amd64.whl", hash = "sha256:1896d86d2397c1205a0d6adb2d8fbabc5fa0cc953a973c587c410efd04b1d09a", size = 32420605 },
-    { url = "https://files.pythonhosted.org/packages/b9/76/4038009d2765d3c1c347d41e065480f84076c03bf22236baa59942efc5bd/connectorx-0.4.2-cp312-cp312-macosx_10_7_x86_64.whl", hash = "sha256:0e23c5afcfba05cf841d5cca3f5bced4962be428eff50aefbdaa31778c7280c0", size = 35470367 },
-    { url = "https://files.pythonhosted.org/packages/85/e4/3e9aaa43a739a2e1e25902f303538ba119a72e900a39f94a1b261479aa71/connectorx-0.4.2-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:0f2eb4d52552f2d660ad8803243015b35869b705db6b4d560874850b9699e6ed", size = 33725420 },
-    { url = "https://files.pythonhosted.org/packages/b1/77/062aaf55c39b7eeb7f88b350ffb46e6e27247e09be6a551b68f201febba5/connectorx-0.4.2-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:61ff8b1d4d9fa80f246e6874f89221f64d6a8a8723cbbb4ac83ff1417416a0e4", size = 40733252 },
-    { url = "https://files.pythonhosted.org/packages/27/0c/4b88bac7f926ca74e960b607362440911e477d502dcb522311ac3939045e/connectorx-0.4.2-cp312-none-win_amd64.whl", hash = "sha256:ff3fad383d95fd3b8b45a9156895172cbed9f622ee9e957294df4ec22e3fe34c", size = 32423429 },
-    { url = "https://files.pythonhosted.org/packages/91/d9/2a91fcfae08a763b8e57eaeaf6d87322009df0f8db84cc62a105b255c3ea/connectorx-0.4.2-cp313-cp313-macosx_10_7_x86_64.whl", hash = "sha256:190bb9426bd46acb22d98ddaa7c362474338557f72e9c8fcf0a998d7aecb0ef5", size = 35460042 },
-    { url = "https://files.pythonhosted.org/packages/e6/81/d6414fe8d22aa483bdadadd4d3f541065aea301839b308663590a014bde7/connectorx-0.4.2-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:e6bdef6046a7e41de6fe1282024bb990a40281d1e104b803d82a928a443bb49a", size = 33723258 },
-    { url = "https://files.pythonhosted.org/packages/bf/27/2190fa12d29996298869276e3082ec63eb75216fdaac74aa150731174c10/connectorx-0.4.2-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:b337b44740fb68caff4c3c3ae667c09939ab9e5a2920ca675d9726f2321b8b9b", size = 40730949 },
-    { url = "https://files.pythonhosted.org/packages/3c/45/c368b4a6c4cf05666911714fd7b485d5035bd5f73e0ceb8497b61034230c/connectorx-0.4.2-cp313-none-win_amd64.whl", hash = "sha256:c33245810eac8abad05d6d089b89584013b8e03ac6f02dd50fb3655123eefa7b", size = 32420764 },
-]
-
-[[package]]
 name = "coverage"
 version = "7.6.12"
 source = { registry = "https://pypi.org/simple" }
@@ -2904,11 +2881,11 @@ wheels = [
 
 [[package]]
 name = "setuptools"
-version = "75.8.0"
+version = "75.8.1"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/92/ec/089608b791d210aec4e7f97488e67ab0d33add3efccb83a056cbafe3a2a6/setuptools-75.8.0.tar.gz", hash = "sha256:c5afc8f407c626b8313a86e10311dd3f661c6cd9c09d4bf8c15c0e11f9f2b0e6", size = 1343222 }
+sdist = { url = "https://files.pythonhosted.org/packages/e8/42/0e5f75d734f181367de4acd9aba8f875453a5905169c5485ca8416b015ae/setuptools-75.8.1.tar.gz", hash = "sha256:65fb779a8f28895242923582eadca2337285f0891c2c9e160754df917c3d2530", size = 1343534 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/69/8a/b9dc7678803429e4a3bc9ba462fa3dd9066824d3c607490235c6a796be5a/setuptools-75.8.0-py3-none-any.whl", hash = "sha256:e3982f444617239225d675215d51f6ba05f845d4eec313da4418fdbb56fb27e3", size = 1228782 },
+    { url = "https://files.pythonhosted.org/packages/da/bd/ac215d31c2904e47ec5332897442bdc19fd6b21a82068d057152f4e9c1cf/setuptools-75.8.1-py3-none-any.whl", hash = "sha256:3bc32c0b84c643299ca94e77f834730f126efd621de0cc1de64119e0e17dab1f", size = 1228867 },
 ]
 
 [[package]]
@@ -3327,17 +3304,14 @@ wheels = [
 name = "xorq"
 source = { editable = "." }
 dependencies = [
-    { name = "adbc-driver-postgresql", marker = "python_full_version < '4.0'" },
     { name = "atpublic" },
     { name = "attrs", marker = "python_full_version < '4.0'" },
     { name = "cityhash", marker = "python_full_version < '4.0'" },
     { name = "cloudpickle" },
-    { name = "connectorx", marker = "python_full_version < '4.0'" },
     { name = "dask", marker = "python_full_version < '4.0'" },
     { name = "geoarrow-types", marker = "python_full_version < '4.0'" },
     { name = "pandas", marker = "python_full_version < '4.0'" },
     { name = "parsy" },
-    { name = "psycopg2-binary", marker = "python_full_version < '4.0'" },
     { name = "pyarrow", marker = "python_full_version < '4.0'" },
     { name = "pyarrow-hotfix", marker = "python_full_version < '4.0'" },
     { name = "pydantic" },
@@ -3366,6 +3340,10 @@ examples = [
     { name = "pins", extra = ["gcs"], marker = "python_full_version < '4.0'" },
     { name = "quickgrove" },
     { name = "xgboost", marker = "python_full_version < '4.0'" },
+]
+postgres = [
+    { name = "adbc-driver-postgresql" },
+    { name = "psycopg2-binary" },
 ]
 quickgrove = [
     { name = "quickgrove" },
@@ -3411,12 +3389,11 @@ test = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adbc-driver-postgresql", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=1.2.0,<2" },
+    { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=24.0.0,<26" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4.7,<1" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
-    { name = "connectorx", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.3.2,<0.5.0" },
     { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = "==2025.1.0" },
     { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'datafusion'", specifier = ">=0.6,<46" },
     { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=0.10.3,<2" },
@@ -3426,7 +3403,7 @@ requires-dist = [
     { name = "pandas", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=1.5.3,<3" },
     { name = "parsy", specifier = ">=2" },
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=0.8.3,<1" },
-    { name = "psycopg2-binary", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=2.9.9,<3" },
+    { name = "psycopg2-binary", marker = "extra == 'postgres'", specifier = ">=2.9.10" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=13.0.0,<20" },
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4,<1" },
     { name = "pydantic", specifier = ">=2.10.6" },
