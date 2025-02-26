@@ -4,6 +4,9 @@ from typing import Any, Iterable, Mapping
 import pandas as pd
 import pyarrow as pa
 
+from xorq.common.utils.rbr_utils import (
+    make_filtered_reader,
+)
 from xorq.flight.action import (
     DropTableAction,
     DropViewAction,
@@ -178,12 +181,8 @@ class Backend(SQLBackend):
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        def gen(chunks):
-            for chunk in chunks:
-                yield chunk.data
-
         batches = self.con.execute_batches(
             expr, params=params, limit=limit, chunk_size=chunk_size
         )
-
-        return pa.RecordBatchReader.from_batches(batches.schema, gen(batches))
+        batches = make_filtered_reader(batches)
+        return batches

@@ -170,8 +170,19 @@ def normalize_duckdb_file_read(dt):
 
 
 def normalize_letsql_databasetable(dt):
+    from xorq.expr.relations import FlightExchange
+
     if dt.source.name != "let":
         raise ValueError
+    if isinstance(dt, FlightExchange):
+        return dask.base.normalize_token(
+            (
+                "normalize_letsql_databasetable",
+                dt.input_expr.unbind(),
+                dt.unbound_expr,
+                dt.make_connection,
+            )
+        )
     native_source = dt.source._sources.get_backend(dt)
 
     if native_source.name == "let":

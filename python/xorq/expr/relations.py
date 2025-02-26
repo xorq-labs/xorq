@@ -1,9 +1,14 @@
 import functools
 from collections import defaultdict
-from typing import Any
+from typing import Any, Callable
 
 import pyarrow as pa
 
+import xorq as xo
+from xorq.common.utils.rbr_utils import (
+    copy_rbr_batches,
+    instrument_reader,
+)
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.common.collections import FrozenDict
@@ -127,6 +132,139 @@ class RemoteTable(ops.DatabaseTable):
             source=con,
             remote_expr=expr,
         )
+
+
+class FlightExchange(ops.DatabaseTable):
+    input_expr: Expr = None
+    unbound_expr: Expr = None
+    make_server: Callable = None
+    make_connection: Callable = None
+    do_instrument_reader: bool = False
+
+    @classmethod
+    def validate_schema(cls, input_expr, unbound_expr):
+        (dt, *rest) = unbound_expr.op().find(ops.UnboundTable)
+        if rest or not isinstance(dt, ops.UnboundTable):
+            raise ValueError
+        if dt.schema != input_expr.schema():
+            raise ValueError
+
+    @classmethod
+    def from_exprs(
+        cls,
+        input_expr,
+        unbound_expr,
+        make_server=None,
+        make_connection=None,
+        name=None,
+        **kwargs,
+    ):
+        import xorq as xo
+        from xorq.flight import FlightServer
+
+        def roundtrip_cloudpickle(obj):
+            import cloudpickle
+
+            return cloudpickle.loads(cloudpickle.dumps(obj))
+
+        cls.validate_schema(input_expr, unbound_expr)
+        return cls(
+            name=name or gen_name(),
+            schema=unbound_expr.schema(),
+            source=input_expr._find_backend(),
+            input_expr=input_expr,
+            unbound_expr=roundtrip_cloudpickle(unbound_expr),
+            make_server=make_server or FlightServer,
+            make_connection=make_connection or xo.connect,
+            **kwargs,
+        )
+
+    def to_rbr(self, do_instrument_reader=None):
+        from xorq.flight.action import AddExchangeAction
+        from xorq.flight.exchanger import (
+            UnboundExprExchanger,
+        )
+
+        if do_instrument_reader is None:
+            do_instrument_reader = self.do_instrument_reader
+
+        def inner(flight_exchange):
+            rbr_in = flight_exchange.input_expr.to_pyarrow_batches()
+            if do_instrument_reader:
+                rbr_in = instrument_reader(rbr_in, "input: ")
+            with flight_exchange.make_server() as server:
+                client = server.client
+                unbound_expr_exchanger = UnboundExprExchanger(
+                    flight_exchange.unbound_expr
+                )
+                client.do_action(
+                    AddExchangeAction.name,
+                    unbound_expr_exchanger,
+                    options=client._options,
+                )
+                (fut, rbr_out) = client.do_exchange(
+                    unbound_expr_exchanger.command, rbr_in
+                )
+                if do_instrument_reader:
+                    rbr_out = instrument_reader(rbr_out, "output: ")
+
+                # HAK: account for https://github.com/apache/arrow-rs/issues/6471
+                rbr_out = copy_rbr_batches(rbr_out)
+                yield from rbr_out
+
+        gen = inner(self)
+        schema = self.schema.to_pyarrow()
+        return pa.RecordBatchReader.from_batches(schema, gen)
+
+
+def flight_operator(
+    expr,
+    unbound_expr,
+    name=None,
+    make_server=None,
+    make_connection=None,
+    inner_name=None,
+    con=None,
+    **kwargs,
+):
+    return (
+        FlightExchange.from_exprs(
+            expr,
+            unbound_expr,
+            make_server=make_server,
+            make_connection=make_connection,
+            name=inner_name,
+            **kwargs,
+        )
+        .to_expr()
+        .into_backend(con=con or expr._find_backend(), name=name)
+    )
+
+
+def flight_udxf(
+    expr,
+    udxf,
+    col_name=None,
+    name=None,
+    make_server=None,
+    make_connection=None,
+    inner_name=None,
+    con=None,
+    **kwargs,
+):
+    unbound_expr = xo.table(expr.schema()).mutate(
+        **{col_name or udxf.fn.__name__: udxf.on_expr}
+    )
+    return flight_operator(
+        expr,
+        unbound_expr=unbound_expr,
+        name=name,
+        make_server=make_server,
+        make_connection=make_connection,
+        inner_name=inner_name,
+        con=con,
+        **kwargs,
+    )
 
 
 def into_backend(expr, con, name=None):

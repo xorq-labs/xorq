@@ -5,9 +5,10 @@ import pyarrow as pa
 import pytest
 
 import xorq as xo
+from xorq.common.utils.rbr_utils import instrument_reader
 from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.action import AddExchangeAction
-from xorq.flight.exchanger import UDFExchanger
+from xorq.flight.exchanger import PandasUDFExchanger
 
 
 @pytest.mark.parametrize(
@@ -88,16 +89,6 @@ def test_read_parquet(connection, port, parquet_dir):
         assert xo.execute(batting) is not None
 
 
-def instrument_reader(reader, prefix=""):
-    def gen(reader):
-        print(f"{prefix}first batch yielded at {datetime.datetime.now()}")
-        yield next(reader)
-        yield from reader
-        print(f"{prefix}last batch yielded at {datetime.datetime.now()}")
-
-    return pa.RecordBatchReader.from_batches(reader.schema, gen(reader))
-
-
 @pytest.mark.parametrize(
     "connection,port",
     [
@@ -119,7 +110,7 @@ def test_exchange(connection, port):
         connection=connection,
     ) as main:
         client = main.client
-        udf_exchanger = UDFExchanger(
+        udf_exchanger = PandasUDFExchanger(
             my_f,
             schema_in=pa.schema(
                 (
