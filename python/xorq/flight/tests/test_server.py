@@ -6,7 +6,7 @@ import pytest
 
 import xorq as xo
 from xorq.common.utils.rbr_utils import instrument_reader
-from xorq.flight import FlightServer, FlightUrl, make_con
+from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import PandasUDFExchanger
 
@@ -51,7 +51,7 @@ def test_register_and_list_tables(connection, port):
         verify_client=False,
         connection=connection,
     ) as main:
-        con = make_con(main)
+        con = main.con
         assert con.version is not None
 
         data = pa.table(
@@ -84,7 +84,7 @@ def test_read_parquet(connection, port, parquet_dir):
         verify_client=False,
         connection=connection,
     ) as main:
-        con = make_con(main)
+        con = main.con
         batting = con.read_parquet(parquet_dir / "batting.parquet")
         assert xo.execute(batting) is not None
 
@@ -109,7 +109,7 @@ def test_exchange(connection, port):
         verify_client=False,
         connection=connection,
     ) as main:
-        client = make_con(main).con
+        client = main.client
         udf_exchanger = PandasUDFExchanger(
             my_f,
             schema_in=pa.schema(

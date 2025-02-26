@@ -9,7 +9,7 @@ from xorq.common.utils.rbr_utils import (
     instrument_reader,
     streaming_split_exchange,
 )
-from xorq.flight import FlightServer, make_con
+from xorq.flight import FlightServer
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import AbstractExchanger
 
@@ -106,7 +106,7 @@ expr = train_test_split_union(
 
 rbr_in = instrument_reader(xo.to_pyarrow_batches(expr), prefix="input ::")
 with FlightServer() as server:
-    client = make_con(server).con
+    client = server.client
     client.do_action(
         AddExchangeAction.name, IterativeSplitTrainExchanger, options=client._options
     )
