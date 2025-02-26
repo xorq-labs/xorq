@@ -1,3 +1,4 @@
+import functools
 import socket
 
 import toolz
@@ -123,6 +124,29 @@ class FlightServer:
 
         return kwargs
 
+    @property
+    @functools.cache
+    def con(self) -> Backend:
+        kwargs = {
+            "host": self.flight_url.host,
+            "port": self.flight_url.port,
+        }
+
+        if self.auth is not None:
+            kwargs["username"] = self.auth.username
+            kwargs["password"] = self.auth.password
+
+        if self.certificate_path is not None:
+            kwargs["tls_roots"] = self.certificate_path
+
+        instance = Backend()
+        instance.do_connect(**kwargs)
+        return instance
+
+    @property
+    def client(self):
+        return self.con.con
+
     def __enter__(self):
         return self
 
@@ -130,24 +154,4 @@ class FlightServer:
         self.server.__exit__(*args)
 
 
-def make_con(
-    con: FlightServer,
-) -> Backend:
-    kwargs = {
-        "host": con.flight_url.host,
-        "port": con.flight_url.port,
-    }
-
-    if con.auth is not None:
-        kwargs["username"] = con.auth.username
-        kwargs["password"] = con.auth.password
-
-    if con.certificate_path is not None:
-        kwargs["tls_roots"] = con.certificate_path
-
-    instance = Backend()
-    instance.do_connect(**kwargs)
-    return instance
-
-
-__all__ = ["FlightServer", "make_con", "BasicAuth"]
+__all__ = ["FlightServer", "BasicAuth"]
