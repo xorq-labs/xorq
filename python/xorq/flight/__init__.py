@@ -1,8 +1,9 @@
 import functools
 import socket
+from typing import Optional
+from urllib.parse import urlunparse
 
-import toolz
-from pydantic import AnyUrl, UrlConstraints
+from attrs import define, field, validators
 
 import xorq as xo
 from xorq.flight.backend import Backend
@@ -22,18 +23,32 @@ DEFAULT_AUTH_MIDDLEWARE = {
 }
 
 
-class FlightUrl(AnyUrl):
-    default_scheme = "grpc"
-    default_host = "localhost"
-    default_port = 5005
-    _constraints = UrlConstraints(
-        allowed_schemes=(default_scheme,),
-        default_host=default_host,
-        default_port=default_port,
-    )
+allowed_schemes = ("grpc",)
+default_host = "localhost"
+default_port = 5005
+
+
+@define
+class FlightUrl:
+    scheme: str = field(default="grpc", validator=validators.in_(allowed_schemes))
+    host: str = field(default=default_host)
+    username: Optional[str] = field(default=None)
+    password: Optional[str] = field(default=None)
+    port: Optional[int] = field(default=default_port)
+    path: Optional[str] = field(default="")
+    query: Optional[str] = field(default="")
+    fragment: Optional[str] = field(default="")
 
     def to_location(self):
-        return str(self)
+        components = (
+            self.scheme,
+            f"{self.host}:{self.port}",
+            self.path,
+            "",
+            self.query,
+            self.fragment,
+        )
+        return str(urlunparse(components))
 
     def port_in_use(self):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -45,16 +60,17 @@ class FlightUrl(AnyUrl):
 
     @classmethod
     def from_defaults(cls, **kwargs):
-        (scheme, *_) = cls._constraints.allowed_schemes
-        _kwargs = toolz.merge(
+        (scheme, *_) = allowed_schemes
+        _kwargs = (
             dict(
                 scheme=scheme,
-                host=cls._constraints.default_host,
-                port=cls._constraints.default_port,
-            ),
-            kwargs,
+                host=default_host,
+                port=default_port,
+            )
+            | kwargs
         )
-        return cls.build(**_kwargs)
+
+        return cls(**_kwargs)
 
 
 class BasicAuth:
