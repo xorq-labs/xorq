@@ -44,6 +44,17 @@ jobs:
       - name: Rust latest
         run: rustup update
 
+      - name: cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ./target/
+          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+
       # check how to use virtual environment https://stackoverflow.com/q/74668349/4001592
       - name: create virtual environment
         run: python -m venv .venv
@@ -56,7 +67,7 @@ jobs:
       - name: develop
         run: |
           source .venv/bin/activate
-          python -m maturin develop --extras=examples
+          python -m maturin develop --extras=examples,postgres
 
       - name: pytest
         run: |
