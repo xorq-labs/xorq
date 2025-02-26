@@ -180,7 +180,6 @@ class FlightExchange(ops.DatabaseTable):
         )
 
     def to_rbr(self, do_instrument_reader=None):
-        from xorq.flight import make_con
         from xorq.flight.action import AddExchangeAction
         from xorq.flight.exchanger import (
             UnboundExprExchanger,
@@ -194,7 +193,7 @@ class FlightExchange(ops.DatabaseTable):
             if do_instrument_reader:
                 rbr_in = instrument_reader(rbr_in, "input: ")
             with flight_exchange.make_server() as server:
-                client = make_con(server).con
+                client = server.client
                 unbound_expr_exchanger = UnboundExprExchanger(
                     flight_exchange.unbound_expr
                 )
