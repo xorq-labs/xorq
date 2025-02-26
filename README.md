@@ -18,11 +18,11 @@ I'll add more detailed descriptions for each of xorq's features:
 
 | Feature | Description |
 |---------|-------------|
-| **Declarative expressions** | Powered by Ibis, xorq lets you define transformations in a Pythonic, declarative style without being tied to a specific execution engine. This abstraction allows you to write expressions once and execute them across various backends (DuckDB, DataFusion, Spark, Snowflake) without rewriting code. The `.into_backend()` method enables seamless transitions between engines within a single pipeline. |
-| **[Built-in caching](https://docs.xorq.dev/core_concepts#caching-system)** | xorq automatically tracks the computational graph of your pipeline and intelligently caches intermediate results, minimizing repeated work. The cache system hashes expressions with metadata, enabling smart invalidation when code or parameters change. Supports multiple storage backends (in-memory, disk, etc.) and can materialize results as Arrow RecordBatches for optimal performance. |
+| **Declarative expressions** | Powered by Ibis, xorq lets you define transformations in a Pythonic, declarative style without being tied to a specific execution engine. This abstraction allows you to write expressions once and execute them across various backends (DuckDB, DataFusion, Trino, Snowflake) without rewriting code. The `.into_backend()` method enables seamless transitions between engines within a single pipeline. |
+| **[Built-in caching](https://docs.xorq.dev/core_concepts#caching-system)** | xorq automatically tracks the computational graph of your pipeline and caches intermediate results when `cache` operator is invoked, minimizing repeated work. Supports multiple storage backends (in-memory, Parquet on disk disk) and can materialize results as Arrow RecordBatches. |
 | **[Multi-engine](https://docs.xorq.dev/core_concepts#multi-engine-system)** | Create unified ML workflows that leverage the strengths of different data engines in a single pipeline. xorq orchestrates data movement between engines (e.g., Snowflake for initial extraction, DuckDB for transformations, and Python for ML model training), handling all the complexity of cross-engine compatibility and data serialization behind the scenes. |
 | **Serializable pipelines** | All pipeline definitions, including UDFs, are serialized to YAML format, enabling robust version control, reproducibility, and CI/CD integration. This serialization captures the complete execution graph, ensuring consistent results across environments and making it easy to track changes over time. |
-| **Portable UDFs** | User-defined functions in xorq can be registered, serialized, and reused across different environments. These UDFs maintain consistent behavior regardless of execution context, supporting variants like aggregates, window functions, and transformations. The embedded engine provides a portable runtime for UDF execution, enhancing reproducibility. |
+| **Portable UDFs** | User-defined functions in xorq can be serialized, and reused. These UDFs support variants like aggregates, window functions, and transformations. The embedded engine provides a portable runtime for UDF execution, enhancing reproducibility. |
 | **Arrow-native architecture** | Built on Apache Arrow's columnar memory format and Arrow Flight transport layer, xorq achieves high-performance data transfer without cumbersome serialization overhead. This design enables efficient data movement between services, supports both ephemeral processing for partial expressions and long-lived services for production deployments. |
 
 
@@ -86,19 +86,9 @@ pip install 'xorq[examples]'
 
 Contributions are welcome and highly appreciated. To get started, check out the [contributing guidelines](https://github.com/letsql/xorq/blob/main/CONTRIBUTING.md).
 
-## Support
-
-If you have any issues with this repository, please don't hesitate to [raise them](https://github.com/letsql/xorq/issues/new).
-It is actively maintained, and we will do our best to help you.
-
 ## Acknowledgements
 
 This project heavily relies on [Ibis](https://github.com/ibis-project/ibis) and [DataFusion](https://github.com/apache/datafusion).   
-
-## Liked the work?
-
-If you've found this repository helpful, why not give it a star? It's an easy way to show your appreciation and support for the project.
-Plus, it helps others discover it too!
 
 ## License
 
