@@ -8,6 +8,8 @@ db = xo.duckdb.connect()
 
 batting = pg.table("batting")
 
+integer = 1
+
 backend = xo.duckdb.connect()
 awards_players = deferred_read_parquet(
     backend,

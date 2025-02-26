@@ -4,6 +4,7 @@ import os
 import sys
 
 from xorq.ibis_yaml.compiler import BuildManager
+from xorq.vendor.ibis import Expr
 
 
 def load_variables_from_script(script_path):
@@ -26,7 +27,7 @@ def load_variables_from_script(script_path):
     return module
 
 
-def build_command(script_path, expressions, target_dir="build"):
+def build_command(script_path, expression, target_dir="build"):
     """
 
         Implementation of the 'build' command.
@@ -39,19 +40,19 @@ def build_command(script_path, expressions, target_dir="build"):
     Parameters
     ----------
     script_path : Path to the Python script
-    expressions
-    target_dir
+    expression : The name of the expression to build
+    target_dir : Directory where artifacts will be generated
 
     Returns
     -------
 
     """
 
-    if len(expressions) > 1 or len(expressions) == 0:
+    if len(expression) > 1 or len(expression) == 0:
         print("Expected one, and only one expression")
         sys.exit(1)
 
-    (expression,) = expressions
+    (expression,) = expression
 
     if not os.path.exists(script_path):
         print(f"Error: Script not found at {script_path}")
@@ -65,7 +66,17 @@ def build_command(script_path, expressions, target_dir="build"):
     build_manager = BuildManager(target_dir)
 
     script_vars = load_variables_from_script(script_path)
+
+    if not hasattr(script_vars, expression):
+        print(f"Expression {expression} not found")
+        sys.exit(1)
+
     expr = getattr(script_vars, expression)
+
+    if not isinstance(expr, Expr):
+        print(f"The object {expression} must be an instance of {type(expr)}")
+        sys.exit(1)
+
     build_manager.compile_expr(expr)
 
 
