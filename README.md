@@ -36,6 +36,7 @@ guide through using both the CLI and library components to get started.
 > This library does not currently have a stable release. Both the
 > API and implementation are subject to change, and future updates may not be
 > backward compatible.
+
 ### Installation
 
 xorq is available as [`xorq`](https://pypi.org/project/xorq/) on PyPI:
@@ -82,7 +83,7 @@ library with `examples` extra:
 pip install 'xorq[examples]'
 ```
 
-## Command-Line Interface
+### Command-Line Interface
 
 xorq provides a CLI that enables you to build serialized artifacts from expressions, making your pipelines reproducible and deployable:
 
