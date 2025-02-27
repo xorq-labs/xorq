@@ -5,7 +5,7 @@ import pyarrow as pa
 import pytest
 
 import xorq as xo
-from xorq.common.caching import ParquetCacheStorage, SourceStorage
+from xorq.caching import ParquetCacheStorage, SourceStorage
 from xorq.expr.relations import register_and_transform_remote_tables
 from xorq.vendor import ibis
 from xorq.vendor.ibis import _

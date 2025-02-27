@@ -17,6 +17,7 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
+from public import public
 
 import xorq as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
@@ -313,6 +314,7 @@ def chained_getattr(self, attr):
         return object.__getattribute__(self, attr)
 
 
+@public
 @frozen
 class ParquetSnapshot:
     source = field(
@@ -342,6 +344,7 @@ class ParquetSnapshot:
     __getattr__ = chained_getattr
 
 
+@public
 @frozen
 class ParquetCacheStorage:
     source = field(
@@ -368,6 +371,7 @@ class ParquetCacheStorage:
     __getattr__ = chained_getattr
 
 
+@public
 @frozen
 class SourceStorage:
     source = field(
@@ -385,6 +389,7 @@ class SourceStorage:
     __getattr__ = chained_getattr
 
 
+@public
 @frozen
 class SnapshotStorage:
     source = field(

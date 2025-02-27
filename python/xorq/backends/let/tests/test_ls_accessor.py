@@ -2,7 +2,7 @@ import pytest
 
 import xorq as xo
 from xorq.backends.let import Backend
-from xorq.common.caching import (
+from xorq.caching import (
     ParquetCacheStorage,
 )
 

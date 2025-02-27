@@ -7,7 +7,7 @@ import pytest
 
 import xorq as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
-from xorq.common.caching import (
+from xorq.caching import (
     SnapshotStorage,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (

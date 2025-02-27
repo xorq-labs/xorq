@@ -1,6 +1,6 @@
 import xorq as xo
 from xorq import _
-from xorq.common.caching import ParquetCacheStorage
+from xorq.caching import ParquetCacheStorage
 
 
 pg = xo.postgres.connect_examples()

@@ -17,7 +17,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.backends.conftest import (
     get_storage_uncached,
 )
-from xorq.common.caching import (
+from xorq.caching import (
     ParquetCacheStorage,
     ParquetSnapshot,
     SnapshotStorage,
@@ -276,7 +276,7 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     expr = t[cols]
     expected = alltypes_df[cols]
     source = expr._find_backend()
-    storage = xo.common.caching.ParquetCacheStorage(
+    storage = ParquetCacheStorage(
         source=source,
         path=tmp_path.joinpath("parquet-cache-storage"),
     )
@@ -314,7 +314,7 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
             alltypes.int_col < alltypes.float_col * 2,
         ]
     )
-    storage = xo.common.caching.ParquetCacheStorage(
+    storage = ParquetCacheStorage(
         source=con,
         path=tmp_path.joinpath("parquet-cache-storage"),
     )

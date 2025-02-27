@@ -13,7 +13,7 @@ from xorq.backends.conftest import (
 from xorq.backends.snowflake.tests.conftest import (
     inside_temp_schema,
 )
-from xorq.common.caching import (
+from xorq.caching import (
     ParquetCacheStorage,
     SnapshotStorage,
 )

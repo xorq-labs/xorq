@@ -16,7 +16,7 @@ from attr.validators import (
 )
 
 import xorq as xo
-from xorq.common.caching import (
+from xorq.caching import (
     ParquetCacheStorage,
 )
 from xorq.common.utils.defer_utils import (

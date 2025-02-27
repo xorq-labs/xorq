@@ -4,7 +4,7 @@ import pytest
 import toolz
 
 import xorq as xo
-from xorq.common.caching import (
+from xorq.caching import (
     ParquetCacheStorage,
     ParquetSnapshot,
 )

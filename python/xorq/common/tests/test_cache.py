@@ -4,7 +4,7 @@ import pytest
 
 import xorq as xo
 import xorq.backends.let
-from xorq.common.caching import ParquetCacheStorage
+from xorq.caching import ParquetCacheStorage
 
 
 @pytest.fixture(scope="session")
