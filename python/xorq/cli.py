@@ -114,9 +114,13 @@ def main():
     run_parser = subparsers.add_parser(
         "run", help="Run a build from a builds directory"
     )
-    run_parser.add_argument("builds_dir", help="Path to the builds directory")
     run_parser.add_argument(
         "expression_hash", help="Hash identifier of the build to run"
+    )
+    run_parser.add_argument(
+        "--builds-dir",
+        default="builds",
+        help="Path to the directory for all generated artifacts",
     )
     run_parser.add_argument(
         "--format", choices=["csv", "json"], default="csv", help="Output format"

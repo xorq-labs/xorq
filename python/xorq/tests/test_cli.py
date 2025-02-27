@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from xorq.cli import build_command, main, run_command
+from xorq.cli import build_command, main
 
 
 def test_build_command(monkeypatch, tmp_path, capsys):
@@ -97,12 +97,29 @@ def test_run_command(monkeypatch, tmp_path, capsys, output_format):
     target_dir = tmp_path / "build"
     script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
 
-    build_command(str(script_path), ["expr"], target_dir=str(target_dir))
-    build_capture = str(capsys.readouterr())
+    build_command(str(script_path), ["expr"], builds_dir=str(target_dir))
+    capture = capsys.readouterr()
 
-    if match := re.search("artifacts/([0-9a-f]+)", build_capture):
-        run_command(target_dir, match.group(1), output_format)
-        run_capture = str(capsys.readouterr())
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", str(capture.out)):
+        expression_hash = match.group(1)
+        test_args = [
+            "xorq",
+            "run",
+            expression_hash,
+            "--builds-dir",
+            str(target_dir),
+            "--format",
+            output_format,
+        ]
+        monkeypatch.setattr(sys, "argv", test_args)
+
+        try:
+            main()
+        except SystemExit:
+            pass
+
+        capture = capsys.readouterr()
+        run_capture = str(capture.out)
 
         match output_format:
             case "csv":
@@ -110,6 +127,8 @@ def test_run_command(monkeypatch, tmp_path, capsys, output_format):
                 assert list(reader)
             case "json":
                 assert json.loads(run_capture)
+    else:
+        raise AssertionError("No expression hash")
 
 
 def test_build_command_not_implemented(monkeypatch, capsys):
