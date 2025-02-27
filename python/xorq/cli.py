@@ -57,6 +57,30 @@ def build_command(script_path, expression, builds_dir="builds"):
     )
 
 
+def run_command(builds_dir, hash_id):
+    """
+    Run a build, by recreating the expression from the build
+
+    Parameters
+    ----------
+    builds_dir : Path to the builds directory
+    hash_id : The hash identifier of the build to run
+
+    Returns
+    -------
+
+    """
+    try:
+        build_manager = BuildManager(builds_dir)
+        expr = build_manager.load_expr(hash_id)
+        print(f"Executing expression with {hash_id}")
+        expr.execute()
+
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     """Main entry point for the xorq CLI."""
     parser = argparse.ArgumentParser(description="xorq - build and run expressions")
@@ -80,13 +104,23 @@ def main():
         "--builds-dir", default="builds", help="Directory for all generated artifacts"
     )
 
-    # Parse the arguments
+    # Create parser for the "run" command
+    run_parser = subparsers.add_parser(
+        "run", help="Run a build from a builds directory"
+    )
+    run_parser.add_argument("builds_dir", help="Path to the builds directory")
+    run_parser.add_argument(
+        "expression_hash", help="Hash identifier of the build to run"
+    )
+
     args = parser.parse_args()
 
-    # Execute the appropriate command
-    if args.command == "build":
-        expressions = [args.expressions] if args.expressions else []
-        build_command(args.script_path, expressions, args.builds_dir)
+    match args.command:
+        case "build":
+            expressions = [args.expressions] if args.expressions else []
+            build_command(args.script_path, expressions, args.builds_dir)
+        case "run":
+            run_command(args.builds_dir, args.expression_hash)
 
 
 if __name__ == "__main__":
