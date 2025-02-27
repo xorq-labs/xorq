@@ -94,7 +94,7 @@ builds
 The CLI converts Ibis expressions into serialized artifacts that capture the complete execution graph, ensuring consistent results across environments.
 More info can be found in the tutorial [Building with xorq](https://docs.xorq.dev/tutorials/build).
 
-for more examples on how to use letsql, check the
+For more examples on how to use xorq, check the
 [examples](https://github.com/letsql/xorq/tree/main/examples) directory, note
 that in order to run some of the scripts in there, you need to install the
 library with `examples` extra:
@@ -113,4 +113,4 @@ This project heavily relies on [Ibis](https://github.com/ibis-project/ibis) and 
 
 ## License
 
-This repository is licensed under the [Apache License](https://github.com/letsql/letsql/blob/main/LICENSE)
+This repository is licensed under the [Apache License](https://github.com/letsql/xorq/blob/main/LICENSE)
