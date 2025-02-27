@@ -82,6 +82,18 @@ library with `examples` extra:
 pip install 'xorq[examples]'
 ```
 
+## Command-Line Interface
+
+xorq provides a CLI that enables you to build serialized artifacts from expressions, making your pipelines reproducible and deployable:
+
+```shell
+# Build an expression from a Python script
+xorq build your_script.py -e expression_name --target-dir build
+```
+
+The CLI converts Ibis expressions into serialized artifacts that capture the complete execution graph, ensuring consistent results across environments.
+More info can be found in the tutorial [Building with xorq](https://docs.xorq.dev/tutorials/build)
+
 ## Contributing
 
 Contributions are welcome and highly appreciated. To get started, check out the [contributing guidelines](https://github.com/letsql/xorq/blob/main/CONTRIBUTING.md).
