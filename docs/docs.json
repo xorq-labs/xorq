@@ -25,7 +25,7 @@
             "group": "Tutorials",
             "pages": [
               "tutorials/10_minutes_xorq_tour",
-              "tutorials/build_and_run",
+              "tutorials/build",
               "tutorials/pipelines_as_expressions",
               "tutorials/udxf"
             ]
