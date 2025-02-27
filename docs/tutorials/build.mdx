@@ -1,0 +1,84 @@
+---
+title: 'Build and run'
+---
+
+# Building with xorq: A Quick Tutorial
+
+xorq provides a command-line interface with a `build` command that allows you to generate artifacts from Ibis expressions defined in Python scripts. This tutorial will walk you through using this functionality.
+
+## Prerequisites
+
+Before starting, make sure you have xorq installed:
+
+```bash
+pip install xorq
+```
+
+## Basic Usage
+
+The basic syntax for the `build` command is:
+
+```bash
+xorq build <script_path> -e <expression_name> --target-dir <output_directory>
+```
+
+Where:
+- `<script_path>` is the path to your Python script containing the expression
+- `<expression_name>` is the name of the variable holding the Ibis expression
+- `<output_directory>` is where the artifacts will be generated (defaults to "build")
+
+## Example
+
+Let's create a simple script that defines an Ibis expression:
+
+```python
+# pipeline.py
+import xorq as xo
+
+# Connect to data source
+con = xo.connect()
+
+# Create a simple dataframe
+df = con.create_table("people",
+                      {"name": ["Alice", "Bob", "Charlie"],
+                       "age": [25, 30, 35]})
+
+# Define your expression
+expr = df.filter(df.age > 30).select("name")
+```
+
+Now, let's build this expression using the CLI:
+
+```bash
+xorq build pipeline.py -e expr --target-dir artifacts
+```
+
+This command will:
+1. Load the `pipeline.py` script
+2. Find the `expr` variable
+3. Generate artifacts based on the expression
+4. Save them to the `artifacts` directory
+
+You should see output similar to:
+```
+Building expr from pipeline.py
+Written 'expr' to artifacts/2a3b46d8d3d0
+```
+
+## Use Cases
+
+This functionality is particularly useful for:
+
+- Saving compiled expressions for later execution
+- Sharing expressions between different systems
+- Version controlling complex data transformations
+- Pre-compiling expressions for production deployments
+
+## Error Handling
+
+The CLI will provide helpful error messages if:
+
+- The script doesn't exist
+- The expression variable isn't found in the script
+- The variable isn't an Ibis expression
+- No expression name is provided
