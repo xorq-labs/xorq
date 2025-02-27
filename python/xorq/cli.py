@@ -29,13 +29,7 @@ def load_variables_from_script(script_path):
 
 def build_command(script_path, expression, target_dir="build"):
     """
-
-        Implementation of the 'build' command.
-
-    Args:
-        script_path (str): Path to the Python script
-        name (str): Name for the build
-        target_dir (str): Directory where artifacts will be generated
+    Generate artifacts from an expression in a given Python script
 
     Parameters
     ----------
