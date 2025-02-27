@@ -3,7 +3,7 @@ import socket
 from typing import Optional
 from urllib.parse import urlunparse
 
-from attrs import define, field, validators
+from attrs import field, frozen, validators
 
 import xorq as xo
 from xorq.flight.backend import Backend
@@ -28,7 +28,7 @@ default_host = "localhost"
 default_port = 5005
 
 
-@define
+@frozen
 class FlightUrl:
     scheme: str = field(default="grpc", validator=validators.in_(allowed_schemes))
     host: str = field(default=default_host)
