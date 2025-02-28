@@ -76,7 +76,7 @@ importlib-metadata==8.6.1
 importlib-resources==6.5.2
 iniconfig==2.0.0
 ipykernel==6.29.5
-ipython==8.32.0
+ipython==8.33.0
 isoduration==20.11.0
 jedi==0.19.2
 jinja2==3.1.5
@@ -173,7 +173,7 @@ rfc3986-validator==0.1.1
 rich==13.9.4
 rpds-py==0.23.1
 rsa==4.9 ; python_full_version < '4.0'
-ruff==0.9.8
+ruff==0.9.9
 scikit-learn==1.6.1
 scipy==1.15.2
 send2trash==1.8.3
