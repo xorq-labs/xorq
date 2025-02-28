@@ -60,16 +60,7 @@ class FlightUrl:
 
     @classmethod
     def from_defaults(cls, **kwargs):
-        (scheme, *_) = allowed_schemes
-        _kwargs = (
-            dict(
-                scheme=scheme,
-                host=default_host,
-                port=default_port,
-            )
-            | kwargs
-        )
-
+        _kwargs = {attr.name: attr.default for attr in cls.__attrs_attrs__} | kwargs
         return cls(**_kwargs)
 
 
