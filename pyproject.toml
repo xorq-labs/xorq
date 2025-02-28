@@ -112,6 +112,7 @@ docs = [
     "nbformat<6.0.0,>=5.10.4",
     "nbclient<1.0.0,>=0.10.0",
     "ipykernel<7.0.0,>=6.29.4",
+    "notebook>=7.3.2",
 ]
 
 [project.entry-points."xorq.backends"]
