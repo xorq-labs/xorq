@@ -1,9 +1,13 @@
 import functools
+import operator
 import types
 
 import dask.base
 import toolz
 
+from xorq.common.utils.dask_normalize._ctypes import (
+    get_ctypes_field,
+)
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_seq_with_caller,
 )
@@ -113,3 +117,20 @@ def make_cell_typ():
 @dask.base.normalize_token.register(make_cell_typ())
 def normalize_cell(cell):
     return dask.base.normalize_token(cell.cell_contents)
+
+
+@dask.base.normalize_token.register(toolz.functoolz.excepts)
+def normalize_excepts(f):
+    return normalize_seq_with_caller(
+        f.exc,
+        f.func,
+        # FIXME: figure out how to include handler
+        # f.handler,
+    )
+
+
+@dask.base.normalize_token.register(operator.methodcaller)
+def normalize_operator_methodcaller(obj):
+    fields = ("name", "args", "kwargs")
+    gen = (get_ctypes_field(fields, field, obj) for field in fields)
+    return normalize_seq_with_caller(*gen)

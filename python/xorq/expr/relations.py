@@ -3,6 +3,7 @@ from collections import defaultdict
 from typing import Any, Callable
 
 import pyarrow as pa
+import toolz
 
 import xorq as xo
 from xorq.common.utils.rbr_utils import (
@@ -134,7 +135,11 @@ class RemoteTable(ops.DatabaseTable):
         )
 
 
-class FlightExchange(ops.DatabaseTable):
+def into_backend(expr, con, name=None):
+    return RemoteTable.from_expr(con=con, expr=expr, name=name).to_expr()
+
+
+class FlightExpr(ops.DatabaseTable):
     input_expr: Expr = None
     unbound_expr: Expr = None
     make_server: Callable = None
@@ -159,7 +164,6 @@ class FlightExchange(ops.DatabaseTable):
         name=None,
         **kwargs,
     ):
-        import xorq as xo
         from xorq.flight import FlightServer
 
         def roundtrip_cloudpickle(obj):
@@ -217,7 +221,8 @@ class FlightExchange(ops.DatabaseTable):
         return pa.RecordBatchReader.from_batches(schema, gen)
 
 
-def flight_operator(
+@toolz.curry
+def flight_expr(
     expr,
     unbound_expr,
     name=None,
@@ -228,7 +233,7 @@ def flight_operator(
     **kwargs,
 ):
     return (
-        FlightExchange.from_exprs(
+        FlightExpr.from_exprs(
             expr,
             unbound_expr,
             make_server=make_server,
@@ -241,34 +246,108 @@ def flight_operator(
     )
 
 
+class FlightUDXF(ops.DatabaseTable):
+    input_expr: Expr = None
+    # FIXME: fix circular import issue so we can possibly pass an instance of AbstractExchanger
+    udxf: type = None
+    make_server: Callable = None
+    make_connection: Callable = None
+    do_instrument_reader: bool = False
+
+    @classmethod
+    def validate_schema(cls, input_expr, udxf):
+        if not udxf.schema_in_condition(input_expr.schema().to_pyarrow()):
+            raise ValueError
+        schema_out = udxf.calc_schema_out(input_expr.schema().to_pyarrow())
+        return schema_out
+
+    @classmethod
+    def from_expr(
+        cls,
+        input_expr,
+        udxf,
+        make_server=None,
+        make_connection=None,
+        name=None,
+        **kwargs,
+    ):
+        from xorq.flight import FlightServer
+
+        schema = cls.validate_schema(input_expr, udxf)
+        return cls(
+            name=name or gen_name(),
+            schema=schema,
+            source=input_expr._find_backend(),
+            input_expr=input_expr,
+            udxf=udxf,
+            make_server=make_server or FlightServer,
+            make_connection=make_connection or xo.connect,
+            **kwargs,
+        )
+
+    def to_rbr(self, do_instrument_reader=None):
+        from xorq.flight.action import AddExchangeAction
+
+        if do_instrument_reader is None:
+            do_instrument_reader = self.do_instrument_reader
+
+        def inner(flight_udxf):
+            rbr_in = flight_udxf.input_expr.to_pyarrow_batches()
+            if do_instrument_reader:
+                rbr_in = instrument_reader(rbr_in, "input: ")
+            with flight_udxf.make_server() as server:
+                client = server.client
+                client.do_action(
+                    AddExchangeAction.name,
+                    self.udxf,
+                    options=client._options,
+                )
+                (fut, rbr_out) = client.do_exchange(self.udxf.command, rbr_in)
+                if do_instrument_reader:
+                    rbr_out = instrument_reader(rbr_out, "output: ")
+                # HAK: account for https://github.com/apache/arrow-rs/issues/6471
+                rbr_out = copy_rbr_batches(rbr_out)
+                yield from rbr_out
+
+        gen = inner(self)
+        schema = self.schema.to_pyarrow()
+        return pa.RecordBatchReader.from_batches(schema, gen)
+
+
+@toolz.curry
 def flight_udxf(
     expr,
-    udxf,
-    col_name=None,
+    process_df,
+    maybe_schema_in,
+    maybe_schema_out,
     name=None,
     make_server=None,
     make_connection=None,
-    inner_name=None,
     con=None,
+    inner_name=None,
+    make_udxf_kwargs=(),
     **kwargs,
 ):
-    unbound_expr = xo.table(expr.schema()).mutate(
-        **{col_name or udxf.fn.__name__: udxf.on_expr}
-    )
-    return flight_operator(
-        expr,
-        unbound_expr=unbound_expr,
-        name=name,
-        make_server=make_server,
-        make_connection=make_connection,
-        inner_name=inner_name,
-        con=con,
-        **kwargs,
-    )
+    from xorq.flight.exchanger import make_udxf
 
-
-def into_backend(expr, con, name=None):
-    return RemoteTable.from_expr(con=con, expr=expr, name=name).to_expr()
+    udxf = make_udxf(
+        process_df,
+        maybe_schema_in,
+        maybe_schema_out,
+        **dict(make_udxf_kwargs),
+    )
+    return (
+        FlightUDXF.from_expr(
+            input_expr=expr,
+            udxf=udxf,
+            make_server=make_server,
+            make_connection=make_connection,
+            name=inner_name,
+            **kwargs,
+        )
+        .to_expr()
+        .into_backend(con=con or expr._find_backend(), name=name)
+    )
 
 
 class Read(ops.Relation):
@@ -295,8 +374,6 @@ class Read(ops.Relation):
 
 
 def register_and_transform_remote_tables(expr):
-    import xorq as xo
-
     created = {}
 
     op = expr.op()
