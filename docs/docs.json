@@ -40,7 +40,8 @@
             "group": "Functions API",
             "pages": [
               "api-reference/toplevel-api",
-              "api-reference/ml-api"
+              "api-reference/ml-api",
+              "api-reference/profiles"
             ]
           }
         ]
