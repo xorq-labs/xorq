@@ -5,7 +5,8 @@ import pytest
 import yaml
 
 import xorq as xo
-from xorq.vendor.ibis.backends import BaseBackend, Profile, Profiles
+from xorq.vendor.ibis.backends import BaseBackend
+from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 
 
 local_con_names = ("duckdb", "let", "datafusion", "pandas")
@@ -135,7 +136,6 @@ def test_elide_secrets():
             ("direct_env", "${SOME_ENV}"),
         ),
     )
-
     # elide
     elided_profile = profile.elide_secrets()
 
