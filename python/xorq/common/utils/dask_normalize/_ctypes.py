@@ -28,10 +28,3 @@ def get_ctypes_field(fields, field, obj):
     return cast(getattr(c_methcallobj, field), py_object).value
 
 
-if __name__ == "__main__":
-    import operator
-
-    obj = operator.methodcaller("assign", x=1)
-    fields = ("name", "args", "kwargs")
-    dct = {field: get_ctypes_field(fields, field, obj) for field in fields}
-    print(dct)
