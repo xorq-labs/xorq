@@ -185,6 +185,7 @@ markers = [
     "s3"
 ]
 consider_namespace_packages = true
+addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
 
 
 [tool.git-cliff.changelog]
