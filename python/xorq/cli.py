@@ -7,7 +7,7 @@ from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
 
 
-def build_command(script_path, expression, target_dir="build"):
+def build_command(script_path, expression, builds_dir="builds"):
     """
     Generate artifacts from an expression in a given Python script
 
@@ -15,14 +15,14 @@ def build_command(script_path, expression, target_dir="build"):
     ----------
     script_path : Path to the Python script
     expression : The name of the expression to build
-    target_dir : Directory where artifacts will be generated
+    builds_dir : Directory where artifacts will be generated
 
     Returns
     -------
 
     """
 
-    if len(expression) > 1 or len(expression) == 0:
+    if len(expression) != 1:
         print("Expected one, and only one expression", file=sys.stderr)
         sys.exit(1)
 
@@ -34,7 +34,7 @@ def build_command(script_path, expression, target_dir="build"):
 
     print(f"Building {expression} from {script_path}")
 
-    build_manager = BuildManager(target_dir)
+    build_manager = BuildManager(builds_dir)
 
     vars_module = import_from_path(script_path)
 
@@ -77,7 +77,7 @@ def main():
         help="Name of the expression variable in the Python script",
     )
     build_parser.add_argument(
-        "--target-dir", default="build", help="Directory for all generated artifacts"
+        "--builds-dir", default="builds", help="Directory for all generated artifacts"
     )
 
     # Parse the arguments
@@ -86,7 +86,7 @@ def main():
     # Execute the appropriate command
     if args.command == "build":
         expressions = [args.expressions] if args.expressions else []
-        build_command(args.script_path, expressions, args.target_dir)
+        build_command(args.script_path, expressions, args.builds_dir)
 
 
 if __name__ == "__main__":
