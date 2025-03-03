@@ -7,7 +7,7 @@ from xorq.cli import main
 
 
 def test_build_command(monkeypatch, tmp_path, capsys):
-    target_dir = tmp_path / "build"
+    builds_dir = tmp_path / "builds"
     script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
 
     test_args = [
@@ -16,8 +16,8 @@ def test_build_command(monkeypatch, tmp_path, capsys):
         str(script_path),
         "-e",
         "expr",
-        "--target-dir",
-        str(target_dir),
+        "--builds-dir",
+        str(builds_dir),
     ]
     monkeypatch.setattr(sys, "argv", test_args)
 
@@ -31,11 +31,11 @@ def test_build_command(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert "Building expr" in captured.out
 
-    assert target_dir.exists()
+    assert builds_dir.exists()
 
 
 def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
-    target_dir = tmp_path / "build"
+    builds_dir = tmp_path / "builds"
     script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.ipynb"
 
     test_args = [
@@ -44,8 +44,8 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
         str(script_path),
         "-e",
         "expr",
-        "--target-dir",
-        str(target_dir),
+        "--builds-dir",
+        str(builds_dir),
     ]
     monkeypatch.setattr(sys, "argv", test_args)
 
@@ -59,7 +59,7 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
     captured = capsys.readouterr()
     assert "Building expr" in captured.out
 
-    assert target_dir.exists()
+    assert builds_dir.exists()
 
 
 def test_build_command_not_implemented(monkeypatch, capsys):
@@ -69,7 +69,7 @@ def test_build_command_not_implemented(monkeypatch, capsys):
         "xorq",
         "build",
         str(script_path),
-        "--target-dir",
+        "--builds-dir",
         str(Path.cwd()),
     ]
     monkeypatch.setattr(sys, "argv", test_args)
@@ -95,7 +95,7 @@ def test_build_command_not_implemented(monkeypatch, capsys):
 def test_build_command_bad_expr_name(
     monkeypatch, tmp_path, capsys, expression, message
 ):
-    target_dir = tmp_path / "build"
+    builds_dir = tmp_path / "builds"
     script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
 
     test_args = [
@@ -104,8 +104,8 @@ def test_build_command_bad_expr_name(
         str(script_path),
         "-e",
         expression,
-        "--target-dir",
-        str(target_dir),
+        "--builds-dir",
+        str(builds_dir),
     ]
     monkeypatch.setattr(sys, "argv", test_args)
 
