@@ -57,7 +57,7 @@ def test_remote_con_works(connect):
 
 def test_profiles(monkeypatch, tmp_path):
     default_profile_dir = xo.options.profiles.profile_dir
-    assert default_profile_dir == pathlib.Path("~/.config/letsql/profiles").expanduser()
+    assert default_profile_dir == pathlib.Path("~/.config/xorq/profiles").expanduser()
     profiles = Profiles()
     assert profiles.profile_dir == default_profile_dir
     assert not profiles.list()  # why do this ?
