@@ -179,7 +179,7 @@ def normalize_letsql_databasetable(dt):
         return dask.base.normalize_token(
             (
                 "normalize_letsql_databasetable",
-                dt.input_expr.unbind(),
+                dt.input_expr,
                 dt.unbound_expr,
                 dt.make_connection,
             )
@@ -188,7 +188,7 @@ def normalize_letsql_databasetable(dt):
         return dask.base.normalize_token(
             (
                 "normalize_letsql_databasetable",
-                dt.input_expr.unbind(),
+                dt.input_expr,
                 dt.udxf.exchange_f,
                 dt.make_connection,
             )
