@@ -329,3 +329,66 @@ class TestParseEnvVars:
         }
 
         assert parse_env_vars(input_dict) == expected
+
+
+def test_connection_with_env_vars_preserves_env_vars(monkeypatch, tmp_path):
+    """Test that connections instantiated with env vars preserve them in profiles."""
+
+    # Set up test environment
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
+
+    # Set environment variables to match the existing profile values
+    monkeypatch.setenv("POSTGRES_HOST", "localhost")
+    monkeypatch.setenv("POSTGRES_USER", "postgres")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "postgres")
+    monkeypatch.setenv("POSTGRES_DB", "ibis_testing")
+
+    con_postgres = xo.postgres.connect(
+        host="${POSTGRES_HOST}",
+        user="${POSTGRES_USER}",
+        password="${POSTGRES_PASSWORD}",
+        database="${POSTGRES_DB}",
+        port=5432,
+    )
+
+    # Get profile from connection
+    profile = con_postgres._profile
+
+    # Verify profile has env var references
+    assert profile.kwargs_dict["host"] == "${POSTGRES_HOST}"
+    assert profile.kwargs_dict["user"] == "${POSTGRES_USER}"
+    assert profile.kwargs_dict["password"] == "${POSTGRES_PASSWORD}"
+    assert profile.kwargs_dict["database"] == "${POSTGRES_DB}"
+
+    # Save profile
+    profile.save(alias="pg_env_var_test")
+
+    # Create Profiles instance to load profiles
+    profiles = Profiles(profile_dir=tmp_path)
+
+    # Get profiles in different ways
+    loaded_profiles = [
+        profiles.get(profile.hash_name),
+        profiles[profile.hash_name],
+        profile.load(profile.hash_name, profile_dir=tmp_path),
+    ]
+
+    # Verify all loaded profiles have env var references
+    for loaded_profile in loaded_profiles:
+        assert loaded_profile.kwargs_dict["host"] == "${POSTGRES_HOST}"
+        assert loaded_profile.kwargs_dict["user"] == "${POSTGRES_USER}"
+        assert loaded_profile.kwargs_dict["password"] == "${POSTGRES_PASSWORD}"
+
+        # Create connection from loaded profile
+        loaded_con = loaded_profile.get_con()
+
+        # Verify the connection's profile still has env var references
+        assert loaded_con._profile is not None
+        assert loaded_con._profile.kwargs_dict["host"] == "${POSTGRES_HOST}"
+        assert loaded_con._profile.kwargs_dict["user"] == "${POSTGRES_USER}"
+        assert loaded_con._profile.kwargs_dict["password"] == "${POSTGRES_PASSWORD}"
+
+        # Test that the connection works by comparing to a simple list_tables call
+        tables1 = con_postgres.list_tables()
+        tables2 = loaded_con.list_tables()
+        assert tables1 == tables2
