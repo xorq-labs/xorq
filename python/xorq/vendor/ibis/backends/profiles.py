@@ -288,7 +288,6 @@ class Profile:
                 if key in relevant_secrets
                 and not (isinstance(value, str) and compiled_env_var_re.match(value))
             ]
-
             if exposed_secrets:
                 secrets_list = ", ".join(f"'{key}'" for key in exposed_secrets)
                 env_var_examples = ", ".join(
@@ -468,6 +467,11 @@ class Profile:
             assert not arguments1.get("args")
             arguments = toolz.dissoc(arguments0 | arguments1, "args")
             return arguments
+
+            # If connection already has a profile, return it to preserve env vars
+
+        if hasattr(con, "_profile") and con._profile is not None:
+            return con._profile
 
         if con.name == "xorq_flight":
             return None

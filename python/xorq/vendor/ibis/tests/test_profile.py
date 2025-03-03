@@ -550,3 +550,57 @@ class TestCheckForExposedSecrets:
 
         # Should succeed with check_secrets=False
         profile.save(check_secrets=False)
+
+
+def test_profile_from_con_preserves_env_vars(monkeypatch, tmp_path):
+    """Test that Profile.from_con() preserves environment variables from the original profile."""
+
+    # Set up the profile directory for testing
+    monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
+
+    # Set up environment variables
+    monkeypatch.setenv("POSTGRES_HOST", "localhost")
+    monkeypatch.setenv("POSTGRES_USER", "postgres")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "postgres")
+
+    # Create a profile with environment variable references
+    original_profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "${POSTGRES_HOST}"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "${POSTGRES_USER}"),
+            ("password", "${POSTGRES_PASSWORD}"),
+        ),
+    )
+
+    # Create a connection from the profile
+    try:
+        connection = original_profile.get_con()
+
+        # Create a profile from the connection using from_con
+        profile_from_connection = Profile.from_con(connection)
+
+        # Check if environment variables are preserved
+        assert profile_from_connection.kwargs_dict["host"] == "${POSTGRES_HOST}"
+        assert profile_from_connection.kwargs_dict["user"] == "${POSTGRES_USER}"
+        assert profile_from_connection.kwargs_dict["password"] == "${POSTGRES_PASSWORD}"
+
+        # Test saving and loading the profile from connection
+        saved_path = profile_from_connection.save(alias="test_profile", clobber=True)
+        assert saved_path.exists()
+        loaded_profile = Profile.load("test_profile")
+
+        # Check loaded profile still has env vars
+        assert loaded_profile.kwargs_dict["host"] == "${POSTGRES_HOST}"
+        assert loaded_profile.kwargs_dict["user"] == "${POSTGRES_USER}"
+        assert loaded_profile.kwargs_dict["password"] == "${POSTGRES_PASSWORD}"
+
+    except Exception as e:
+        if "connection refused" in str(e).lower():
+            import pytest
+
+            pytest.skip(f"Database connection failed: {e}")
+        else:
+            raise
