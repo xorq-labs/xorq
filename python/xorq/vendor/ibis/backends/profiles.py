@@ -14,7 +14,6 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from envyaml import EnvYAML
 
 import xorq as xo
 from xorq.common.utils.inspect_utils import get_arguments
@@ -122,42 +121,10 @@ class Profile:
             dict(con_name=self.con_name, kwargs_dict=self.kwargs_dict, idx=self.idx)
         )
 
-    def elide_secrets(self):
-        # TODO: Needs more secret keys for different backends
-        SECRET_KEYS = ("password", "secret")
-
-        new_kwargs = {}
-        for k, v in self.kwargs_dict.items():
-            found_env = None
-            # check to see if the value is an env variable
-            # and that it exists before we save it
-            if not v:
-                continue
-            if isinstance(v, str):
-                if v.startswith("${") and v.endswith("}"):
-                    env_name = v[2:-1]
-                    if env_name in os.environ:
-                        new_kwargs[k] = f"${{{env_name}}}"
-                        continue
-
-            for env_name, env_value in os.environ.items():
-                if env_value == v:
-                    found_env = env_name
-                    break
-            if found_env:
-                new_kwargs[k] = f"${{{found_env}}}"
-            else:
-                if k in SECRET_KEYS:
-                    new_kwargs[k] = "***elided***"
-                else:
-                    new_kwargs[k] = v
-        return self.clone(**new_kwargs)
-
     def save(self, profile_dir=None, alias=None, clobber=False):
         path = self.get_path(self.hash_name, profile_dir=profile_dir)
         if not path.exists():
-            elided = self.elide_secrets()
-            path.write_text(elided.as_yaml())
+            path.write_text(self.as_yaml())
         if alias:
             alias_path = self.get_path(alias, profile_dir=profile_dir)
             if alias_path.exists():
@@ -181,7 +148,7 @@ class Profile:
     @classmethod
     def load(cls, name, profile_dir=None):
         path = cls.get_path(name, profile_dir=profile_dir)
-        env = EnvYAML(path)
+        env = yaml.safe_load(path.read_text())
         con_name = env.get("con_name")
         kwargs_dict = env.get("kwargs_dict")
         idx = env.get("idx")
@@ -202,3 +169,36 @@ class Profile:
         if "port" in kwargs and kwargs["port"] is not None:
             kwargs["port"] = int(kwargs["port"])
         return cls(con_name=con.name, kwargs_tuple=tuple(kwargs.items()))
+
+
+# TODO: find a better home for this
+def parse_env_vars(kwargs_dict: dict) -> dict:
+    processed_kwargs = {}
+    missing_vars = []
+
+    for k, v in kwargs_dict.items():
+        if isinstance(v, str):
+            # Handle ${VAR} format
+            if v.startswith("${") and v.endswith("}"):
+                env_var = v[2:-1]
+                if env_var in os.environ:
+                    processed_kwargs[k] = os.environ[env_var]
+                else:
+                    missing_vars.append(env_var)
+            # Handle $VAR format
+            elif v.startswith("$") and len(v) > 1:
+                env_var = v[1:]
+                if env_var in os.environ:
+                    processed_kwargs[k] = os.environ[env_var]
+                else:
+                    missing_vars.append(env_var)
+            else:
+                processed_kwargs[k] = v
+        else:
+            processed_kwargs[k] = v
+
+    # Strict mode: raise error if any env vars are missing
+    if missing_vars:
+        missing_list = ", ".join(f"'{var}'" for var in missing_vars)
+        raise ValueError(f"Environment variable(s) {missing_list} not set")
+    return processed_kwargs

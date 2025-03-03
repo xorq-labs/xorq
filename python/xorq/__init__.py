@@ -8,6 +8,7 @@ from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
 from xorq.backends.let import Backend
 from xorq.internal import SessionConfig
+from xorq.vendor.ibis.backends.profiles import parse_env_vars
 
 try:
     import importlib.metadata as importlib_metadata
@@ -44,7 +45,9 @@ def load_backend(name):
         backend.register_options()
 
         def connect(*args, **kwargs):
-            return backend.connect(*args, **kwargs)
+            parsed_kwargs = parse_env_vars(kwargs)
+            # breakpoint()
+            return backend.connect(*args, **parsed_kwargs)
 
         connect.__doc__ = backend.do_connect.__doc__
         connect.__wrapped__ = backend.do_connect
