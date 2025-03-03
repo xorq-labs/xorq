@@ -124,7 +124,65 @@ class Profile:
             dict(con_name=self.con_name, kwargs_dict=self.kwargs_dict, idx=self.idx)
         )
 
-    def save(self, profile_dir=None, alias=None, clobber=False):
+    def _check_for_exposed_secrets(self, check_secrets: bool) -> None:
+        """Check if profile contains exposed secret keys.
+
+        Raises
+        ------
+        ValueError
+            If profile contains exposed secret keys not using environment variables
+        """
+
+        if check_secrets:
+            # Define secret keys by database type
+            # TODO: Add more database types as needed
+            # maybe user sets this in options
+            secret_keys = {
+                "postgres": [
+                    "password",
+                    "sslcert",
+                    "sslkey",
+                    "sslrootcert",
+                    "sslcrl",
+                    "options",
+                    "passfile",
+                ],
+                "snowflake": [
+                    "password",
+                    "user",
+                    "account",
+                    "token",
+                    "private_key",
+                    "private_key_path",
+                    "oauth_token",
+                ],
+                # Add more database types as needed
+            }
+
+            # default to just password
+            relevant_secrets = secret_keys.get(
+                self.con_name, ["password"]
+            )  # Default to just password
+
+            exposed_secrets = [
+                key
+                for key, value in self.kwargs_dict.items()
+                if key in relevant_secrets
+                and not (isinstance(value, str) and compiled_env_var_re.match(value))
+            ]
+
+            if exposed_secrets:
+                secrets_list = ", ".join(f"'{key}'" for key in exposed_secrets)
+                env_var_examples = ", ".join(
+                    f"${key} or ${{{key}}}" for key in exposed_secrets
+                )
+                raise ValueError(
+                    f"Profile contains exposed secret keys: {secrets_list}. "
+                    f"Use environment variables ({env_var_examples}) for these values."
+                )
+
+    def save(self, profile_dir=None, alias=None, clobber=False, check_secrets=True):
+        self._check_for_exposed_secrets(check_secrets)
         path = self.get_path(self.hash_name, profile_dir=profile_dir)
         if not path.exists():
             path.write_text(self.as_yaml())
@@ -207,28 +265,29 @@ def maybe_process_env_var(obj):
         return obj
 
 
-# TODO: find a better home for this
 def parse_env_vars(kwargs_dict: dict) -> dict:
+    """Process all environment variables in a dictionary.
+
+    Uses maybe_process_env_var internally to ensure consistent behavior.
+    """
     processed_kwargs = {}
-    missing_vars = []
 
-    env_matches = {
-        k: next(filter(None, match.groups()))
-        for k, match in (
-            (k, compiled_env_var_re.match(v))
-            for k, v in kwargs_dict.items()
-            if isinstance(v, str)
-        )
-        if match
-    }
-    missing_vars = tuple(
-        env_var for env_var in env_matches.values() if env_var not in os.environ
-    )
-    # Strict mode: raise error if any env vars are missing
-    if missing_vars:
-        missing_list = ", ".join(f"'{var}'" for var in missing_vars)
-        raise ValueError(f"Environment variable(s) {missing_list} not set")
+    # get env keys
+    env_var_keys = [
+        k
+        for k, v in kwargs_dict.items()
+        if isinstance(v, str) and compiled_env_var_re.match(v)
+    ]
 
-    env_kwargs = {k: os.environ[env_var] for k, env_var in env_matches.items()}
-    processed_kwargs = kwargs_dict | env_kwargs
+    # possibly parse
+    for k, v in kwargs_dict.items():
+        if k in env_var_keys:
+            try:
+                processed_kwargs[k] = maybe_process_env_var(v)
+            except ValueError as e:
+                # Re-raise with more context if needed
+                raise ValueError(f"Error processing key '{k}': {str(e)}")
+        else:
+            processed_kwargs[k] = v
+
     return processed_kwargs

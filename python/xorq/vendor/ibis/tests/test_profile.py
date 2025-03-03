@@ -76,7 +76,7 @@ def test_save_load(connector, monkeypatch, tmp_path):
     con = connector()
     profiles = Profiles()
     profile = con._profile
-    profile.save()
+    profile.save(check_secrets=False)
 
     others = tuple(
         (
@@ -252,26 +252,9 @@ class TestParseEnvVars:
         with pytest.raises(ValueError) as exc_info:
             parse_env_vars(input_dict)
 
-        assert "Environment variable(s) 'MISSING_VAR' not set" in str(exc_info.value)
-
-    def test_multiple_missing_env_vars(self, monkeypatch):
-        """Test with multiple missing environment variables."""
-        monkeypatch.setenv("EXISTING_VAR", "exists")
-
-        input_dict = {
-            "existing": "${EXISTING_VAR}",
-            "missing1": "${MISSING_VAR1}",
-            "missing2": "$MISSING_VAR2",
-            "regular": "value",
-        }
-
-        with pytest.raises(ValueError) as exc_info:
-            parse_env_vars(input_dict)
-
-        # Check both missing variables are mentioned
-        error_msg = str(exc_info.value)
-        assert "MISSING_VAR1" in error_msg
-        assert "MISSING_VAR2" in error_msg
+        assert "Error processing key 'missing': env var MISSING_VAR not found" in str(
+            exc_info.value
+        )
 
     def test_dollar_sign_in_string(self, monkeypatch):
         """Test with strings containing dollar signs but not as env vars."""
@@ -361,7 +344,7 @@ def test_connection_with_env_vars_preserves_env_vars(monkeypatch, tmp_path):
     assert profile.kwargs_dict["database"] == "${POSTGRES_DB}"
 
     # Save profile
-    profile.save(alias="pg_env_var_test")
+    profile.save(alias="pg_env_var_test", check_secrets=False)
 
     # Create Profiles instance to load profiles
     profiles = Profiles(profile_dir=tmp_path)
@@ -392,3 +375,178 @@ def test_connection_with_env_vars_preserves_env_vars(monkeypatch, tmp_path):
         tables1 = con_postgres.list_tables()
         tables2 = loaded_con.list_tables()
         assert tables1 == tables2
+
+
+class TestCheckForExposedSecrets:
+    def test_password_no_env_var(self):
+        """Test that a profile with password not using env var is rejected."""
+        profile = Profile(
+            con_name="postgres",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("port", 5432),
+                ("database", "postgres"),
+                ("user", "postgres"),
+                ("password", "secret"),  # Not using env var
+            ),
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            profile._check_for_exposed_secrets(check_secrets=True)
+
+        # Check error message contains password
+        assert "'password'" in str(excinfo.value)
+        assert "$password or ${password}" in str(excinfo.value)
+
+    def test_password_with_env_var_dollar(self):
+        """Test that a profile with password using $ENV_VAR format is accepted."""
+        profile = Profile(
+            con_name="postgres",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("port", 5432),
+                ("database", "postgres"),
+                ("user", "postgres"),
+                ("password", "$PASSWORD"),  # Using env var
+            ),
+        )
+
+        # Should not raise an error
+        profile._check_for_exposed_secrets(check_secrets=True)
+
+    def test_password_with_env_var_dollar_brace(self):
+        """Test that a profile with password using ${ENV_VAR} format is accepted."""
+        profile = Profile(
+            con_name="postgres",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("port", 5432),
+                ("database", "postgres"),
+                ("user", "postgres"),
+                ("password", "${PASSWORD}"),  # Using env var
+            ),
+        )
+
+        # Should not raise an error
+        profile._check_for_exposed_secrets(check_secrets=True)
+
+    def test_postgres_specific_secret_keys(self):
+        """Test that postgres-specific secret keys are checked."""
+        profile = Profile(
+            con_name="postgres",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("port", 5432),
+                ("database", "postgres"),
+                ("user", "postgres"),
+                ("password", "$PASSWORD"),  # Using env var
+                ("sslcert", "/path/to/cert"),  # Not using env var
+            ),
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            profile._check_for_exposed_secrets(check_secrets=True)
+
+        # Check error message contains sslcert
+        assert "'sslcert'" in str(excinfo.value)
+
+    def test_snowflake_specific_secret_keys(self):
+        """Test that snowflake-specific secret keys are checked."""
+        profile = Profile(
+            con_name="snowflake",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("database", "snowflake"),
+                ("password", "$PASSWORD"),  # Using env var
+                (
+                    "user",
+                    "snowuser",
+                ),  # Not using env var - snowflake treats this as sensitive
+            ),
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            profile._check_for_exposed_secrets(check_secrets=True)
+
+        # Check error message contains user
+        assert "'user'" in str(excinfo.value)
+
+    def test_check_secrets_disabled(self):
+        """Test that check_secrets=False allows profiles with secrets."""
+        profile = Profile(
+            con_name="postgres",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("port", 5432),
+                ("database", "postgres"),
+                ("user", "postgres"),
+                ("password", "secret"),  # Not using env var
+            ),
+        )
+
+        # Should not raise an error when check_secrets=False
+        profile._check_for_exposed_secrets(check_secrets=False)
+
+    def test_multiple_exposed_secrets(self):
+        """Test error message when multiple secrets are exposed."""
+        profile = Profile(
+            con_name="snowflake",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("database", "snowflake"),
+                ("password", "secret"),  # Not using env var
+                ("user", "admin"),  # Not using env var
+                ("account", "acc123"),  # Not using env var
+            ),
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            profile._check_for_exposed_secrets(check_secrets=True)
+
+        # Check error message contains all secrets
+        error_msg = str(excinfo.value)
+        assert "'password'" in error_msg
+        assert "'user'" in error_msg
+        assert "'account'" in error_msg
+
+    def test_unknown_backend_defaults_to_password(self):
+        """Test that unknown backends default to checking password."""
+        profile = Profile(
+            con_name="duckdb",  # Not in the secret_keys dict
+            kwargs_tuple=(
+                ("path", "mydb.duckdb"),
+                ("password", "secret"),  # Not using env var
+            ),
+        )
+
+        with pytest.raises(ValueError) as excinfo:
+            profile._check_for_exposed_secrets(check_secrets=True)
+
+        # Check error message contains password
+        assert "'password'" in str(excinfo.value)
+
+    def test_save_method_calls_check_secrets_fail_then_pass(
+        self, tmp_path, monkeypatch
+    ):
+        """Test that save() method calls _check_for_exposed_secrets."""
+        profile = Profile(
+            con_name="postgres",
+            kwargs_tuple=(
+                ("host", "localhost"),
+                ("port", 5432),
+                ("database", "postgres"),
+                ("user", "postgres"),
+                ("password", "secret"),  # Not using env var
+            ),
+        )
+
+        # Override the profile directory for testing
+        monkeypatch.setattr("xorq.options.profiles.profile_dir", tmp_path)
+
+        with pytest.raises(ValueError) as excinfo:
+            profile.save()
+
+        assert "'password'" in str(excinfo.value)
+
+        # Should succeed with check_secrets=False
+        profile.save(check_secrets=False)
