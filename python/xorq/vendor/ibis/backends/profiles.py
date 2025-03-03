@@ -78,11 +78,12 @@ class Profile:
 
     @property
     def hash_name(self):
-        pre_hash = json.loads(self.as_json())
-        idx = pre_hash.get("idx")
-        pre_hash = toolz.dissoc(pre_hash, "idx")
-        dask_hash = dask.base.tokenize(json.dumps(pre_hash))
-        return f"{dask_hash}_{idx}"
+        dask_hash = dask.base.tokenize(
+            json.dumps(
+                toolz.dissoc(self.as_dict(), "idx"),
+            )
+        )
+        return f"{dask_hash}_{self.idx}"
 
     def get_con(self, **kwargs):
         """Create a connection using this profile's parameters."""
