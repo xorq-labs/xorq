@@ -1,13 +1,21 @@
 from __future__ import annotations
 
+import pickle
+
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.linear_model import LinearRegression
 
 import xorq as xo
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq import memtable
-from xorq.expr.ml import _calculate_bounds, make_quickgrove_udf
+from xorq.caching import ParquetStorage
+from xorq.expr.ml import (
+    _calculate_bounds,
+    deferred_fit_predict,
+    make_quickgrove_udf,
+)
 from xorq.tests.util import assert_frame_equal
 
 
@@ -374,4 +382,46 @@ def test_quickgrove_hyphen_name(feature_table, hyphen_model_path):
 
     np.testing.assert_almost_equal(
         result["pred"].values, result["expected_pred"].values, decimal=3
+    )
+
+
+def test_deferred_fit_predict_linear_regression(tmp_path):
+    def make_data():
+        import numpy as np
+
+        X = np.array([[1, 1], [1, 2], [2, 2], [2, 3]])
+        # y = 1 * x_0 + 2 * x_1 + 3
+        y = np.dot(X, np.array([1, 2])) + 3
+        df = pd.DataFrame(np.hstack((X, y[:, np.newaxis]))).rename(
+            columns=lambda x: chr(x + ord("a"))
+        )
+        (*features, target) = df.columns
+        return (df, features, target)
+
+    deferred_linear_regression = deferred_fit_predict(
+        cls=LinearRegression, return_type=dt.float64
+    )
+
+    con = xo.connect()
+    (df, features, target) = make_data()
+    t = con.register(df, "t")
+
+    # uncached run
+    (computed_kwargs_expr, _, predict_expr_udf) = deferred_linear_regression(
+        t, target, features
+    )
+    model = computed_kwargs_expr.execute()
+    predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+
+    # cached run
+    storage = ParquetStorage(path=tmp_path, source=con)
+    (computed_kwargs_expr, _, predict_expr_udf) = deferred_linear_regression(
+        t, target, features, storage=storage
+    )
+    ((cached_model,),) = computed_kwargs_expr.execute().values
+    cached_predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+
+    assert predicted.equals(cached_predicted)
+    np.testing.assert_almost_equal(
+        pickle.loads(model).coef_, pickle.loads(cached_model).coef_
     )
