@@ -85,12 +85,21 @@ class Profile:
         return f"{dask_hash}_{idx}"
 
     def get_con(self, **kwargs):
-        kwargs = {
-            **kwargs,
-            **dict(self.kwargs_tuple),
-        }
+        """Create a connection using this profile's parameters."""
+        # Get the kwargs dict from profile
+        profile_kwargs = dict(self.kwargs_tuple)
+
+        # Track which keys had env vars for later reference
+        env_var_mapping = {}
+        for k, v in profile_kwargs.items():
+            if isinstance(v, str) and (v.startswith("${") or v.startswith("$")):
+                env_var_mapping[k] = v
+
+        processed_kwargs = parse_env_vars(profile_kwargs)
+        # Override with any explicit kwargs
+        final_kwargs = {**processed_kwargs, **kwargs}
         connect = getattr(xo.load_backend(self.con_name), "connect")
-        con = connect(**kwargs)
+        con = connect(_env_var_mapping=env_var_mapping, **final_kwargs)
         return con
 
     def clone(self, idx=None, **kwargs):
@@ -157,18 +166,41 @@ class Profile:
 
     @classmethod
     def from_con(cls, con):
+        """Create a Profile from a connection, preserving env var references if possible."""
         if con.name == "xorq_flight":
             return None
+
         kwargs_name = "config" if con.name == "duckdb" else "kwargs"
         arguments = get_arguments(con.do_connect, *con._con_args, **con._con_kwargs)
         assert not arguments.get("args")
+
         kwargs = {
             **toolz.dissoc(arguments, "args", kwargs_name),
             **arguments.get(kwargs_name, {}),
         }
-        if "port" in kwargs and kwargs["port"] is not None:
+
+        # Fix port type if needed
+        if (
+            "port" in kwargs
+            and kwargs["port"] is not None
+            and isinstance(kwargs["port"], str)
+        ):
             kwargs["port"] = int(kwargs["port"])
-        return cls(con_name=con.name, kwargs_tuple=tuple(kwargs.items()))
+
+        # Look for original environment variable references in con._con_kwargs
+        # These are preserved from the initial connection
+        if hasattr(con, "_con_kwargs"):
+            for k, v in con._con_kwargs.items():
+                if isinstance(v, str) and (v.startswith("${") or v.startswith("$")):
+                    if k in kwargs:
+                        kwargs[k] = v
+
+        if hasattr(con, "_env_var_mapping"):
+            for k, env_var_ref in con._env_var_mapping.items():
+                if k in kwargs:
+                    kwargs[k] = env_var_ref
+
+        return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
 
 
 # TODO: find a better home for this

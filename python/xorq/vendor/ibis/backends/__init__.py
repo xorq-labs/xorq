@@ -863,6 +863,7 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
     supports_in_memory_tables = True
 
     def __init__(self, *args, **kwargs):
+        self._env_var_mapping = kwargs.pop("_env_var_mapping", {})
         self._con_args: tuple[Any] = args
         self._con_kwargs: dict[str, Any] = kwargs
         self._can_reconnect: bool = True
