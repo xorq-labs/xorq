@@ -1,6 +1,7 @@
 import itertools
 import json
 import os
+import re
 from pathlib import Path
 
 import dask
@@ -206,32 +207,28 @@ class Profile:
 
 # TODO: find a better home for this
 def parse_env_vars(kwargs_dict: dict) -> dict:
+    compiled_re = re.compile("(?:\${(.*)})|(?:\$(.*))$")
+
     processed_kwargs = {}
     missing_vars = []
 
-    for k, v in kwargs_dict.items():
-        if isinstance(v, str):
-            # Handle ${VAR} format
-            if v.startswith("${") and v.endswith("}"):
-                env_var = v[2:-1]
-                if env_var in os.environ:
-                    processed_kwargs[k] = os.environ[env_var]
-                else:
-                    missing_vars.append(env_var)
-            # Handle $VAR format
-            elif v.startswith("$") and len(v) > 1:
-                env_var = v[1:]
-                if env_var in os.environ:
-                    processed_kwargs[k] = os.environ[env_var]
-                else:
-                    missing_vars.append(env_var)
-            else:
-                processed_kwargs[k] = v
-        else:
-            processed_kwargs[k] = v
-
+    env_matches = {
+        k: next(filter(None, match.groups()))
+        for k, match in (
+            (k, compiled_re.match(v))
+            for k, v in kwargs_dict.items()
+            if isinstance(v, str)
+        )
+        if match
+    }
+    missing_vars = tuple(
+        env_var for env_var in env_matches.values() if env_var not in os.environ
+    )
     # Strict mode: raise error if any env vars are missing
     if missing_vars:
         missing_list = ", ".join(f"'{var}'" for var in missing_vars)
         raise ValueError(f"Environment variable(s) {missing_list} not set")
+
+    env_kwargs = {k: os.environ[env_var] for k, env_var in env_matches.items()}
+    processed_kwargs = kwargs_dict | env_kwargs
     return processed_kwargs
