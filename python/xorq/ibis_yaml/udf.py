@@ -164,14 +164,9 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
 
 @translate_to_yaml.register(FlightUDXF)
 def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
-    profile_name = op.source._profile.hash_name
-
     input_expr_yaml = translate_to_yaml(op.input_expr, context)
-
     schema_id = context.schema_registry.register_schema(op.schema)
-
     udxf_pickle = serialize_udf_function(op.udxf)
-
     make_server_pickle = serialize_udf_function(op.make_server)
     make_connection_pickle = serialize_udf_function(op.make_connection)
 
@@ -180,7 +175,6 @@ def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
             "op": "FlightUDXF",
             "name": op.name,
             "schema_ref": schema_id,
-            "profile": profile_name,
             "input_expr": input_expr_yaml,
             "udxf": udxf_pickle,
             "make_server": make_server_pickle,
@@ -192,7 +186,6 @@ def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
 
 @register_from_yaml_handler("FlightUDXF")
 def flight_udxf_from_yaml(yaml_dict: Dict, context: Any) -> Any:
-    profile_name = yaml_dict.get("profile")
     name = yaml_dict.get("name")
     input_expr_yaml = yaml_dict.get("input_expr")
     udxf_pickle = yaml_dict.get("udxf")
@@ -201,7 +194,6 @@ def flight_udxf_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     do_instrument_reader = yaml_dict.get("do_instrument_reader", False)
 
     input_expr = translate_from_yaml(input_expr_yaml, context)
-
     udxf = deserialize_udf_function(udxf_pickle)
     make_server = (
         deserialize_udf_function(make_server_pickle) if make_server_pickle else None
