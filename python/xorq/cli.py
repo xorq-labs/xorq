@@ -1,112 +1,13 @@
 import argparse
-import importlib.util
-import json
 import os
 import sys
-from pathlib import Path
 
+from xorq.common.utils.import_utils import import_from_path
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
 
 
-def import_from_path(path):
-    """
-    Import a Python script or Jupyter notebook as a module.
-
-    Args:
-        path (Path or str): pathlib.Path object or string pointing to a Python script (.py) or
-                           Jupyter notebook (.ipynb)
-
-    Returns:
-        module: The imported module
-
-    Raises:
-        ImportError: If the file cannot be imported
-        ValueError: If the file type is not supported
-    """
-    # Convert to Path object if it's a string
-    if isinstance(path, str):
-        path = Path(path)
-
-    # Check if path exists
-    if not path.exists():
-        raise ImportError(f"File not found: {path}")
-
-    # Create a unique module name based on the file path
-    module_name = f"dynamically_imported_{path.stem}"
-
-    # Handle based on file extension
-    if path.suffix == ".py":
-        return _import_python_file(path, module_name)
-    elif path.suffix == ".ipynb":
-        return _import_jupyter_notebook(path, module_name)
-    else:
-        raise ValueError(
-            f"Unsupported file type: {path.suffix}. Only .py and .ipynb files are supported."
-        )
-
-
-def _import_python_file(path, module_name):
-    """Import a Python file as a module."""
-    file_path = str(path.resolve())
-
-    # Create the spec
-    spec = importlib.util.spec_from_file_location(module_name, file_path)
-    if spec is None:
-        raise ImportError(f"Could not load script: {file_path}")
-
-    # Create the module
-    module = importlib.util.module_from_spec(spec)
-
-    # Add the module to sys.modules
-    sys.modules[module_name] = module
-
-    # Execute the module in its own namespace
-    spec.loader.exec_module(module)
-
-    return module
-
-
-def _import_jupyter_notebook(path, module_name):
-    """Import a Jupyter notebook as a module."""
-    file_path = str(path.resolve())
-
-    # Create a new module
-    module = type(sys)(module_name)
-    module.__file__ = file_path
-
-    # Add the module to sys.modules
-    sys.modules[module_name] = module
-
-    # Parse the notebook JSON
-    with open(file_path, "r", encoding="utf-8") as f:
-        notebook = json.load(f)
-
-    # Extract code from code cells
-    code_cells = [
-        cell for cell in notebook.get("cells", []) if cell.get("cell_type") == "code"
-    ]
-
-    # Combine all code cells, skipping cells marked with "# skip-import" comment
-    code = ""
-    for cell in code_cells:
-        cell_source = "".join(cell.get("source", []))
-        if "# skip-import" not in cell_source:
-            code += cell_source + "\n\n"
-
-    # Execute the code in the module's namespace
-    try:
-        exec(code, module.__dict__)
-    except Exception as e:
-        # Clean up if execution fails
-        if module_name in sys.modules:
-            del sys.modules[module_name]
-        raise ImportError(f"Error executing notebook code: {e}")
-
-    return module
-
-
-def build_command(script_path, expression, target_dir="build"):
+def build_command(script_path, expression, builds_dir="builds"):
     """
     Generate artifacts from an expression in a given Python script
 
@@ -114,14 +15,14 @@ def build_command(script_path, expression, target_dir="build"):
     ----------
     script_path : Path to the Python script
     expression : The name of the expression to build
-    target_dir : Directory where artifacts will be generated
+    builds_dir : Directory where artifacts will be generated
 
     Returns
     -------
 
     """
 
-    if len(expression) > 1 or len(expression) == 0:
+    if len(expression) != 1:
         print("Expected one, and only one expression", file=sys.stderr)
         sys.exit(1)
 
@@ -133,7 +34,7 @@ def build_command(script_path, expression, target_dir="build"):
 
     print(f"Building {expression} from {script_path}")
 
-    build_manager = BuildManager(target_dir)
+    build_manager = BuildManager(builds_dir)
 
     vars_module = import_from_path(script_path)
 
@@ -176,7 +77,7 @@ def main():
         help="Name of the expression variable in the Python script",
     )
     build_parser.add_argument(
-        "--target-dir", default="build", help="Directory for all generated artifacts"
+        "--builds-dir", default="builds", help="Directory for all generated artifacts"
     )
 
     # Parse the arguments
@@ -185,7 +86,7 @@ def main():
     # Execute the appropriate command
     if args.command == "build":
         expressions = [args.expressions] if args.expressions else []
-        build_command(args.script_path, expressions, args.target_dir)
+        build_command(args.script_path, expressions, args.builds_dir)
 
 
 if __name__ == "__main__":
