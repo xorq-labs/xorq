@@ -25,6 +25,67 @@ compiled_env_var_re = re.compile("^(?:\${(.*)}$)|(?:\$(.*))$")
 
 @frozen
 class Profiles:
+    """A collection interface for managing database connection profiles.
+
+    The Profiles class provides a centralized way to access, manage, and retrieve
+    Profile objects saved on the filesystem. It handles directory management,
+    profile lookup, and provides a dictionary-like and attribute-like interface
+    for accessing saved profiles.
+
+    Profiles are immutable (frozen) to ensure thread safety and prevent accidental
+    modification after creation.
+
+    Attributes
+    ----------
+    profile_dir : Path
+        Directory where profile files are stored. Defaults to xo.options.profiles.profile_dir.
+        Created automatically if it doesn't exist.
+
+    Examples
+    --------
+    Creating a Profiles collection:
+    >>> import xorq as xo
+    >>> from xorq.vendor.ibis.backends.profiles import Profile, Profiles
+    >>> profiles = Profiles()
+    >>> # Or with a custom directory
+    >>> from pathlib import Path
+    >>> custom_profiles = Profiles(profile_dir=Path('/path/to/profiles'))
+
+    Accessing profiles by name (attribute-style):
+    >>> Profile.from_con(xo.connect()).save(alias='example_dev')
+    >>> postgres_profile = profiles.example_dev
+
+    Accessing profiles by name (dictionary-style):
+
+    >>> again_example_dev = profiles['example_dev']
+
+    Getting a profile explicitly:
+
+    >>> profile = profiles.get('example_dev')
+
+    Listing available profiles:
+
+    >>> profiles.list()
+    ('example_dev', 'feda6956a9ca4d2bda0fbc8e775042c3_1')
+
+
+    Notes
+    -----
+    The Profiles class supports tab-completion in IPython and Jupyter environments,
+    making it easy to discover available profiles interactively.
+
+    The directory structure uses YAML files for profile storage, with optional
+    symbolic links for aliased profiles.
+
+
+
+    See Also
+    --------
+    Profile : Individual connection profile class
+    Profile.save : Save a profile to disk
+    Profile.load : Load a profile from disk
+    """
+
     profile_dir = field(validator=optional(instance_of(Path)), default=None)
 
     def __attrs_post_init__(self):
@@ -61,6 +122,63 @@ class Profiles:
 
 @frozen
 class Profile:
+    """A representation of a database connection profile that can be saved and loaded.
+
+    The Profile class encapsulates all the information needed to establish a database
+    connection, including connection type and parameters. It supports serialization to
+    and deserialization from YAML, environment variable substitution, and security
+    checks to prevent sensitive information from being stored in plain text.
+
+    Profiles are immutable (frozen) to ensure thread safety and prevent accidental
+    modification after creation.
+
+    Attributes
+    ----------
+    con_name : str
+        Name of the connection backend (e.g., 'postgres', 'snowflake')
+    kwargs_tuple : tuple
+        Connection parameters as a tuple of (key, value) pairs
+    idx : int
+        Unique identifier for this profile instance, auto-generated if not provided
+
+    Examples
+    --------
+    Creating a profile with environment variables for sensitive information:
+
+    >>> profile = Profile(
+    ...     con_name='postgres',
+    ...     kwargs_tuple=(
+    ...         ('host', '${POSTGRES_HOST}'),
+    ...         ('port', 5432),
+    ...         ('database', 'mydb'),
+    ...         ('user', '${POSTGRES_USER}'),
+    ...         ('password', '${POSTGRES_PASSWORD}'),
+    ...     )
+    ... )
+
+    Saving a profile:
+
+    >>> profile.save(alias='my_postgres')
+
+    Loading a profile:
+
+    >>> loaded_profile = Profile.load('my_postgres')
+
+    Creating a connection from a profile:
+
+    >>> connection = profile.get_con()
+
+    Creating a profile from an existing connection:
+
+    >>> new_profile = Profile.from_con(connection)
+
+    Notes
+    -----
+    Sensitive information like passwords should be stored as environment variable
+    references (${VAR} or $VAR) to prevent security risks. The `save` method will
+    raise a ValueError if sensitive data is not stored as environment variables.
+    """
+
     con_name = field(validator=instance_of(str))
     kwargs_tuple = field(validator=instance_of(tuple))
     idx = field(validator=instance_of(int), factory=itertools.count().__next__)
@@ -182,6 +300,75 @@ class Profile:
                 )
 
     def save(self, profile_dir=None, alias=None, clobber=False, check_secrets=True):
+        """Save this profile to disk as a YAML file.
+
+        This method serializes the profile to YAML format and writes it to a file in the
+        specified profile directory. The filename is automatically generated based on a hash
+        of the profile's content, ensuring uniqueness. Optionally creates a symlink with a
+        user-friendly alias name for easier access.
+
+        Before saving, the method can check for exposed secret keys (like passwords) and
+        ensure they're stored as environment variable references rather than plain text.
+
+        Parameters
+        ----------
+        profile_dir : Path, optional
+            Directory where the profile will be saved. If None, uses the default directory
+            from xo.options.profiles.profile_dir.
+        alias : str, optional
+            If provided, creates a symbolic link with this name pointing to the saved profile
+            file. Useful for giving profiles memorable names.
+        clobber : bool, default False
+            If True, overwrites existing files with the same name. If False and a file with
+            the same name exists, returns the existing file path without overwriting.
+        check_secrets : bool, default True
+            If True, checks that sensitive information (like passwords) is stored as
+            environment variable references before saving. If False, skips this check.
+
+        Returns
+        -------
+        Path
+            Path to the saved profile file or alias symlink (if created).
+
+        Raises
+        ------
+        ValueError
+            If check_secrets is True and the profile contains exposed secret keys.
+            If clobber is False and an alias path already exists.
+
+        Notes
+        -----
+        The saved YAML file contains the connection type, parameters, and a unique identifier.
+        The file is saved with a hash-based name to ensure uniqueness, but for user-friendly
+        access, an alias (symlink) can be created.
+
+        Environment variable references in the profile are saved as-is, not substituted with
+        actual values, to maintain security and portability.
+
+        See Also
+        --------
+        load : Load a previously saved profile
+        _check_for_exposed_secrets : Check for sensitive information not using env vars
+
+        Examples
+        --------
+        >>> # Save a profile with default options
+        >>> profile.save()
+
+
+        >>> # Save with an alias name
+        >>> profile.save(alias='postgres_dev')
+
+
+        >>> # Save to a custom directory and overwrite if exists
+        >>> from pathlib import Path
+        >>> custom_dir = Path('/path/to/profiles')
+        >>> profile.save(profile_dir=custom_dir, clobber=True)
+
+
+        >>> # Save without checking for exposed secrets (not recommended)
+        >>> profile.save(check_secrets=False)
+        """
         self._check_for_exposed_secrets(check_secrets)
         path = self.get_path(self.hash_name, profile_dir=profile_dir)
         if not path.exists():
@@ -208,6 +395,54 @@ class Profile:
 
     @classmethod
     def load(cls, name, profile_dir=None):
+        """Load a Profile from disk by name or hash.
+
+        This method retrieves a serialized Profile from the filesystem and deserializes it
+        into a Profile object. It handles locating the profile file, parsing the YAML
+        content, and reconstructing the Profile with all its original parameters.
+
+        Parameters
+        ----------
+        name : str
+            The name or hash identifier of the profile to load. This can be either an alias
+            name created during save or the hash-based filename.
+        profile_dir : Path, optional
+            Directory containing profile files. If None, uses the default directory from
+            xo.options.profiles.profile_dir.
+
+        Returns
+        -------
+        Profile
+            A Profile object with the connection parameters loaded from the file.
+
+        Raises
+        ------
+        FileNotFoundError
+            If no profile with the given name exists in the profile directory.
+        ValueError
+            If the profile file exists but contains invalid or incomplete data.
+
+        Notes
+        -----
+        The loaded profile will have the same unique identifier (idx) as when it was saved,
+        preserving its identity across serialization cycles. Environment variable references
+        in the profile are preserved and not substituted during loading.
+
+        See Also
+        --------
+        save : Save a Profile to disk
+        get_path : Get the filesystem path for a profile name
+
+        Examples
+        --------
+        >>> # Load a profile by its alias
+        >>> profile = Profile.load('postgres_dev')
+        >>>
+        >>> # Load a profile from a non-default directory
+        >>> from pathlib import Path
+        >>> custom_dir = Path('/path/to/profiles')
+        >>> profile = Profile.load('postgres_dev', profile_dir=custom_dir)
+        """
         path = cls.get_path(name, profile_dir=profile_dir)
         env = yaml.safe_load(path.read_text())
         con_name = env.get("con_name")
