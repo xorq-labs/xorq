@@ -20,6 +20,9 @@ import xorq as xo
 from xorq.common.utils.inspect_utils import get_arguments
 
 
+compiled_env_var_re = re.compile("^(?:\${(.*)}$)|(?:\$(.*))$")
+
+
 @frozen
 class Profiles:
     profile_dir = field(validator=optional(instance_of(Path)), default=None)
@@ -88,20 +91,9 @@ class Profile:
 
     def get_con(self, **kwargs):
         """Create a connection using this profile's parameters."""
-        # Get the kwargs dict from profile
-        profile_kwargs = dict(self.kwargs_tuple)
-
-        # Track which keys had env vars for later reference
-        env_var_mapping = {}
-        for k, v in profile_kwargs.items():
-            if isinstance(v, str) and (v.startswith("${") or v.startswith("$")):
-                env_var_mapping[k] = v
-
-        processed_kwargs = parse_env_vars(profile_kwargs)
-        # Override with any explicit kwargs
-        final_kwargs = {**processed_kwargs, **kwargs}
+        _kwargs = dict(self.kwargs_tuple) | kwargs
         connect = getattr(xo.load_backend(self.con_name), "connect")
-        con = connect(_env_var_mapping=env_var_mapping, **final_kwargs)
+        con = connect(**_kwargs)
         return con
 
     def clone(self, idx=None, **kwargs):
@@ -167,19 +159,29 @@ class Profile:
         return cls(con_name=con_name, kwargs_tuple=sorted_kwargs, idx=idx)
 
     @classmethod
-    def from_con(cls, con):
+    def from_con(cls, con, *args, **kwargs):
         """Create a Profile from a connection, preserving env var references if possible."""
+
+        def get_combined_arguments():
+            # these are the env-mapped values
+            arguments0 = get_arguments(
+                con.do_connect, *con._con_args, **con._con_kwargs
+            )
+            # these are the "raw" values (if passed)
+            arguments1 = toolz.valfilter(
+                bool, get_arguments(con.do_connect, *args, **kwargs)
+            )
+            assert not arguments0.get("args")
+            assert not arguments1.get("args")
+            arguments = toolz.dissoc(arguments0 | arguments1, "args")
+            return arguments
+
         if con.name == "xorq_flight":
             return None
 
         kwargs_name = "config" if con.name == "duckdb" else "kwargs"
-        arguments = get_arguments(con.do_connect, *con._con_args, **con._con_kwargs)
-        assert not arguments.get("args")
-
-        kwargs = {
-            **toolz.dissoc(arguments, "args", kwargs_name),
-            **arguments.get(kwargs_name, {}),
-        }
+        arguments = get_combined_arguments()
+        kwargs = toolz.dissoc(arguments, kwargs_name) | arguments.get(kwargs_name, {})
 
         # Fix port type if needed
         if (
@@ -189,33 +191,31 @@ class Profile:
         ):
             kwargs["port"] = int(kwargs["port"])
 
-        # Look for original environment variable references in con._con_kwargs
-        # These are preserved from the initial connection
-        if hasattr(con, "_con_kwargs"):
-            for k, v in con._con_kwargs.items():
-                if isinstance(v, str) and (v.startswith("${") or v.startswith("$")):
-                    if k in kwargs:
-                        kwargs[k] = v
-
-        if hasattr(con, "_env_var_mapping"):
-            for k, env_var_ref in con._env_var_mapping.items():
-                if k in kwargs:
-                    kwargs[k] = env_var_ref
-
         return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
+
+
+def maybe_process_env_var(obj):
+    if isinstance(obj, str) and (match := compiled_env_var_re.match(obj)):
+        # this will match on "$"/"${}" and then raise on env_value is None
+        env_var = next(filter(None, match.groups()), None)
+        env_value = os.environ.get(env_var)
+        if env_value is None:
+            raise ValueError(f"env var {env_var} not found")
+        else:
+            return env_value
+    else:
+        return obj
 
 
 # TODO: find a better home for this
 def parse_env_vars(kwargs_dict: dict) -> dict:
-    compiled_re = re.compile("(?:\${(.*)})|(?:\$(.*))$")
-
     processed_kwargs = {}
     missing_vars = []
 
     env_matches = {
         k: next(filter(None, match.groups()))
         for k, match in (
-            (k, compiled_re.match(v))
+            (k, compiled_env_var_re.match(v))
             for k, v in kwargs_dict.items()
             if isinstance(v, str)
         )
