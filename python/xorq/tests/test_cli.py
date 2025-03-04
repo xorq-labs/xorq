@@ -35,7 +35,7 @@ def test_build_command(monkeypatch, tmp_path, capsys):
 
 
 def test_build_command_with_udtf(monkeypatch, tmp_path, capsys):
-    target_dir = tmp_path / "build"
+    builds_dir = tmp_path / "builds"
     script_path = Path(__file__).absolute().parent / "fixtures" / "udxf_expr.py"
 
     test_args = [
@@ -44,22 +44,20 @@ def test_build_command_with_udtf(monkeypatch, tmp_path, capsys):
         str(script_path),
         "-e",
         "expr",
-        "--target-dir",
-        str(target_dir),
+        "--builds-dir",
+        str(builds_dir),
     ]
     monkeypatch.setattr(sys, "argv", test_args)
 
-    # Run the CLI (with try/except to prevent SystemExit)
     try:
         main()
     except SystemExit:
         pass
 
-    # Check output
     captured = capsys.readouterr()
     assert "Building expr" in captured.out
 
-    assert target_dir.exists()
+    assert builds_dir.exists()
 
 
 def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
