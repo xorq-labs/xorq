@@ -1,6 +1,3 @@
-#!/usr/bin/env python
-# profiles_example.py - Comprehensive example of working with xorq profiles
-
 import os
 
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
