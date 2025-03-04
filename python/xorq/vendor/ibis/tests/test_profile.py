@@ -85,9 +85,11 @@ def test_save_load(connector, monkeypatch, tmp_path):
             profile.load(profile.hash_name),
         )
     )
+
     for other in others:
         assert profile == other
         assert con.list_tables() == other.get_con().list_tables()
+
     del os.environ["LETSQL_PASSWORD"]
 
 
