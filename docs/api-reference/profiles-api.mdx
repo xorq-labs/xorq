@@ -1,0 +1,249 @@
+---
+title: Profiles
+---
+
+# API Reference: profiles.py
+
+## Module Overview
+
+The `profiles.py` module provides functionality for managing database connection profiles. It allows users to create, save, load, and manage profiles for connecting to various database backends while maintaining security through environment variable references.
+
+## Classes
+
+### Profile
+
+An immutable representation of a database connection profile that can be saved and loaded.
+
+#### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `con_name` | str | Name of the connection backend (e.g., 'postgres', 'snowflake') |
+| `kwargs_tuple` | tuple | Connection parameters as a tuple of (key, value) pairs |
+| `idx` | int | Unique identifier for this profile instance |
+| `kwargs_dict` | dict | Property that returns the kwargs_tuple as a dictionary |
+| `hash_name` | str | Property that returns a hash-based name for the profile |
+
+#### Methods
+
+##### `__init__(con_name, kwargs_tuple, idx=None)`
+
+Create a new Profile instance.
+
+Parameters:
+- `con_name` (str): Name of the connection backend
+- `kwargs_tuple` (tuple): Connection parameters as tuple of key-value pairs
+- `idx` (int, optional): Unique identifier. Auto-generated if not provided.
+
+##### `get_con(**kwargs)`
+
+Create a connection using this profile's parameters.
+
+Parameters:
+- `**kwargs`: Additional or overriding connection parameters
+
+Returns:
+- A database connection object
+
+##### `clone(idx=None, **kwargs)`
+
+Create a copy of this profile with optional modifications.
+
+Parameters:
+- `idx` (int, optional): New identifier for the clone
+- `**kwargs`: Connection parameters to override in the clone
+
+Returns:
+- A new Profile instance
+
+##### `as_dict()`
+
+Convert the profile to a dictionary.
+
+Returns:
+- Dictionary representation of the profile
+
+##### `as_json()`
+
+Convert the profile to a JSON string.
+
+Returns:
+- JSON string representation of the profile
+
+##### `as_yaml()`
+
+Convert the profile to a YAML string.
+
+Returns:
+- YAML string representation of the profile
+
+##### `save(profile_dir=None, alias=None, clobber=False, check_secrets=True)`
+
+Save this profile to disk as a YAML file.
+
+Parameters:
+- `profile_dir` (Path, optional): Directory to save profile in
+- `alias` (str, optional): Create a symlink with this name
+- `clobber` (bool, default False): Whether to overwrite existing profiles
+- `check_secrets` (bool, default True): Check for exposed sensitive information
+
+Returns:
+- Path to the saved profile
+
+##### `@classmethod load(cls, name, profile_dir=None)`
+
+Load a Profile from disk by name or hash.
+
+Parameters:
+- `name` (str): The name or hash identifier of the profile to load
+- `profile_dir` (Path, optional): Directory containing profile files
+
+Returns:
+- A Profile object
+
+##### `@classmethod get_path(cls, name, profile_dir=None)`
+
+Get the filesystem path for a profile name.
+
+Parameters:
+- `name` (str): The name of the profile
+- `profile_dir` (Path, optional): Directory containing profile files
+
+Returns:
+- Path to the profile file
+
+##### `@classmethod from_con(cls, con)`
+
+Create a Profile from a connection.
+
+Parameters:
+- `con`: A database connection object
+
+Returns:
+- A Profile object or None if connection type is not supported
+
+### Profiles
+
+A collection interface for managing database connection profiles.
+
+#### Attributes
+
+| Attribute | Type | Description |
+|-----------|------|-------------|
+| `profile_dir` | Path | Directory where profile files are stored |
+
+#### Methods
+
+##### `__init__(profile_dir=None)`
+
+Create a new Profiles instance.
+
+Parameters:
+- `profile_dir` (Path, optional): Directory containing profile files
+
+##### `get(name)`
+
+Get a profile by name.
+
+Parameters:
+- `name` (str): Name of the profile to get
+
+Returns:
+- A Profile instance
+
+##### `list()`
+
+List all available profiles.
+
+Returns:
+- A tuple of profile names
+
+##### `__dir__()`
+
+Enable tab completion for profile names.
+
+Returns:
+- List of available attributes and profile names
+
+## Usage Examples
+
+### Creating a Profile
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profile
+
+profile = Profile(
+    con_name='postgres',
+    kwargs_tuple=(
+        ('host', '${POSTGRES_HOST}'),
+        ('port', 5432),
+        ('database', 'mydb'),
+        ('user', '${POSTGRES_USER}'),
+        ('password', '${POSTGRES_PASSWORD}'),
+    )
+)
+```
+
+### Saving and Loading Profiles
+
+```python
+# Save with an alias
+profile.save(alias='my_postgres')
+
+# Load by alias
+from xorq.vendor.ibis.backends.profiles import Profile
+loaded_profile = Profile.load('my_postgres')
+```
+
+### Creating Connections from Profiles
+
+```python
+# Create a connection
+connection = profile.get_con()
+
+# Create a profile from a connection
+from xorq.vendor.ibis.backends.profiles import Profile
+new_profile = Profile.from_con(connection)
+```
+
+### Using the Profiles Collection
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profiles
+
+# Get profiles collection
+profiles = Profiles()
+
+# List available profiles
+profile_names = profiles.list()
+
+# Access by attribute
+my_profile = profiles.my_postgres
+
+# Access by dictionary key
+also_my_profile = profiles['my_postgres']
+```
+
+### Cloning Profiles
+
+```python
+# Clone with modifications
+test_profile = profile.clone(database='test_db')
+```
+
+### Environment Variable Handling
+
+```python
+import os
+
+# Set environment variables
+os.environ['POSTGRES_HOST'] = 'localhost'
+os.environ['POSTGRES_USER'] = 'postgres'
+os.environ['POSTGRES_PASSWORD'] = 'secret'
+
+# Profile stores references, not values
+print(profile.kwargs_dict['password'])  # Prints ${POSTGRES_PASSWORD}, not 'secret'
+
+# Connection uses resolved values
+connection = profile.get_con()  # Uses actual password value
+```

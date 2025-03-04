@@ -18,7 +18,8 @@
             "pages": [
               "overview",
               "core_concepts",
-              "development"
+              "development",
+              "api-reference/profiles"
             ]
           }
         ]
@@ -41,7 +42,7 @@
             "pages": [
               "api-reference/toplevel-api",
               "api-reference/ml-api",
-              "api-reference/profiles"
+              "api-reference/profiles-api"
             ]
           }
         ]
