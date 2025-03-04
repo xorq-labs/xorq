@@ -27,7 +27,8 @@
               "tutorials/10_minutes_xorq_tour",
               "tutorials/build",
               "tutorials/pipelines_as_expressions",
-              "tutorials/udxf"
+              "tutorials/udxf",
+              "tutorials/profiles_guide"
             ]
           }
         ]
@@ -49,7 +50,8 @@
             "group": "Functions API",
             "pages": [
               "api-reference/toplevel-api",
-              "api-reference/ml-api"
+              "api-reference/ml-api",
+              "api-reference/profiles-api"
             ]
           }
         ]

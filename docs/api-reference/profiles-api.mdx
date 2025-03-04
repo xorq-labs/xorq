@@ -1,0 +1,187 @@
+---
+title: Profiles API
+---
+
+# Profiles API
+
+The Profiles API provides a secure way to manage database connection parameters through environment variable references, allowing you to create, save, load, and use database connections while keeping sensitive information protected.
+
+## Profile
+
+A `Profile` is an immutable representation of database connection settings that can be serialized to disk.
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profile
+```
+
+### Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `con_name` | `str` | Backend name (e.g., 'postgres', 'snowflake') |
+| `kwargs_tuple` | `tuple` | Connection parameters as key-value pairs |
+| `kwargs_dict` | `dict` | Connection parameters as a dictionary |
+| `hash_name` | `str` | Unique hash identifier for the profile |
+| `idx` | `int` | Unique numeric identifier |
+
+### Creation Methods
+
+```python
+# Create a new profile
+profile = Profile(
+    con_name="postgres",
+    kwargs_tuple=(
+        ("host", "${POSTGRES_HOST}"),
+        ("port", 5432),
+        ("database", "postgres"),
+        ("user", "${POSTGRES_USER}"),
+        ("password", "${POSTGRES_PASSWORD}"),
+    ),
+)
+
+# Create from an existing connection
+profile = Profile.from_con(connection)
+
+# Load from disk by alias
+profile = Profile.load("postgres_example")
+```
+
+### Instance Methods
+
+```python
+# Create a connection
+connection = profile.get_con()
+
+# Create a modified copy
+modified = profile.clone(**{"connect_timeout": 10})
+
+# Convert to dictionary
+profile_dict = profile.as_dict()
+
+# Serialize as JSON
+json_str = profile.as_json()
+
+# Serialize as YAML
+yaml_str = profile.as_yaml()
+
+# Save to disk with optional alias
+path = profile.save(alias="postgres_example", clobber=True)
+```
+
+## Profiles
+
+A collection manager for working with multiple saved profiles.
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profiles
+
+# Create a profiles manager
+profiles = Profiles()
+```
+
+### Methods
+
+```python
+# List all available profiles
+available = profiles.list()
+
+# Get profile by name
+profile = profiles.get("postgres_example")
+
+# Access profiles as attributes
+profile = profiles.postgres_example
+
+# Access profiles as dictionary keys
+profile = profiles["postgres_example"]
+```
+
+## Environment Variable Handling
+
+Profiles store references to environment variables, not their values:
+
+```python
+import os
+
+# Set environment variables
+os.environ["POSTGRES_HOST"] = "examples.letsql.com"
+os.environ["POSTGRES_USER"] = "letsql"
+os.environ["POSTGRES_PASSWORD"] = "letsql"
+
+# Create profile with environment variable references
+profile = Profile(
+    con_name="postgres",
+    kwargs_tuple=(
+        ("host", "${POSTGRES_HOST}"),
+        ("port", 5432),
+        ("database", "postgres"),
+        ("user", "${POSTGRES_USER}"),
+        ("password", "${POSTGRES_PASSWORD}"),
+    ),
+)
+
+# Profile stores references (${POSTGRES_PASSWORD}), not actual values
+print(profile.kwargs_dict["password"])  
+
+# Connection resolves environment variables when created
+conn = profile.get_con()
+```
+
+## Common Patterns
+
+### Creating and Using Profiles
+
+```python
+# Create profile
+profile = Profile(
+    con_name="postgres",
+    kwargs_tuple=(
+        ("host", "${POSTGRES_HOST}"),
+        ("port", 5432),
+        ("database", "postgres"),
+        ("user", "${POSTGRES_USER}"),
+        ("password", "${POSTGRES_PASSWORD}"),
+    ),
+)
+
+# Save profile
+profile.save(alias="postgres_example", clobber=True)
+
+# Load profile
+loaded_profile = Profile.load("postgres_example")
+
+# Create connection
+connection = loaded_profile.get_con()
+
+# Use connection
+tables = connection.list_tables()
+```
+
+### Cloning and Modifying Profiles
+
+```python
+# Clone with modifications
+cloned_profile = profile.clone(**{"connect_timeout": 10})
+
+# Save modified profile
+cloned_profile.save(alias="postgres_other_db", clobber=True)
+```
+
+### Working with Multiple Profiles
+
+```python
+# Get profiles collection
+profiles = Profiles()
+
+# List all profiles
+all_profiles = profiles.list()
+
+# Access by name
+my_profile = profiles.get("postgres_example")
+```
+
+## Security Considerations
+
+- Profiles never store actual values of environment variables, only references
+- Sensitive information is resolved only when connections are created
+- Profiles can be safely committed to version control
+- Always use environment variables for passwords, API keys, and tokens
