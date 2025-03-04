@@ -2,10 +2,14 @@ import base64
 from typing import Any, Dict
 
 import cloudpickle
+import dask
 
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.rules as rlz
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_seq_with_caller,
+)
 from xorq.expr.relations import FlightExpr, FlightUDXF
 from xorq.ibis_yaml.common import (
     _translate_type,
@@ -15,6 +19,14 @@ from xorq.ibis_yaml.common import (
 )
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.annotations import Argument
+from xorq.vendor.ibis.expr.operations.udf import InputType
+
+
+@dask.base.normalize_token.register(InputType)
+def tokenize_input_type(obj):
+    return normalize_seq_with_caller(
+        obj.__class__.__module__, obj.__class__.__name__, obj.name, obj.value
+    )
 
 
 def serialize_udf_function(fn: callable) -> str:
