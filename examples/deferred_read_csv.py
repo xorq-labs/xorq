@@ -14,9 +14,6 @@ pd_con = xo.pandas.connect()
 expr = deferred_read_csv(con=pd_con, path=csv_path, table_name=csv_name).filter(
     _.sepal_length > 6
 )
-
-print(expr)
-
 # tables is empty
 assert csv_name not in pd_con.tables
 # and now we can execute

@@ -472,3 +472,10 @@ def _fmt_cache_node(op, schema, parent, source, storage, **kwargs):
 def _fmt_remote_table(op, name, remote_expr, **kwargs):
     name = f"{op.__class__.__name__}[{remote_expr}, name={name}]\n"
     return name + render_schema(op.schema, 1)
+
+
+@fmt.register(Read)
+def _fmt_read(op, name, method_name, source, **kwargs):
+    backend = render_backend(source)
+    name = f"{op.__class__.__name__}[name={name}, method_name={method_name}, source={backend}]\n"
+    return name + render_schema(op.schema, 1)
