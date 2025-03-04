@@ -16,6 +16,14 @@ def walk_nodes(node_types, expr):
                     node_types,
                     op.parent,
                 )
+            case rel.FlightExpr():
+                yield op
+                yield from walk_nodes(node_types, op.input_expr)
+
+            case rel.FlightUDXF():
+                yield op
+                yield from walk_nodes(node_types, op.input_expr)
+
             case _:
                 yield from op.find(node_types)
 
@@ -42,6 +50,8 @@ def find_all_sources(expr):
         rel.CachedNode,
         rel.Read,
         rel.RemoteTable,
+        rel.FlightUDXF,
+        rel.FlightExpr,
         # ExprScalarUDF has an expr we need to get to
         # FlightOperator has a dynamically generated connection: it should be passed a Profile instead
     )

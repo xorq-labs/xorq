@@ -34,6 +34,32 @@ def test_build_command(monkeypatch, tmp_path, capsys):
     assert builds_dir.exists()
 
 
+def test_build_command_with_udtf(monkeypatch, tmp_path, capsys):
+    builds_dir = tmp_path / "builds"
+    script_path = Path(__file__).absolute().parent / "fixtures" / "udxf_expr.py"
+
+    test_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "-e",
+        "expr",
+        "--builds-dir",
+        str(builds_dir),
+    ]
+    monkeypatch.setattr(sys, "argv", test_args)
+
+    try:
+        main()
+    except SystemExit:
+        pass
+
+    captured = capsys.readouterr()
+    assert "Building expr" in captured.out
+
+    assert builds_dir.exists()
+
+
 def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
     builds_dir = tmp_path / "builds"
     script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.ipynb"

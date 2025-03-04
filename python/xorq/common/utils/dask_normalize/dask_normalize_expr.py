@@ -21,6 +21,7 @@ from xorq.expr.relations import (
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.operations.udf import (
     AggUDF,
+    InputType,
     ScalarUDF,
 )
 
@@ -335,6 +336,13 @@ def normalize_namespace(ns):
     return normalize_seq_with_caller(
         ns.catalog,
         ns.database,
+    )
+
+
+@dask.base.normalize_token.register(InputType)
+def tokenize_input_type(obj):
+    return normalize_seq_with_caller(
+        obj.__class__.__module__, obj.__class__.__name__, obj.name, obj.value
     )
 
 
