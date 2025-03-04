@@ -173,7 +173,8 @@ def pretty(node: Node, scope: Optional[dict[str, Node]] = None) -> str:
     if not isinstance(node, Node):
         raise TypeError(f"Expected a graph node, got {type(node)}")
 
-    refs, results = _pretty_by_node(node, scope)
+    ref_cnt = itertools.count()
+    refs, results = _pretty_by_node(node, scope, ref_cnt)
     out = []
     for ref, rendered in refs.items():
         if ref is not node:
@@ -190,7 +191,7 @@ def pretty(node: Node, scope: Optional[dict[str, Node]] = None) -> str:
     return "\n\n".join(out)
 
 
-def _pretty_by_node(node, scope, ref_cnt=itertools.count(), refs=None):
+def _pretty_by_node(node, scope, ref_cnt, refs=None):
     from xorq.expr.relations import CachedNode, RemoteTable
 
     if refs is None:
@@ -204,7 +205,7 @@ def _pretty_by_node(node, scope, ref_cnt=itertools.count(), refs=None):
         if isinstance(op, (RemoteTable, CachedNode)):
             attr = "remote_expr" if isinstance(op, RemoteTable) else "parent"
             node = getattr(op, attr).op()
-            _refs, _results = _pretty_by_node(node, scope, ref_cnt=ref_cnt, refs=refs)
+            _refs, _results = _pretty_by_node(node, scope, ref_cnt, refs=refs)
             results.update(_results)
             refs.update(_refs)
             kwargs[attr] = _results.get(node)
