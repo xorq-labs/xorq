@@ -10,9 +10,12 @@ from xorq.caching import (
     SourceSnapshotStorage,
     SourceStorage,
 )
+from xorq.common.utils.defer_utils import deferred_read_csv
 
 
 def test_into_backend(batting):
+    xo.options.interactive = False
+
     ddb_con = xo.duckdb.connect()
 
     t = batting.filter(batting.yearID == 2015).into_backend(ddb_con, "ls_batting")
@@ -40,6 +43,8 @@ def test_into_backend(batting):
     ],
 )
 def test_cache(batting, storage, strategy, parquet):
+    xo.options.interactive = False
+
     expr = (
         batting.join(batting, "playerID")
         .limit(15)
@@ -53,7 +58,7 @@ def test_cache(batting, storage, strategy, parquet):
 
 
 def test_read():
-    from xorq.common.utils.defer_utils import deferred_read_csv
+    xo.options.interactive = False
 
     csv_name = "iris"
     csv_path = xo.options.pins.get_path(csv_name)
