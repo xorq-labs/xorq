@@ -174,7 +174,6 @@ def pretty(node: Node, scope: Optional[dict[str, Node]] = None) -> str:
         raise TypeError(f"Expected a graph node, got {type(node)}")
 
     refs, results = _pretty_by_node(node, scope)
-
     out = []
     for ref, rendered in refs.items():
         if ref is not node:
@@ -192,7 +191,7 @@ def pretty(node: Node, scope: Optional[dict[str, Node]] = None) -> str:
 
 
 def _pretty_by_node(node, scope, ref_cnt=itertools.count(), refs=None):
-    from xorq.expr.relations import RemoteTable
+    from xorq.expr.relations import CachedNode, RemoteTable
 
     if refs is None:
         refs = {}
@@ -202,22 +201,22 @@ def _pretty_by_node(node, scope, ref_cnt=itertools.count(), refs=None):
     results = {}
 
     def mapper(op, _, **kwargs):
-        if isinstance(op, RemoteTable):
-            node = op.remote_expr.op()
+        if isinstance(op, (RemoteTable, CachedNode)):
+            attr = "remote_expr" if isinstance(op, RemoteTable) else "parent"
+            node = getattr(op, attr).op()
             _refs, _results = _pretty_by_node(node, scope, ref_cnt=ref_cnt, refs=refs)
             results.update(_results)
             refs.update(_refs)
-            result = _results.get(node)
-            return Rendered(result)
-        else:
-            result = fmt(op, **kwargs)
-            if var := variables.get(op):
-                refs[op] = result
-                result = var
-            elif isinstance(op, ops.Relation) and not isinstance(op, ops.JoinReference):
-                refs[op] = result
-                result = f"r{next(ref_cnt)}"
-            return Rendered(result)
+            kwargs[attr] = _results.get(node)
+
+        result = fmt(op, **kwargs)
+        if var := variables.get(op):
+            refs[op] = result
+            result = var
+        elif isinstance(op, ops.Relation) and not isinstance(op, ops.JoinReference):
+            refs[op] = result
+            result = f"r{next(ref_cnt)}"
+        return Rendered(result)
 
     results.update(node.map(mapper))
     return refs, results

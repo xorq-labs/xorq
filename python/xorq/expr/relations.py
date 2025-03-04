@@ -15,6 +15,7 @@ from xorq.vendor.ibis import Expr, Schema
 from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr import operations as ops
+from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node, Relation
 
 
@@ -433,3 +434,41 @@ def register_and_transform_remote_tables(expr):
 
     expr = op.replace(replacer).to_expr()
     return expr, created
+
+
+def render_backend(con):
+    return f"{con.name}-{id(con)}"
+
+
+def get_storage_params(storage):
+    from xorq.caching import (
+        ParquetSnapshotStorage,
+        ParquetStorage,
+        SourceSnapshotStorage,
+        SourceStorage,
+    )
+
+    storage_repr = None, None
+    match storage:
+        case ParquetStorage():
+            storage_repr = "modification_time", True
+        case ParquetSnapshotStorage():
+            storage_repr = "snapshot", True
+        case SourceStorage():
+            storage_repr = "modification_time", False
+        case SourceSnapshotStorage():
+            storage_repr = "snapshot", False
+    return storage_repr + (render_backend(storage.source),)
+
+
+@fmt.register(CachedNode)
+def _fmt_cache_node(op, schema, parent, source, storage, **kwargs):
+    strategy, parquet, backend = get_storage_params(storage)
+    name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
+    return name + render_schema(schema, 1)
+
+
+@fmt.register(RemoteTable)
+def _fmt_remote_table(op, name, remote_expr, **kwargs):
+    name = f"{op.__class__.__name__}[{remote_expr}, name={name}]\n"
+    return name + render_schema(op.schema, 1)
