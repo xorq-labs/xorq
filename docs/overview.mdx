@@ -2,25 +2,68 @@
 title: Welcome to xorq!
 sidebarTitle: Welcome
 ---
+xorq is a portable, Python-based data processing toolchain designed to simplify
+building and executing deferred, fit-transform pipelines common in ML
+workflows.
 
-**xorq** is a Python-based machine learning processing tool designed to
-simplify and accelerate your ML workflows. xorq brings together diverse data
-engines like DuckDB, DataFusion, and Snowflake under one unified interface.
+xorq supports multiple engines, enabling efficient and seamless data transfers
+between them. It enhances reproducibility across the ML lifecycle through
+diffable YAML and SQL artifacts, along with an intuitive CLI. xorq’s composable
+architecture makes it easy to construct disaggregated pipelines, allowing you
+to right-size each component—such as preprocessing—according to your needs.
 
-Whether you're a data scientist or ML engineer, xorq empowers you to focus on
-innovation rather than infrastructure.
+Whether you’re a data scientist or an ML engineer, xorq empowers you to create
+robust, reproducible pipelines without sacrificing performance or ease of use.
 
-### Features
+```python
+expr
+.filter([_.karma > 10.0,...])
+.pipe(hn_flight_udxf)
+.mutate(transformed=tfidf.on_expr)
+.mutate(predicted=xgb_predict.on_expr)
+.execute()
+```
 
-- **Expr (Ibis-Powered):** Define transformations using a familiar, Pythonic
-  API that is both expressive and backend-agnostic.
-- **Cache:** Avoid redundant computations by materializing intermediate results
-  as Arrow RecordBatches, ensuring minimal re-computation.
-- **Portable Python UDFs:** Write and serve Python UDFs seamlessly –
-  whether they’re used for aggregation, windowing, or transformation tasks.
+<img
+  className="block dark:hidden"
+  src="/images/overview-light.png"
+  alt="Overview Art Light"
+/>
+<img
+  className="hidden dark:block"
+  src="/images/overview-dark.png"
+  alt="Overview Art Dark"
+/>
 
 > **Mission Statement:**  
 > “Make data processing ergonomic, performant and reproducible.”
+
+
+### Features
+
+- **DataFrame API (Ibis-Powered):** Define transformations using a familiar, pandas-like 
+  API that is both expressive and backend-agnostic.
+- **Cache:** Avoid redundant computations by materializing intermediate results
+  as Arrow RecordBatches, ensuring minimal re-computation.
+- **Python UDFs:** Write and serve Python UDFs seamlessly – whether they’re
+  used for aggregation, windowing, or transformation tasks. Support native UDFs
+  or Flight-based exchanger functions (UDxF)
+- **Multi-Engine:** Effortlessly switch or combine execution engines—DuckDB,
+  DataFusion, PostgreSQL, BigQuery, Snowflake—optimizing performance and
+  scalability. 
+- **Arrow-Native:**Built around Apache Arrow and Arrow Flight, xorq leverages columnar data
+  structures to maximize performance, minimize memory usage, and accelerate
+  data transfers. 
+
+  **Supported Engines:**
+- Local Engines:
+  - DuckDB
+  - DataFusion
+  - xorq Custom Engine (optimized for Python UDFs)
+- Remote Engines:
+  - Postgres
+  - BigQuery
+  - Snowflake
 
 ## Getting Started
 
