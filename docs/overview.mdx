@@ -2,28 +2,23 @@
 title: Welcome to xorq!
 sidebarTitle: Welcome
 ---
-xorq is a portable, Python-based data processing toolchain designed to simplify
-building and executing deferred, fit-transform pipelines common in ML
-workflows.
+Have you ever inherited a machine learning pipeline from a Jupyter notebook
+that needed extensive revisions just to operationalize? We have too. After
+years of struggling with pipelines that worked perfectly in notebooks but
+consistently failed in production, we built xorq to solve exactly these pains.
 
-xorq supports multiple engines, enabling efficient and seamless data transfers
-between them. It enhances reproducibility across the ML lifecycle through
-diffable YAML and SQL artifacts, along with an intuitive CLI. xorq’s composable
-architecture makes it easy to construct disaggregated pipelines, allowing you
-to right-size each component—such as preprocessing—according to your needs.
+xorq eliminates the headaches of porting local pandas logic to SQL backends,
+debugging runtime mismatches, wasteful recomputation and lack of out-of-core
+operations, leading to unreliable deployments. Built on powerful foundations
+like Ibis and DataFusion, xorq introduces deferred expressions, portable UDFs,
+and efficient caching—making pipeline development as intuitive as writing
+pandas or scikit-learn code, but seamlessly bridging the gap between data
+science and data engineering.
 
-Whether you’re a data scientist or an ML engineer, xorq empowers you to create
-robust, reproducible pipelines without sacrificing performance or ease of use.
-
-```python
-expr
-.filter([_.karma > 10.0,...])
-.pipe(hn_flight_udxf)
-.mutate(transformed=tfidf.on_expr)
-.mutate(predicted=xgb_predict.on_expr)
-.execute()
+Get started now:
+```shell
+pip install xorq
 ```
-
 <img
   className="block dark:hidden"
   src="/images/overview-light.png"
@@ -34,6 +29,39 @@ expr
   src="/images/overview-dark.png"
   alt="Overview Art Dark"
 />
+
+```python
+expr = (
+  pg.table("batting")
+    .into_backend(con, "xo_batting")
+    .limit(15)
+    .select(player_id="playerID", year_id="yearID_right")
+    .cache(SourceStorage(source=con))
+)
+```
+
+```sh
+xorq build examples/into_backend_example.py --target-dir=builds --expressions expr
+```
+You can view diffable artifacts that can roundtrip back to the original expression:
+
+```
+❯ ls -ah builds/7a36621710a7
+1f32d6616575.sql
+deferred_reads.yaml
+expr.yaml
+metadata.json
+profiles.yaml
+sql.yaml
+```
+
+
+xorq is a portable, Python-based data processing toolchain designed to simplify
+building and executing deferred, fit-transform pipelines common in ML
+workflows.
+
+Whether you’re a data scientist or an ML engineer, xorq empowers you to create
+robust, reproducible pipelines without sacrificing performance or ease of use.
 
 > **Mission Statement:**  
 > “Make data processing ergonomic, performant and reproducible.”
@@ -51,11 +79,12 @@ expr
 - **Multi-Engine:** Effortlessly switch or combine execution engines—DuckDB,
   DataFusion, PostgreSQL, BigQuery, Snowflake—optimizing performance and
   scalability. 
-- **Arrow-Native:**Built around Apache Arrow and Arrow Flight, xorq leverages columnar data
+- **Arrow-Native:** Built around Apache Arrow and Arrow Flight, xorq leverages columnar data
   structures to maximize performance, minimize memory usage, and accelerate
   data transfers. 
 
-  **Supported Engines:**
+**Supported Engines:**
+
 - Local Engines:
   - DuckDB
   - DataFusion
@@ -64,6 +93,15 @@ expr
   - Postgres
   - BigQuery
   - Snowflake
+
+### Benefits
+
+- Avoiding wasteful recomputations
+- Take your UDFs to the data via Flight end-points
+- DAG of single-engine expressions, not tasks
+- Research to production 
+- Easily extract servable artifacts from pipeline e.g. models
+- Composable and disaggregated pipelines
 
 ## Getting Started
 
