@@ -656,6 +656,7 @@ class LETSQLAccessor:
 
     @property
     def dts(self):
+        # FIXME: update for other opaque nodes: FlightExpr, FlightUDXF
         from xorq.expr.relations import (
             RemoteTable,
         )
@@ -711,8 +712,13 @@ class LETSQLAccessor:
     @property
     def uncached_one(self):
         if self.is_cached:
-            op = self.expr.op()
-            return op.parent
+            from xorq.expr.relations import RemoteTable
+
+            parent = self.expr.op().parent
+            if isinstance(parent.op(), RemoteTable):
+                return parent.op().remote_expr
+            else:
+                return parent
         else:
             return self.expr
 
