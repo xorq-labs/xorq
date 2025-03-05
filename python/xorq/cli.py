@@ -90,6 +90,8 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
                 expr.to_json(output_path)
             case "parquet":
                 expr.to_parquet(output_path)
+            case _:
+                raise ValueError(f"Unknown output_format: {output_format}")
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -141,6 +143,8 @@ def main():
             build_command(args.script_path, expressions, args.builds_dir)
         case "run":
             run_command(args.build_path, args.output_path, args.format)
+        case _:
+            raise ValueError(f"Unknown command: {args.command}")
 
 
 if __name__ == "__main__":
