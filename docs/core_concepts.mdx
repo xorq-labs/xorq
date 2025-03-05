@@ -24,7 +24,7 @@ xorq supports two main types of cache storage:
 
 ```python
 import xorq as xo
-from xorq.common.caching import SourceStorage
+from xorq.caching import SourceStorage
 
 # Connect to source database
 pg = xo.postgres.connect_env()
@@ -52,7 +52,7 @@ result = xo.execute(cached)
 - Ideal for one-off analyses
 - Persistence depends on source backend
 
-#### 3. ParquetCacheStorage
+#### 3. ParquetStorage
 
 - Special case of SourceStorage
 - Caches results as Parquet files on local disk
@@ -277,7 +277,7 @@ While xorq is built on top of Ibis, it extends its capabilities in several key w
 
 ```python
 import xorq as xo
-from xorq.common.caching import ParquetCacheStorage
+from xorq.caching import ParquetStorage
 from xorq.expr.relations import into_backend
 import pathlib
 
@@ -287,7 +287,7 @@ pg = xo.postgres.connect_env()
 ddb = xo.duckdb.connect()
 
 # 2. Set up caching
-storage = ParquetCacheStorage(
+storage = ParquetStorage(
     source=ddb,
     path=pathlib.Path.cwd(),
 )
