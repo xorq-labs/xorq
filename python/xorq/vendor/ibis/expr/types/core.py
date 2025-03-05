@@ -529,7 +529,35 @@ class Expr(Immutable, Coercible):
 
         https://arrow.apache.org/docs/python/generated/pyarrow.csv.CSVWriter.html
         """
-        self._find_backend(use_default=True).to_csv(self, path, **kwargs)
+        from xorq.expr.api import to_csv
+
+        return to_csv(self, path=path, params=params, **kwargs)
+
+    @experimental
+    def to_json(
+        self,
+        path: str | Path,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Write the results of `expr` to a NDJSON file.
+
+        This method is eager and will execute the associated expression
+        immediately.
+
+        Parameters
+        ----------
+        path
+            The data source. A string or Path to the Delta Lake table.
+        **kwargs
+            Additional, backend-specific keyword arguments.
+
+        https://github.com/ndjson/ndjson-spec
+        """
+        from xorq.expr.api import to_json
+
+        return to_json(self, path=path, params=params)
 
     def unbind(self) -> ir.Table:
         """Return an expression built on `UnboundTable` instead of backend-specific objects."""

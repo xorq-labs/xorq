@@ -47,6 +47,8 @@ __all__ = (
     "register",
     "train_test_splits",
     "to_parquet",
+    "to_csv",
+    "to_json",
     "to_pyarrow",
     "to_pyarrow_batches",
     "to_sql",
@@ -419,6 +421,38 @@ def to_parquet(
         with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
             for batch in batch_reader:
                 writer.write_batch(batch)
+
+
+def to_csv(
+    expr: ir.Expr,
+    path: str | Path,
+    params: Mapping[ir.Scalar, Any] | None = None,
+    **kwargs: Any,
+):
+    import pyarrow  # noqa: ICN001, F401
+    import pyarrow.csv as pcsv
+    import pyarrow_hotfix  # noqa: F401
+
+    with to_pyarrow_batches(expr, params=params) as batch_reader:
+        with pcsv.CSVWriter(path, schema=batch_reader.schema, **kwargs) as writer:
+            for batch in batch_reader:
+                writer.write_batch(batch)
+
+
+def to_json(
+    expr: ir.Expr,
+    path: str | Path,
+    params: Mapping[ir.Scalar, Any] | None = None,
+):
+    import pyarrow  # noqa: ICN001, F401
+    import pyarrow_hotfix  # noqa: F401
+
+    with to_pyarrow_batches(expr, params=params) as batch_reader:
+        with open(path, "w") as f:
+            for batch in batch_reader:
+                df = batch.to_pandas()
+                batch_json = df.to_json(orient="records", lines=True)
+                f.write(batch_json)
 
 
 def get_plans(expr):
