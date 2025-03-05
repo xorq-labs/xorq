@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Callable
 
+import pandas as pd
 import pytest
 from pytest import param
 
@@ -106,3 +107,39 @@ def test_read(data_dir, extension, method):
         data_dir / extension / f"batting.{extension}", table_name=f"batting-{extension}"
     )
     assert table.execute() is not None
+
+
+@pytest.mark.parametrize(
+    ("extension", "write", "read"),
+    [
+        (
+            "parquet",
+            xo.to_parquet,
+            lambda path, schema: xo.read_parquet(
+                path, schema=schema.to_pyarrow()
+            ).execute(),
+        ),
+        (
+            "csv",
+            xo.to_csv,
+            lambda path, schema: xo.read_csv(
+                path, schema=schema.to_pyarrow()
+            ).execute(),
+        ),
+        (
+            "json",
+            xo.to_json,
+            lambda path, schema: pd.read_json(
+                path, lines=True, dtype=dict(schema.to_pandas())
+            ),
+        ),
+    ],
+)
+def test_write(alltypes, df, tmp_path, extension, write, read):
+    output_path = tmp_path / f"alltypes.{extension}"
+    write(alltypes, output_path)
+    actual = read(output_path, alltypes.schema())
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+    assert isinstance(actual, pd.DataFrame)
