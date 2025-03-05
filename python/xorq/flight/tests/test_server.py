@@ -20,15 +20,19 @@ from xorq.flight.exchanger import PandasUDFExchanger
     ],
 )
 def test_port_in_use(connection, port):
-    flight_url = FlightUrl.from_defaults(port=port)
-    assert not flight_url.port_in_use(), f"Port {port} already in use"
-    with pytest.raises(ValueError):
+    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
+    flight_url = FlightUrl(port=port)
+    assert FlightUrl.port_in_use(port), f"Port {port} should be in use"
+    with pytest.raises(pa.ArrowException, match="Server did not start properly"):
         with FlightServer(
             flight_url=flight_url,
             connection=connection,
         ) as _:
+            # entering the above context releases the port
+            # so we won't raise until we enter the second context and try to use it
+            flight_url2 = FlightUrl(port=port)
             with FlightServer(
-                flight_url=flight_url,
+                flight_url=flight_url2,
                 connection=connection,
             ) as _:
                 pass
@@ -43,8 +47,9 @@ def test_port_in_use(connection, port):
     ],
 )
 def test_register_and_list_tables(connection, port):
-    flight_url = FlightUrl.from_defaults(port=port)
-    assert not flight_url.port_in_use(), f"Port {port} already in use"
+    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
+    flight_url = FlightUrl(port=port)
+    assert FlightUrl.port_in_use(port), f"Port {port} should be in use"
 
     with FlightServer(
         flight_url=flight_url,
@@ -63,7 +68,7 @@ def test_register_and_list_tables(connection, port):
         actual = xo.execute(t)
 
         assert t.schema() is not None
-        assert main.flight_url.port_in_use()
+        # assert FlightUrl.port_in_use(port=port)
         assert "users" in con.list_tables()
         assert isinstance(actual, pd.DataFrame)
 
@@ -77,8 +82,7 @@ def test_register_and_list_tables(connection, port):
     ],
 )
 def test_read_parquet(connection, port, parquet_dir):
-    flight_url = FlightUrl.from_defaults(port=port)
-    assert not flight_url.port_in_use(), f"Port {port} already in use"
+    flight_url = FlightUrl(port=port)
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
@@ -98,8 +102,7 @@ def test_read_parquet(connection, port, parquet_dir):
     ],
 )
 def test_exchange(connection, port):
-    flight_url = FlightUrl.from_defaults(port=port)
-    assert not flight_url.port_in_use(), f"Port {port} already in use"
+    flight_url = FlightUrl(port=port)
 
     def my_f(df):
         return df[["a", "b"]].sum(axis=1)
