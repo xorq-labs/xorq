@@ -1,9 +1,18 @@
 import functools
+import random
 import socket
 from typing import Optional
 from urllib.parse import urlunparse
 
-from attrs import field, frozen, validators
+from attrs import (
+    define,
+    field,
+)
+from attrs.validators import (
+    in_,
+    instance_of,
+    optional,
+)
 
 import xorq as xo
 from xorq.flight.backend import Backend
@@ -25,19 +34,41 @@ DEFAULT_AUTH_MIDDLEWARE = {
 
 allowed_schemes = ("grpc",)
 default_host = "localhost"
-default_port = 5005
 
 
-@frozen
+@define
 class FlightUrl:
-    scheme: str = field(default="grpc", validator=validators.in_(allowed_schemes))
-    host: str = field(default=default_host)
-    username: Optional[str] = field(default=None)
-    password: Optional[str] = field(default=None)
-    port: Optional[int] = field(default=default_port)
-    path: Optional[str] = field(default="")
-    query: Optional[str] = field(default="")
-    fragment: Optional[str] = field(default="")
+    scheme: str = field(default="grpc", validator=in_(allowed_schemes))
+    host: str = field(default=default_host, validator=instance_of(str))
+    username: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    password: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    port: Optional[int] = field(default=None, validator=optional(instance_of(int)))
+    path: Optional[str] = field(default="", validator=instance_of(str))
+    query: Optional[str] = field(default="", validator=instance_of(str))
+    fragment: Optional[str] = field(default="", validator=instance_of(str))
+    _socket = field(default=None, init=False)
+
+    def __attrs_post_init__(self):
+        if self.port is None:
+            self.find_and_bind_socket()
+        else:
+            self.bind_socket()
+
+    def find_and_bind_socket(self):
+        while True:
+            port = random.randint(5000, 8000)
+            try:
+                self._socket = self._bind_socket(self.host, port)
+                self.port = port
+                break
+            except socket.error:
+                pass
+
+    def bind_socket(self):
+        self._socket = self._bind_socket(self.host, self.port)
+
+    def unbind_socket(self):
+        self._socket = None
 
     def to_location(self):
         components = (
@@ -50,18 +81,20 @@ class FlightUrl:
         )
         return str(urlunparse(components))
 
-    def port_in_use(self):
+    @staticmethod
+    def _bind_socket(host, port):
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind((host, port))
+        return s
+
+    @staticmethod
+    def port_in_use(port, host="localhost"):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             try:
-                s.bind((self.host, self.port))
+                s.bind((host, port))
                 return False
             except socket.error:
                 return True
-
-    @classmethod
-    def from_defaults(cls, **kwargs):
-        _kwargs = {attr.name: attr.default for attr in cls.__attrs_attrs__} | kwargs
-        return cls(**_kwargs)
 
 
 class BasicAuth:
@@ -85,7 +118,7 @@ def to_basic_auth_middleware(basic_auth: BasicAuth) -> dict:
 class FlightServer:
     def __init__(
         self,
-        flight_url=FlightUrl.from_defaults(),
+        flight_url=None,
         certificate_path=None,
         key_path=None,
         verify_client=False,
@@ -93,19 +126,15 @@ class FlightServer:
         auth: BasicAuth = None,
         connection=xo.connect,
     ):
-        self.flight_url = flight_url
+        self.flight_url = flight_url or FlightUrl()
         self.certificate_path = certificate_path
         self.key_path = key_path
         self.root_certificates = root_certificates
         self.auth = auth
 
-        if self.flight_url.port_in_use():
-            raise ValueError(
-                f"Port {self.flight_url.port} already in use (flight_url={self.flight_url})"
-            )
         self.server = FlightServerDelegate(
             connection,
-            flight_url.to_location(),
+            self.flight_url.to_location(),
             verify_client=verify_client,
             **self.auth_kwargs,
         )
@@ -155,9 +184,11 @@ class FlightServer:
         return self.con.con
 
     def __enter__(self):
+        self.flight_url.unbind_socket()
         return self
 
     def __exit__(self, *args):
+        # fixme: bind socket?
         self.server.__exit__(*args)
 
 
