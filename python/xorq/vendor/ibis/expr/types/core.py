@@ -21,7 +21,6 @@ from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.grounds import Immutable
 from xorq.vendor.ibis.common.patterns import Coercible, CoercionError
 from xorq.vendor.ibis.common.typing import get_defining_scope
-from xorq.vendor.ibis.config import _default_backend
 from xorq.vendor.ibis.config import options as opts
 from xorq.vendor.ibis.expr.format import pretty
 from xorq.vendor.ibis.util import deprecated, experimental
@@ -363,6 +362,8 @@ class Expr(Immutable, Coercible):
         BaseBackend
             A backend that is attached to the expression
         """
+        from xorq.config import _backend_init
+
         backends, has_unbound = self._find_backends()
 
         if not backends:
@@ -373,7 +374,7 @@ class Expr(Immutable, Coercible):
                     "against an explicit backend, or rebuild the expression "
                     "using bound tables instead."
                 )
-            default = _default_backend() if use_default else None
+            default = _backend_init() if use_default else None
             if default is None:
                 raise XorqError(
                     "Expression depends on no backends, and found no default"
