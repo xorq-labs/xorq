@@ -1,3 +1,4 @@
+import itertools
 import pathlib
 import re
 import types
@@ -172,6 +173,21 @@ def normalize_duckdb_file_read(dt):
     )
 
 
+def rename_unbound_static(op, prefix="static-name"):
+    count = itertools.count()
+
+    def rename_unbound(node, kwargs):
+        if isinstance(node, ir.UnboundTable):
+            name = f"{prefix}-{next(count)}"
+            return node.copy(name=name)
+        else:
+            if kwargs:
+                return node.__recreate__(kwargs)
+            return node
+
+    return op.replace(rename_unbound)
+
+
 def normalize_letsql_databasetable(dt):
     from xorq.expr.relations import FlightExpr, FlightUDXF
 
@@ -182,7 +198,8 @@ def normalize_letsql_databasetable(dt):
             (
                 "normalize_letsql_databasetable",
                 dt.input_expr,
-                dt.unbound_expr,
+                # we need to "stabilize" the name of the tables in the unbound expr
+                rename_unbound_static(dt.unbound_expr.op()).to_expr(),
                 dt.make_connection,
             )
         )
