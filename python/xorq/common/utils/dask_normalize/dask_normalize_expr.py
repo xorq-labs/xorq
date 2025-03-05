@@ -15,6 +15,8 @@ from xorq.common.utils.defer_utils import (
     Read,
 )
 from xorq.expr.relations import (
+    FlightExpr,
+    FlightUDXF,
     RemoteTable,
     make_native_op,
 )
@@ -385,7 +387,11 @@ def normalize_agg_udf(udf):
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
     # FIXME: replace bound table names with their hashes
-    sql = unbound_expr_to_default_sql(expr.ls.uncached.unbind())
+    sql = None
+    if isinstance(op := expr.ls.uncached.op(), (FlightUDXF, FlightExpr)):
+        sql = unbound_expr_to_default_sql(op.input_expr.unbind())
+    else:
+        sql = unbound_expr_to_default_sql(op.to_expr().unbind())
 
     if not (expr_is_bound(expr) or expr.op().find(Read)):
         return sql
@@ -395,7 +401,7 @@ def normalize_expr(expr):
         # these should have been replaced by the time we get to them
         raise ValueError(f"{mem_dts}")
     reads = op.find(Read)
-    dts = op.find(ir.DatabaseTable)
+    dts = op.find((ir.DatabaseTable, FlightExpr, FlightUDXF))
     udfs = op.find((AggUDF, ScalarUDF))
     token = normalize_seq_with_caller(
         sql,
