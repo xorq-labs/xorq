@@ -1,8 +1,5 @@
-import csv
-import json
 import re
 import sys
-from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -92,7 +89,31 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
     assert builds_dir.exists()
 
 
-@pytest.mark.parametrize("output_format", ["csv", "json"])
+def test_run_command_default(monkeypatch, tmp_path, capsys):
+    target_dir = tmp_path / "build"
+    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
+
+    build_command(str(script_path), ["expr"], builds_dir=str(target_dir))
+    capture = capsys.readouterr()
+
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", str(capture.out)):
+        expression_path = match.group()
+        test_args = [
+            "xorq",
+            "run",
+            expression_path,
+        ]
+        monkeypatch.setattr(sys, "argv", test_args)
+
+        try:
+            main()
+        except SystemExit:
+            pass
+    else:
+        raise AssertionError("No expression hash")
+
+
+@pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
 def test_run_command(monkeypatch, tmp_path, capsys, output_format):
     target_dir = tmp_path / "build"
     script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
@@ -101,13 +122,14 @@ def test_run_command(monkeypatch, tmp_path, capsys, output_format):
     capture = capsys.readouterr()
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", str(capture.out)):
-        expression_hash = match.group(1)
+        output_path = tmp_path / f"test.{output_format}"
+        expression_path = match.group()
         test_args = [
             "xorq",
             "run",
-            expression_hash,
-            "--builds-dir",
-            str(target_dir),
+            expression_path,
+            "--output-path",
+            str(output_path),
             "--format",
             output_format,
         ]
@@ -117,16 +139,9 @@ def test_run_command(monkeypatch, tmp_path, capsys, output_format):
             main()
         except SystemExit:
             pass
+        assert output_path.exists()
+        assert output_path.stat().st_size > 0
 
-        capture = capsys.readouterr()
-        run_capture = str(capture.out)
-
-        match output_format:
-            case "csv":
-                reader = csv.DictReader(StringIO(run_capture))
-                assert list(reader)
-            case "json":
-                assert json.loads(run_capture)
     else:
         raise AssertionError("No expression hash")
 

@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+from pathlib import Path
 
 from xorq.common.utils.import_utils import import_from_path
 from xorq.ibis_yaml.compiler import BuildManager
@@ -57,30 +58,38 @@ def build_command(script_path, expression, builds_dir="builds"):
     )
 
 
-def run_command(builds_dir, hash_id, output_format="csv"):
+def run_command(expr_path, output_path=None, output_format="parquet"):
     """
-    Run a build, by recreating the expression from the build
+    Execute an artifact
 
     Parameters
     ----------
-    builds_dir : Path to the builds directory
-    hash_id : Hash identifier of the build to run
-    output_format : Output format of the run (either "csv" or "json")
+    expr_path : str
+        Path to the expr in the builds dir
+    output_path : str
+        Path to write output. Defaults to os.devnull
+    output_format : str, optional
+        Output format, either "csv", "json", or "parquet". Defaults to "parquet"
 
     Returns
     -------
 
     """
+    if output_path is None:
+        output_path = os.devnull
+
     try:
-        build_manager = BuildManager(builds_dir)
-        expr = build_manager.load_expr(hash_id)
-        frame = expr.execute()
+        expr_path = Path(expr_path)
+        build_manager = BuildManager(expr_path.parent)
+        expr = build_manager.load_expr(expr_path.stem)
 
         match output_format:
             case "csv":
-                frame.to_csv(sys.stdout, index=False, index_label=False)
+                expr.to_csv(output_path)
             case "json":
-                frame.to_json(sys.stdout, orient="records")
+                expr.to_json(output_path)
+            case "parquet":
+                expr.to_parquet(output_path)
 
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -91,11 +100,9 @@ def main():
     """Main entry point for the xorq CLI."""
     parser = argparse.ArgumentParser(description="xorq - build and run expressions")
 
-    # Create subparsers for different commands
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
 
-    # Create parser for the "build" command
     build_parser = subparsers.add_parser(
         "build", help="Generate artifacts from an expression"
     )
@@ -110,20 +117,20 @@ def main():
         "--builds-dir", default="builds", help="Directory for all generated artifacts"
     )
 
-    # Create parser for the "run" command
     run_parser = subparsers.add_parser(
         "run", help="Run a build from a builds directory"
     )
+    run_parser.add_argument("build_path", help="Path to the build script")
     run_parser.add_argument(
-        "expression_hash", help="Hash identifier of the build to run"
+        "--output-path",
+        default=None,
+        help=f"Path to write output (default: {os.devnull})",
     )
     run_parser.add_argument(
-        "--builds-dir",
-        default="builds",
-        help="Path to the directory for all generated artifacts",
-    )
-    run_parser.add_argument(
-        "--format", choices=["csv", "json"], default="csv", help="Output format"
+        "--format",
+        choices=["csv", "json", "parquet"],
+        default="parquet",
+        help="Output format (default: parquet)",
     )
 
     args = parser.parse_args()
@@ -133,7 +140,7 @@ def main():
             expressions = [args.expressions] if args.expressions else []
             build_command(args.script_path, expressions, args.builds_dir)
         case "run":
-            run_command(args.builds_dir, args.expression_hash, args.format)
+            run_command(args.build_path, args.output_path, args.format)
 
 
 if __name__ == "__main__":
