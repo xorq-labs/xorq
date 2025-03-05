@@ -55,6 +55,17 @@
             ]
           }
         ]
+      },
+      {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Data Pipelines",
+            "pages": [
+              "examples/mortgage"
+            ]
+          }
+        ]
       }
     ],
     "global": {
