@@ -50,7 +50,7 @@ Let's build a more complex pipeline that demonstrates key xorq features. We'll:
 
 ```python
 import xorq as xo
-from xorq.common.caching import ParquetCacheStorage
+from xorq.caching import ParquetStorage
 import pathlib
 
 # Create connections to different engines
@@ -58,7 +58,7 @@ con = xo.connect()
 ddb = xo.duckdb.connect()
 
 # Set up cache storage
-storage = ParquetCacheStorage(
+storage = ParquetStorage(
     source=con,
     path=pathlib.Path.cwd()
 )
@@ -96,7 +96,7 @@ table.execute()
 This example demonstrates several key xorq capabilities:
 
 1. **Multi-engine Support**: Using both DataFusion and DuckDB
-2. **Caching**: Persisting intermediate results with ParquetCacheStorage
+2. **Caching**: Persisting intermediate results with ParquetStorage
 3. **ML Integration**: Loading and using XGBoost models
 4. **Expressive API**: Chaining operations with a ibis-like interface
 

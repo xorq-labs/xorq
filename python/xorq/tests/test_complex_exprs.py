@@ -64,5 +64,5 @@ def test_complex_storage(cls, cross_source_caching, tmp_path):
     assert out == 44260
     assert cached.ls.exists()
     assert storage.exists(cached)
-    # ParquetCacheStorage has an issue with this, regardless of cross_source_caching
+    # ParquetStorage has an issue with this, regardless of cross_source_caching
     assert storage.cache.exists(expr)

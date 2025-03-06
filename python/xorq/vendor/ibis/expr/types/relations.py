@@ -3321,10 +3321,10 @@ class Table(Expr, _FixedTextJupyterMixin):
         ----------
         storage : CacheStorage, optional
             The storage strategy to use for caching. Can be one of:
-            - ParquetCacheStorage: Caches results as Parquet files on disk
+            - ParquetStorage: Caches results as Parquet files on disk
             - SourceStorage: Caches results in the source database
-            - ParquetSnapshot: Creates a snapshot of data in Parquet format
-            - SnapshotStorage: Creates a snapshot in the source database
+            - ParquetSnapshotStorage: Creates a snapshot of data in Parquet format
+            - SourceSnapshotStorage: Creates a snapshot in the source database
             If None, uses the default storage configuration.
 
         Returns
@@ -3342,20 +3342,20 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        Using ParquetCacheStorage:
+        Using ParquetStorage:
         >>> import xorq as xo
-        >>> from xorq.common.caching import ParquetCacheStorage
+        >>> from xorq.caching import ParquetStorage
         >>> from pathlib import Path
         >>> pg = xo.postgres.connect_examples()
         >>> con = xo.connect()
-        >>> storage = ParquetCacheStorage(source=con, path=Path.cwd())
+        >>> storage = ParquetStorage(source=con, path=Path.cwd())
         >>> alltypes = pg.table("functional_alltypes")
         >>> cached = (alltypes
         ...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
         ...     .cache(storage=storage)) # doctest: +SKIP
 
         Using SourceStorage with PostgreSQL:
-        >>> from xorq.common.caching import SourceStorage
+        >>> from xorq.caching import SourceStorage
         >>> from xorq import _
         >>> ddb = xo.duckdb.connect()
         >>> path = xo.config.options.pins.get_path("batting")
@@ -3378,7 +3378,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        ParquetCacheStorage : Storage implementation for Parquet files
+        ParquetStorage : Storage implementation for Parquet files
         SourceStorage : Storage implementation for database tables
         ModificationTimeStrategy : Strategy for tracking changes by modification time
         SnapshotStrategy : Strategy for creating data snapshots
