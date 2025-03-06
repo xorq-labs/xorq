@@ -4,17 +4,16 @@ import xorq as xo
 from xorq.caching import ParquetStorage
 
 
-pg = xo.postgres.connect_examples()
 con = xo.connect()  # empty connection
 storage = ParquetStorage(
     source=con,
     path=Path.cwd(),
 )
 
-
-alltypes = con.register(
-    pg.table("functional_alltypes"), table_name="pg_functional_alltypes"
+alltypes = xo.examples.functional_alltypes.fetch(
+    backend=con, table_name="pg_functional_alltypes"
 )
+
 cached = (
     alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col).cache(
         storage=storage
@@ -31,6 +30,6 @@ path = storage.get_loc(cached.ls.get_key())
 
 
 print(f"{path} exists?: {path.exists()}")
-result = xo.execute(cached)  # the filter is executed on the local table
+result = cached.execute()  # the filter is executed on the local table
 print(f"{path} exists?: {path.exists()}")
 print(result)

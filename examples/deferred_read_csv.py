@@ -22,7 +22,7 @@ assert csv_name in pd_con.tables
 
 
 # we can even work with postgres!
-pg = xo.postgres.connect_env()
+pg = xo.postgres.connect_examples()
 expr = deferred_read_csv(con=pg, path=csv_path, table_name=csv_name).filter(
     _.sepal_length > 6
 )

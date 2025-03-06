@@ -11,41 +11,6 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis import _
 
 
-expected_tables = (
-    "array_types",
-    "astronauts",
-    "awards_players",
-    "awards_players_special_types",
-    "batting",
-    "diamonds",
-    "functional_alltypes",
-    "geo",
-    "geography_columns",
-    "geometry_columns",
-    "json_t",
-    "map",
-    "spatial_ref_sys",
-    "topk",
-    "tzone",
-)
-
-
-@pytest.fixture(scope="session")
-def pg():
-    conn = xo.postgres.connect_env()
-    yield conn
-    remove_unexpected_tables(conn)
-
-
-@pytest.fixture(scope="session")
-def trino_table():
-    return (
-        xo.trino.connect(database="tpch", schema="sf1")
-        .table("orders")
-        .cast({"orderdate": "date"})
-    )
-
-
 def make_merged(expr):
     agg = expr.group_by(["custkey", "orderdate"]).agg(
         _.totalprice.sum().name("totalprice")
@@ -65,21 +30,6 @@ def make_merged(expr):
         + [windowed[c] for c in windowed.columns if c not in expr.columns]
     )
     return merged
-
-
-def remove_unexpected_tables(dirty):
-    # drop tables
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_table(table, force=True)
-
-    # drop view
-    for table in dirty.list_tables():
-        if table not in expected_tables:
-            dirty.drop_view(table, force=True)
-
-    if sorted(dirty.list_tables()) != sorted(expected_tables):
-        raise ValueError
 
 
 def test_multiple_record_batches(pg):

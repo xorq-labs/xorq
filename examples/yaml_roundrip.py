@@ -4,10 +4,9 @@ from xorq.expr.relations import into_backend
 from xorq.ibis_yaml.compiler import BuildManager
 
 
-pg = xo.postgres.connect_examples()
+con = xo.connect()
+batting = xo.examples.batting.fetch(backend=con, table_name="batting")
 db = xo.duckdb.connect()
-
-batting = pg.table("batting")
 
 backend = xo.duckdb.connect()
 awards_players = deferred_read_parquet(
@@ -18,7 +17,7 @@ awards_players = deferred_read_parquet(
 left = batting.filter(batting.yearID == 2015)
 right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 expr = left.join(
-    into_backend(right, pg, "pg-filtered-table"), ["playerID"], how="semi"
+    into_backend(right, con, "xo-filtered-table"), ["playerID"], how="semi"
 )[["yearID", "stint"]]
 
 build_manager = BuildManager("builds")

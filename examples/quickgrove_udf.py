@@ -9,16 +9,20 @@ from xorq.expr.relations import into_backend
 
 model_path = Path(xo.options.pins.get_path("diamonds-model"))
 
-# source backend
-pg = xo.postgres.connect_examples()
+# source table
+diamonds = xo.examples.diamonds.fetch(
+    backend=xo.duckdb.connect(), table_name="diamonds"
+)
+
 # local backend
 con = xo.connect()
+
 # load xgboost json model
 # cannot have hyphen in the model name see #498
 model = make_quickgrove_udf(model_path, model_name="diamonds_model")
 
 t = (
-    into_backend(pg.tables["diamonds"], con, "diamonds")
+    into_backend(diamonds, con, "diamonds")
     .mutate(pred=model.on_expr)
     .filter(xo._.carat < 1)
     .select(xo._.pred)
