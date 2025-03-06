@@ -1,3 +1,4 @@
+import itertools
 import pathlib
 import re
 import types
@@ -15,6 +16,8 @@ from xorq.common.utils.defer_utils import (
     Read,
 )
 from xorq.expr.relations import (
+    FlightExpr,
+    FlightUDXF,
     RemoteTable,
     make_native_op,
 )
@@ -170,6 +173,21 @@ def normalize_duckdb_file_read(dt):
     )
 
 
+def rename_unbound_static(op, prefix="static-name"):
+    count = itertools.count()
+
+    def rename_unbound(node, kwargs):
+        if isinstance(node, ir.UnboundTable):
+            name = f"{prefix}-{next(count)}"
+            return node.copy(name=name)
+        else:
+            if kwargs:
+                return node.__recreate__(kwargs)
+            return node
+
+    return op.replace(rename_unbound)
+
+
 def normalize_letsql_databasetable(dt):
     from xorq.expr.relations import FlightExpr, FlightUDXF
 
@@ -179,8 +197,9 @@ def normalize_letsql_databasetable(dt):
         return dask.base.normalize_token(
             (
                 "normalize_letsql_databasetable",
-                dt.input_expr.unbind(),
-                dt.unbound_expr,
+                dt.input_expr,
+                # we need to "stabilize" the name of the tables in the unbound expr
+                rename_unbound_static(dt.unbound_expr.op()).to_expr(),
                 dt.make_connection,
             )
         )
@@ -188,7 +207,7 @@ def normalize_letsql_databasetable(dt):
         return dask.base.normalize_token(
             (
                 "normalize_letsql_databasetable",
-                dt.input_expr.unbind(),
+                dt.input_expr,
                 dt.udxf.exchange_f,
                 dt.make_connection,
             )
@@ -385,7 +404,11 @@ def normalize_agg_udf(udf):
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
     # FIXME: replace bound table names with their hashes
-    sql = unbound_expr_to_default_sql(expr.ls.uncached.unbind())
+    sql = None
+    if isinstance(op := expr.ls.uncached.op(), (FlightUDXF, FlightExpr)):
+        sql = unbound_expr_to_default_sql(op.input_expr.unbind())
+    else:
+        sql = unbound_expr_to_default_sql(op.to_expr().unbind())
 
     if not (expr_is_bound(expr) or expr.op().find(Read)):
         return sql
@@ -395,7 +418,7 @@ def normalize_expr(expr):
         # these should have been replaced by the time we get to them
         raise ValueError(f"{mem_dts}")
     reads = op.find(Read)
-    dts = op.find(ir.DatabaseTable)
+    dts = op.find((ir.DatabaseTable, FlightExpr, FlightUDXF))
     udfs = op.find((AggUDF, ScalarUDF))
     token = normalize_seq_with_caller(
         sql,
