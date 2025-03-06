@@ -1,5 +1,5 @@
 import xorq as xo
-from xorq.expr.relations import into_backend
+from xorq.expr.relations import gen_name_namespace, into_backend
 from xorq.ibis_yaml.sql import find_tables, generate_sql_plans
 
 
@@ -12,7 +12,7 @@ def test_find_tables_simple():
 
     assert len(remote_tables) == 1
     table_name = next(iter(remote_tables))
-    assert table_name.startswith("ibis_remote")
+    assert table_name.startswith("ibis_" + gen_name_namespace)
     assert remote_tables[table_name]["engine"] == "duckdb"
 
 
@@ -32,7 +32,7 @@ def test_find_tables_nested():
     remote_tables, _ = find_tables(expr.op())
 
     assert len(remote_tables) == 2
-    assert all(name.startswith("ibis_remote") for name in remote_tables)
+    assert all(name.startswith("ibis_" + gen_name_namespace) for name in remote_tables)
     assert all("engine" in info and "sql" in info for info in remote_tables.values())
 
 
@@ -105,7 +105,7 @@ def test_generate_sql_plans_complex_example():
     remote_table_names = [k for k in plans["queries"].keys() if k != "main"]
     assert len(remote_table_names) == 1
     remote_table_name = remote_table_names[0]
-    assert remote_table_name.startswith("ibis_remote")
+    assert remote_table_name.startswith("ibis_" + gen_name_namespace)
 
     expected_main_sql = f'''SELECT
   "t4"."yearID",
