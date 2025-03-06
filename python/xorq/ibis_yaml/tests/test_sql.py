@@ -37,7 +37,7 @@ def test_find_tables_nested():
 
 
 def test_find_tables():
-    pg = xo.postgres.connect_examples()
+    pg = xo.postgres.connect_env()
     pg.profile_name = "postgres"
     db = xo.duckdb.connect()
     db.profile_name = "duckdb"
@@ -78,7 +78,7 @@ def test_generate_sql_plans_simple():
 
 
 def test_generate_sql_plans_complex_example():
-    pg = xo.postgres.connect_examples()
+    pg = xo.postgres.connect_env()
     pg.profile_name = "postgres"
 
     db = xo.duckdb.connect()
