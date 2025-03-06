@@ -26,5 +26,3 @@ def get_ctypes_field(fields, field, obj):
     c_methcallobj = cast(c_void_p(id(obj)), POINTER(make_class(*fields))).contents
 
     return cast(getattr(c_methcallobj, field), py_object).value
-
-

@@ -15,8 +15,8 @@ import pyarrow as pa
 import toolz
 
 import xorq as xo
-import xorq.expr.udf as udf
 import xorq.expr.datatypes as dt
+import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.expr.udf import make_pandas_expr_udf
