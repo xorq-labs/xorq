@@ -1,4 +1,6 @@
 import functools
+import itertools
+import operator
 from collections import defaultdict
 from typing import Any, Callable
 
@@ -118,7 +120,11 @@ class CachedNode(ops.Relation):
     values = FrozenDict()
 
 
-gen_name = functools.partial(ibis.util.gen_name, "remote-expr-placeholder")
+gen_name = toolz.compose(
+    # some engines simply truncate long names
+    operator.itemgetter(slice(0, 35)),
+    functools.partial(ibis.util.gen_name, "rbr-placeholder"),
+)
 
 
 class RemoteTable(ops.DatabaseTable):
@@ -373,6 +379,9 @@ class Read(ops.Relation):
         )
 
 
+_count = itertools.count()
+
+
 def register_and_transform_remote_tables(expr):
     created = {}
 
@@ -401,7 +410,7 @@ def register_and_transform_remote_tables(expr):
 
     def mark_remote_table(node):
         schema, batchess = batches_table[node]
-        name = f"{node.name}_{len(batchess)}"
+        name = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
         reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
         result = node.source.read_record_batches(reader, table_name=name)
         created[name] = node.source
