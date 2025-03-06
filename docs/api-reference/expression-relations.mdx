@@ -1286,7 +1286,7 @@ parameter.
 
 | Name    | Type                               | Description                                                                                                                                                                                                                                                                                                                                                 | Default |
 |---|-------|------------------------------------------------------------|---|
-| storage | [CacheStorage](%60CacheStorage%60) | The storage strategy to use for caching. Can be one of: - ParquetCacheStorage: Caches results as Parquet files on disk - SourceStorage: Caches results in the source database - ParquetSnapshot: Creates a snapshot of data in Parquet format - SnapshotStorage: Creates a snapshot in the source database If None, uses the default storage configuration. | `None`  |
+| storage | [CacheStorage](%60CacheStorage%60) | The storage strategy to use for caching. Can be one of: - ParquetStorage: Caches results as Parquet files on disk - SourceStorage: Caches results in the source database - ParquetSnapshot: Creates a snapshot of data in Parquet format - SnapshotStorage: Creates a snapshot in the source database If None, uses the default storage configuration. | `None`  |
 
 #### Returns
 
@@ -1304,15 +1304,15 @@ Each strategy can be combined with either Parquet or database storage.
 
 #### Examples
 
-Using ParquetCacheStorage:
+Using ParquetStorage:
 
 ```python
 >>> import letsql as ls
->>> from letsql.common.caching import ParquetCacheStorage
+>>> from letsql.caching import ParquetStorage
 >>> from pathlib import Path
 >>> pg = ls.postgres.connect_examples()
 >>> con = ls.connect()
->>> storage = ParquetCacheStorage(source=con, path=Path.cwd())
+>>> storage = ParquetStorage(source=con, path=Path.cwd())
 >>> alltypes = pg.table("functional_alltypes")
 >>> cached = (alltypes
 ...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
@@ -1322,7 +1322,7 @@ Using ParquetCacheStorage:
 Using SourceStorage with PostgreSQL:
 
 ```python
->>> from letsql.common.caching import SourceStorage
+>>> from letsql.caching import SourceStorage
 >>> from letsql import _
 >>> ddb = ls.duckdb.connect()
 >>> path = ls.config.options.pins.get_path("batting")
@@ -1349,7 +1349,7 @@ Using cache with filtering:
 
 #### See Also
 
-ParquetCacheStorage : Storage implementation for Parquet files
+ParquetStorage : Storage implementation for Parquet files
 SourceStorage : Storage implementation for database tables
 ModificationTimeStrategy : Strategy for tracking changes by modification
 time SnapshotStrategy : Strategy for creating data snapshots
