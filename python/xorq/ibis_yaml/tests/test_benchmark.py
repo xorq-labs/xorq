@@ -7,7 +7,7 @@ from xorq.ibis_yaml.compiler import BuildManager
 
 @pytest.mark.benchmark
 def test_baseball_stats_compilation(build_dir):
-    pg = xo.postgres.connect_examples()
+    pg = xo.postgres.connect_env()
 
     batting_old = (
         pg.table("batting")
