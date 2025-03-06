@@ -120,10 +120,11 @@ class CachedNode(ops.Relation):
     values = FrozenDict()
 
 
+gen_name_namespace = "rbr-placeholder"
 gen_name = toolz.compose(
     # some engines simply truncate long names
     operator.itemgetter(slice(0, 35)),
-    functools.partial(ibis.util.gen_name, "rbr-placeholder"),
+    functools.partial(ibis.util.gen_name, gen_name_namespace),
 )
 
 
