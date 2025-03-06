@@ -385,23 +385,23 @@ def test_quickgrove_hyphen_name(feature_table, hyphen_model_path):
     )
 
 
-def test_deferred_fit_predict_linear_regression(tmp_path):
-    def make_data():
-        import numpy as np
-
-        X = np.array([[1, 1], [1, 2], [2, 2], [2, 3]])
-        # y = 1 * x_0 + 2 * x_1 + 3
-        y = np.dot(X, np.array([1, 2])) + 3
-        df = pd.DataFrame(np.hstack((X, y[:, np.newaxis]))).rename(
-            columns=lambda x: chr(x + ord("a"))
-        )
-        (*features, target) = df.columns
-        return (df, features, target)
-
-    deferred_linear_regression = deferred_fit_predict(
-        cls=LinearRegression, return_type=dt.float64
+def make_data():
+    X = np.array([[1, 1], [1, 2], [2, 2], [2, 3]])
+    # y = 1 * x_0 + 2 * x_1 + 3
+    y = np.dot(X, np.array([1, 2])) + 3
+    df = pd.DataFrame(np.hstack((X, y[:, np.newaxis]))).rename(
+        columns=lambda x: chr(x + ord("a"))
     )
+    (*features, target) = df.columns
+    return (df, features, target)
 
+
+deferred_linear_regression = deferred_fit_predict(
+    cls=LinearRegression, return_type=dt.float64
+)
+
+
+def test_deferred_fit_predict_linear_regression(tmp_path):
     con = xo.connect()
     (df, features, target) = make_data()
     t = con.register(df, "t")
@@ -425,3 +425,17 @@ def test_deferred_fit_predict_linear_regression(tmp_path):
     np.testing.assert_almost_equal(
         pickle.loads(model).coef_, pickle.loads(cached_model).coef_
     )
+
+
+def test_deferred_fit_predict_linear_regression_multi_into_backend():
+    con = xo.connect()
+    (df, features, target) = make_data()
+    t = (
+        con.register(df, "t")
+        .into_backend(xo.connect())[lambda t: t[features[0]] > 0]
+        .into_backend(xo.connect())
+    )
+
+    (_, _, predict_expr_udf) = deferred_linear_regression(t, target, features)
+    predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+    assert not predicted.empty
