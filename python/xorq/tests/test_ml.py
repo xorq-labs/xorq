@@ -13,7 +13,7 @@ from xorq import memtable
 from xorq.caching import ParquetStorage
 from xorq.expr.ml import (
     _calculate_bounds,
-    deferred_fit_predict,
+    deferred_fit_predict_sklearn,
     make_quickgrove_udf,
 )
 from xorq.tests.util import assert_frame_equal
@@ -396,7 +396,7 @@ def make_data():
     return (df, features, target)
 
 
-deferred_linear_regression = deferred_fit_predict(
+deferred_linear_regression = deferred_fit_predict_sklearn(
     cls=LinearRegression, return_type=dt.float64
 )
 

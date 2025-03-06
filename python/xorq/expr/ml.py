@@ -663,7 +663,7 @@ def rewrite_quickgrove_expr(expr: ir.Table) -> ir.Table:
 
 
 @toolz.curry
-def deferred_fit_predict(
+def deferred_fit_predict_sklearn(
     expr,
     target,
     features,
