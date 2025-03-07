@@ -23,19 +23,14 @@ def test_port_in_use(connection, port):
     assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
     flight_url = FlightUrl(port=port)
     assert FlightUrl.port_in_use(port), f"Port {port} should be in use"
-    with pytest.raises(pa.ArrowException, match="Server did not start properly"):
+    with pytest.raises(OSError, match="Address already in use"):
         with FlightServer(
             flight_url=flight_url,
             connection=connection,
         ) as _:
             # entering the above context releases the port
             # so we won't raise until we enter the second context and try to use it
-            flight_url2 = FlightUrl(port=port)
-            with FlightServer(
-                flight_url=flight_url2,
-                connection=connection,
-            ) as _:
-                pass
+            flight_url2 = FlightUrl(port=port)  # noqa: F841
 
 
 @pytest.mark.parametrize(
@@ -82,6 +77,7 @@ def test_register_and_list_tables(connection, port):
     ],
 )
 def test_read_parquet(connection, port, parquet_dir):
+    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
     flight_url = FlightUrl(port=port)
     with FlightServer(
         flight_url=flight_url,
@@ -102,6 +98,7 @@ def test_read_parquet(connection, port, parquet_dir):
     ],
 )
 def test_exchange(connection, port):
+    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
     flight_url = FlightUrl(port=port)
 
     def my_f(df):

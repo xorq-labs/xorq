@@ -131,13 +131,9 @@ class FlightServer:
         self.key_path = key_path
         self.root_certificates = root_certificates
         self.auth = auth
-
-        self.server = FlightServerDelegate(
-            connection,
-            self.flight_url.to_location(),
-            verify_client=verify_client,
-            **self.auth_kwargs,
-        )
+        self.connection = connection
+        self.verify_client = verify_client
+        self.server = None
 
     @property
     def auth_kwargs(self):
@@ -185,11 +181,23 @@ class FlightServer:
 
     def __enter__(self):
         self.flight_url.unbind_socket()
+        self.serve()
         return self
+
+    def serve(self):
+        self.server = FlightServerDelegate(
+            self.connection,
+            self.flight_url.to_location(),
+            verify_client=self.verify_client,
+            **self.auth_kwargs,
+        )
+
+    def close(self, *args):
+        self.server.__exit__(*args)
 
     def __exit__(self, *args):
         # fixme: bind socket?
-        self.server.__exit__(*args)
+        self.close(*args)
 
 
 __all__ = ["FlightServer", "BasicAuth"]
