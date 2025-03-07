@@ -8,7 +8,17 @@ import xorq as xo
 from xorq.common.utils.rbr_utils import instrument_reader
 from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.action import AddExchangeAction
-from xorq.flight.exchanger import PandasUDFExchanger
+from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
+
+
+def make_flight_url(port):
+    if port is not None:
+        assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
+    flight_url = FlightUrl(port=port)
+    assert FlightUrl.port_in_use(flight_url.port), (
+        f"Port {flight_url.port} should be in use"
+    )
+    return flight_url
 
 
 @pytest.mark.parametrize(
@@ -20,36 +30,28 @@ from xorq.flight.exchanger import PandasUDFExchanger
     ],
 )
 def test_port_in_use(connection, port):
-    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
-    assert FlightUrl.port_in_use(port), f"Port {port} should be in use"
-    with pytest.raises(pa.ArrowException, match="Server did not start properly"):
+    assert port is not None
+    flight_url = make_flight_url(port)
+    with pytest.raises(OSError, match="Address already in use"):
         with FlightServer(
             flight_url=flight_url,
             connection=connection,
         ) as _:
             # entering the above context releases the port
             # so we won't raise until we enter the second context and try to use it
-            flight_url2 = FlightUrl(port=port)
-            with FlightServer(
-                flight_url=flight_url2,
-                connection=connection,
-            ) as _:
-                pass
+            flight_url2 = FlightUrl(port=port)  # noqa: F841
 
 
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, 5005, id="duckdb"),
-        pytest.param(xo.datafusion.connect, 5005, id="datafusion"),
-        pytest.param(xo.connect, 5005, id="xorq"),
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.connect, None, id="xorq"),
     ],
 )
 def test_register_and_list_tables(connection, port):
-    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
-    assert FlightUrl.port_in_use(port), f"Port {port} should be in use"
+    flight_url = make_flight_url(port)
 
     with FlightServer(
         flight_url=flight_url,
@@ -76,13 +78,13 @@ def test_register_and_list_tables(connection, port):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, 5005, id="duckdb"),
-        pytest.param(xo.datafusion.connect, 5005, id="datafusion"),
-        pytest.param(xo.connect, 5005, id="xorq"),
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.connect, None, id="xorq"),
     ],
 )
 def test_read_parquet(connection, port, parquet_dir):
-    flight_url = FlightUrl(port=port)
+    flight_url = make_flight_url(port)
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
@@ -96,13 +98,13 @@ def test_read_parquet(connection, port, parquet_dir):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, 5005, id="duckdb"),
-        pytest.param(xo.datafusion.connect, 5005, id="datafusion"),
-        pytest.param(xo.connect, 5005, id="xorq"),
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.connect, None, id="xorq"),
     ],
 )
 def test_exchange(connection, port):
-    flight_url = FlightUrl(port=port)
+    flight_url = make_flight_url(port)
 
     def my_f(df):
         return df[["a", "b"]].sum(axis=1)
@@ -163,3 +165,66 @@ def test_exchange(connection, port):
         writes_reads = fut.result()
         assert writes_reads["n_writes"] == 1000  # because
         assert writes_reads["n_reads"] == 1000
+
+
+@pytest.mark.parametrize(
+    "connection",
+    (
+        xo.duckdb.connect,
+        xo.datafusion.connect,
+        xo.connect,
+    ),
+)
+def test_reentry(connection):
+    df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
+    with FlightServer(
+        verify_client=False,
+        connection=connection,
+    ) as server:
+        fut, rbr = server.client.do_exchange(
+            EchoExchanger.command,
+            pa.RecordBatchReader.from_stream(df_in),
+        )
+        df_out = rbr.read_pandas()
+        assert df_in.equals(df_out)
+    with server:
+        fut, rbr = server.client.do_exchange(
+            EchoExchanger.command,
+            pa.RecordBatchReader.from_stream(df_in),
+        )
+        df_out = rbr.read_pandas()
+        assert df_in.equals(df_out)
+
+
+@pytest.mark.parametrize(
+    "connection",
+    (
+        xo.duckdb.connect,
+        xo.datafusion.connect,
+        xo.connect,
+    ),
+)
+def test_serve_close(connection):
+    df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
+    server = FlightServer(
+        verify_client=False,
+        connection=connection,
+    )
+
+    server.serve()
+    fut, rbr = server.client.do_exchange(
+        EchoExchanger.command,
+        pa.RecordBatchReader.from_stream(df_in),
+    )
+    df_out = rbr.read_pandas()
+    assert df_in.equals(df_out)
+    server.close()
+
+    server.serve()
+    fut, rbr = server.client.do_exchange(
+        EchoExchanger.command,
+        pa.RecordBatchReader.from_stream(df_in),
+    )
+    df_out = rbr.read_pandas()
+    assert df_in.equals(df_out)
+    server.close()
