@@ -5,7 +5,8 @@ from xorq.caching import SourceStorage
 con = xo.connect()
 pg = xo.postgres.connect_env()
 
-t = pg.table("batting").into_backend(con, "ls_batting")
+batting = pg.table("batting")
+t = batting.filter(batting.yearID == 2015).into_backend(con, "ls_batting")
 
 expr = (
     t.join(t, "playerID")
@@ -14,5 +15,6 @@ expr = (
     .cache(SourceStorage(source=con))
 )
 
+print(expr)
 print(expr.execute())
 print(con.list_tables())
