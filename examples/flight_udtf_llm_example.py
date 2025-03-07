@@ -1,8 +1,10 @@
 import functools
+import operator
 import os
 from urllib.parse import unquote_plus
 
 import pandas as pd
+import toolz
 from openai import OpenAI
 from tenacity import (
     retry,
@@ -11,6 +13,10 @@ from tenacity import (
 )
 
 import xorq as xo
+from xorq.flight.utils import (
+    schema_concat,
+    schema_contains,
+)
 
 
 @functools.cache
@@ -55,28 +61,41 @@ def extract_sentiment(text):
         return f"ERROR: {e}"
 
 
-def get_hackernews_sentiment_batch(df: pd.DataFrame):
-    df["text"].apply(lambda x: unquote_plus(x.decode("utf-8")))
-    return df.assign(sentiment=df.text.apply(extract_sentiment))
+@toolz.curry
+def get_hackernews_sentiment_batch(df: pd.DataFrame, input_col, append_col):
+    return df.assign(
+        **{
+            append_col: df[input_col].map(
+                toolz.compose(extract_sentiment, unquote_plus)
+            )
+        }
+    )
 
 
-schema_in = xo.schema(
-    {
-        "text": "!binary",
-    }
+input_col = "text_encoded"
+append_col = "sentiment"
+schema_requirement = xo.schema({input_col: "!str"})
+schema_append = xo.schema({append_col: "!str"})
+maybe_schema_in = toolz.compose(schema_contains(schema_requirement), xo.schema)
+maybe_schema_out = toolz.compose(
+    operator.methodcaller("to_pyarrow"),
+    schema_concat(to_concat=schema_append),
+    xo.Schema.from_pyarrow,
 )
-schema_out = xo.schema({"text": "!str", "sentiment": "!str"})
+
 
 do_hackernews_sentiment_udxf = xo.expr.relations.flight_udxf(
-    process_df=get_hackernews_sentiment_batch,
-    maybe_schema_in=schema_in.to_pyarrow(),
-    maybe_schema_out=schema_out.to_pyarrow(),
+    process_df=get_hackernews_sentiment_batch(
+        input_col=input_col, append_col=append_col
+    ),
+    maybe_schema_in=maybe_schema_in,
+    maybe_schema_out=maybe_schema_out,
     name="HackerNewsSentimentAnalyzer",
 )
 
 hn = xo.examples.hn_posts_nano.fetch(table_name="hackernews")
 
-expr = (
+_expr = (
     hn.order_by(hn.time.desc())
     .filter(
         xo.or_(
@@ -86,8 +105,10 @@ expr = (
     )
     .select(hn.text)
     .limit(2)
+    .cast({"text": "!string"})
+    .rename({input_col: "text"})
 )
 
-expr = do_hackernews_sentiment_udxf(expr)
+expr = do_hackernews_sentiment_udxf(_expr)
 df = expr.execute()
 print(df)
