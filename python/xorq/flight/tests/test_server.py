@@ -11,6 +11,16 @@ from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
 
 
+def make_flight_url(port):
+    if port is not None:
+        assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
+    flight_url = FlightUrl(port=port)
+    assert FlightUrl.port_in_use(flight_url.port), (
+        f"Port {flight_url.port} should be in use"
+    )
+    return flight_url
+
+
 @pytest.mark.parametrize(
     "connection,port",
     [
@@ -20,9 +30,8 @@ from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
     ],
 )
 def test_port_in_use(connection, port):
-    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
-    assert FlightUrl.port_in_use(port), f"Port {port} should be in use"
+    assert port is not None
+    flight_url = make_flight_url(port)
     with pytest.raises(OSError, match="Address already in use"):
         with FlightServer(
             flight_url=flight_url,
@@ -36,15 +45,13 @@ def test_port_in_use(connection, port):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, 5005, id="duckdb"),
-        pytest.param(xo.datafusion.connect, 5005, id="datafusion"),
-        pytest.param(xo.connect, 5005, id="xorq"),
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.connect, None, id="xorq"),
     ],
 )
 def test_register_and_list_tables(connection, port):
-    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
-    assert FlightUrl.port_in_use(port), f"Port {port} should be in use"
+    flight_url = make_flight_url(port)
 
     with FlightServer(
         flight_url=flight_url,
@@ -71,14 +78,13 @@ def test_register_and_list_tables(connection, port):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, 5005, id="duckdb"),
-        pytest.param(xo.datafusion.connect, 5005, id="datafusion"),
-        pytest.param(xo.connect, 5005, id="xorq"),
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.connect, None, id="xorq"),
     ],
 )
 def test_read_parquet(connection, port, parquet_dir):
-    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
+    flight_url = make_flight_url(port)
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
@@ -92,14 +98,13 @@ def test_read_parquet(connection, port, parquet_dir):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, 5005, id="duckdb"),
-        pytest.param(xo.datafusion.connect, 5005, id="datafusion"),
-        pytest.param(xo.connect, 5005, id="xorq"),
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.connect, None, id="xorq"),
     ],
 )
 def test_exchange(connection, port):
-    assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
+    flight_url = make_flight_url(port)
 
     def my_f(df):
         return df[["a", "b"]].sum(axis=1)
