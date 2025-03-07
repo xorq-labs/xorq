@@ -8,7 +8,7 @@ import xorq as xo
 from xorq.common.utils.rbr_utils import instrument_reader
 from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.action import AddExchangeAction
-from xorq.flight.exchanger import PandasUDFExchanger
+from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
 
 
 @pytest.mark.parametrize(
@@ -160,3 +160,66 @@ def test_exchange(connection, port):
         writes_reads = fut.result()
         assert writes_reads["n_writes"] == 1000  # because
         assert writes_reads["n_reads"] == 1000
+
+
+@pytest.mark.parametrize(
+    "connection",
+    (
+        xo.duckdb.connect,
+        xo.datafusion.connect,
+        xo.connect,
+    ),
+)
+def test_reentry(connection):
+    df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
+    with FlightServer(
+        verify_client=False,
+        connection=connection,
+    ) as server:
+        fut, rbr = server.client.do_exchange(
+            EchoExchanger.command,
+            pa.RecordBatchReader.from_stream(df_in),
+        )
+        df_out = rbr.read_pandas()
+        assert df_in.equals(df_out)
+    with server:
+        fut, rbr = server.client.do_exchange(
+            EchoExchanger.command,
+            pa.RecordBatchReader.from_stream(df_in),
+        )
+        df_out = rbr.read_pandas()
+        assert df_in.equals(df_out)
+
+
+@pytest.mark.parametrize(
+    "connection",
+    (
+        xo.duckdb.connect,
+        xo.datafusion.connect,
+        xo.connect,
+    ),
+)
+def test_serve_close(connection):
+    df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
+    server = FlightServer(
+        verify_client=False,
+        connection=connection,
+    )
+
+    server.serve()
+    fut, rbr = server.client.do_exchange(
+        EchoExchanger.command,
+        pa.RecordBatchReader.from_stream(df_in),
+    )
+    df_out = rbr.read_pandas()
+    assert df_in.equals(df_out)
+    server.close()
+
+    server.serve()
+    fut, rbr = server.client.do_exchange(
+        EchoExchanger.command,
+        pa.RecordBatchReader.from_stream(df_in),
+    )
+    df_out = rbr.read_pandas()
+    assert df_in.equals(df_out)
+    server.close()

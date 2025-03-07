@@ -180,11 +180,11 @@ class FlightServer:
         return self.con.con
 
     def __enter__(self):
-        self.flight_url.unbind_socket()
         self.serve()
         return self
 
     def serve(self):
+        self.flight_url.unbind_socket()
         self.server = FlightServerDelegate(
             self.connection,
             self.flight_url.to_location(),
@@ -193,10 +193,12 @@ class FlightServer:
         )
 
     def close(self, *args):
+        args = args or (None, None, None)
         self.server.__exit__(*args)
+        self.server = None
+        self.flight_url.bind_socket()
 
     def __exit__(self, *args):
-        # fixme: bind socket?
         self.close(*args)
 
 
