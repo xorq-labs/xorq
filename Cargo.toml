@@ -22,7 +22,7 @@ async-trait = "=0.1.87"
 arrow = "=53.3.0"
 parking_lot = { version = "=0.12.3" }
 arrow-ord = "=53.3.0"
-datafusion-functions-aggregate = { version = "=44.0.0" }
+datafusion-functions-aggregate = { version = "=46.0.0" }
 aws-config = "=0.101.0"
 aws-credential-types = "=0.101.0"
 object_store = { version = "=0.11.2", features = ["aws", "gcp", "http"] }
