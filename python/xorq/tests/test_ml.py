@@ -8,7 +8,7 @@ import pytest
 from sklearn.linear_model import LinearRegression
 
 import xorq as xo
-import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.expr.datatypes as dt
 from xorq import memtable
 from xorq.caching import ParquetStorage
 from xorq.expr.ml import (
