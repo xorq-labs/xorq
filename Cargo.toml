@@ -19,7 +19,7 @@ datafusion-optimizer = "=44.0.0"
 datafusion-sql = "=44.0.0"
 futures = "=0.3.31"
 async-trait = "=0.1.87"
-arrow = "=53.3.0"
+arrow = "=53.4.1"
 parking_lot = { version = "=0.12.3" }
 arrow-ord = "=53.3.0"
 datafusion-functions-aggregate = { version = "=44.0.0" }
