@@ -1332,6 +1332,20 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
             (query,) = sg.transpile(query, read=dialect, write=output_dialect)
         return query
 
+    def __reduce__(self):
+        import xorq.flight.backend
+
+        if isinstance(self, xorq.flight.backend.Backend):
+            return (
+                xorq.flight.backend.Backend,
+                (),
+            )
+        else:
+            return (
+                Profile.get_con,
+                (self._profile,),
+            )
+
 
 @functools.cache
 def _get_backend_names(*, exclude: tuple[str] = ()) -> frozenset[str]:
