@@ -16,6 +16,7 @@ whitelist = [
     "functional_alltypes",
     "iris",
     "penguins",
+    "hn_posts_nano",
 ]
 
 
