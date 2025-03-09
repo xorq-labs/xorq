@@ -25,5 +25,5 @@ arrow-ord = "=53.3.0"
 datafusion-functions-aggregate = { version = "=44.0.0" }
 aws-config = "=0.101.0"
 aws-credential-types = "=0.101.0"
-object_store = { version = "=0.11.2", features = ["aws", "gcp", "http"] }
+object_store = { version = "=0.12.0", features = ["aws", "gcp", "http"] }
 url = "=2.5.4"
