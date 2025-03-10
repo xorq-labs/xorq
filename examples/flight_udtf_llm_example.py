@@ -72,7 +72,7 @@ def get_hackernews_sentiment_batch(df: pd.DataFrame, input_col, append_col):
     )
 
 
-input_col = "text_encoded"
+input_col = "text"
 append_col = "sentiment"
 schema_requirement = xo.schema({input_col: "!str"})
 schema_append = xo.schema({append_col: "!str"})
@@ -95,7 +95,7 @@ do_hackernews_sentiment_udxf = xo.expr.relations.flight_udxf(
 
 hn = xo.examples.hn_posts_nano.fetch(table_name="hackernews")
 
-_expr = (
+expr = (
     hn.order_by(hn.time.desc())
     .filter(
         xo.or_(
@@ -105,10 +105,8 @@ _expr = (
     )
     .select(hn.text)
     .limit(2)
-    .cast({"text": "!string"})
-    .rename({input_col: "text"})
+    .pipe(do_hackernews_sentiment_udxf)
 )
 
-expr = do_hackernews_sentiment_udxf(_expr)
 df = expr.execute()
 print(df)
