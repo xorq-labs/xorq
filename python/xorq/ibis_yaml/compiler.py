@@ -34,11 +34,11 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         return True
 
     def represent_enum(self, data):
-        return self.represent_scalar("!!str", data.name)
+        return self.represent_scalar("tag:yaml.org,2002:str", data.name)
 
     def represent_ibis_schema(self, data):
         schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
-        return self.represent_mapping("!!map", schema_dict)
+        return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
 
 
 CleanDictYAMLDumper.add_representer(
