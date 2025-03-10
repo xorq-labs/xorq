@@ -4,6 +4,19 @@ title: 'Pipelines as Expressions'
 
 In this tutorial, we'll build an end-to-end machine learning pipeline using xorq expressions to predict the number of comments a Hacker News story will receive based on its title. The pipeline fetches live data, processes text, trains a model, and makes predictions - all expressed as a single composable expression.
 
+## Why Use Expression-Based ML Pipelines?
+
+Traditional ML pipelines typically involve multiple disjointed steps that require manual orchestration, leading to complex codebases and difficult-to-maintain systems. An expression-based approach using xorq offers significant advantages:
+
+- **Composability:** Combine data fetching, preprocessing, model training, and prediction into a single cohesive expression
+- **Multi-engine optimization:** Execute different parts of your pipeline on the most appropriate backends (PostgreSQL, DuckDB, DataFusion)
+- **Smart caching:** Automatically cache intermediate results to avoid redundant computations
+- **Lazy evaluation:** Define the entire pipeline before execution, enabling optimization across the full workflow
+- **Reproducibility:** The entire data transformation process is captured in a declarative expression
+- **Iteration speed:** Make targeted changes to specific parts of the pipeline without rewriting or recomputing everything
+
+Unlike traditional ETL or ML pipeline frameworks that focus on tasks and scheduling, xorq treats data transformations as first-class expressions, making your pipelines more readable, maintainable, and efficient.
+
 ## Fetching Live Data
 
 First, we create a function to fetch the latest stories from Hacker News:
