@@ -5,15 +5,20 @@ import pickle
 import numpy as np
 import pandas as pd
 import pytest
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LinearRegression
 
 import xorq as xo
 import xorq.expr.datatypes as dt
 from xorq import memtable
 from xorq.caching import ParquetStorage
+from xorq.common.utils.defer_utils import (
+    deferred_read_parquet,
+)
 from xorq.expr.ml import (
     _calculate_bounds,
     deferred_fit_predict_sklearn,
+    deferred_fit_transform_series_sklearn,
     make_quickgrove_udf,
 )
 from xorq.tests.util import assert_frame_equal
@@ -439,3 +444,37 @@ def test_deferred_fit_predict_linear_regression_multi_into_backend():
     (_, _, predict_expr_udf) = deferred_linear_regression(t, target, features)
     predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
     assert not predicted.empty
+
+
+def test_deferred_fit_transform_series_sklearn():
+    cls = TfidfVectorizer
+    transform_key = "transformed"
+    col = "title"
+    deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
+        col=col, cls=cls, return_type=dt.Array(dt.float64)
+    )
+    con = xo.connect()
+    train, test = deferred_read_parquet(
+        con,
+        xo.options.pins.get_path("hn-data-small.parquet"),
+        "fetcher-input",
+    ).pipe(
+        xo.train_test_splits,
+        unique_key="id",
+        test_sizes=(0.9, 0.1),
+    )
+    (_, _, deferred_transform) = deferred_fit_transform_tfidf(
+        train,
+    )
+
+    from_sklearn = test.execute().assign(
+        **{
+            transform_key: lambda t: (
+                cls().fit(train.execute()[col]).transform(t[col]).toarray().tolist()
+            )
+        }
+    )
+    from_xo = test.mutate(**{transform_key: deferred_transform.on_expr}).execute()
+    actual = from_xo[transform_key].apply(pd.Series)
+    expected = from_sklearn[transform_key].apply(pd.Series)
+    assert actual.equals(expected)
