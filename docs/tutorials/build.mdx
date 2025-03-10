@@ -1,8 +1,15 @@
 ---
-title: 'Building with xorq'
+title: 'Building and Running Expressions'
 ---
 
-xorq provides a command-line interface with a `build` command that allows you to generate artifacts from Ibis expressions defined in Python scripts. This tutorial will walk you through using this functionality.
+The xorq CLI provides two powerful commands, `build` and `run`, that help you separate the definition of data transformations from their execution. This separation enables:
+
+- **Reproducibility**: Define transformations once and run them consistently across different environments
+- **Reusability**: Build complex data pipelines and reuse them in different contexts
+- **Deployment simplification**: Compile expressions in development and execute them in production
+- **Version control**: Store compiled expressions in version control systems for traceability
+- **Performance optimization**: Pre-compile expressions to avoid repeated parsing and optimization
+- **Decoupling**: Separate development environments from execution environments
 
 ## Prerequisites
 
@@ -12,43 +19,57 @@ Before starting, make sure you have xorq installed:
 pip install xorq
 ```
 
-## Basic Usage
+## Building Expressions
+
+The `build` command compiles an Ibis expression into a reusable artifact that can be executed later.
+
+### Basic Usage
 
 The basic syntax for the `build` command is:
 
 ```bash
-xorq build <script_path> -e <expression_name> --target-dir <output_directory>
+xorq build <script_path> -e <expression_name> --builds-dir <output_directory>
 ```
 
 Where:
 - `<script_path>` is the path to your Python script containing the expression
 - `<expression_name>` is the name of the variable holding the Ibis expression
-- `<output_directory>` is where the artifacts will be generated (defaults to "build")
+- `<builds-dir>` is where the artifacts will be generated (defaults to "builds")
 
-## Example
+### Example
 
 Let's create a simple script that defines an Ibis expression:
 
 ```python
-# pipeline.py
 import xorq as xo
+from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.expr.relations import into_backend
 
-# Connect to data source
-con = xo.connect()
 
-# Create a simple dataframe
-df = con.create_table("people",
-                      {"name": ["Alice", "Bob", "Charlie"],
-                       "age": [25, 30, 35]})
+pg = xo.postgres.connect_env()
+db = xo.duckdb.connect()
 
-# Define your expression
-expr = df.filter(df.age > 30).select("name")
+batting = pg.table("batting")
+
+integer = 1
+
+backend = xo.duckdb.connect()
+awards_players = deferred_read_parquet(
+    backend,
+    xo.config.options.pins.get_path("awards_players"),
+    table_name="award_players",
+)
+left = batting.filter(batting.yearID == 2015)
+right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
+expr = left.join(
+    into_backend(right, pg, "pg-filtered-table"), ["playerID"], how="semi"
+)[["yearID", "stint"]]
 ```
 
 Now, let's build this expression using the CLI:
 
 ```bash
-xorq build pipeline.py -e expr --target-dir artifacts
+xorq build pipeline.py -e expr --builds-dir artifacts
 ```
 
 This command will:
@@ -60,17 +81,43 @@ This command will:
 You should see output similar to:
 ```
 Building expr from pipeline.py
-Written 'expr' to artifacts/2a3b46d8d3d0
+Written 'expr' to artifacts/3350466c8fcd
 ```
 
-## Use Cases
+<Warning>
+  Currently, we do not support the building of expressions in-memory tables
+</Warning>
 
-This functionality is particularly useful for:
+## Running Expressions
 
-- Saving compiled expressions for later execution
-- Sharing expressions between different systems
-- Version controlling complex data transformations
-- Pre-compiling expressions for production deployments
+Once you've built an expression, you can execute it with the `run` command.
+
+### Basic Usage
+
+The basic syntax for the `run` command is:
+
+```bash
+xorq run <build_path> --output-path <output_file> --format <output_format>
+```
+
+Where:
+- `<build_path>` is the path to the built expression
+- `--output-path` argument specifies where to write the results (defaults to discarding output, writing to [os.devnull](https://docs.python.org/3/library/os.html#os.devnull))
+- `--format` argument specifies the output format, which can be "csv", "json", or "parquet" (defaults to "parquet")
+
+### Example
+
+To run the expression we built earlier and save the results to a parquet file:
+
+```bash
+xorq run artifacts/2a3b46d8d3d0 --output-path results.parquet
+```
+
+To save the results as CSV instead:
+
+```bash
+xorq run artifacts/2a3b46d8d3d0 --output-path results.csv --format csv
+```
 
 ## Error Handling
 
@@ -79,4 +126,6 @@ The CLI will provide helpful error messages if:
 - The script doesn't exist
 - The expression variable isn't found in the script
 - The variable isn't an Ibis expression
-- No expression name is provided
+- No expression name is provided for the build command
+- The build path doesn't exist or isn't a valid xorq artifact
+- The output format isn't supported
