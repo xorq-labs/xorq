@@ -67,7 +67,7 @@ jobs:
       - name: develop
         run: |
           source .venv/bin/activate
-          python -m maturin develop --extras=examples,postgres
+          python -m maturin develop --extras=examples
 
       - name: pytest
         run: |

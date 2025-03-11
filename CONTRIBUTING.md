@@ -8,7 +8,7 @@ This assumes that you have rust and cargo installed. We use the workflow recomme
 
 ```bash
 # fetch this repo
-git clone git@github.com:letsql/letsql.git
+git clone git@github.com:xorq-labs/xorq.git
 # prepare development environment (used to build wheel / install in development)
 python3 -m venv venv
 # activate the venv
@@ -49,7 +49,7 @@ python -m pytest # or pytest
 
 ### Writing the commit
 
-LETSQL follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
+xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
 In brief, the commit summary should look like:
 
     fix(types): make all floats doubles
@@ -67,12 +67,12 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 
 
 ### Release Flow
-***This section is intended for LETSQL maintainers***
+***This section is intended for xorq maintainers***
 
 #### Steps
 1. Compute the new version number (`<version-number>`) according to [Semantic Versioning](https://semver.org/) rules.
 2. Update the version number in `Cargo.toml`.
-3. Update the CHANGELOG using `git cliff --github-repo letsql/letsql -p CHANGELOG.md --tag v<version-number> -u`, manually add any additional notes (links to blogposts, etc.).
+3. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v<version-number> -u`, manually add any additional notes (links to blogposts, etc.).
 4. Create commit with message `release: <version-number>`.
 5. Tag the last commit in main with `v<version-number>`, push the tag.
 6. Create a GitHub release to trigger the publishing workflow.
