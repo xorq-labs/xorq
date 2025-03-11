@@ -4,7 +4,7 @@ from sklearn.linear_model import LinearRegression
 import xorq as xo
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import ParquetStorage
-from xorq.expr.ml import deferred_fit_predict
+from xorq.expr.ml import deferred_fit_predict_sklearn
 
 
 def make_data():
@@ -20,7 +20,7 @@ def make_data():
     return (df, features, target)
 
 
-deferred_linear_regression = deferred_fit_predict(
+deferred_linear_regression = deferred_fit_predict_sklearn(
     cls=LinearRegression, return_type=dt.float64
 )
 

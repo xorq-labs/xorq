@@ -46,16 +46,23 @@ def get_hackernews_maxitem():
 
 
 def get_hackernews_stories(maxitem, n):
-    df = pd.DataFrame(
-        get_hackernews_item(item_id=item_id) for item_id in range(maxitem - n, maxitem)
+    gen = (
+        toolz.excepts(requests.exceptions.SSLError, get_hackernews_item)(
+            item_id=item_id
+        )
+        for item_id in range(maxitem - n, maxitem)
     )
-    df = df.reindex(columns=schema_out)[df.type.eq("story") & df.title.notnull()]
+    gen = filter(None, gen)
+    df = pd.DataFrame(gen).reindex(columns=schema_out)
     return df
 
 
-def get_hackernews_stories_batch(df):
+@toolz.curry
+def get_hackernews_stories_batch(df, filter=slice(None)):
     series = df.apply(lambda row: get_hackernews_stories(**row), axis=1)
-    return pd.concat(series.values, ignore_index=True)
+    return (
+        pd.concat(series.values, ignore_index=True).loc[filter].reset_index(drop=True)
+    )
 
 
 schema_in = xo.schema({"maxitem": int, "n": int})
@@ -79,7 +86,9 @@ schema_out = xo.schema(
 
 
 do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
-    process_df=get_hackernews_stories_batch,
+    process_df=get_hackernews_stories_batch(
+        filter=lambda t: t.type.eq("story") & t.title.notnull()
+    ),
     maybe_schema_in=schema_in.to_pyarrow(),
     maybe_schema_out=schema_out.to_pyarrow(),
     name="HackerNewsFetcher",
