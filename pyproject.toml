@@ -77,6 +77,8 @@ examples = [
     "scikit-learn<2.0.0,>=1.4.0",
     "openai>=1.65.4",
     "tenacity>=9.0.0",
+    "adbc-driver-postgresql>=1.4.0",
+    "psycopg2-binary>=2.9.10",
 ]
 postgres = [
     "adbc-driver-postgresql>=1.4.0",

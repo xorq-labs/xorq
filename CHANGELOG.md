@@ -5,6 +5,72 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.15] - 2025-03-11
+### Details
+This release adds a new CLI to xorq. Additionally, it improves the architecture 
+through consolidated serialization, better caching, and an improved Flight server implementation. Dependencies were updated across the board, 
+the codebase was streamlined by removing unnecessary components, and several critical bugs were fixed to improve stability and reliability.
+
+#### Added
+- FlightServer: add con and client as properties by @dlovell in [#568](https://github.com/xorq-labs/xorq/pull/568)
+- Add xorq build cli command by @mesejo in [#567](https://github.com/xorq-labs/xorq/pull/567)
+- Add importing of notebooks by @mesejo in [#577](https://github.com/xorq-labs/xorq/pull/577)
+- Add deferred_fit_predict by @dlovell in [#595](https://github.com/xorq-labs/xorq/pull/595)
+- Add overview image by @hussainsultan in [#605](https://github.com/xorq-labs/xorq/pull/605)
+- Add to_json/to_csv by @mesejo in [#604](https://github.com/xorq-labs/xorq/pull/604)
+- Add run cli command by @mesejo in [#581](https://github.com/xorq-labs/xorq/pull/581)
+- Add examples tab by @mesejo in [#608](https://github.com/xorq-labs/xorq/pull/608)
+- Add run section of build and run tutorial by @mesejo in [#637](https://github.com/xorq-labs/xorq/pull/637)
+
+#### Changed
+- Update dependency ruff to v0.9.7 by @renovate[bot] in [#558](https://github.com/xorq-labs/xorq/pull/558)
+- Consolidate YAML/SQL serialization by @hussainsultan in [#525](https://github.com/xorq-labs/xorq/pull/525)
+- Move custom types to source file by @mesejo in [#566](https://github.com/xorq-labs/xorq/pull/566)
+- Extract postgres extra by @mesejo in [#571](https://github.com/xorq-labs/xorq/pull/571)
+- Update codecov/codecov-action action to v5.4.0 by @renovate[bot] in [#574](https://github.com/xorq-labs/xorq/pull/574)
+- Update cli docstring by @mesejo in [#575](https://github.com/xorq-labs/xorq/pull/575)
+- Migrate docs to mintlify by @mesejo in [#541](https://github.com/xorq-labs/xorq/pull/541)
+- Update readme by @hussainsultan in [#580](https://github.com/xorq-labs/xorq/pull/580)
+- Change api by @dlovell in [#582](https://github.com/xorq-labs/xorq/pull/582)
+- Update dependency ruff to v0.9.8 by @renovate[bot] in [#583](https://github.com/xorq-labs/xorq/pull/583)
+- Replace pydantic AnyURL with attrs by @mesejo in [#573](https://github.com/xorq-labs/xorq/pull/573)
+- Update dependency ruff to v0.9.9 by @renovate[bot] in [#585](https://github.com/xorq-labs/xorq/pull/585)
+- Update dependency ipython to v9 by @renovate[bot] in [#586](https://github.com/xorq-labs/xorq/pull/586)
+- Update bitnami/minio docker tag to v2025.2.28 by @renovate[bot] in [#587](https://github.com/xorq-labs/xorq/pull/587)
+- Default pdb to ipython TerminalPdb by @dlovell in [#590](https://github.com/xorq-labs/xorq/pull/590)
+- Update dependency pytest to v8.3.5 by @renovate[bot] in [#591](https://github.com/xorq-labs/xorq/pull/591)
+- Create cache module by @mesejo in [#579](https://github.com/xorq-labs/xorq/pull/579)
+- Update rust toolchain version by @mesejo in [#597](https://github.com/xorq-labs/xorq/pull/597)
+- Profile docs& guide by @ghoersti in [#602](https://github.com/xorq-labs/xorq/pull/602)
+- Update overview page with benefits and painpoints by @hussainsultan in [#607](https://github.com/xorq-labs/xorq/pull/607)
+- Update for ParquetCacheStorage -> ParquetStorage change by @dlovell in [#606](https://github.com/xorq-labs/xorq/pull/606)
+- Use connect_env by @mesejo in [#611](https://github.com/xorq-labs/xorq/pull/611)
+- Update overview page by @hussainsultan in [#615](https://github.com/xorq-labs/xorq/pull/615)
+- Repr of opaque nodes by @mesejo in [#596](https://github.com/xorq-labs/xorq/pull/596)
+- Refactor FlightServer code by @mesejo in [#616](https://github.com/xorq-labs/xorq/pull/616)
+- Update dependency ruff to v0.9.10 by @renovate[bot] in [#617](https://github.com/xorq-labs/xorq/pull/617)
+- Update trinodb/trino docker tag to v472 by @renovate[bot] in [#622](https://github.com/xorq-labs/xorq/pull/622)
+- Bump ring from 0.17.8 to 0.17.13 by @dependabot[bot] in [#626](https://github.com/xorq-labs/xorq/pull/626)
+- Expose datatypes as part of xorq by @mesejo in [#578](https://github.com/xorq-labs/xorq/pull/578)
+- Enable serde for connections by @dlovell in [#630](https://github.com/xorq-labs/xorq/pull/630)
+
+#### Fixed
+- Update dependency datafusion to v45 by @renovate[bot] in [#563](https://github.com/xorq-labs/xorq/pull/563)
+- Update rust crate async-trait to v0.1.87 by @renovate[bot] in [#594](https://github.com/xorq-labs/xorq/pull/594)
+- Dedupe yaml serialization by @hussainsultan in [#589](https://github.com/xorq-labs/xorq/pull/589)
+- Default to dynamic FlightUrl port by @dlovell in [#603](https://github.com/xorq-labs/xorq/pull/603)
+- Default_backend should xorq by @mesejo in [#609](https://github.com/xorq-labs/xorq/pull/609)
+- Flight caching by @dlovell in [#610](https://github.com/xorq-labs/xorq/pull/610)
+- Mark remote tables so clean up won't interfere with others by @dlovell in [#613](https://github.com/xorq-labs/xorq/pull/613)
+- Update dependency fsspec to >=2024.6.1,<2025.3.1 by @renovate[bot] in [#618](https://github.com/xorq-labs/xorq/pull/618)
+- Update rust crate tokio to v1.44.0 by @renovate[bot] in [#621](https://github.com/xorq-labs/xorq/pull/621)
+- Update rust crate arrow-ord to v53.4.1 by @renovate[bot] in [#620](https://github.com/xorq-labs/xorq/pull/620)
+
+#### Removed
+- Remove predict_xgb related code by @mesejo in [#562](https://github.com/xorq-labs/xorq/pull/562)
+- Remove sqlalchemy dependency by @mesejo in [#572](https://github.com/xorq-labs/xorq/pull/572)
+- Remove netlify workflows by @mesejo in [#576](https://github.com/xorq-labs/xorq/pull/576)
+
 ## [0.1.14] - 2025-02-20
 ### Details
 This release marks the project's rebranding to xorq, accompanied by significant architectural improvements including the 
