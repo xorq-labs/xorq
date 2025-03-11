@@ -10,8 +10,10 @@ import yaml
 
 import xorq as xo
 import xorq.common.utils.logging_utils as lu
+import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import SchemaRegistry, TranslationContext
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import generate_sql_plans
@@ -31,10 +33,23 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
     def ignore_aliases(self, data):
         return True
 
+    def represent_enum(self, data):
+        return self.represent_scalar("tag:yaml.org,2002:str", data.name)
+
+    def represent_ibis_schema(self, data):
+        schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
+        return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
+
 
 CleanDictYAMLDumper.add_representer(
     FrozenOrderedDict, CleanDictYAMLDumper.represent_frozenordereddict
 )
+
+CleanDictYAMLDumper.add_representer(
+    ibis.Schema, CleanDictYAMLDumper.represent_ibis_schema
+)
+
+CleanDictYAMLDumper.add_representer(InputType, CleanDictYAMLDumper.represent_enum)
 
 
 class ArtifactStore:

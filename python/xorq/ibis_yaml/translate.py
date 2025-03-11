@@ -1139,6 +1139,12 @@ def _abs_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return arg.abs()
 
 
+@register_from_yaml_handler("Modulus")
+def _sum_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
+    return args[0].sum()
+
+
 @register_from_yaml_handler("Count")
 def _count_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
@@ -1265,6 +1271,12 @@ def _cast_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return arg.cast(target_dtype)
 
 
+@register_from_yaml_handler("Hash")
+def _hash_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["args"][0], context)
+    return ops.Hash(arg).to_expr()
+
+
 @register_from_yaml_handler("CountStar")
 def _count_star_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
@@ -1293,6 +1305,25 @@ def _string_sql_like_from_yaml(yaml_dict: dict, context: TranslationContext) -> 
     escape = yaml_dict.get("escape")
 
     return ops.StringSQLLike(col, pattern_expr, escape=escape).to_expr()
+
+
+@translate_to_yaml.register(ops.StringJoin)
+def _string_join_to_yaml(op: ops.StringJoin, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "StringJoin",
+            "args": [translate_to_yaml(arg, context) for arg in op.arg],
+            "sep": translate_to_yaml(op.sep, context),
+        }
+    )
+
+
+@register_from_yaml_handler("StringJoin")
+def _string_join_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    args = tuple(translate_from_yaml(arg, context) for arg in yaml_dict["args"])
+    sep = translate_from_yaml(yaml_dict["sep"], context)
+
+    return ops.StringJoin(args, sep).to_expr()
 
 
 def _type_from_yaml(yaml_dict: dict) -> dt.DataType:
