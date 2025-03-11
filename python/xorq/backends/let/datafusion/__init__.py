@@ -598,6 +598,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         path = normalize_filename(path)
         table_name = table_name or gen_name("read_csv")
+        kwargs.setdefault("file_extension", Path(path).suffix)
 
         storage_options, is_connection_set = make_s3_connection()
         if is_connection_set:
@@ -631,6 +632,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         path = normalize_filename(path)
         table_name = table_name or gen_name("read_parquet")
+        kwargs.setdefault("file_extension", Path(path).suffix)
+
         # Our other backends support overwriting views / tables when reregistering
         self.con.deregister_table(table_name)
         self.con.register_parquet(table_name, path, **kwargs)
