@@ -228,6 +228,40 @@ class FlightExpr(ops.DatabaseTable):
         schema = self.schema.to_pyarrow()
         return pa.RecordBatchReader.from_batches(schema, gen)
 
+    def serve(self, make_server=None, **kwargs):
+        return flight_serve(self.unbound_expr, make_server=make_server, **kwargs)
+
+
+def flight_serve(
+    expr,
+    make_server=None,
+    **kwargs,
+):
+    from xorq.flight import FlightServer
+    from xorq.flight.action import AddExchangeAction
+    from xorq.flight.exchanger import (
+        UnboundExprExchanger,
+    )
+
+    @toolz.curry
+    def do_exchange(server, command, expr):
+        rbr_in = expr.to_pyarrow_batches()
+        (fut, rbr_out) = server.client.do_exchange(command, rbr_in)
+        return rbr_out
+
+    server = (make_server or FlightServer)(**kwargs)
+    server.serve()
+
+    unbound_expr_exchanger = UnboundExprExchanger(expr.unbind())
+    command = unbound_expr_exchanger.command
+    client = server.client
+    client.do_action(
+        AddExchangeAction.name,
+        unbound_expr_exchanger,
+        options=client._options,
+    )
+    return server, do_exchange(server, command)
+
 
 @toolz.curry
 def flight_expr(
