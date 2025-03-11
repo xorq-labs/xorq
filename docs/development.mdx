@@ -13,96 +13,272 @@ pip install xorq
 Or using nix to drop into an IPython shell:
 
 ```bash
-nix run github:letsql/xorq
+nix run github:xorq-labs/xorq
 ```
 
 ## Quick Start
 
-Let's build a simple data pipeline using xorq to analyze the Palmer Penguins dataset:
+Let's build a simple machine learning pipeline using xorq to predict bank
+deposit subscriptions:
 
 ```python
 import xorq as xo
+from xorq.common.utils.defer_utils import deferred_read_csv
+from xorq.expr.ml import deferred_fit_predict_sklearn, train_test_splits
 
-# Create a connection
 con = xo.connect()
 
-# Load the penguins dataset
-penguins = xo.examples.penguins.fetch(backend=con)
+dataset_name = "bank-marketing"
+csv_path = xo.options.pins.get_path(dataset_name)
+bank_data = deferred_read_csv(path=csv_path, con=con)
 
-# Analyze bill dimensions by species for large penguins
-result = (
-    penguins.filter([penguins.body_mass_g > 4000])  # Focus on larger penguins
-    .group_by("species")
-    .agg([
-        penguins.bill_length_mm.mean().name("avg_bill_length"),
-        penguins.bill_depth_mm.mean().name("avg_bill_depth")
-    ])
-    .execute()
+bank_data = bank_data.mutate(
+    row_number=xo.row_number(),
+    deposit=(bank_data["deposit"] == "yes").cast("int")
 )
+
+train, test = train_test_splits(
+    bank_data, 
+    unique_key="row_number", 
+    test_sizes=[0.7, 0.3],
+    random_seed=42
+)
+
+from sklearn.ensemble import RandomForestClassifier
+
+deferred_model, model_udaf, predict_fn = deferred_fit_predict_sklearn(
+    expr=train,
+    target="deposit",
+    features=["age", "balance", "duration"],
+    cls=RandomForestClassifier,
+    return_type=dt.float64,
+    name="rf_prediction"
+)
+
+results = test.mutate(prediction=predict_fn.on_expr(test))
+
+results.select(["deposit", "prediction"]).execute()
 ```
 
-## First Pipeline Walk-through
+## First ML Pipeline Walk-through
 
-Let's build a more complex pipeline that demonstrates key xorq features. We'll:
-1. Cache intermediate results from one engine into another
-2. Use a machine learning model for predictions
-3. Filter the results
+Let's build a more complex pipeline that demonstrates key xorq ML features
+along with one-hot encoding. We'll:
+
+1. Load and prepare a dataset
+2. Create a custom feature encoder
+3. Train an XGBoost model
+4. Evaluate model performance
 
 ```python
+import functools
 import xorq as xo
-from xorq.caching import ParquetStorage
-import pathlib
+import xorq.selectors as s
+import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.expr.ml import deferred_fit_predict_sklearn, deferred_fit_transform, train_test_splits
+from sklearn.preprocessing import OneHotEncoder
+import toolz
+import pandas as pd
 
-# Create connections to different engines
-con = xo.connect()
-ddb = xo.duckdb.connect()
+# Create a fully deferred one-hot encoding transformation
+def fit(
+    df,
+    cls=functools.partial(OneHotEncoder, handle_unknown="ignore", drop="first"),
+    features=slice(None),
+):
+    model = cls().fit(df[features])
+    return model
 
-# Set up cache storage
-storage = ParquetStorage(
-    source=con,
-    path=pathlib.Path.cwd()
+@toolz.curry
+def transform(model, df, features=slice(None)):
+    names = model.get_feature_names_out()
+    return pd.Series(
+        (
+            tuple({"key": key, "value": float(value)} for key, value in zip(names, row))
+            for row in model.transform(df[features]).toarray()
+        )
+    )
+
+# Define the return type for our encoding transformation
+return_type = dt.Array(dt.Struct({"key": str, "value": float}))
+deferred_one_hot = deferred_fit_transform(
+    fit=fit,
+    transform=transform,
+    return_type=return_type,
 )
 
-# Get pre-trained model path
-model_name = "diamonds-model"
-model_path = xo.options.pins.get_path(model_name)
+# Create a XGBoost model class that can work with our encoded features
+# Full implementation in the GitHub repo in examples/bank_marketing.py
 
-# Register model for predictions
-predict_xgb = con.register_xgb_model(model_name, model_path)
+# Function to build the complete pipeline
+def make_pipeline_exprs(dataset_name, target_column, predicted_col):
+    ROW_NUMBER = "row_number"
+    ENCODED = "encoded"
 
-# Build pipeline:
-# 1. Load data from DuckDB
-# 2. Cache intermediate results
-# 3. Make predictions using XGBoost model
-# 4. Filter results
-table = (
-    xo.examples.diamonds.fetch(backend=ddb)  # Load data
-    .cache(storage=storage)  # Cache results
-    .mutate(prediction=predict_xgb.on_expr)  # Add predictions
-    .filter(xo._.carat < 1)  # Filter small diamonds
-    .select([
-        "carat",
-        "cut",
-        "color",
-        "price",
-        "prediction"
-    ])
-)
+    # Create connection and load data
+    con = xo.connect()
+    
+    # Read CSV and create train/test split
+    train_table, test_table = (
+        expr.drop(ROW_NUMBER)
+        for expr in (
+            xo.deferred_read_csv(
+                path=xo.options.pins.get_path(dataset_name),
+                con=con,
+            )
+            .mutate(
+                **{
+                    target_column: (xo._[target_column] == "yes").cast("int"),
+                    ROW_NUMBER: xo.row_number(),
+                }
+            )
+            .pipe(
+                train_test_splits,
+                unique_key=ROW_NUMBER,
+                test_sizes=[0.5, 0.5],
+                num_buckets=2,
+                random_seed=42,
+            )
+        )
+    )
 
-# Execute pipeline
-table.execute()
+    # Apply one-hot encoding to string columns
+    deferred_encoder, encoder_udaf, transform_fn = deferred_one_hot(
+        train_table,
+        features=train_table.select(s.of_type(str)).columns,
+    )
+    
+    # Encode both train and test data
+    encoded_train, encoded_test = (
+        expr.mutate(**{ENCODED: transform_fn.on_expr(expr)})
+        for expr in (train_table, test_table)
+    )
+
+    # Get numeric features for model training
+    numeric_features = [
+        col
+        for col in encoded_train.select(s.numeric()).columns
+        if col != target_column and col != target_column + "_yes"
+    ]
+    
+    # Create and train the model
+    deferred_model, model_udaf, predict_fn = deferred_fit_predict_sklearn(
+        expr=encoded_train,
+        target=target_column,
+        features=numeric_features + [ENCODED],
+        cls=functools.partial(XGBoostModelExplodeEncoded, encoded_col=ENCODED),
+        return_type=dt.float64,
+        name="xgb_prediction",
+    )
+    
+    # Apply predictions to test data
+    predictions = encoded_test.mutate(
+        **{predicted_col: predict_fn.on_expr(encoded_test)}
+    ).drop(ENCODED)
+
+    return {
+        "encoded_train": encoded_train,
+        "encoded_test": encoded_test,
+        "predictions": predictions,
+        "encoder": deferred_encoder,
+        "model": deferred_model,
+    }
+
+# Run the pipeline
+dataset_name = "bank-marketing"
+target_column = "deposit"
+predicted_col = "predicted"
+results = make_pipeline_exprs(dataset_name, target_column, predicted_col)
+
+# Execute the pipeline and evaluate results
+predictions_df = results["predictions"].execute()
 ```
 
-This example demonstrates several key xorq capabilities:
+## Key Concepts
 
-1. **Multi-engine Support**: Using both DataFusion and DuckDB
-2. **Caching**: Persisting intermediate results with ParquetStorage
-3. **ML Integration**: Loading and using XGBoost models
-4. **Expressive API**: Chaining operations with a ibis-like interface
+### Deferred Execution
+
+xorq uses a deferred execution model that allows you to build complex ML pipelines without immediately executing them:
+
+- **Lazy Evaluation**: Operations are only executed when you call `.execute()`
+- **Optimized Execution**: xorq optimizes your pipeline before execution
+- **Engine Flexibility**: Run on different computation engines
+
+### Train/Test Splitting
+
+The `train_test_splits` function helps create robust train/test splits:
+
+```python
+train, test = train_test_splits(
+    data, 
+    unique_key="id",          # Column to uniquely identify rows
+    test_sizes=[0.7, 0.3],    # Split proportions
+    num_buckets=2,            # Number of splits
+    random_seed=42            # For reproducibility
+)
+```
+
+### Deferred Model Training
+
+Use `deferred_fit_predict` to create models that train on demand:
+
+```python
+deferred_model, model_udaf, predict = deferred_fit_predict(
+    expr=train_data,          # Training data
+    target="target_column",   # Target variable
+    features=feature_list,    # List of features
+    cls=ModelClass,           # Scikit-learn compatible model class
+    name="prediction_column"  # Name for prediction column
+)
+```
+
+### Feature Engineering
+
+Based on Ibis, xorq provides utilities for feature engineering:
+
+- **Selectors**: Use `xorq.selectors` to select columns by type
+- **Custom Transformers**: Create custom transformers like `DeferredOneHotEncoder`
+- **Mutations**: Add new columns with `.mutate()`
+
+## Building and Running ML Pipelines
+
+xorq provides command-line tools to build and run your ML pipelines:
+
+```bash
+# Build a pipeline and save the execution plan
+xorq build examples/bank_marketing.py -e "predictions_expr" --builds-dir builds
+```
+
+This produces output similar to:
+```
+Confusion Matrix:
+TN: 2403, FP: 482
+FN: 395, TP: 2201
+
+AUC Score: 0.9099
+
+Classification Report:
+              precision    recall  f1-score   support
+
+           0       0.86      0.83      0.85      2885
+           1       0.82      0.85      0.83      2596
+
+    accuracy                           0.84      5481
+   macro avg       0.84      0.84      0.84      5481
+weighted avg       0.84      0.84      0.84      5481
+
+Written 'predictions_expr' to builds/3a81bd906a6d
+```
+
+You can then run the saved execution plan:
+
+```bash
+xorq run builds/3a81bd906a6d
+```
 
 ## Next Steps
 
 - Explore multi-engine workflows using `into_backend`
-- Learn about different caching strategies
-- Create custom UDFs for data transformations
-- Check out sample scripts in the examples directory
+- Learn about different [caching strategies](core_concepts#caching-system)
+- Learn about building a pipeline and diffable artifacts
+- Integrate xorq with your existing ML workflow
