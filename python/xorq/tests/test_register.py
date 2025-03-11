@@ -8,6 +8,7 @@ import pyarrow.dataset as ds
 import pytest
 
 import xorq as xo
+from xorq.tests.util import assert_frame_equal
 
 
 @pytest.fixture
@@ -51,6 +52,28 @@ def test_register_parquet(con, data_dir):
 
     assert any(table_name in t for t in con.list_tables())
     assert table.count().execute() > 0
+
+
+def test_read_parquet_with_custom_file_extension(con, tmp_path):
+    parquet_path = (tmp_path / "data").with_suffix(".arquet")
+
+    expected = pd.DataFrame([{"maxitem": 43182839, "n": 1000}])
+    expected.to_parquet(parquet_path)
+
+    actual = xo.read_parquet(parquet_path).execute()
+
+    assert_frame_equal(expected, actual)
+
+
+def test_read_csv_with_custom_file_extension(con, tmp_path):
+    csv_path = (tmp_path / "data").with_suffix(".acsv")
+
+    expected = pd.DataFrame([{"maxitem": 43182839, "n": 1000}])
+    expected.to_csv(csv_path, index=False)
+
+    actual = xo.read_csv(csv_path).execute()
+
+    assert_frame_equal(expected, actual)
 
 
 def test_read_csv(con, data_dir):
