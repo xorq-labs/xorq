@@ -79,7 +79,7 @@ class XGBoostModelExplodeEncoded:
         return self.model.predict(dmatrix)
 
 
-def make_pipeline_exprs(dataset_name, target_column):
+def make_pipeline_exprs(dataset_name, target_column, predicted_col):
     ROW_NUMBER = "row_number"
     ENCODED = "encoded"
 
@@ -130,7 +130,7 @@ def make_pipeline_exprs(dataset_name, target_column):
         name="xgb_prediction",
     )
     predictions = encoded_test.mutate(
-        prediction=deferred_predict.on_expr(encoded_test)
+        **{predicted_col: deferred_predict.on_expr(encoded_test)}
     ).drop(ENCODED)
 
     return {
@@ -142,26 +142,23 @@ def make_pipeline_exprs(dataset_name, target_column):
     }
 
 
-if __name__ == "__main__":
-    (dataset_name, target_column) = ("bank-marketing", "deposit")
-    results = make_pipeline_exprs(dataset_name, target_column)
+(dataset_name, target_column, predicted_col) = (
+    "bank-marketing",
+    "deposit",
+    "predicted",
+)
+results = make_pipeline_exprs(dataset_name, target_column, predicted_col)
 
-    predictions_expr = results["predictions"]
-    encoded_test = results["encoded_test"]
-    encoded_train = results["encoded_train"]
+predictions_df = results["predictions"].execute()
+binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 
-    predictions_df = predictions_expr.execute()
+cm = confusion_matrix(predictions_df[target_column], binary_predictions)
+print("\nConfusion Matrix:")
+print(f"TN: {cm[0, 0]}, FP: {cm[0, 1]}")
+print(f"FN: {cm[1, 0]}, TP: {cm[1, 1]}")
 
-    binary_predictions = (predictions_df["prediction"] >= 0.5).astype(int)
+auc = roc_auc_score(predictions_df[target_column], predictions_df[predicted_col])
+print(f"\nAUC Score: {auc:.4f}")
 
-    cm = confusion_matrix(predictions_df["deposit"], binary_predictions)
-
-    print("\nConfusion Matrix:")
-    print(f"TN: {cm[0, 0]}, FP: {cm[0, 1]}")
-    print(f"FN: {cm[1, 0]}, TP: {cm[1, 1]}")
-
-    auc = roc_auc_score(predictions_df["deposit"], predictions_df["prediction"])
-    print(f"\nAUC Score: {auc:.4f}")
-
-    print("\nClassification Report:")
-    print(classification_report(predictions_df["deposit"], binary_predictions))
+print("\nClassification Report:")
+print(classification_report(predictions_df[target_column], binary_predictions))
