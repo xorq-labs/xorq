@@ -709,6 +709,50 @@ def deferred_fit_predict(
 
 
 @toolz.curry
+def deferred_fit_transform(
+    expr,
+    features,
+    fit,
+    transform,
+    return_type,
+    name="transformed",
+    storage=None,
+):
+    def inner_fit(fit_df):
+        obj = fit(fit_df[features])
+        return obj
+
+    @toolz.curry
+    def inner_transform(model, df):
+        return pa.array(
+            transform(model, df[features]),
+            type=return_type.to_pyarrow(),
+        )
+
+    features = features or list(expr.schema())
+    fit_schema = xo.schema({col: expr[col].type() for col in features})
+    model_udaf = udf.agg.pandas_df(
+        fn=toolz.compose(pickle.dumps, inner_fit),
+        schema=fit_schema,
+        return_type=dt.binary,
+        name="_" + dask.base.tokenize(fit).lower(),
+    )
+    deferred_model = model_udaf.on_expr(expr)
+    if storage:
+        deferred_model = deferred_model.as_table().cache(storage=storage)
+
+    deferred_transform = make_pandas_expr_udf(
+        computed_kwargs_expr=deferred_model,
+        fn=inner_transform,
+        schema=fit_schema,
+        return_type=return_type,
+        name=name,
+    )
+
+    return deferred_model, model_udaf, deferred_transform
+
+
+@toolz.curry
 def deferred_fit_predict_sklearn(
     expr,
     target,
