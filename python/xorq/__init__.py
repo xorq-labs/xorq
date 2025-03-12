@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from xorq import examples
+from xorq import udf
+from xorq.udf import *  # noqa: F403
 from xorq.config import options
 from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
@@ -20,7 +22,9 @@ __all__ = [  # noqa: PLE0604
     "connect",
     "options",
     "SessionConfig",
+    "udf",
     *api.__all__,
+    *udf.__all__,
 ]
 
 _CUSTOM_BACKENDS = ["postgres", "snowflake"]

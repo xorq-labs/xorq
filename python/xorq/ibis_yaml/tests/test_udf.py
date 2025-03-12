@@ -1,14 +1,14 @@
 import pytest
 
+import xorq as xo
 import xorq.ibis_yaml
 import xorq.ibis_yaml.utils
-import xorq.vendor.ibis as ibis
 
 
 def test_built_in_udf_properties(compiler):
-    t = ibis.table({"a": "int64"}, name="t")
+    t = xo.table({"a": "int64"}, name="t")
 
-    @ibis.udf.scalar.builtin
+    @xo.udf.scalar.builtin
     def add_one(x: int) -> int:
         return x + 1
 
@@ -32,9 +32,9 @@ def test_built_in_udf_properties(compiler):
 
 
 def test_compiler_raises(compiler):
-    t = ibis.table({"a": "int64"}, name="t")
+    t = xo.table({"a": "int64"}, name="t")
 
-    @ibis.udf.scalar.python
+    @xo.udf.scalar.python
     def add_one(x: int) -> int:
         pass
 
@@ -55,9 +55,9 @@ def test_built_in_udf(compiler):
     # (<ibis.expr.operations.relations.UnboundTable object at 0x7ffff48f5310>, {'a': <ibis.expr.operations.relations.Field object at 0x7ffff490cbb0>, 'new': <tests.test_udf.add_one_1 object at 0x7ffff48f5550>})
     # (Pdb) diffs[3][1].args[0].args
     # (<ibis.expr.operations.relations.UnboundTable object at 0x7ffff48f45f0>, {'a': <ibis.expr.operations.relations.Field object at 0x7ffff490cb40>, 'new': <tests.test_udf.add_one_1 object at 0x7ffff48f49b0>})
-    t = ibis.table({"a": "int64"}, name="t")
+    t = xo.table({"a": "int64"}, name="t")
 
-    @ibis.udf.scalar.builtin
+    @xo.udf.scalar.builtin
     def add_one(x: int) -> int:
         pass
 
