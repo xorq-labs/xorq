@@ -9,8 +9,7 @@ import xgboost as xgb
 
 import xorq as xo
 import xorq.expr.datatypes as dt
-from xorq.expr import udf
-from xorq.expr.udf import make_pandas_expr_udf, make_pandas_udf
+from xorq import make_pandas_expr_udf, make_pandas_udf, udf
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis import _
 from xorq.vendor.ibis import literal as L

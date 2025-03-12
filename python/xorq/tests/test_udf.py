@@ -90,6 +90,7 @@ def test_builtin_agg_udf_filtered(con):
         "make_pandas_udf",
         "scalar",
         "agg",
+        "pyarrow_udwf",
     ],
 )
 def test_top_level_udf(method):
