@@ -4,6 +4,7 @@ import xorq.expr.relations as rel
 def walk_nodes(node_types, expr):
     def process_node(op):
         match op:
+            # FIXME: deal with possible cache of ExprScalarUDF computed_kwargs_expr
             case rel.RemoteTable():
                 yield op
                 yield from walk_nodes(

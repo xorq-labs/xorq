@@ -403,7 +403,6 @@ def normalize_agg_udf(udf):
 
 def opaque_node_replacer(node, kwargs):
     import xorq.expr.relations as rel
-    import xorq.expr.udf as udf
 
     opaque_ops = (
         rel.Read,
@@ -411,7 +410,7 @@ def opaque_node_replacer(node, kwargs):
         rel.RemoteTable,
         rel.FlightUDXF,
         rel.FlightExpr,
-        udf.ExprScalarUDF,
+        # udf.ExprScalarUDF,
     )
     match node:
         case rel.CachedNode():
@@ -429,11 +428,14 @@ def opaque_node_replacer(node, kwargs):
                 node.schema,
                 name=dask.base.tokenize(node),
             ).op()
-        case udf.ExprScalarUDF():
-            node = xo.table(
-                node.schema,
-                name=dask.base.tokenize(node),
-            ).op()
+        # # FIXME: what to do about ExprScalarUDF?
+        # case udf.ExprScalarUDF():
+        #     # ExprScalarUDF doesn't have a schema
+        #     # it has computed_kwargs_expr and others
+        #     node = xo.table(
+        #         node.schema,
+        #         name=dask.base.tokenize(node),
+        #     ).op()
         case _:
             if isinstance(node, opaque_ops):
                 raise ValueError(f"unhandled opaque node type: {type(node)}")
