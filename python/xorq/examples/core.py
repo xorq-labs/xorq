@@ -17,11 +17,12 @@ whitelist = [
     "iris",
     "penguins",
     "hn_posts_nano",
+    "hn-data-small.parquet",
 ]
 
 
 @functools.cache
-def get_name_to_suffix():
+def get_name_to_suffix() -> dict[str, str]:
     board = xo.options.pins.get_board()
     dct = {
         name: pathlib.Path(board.pin_meta(name).file).suffix

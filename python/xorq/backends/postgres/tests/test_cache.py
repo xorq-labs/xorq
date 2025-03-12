@@ -5,15 +5,14 @@ from xorq.caching import SourceStorage
 
 
 @pytest.mark.parametrize(
-    "example",
+    "name",
     (
         "diamonds",
         "hn-data-small.parquet",
     ),
 )
-def test_source_caching(example, pg):
+def test_source_caching(name, pg):
     con = xo.connect()
-    name = "diamonds"
     example = xo.examples.get_table_from_name(name, con)
     expr = example.cache(storage=SourceStorage(pg))
     assert not expr.ls.exists()
