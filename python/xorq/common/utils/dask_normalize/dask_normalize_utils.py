@@ -7,10 +7,6 @@ from unittest.mock import (
 import dask
 import toolz
 
-from xorq.common.utils.inspect_utils import (
-    get_enclosing_function,
-)
-
 
 @contextmanager
 def patch_normalize_token(*typs, f=toolz.functoolz.return_none):
@@ -23,7 +19,10 @@ def patch_normalize_token(*typs, f=toolz.functoolz.return_none):
 
 
 def normalize_seq_with_caller(*args):
-    caller = get_enclosing_function(level=2)
+    # # FIXME: can we make this quicker?
+    # # # if not: either hardcode the caller name or get caller conditional on debug value
+    # caller = get_enclosing_function(level=2)
+    caller = ""
     return dask.tokenize._normalize_seq_func(
         (
             caller,
