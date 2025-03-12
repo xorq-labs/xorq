@@ -143,3 +143,14 @@ def test_write(alltypes, df, tmp_path, extension, write, read):
     assert output_path.exists()
     assert output_path.stat().st_size > 0
     assert isinstance(actual, pd.DataFrame)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "deferred_read_csv",
+        "deferred_read_parquet",
+    ],
+)
+def test_deferred_read_csv(method):
+    assert hasattr(xo, method)
