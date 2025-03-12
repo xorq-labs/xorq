@@ -2,136 +2,111 @@
 title: 'Pipelines as Expressions'
 ---
 
-In this tutorial, we'll build an end-to-end machine learning pipeline using xorq expressions to predict the number of comments a Hacker News story will receive based on its title. The pipeline fetches live data, processes text, trains a model, and makes predictions - all expressed as a single composable expression.
+In this tutorial, we'll build an end-to-end machine learning pipeline using xorq expressions to predict the number of comments a Hacker News story will receive based on its title. The pipeline loads data, processes text, trains a model, and makes predictions - all expressed as a single composable expression.
 
 ## Why Use Expression-Based ML Pipelines?
 
 Traditional ML pipelines typically involve multiple disjointed steps that require manual orchestration, leading to complex codebases and difficult-to-maintain systems. An expression-based approach using xorq offers significant advantages:
 
-- **Composability:** Combine data fetching, preprocessing, model training, and prediction into a single cohesive expression
 - **Multi-engine optimization:** Execute different parts of your pipeline on the most appropriate backends (PostgreSQL, DuckDB, DataFusion)
 - **Smart caching:** Automatically cache intermediate results to avoid redundant computations
 - **Lazy evaluation:** Define the entire pipeline before execution, enabling optimization across the full workflow
-- **Reproducibility:** The entire data transformation process is captured in a declarative expression
-- **Iteration speed:** Make targeted changes to specific parts of the pipeline without rewriting or recomputing everything
 
 Unlike traditional ETL or ML pipeline frameworks that focus on tasks and scheduling, xorq treats data transformations as first-class expressions, making your pipelines more readable, maintainable, and efficient.
 
-## Fetching Live Data
+## Loading Data
 
-First, we create a function to fetch the latest stories from Hacker News:
-
-```python
-def hackernews_stories():
-    # Get most recent item ID
-    latest_item = requests.get(
-        "https://hacker-news.firebaseio.com/v0/maxitem.json"
-    ).json()
-
-    # Fetch the 1000 most recent items
-    results = []
-    scope = range(latest_item - 1000, latest_item)
-    for item_id in scope:
-        item = requests.get(
-            f"https://hacker-news.firebaseio.com/v0/item/{item_id}.json"
-        ).json()
-        results.append(item)
-
-    # Filter for valid stories
-    df = pd.DataFrame(results)
-    if len(df) > 0:
-        df = df[df.type == "story"]
-        df = df[~df.title.isna()]
-
-    return df
-```
-
-We then load this data into xorq:
+First, we set up our environment and load the Hacker News data:
 
 ```python
+import pandas as pd
+import toolz
+import xgboost as xgb
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics import mean_absolute_error
+
+import xorq as xo
+import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.caching import ParquetStorage
+from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.import_utils import import_python
+from xorq.expr.ml import (
+    deferred_fit_predict,
+    deferred_fit_transform_series_sklearn,
+    train_test_splits,
+)
+
+# Import helper module with UDFs
+m = import_python(xo.options.pins.get_path("hackernews_lib"))
+
+# Set up connection and storage for caching
 con = xo.connect()
-t = con.register(hackernews_stories(), table_name="hackernews_stories")
-```
+storage = ParquetStorage(source=con)
 
-## Text Vectorization
-
-To process the story titles, we use TF-IDF vectorization:
-
-```python
-vectorizer = TfidfVectorizer()
-
-@toolz.curry
-def unbound_fit_transform(data, model):
-    return model.fit_transform(data.to_pylist()).toarray()
-
-@toolz.curry
-def unbound_transform(data, model):
-    return model.transform(data.to_pylist()).toarray()
-```
-
-These functions are wrapped as PyArrow UDFs so they can be used in expressions:
-
-```python
-@ibis.udf.scalar.pyarrow
-def fit_transform(title: dt.string) -> dt.Array(dt.float64):
-    transformed = inner_fit_transform(title)
-    return pa.array(transformed.tolist())
-
-@ibis.udf.scalar.pyarrow
-def transform(title: dt.string) -> dt.Array(dt.float64):
-    transformed = inner_transform(title)
-    return pa.array(transformed.tolist())
-```
-
-## Train/Test Split and Feature Transformation
-
-We split our data while preserving uniqueness based on ID and title:
-
-```python
-(train, test) = xo.train_test_splits(
-    t,
-    unique_key=("id", "title",),
-    test_sizes=0.2,
+# Load data and split into train/test sets
+train_expr, test_expr = (
+    deferred_read_parquet(
+        con,
+        xo.options.pins.get_path("hn-fetcher-input-small.parquet"),
+        "fetcher-input",
+    )
+    .pipe(m.do_hackernews_fetcher_udxf, inner_name="inner-named-flight-udxf")
+    .pipe(
+        train_test_splits,
+        unique_key="id",
+        test_sizes=(0.9, 0.1),
+        random_seed=0,
+    )
 )
 ```
 
-And transform both sets using our vectorization UDFs:
+Using `deferred_read_parquet` allows us to load the data without immediate execution, keeping everything as expressions that can be optimized.
+
+## Text Vectorization and Model Training
+
+To process the story titles, we use TF-IDF vectorization with a deferred approach:
 
 ```python
-transformed_train_data = train.select(
-    title=fit_transform(train.title),
-    descendants=train.descendants.fill_null(0)
-)
+transform_col = "title"
+features = (transformed_col,) = (f"{transform_col}_transformed",)
+target = "descendants"
+target_predicted = f"{target}_predicted"
 
-transformed_test_data = test.select(
-    title=transform(test.title),
-    descendants=test.descendants.fill_null(0)
+# Create deferred transformer for TF-IDF
+deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
+    col=transform_col,
+    cls=TfidfVectorizer,
+    return_type=dt.Array(dt.float64),
 )
 ```
 
-## Model Training and Prediction
-
-We define functions for training an XGBoost regressor and making predictions with it:
+For our XGBoost model, we define custom functions for training and prediction:
 
 ```python
 @toolz.curry
-def train_xgboost_model(df, features, target, seed=0):
-    X = pd.DataFrame(df[list(features)].squeeze().tolist())
-    y = df[target]
-
+def fit_xgboost_model(feature_df, target_series, seed=0):
     xgb_r = xgb.XGBRegressor(
         objective="reg:squarederror",
         eval_metric=mean_absolute_error,
         n_estimators=20,
-        seed=seed
+        seed=seed,
     )
-    xgb_r.fit(X, y)
+    X = pd.DataFrame(feature_df.squeeze().tolist())
+    xgb_r.fit(X, target_series)
     return xgb_r
 
 @toolz.curry
-def predict_xgboost_model(df, model, features):
-    X = pd.DataFrame(df[list(features)].squeeze().tolist())
-    return model.predict(X)
+def predict_xgboost_model(model, df):
+    return model.predict(df.squeeze().tolist())
+
+# Create deferred predictor using our functions
+deferred_fit_predict_xgb = deferred_fit_predict(
+    target=target,
+    features=list(features),
+    fit=fit_xgboost_model,
+    predict=predict_xgboost_model,
+    return_type=dt.float32,
+)
 ```
 
 ## Building the Pipeline Expression
@@ -139,33 +114,39 @@ def predict_xgboost_model(df, model, features):
 Finally, we compose everything together into a single expressions, that works as a pipeline:
 
 ```python
-# Create model training UDAF
-model_udaf = udf.agg.pandas_df(
-    fn=toolz.compose(wrap_model(model_key=model_key), train_fn),
-    schema=transformed_train_data.schema(),
-    return_type=dt.binary,
-    name=model_key,
+# Fit and transform with TF-IDF
+(deferred_tfidf_model, tfidf_udaf, deferred_tfidf_transform) = (
+    deferred_fit_transform_tfidf(
+        train_expr,
+        storage=storage,
+    )
 )
 
-# Create prediction UDF
-predict_expr_udf = make_pandas_expr_udf(
-    computed_kwargs_expr=model_udaf.on_expr(transformed_train_data),
-    fn=predict_fn,
-    schema=transformed_test_data[features].schema(),
-    return_type=dt.float32,
-    name=prediction_key,
+# Apply the transformation to training data
+train_tfidf_transformed = train_expr.mutate(
+    **{transformed_col: deferred_tfidf_transform.on_expr}
 )
 
-# Create final expression
-expr = transformed_test_data.mutate(
-    predict_expr_udf.on_expr(transformed_test_data).name(prediction_key)
+# Fit XGBoost and get prediction function
+(deferred_xgb_model, xgb_udaf, deferred_xgb_predict) = deferred_fit_predict_xgb(
+    train_tfidf_transformed,
+    storage=storage,
+)
+
+# Apply transformation and prediction to test data
+test_xgb_predicted = (
+    test_expr.mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
+    .into_backend(xo.connect())
+    .mutate(**{target_predicted: deferred_xgb_predict.on_expr})
 )
 ```
+
+## Executing and Evaluating the Pipeline
 
 To run the pipeline and get predictions:
 
 ```python
-expr.execute()
+test_xgb_predicted.execute()
 ```
 
 The key advantage of this approach is that everything - from data fetching through prediction - is expressed as a single composable pipeline. xorq handles the execution details, optimization, and can even cache intermediate results.
