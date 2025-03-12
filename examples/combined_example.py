@@ -62,18 +62,33 @@ deferred_fit_predict_xgb = deferred_fit_predict(
 )
 
 
+do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
+    process_df=m.get_hackernews_stories_batch,
+    # process_df=get_hackernews_stories_batch,
+    maybe_schema_in=m.schema_in.to_pyarrow(),
+    maybe_schema_out=m.schema_out.to_pyarrow(),
+    name="HackerNewsFetcher",
+)
+
+
 name = "hn-fetcher-input-large"
 con = xo.config._backend_init()
 storage = ParquetStorage(source=con)
 # pg.postgres.connect_env().create_catalog("caching")
 pg = xo.postgres.connect_env(database="caching")
-t = (
+raw_expr = (
     deferred_read_parquet(
         con,
         xo.options.pins.get_path(name),
         name,
     )
+    # .pipe(do_hackernews_fetcher_udxf)
     .pipe(m.do_hackernews_fetcher_udxf)
+)
+t = (
+    raw_expr
+    # most stories have a tile, but few have text
+    # df.groupby("type").apply(lambda t: t.notnull().sum().div(len(t)))
     .filter(xo._.text.notnull())
     .cache(storage=SourceStorage(pg))
     # .limit(100)
@@ -134,3 +149,22 @@ x = train_xgb_predicted.execute()
 y = test_xgb_predicted.execute()
 print(x.groupby("sentiment_int").sentiment_int_predicted.describe().T)
 print(y.groupby("sentiment_int").sentiment_int_predicted.describe().T)
+
+
+# fetch live and predict
+z = (
+    xo.memtable([{"maxitem": 43346282, "n": 1000}])
+    .pipe(m.do_hackernews_fetcher_udxf)
+    .filter(xo._.text.notnull())
+    .mutate(
+        **{
+            "sentiment": xo.literal(None).cast(str),
+            "sentiment_int": xo.literal(None).cast(int),
+        }
+    )
+)
+(server, do_exchange) = xo.expr.relations.flight_serve(test_xgb_predicted)
+out = do_exchange(
+    z.mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
+).read_pandas()
+# the real test is to have someone else hit the flight_url
