@@ -15,8 +15,8 @@ from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import (
     deferred_read_parquet,
 )
-from xorq.expr.ml import (
-    _calculate_bounds,
+from xorq.expr.ml import _calculate_bounds
+from xorq.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
     make_quickgrove_udf,
@@ -478,3 +478,20 @@ def test_deferred_fit_transform_series_sklearn():
     actual = from_xo[transform_key].apply(pd.Series)
     expected = from_sklearn[transform_key].apply(pd.Series)
     assert actual.equals(expected)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "train_test_splits",
+        "deferred_fit_predict",
+        "deferred_fit_predict_sklearn",
+        "deferred_fit_transform",
+        "deferred_fit_transform_series_sklearn",
+        "make_quickgrove_udf",
+        "rewrite_quickgrove_expr",
+    ],
+)
+def test_top_level_ml(method):
+    assert hasattr(xo, method)
+    assert hasattr(xo.ml, method)

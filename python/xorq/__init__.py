@@ -8,8 +8,8 @@ from xorq.udf import *  # noqa: F403
 from xorq.config import options
 from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
-from xorq.expr import ml
-from xorq.expr.ml import *  # noqa: F403
+from xorq import ml
+from xorq.ml import *  # noqa: F403
 from xorq.backends.let import Backend
 from xorq.internal import SessionConfig
 

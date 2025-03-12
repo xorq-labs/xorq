@@ -9,7 +9,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
-from xorq.expr.ml import (
+from xorq.ml import (
     deferred_fit_predict,
     deferred_fit_transform_series_sklearn,
     train_test_splits,

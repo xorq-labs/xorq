@@ -843,4 +843,5 @@ __all__ = [
     "deferred_fit_transform",
     "deferred_fit_transform_series_sklearn",
     "make_quickgrove_udf",
+    "rewrite_quickgrove_expr",
 ]
