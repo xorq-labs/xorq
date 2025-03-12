@@ -291,7 +291,13 @@ class _SourceStorage(CacheStorage):
         return self.source.table(key).op()
 
     def _put(self, key, value):
-        self.source.create_table(key, xo.to_pyarrow(value.to_expr()))
+        if self.source.name == "postgres":
+            self.source.read_record_batches(
+                value.to_expr().to_pyarrow_batches(),
+                key,
+            )
+        else:
+            self.source.create_table(key, xo.to_pyarrow(value.to_expr()))
         return self._get(key)
 
     def _drop(self, key):
