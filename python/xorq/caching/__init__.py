@@ -31,6 +31,8 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
 )
 from xorq.expr.relations import (
+    FlightExpr,
+    FlightUDXF,
     Read,
     RemoteTable,
 )
@@ -132,6 +134,7 @@ class ModificationTimeStragegy(CacheStrategy):
 
     def get_key(self, expr: ir.Expr):
         expr = self.replace_remote_table(expr)
+        expr = self.replace_flight_table(expr)
         return self.key_prefix + dask.base.tokenize(expr)
 
     @staticmethod
@@ -140,7 +143,7 @@ class ModificationTimeStragegy(CacheStrategy):
         def rename_remote_table(node, kwargs):
             if isinstance(node, RemoteTable):
                 # name doesn't matter for key
-                name = "static-name"
+                name = dask.base.tokenize(node)
                 rt = RemoteTable(
                     name=name,
                     schema=node.schema,
@@ -159,6 +162,29 @@ class ModificationTimeStragegy(CacheStrategy):
     def replace_remote_table(self, expr):
         """replace remote table with deterministic name ***strictly for key calculation***"""
         if expr.op().find(RemoteTable):
+            expr = self.cached_replace_remote_table(expr.op()).to_expr()
+        return expr
+
+    @staticmethod
+    @functools.cache
+    def cached_replace_flight_table(op):
+        def rename_remote_table(node, kwargs):
+            if isinstance(node, (FlightUDXF, FlightExpr)):
+                # encode the variation in the name
+                name = dask.base.tokenize(node)
+                node = ops.UnboundTable(
+                    name=name,
+                    schema=node.schema,
+                )
+            elif kwargs:
+                node = node.__recreate__(kwargs)
+            return node
+
+        return op.replace(rename_remote_table)
+
+    def replace_flight_table(self, expr):
+        """replace flight tables with deterministic name ***strictly for key calculation***"""
+        if expr.op().find((FlightUDXF, FlightExpr)):
             expr = self.cached_replace_remote_table(expr.op()).to_expr()
         return expr
 

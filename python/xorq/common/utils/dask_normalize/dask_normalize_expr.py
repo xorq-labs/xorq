@@ -401,17 +401,69 @@ def normalize_agg_udf(udf):
     )
 
 
+def opaque_node_replacer(node, kwargs):
+    import xorq.expr.relations as rel
+    import xorq.expr.udf as udf
+
+    opaque_ops = (
+        rel.Read,
+        rel.CachedNode,
+        rel.RemoteTable,
+        rel.FlightUDXF,
+        rel.FlightExpr,
+        udf.ExprScalarUDF,
+    )
+    match node:
+        case rel.Read | rel.CachedNode | rel.RemoteTable:
+            node = xo.table(
+                node.schema,
+                name=dask.base.tokenize(node),
+            )
+        case rel.FlightUDXF | rel.FlightExpr:
+            node = xo.table(
+                node.schema,
+                name=dask.base.tokenize(node),
+            )
+        case udf.ExprScalarUDF:
+            node = xo.table(
+                node.schema,
+                name=dask.base.tokenize(node),
+            )
+        case _:
+            if isinstance(node, opaque_ops):
+                raise ValueError(f"unhandled opaque node type: {type(node)}")
+            if kwargs:
+                node = node.__recreate__(kwargs)
+    return node
+
+
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
     # FIXME: replace bound table names with their hashes
     sql = None
     if isinstance(op := expr.ls.uncached.op(), (FlightUDXF, FlightExpr)):
+        if found := op.input_expr.ls.uncached.op().find((FlightExpr, FlightUDXF)):
+            inner_op = op.input_expr.ls.uncached.unbind().op()
+            replaced = xo.caching.ModificationTimeStragegy.cached_replace_flight_table(
+                inner_op
+            ).to_expr()
+            sql = unbound_expr_to_default_sql(replaced)
+            print(f"normalize_expr({sql})")
+            # import pdb; pdb.set_trace()  # noqa
+            return normalize_seq_with_caller(sql)
+            # *** xorq.common.exceptions.OperationNotDefinedError: Compilation rule for 'FlightUDXF' operation is not defined
+            # print(found)
+            # replace each with a databasetable with name that matches its hash
+            # raise ValueError
+
         sql = unbound_expr_to_default_sql(op.input_expr.unbind())
     else:
         sql = unbound_expr_to_default_sql(op.to_expr().unbind())
 
-    if not (expr_is_bound(expr) or expr.op().find(Read)):
-        return sql
+    if not (
+        expr_is_bound(expr) or expr.op().find(Read) or op.find((FlightUDXF, FlightExpr))
+    ):
+        return normalize_seq_with_caller(sql)
 
     op = expr.op()
     if mem_dts := op.find(ir.InMemoryTable):
