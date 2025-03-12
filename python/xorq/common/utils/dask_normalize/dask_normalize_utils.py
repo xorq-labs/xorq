@@ -19,6 +19,7 @@ def patch_normalize_token(*typs, f=toolz.functoolz.return_none):
 
 
 def normalize_seq_with_caller(*args):
+    # from xorq.common.utils.inspect_utils import get_enclosing_function
     # # FIXME: can we make this quicker?
     # # # if not: either hardcode the caller name or get caller conditional on debug value
     # caller = get_enclosing_function(level=2)
