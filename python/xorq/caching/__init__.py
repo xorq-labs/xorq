@@ -133,8 +133,8 @@ class ModificationTimeStragegy(CacheStrategy):
     )
 
     def get_key(self, expr: ir.Expr):
-        expr = self.replace_remote_table(expr)
-        expr = self.replace_flight_table(expr)
+        # expr = self.replace_remote_table(expr)
+        # expr = self.replace_flight_table(expr)
         return self.key_prefix + dask.base.tokenize(expr)
 
     @staticmethod
