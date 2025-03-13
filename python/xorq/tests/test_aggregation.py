@@ -9,12 +9,11 @@ import xorq as xo
 import xorq.common.exceptions as com
 import xorq.expr.datatypes as dt
 from xorq.tests.util import assert_frame_equal, reduction_tolerance
-from xorq.vendor import ibis
 from xorq.vendor.ibis import _
 from xorq.vendor.ibis import literal as L
 
 
-@ibis.udf.agg.builtin
+@xo.udf.agg.builtin
 def mean_udf(s: dt.double) -> dt.double:
     return s.mean()
 
