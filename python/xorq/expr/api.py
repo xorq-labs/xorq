@@ -11,7 +11,11 @@ import pyarrow.dataset as ds
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.caching_utils import find_backend
-from xorq.common.utils.defer_utils import rbr_wrapper
+from xorq.common.utils.defer_utils import (  # noqa: F403
+    deferred_read_csv,
+    deferred_read_parquet,
+    rbr_wrapper,
+)
 from xorq.expr.ml import (
     calc_split_column,
     train_test_splits,
@@ -53,6 +57,8 @@ __all__ = (
     "to_pyarrow_batches",
     "to_sql",
     "get_plans",
+    "deferred_read_csv",
+    "deferred_read_parquet",
     *api.__all__,
 )
 
