@@ -4,32 +4,32 @@ import pandas.testing as tm
 import pyarrow as pa
 import pytest
 
+import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
-from xorq.vendor import ibis
-from xorq.vendor.ibis import udf
+from xorq import udf
 
 
 pc = pytest.importorskip("pyarrow.compute")
 
 
-@ibis.udf.scalar.pyarrow
+@xo.udf.scalar.pyarrow
 def my_string_length(arr: dt.string) -> dt.int64:
     # arr is a pyarrow.StringArray
     return pc.cast(pc.multiply(pc.utf8_length(arr), 2), target_type="int64")
 
 
-@ibis.udf.scalar.pyarrow
+@xo.udf.scalar.pyarrow
 def my_add(arr1: dt.int64, arr2: dt.int64) -> dt.int64:
     return pc.add(arr1, arr2)
 
 
-@ibis.udf.scalar.pyarrow
+@xo.udf.scalar.pyarrow
 def small_add(arr1: dt.int32, arr2: dt.int32) -> dt.int64:
     return pc.cast(pc.add(arr1, arr2), pa.int64())
 
 
-@ibis.udf.agg.builtin
+@xo.udf.agg.builtin
 def my_mean(arr: dt.float64) -> dt.float64:
     return pc.mean(arr)
 
@@ -81,3 +81,18 @@ def test_builtin_agg_udf_filtered(con):
         """Median of a column."""
 
     median(con.tables.batting.G).execute()
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "make_pandas_expr_udf",
+        "make_pandas_udf",
+        "scalar",
+        "agg",
+        "pyarrow_udwf",
+    ],
+)
+def test_top_level_udf(method):
+    assert hasattr(xo, method)
+    assert hasattr(udf, method)

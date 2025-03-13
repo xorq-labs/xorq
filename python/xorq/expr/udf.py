@@ -12,12 +12,15 @@ from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.vendor.ibis.expr.operations import Namespace
 from xorq.vendor.ibis.expr.operations.udf import (
-    _UDF,
     AggUDF,
     InputType,
     ScalarUDF,
     _make_udf_name,
     _wrap,
+    scalar,
+)
+from xorq.vendor.ibis.expr.operations.udf import (
+    agg as _agg,
 )
 
 
@@ -171,7 +174,7 @@ def make_pandas_udf(
     return construct
 
 
-class agg(_UDF):
+class agg(_agg):
     __slots__ = ()
 
     _base = AggUDF
@@ -333,3 +336,12 @@ def pyarrow_udwf(
 
     construct.on_expr = on_expr
     return construct
+
+
+__all__ = [
+    "pyarrow_udwf",
+    "make_pandas_expr_udf",
+    "make_pandas_udf",
+    "scalar",
+    "agg",
+]
