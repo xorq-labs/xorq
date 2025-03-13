@@ -65,6 +65,45 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
 
 
 def deferred_read_csv(con, path, table_name=None, schema=None, **kwargs):
+    """
+    Create a deferred read operation for CSV files that will execute only when needed.
+
+    This function creates a representation of a read operation that doesn't immediately
+    load data into memory. Instead, it registers the operation to be performed when
+    the resulting expression is executed.
+
+    The function works with different backend engines (pandas, duckdb, postgres, etc.)
+    and adapts the read parameters accordingly.
+
+
+    Parameters
+    ----------
+    con : Backend
+        The connection object representing the backend where the CSV will be read.
+        This can be any backend that supports reading CSV files (pandas, duckdb,
+        postgres, etc.).
+
+    path : str or Path
+        The path to the CSV file to be read. This can be a local file path or a URL.
+
+    table_name : str, optional
+        The name to give to the resulting table in the backend. If not provided,
+        a unique name will be generated automatically.
+
+    schema : Schema, optional
+        The schema definition for the CSV data. If not provided, the schema will
+        be inferred from the data by sampling the CSV file.
+
+    kwargs : Any
+        Additional keyword arguments that will be passed to the backend's read_csv
+        method.
+
+    Returns
+    -------
+    Expr
+        An expression representing the deferred read operation.
+    """
+
     infer_schema = kwargs.pop("infer_schema", infer_csv_schema_pandas)
     deferred_read_csv.method_name = method_name = "read_csv"
     method = getattr(con, method_name)
@@ -91,6 +130,34 @@ def deferred_read_csv(con, path, table_name=None, schema=None, **kwargs):
 
 
 def deferred_read_parquet(con, path, table_name=None, **kwargs):
+    """
+     Create a deferred read operation for Parquet files that will execute only when needed.
+
+    This function creates a representation of a read operation that doesn't immediately
+    load data into memory. Instead, it registers the operation to be performed when
+    the resulting expression is executed.
+
+    Parameters
+    ----------
+    con : Backend
+        The connection object representing the backend where the Parquet data will be read.
+
+    path : str or Path
+        The path to the Parquet file or directory to be read.
+
+    table_name : str, optional
+        The name to give to the resulting table in the backend. If not provided,
+        a unique name will be generated automatically.
+
+    **kwargs : dict
+        Additional keyword arguments passed to the backend's read_parquet method.
+
+     Returns
+     -------
+     Expr
+         An expression representing the deferred read operation.
+    """
+
     deferred_read_parquet.method_name = method_name = "read_parquet"
     method = getattr(con, method_name)
     if table_name is None:
