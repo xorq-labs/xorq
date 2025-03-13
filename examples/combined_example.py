@@ -180,3 +180,10 @@ out = do_exchange(
 import xorq.flight
 client = xorq.flight.client.FlightClient(port=port)
 (fut, rbr_out) = client.do_exchange(command, z.to_pyarrow_batches())
+
+
+# trying to stabilize the name
+a, b = pd.read_pickle("a.pkl"), pd.read_pickle("b.pkl")
+a, b = (el[1] for el in (a, b))
+a, b = (el[1] for el in (a, b))
+{i: (l, r) for i, (l, r) in enumerate(zip(a, b)) if l != r}
