@@ -3,8 +3,8 @@ from pathlib import Path
 import pandas as pd
 
 import xorq as xo
-from xorq.expr.ml import make_quickgrove_udf, rewrite_quickgrove_expr
 from xorq.expr.relations import into_backend
+from xorq.ml import make_quickgrove_udf, rewrite_quickgrove_expr
 
 
 model_path = Path(xo.options.pins.get_path("diamonds-model"))
