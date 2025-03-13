@@ -162,9 +162,21 @@ z = (
             "sentiment_int": xo.literal(None).cast(int),
         }
     )
+    .mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
 )
 (server, do_exchange) = xo.expr.relations.flight_serve(test_xgb_predicted)
 out = do_exchange(
     z.mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
 ).read_pandas()
 # the real test is to have someone else hit the flight_url
+
+
+(client, port, command) = (
+    server.client,
+    server.flight_url.port,
+    # this isn't stable
+    do_exchange.args[1],
+)
+import xorq.flight
+client = xorq.flight.client.FlightClient(port=port)
+(fut, rbr_out) = client.do_exchange(command, z.to_pyarrow_batches())
