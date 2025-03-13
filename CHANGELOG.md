@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.16] - 2025-03-13
+### Details
+#### Added
+- Add tutorials intro section by @mesejo in [#634](https://github.com/xorq-labs/xorq/pull/634)
+
+#### Changed
+- Update bitnami/minio docker tag to v2025.3.12 by @renovate[bot] in [#649](https://github.com/xorq-labs/xorq/pull/649)
+- Update tutorial with new sklearn functions by @mesejo in [#645](https://github.com/xorq-labs/xorq/pull/645)
+- Expose deferred_reads as top level by @mesejo in [#646](https://github.com/xorq-labs/xorq/pull/646)
+- Make udf top level by @mesejo in [#647](https://github.com/xorq-labs/xorq/pull/647)
+
+#### Fixed
+- Infer suffix in read_(parquet/csv) by @mesejo in [#639](https://github.com/xorq-labs/xorq/pull/639)
+- Special case for postgres in case of complex types by @dlovell in [#644](https://github.com/xorq-labs/xorq/pull/644)
+- Update rust crate tokio to v1.44.1 by @renovate[bot] in [#650](https://github.com/xorq-labs/xorq/pull/650)
+
 ## [0.1.15] - 2025-03-11
 ### Details
 This release adds a new CLI to xorq. Additionally, it improves the architecture 
