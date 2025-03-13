@@ -8,6 +8,8 @@ from xorq.udf import *  # noqa: F403
 from xorq.config import options
 from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
+from xorq import ml
+from xorq.ml import *  # noqa: F403
 from xorq.backends.let import Backend
 from xorq.internal import SessionConfig
 
@@ -24,6 +26,7 @@ __all__ = [  # noqa: PLE0604
     "SessionConfig",
     "udf",
     *api.__all__,
+    *ml.__all__,
     *udf.__all__,
 ]
 
