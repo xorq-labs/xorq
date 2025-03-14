@@ -414,17 +414,17 @@ def opaque_node_replacer(node, kwargs):
     )
     match node:
         case rel.CachedNode():
-            node = xo.table(
+            new_node = xo.table(
                 node.schema,
                 name=dask.base.tokenize(node.parent),
             ).op()
         case rel.Read() | rel.RemoteTable():
-            node = xo.table(
+            new_node = xo.table(
                 node.schema,
                 name=dask.base.tokenize(node),
             ).op()
         case rel.FlightUDXF() | rel.FlightExpr():
-            node = xo.table(
+            new_node = xo.table(
                 node.schema,
                 name=dask.base.tokenize(node),
             ).op()
@@ -439,9 +439,11 @@ def opaque_node_replacer(node, kwargs):
         case _:
             if isinstance(node, opaque_ops):
                 raise ValueError(f"unhandled opaque node type: {type(node)}")
-            if kwargs:
-                node = node.__recreate__(kwargs)
-    return node
+            elif kwargs:
+                new_node = node.__recreate__(kwargs)
+            else:
+                new_node = node
+    return new_node
 
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
