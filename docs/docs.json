@@ -17,8 +17,8 @@
             "group": "User Guide",
             "pages": [
               "overview",
-              "core_concepts",
-              "development"
+              "getting_started/quickstart",
+              "core_concepts"
             ]
           },
           {
