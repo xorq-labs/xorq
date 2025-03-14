@@ -94,7 +94,11 @@ def normalize_toolz_curry(curried):
     objs = sum(
         map(
             dask.base.normalize_token,
-            (curried.func, partial_arguments),
+            (
+                curried.func,
+                # FIXME: register dict normalization to fix order?
+                sorted(partial_arguments.items()),
+            ),
         ),
         start=(),
     )
