@@ -1,3 +1,95 @@
 ---
 title: 'Quickstart'
 ---
+
+## Installation
+
+xorq can be installed using pip:
+
+```bash
+pip install xorq
+```
+
+Or using nix to drop into an IPython shell:
+
+```bash
+nix run github:xorq-labs/xorq
+```
+
+## Quick Start
+
+### Write a pandas UDF
+
+```python
+import xorq as xo
+import xorq.expr.datatypes as dt
+
+@xo.udf.make_pandas_udf(
+    schema=xo.schema({"title": str, "url": str}),
+    return_type=dt.bool,
+    name="url_in_title",
+)
+def url_in_title(df):
+    return df.apply(
+        lambda s: (s.url or "") in (s.title or ""),
+        axis=1,
+    )
+
+# Connect to xorq's embedded engine
+con = xo.connect()
+
+# Reference the parquet file
+name = "hn-data-small.parquet"
+expr = xo.deferred_read_parquet(
+    con,
+    xo.options.pins.get_path(name),
+    name,
+).mutate(**{"url_in_title": url_in_title.on_expr})
+
+# Display results
+print(expr.execute().head())
+```
+
+Save this file as `example.py`.
+
+### CLI
+
+#### Build
+
+xorq makes it easy to serialize the pipeline in a diffable and human-readable
+format, including YAML for expressions, compiled SQL, and deferred reads. Once
+these artifacts are checked into git, we can build validation, lineage, and
+documentation tools in the CI/CD process.
+
+```sh
+❯ xorq build example.py -e expr
+Building expr from scrap.py
+              by  ...  url_in_title
+0         benkan  ...         False
+1  iancmceachern  ...         False
+2        michidk  ...         False
+3        journal  ...         False
+4         r0b3r4  ...         False
+
+[5 rows x 12 columns]
+Written 'expr' to builds/831efa9ba0ec
+```
+The build artifacts serialized to disk in the `builds` directory by default:
+```
+❯ ls -a builds/831efa9ba0ec/
+8db502c29647.sql
+32f00c2c2c8b.sql
+deferred_reads.yaml
+expr.yaml
+metadata.json
+profiles.yaml
+sql.yaml
+```
+### Run 
+
+Execute the serialized expressions by using `xorq run`:
+
+```sh
+❯ xorq run builds/831efa9ba0ec/
+
+```
