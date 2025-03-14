@@ -20,7 +20,7 @@ from xorq.expr.ml import (
 
 
 m = import_python(xo.options.pins.get_path("hackernews_lib"))
-o = import_python("/home/dan/repos/github/xorq/examples/openai_lib.py")
+o = import_python(xo.options.pins.get_path("openai_lib"))
 
 
 @toolz.curry
