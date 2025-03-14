@@ -2,13 +2,10 @@
 title: Welcome to xorq!
 sidebarTitle: Welcome
 ---
-
-Tired of spending 60% of your time rewriting ML notebook code for production?
-xorq bridges your data science experiments and production pipelines with a
-single, unified framework. Built on Ibis's deferred expression system, xorq
-lets you write pandas-style code once that seamlessly runs across local,
-remote, or hybrid environments without modification.
-
+xorq is a deferred computation framework for building, running, and serving
+fit-transform pipelines common in ML workflows. xorq is built on top of
+[Ibis](https://ibis-project.org/) and
+[DataFusion](https://datafusion.apache.org/).
 
 <img
   className="block dark:hidden"
@@ -21,94 +18,13 @@ remote, or hybrid environments without modification.
   alt="Overview Art Dark"
 />
 
-xorq enables data professionals to:
-- Write once, run anywhere: Author familiar pandas-style code that processes
-  data as a RecordBatch stream, getting rid of out-of-memory errors even with
-  massive datasets
-- Version control your pipelines: Automatically serialize expressions to clean,
-  diffable YAML artifacts that integrate seamlessly with CI/CD workflows
-- Leverage the best of both worlds: Connect to enterprise data sources
-  (PostgreSQL, BigQuery, Snowflake) while augmenting with powerful in-process
-  engines (DuckDB, DataFusion) for Python UDFs and specialized operations
-- Develop at lightning speed: Intelligently cache intermediate results to
-  eliminate redundant computations, cutting iteration time from hours to
-  minutes
-
-Get started now:
-
-```shell
-pip install xorq
-```
-and write your first expression:
-
-```python
-expr = (
-  pg.table("batting")
-    .into_backend(con, "xo_batting")
-    .limit(15)
-    .select(player_id="playerID", year_id="yearID_right")
-    .cache(SourceStorage(source=con))
-)
-```
-
-Assuming you saved your pipeline as pipeline.py, you can run the following CLI
-command to build and inspect the compiled artifacts:
-
-```sh
-xorq build examples/into_backend_example.py --expressions expr
-```
-
-Whether you’re a data scientist or an ML engineer, xorq empowers you to create
-robust, reproducible pipelines without sacrificing performance or ease of use.
-
-> **Mission Statement:**  
-> “Make data processing ergonomic, performant and reproducible.”
-
-
-### Features
-
-- **DataFrame API (Ibis-Powered):** Define transformations using a familiar, pandas-like 
-  API that is both expressive and backend-agnostic.
-- **Cache:** Avoid redundant computations by materializing intermediate results
-  as Arrow RecordBatches, ensuring minimal re-computation.
-- **Python UDFs:** Write and serve Python UDFs seamlessly – whether they’re
-  used for aggregation, windowing, or transformation tasks. Support native UDFs
-  or Flight-based exchanger functions (UDxF)
-- **Multi-Engine:** Effortlessly switch or combine execution engines—DuckDB,
-  DataFusion, PostgreSQL, BigQuery, Snowflake—optimizing performance and
-  scalability. 
-- **Arrow-Native:** Built around Apache Arrow and Arrow Flight, xorq leverages columnar data
-  structures to maximize performance, minimize memory usage, and accelerate
-  data transfers. 
-
-**Supported Engines:**
-
-- Local Engines:
-  - DuckDB
-  - DataFusion
-  - xorq Custom Engine (optimized for Python UDFs)
-- Remote Engines:
-  - Postgres
-  - BigQuery
-  - Snowflake
-
-### Benefits
-
-- Avoiding wasteful recomputations
-- Take your UDFs to the data via Flight end-points
-- DAG of single-engine expressions, not tasks
-- Seamless research-to-production
-- Easily extract servable artifacts from pipeline e.g. models
-- Enable composable and disaggregated pipelines
-
 ## Getting Started
 
-The first step towards building declarative pipelines is to set-up your project.
 <CardGroup cols={2}>
   <Card
     title="Quickstart"
     icon="pen-to-square"
-    href="development"
+    href="getting_started/quickstart"
   >
     Get a first taste of xorq
   </Card>
