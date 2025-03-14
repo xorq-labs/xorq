@@ -162,28 +162,56 @@ z = (
             "sentiment_int": xo.literal(None).cast(int),
         }
     )
-    .mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
+    #     .mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
 )
-(server, do_exchange) = xo.expr.relations.flight_serve(test_xgb_predicted)
-out = do_exchange(
-    z.mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
-).read_pandas()
+
+
+(transform_server, transform_do_exchange) = xo.expr.relations.flight_serve(
+    test_expr.into_backend(xo.connect()).mutate(
+        **{transformed_col: deferred_tfidf_transform.on_expr}
+    )
+)
+(predict_server, predict_do_exchange) = xo.expr.relations.flight_serve(
+    test_xgb_predicted
+)
+out = predict_do_exchange(xo.register(transform_do_exchange(z), "t")).read_pandas()
+
+
 # the real test is to have someone else hit the flight_url
+print(f"""
+import toolz
+
+import xorq as xo
+from xorq.common.utils.import_utils import import_python
+from xorq.flight.client import FlightClient
 
 
-(client, port, command) = (
-    server.client,
-    server.flight_url.port,
-    # this isn't stable
-    do_exchange.args[1],
+m = import_python(xo.options.pins.get_path("hackernews_lib"))
+
+
+(transform_port, transform_command) = ({transform_server.flight_url.port}, \"{transform_do_exchange.args[1]}\")
+(predict_port, predict_command) = ({predict_server.flight_url.port}, \"{predict_do_exchange.args[1]}\")
+z = (
+    xo.memtable([{{"maxitem": 43346282, "n": 1000}}])
+    .pipe(m.do_hackernews_fetcher_udxf)
+    .filter(xo._.text.notnull())
+    .mutate(
+        **{{
+            "sentiment": xo.literal(None).cast(str),
+            "sentiment_int": xo.literal(None).cast(int),
+        }}
+    )
 )
-import xorq.flight
-client = xorq.flight.client.FlightClient(port=port)
-(fut, rbr_out) = client.do_exchange(command, z.to_pyarrow_batches())
 
 
-# trying to stabilize the name
-a, b = pd.read_pickle("a.pkl"), pd.read_pickle("b.pkl")
-a, b = (el[1] for el in (a, b))
-a, b = (el[1] for el in (a, b))
-{i: (l, r) for i, (l, r) in enumerate(zip(a, b)) if l != r}
+transform_client = FlightClient(port=transform_port)
+transform_do_exchange = toolz.curry(transform_client.do_exchange, transform_command)
+predict_client = FlightClient(port=predict_port)
+predict_do_exchange = toolz.curry(predict_client.do_exchange, predict_command)
+# the problem is that do_exchange is receiving an expr
+
+(fut0, rbr_out0) = transform_do_exchange(z.to_pyarrow_batches())
+(fut1, rbr_out1) = predict_do_exchange(rbr_out0)
+out = rbr_out1.read_pandas()
+print(out)
+""")
