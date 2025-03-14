@@ -22,7 +22,7 @@ nix run github:xorq-labs/xorq
 
 ```python
 import xorq as xo
-import xorq.vendor.ibis.expr.datatypes as dt
+import xorq.expr.datatypes as dt
 
 @xo.udf.make_pandas_udf(
     schema=xo.schema({"title": str, "url": str}),
