@@ -53,6 +53,7 @@ def normalize_memory_databasetable(dt):
             dask.base.tokenize(el.serialize().to_pybytes())
             for el in xo.to_pyarrow_batches(dt.to_expr())
         ),
+        caller="normalize_memory_databasetable",
     )
 
 
@@ -92,6 +93,7 @@ def normalize_remote_databasetable(dt):
         dt.schema,
         dt.source,
         dt.namespace,
+        caller="normalize_remote_databasetable",
     )
 
 
@@ -106,6 +108,7 @@ def normalize_postgres_databasetable(dt):
         dt.source,
         dt.namespace,
         get_postgres_n_reltuples(dt),
+        caller="normalize_postgres_databasetable",
     )
 
 
@@ -120,6 +123,7 @@ def normalize_snowflake_databasetable(dt):
         dt.source,
         dt.namespace,
         get_snowflake_last_modification_time(dt).tobytes(),
+        caller="normalize_snowflake_databasetable",
     )
 
 
@@ -225,6 +229,7 @@ def normalize_module(module):
     return normalize_seq_with_caller(
         module.__name__,
         module.__package__,
+        caller="normalize_module",
     )
 
 
@@ -284,6 +289,7 @@ def normalize_read(read):
     return normalize_seq_with_caller(
         read.schema,
         tpls,
+        caller="normalize_read",
     )
 
 
@@ -313,6 +319,7 @@ def normalize_remote_table(dt):
         ("expr", dt.remote_expr),
         # only thing that matters is the type of source its going into
         ("source", dt.source.name),
+        caller="normalize_remote_table",
     )
 
 
@@ -379,6 +386,7 @@ def normalize_scalar_udf(udf):
         # we are insensitive to these for now
         # udf.__udf_namespace__,
         # udf.__func_name__,
+        caller="normalize_scalar_udf",
     )
 
 
@@ -398,6 +406,7 @@ def normalize_agg_udf(udf):
         # we are insensitive to these for now
         # udf.__udf_namespace__,
         # udf.__func_name__,
+        caller="normalize_agg_udf",
     )
 
 
@@ -463,5 +472,6 @@ def normalize_expr(expr):
         reads,
         dts,
         udfs,
+        caller="normalize_expr",
     )
     return token
