@@ -410,19 +410,62 @@ def normalize_agg_udf(udf):
     )
 
 
+def opaque_node_replacer(node, kwargs):
+    import xorq.expr.relations as rel
+
+    opaque_ops = (
+        rel.Read,
+        rel.CachedNode,
+        rel.RemoteTable,
+        rel.FlightUDXF,
+        rel.FlightExpr,
+        # udf.ExprScalarUDF,
+    )
+    match node:
+        case rel.CachedNode():
+            new_node = xo.table(
+                node.schema,
+                name=dask.base.tokenize(node.parent),
+            ).op()
+        case rel.Read():
+            new_node = xo.table(
+                node.schema,
+                name=dask.base.tokenize(node),
+            ).op()
+        case rel.RemoteTable():
+            new_node = xo.table(
+                node.schema,
+                name=dask.base.tokenize(node.remote_expr),
+            ).op()
+        case rel.FlightUDXF() | rel.FlightExpr():
+            new_node = xo.table(
+                node.schema,
+                name=dask.base.tokenize(node),
+            ).op()
+        # # FIXME: what to do about ExprScalarUDF?
+        # case udf.ExprScalarUDF():
+        #     # ExprScalarUDF doesn't have a schema
+        #     # it has computed_kwargs_expr and others
+        #     node = xo.table(
+        #         node.schema,
+        #         name=dask.base.tokenize(node),
+        #     ).op()
+        case _:
+            if isinstance(node, opaque_ops):
+                raise ValueError(f"unhandled opaque node type: {type(node)}")
+            elif kwargs:
+                new_node = node.__recreate__(kwargs)
+            else:
+                new_node = node
+    return new_node
+
+
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    # FIXME: replace bound table names with their hashes
-    sql = None
-    if isinstance(op := expr.ls.uncached.op(), (FlightUDXF, FlightExpr)):
-        sql = unbound_expr_to_default_sql(op.input_expr.unbind())
-    else:
-        sql = unbound_expr_to_default_sql(op.to_expr().unbind())
-
-    if not (expr_is_bound(expr) or expr.op().find(Read)):
-        return sql
-
     op = expr.op()
+    sql = unbound_expr_to_default_sql(
+        op.replace(opaque_node_replacer).to_expr().unbind()
+    )
     if mem_dts := op.find(ir.InMemoryTable):
         # these should have been replaced by the time we get to them
         raise ValueError(f"{mem_dts}")
