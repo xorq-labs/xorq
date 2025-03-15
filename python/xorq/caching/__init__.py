@@ -131,7 +131,7 @@ class ModificationTimeStragegy(CacheStrategy):
     )
 
     def get_key(self, expr: ir.Expr):
-        expr = self.replace_remote_table(expr)
+        # expr = self.replace_remote_table(expr)
         return self.key_prefix + dask.base.tokenize(expr)
 
     @staticmethod
@@ -140,7 +140,7 @@ class ModificationTimeStragegy(CacheStrategy):
         def rename_remote_table(node, kwargs):
             if isinstance(node, RemoteTable):
                 # name doesn't matter for key
-                name = "static-name"
+                name = dask.base.tokenize(node)
                 rt = RemoteTable(
                     name=name,
                     schema=node.schema,
