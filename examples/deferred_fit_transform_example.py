@@ -43,7 +43,7 @@ train_expr, test_expr = (
     train_expr,
 )
 model = deferred_model.execute()
-predicted = test_expr.mutate(deferred_transform.on_expr(test_expr)).execute()
+transformed = test_expr.mutate(**{"transformed": deferred_transform.on_expr}).execute()
 
 
 # cached run
@@ -52,10 +52,12 @@ storage = ParquetStorage(source=con)
     train_expr, storage=storage
 )
 ((cached_model,),) = deferred_model.execute().values
-cached_predicted = test_expr.mutate(deferred_transform.on_expr(test_expr)).execute()
+cached_transformed = test_expr.mutate(
+    **{"transformed": deferred_transform.on_expr}
+).execute()
 
 
-assert predicted.equals(cached_predicted)
+assert transformed.equals(cached_transformed)
 (x, y) = (pickle.loads(el) for el in (model, cached_model))
 assert all(x.idf_ == y.idf_)
 assert x.vocabulary_ == y.vocabulary_
