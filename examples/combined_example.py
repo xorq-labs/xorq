@@ -167,18 +167,21 @@ z = (
 
 
 (transform_server, transform_do_exchange) = xo.expr.relations.flight_serve(
-    test_expr.into_backend(xo.connect()).mutate(
+    # why is this stable-name required?
+    test_expr.into_backend(xo.connect(), name="stable-name").mutate(
         **{transformed_col: deferred_tfidf_transform.on_expr}
     )
 )
 (predict_server, predict_do_exchange) = xo.expr.relations.flight_serve(
     test_xgb_predicted
 )
+# issue: do_exchange here takes expr, externally it takes RecordBatchReader
 out = predict_do_exchange(xo.register(transform_do_exchange(z), "t")).read_pandas()
+print(transform_do_exchange.args[1], predict_do_exchange.args[1])
 
 
 # the real test is to have someone else hit the flight_url
-print(f"""
+to_print = f"""
 import toolz
 
 import xorq as xo
@@ -214,4 +217,5 @@ predict_do_exchange = toolz.curry(predict_client.do_exchange, predict_command)
 (fut1, rbr_out1) = predict_do_exchange(rbr_out0)
 out = rbr_out1.read_pandas()
 print(out)
-""")
+"""
+# print(to_print)
