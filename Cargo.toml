@@ -18,7 +18,7 @@ prost = "=0.13.5"
 datafusion-optimizer = "=44.0.0"
 datafusion-sql = "=44.0.0"
 futures = "=0.3.31"
-async-trait = "=0.1.87"
+async-trait = "=0.1.88"
 arrow = "=53.3.0"
 parking_lot = { version = "=0.12.3" }
 arrow-ord = "=53.4.1"
