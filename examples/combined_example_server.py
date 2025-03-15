@@ -1,3 +1,5 @@
+import functools
+
 import pandas as pd
 import toolz
 import xgboost as xgb
@@ -16,6 +18,10 @@ from xorq.expr.ml import (
     deferred_fit_predict,
     deferred_fit_transform_series_sklearn,
     train_test_splits,
+)
+from xorq.flight import (
+    FlightServer,
+    FlightUrl,
 )
 
 
@@ -140,7 +146,8 @@ train_xgb_predicted = (
 test_xgb_predicted = (
     test_expr.mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
     # if i add into backend here, i don't get ArrowNotImplementedError: Unsupported cast
-    .into_backend(xo.connect())
+    # why is this stable-name required?
+    .into_backend(xo.connect(), name="stable-name")
     .mutate(**{target_predicted: deferred_xgb_predict.on_expr})
 )
 
@@ -170,52 +177,26 @@ z = (
     # why is this stable-name required?
     test_expr.into_backend(xo.connect(), name="stable-name").mutate(
         **{transformed_col: deferred_tfidf_transform.on_expr}
-    )
+    ),
+    make_server=functools.partial(FlightServer, FlightUrl(port=8765)),
 )
 (predict_server, predict_do_exchange) = xo.expr.relations.flight_serve(
-    test_xgb_predicted
+    test_xgb_predicted,
+    make_server=functools.partial(FlightServer, FlightUrl(port=8766)),
+)
+(transform_command, predict_command) = (
+    do_exchange.args[1] for do_exchange in (transform_do_exchange, predict_do_exchange)
 )
 # issue: do_exchange here takes expr, externally it takes RecordBatchReader
 out = predict_do_exchange(xo.register(transform_do_exchange(z), "t")).read_pandas()
-print(transform_do_exchange.args[1], predict_do_exchange.args[1])
 
-
-# the real test is to have someone else hit the flight_url
-to_print = f"""
-import toolz
-
-import xorq as xo
-from xorq.common.utils.import_utils import import_python
-from xorq.flight.client import FlightClient
-
-
-m = import_python(xo.options.pins.get_path("hackernews_lib"))
-
-
-(transform_port, transform_command) = ({transform_server.flight_url.port}, \"{transform_do_exchange.args[1]}\")
-(predict_port, predict_command) = ({predict_server.flight_url.port}, \"{predict_do_exchange.args[1]}\")
-z = (
-    xo.memtable([{{"maxitem": 43346282, "n": 1000}}])
-    .pipe(m.do_hackernews_fetcher_udxf)
-    .filter(xo._.text.notnull())
-    .mutate(
-        **{{
-            "sentiment": xo.literal(None).cast(str),
-            "sentiment_int": xo.literal(None).cast(int),
-        }}
-    )
-)
-
-
-transform_client = FlightClient(port=transform_port)
-transform_do_exchange = toolz.curry(transform_client.do_exchange, transform_command)
-predict_client = FlightClient(port=predict_port)
-predict_do_exchange = toolz.curry(predict_client.do_exchange, predict_command)
-# the problem is that do_exchange is receiving an expr
-
-(fut0, rbr_out0) = transform_do_exchange(z.to_pyarrow_batches())
-(fut1, rbr_out1) = predict_do_exchange(rbr_out0)
-out = rbr_out1.read_pandas()
-print(out)
-"""
-# print(to_print)
+expected_transform_command = "execute-unbound-expr-4de287288267a2b06a16c7d8bcc2011b"
+expected_predict_commnd = "execute-unbound-expr-d9ab9b66dc4a3beafe4de74f66b4edb9"
+assert (transform_server.flight_url.port, transform_command) == (
+    8765,
+    expected_transform_command,
+), (transform_command, expected_transform_command)
+assert (predict_server.flight_url.port, predict_command) == (
+    8766,
+    expected_predict_commnd,
+), (predict_command, expected_predict_commnd)
