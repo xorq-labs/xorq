@@ -801,6 +801,7 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
 
 
 @pytest.mark.xfail
+@pytest.mark.snapshot_check
 def test_udf_caching(ls_con, alltypes_df, snapshot):
     @xo.udf.scalar.pyarrow
     def my_mul(tinyint_col: dt.int16, smallint_col: dt.int16) -> dt.int16:
@@ -830,6 +831,7 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
 
 
 @pytest.mark.xfail
+@pytest.mark.snapshot_check
 def test_udaf_caching(ls_con, alltypes_df, snapshot):
     def my_mul_sum(df):
         return df.sum().sum()
