@@ -70,9 +70,16 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 ***This section is intended for xorq maintainers***
 
 #### Steps
-1. Compute the new version number (`<version-number>`) according to [Semantic Versioning](https://semver.org/) rules.
-2. Update the version number in `Cargo.toml`.
-3. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v<version-number> -u`, manually add any additional notes (links to blogposts, etc.).
-4. Create commit with message `release: <version-number>`.
-5. Tag the last commit in main with `v<version-number>`, push the tag.
-6. Create a GitHub release to trigger the publishing workflow.
+1. Ensure you're on upstream main: `git switch main && git pull`
+2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
+3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
+4. Update the version number in `Cargo.toml`: `version = "$version_number"`
+5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.).
+6. Create commit with message denoting the release: `git add --update && git commit -m "release: $version_number"`.
+7. Push the new branch: `git push --set-upstream origin "release-$version_number"`
+7. Open a PR for the new branch `release-$version_number`
+8. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `$version_number`
+9. Wait for the ci-pre-release tests to all pass
+10. "Squash and merge" the PR
+11. Tag the updated main with `v$version_number` and push the tag: `git fetch && git tag v$version_number origin/main && git push --tags`
+12. Create a [GitHub release](https://github.com/xorq-labs/xorq/releases/new) to trigger the publishing workflow.
