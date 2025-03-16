@@ -96,7 +96,7 @@ jupyter-events==0.12.0
 jupyter-lsp==2.2.5
 jupyter-server==2.15.0
 jupyter-server-terminals==0.5.3
-jupyterlab==4.3.5
+jupyterlab==4.3.6
 jupyterlab-pygments==0.3.0
 jupyterlab-server==2.27.3
 locket==1.0.0 ; python_full_version < '4.0'
@@ -115,7 +115,7 @@ nbconvert==7.16.6
 nbformat==5.10.4
 nest-asyncio==1.6.0
 nodeenv==1.9.1
-notebook==7.3.2
+notebook==7.3.3
 notebook-shim==0.2.4
 numpy==2.2.3
 nvidia-nccl-cu12==2.26.2 ; platform_machine != 'aarch64' and sys_platform == 'linux'
@@ -179,7 +179,7 @@ rfc3986-validator==0.1.1
 rich==13.9.4
 rpds-py==0.23.1
 rsa==4.9 ; python_full_version < '4.0'
-ruff==0.10.0
+ruff==0.11.0
 scikit-learn==1.6.1
 scipy==1.15.2
 send2trash==1.8.3
@@ -219,7 +219,7 @@ wcwidth==0.2.13
 webcolors==24.11.1
 webencodings==0.5.1
 websocket-client==1.8.0
-xgboost==2.1.4
+xgboost==3.0.0
 xxhash==3.5.0 ; python_full_version < '4.0'
 yarl==1.18.3 ; python_full_version < '4.0'
 zipp==3.21.0
