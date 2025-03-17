@@ -1,7 +1,7 @@
 """
 HackerNews Sentiment Analysis Script This script loads HackerNews data,
 analyzes post titles using a pre-trained TF-IDF transformer, and predicts
-sentiment scores using another pretrained XGBoost model.
+sentiment scores using another pre-trained XGBoost model.
 """
 
 import pathlib
@@ -16,8 +16,9 @@ from xorq.common.utils.import_utils import import_python
 
 
 # paths
-TFIDF_MODEL_PATH = pathlib.Path("hn_tfidf_fitted_model.pkl")
-XGB_MODEL_PATH = "hn_sentiment_reg.json"
+TFIDF_MODEL_PATH = pathlib.Path(xo.options.pins.get_path("hn_tfidf_fitted_model"))
+XGB_MODEL_PATH = pathlib.Path(xo.options.pins.get_path("hn_sentiment_reg"))
+
 HACKERNEWS_DATA_NAME = "hn-fetcher-input-small"
 
 # import HackerNews library from pinned path
@@ -63,7 +64,7 @@ pipeline = (
 results = pipeline.execute()
 
 """
-Next Stpes: use the cli to build and see how things look like:
+Next Steps: use the cli to build and see how things look like:
 
 ❯ xorq build scripts/hn_inference.py -e pipeline
 Building pipeline from scripts/hn_inference.py
