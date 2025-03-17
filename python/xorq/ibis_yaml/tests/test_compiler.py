@@ -14,17 +14,17 @@ from xorq.ibis_yaml.sql import find_relations
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
-def test_build_manager_expr_hash(t, build_dir):
-    expected = "c6527994ad9a"
+@pytest.mark.snapshot_check
+def test_build_manager_expr_hash(t, build_dir, snapshot):
     build_manager = ArtifactStore(build_dir)
-    result = build_manager.get_expr_hash(t)
-    assert expected == result
+    actual = build_manager.get_expr_hash(t)
+    snapshot.assert_match(actual, "build_manager_expr_hash.txt")
 
 
 def test_build_manager_roundtrip(t, build_dir):
     build_manager = ArtifactStore(build_dir)
-    expr_hash = "c6527994ad9a"
     yaml_dict = {"a": "string"}
+    expr_hash = "dummy-value"
     build_manager.save_yaml(yaml_dict, expr_hash, "expr.yaml")
 
     with open(build_dir / expr_hash / "expr.yaml") as f:
