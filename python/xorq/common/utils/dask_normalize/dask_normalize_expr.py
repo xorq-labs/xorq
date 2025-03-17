@@ -41,6 +41,20 @@ def unbound_expr_to_default_sql(expr):
     return str(default_sql)
 
 
+def normalize_inmemorytable(dt):
+    if not isinstance(dt, ir.InMemoryTable):
+        raise ValueError
+    return normalize_seq_with_caller(
+        dt.schema.to_pandas(),
+        # in memory: so we can assume it's reasonable to hash the data
+        tuple(
+            dask.base.tokenize(el.serialize().to_pybytes())
+            for el in xo.to_pyarrow_batches(dt.to_expr())
+        ),
+        caller="normalize_inmemorytable",
+    )
+
+
 def normalize_memory_databasetable(dt):
     if dt.source.name not in ("pandas", "let", "datafusion", "duckdb"):
         raise ValueError
@@ -466,17 +480,16 @@ def normalize_expr(expr):
     sql = unbound_expr_to_default_sql(
         op.replace(opaque_node_replacer).to_expr().unbind()
     )
-    if mem_dts := op.find(ir.InMemoryTable):
-        # these should have been replaced by the time we get to them
-        raise ValueError(f"{mem_dts}")
     reads = op.find(Read)
     dts = op.find((ir.DatabaseTable, FlightExpr, FlightUDXF))
     udfs = op.find((AggUDF, ScalarUDF))
+    mems = op.find(ir.InMemoryTable)
     token = normalize_seq_with_caller(
         sql,
         reads,
         dts,
         udfs,
+        tuple(map(normalize_inmemorytable, mems)),
         caller="normalize_expr",
     )
     return token
