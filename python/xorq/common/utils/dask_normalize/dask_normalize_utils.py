@@ -1,3 +1,4 @@
+import pdb
 from contextlib import contextmanager
 from unittest.mock import (
     Mock,
@@ -31,3 +32,29 @@ def normalize_seq_with_caller(*args, caller=""):
             args,
         )
     )
+
+
+@toolz.curry
+def walk_normalized(f, normalized):
+    match normalized:
+        case tuple() | list():
+            for el in normalized:
+                yield from walk_normalized(f, el)
+        case str():
+            yield f(normalized)
+        case bytes():
+            yield f(normalized.decode("ascii", errors="replace"))
+        case int() | float():
+            yield f(normalized)
+        case None | slice():
+            yield f(normalized)
+        case _:
+            raise ValueError(
+                f"unhandled condition for type {type(normalized)} ({normalized})"
+            )
+
+
+@toolz.curry
+def set_trace_on_condition(condition, obj):
+    if condition(obj):
+        pdb.set_trace()
