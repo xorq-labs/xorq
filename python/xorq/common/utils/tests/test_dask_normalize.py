@@ -27,6 +27,7 @@ def test_unregistered_raises():
         dask.base.tokenize(Unregistered())
 
 
+@pytest.mark.snapshot_check
 def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
     con = xo.datafusion.connect()
     typ = type(con)
@@ -37,6 +38,7 @@ def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
     snapshot.assert_match(actual, "datafusion_memory_key.txt")
 
 
+@pytest.mark.snapshot_check
 def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     path = pathlib.Path(tmp_path).joinpath("data.parquet")
     alltypes_df.to_parquet(path)
@@ -59,6 +61,7 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     snapshot.assert_match(actual, "datafusion_key.txt")
 
 
+@pytest.mark.snapshot_check
 def test_tokenize_pandas_expr(alltypes_df, snapshot):
     con = xo.pandas.connect()
     typ = type(con)
@@ -69,6 +72,7 @@ def test_tokenize_pandas_expr(alltypes_df, snapshot):
     snapshot.assert_match(actual, "pandas_key.txt")
 
 
+@pytest.mark.snapshot_check
 def test_tokenize_duckdb_expr(batting, snapshot):
     con = xo.duckdb.connect()
     typ = type(con)
@@ -80,6 +84,7 @@ def test_tokenize_duckdb_expr(batting, snapshot):
     snapshot.assert_match(actual, "duckdb_key.txt")
 
 
+@pytest.mark.snapshot_check
 def test_pandas_snapshot_key(alltypes_df, snapshot):
     con = xo.pandas.connect()
     t = con.create_table("t", alltypes_df)
@@ -88,6 +93,7 @@ def test_pandas_snapshot_key(alltypes_df, snapshot):
     snapshot.assert_match(actual, "pandas_snapshot_key.txt")
 
 
+@pytest.mark.snapshot_check
 def test_duckdb_snapshot_key(batting, snapshot):
     con = xo.duckdb.connect()
     t = con.register(batting.to_pyarrow(), "dashed-name")
