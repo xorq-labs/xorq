@@ -11,6 +11,10 @@ let
     fi
   '';
 
+  xorq-gh-config-set-browser-false = pkgs.writeShellScriptBin "xorq-gh-config-set-browser-false" ''
+    ${pkgs.gh}/bin/gh config set browser false
+  '';
+
   letsql-pytest = pkgs.writeShellScriptBin "letsql-pytest" ''
     set -eux
 
@@ -122,6 +126,7 @@ let
       letsql-git-fetch-origin-pull
       letsql-git-config-blame-ignore-revs
       letsql-maturin-build
+      xorq-gh-config-set-browser-false
       ;
   };
 
