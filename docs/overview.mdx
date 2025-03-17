@@ -5,37 +5,19 @@ sidebarTitle: Welcome
 xorq is a deferred computational framework for building, running, and serving
 pandas groupby-apply style pipelines common in ML workflows. xorq is built on
 top of [Ibis](https://ibis-project.org/) and
-[DataFusion](https://datafusion.apache.org/).
+[Apache DataFusion](https://datafusion.apache.org/).
 
-<img
-  className="block dark:hidden"
-  src="/images/overview-light.png"
-  alt="Overview Art Light"
-/>
-<img
-  className="hidden dark:block"
-  src="/images/overview-dark.png"
-  alt="Overview Art Dark"
-/>
+Why xorq?
+xorq was developed to give Python developers a more ergonomic way to build,
+cache, and serve pipelines—without getting locked into a single engine. The
+xorq computational framework provides a quantum leap in ML development by:
 
-## Getting Started
-
-<CardGroup cols={2}>
-  <Card
-    title="Quickstart"
-    icon="pen-to-square"
-    href="getting_started/quickstart"
-  >
-    Get a first taste of xorq
-  </Card>
-  <Card
-    title="10 minutes to xorq"
-    icon="clock"
-    href="/tutorials/10_minutes_xorq_tour"
-  >
-    Learn key concepts in a brief tutorial
-  </Card>
-</CardGroup>
+- **Simplifying development** - no more juggling separate SQL jobs, pandas
+  scripts, and ML framework specific transformations.
+- **Accelerating iteration** - intelligent caching means no more having to wait
+  for full pipeline re-runs after every little change.
+- **Making deployment seamless** - moving a working pipeline from local dev to
+  production no longer requires rewriting.
 
 ## Dive Deeper
 
