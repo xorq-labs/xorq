@@ -15,6 +15,7 @@ from attrs.validators import (
 )
 
 import xorq as xo
+from xorq.flight.action import AddExchangeAction
 from xorq.flight.backend import Backend
 from xorq.flight.server import (
     BasicAuthServerMiddlewareFactory,
@@ -125,6 +126,7 @@ class FlightServer:
         root_certificates=None,
         auth: BasicAuth = None,
         connection=xo.connect,
+        exchangers=(),
     ):
         self.flight_url = flight_url or FlightUrl()
         self.certificate_path = certificate_path
@@ -134,6 +136,7 @@ class FlightServer:
         self.connection = connection
         self.verify_client = verify_client
         self.server = None
+        self.exchangers = exchangers
 
     @property
     def auth_kwargs(self):
@@ -191,6 +194,10 @@ class FlightServer:
             verify_client=self.verify_client,
             **self.auth_kwargs,
         )
+        for udxf in self.exchangers:
+            self.client.do_action(
+                AddExchangeAction.name, udxf, options=self.client._options
+            )
 
     def close(self, *args):
         args = args or (None, None, None)

@@ -228,3 +228,27 @@ def test_serve_close(connection):
     df_out = rbr.read_pandas()
     assert df_in.equals(df_out)
     server.close()
+
+
+def test_ctor_exchanger_registration():
+    from xorq.flight.action import ListExchangesAction
+    from xorq.flight.exchanger import make_udxf
+
+    def dummy(df: pd.DataFrame):
+        return pd.DataFrame({"row_count": [42]})
+
+    schema_in = xo.schema({"dummy": "int64"})
+    dummy_udxf = make_udxf(
+        dummy,
+        schema_in.to_pyarrow(),
+        xo.schema({"row_count": "int64"}).to_pyarrow(),
+    )
+    flight_server = FlightServer(exchangers=[dummy_udxf])
+    with flight_server:
+        client = flight_server.client
+        available = client.do_action_one(ListExchangesAction.name)
+        assert dummy_udxf.command in available
+        client.do_exchange(
+            dummy_udxf.command,
+            xo.memtable({"dummy": [0]}, schema=schema_in).to_pyarrow_batches(),
+        )
