@@ -444,8 +444,33 @@ class PandasUDFExchanger(AbstractExchanger):
 
 class UnboundExprExchanger(AbstractExchanger):
     def __init__(self, unbound_expr, make_connection=xo.connect):
-        self.unbound_expr = unbound_expr
+        if unbound_expr.op().find(ops.DatabaseTable):
+            raise ValueError("unbound_expr must be unbound")
+        self.unbound_expr = self.set_one_unbound_name(unbound_expr)
         self.make_connection = make_connection
+        self._schema_in_required = self.get_one_unbound(
+            self.unbound_expr
+        ).schema.to_pyarrow()
+        self._schema_in_condition = toolz.curried.operator.eq(self._schema_in_required)
+        self._schema_out = self.unbound_expr.schema().to_pyarrow()
+
+    @staticmethod
+    def get_one_unbound(expr):
+        (unbound, *rest) = expr.op().find(ops.UnboundTable)
+        if rest:
+            raise ValueError("expr must only have one unbound table")
+        return unbound
+
+    @staticmethod
+    def set_one_unbound_name(expr, name="fixed-name"):
+        def set_name(op, kwargs):
+            if isinstance(op, ops.UnboundTable):
+                op = op.copy(name=name)
+            if kwargs:
+                op = op.__recreate__(kwargs)
+            return op
+
+        return expr.op().replace(set_name).to_expr()
 
     @property
     def op_hash(self):
@@ -459,14 +484,13 @@ class UnboundExprExchanger(AbstractExchanger):
 
     @property
     def schema_in_required(self):
-        (op,) = self.unbound_expr.op().find(ops.UnboundTable)
-        return op.to_expr().schema().to_pyarrow()
+        return self._schema_in_required
 
     def schema_in_condition(self, schema_in):
-        return schema_in == self.schema_in_required
+        return self._schema_in_condition(schema_in)
 
     def calc_schema_out(self, schema_in):
-        return self.unbound_expr.schema().to_pyarrow()
+        return self._schema_out
 
     @classmethod
     @property
@@ -480,9 +504,9 @@ class UnboundExprExchanger(AbstractExchanger):
     @property
     def query_result(self):
         return {
-            "schema-in-required": self.schema_in_required,
-            "schema-in-condition": self.schema_in_condition,
-            "calc-schema-out": self.calc_schema_out,
+            "schema-in-required": self._schema_in_required,
+            "schema-in-condition": self._schema_in_condition,
+            "calc-schema-out": return_constant(self._schema_out),
             "description": self.description,
             "command": self.command,
         }
