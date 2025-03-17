@@ -597,6 +597,7 @@ def temp_view(ddl_con):
 
 
 @pytest.fixture
+@pytest.mark.snapshot_check
 def assert_sql(con, snapshot):
     def checker(expr, file_name="out.sql"):
         sql = con.compile(expr, pretty=True)

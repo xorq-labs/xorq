@@ -188,7 +188,8 @@ filterwarnings = [
 markers = [
     "snowflake",
     "library",
-    "s3"
+    "s3",
+    "snapshot_check",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
