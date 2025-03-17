@@ -1,9 +1,11 @@
 import hashlib
+import operator
 import pathlib
 import re
 
 import dask
 import pytest
+import toolz
 
 import xorq as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
@@ -12,6 +14,7 @@ from xorq.caching import (
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
+    walk_normalized,
 )
 
 
@@ -100,3 +103,40 @@ def test_duckdb_snapshot_key(batting, snapshot):
     storage = SourceSnapshotStorage(source=con)
     actual = storage.get_key(t)
     snapshot.assert_match(actual, "duckdb_snapshot_key.txt")
+
+
+@pytest.mark.parametrize(
+    "target, expected",
+    (
+        (1, 1),
+        (1.0, 1),
+        ("two", 2),
+        # bytes are converted to text
+        (b"three", 0),
+        ("three", 3),
+    ),
+)
+def test_walk_normalized(target, expected):
+    normalized = (
+        [
+            (
+                b"three",
+                b"three",
+                1,
+                [
+                    "two",
+                ],
+            ),
+        ],
+        (
+            2,
+            (
+                3,
+                b"three",
+            ),
+            "two",
+        ),
+    )
+    f = toolz.curry(operator.eq, target)
+    actual = sum(walk_normalized(f, normalized))
+    assert actual == expected
