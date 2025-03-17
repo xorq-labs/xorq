@@ -7,17 +7,24 @@ pandas groupby-apply style pipelines common in ML workflows. xorq is built on
 top of [Ibis](https://ibis-project.org/) and
 [Apache DataFusion](https://datafusion.apache.org/).
 
-Why xorq?
-xorq was developed to give Python developers a more ergonomic way to build,
-cache, and serve pipelines—without getting locked into a single engine. The
-xorq computational framework provides a quantum leap in ML development by:
+## Getting Started
 
-- **Simplifying development** - no more juggling separate SQL jobs, pandas
-  scripts, and ML framework specific transformations.
-- **Accelerating iteration** - intelligent caching means no more having to wait
-  for full pipeline re-runs after every little change.
-- **Making deployment seamless** - moving a working pipeline from local dev to
-  production no longer requires rewriting.
+<CardGroup cols={2}>
+  <Card
+    title="Quickstart"
+    icon="pen-to-square"
+    href="getting_started/quickstart"
+  >
+    Get a first taste of xorq
+  </Card>
+  <Card
+    title="10 minutes to xorq"
+    icon="clock"
+    href="/tutorials/10_minutes_xorq_tour"
+  >
+    Learn key concepts in a brief tutorial
+  </Card>
+</CardGroup>
 
 ## Dive Deeper
 
@@ -40,6 +47,7 @@ Multi-part series on how to build an end-to-end ML pipeline using live data from
   <Card
     title="3. Model training with XGBoost"
     icon="brain"
+    href="/tutorials/hn_training_xgb"
   >
     Learn how to build fit-predict style deferred pipelines.
   </Card>
@@ -50,3 +58,16 @@ Multi-part series on how to build an end-to-end ML pipeline using live data from
     Lean how to serve the trained model on live data with Arrow Flight
   </Card>
 </CardGroup>
+
+## Why xorq?
+
+xorq was developed to give Python developers a more ergonomic way to build,
+cache, and serve pipelines—without getting locked into a single engine. The
+xorq computational framework provides a quantum leap in ML development by:
+
+- **Simplifying development** - no more juggling separate SQL jobs, pandas
+  scripts, and ML framework specific transformations.
+- **Accelerating iteration** - intelligent caching means no more having to wait
+  for full pipeline re-runs after every little change.
+- **Making deployment seamless** - moving a working pipeline from local dev to
+  production no longer requires rewriting.
