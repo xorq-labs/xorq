@@ -296,22 +296,20 @@ impl PyDataFrame {
     /// Convert to Arrow Table
     /// Collect the batches and pass to Arrow Table
     fn to_arrow_table(&self, py: Python) -> PyResult<PyObject> {
-        let batches = self.collect(py).unwrap();
-        let schema: PyObject = if batches.is_empty() {
-            self.schema().into_py(py)
+        let batches = self.collect(py)?;
+        let schema = if batches.is_empty() {
+            self.schema().into_pyobject(py)
         } else {
-            batches[0].getattr(py, "schema")?
-        };
+            Ok(batches[0].getattr(py, "schema")?.into_bound(py))
+        }?;
 
-        let batches = self.collect(py).unwrap().to_object(py);
+        let batches = self.collect(py)?.into_pyobject(py)?;
 
-        Python::with_gil(|py| {
-            // Instantiate pyarrow Table object and use its from_batches method
-            let table_class = py.import_bound("pyarrow")?.getattr("Table")?;
-            let args = PyTuple::new_bound(py, &[batches, schema]);
-            let table: PyObject = table_class.call_method1("from_batches", args)?.into();
-            Ok(table)
-        })
+        // Instantiate pyarrow Table object and use its from_batches method
+        let table_class = py.import("pyarrow")?.getattr("Table")?;
+        let args = PyTuple::new(py, &[batches, schema])?;
+        let table: PyObject = table_class.call_method1("from_batches", args)?.into();
+        Ok(table)
     }
 
     fn execute_stream(&self, py: Python) -> PyResult<PyRecordBatchStream> {

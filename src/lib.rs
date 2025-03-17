@@ -20,6 +20,7 @@ pub mod physical_plan;
 mod provider;
 mod py_record_batch_provider;
 mod pyarrow_filter_expression;
+pub mod pyarrow_util;
 mod record_batch;
 pub mod sql;
 #[allow(clippy::borrow_deref_ref)]
@@ -61,24 +62,24 @@ fn _internal(py: Python, m: Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<catalog::PyTable>()?;
 
     // Register `common` as a submodule. Matching `datafusion-common` https://docs.rs/datafusion-common/latest/datafusion_common/
-    let common = PyModule::new_bound(py, "common")?;
+    let common = PyModule::new(py, "common")?;
     common::init_module(&common)?;
     m.add_submodule(&common)?;
 
     // Register `expr` as a submodule. Matching `datafusion-expr` https://docs.rs/datafusion-expr/latest/datafusion_expr/
-    let expr = PyModule::new_bound(py, "expr")?;
+    let expr = PyModule::new(py, "expr")?;
     expr::init_module(&expr)?;
     m.add_submodule(&expr)?;
 
-    let parser = PyModule::new_bound(py, "parser")?;
+    let parser = PyModule::new(py, "parser")?;
     parser::init_module(&parser)?;
     m.add_submodule(&parser)?;
 
-    let optimizer = PyModule::new_bound(py, "optimizer")?;
+    let optimizer = PyModule::new(py, "optimizer")?;
     optimizer::init_module(&optimizer)?;
     m.add_submodule(&optimizer)?;
 
-    let builder = PyModule::new_bound(py, "builder")?;
+    let builder = PyModule::new(py, "builder")?;
     builder::init_module(&builder)?;
     m.add_submodule(&builder)?;
 

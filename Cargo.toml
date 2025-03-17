@@ -10,19 +10,20 @@ crate-type = ["cdylib"]
 
 [dependencies]
 tokio = { version = "=1.44.1", features = ["macros", "rt", "rt-multi-thread", "sync"] }
-pyo3 = { version = "=0.22.6", features = ["extension-module", "abi3", "abi3-py38"] }
-datafusion =  { version = "=44.0.0", features = ["pyarrow", "avro"]}
-datafusion-common = { version = "=44.0.0", features = ["pyarrow"] }
-datafusion-expr = "=44.0.0"
+pyo3 = { version = "=0.23.3", features = ["extension-module", "abi3", "abi3-py38"] }
+pyo3-async-runtimes = { version = "0.23", features = ["tokio-runtime"]}
+datafusion =  { version = "=45.0.0", features = ["pyarrow", "avro"]}
+datafusion-common = { version = "=45.0.0", features = ["pyarrow"] }
+datafusion-expr = "=45.0.0"
 prost = "=0.13.5"
-datafusion-optimizer = "=44.0.0"
-datafusion-sql = "=44.0.0"
+datafusion-optimizer = "=45.0.0"
+datafusion-sql = "=45.0.0"
 futures = "=0.3.31"
 async-trait = "=0.1.88"
-arrow = "=53.3.0"
+arrow = "=54.2.1"
 parking_lot = { version = "=0.12.3" }
-arrow-ord = "=53.4.1"
-datafusion-functions-aggregate = { version = "=44.0.0" }
+arrow-ord = "=54.2.1"
+datafusion-functions-aggregate = { version = "=45.0.0" }
 aws-config = "=0.101.0"
 aws-credential-types = "=0.101.0"
 object_store = { version = "=0.11.2", features = ["aws", "gcp", "http"] }
