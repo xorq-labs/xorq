@@ -300,7 +300,7 @@ impl PyDataFrame {
         let schema = if batches.is_empty() {
             self.schema().into_pyobject(py)
         } else {
-            Ok(batches[0].getattr(py, "schema")?.into_bound(py))
+            batches[0].getattr(py, "schema").map(|o| o.into_bound(py))
         }?;
 
         let batches = self.collect(py)?.into_pyobject(py)?;
