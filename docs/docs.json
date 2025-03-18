@@ -17,9 +17,17 @@
             "group": "User Guide",
             "pages": [
               "overview",
-              "getting_started/quickstart",
-              "core_concepts"
+              "getting_started/quickstart"
             ]
+          }, 
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "tutorials/pipelines_as_expressions",
+              "tutorials/profiles_guide",
+              "tutorials/building",
+              "tutorials/udxf"
+              ]
           },
           {
             "group": "Tutorials",
