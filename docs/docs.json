@@ -24,11 +24,9 @@
           {
             "group": "Tutorials",
             "pages": [
-              "tutorials/10_minutes_xorq_tour",
-              "tutorials/build",
-              "tutorials/pipelines_as_expressions",
-              "tutorials/udxf",
-              "tutorials/profiles_guide"
+              "tutorials/hn_data_prep",
+              "tutorials/hn_transform_tfidf",
+              "tutorials/hn_training_xgb"
             ]
           }
         ]
