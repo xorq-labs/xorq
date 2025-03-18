@@ -20,7 +20,7 @@ import xorq as xo
 from xorq.common.utils.inspect_utils import get_arguments
 
 
-compiled_env_var_re = re.compile("^(?:\${(.*)}$)|(?:\$(.*))$")
+compiled_env_var_re = re.compile(r"^(?:\${(.*)}$)|(?:\$(.*))$")
 
 
 @frozen
