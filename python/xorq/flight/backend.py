@@ -22,6 +22,7 @@ from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
+from xorq.vendor.ibis.util import gen_name
 
 
 class Backend(SQLBackend):
@@ -133,9 +134,11 @@ class Backend(SQLBackend):
                 source.schema, source.to_batches()
             )
 
-        if isinstance(source, pa.RecordBatchReader):
-            self.con.upload_batches(table_name, source)
+        return self.read_record_batches(source, table_name=table_name)
 
+    def read_record_batches(self, source, table_name=None):
+        table_name = table_name or gen_name("read_record_batches")
+        self.con.upload_batches(table_name, source)
         return self.table(table_name)
 
     def list_tables(
