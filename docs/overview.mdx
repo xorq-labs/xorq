@@ -2,21 +2,10 @@
 title: Welcome to xorq!
 sidebarTitle: Welcome
 ---
-xorq is a deferred computation framework for building, running, and serving
-fit-transform pipelines common in ML workflows. xorq is built on top of
-[Ibis](https://ibis-project.org/) and
-[DataFusion](https://datafusion.apache.org/).
-
-<img
-  className="block dark:hidden"
-  src="/images/overview-light.png"
-  alt="Overview Art Light"
-/>
-<img
-  className="hidden dark:block"
-  src="/images/overview-dark.png"
-  alt="Overview Art Dark"
-/>
+xorq is a deferred computational framework for building, running, and serving
+pandas groupby-apply style pipelines common in ML workflows. xorq is built on
+top of [Ibis](https://ibis-project.org/) and
+[Apache DataFusion](https://datafusion.apache.org/).
 
 ## Getting Started
 
@@ -29,46 +18,56 @@ fit-transform pipelines common in ML workflows. xorq is built on top of
     Get a first taste of xorq
   </Card>
   <Card
-    title="Core Concepts"
-    icon="image"
-    href="core_concepts"
-  >
-    The concepts behind xorq
-
-  </Card>
-</CardGroup>
-
-## Tutorials
-
-Dive in to learn more about how to use xorq.
-
-<CardGroup cols={2}>
-  <Card
-    title="10-minutes tour of xorq"
-    icon="palette"
+    title="10 minutes to xorq"
+    icon="clock"
     href="/tutorials/10_minutes_xorq_tour"
   >
     Learn key concepts in a brief tutorial
   </Card>
+</CardGroup>
+
+## Dive Deeper
+
+Multi-part series on how to build an end-to-end ML pipeline using live data from the [HackerNews API](https://github.com/HackerNews/API).
+
+<CardGroup cols={2}>
   <Card
-    title="Pipelines as Expressions"
-    icon="code"
-    href="/tutorials/pipelines_as_expressions"
+    title="1. Data prep with LLM Assisted Labeling"
+    icon="database"
+    href="/tutorials/hn_data_prep"
   >
-    Declarative, multi-engine expressions for ML
+    Learn to use UDXFs for preparing and labeling data with OpenAI. 
   </Card>
   <Card
-    title="Building with xorq"
-    icon="screwdriver-wrench"
-    href="/tutorials/build"
+    title="2. Feature engineering with TF-IDF"
+    icon="vector-square"
   >
-    Build your expr pipeline into executable and introspectable artifacts
+    Learn how to build fit-transform style deferred pipelines.
   </Card>
   <Card
-    title="UD(X)F"
-    icon="stars"
-    href="/tutorials/udxf"
+    title="3. Model training with XGBoost"
+    icon="brain"
+    href="/tutorials/hn_training_xgb"
   >
-    Check out how to make it your own with extensible UDFs
+    Learn how to build fit-predict style deferred pipelines.
+  </Card>
+  <Card
+    title="4. Serving trained model"
+    icon="server"
+  >
+    Lean how to serve the trained model on live data with Arrow Flight
   </Card>
 </CardGroup>
+
+## Why xorq?
+
+xorq was developed to give Python developers a more ergonomic way to build,
+cache, and serve pipelines—without getting locked into a single engine. The
+xorq computational framework provides a quantum leap in ML development by:
+
+- **Simplifying development** - no more juggling separate SQL jobs, pandas
+  scripts, and ML framework specific transformations.
+- **Accelerating iteration** - intelligent caching means no more having to wait
+  for full pipeline re-runs after every little change.
+- **Making deployment seamless** - moving a working pipeline from local dev to
+  production no longer requires rewriting.
