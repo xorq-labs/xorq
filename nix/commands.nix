@@ -1,6 +1,16 @@
 { pkgs, python }:
 let
 
+  xorq-kill-lsof-grep-port = pkgs.writeShellScriptBin "xorq-kill-lsof-grep-port" ''
+    set -eux
+
+    port=$1
+    pids=($(lsof -i4@localhost | grep "$port" | awk '{print $2}'))
+    if [ "''${#pids[@]}" -ne "0" ]; then
+      kill "''${pids[@]}"
+    fi
+  '';
+
   letsql-pytest = pkgs.writeShellScriptBin "letsql-pytest" ''
     set -eux
 
@@ -102,6 +112,7 @@ let
 
   letsql-commands = {
     inherit
+      xorq-kill-lsof-grep-port
       letsql-pytest
       letsql-fmt
       letsql-lint
