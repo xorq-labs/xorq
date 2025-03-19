@@ -8,6 +8,10 @@ from cloudpickle import loads
 
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
+from xorq.common.utils.rbr_utils import (
+    copy_rbr_batches,
+    make_filtered_reader,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -160,7 +164,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
 
     def do_put(self, context, descriptor, reader, writer):
         table_name = descriptor.command.decode("utf-8")
-        data = reader.read_all()
+        data = copy_rbr_batches(make_filtered_reader(reader)).read_all()
         try:
             if table_name in self._conn.tables:
                 self._conn.insert(table_name, data)

@@ -7,6 +7,10 @@ import pyarrow as pa
 import pyarrow.flight
 from cloudpickle import dumps, loads
 
+from xorq.common.utils.rbr_utils import (
+    copy_rbr_batches,
+)
+
 
 executor = ThreadPoolExecutor()
 
@@ -133,7 +137,7 @@ class FlightClient:
             options=self._options,
         )
 
-        for i, batch in enumerate(reader, 1):
+        for batch in copy_rbr_batches(reader):
             writer.write_batch(batch)
         writer.done_writing()
         writer.close()
