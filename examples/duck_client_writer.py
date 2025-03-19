@@ -7,16 +7,24 @@ import pyarrow as pa
 from xorq.flight.client import FlightClient
 
 
-client = FlightClient(port=8815)
+name = "concurrent_test"
+port = 8816
 
-table_name = "concurrent_test"
 
-while True:
-    data = pa.Table.from_pydict(
-        {"id": [int(time.time())], "value": [f"val-{random.randint(100, 999)}"]}
+def write_data(name, client):
+    data = pa.Table.from_pylist(
+        (
+            {
+                "id": int(time.time()),
+                "value": f"val-{random.randint(100, 999)}",
+            },
+        )
     )
-    client.upload_data(table_name, data)
-
+    client.upload_data(name, data)
     print(f"{datetime.now().isoformat()} - Uploaded data: {data.to_pydict()}")
 
+
+client = FlightClient(port=port)
+while True:
+    write_data(name, client)
     time.sleep(1)
