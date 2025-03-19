@@ -625,8 +625,7 @@ def _filter_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     predicates = [
         translate_from_yaml(pred, context) for pred in yaml_dict["predicates"]
     ]
-    filter_op = ops.Filter(parent, predicates)
-    return filter_op.to_expr()
+    return parent.filter(predicates)
 
 
 @translate_to_yaml.register(ops.Project)
