@@ -159,16 +159,18 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             raise pyarrow.flight.FlightServerError(f"Error executing query: {str(e)}")
 
     def do_put(self, context, descriptor, reader, writer):
-        """
-        Handle data upload - creates or updates a table
-        """
         table_name = descriptor.command.decode("utf-8")
         data = reader.read_all()
-
         try:
-            self._conn.register(data, table_name=table_name)
+            if table_name in self._conn.tables:
+                self._conn.insert(table_name, data)
+            else:
+                self._conn.register(data, table_name=table_name)
+
         except Exception as e:
-            raise pyarrow.flight.FlightServerError(f"Error creating table: {str(e)}")
+            raise pyarrow.flight.FlightServerError(
+                f"Error handling table '{table_name}': {str(e)}"
+            )
 
     def list_actions(self, context):
         """
