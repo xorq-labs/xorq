@@ -166,6 +166,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
                 self._conn.insert(table_name, data)
             else:
                 self._conn.create_table(table_name, data)
+                self._conn.register(data, table_name=table_name)
 
         except Exception as e:
             raise pyarrow.flight.FlightServerError(
