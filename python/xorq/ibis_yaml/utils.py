@@ -1,7 +1,8 @@
+import pathlib
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict
 
-from xorq.caching import SourceStorage
+from xorq.caching import ParquetStorage, SourceStorage
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -122,6 +123,12 @@ def translate_storage(storage, compiler: Any) -> Dict:
             "type": "SourceStorage",
             "source": storage.source._profile.hash_name,
         }
+    elif isinstance(storage, ParquetStorage):
+        return {
+            "type": "ParquetStorage",
+            "source": storage.source._profile.hash_name,
+            "path": str(storage.path.resolve()),
+        }
     else:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
 
@@ -131,5 +138,9 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
         return SourceStorage(source=source)
+    elif storage_yaml["type"] == "ParquetStorage":
+        source_profile_name = storage_yaml["source"]
+        source = compiler.profiles[source_profile_name]
+        return ParquetStorage(source=source, path=pathlib.Path(storage_yaml["path"]))
     else:
         raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")
