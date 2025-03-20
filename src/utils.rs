@@ -17,7 +17,7 @@ use crate::TokioRuntime;
 
 /// Utility to get the Tokio Runtime from Python
 pub(crate) fn get_tokio_runtime(py: Python) -> PyRef<TokioRuntime> {
-    let datafusion = py.import_bound("xorq._internal").unwrap();
+    let datafusion = py.import("xorq._internal").unwrap();
     datafusion.getattr("runtime").unwrap().extract().unwrap()
 }
 
