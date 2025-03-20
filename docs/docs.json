@@ -17,9 +17,18 @@
             "group": "User Guide",
             "pages": [
               "overview",
-              "getting_started/quickstart",
-              "core_concepts"
+              "getting_started/quickstart"
             ]
+          }, 
+          {
+            "group": "Core Concepts",
+            "pages": [
+              "core_concepts/caching",
+              "core_concepts/multi_engine",
+              "core_concepts/udxf",
+              "core_concepts/build",
+              "core_concepts/profiles_guide"
+              ]
           },
           {
             "group": "Tutorials",
