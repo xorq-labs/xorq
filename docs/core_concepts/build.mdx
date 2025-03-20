@@ -1,12 +1,15 @@
 ---
-title: 'Building and Running Expressions'
+title: 'CLI'
 ---
 
 The xorq CLI provides two powerful commands, `build` and `run`, that help you separate the definition of data transformations from their execution. This separation enables:
 
-- **Reproducibility**: Define transformations once and execute them consistently across different environments with guaranteed identical results.
-- **Serialization:** Store complex queries as compiled artifacts that can be shared, versioned, and executed without the original code
-- **Performance optimization:** Pre-compile expressions to avoid repeated parsing and optimization at runtime
+- **Replicability**: Define transformations once and execute them consistently
+  across different environments with guaranteed identical results.
+- **Serialization:** Store complex queries as compiled artifacts that can be
+  shared, versioned, and executed without the original code
+- **Performance optimization:** Pre-compile expressions to avoid repeated
+  parsing and optimization at runtime
 
 ## Prerequisites
 
@@ -18,7 +21,8 @@ pip install xorq
 
 ## Building Expressions
 
-The `build` command compiles an Ibis expression into a reusable artifact that can be executed later.
+The `build` command compiles an Ibis expression into a reusable artifact that
+can be executed later.
 
 ### Basic Usage
 

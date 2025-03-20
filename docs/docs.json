@@ -23,10 +23,11 @@
           {
             "group": "Core Concepts",
             "pages": [
-              "tutorials/pipelines_as_expressions",
-              "tutorials/profiles_guide",
-              "tutorials/building",
-              "tutorials/udxf"
+              "core_concepts/caching",
+              "core_concepts/multi_engine",
+              "core_concepts/udxf",
+              "core_concepts/build",
+              "core_concepts/profiles_guide"
               ]
           },
           {
