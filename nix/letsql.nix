@@ -199,6 +199,7 @@ let
         pkgs.uv
         toolchain
         letsql-commands-star
+        pkgs.gh
       ];
       shell = pkgs.mkShell {
         packages = [
