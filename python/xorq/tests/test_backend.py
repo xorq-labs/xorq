@@ -12,9 +12,9 @@ import xorq as xo
         xo.postgres.connect_examples,
     ),
 )
-def test_remote_reconect(make_connection):
+def test_remote_reconnect(make_connection):
     con = make_connection()
     expected = con.list_tables()
     actual = pickle.loads(pickle.dumps(con)).list_tables()
-    assert expected  # smoketest that we have something meaningful to test
+    assert expected  # smoke test that we have something meaningful to test
     assert actual == expected
