@@ -83,7 +83,7 @@ def test_read_csv(con, data_dir):
 
 def test_read_csv_from_url(con):
     t = con.read_csv(
-        "https://opendata-downloads.s3.amazonaws.com/opa_properties_public.csv"
+        "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv"
     )
     assert t.head().execute() is not None
 
