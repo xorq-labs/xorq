@@ -3,14 +3,10 @@ import pyarrow as pa
 import xorq as xo
 from xorq.flight import FlightServer
 from xorq.flight.action import DropTableAction, ListTablesAction
-from xorq.flight.tests.test_server import make_flight_url
 
 
 def test_list_tables_kwargs():
-    flight_url = make_flight_url(8816)
-
     with FlightServer(
-        flight_url=flight_url,
         verify_client=False,
         connection=xo.duckdb.connect,
     ) as main:
@@ -29,10 +25,7 @@ def test_list_tables_kwargs():
 
 
 def test_drop_table():
-    flight_url = make_flight_url(8816)
-
     with FlightServer(
-        flight_url=flight_url,
         verify_client=False,
         connection=xo.duckdb.connect,
     ) as main:
