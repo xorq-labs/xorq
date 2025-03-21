@@ -174,9 +174,9 @@ class DropTableAction(AbstractAction):
 
     @classmethod
     def do_action(cls, server, context, action):
-        args = loads(action.body)
-        table_name = args.pop("table_name")
-        server._conn.drop_table(table_name)
+        kwargs = loads(action.body)
+        table_name = kwargs.pop("name")
+        server._conn.drop_table(table_name, **kwargs)
         yield make_flight_result(f"dropped table {table_name}")
 
 
@@ -193,9 +193,9 @@ class DropViewAction(AbstractAction):
 
     @classmethod
     def do_action(cls, server, context, action):
-        args = loads(action.body)
-        table_name = args.pop("table_name")
-        server._conn.drop_view(table_name)
+        kwargs = loads(action.body)
+        table_name = kwargs.pop("name")
+        server._conn.drop_view(table_name, **kwargs)
         yield make_flight_result(f"dropped view {table_name}")
 
 
