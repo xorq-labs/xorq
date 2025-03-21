@@ -142,7 +142,10 @@ class FlightClient:
         writer.done_writing()
         writer.close()
 
-    def _do_action(self, action_type, action_body="", options=None):
+    def _do_action(self, action_type, action_body=None, options=None):
+        if action_body is None:
+            action_body = {}
+
         try:
             action = pa.flight.Action(
                 action_type,
@@ -160,12 +163,12 @@ class FlightClient:
         except pa.lib.ArrowIOError as e:
             logger.debug(f"Error calling action: {e}")
 
-    def do_action_one(self, action_type, action_body="", options=None):
+    def do_action_one(self, action_type, action_body=None, options=None):
         return next(
             self._do_action(action_type, action_body=action_body, options=options)
         )
 
-    def do_action(self, action_type, action_body="", options=None):
+    def do_action(self, action_type, action_body=None, options=None):
         return tuple(
             self._do_action(action_type, action_body=action_body, options=options)
         )
