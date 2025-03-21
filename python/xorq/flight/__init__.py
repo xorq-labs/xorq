@@ -209,4 +209,4 @@ class FlightServer:
         self.close(*args)
 
 
-__all__ = ["FlightServer", "BasicAuth"]
+__all__ = ["FlightServer", "BasicAuth", "FlightUrl"]
