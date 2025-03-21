@@ -175,7 +175,7 @@ class DropTableAction(AbstractAction):
     @classmethod
     def do_action(cls, server, context, action):
         table_name = loads(action.body)
-        server._conn.execute(table_name)
+        server._conn.drop_table(table_name)
         yield make_flight_result(f"dropped table {table_name}")
 
 
