@@ -1,4 +1,15 @@
 import xorq.expr.relations as rel
+import xorq.expr.udf as udf
+
+
+opaque_ops = (
+    rel.Read,
+    rel.CachedNode,
+    rel.RemoteTable,
+    rel.FlightUDXF,
+    rel.FlightExpr,
+    udf.ExprScalarUDF,
+)
 
 
 def walk_nodes(node_types, expr):
@@ -19,12 +30,21 @@ def walk_nodes(node_types, expr):
             case rel.FlightExpr():
                 yield op
                 yield from walk_nodes(node_types, op.input_expr)
-
             case rel.FlightUDXF():
                 yield op
                 yield from walk_nodes(node_types, op.input_expr)
-
+            case udf.ExprScalarUDF():
+                yield op
+                yield from walk_nodes(
+                    node_types,
+                    op.computed_kwargs_expr,
+                )
+            case rel.Read():
+                if isinstance(op, node_types):
+                    yield op
             case _:
+                if isinstance(op, opaque_ops):
+                    raise ValueError(f"unhandled opaque op {type(op)}")
                 yield from op.find(node_types)
 
     def inner(rest, seen):
