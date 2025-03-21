@@ -37,9 +37,7 @@ def test_drop_table():
         assert main.client.do_action_one(ListTablesAction.name)
 
         # WHEN
-        main.client.do_action_one(
-            DropTableAction.name, action_body={"table_name": "users"}
-        )
+        main.client.do_action_one(DropTableAction.name, action_body={"name": "users"})
 
         # THEN
         assert not main.client.do_action_one(ListTablesAction.name)
