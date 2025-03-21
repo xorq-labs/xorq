@@ -5,8 +5,10 @@ import pytest
 import toolz
 
 import xorq as xo
+from xorq.caching import ParquetStorage
 from xorq.expr.udf import make_pandas_udf
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
+from xorq.tests.util import assert_frame_equal
 
 
 field_name = "price_per_carat"
@@ -121,5 +123,54 @@ def test_flight_udxf(con, diamonds, baseline):
     pd.testing.assert_frame_equal(
         df,
         roundtrip_df,
+        check_exact=False,
+    )
+
+
+def test_flight_udxf_cached(con, diamonds, baseline):
+    input_expr = diamonds.pipe(do_agg)
+    process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
+    maybe_schema_in = input_expr.schema().to_pyarrow()
+    maybe_schema_out = xo.schema(
+        input_expr.schema() | {field_name: return_type}
+    ).to_pyarrow()
+
+    udxf = xo.expr.relations.flight_udxf(
+        process_df=process_df,
+        maybe_schema_in=maybe_schema_in,
+        maybe_schema_out=maybe_schema_out,
+        con=con,
+        make_udxf_kwargs={"name": my_udf.__name__},
+    )
+
+    raw_expr = input_expr.pipe(udxf)
+
+    ddb_con = xo.duckdb.connect()
+    expr = (
+        raw_expr.filter(xo._.cut.notnull())
+        .cache(storage=ParquetStorage(ddb_con))
+        .filter(~xo._.cut.contains("ERROR"))
+        .order_by("cut")
+    )
+
+    compiler = YamlExpressionTranslator()
+    yaml_dict = compiler.to_yaml(expr)
+
+    diamonds_con = diamonds._find_backend()
+
+    profiles = {
+        con._profile.hash_name: con,
+        diamonds_con._profile.hash_name: diamonds_con,
+        ddb_con._profile.hash_name: ddb_con,
+    }
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
+
+    expected = expr.execute()
+
+    actual = roundtrip_expr.execute()
+
+    assert_frame_equal(
+        expected,
+        actual,
         check_exact=False,
     )
