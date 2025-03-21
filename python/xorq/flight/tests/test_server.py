@@ -70,9 +70,36 @@ def test_register_and_list_tables(connection, port):
         actual = xo.execute(t)
 
         assert t.schema() is not None
-        # assert FlightUrl.port_in_use(port=port)
         assert "users" in con.list_tables()
         assert isinstance(actual, pd.DataFrame)
+
+
+@pytest.mark.parametrize(
+    "connection,port",
+    [
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.connect, None, id="xorq"),
+    ],
+)
+def test_into_backend_flight_server(connection, port, parquet_dir):
+    batting = xo.read_parquet(parquet_dir / "batting.parquet")
+    flight_url = make_flight_url(port)
+
+    with FlightServer(
+        flight_url=flight_url,
+        verify_client=False,
+        connection=connection,
+    ) as main:
+        con = main.con
+        t = batting.filter(batting.yearID == 2015).into_backend(con, "xo_batting")
+        expr = (
+            t.join(t, "playerID")
+            .limit(15)
+            .select(player_id="playerID", year_id="yearID_right")
+        )
+
+        assert not expr.execute().empty
 
 
 @pytest.mark.parametrize(
