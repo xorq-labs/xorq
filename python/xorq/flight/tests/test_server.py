@@ -279,3 +279,26 @@ def test_ctor_exchanger_registration():
             dummy_udxf.command,
             xo.memtable({"dummy": [0]}, schema=schema_in).to_pyarrow_batches(),
         )
+
+
+@pytest.mark.parametrize(
+    "expr",
+    [
+        pytest.param(xo.table({"id": int}, name="users").count(), id="scalar"),
+        pytest.param(xo.literal(1), id="literal"),
+        pytest.param(xo.table({"id": int}, name="users").id, id="column"),
+    ],
+)
+def test_execute_query_non_relation_expr(expr):
+    flight_url = make_flight_url(None)
+    data = pa.table({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}).to_pandas()
+
+    with FlightServer(
+        flight_url=flight_url,
+        verify_client=False,
+        connection=xo.duckdb.connect,
+    ) as main:
+        main.con.register(data, table_name="users")
+        actual = main.client.execute_query(expr)
+        assert isinstance(actual, pa.Table)
+        assert len(actual) > 0
