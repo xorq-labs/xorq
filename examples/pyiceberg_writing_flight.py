@@ -15,7 +15,7 @@ from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.client import FlightClient
 
 
-warehouse_path = "/tmp/warehouse"
+warehouse_path = "warehouse"
 port = 8816
 table_name = "concurrent_test"
 namespace = "default"
@@ -33,93 +33,90 @@ class IcebergConnector:
         }
 
         self.catalog = load_catalog("default", **self.catalog_params)
+        namespaces = [n[0] for n in self.catalog.list_namespaces()]
 
-        if namespace not in self.catalog.list_namespaces():
+        if namespace not in namespaces:
             self.catalog.create_namespace(namespace)
 
         self.con = xo.duckdb.connect()
+        self.con.raw_sql("INSTALL iceberg;")
+        self.con.raw_sql("LOAD iceberg;")
+        self.con.raw_sql("SET unsafe_enable_version_guessing=true;")
+        self._reflect_views()
+
+    def _reflect_views(self):
+        table_identifiers = self.catalog.list_tables("default")
+        table_names = [t[1] for t in table_identifiers]
+        for t in table_names:
+            full_table_name = f"{namespace}.{t}"
+            table_path = f"{self.warehouse_path}/{namespace}.db/{t}"
+            self.con.raw_sql("INSTALL iceberg;")
+            self.con.raw_sql("LOAD iceberg;")
+            self.con.raw_sql("SET unsafe_enable_version_guessing=true;")
+
+            self.con.raw_sql(f"""
+                CREATE OR REPLACE VIEW {t} AS
+                SELECT * FROM iceberg_scan(
+                    '{table_path}', 
+                    version='?',
+                    allow_moved_paths=true
+                )
+            """)
+            print(f"Created view: {t} for table: {full_table_name}")
 
     @property
     def tables(self):
-        try:
-            catalog = load_catalog("default", **self.catalog_params)
-            return [table_id[1] for table_id in catalog.list_tables((namespace,))]
-        except Exception as e:
-            print(f"Error listing tables: {e}")
-            return []
+        catalog = load_catalog("default", **self.catalog_params)
+        return [table_id[1] for table_id in catalog.list_tables((namespace,))]
 
     def create_table(self, table_name, data):
-        try:
-            full_table_name = f"{namespace}.{table_name}"
-            catalog = load_catalog("default", **self.catalog_params)
+        full_table_name = f"{namespace}.{table_name}"
+        catalog = load_catalog("default", **self.catalog_params)
 
-            if catalog.table_exists(full_table_name):
-                catalog.drop_table(full_table_name)
+        if catalog.table_exists(full_table_name):
+            return True
 
-            iceberg_fields = []
-            for i, field in enumerate(data.schema, 1):
-                if pa.types.is_int64(field.type):
-                    iceberg_type = LongType()
-                elif pa.types.is_string(field.type):
-                    iceberg_type = StringType()
-                else:
-                    iceberg_type = StringType()
+        iceberg_fields = []
+        for i, field in enumerate(data.schema, 1):
+            if pa.types.is_int64(field.type):
+                iceberg_type = LongType()
+            elif pa.types.is_string(field.type):
+                iceberg_type = StringType()
+            else:
+                iceberg_type = StringType()
 
-                iceberg_fields.append(
-                    NestedField(i, field.name, iceberg_type, required=True)
-                )
-
-            iceberg_schema = Schema(*iceberg_fields)
-            iceberg_table = catalog.create_table(
-                identifier=full_table_name, schema=iceberg_schema
+            iceberg_fields.append(
+                NestedField(i, field.name, iceberg_type, required=True)
             )
 
-            iceberg_table.append(data)
-            return True
-        except Exception as e:
-            print(f"Error creating table: {e}")
-            return False
+        iceberg_schema = Schema(*iceberg_fields)
+        iceberg_table = catalog.create_table(
+            identifier=full_table_name,
+            schema=iceberg_schema,
+        )
+
+        iceberg_table.append(data)
+        return True
 
     def insert(self, table_name, data):
-        try:
-            full_table_name = f"{namespace}.{table_name}"
-            catalog = load_catalog("default", **self.catalog_params)
+        full_table_name = f"{namespace}.{table_name}"
 
-            if catalog.table_exists(full_table_name):
-                iceberg_table = catalog.load_table(full_table_name)
-                iceberg_table.append(data)
-                return True
-            else:
-                return False
-        except Exception as e:
-            print(f"Error inserting data: {e}")
-            return False
+        iceberg_table = self.catalog.load_table(full_table_name)
+        iceberg_table.refresh()
+
+        with iceberg_table.transaction() as transaction:
+            transaction.append(data)
+
+        return True
 
     def to_pyarrow_batches(self, expr, **kwargs):
-        try:
-            table_name = "concurrent_test"
+        self._reflect_views()
 
-            print(f"Using known table name: {table_name}")
-            full_table_name = f"{namespace}.{table_name}"
+        return self.con.to_pyarrow_batches(expr)
 
-            catalog = load_catalog("default", **self.catalog_params)
-
-            if catalog.table_exists(full_table_name):
-                print(f"Table {full_table_name} exists")
-                iceberg_table = catalog.load_table(full_table_name)
-                iceberg_table.refresh()
-                reader = iceberg_table.scan().to_arrow_batch_reader()
-                return reader
-            else:
-                print(f"Table {full_table_name} does not exist")
-
-            return pa.RecordBatchReader.from_batches(pa.schema([]), [])
-        except Exception as e:
-            print(f"Error reading data: {e}")
-            import traceback
-
-            traceback.print_exc()
-            return pa.RecordBatchReader.from_batches(pa.schema([]), [])
+    def sql(self, sql):
+        self._reflect_views()
+        return self.con.con.sql(sql)
 
 
 def run_server(warehouse_path, table_name, port):
@@ -128,19 +125,19 @@ def run_server(warehouse_path, table_name, port):
         connection=partial(IcebergConnector, warehouse_path),
     )
     server.serve()
-
-    server.server._conn.create_table(
-        table_name,
-        pa.Table.from_pylist(
-            [],
-            schema=pa.schema(
-                [
-                    pa.field("id", pa.int64(), nullable=False),
-                    pa.field("value", pa.string(), nullable=False),
-                ]
-            ),
+    table = pa.Table.from_pylist(
+        [
+            {"id": 1, "value": "sample_value_1"},
+            {"id": 2, "value": "sample_value_2"},
+        ],
+        schema=pa.schema(
+            [
+                pa.field("id", pa.int64(), nullable=False),
+                pa.field("value", pa.string(), nullable=False),
+            ]
         ),
     )
+    server.server._conn.create_table(table_name, table)
 
     print(f"Flight server started at grpc://localhost:{port}")
     while server.server is not None:
@@ -151,25 +148,9 @@ def run_reader(table_name, port):
     client = FlightClient(port=port)
 
     while True:
-        try:
-            table_ref = xo.table({"id": int, "value": str}, name=table_name)
-            print(f"Reading table with ref: {table_ref}, name: {table_name}")
-            result = client.execute_query(table_ref)
-
-            if result is not None:
-                df = result.to_pandas()
-                count = len(df)
-                print(f"{datetime.now().isoformat()} count: {count}")
-                if count > 0:
-                    print(f"Latest record: {df.iloc[-1].to_dict()}")
-            else:
-                print(f"{datetime.now().isoformat()} count: 0")
-
-        except Exception as e:
-            print(f"Error reading data: {e}")
-            print(f"{datetime.now().isoformat()} count: 0")
-
-        time.sleep(1)
+        expr = xo.table({"id": int, "value": str}, name=table_name).count().as_table()
+        result = client.execute_query(expr)
+        print(f"{datetime.now().isoformat()} count: {result}")
 
 
 def run_writer(table_name, port):
