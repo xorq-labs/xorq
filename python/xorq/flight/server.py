@@ -133,7 +133,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         # Execute query to get schema and metadata
         kwargs = loads(query)
         expr = kwargs.pop("expr")
-        schema = expr.schema().to_pyarrow()
+        schema = expr.as_table().schema().to_pyarrow()
         descriptor = pyarrow.flight.FlightDescriptor.for_command(query)
         endpoints = [pyarrow.flight.FlightEndpoint(query, [self._location])]
 
