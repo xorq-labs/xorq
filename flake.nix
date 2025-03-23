@@ -46,9 +46,26 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
+        pythonDarwinHotfix = old: {
+          # https://github.com/NixOS/nixpkgs/pull/390454
+          preConfigure = old.preConfigure + (
+            pkgs.lib.optionalString
+            (system == "aarch64-darwin")
+            ''
+              # Fix _ctypes module compilation
+              export NIX_CFLAGS_COMPILE+=" -DUSING_APPLE_OS_LIBFFI=1"
+            ''
+          );
+        };
         pkgs = import nixpkgs {
           inherit system;
-          overlays = [ (import rust-overlay) ];
+          overlays = [
+            (import rust-overlay)
+            (_final: prev: {
+              python310 = prev.python310.overrideAttrs pythonDarwinHotfix;
+              python311 = prev.python311.overrideAttrs pythonDarwinHotfix;
+            })
+          ];
         };
         inherit (nix-utils.lib.${system}.utils) drvToApp;
 
