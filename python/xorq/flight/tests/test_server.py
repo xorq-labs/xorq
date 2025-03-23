@@ -5,6 +5,8 @@ import pyarrow as pa
 import pytest
 
 import xorq as xo
+import xorq.flight.action as A
+import xorq.flight.exchanger as E
 from xorq.common.utils.rbr_utils import instrument_reader
 from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.action import AddExchangeAction
@@ -40,6 +42,44 @@ def test_port_in_use(connection, port):
             # entering the above context releases the port
             # so we won't raise until we enter the second context and try to use it
             flight_url2 = FlightUrl(port=port)  # noqa: F841
+
+
+class Answer42Action(A.AbstractAction):
+    @classmethod
+    @property
+    def name(cls):
+        return "answer-42"
+
+    @classmethod
+    def description(cls):
+        return (
+            "the answer to the ultimate question of life, the universe, and everything"
+        )
+
+    @classmethod
+    def do_action(cls, server, context, action):
+        yield A.make_flight_result(42)
+
+
+def test_list_actions():
+    with FlightServer() as flight_server:
+        actions = flight_server.client.do_action_one(A.ListActionsAction.name)
+        assert actions == tuple(A.actions)
+
+
+def test_add_action():
+    with FlightServer() as flight_server:
+        actions = flight_server.client.do_action_one(A.ListActionsAction.name)
+        assert Answer42Action.name not in actions
+        flight_server.client.do_action(A.AddActionAction.name, Answer42Action)
+        actions = flight_server.client.do_action_one(A.ListActionsAction.name)
+        assert Answer42Action.name in actions
+
+
+def test_list_exchanges():
+    with FlightServer() as flight_server:
+        exchanges = flight_server.client.do_action_one(A.ListExchangesAction.name)
+        assert exchanges == tuple(E.exchangers)
 
 
 @pytest.mark.parametrize(
@@ -258,14 +298,11 @@ def test_serve_close(connection):
 
 
 def test_ctor_exchanger_registration():
-    from xorq.flight.action import ListExchangesAction
-    from xorq.flight.exchanger import make_udxf
-
     def dummy(df: pd.DataFrame):
         return pd.DataFrame({"row_count": [42]})
 
     schema_in = xo.schema({"dummy": "int64"})
-    dummy_udxf = make_udxf(
+    dummy_udxf = E.make_udxf(
         dummy,
         schema_in.to_pyarrow(),
         xo.schema({"row_count": "int64"}).to_pyarrow(),
@@ -273,7 +310,7 @@ def test_ctor_exchanger_registration():
     flight_server = FlightServer(exchangers=[dummy_udxf])
     with flight_server:
         client = flight_server.client
-        available = client.do_action_one(ListExchangesAction.name)
+        available = client.do_action_one(A.ListExchangesAction.name)
         assert dummy_udxf.command in available
         client.do_exchange(
             dummy_udxf.command,
