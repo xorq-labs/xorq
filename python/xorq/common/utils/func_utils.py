@@ -46,3 +46,13 @@ def maybe_log_excepts(f, exception=Exception, debug=None):
         return log_excepts(f, exception=exception)
     else:
         return f
+
+
+@toolz.curry
+def with_lock(lock, f):
+    @functools.wraps(f)
+    def wrapper(*args, **kwargs):
+        with lock:
+            return f(*args, **kwargs)
+
+    return wrapper

@@ -1,6 +1,7 @@
 import base64
 import logging
 import secrets
+import threading
 
 import pyarrow as pa
 import pyarrow.flight
@@ -10,6 +11,7 @@ import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils.func_utils import (
     maybe_log_excepts,
+    with_lock,
 )
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -18,6 +20,7 @@ from xorq.common.utils.rbr_utils import (
 
 
 logger = logging.getLogger(__name__)
+lock = threading.Lock()
 
 
 class BasicAuthServerMiddlewareFactory(pa.flight.ServerMiddlewareFactory):
@@ -151,6 +154,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         return self._make_flight_info(query)
 
     @maybe_log_excepts
+    @with_lock(lock)
     def do_get(self, context, ticket):
         """
         Execute SQL query and return results
@@ -165,8 +169,10 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             raise pyarrow.flight.FlightServerError(f"Error executing query: {str(e)}")
 
     @maybe_log_excepts
+    @with_lock(lock)
     def do_put(self, context, descriptor, reader, writer):
         table_name = descriptor.command.decode("utf-8")
+        # FIXME: pass record batch reader to con when possible
         data = copy_rbr_batches(make_filtered_reader(reader)).read_all()
         try:
             if table_name in self._conn.tables:
@@ -180,6 +186,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             )
 
     @maybe_log_excepts
+    @with_lock(lock)
     def do_action(self, context, action):
         cls = self.actions.get(action.type)
         if cls:
@@ -189,6 +196,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             raise KeyError("Unknown action {!r}".format(action.type))
 
     @maybe_log_excepts
+    @with_lock(lock)
     def do_exchange(self, context, descriptor, reader, writer):
         if descriptor.descriptor_type != pyarrow.flight.DescriptorType.CMD:
             raise pa.ArrowInvalid("Must provide a command descriptor")
