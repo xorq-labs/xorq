@@ -35,7 +35,8 @@
             "pages": [
               "tutorials/hn_data_prep",
               "tutorials/hn_transform_tfidf",
-              "tutorials/hn_training_xgb"
+              "tutorials/hn_training_xgb",
+              "tutorials/hn_serving"
             ]
           }
         ]
