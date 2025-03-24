@@ -1,6 +1,7 @@
 import argparse
 import random
 import time
+import traceback
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -24,8 +25,12 @@ table_name = "concurrent_test"
 
 def read_data(expr, client):
     result = client.execute_query(expr)
-    ((count,),) = result.to_pandas().values
-    print(f"{datetime.now().isoformat()} count: {count}")
+    try:
+        ((count,),) = result.to_pandas().values
+        print(f"{datetime.now().isoformat()} count: {count}")
+    except Exception:
+        print(f"result: {result}")
+        traceback.print_exc()
 
 
 def write_data(table_name, client):
