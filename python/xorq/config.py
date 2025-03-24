@@ -1,3 +1,4 @@
+import os
 import pathlib
 from typing import Any, Optional, Union
 
@@ -159,6 +160,7 @@ class Options(Config):
     sql: SQL = SQL()
     pins: Pins = Pins()
     profiles: Profiles = Profiles()
+    debug: bool = bool(os.environ.get("XORQ_DEBUG", False))
 
     @property
     def interactive(self) -> bool:
