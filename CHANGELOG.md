@@ -5,6 +5,52 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.1.17] - 2025-03-24
+### Details
+This release enhances xorq documentation with new quickstart guides, HN dataset tutorials, normalization helpers, 
+In the functionality side we added ListActionsAction. We upgraded to DataFusion 45, improved testing infrastructure, and refined core concepts documentation. 
+Key fixes address expression optimization, Darwin builds for Python 3.10/3.11, and various dependency updates to ruff, async-trait, and arrow.
+
+#### Added
+- Add quickstart by @hussainsultan in [#654](https://github.com/xorq-labs/xorq/pull/654)
+- Add helpers to identify normalization issues by @dlovell in [#669](https://github.com/xorq-labs/xorq/pull/669)
+- Add exchangers to FlightServer constructor by @dlovell in [#671](https://github.com/xorq-labs/xorq/pull/671)
+- Add hn quickstart example by @hussainsultan in [#675](https://github.com/xorq-labs/xorq/pull/675)
+- Add part 1 of hn data tutorial by @hussainsultan in [#661](https://github.com/xorq-labs/xorq/pull/661)
+- Add hn data tutorial part 2 by @hussainsultan in [#663](https://github.com/xorq-labs/xorq/pull/663)
+- ToolsPackages: add gh by @dlovell in [#673](https://github.com/xorq-labs/xorq/pull/673)
+- Add ListActionsAction by @dlovell in [#706](https://github.com/xorq-labs/xorq/pull/706)
+
+#### Changed
+- Update dependency ruff to v0.10.0 by @renovate[bot] in [#653](https://github.com/xorq-labs/xorq/pull/653)
+- Update extractions/setup-just action to v3 by @renovate[bot] in [#658](https://github.com/xorq-labs/xorq/pull/658)
+- Update dependency ruff to v0.11.0 by @renovate[bot] in [#657](https://github.com/xorq-labs/xorq/pull/657)
+- Update CONTRIBUTING.md by @dlovell in [#664](https://github.com/xorq-labs/xorq/pull/664)
+- Mark snapshot tests by @dlovell in [#665](https://github.com/xorq-labs/xorq/pull/665)
+- Update dependency coverage to v7.7.0 by @renovate[bot] in [#666](https://github.com/xorq-labs/xorq/pull/666)
+- Update readme to use similar language as docs by @hussainsultan in [#674](https://github.com/xorq-labs/xorq/pull/674)
+- Update dependency pre-commit to v4.2.0 by @renovate[bot] in [#681](https://github.com/xorq-labs/xorq/pull/681)
+- Update trinodb/trino docker tag to v473 by @renovate[bot] in [#685](https://github.com/xorq-labs/xorq/pull/685)
+- Update to datafusion 45 by @mesejo in [#672](https://github.com/xorq-labs/xorq/pull/672)
+- Change url in test_read_csv_from_url by @mesejo in [#688](https://github.com/xorq-labs/xorq/pull/688)
+- Move tests to xorq/tests by @mesejo in [#689](https://github.com/xorq-labs/xorq/pull/689)
+- Improve core concepts by @hussainsultan in [#686](https://github.com/xorq-labs/xorq/pull/686)
+- Update dependency ruff to v0.11.1 by @renovate[bot] in [#691](https://github.com/xorq-labs/xorq/pull/691)
+- Update dependency ruff to v0.11.2 by @renovate[bot] in [#698](https://github.com/xorq-labs/xorq/pull/698)
+- Convert expr to table by @mesejo in [#695](https://github.com/xorq-labs/xorq/pull/695)
+- Update trinodb/trino docker tag to v474 by @renovate[bot] in [#702](https://github.com/xorq-labs/xorq/pull/702)
+- Update dependency coverage to v7.7.1 by @renovate[bot] in [#697](https://github.com/xorq-labs/xorq/pull/697)
+- Hotfix darwin build for 3.10,3.11 by @dlovell in [#704](https://github.com/xorq-labs/xorq/pull/704)
+
+#### Fixed
+- Update rust crate async-trait to v0.1.88 by @renovate[bot] in [#656](https://github.com/xorq-labs/xorq/pull/656)
+- Invoke inspect when explicitly requested in normalize_seq_with_caller by @dlovell in [#668](https://github.com/xorq-labs/xorq/pull/668)
+- Warning for not using raw string in regex by @ghoersti in [#676](https://github.com/xorq-labs/xorq/pull/676)
+- Update flake inputs to build with rust 1.85.0 by @dlovell in [#690](https://github.com/xorq-labs/xorq/pull/690)
+- Avoid duplicated execution of expr by removing read_all by @mesejo in [#677](https://github.com/xorq-labs/xorq/pull/677)
+- Update rust crate arrow to v54.3.0 by @renovate[bot] in [#700](https://github.com/xorq-labs/xorq/pull/700)
+- Make action_body a dict by @mesejo in [#692](https://github.com/xorq-labs/xorq/pull/692)
+
 ## [0.1.16] - 2025-03-13
 ### Details
 #### Added
