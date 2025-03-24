@@ -15,17 +15,17 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use datafusion_common::{DataFusionError, ScalarValue};
-use datafusion_expr::expr::WindowFunction;
-use datafusion_expr::{Expr, Window, WindowFrame, WindowFrameBound, WindowFrameUnits};
-use pyo3::prelude::*;
-use std::fmt::{self, Display, Formatter};
-
 use crate::common::df_schema::PyDFSchema;
 use crate::errors::py_type_err;
 use crate::expr::logical_node::LogicalNode;
 use crate::expr::PyExpr;
 use crate::sql::logical::PyLogicalPlan;
+use datafusion_common::{DataFusionError, ScalarValue};
+use datafusion_expr::expr::WindowFunction;
+use datafusion_expr::{Expr, Window, WindowFrame, WindowFrameBound, WindowFrameUnits};
+use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
+use std::fmt::{self, Display, Formatter};
 
 use super::py_expr_list;
 
@@ -286,7 +286,7 @@ impl LogicalNode for PyWindow {
         vec![self.window.input.as_ref().clone().into()]
     }
 
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.clone().into_bound_py_any(py)
     }
 }

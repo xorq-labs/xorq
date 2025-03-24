@@ -15,6 +15,7 @@ use pyo3::{pyclass, pymethods, PyAny, PyObject, PyResult, Python};
 use crate::ibis_filter_expression::IbisFilterExpression;
 use crate::ibis_table_exec::IbisTableExec;
 
+use crate::errors::to_datafusion_err;
 use pyo3::prelude::*;
 
 #[pyclass(name = "TableProvider", module = "let", subclass)]
@@ -75,8 +76,10 @@ impl TableProvider for PyTableProvider {
                         .clone_ref(py)
                 })
                 .collect::<Vec<PyObject>>();
-            let ibis_filters = PyTuple::new_bound(py, &args);
-            let kwargs = [("filters", ibis_filters)].into_py_dict_bound(py);
+            let ibis_filters = PyTuple::new(py, &args).map_err(to_datafusion_err)?;
+            let kwargs = [("filters", ibis_filters)]
+                .into_py_dict(py)
+                .map_err(to_datafusion_err)?;
 
             let table = self
                 .table_provider

@@ -15,15 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use datafusion_expr::logical_plan::Projection;
-use datafusion_expr::Expr;
-use pyo3::prelude::*;
-use std::fmt::{self, Display, Formatter};
-
 use crate::common::df_schema::PyDFSchema;
 use crate::expr::logical_node::LogicalNode;
 use crate::expr::PyExpr;
 use crate::sql::logical::PyLogicalPlan;
+use datafusion_expr::logical_plan::Projection;
+use datafusion_expr::Expr;
+use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
+use std::fmt::{self, Display, Formatter};
 
 #[pyclass(name = "Projection", module = "datafusion.expr", subclass)]
 #[derive(Clone)]
@@ -113,7 +113,7 @@ impl LogicalNode for PyProjection {
         vec![PyLogicalPlan::from((*self.projection.input).clone())]
     }
 
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.clone().into_bound_py_any(py)
     }
 }

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use pyo3::{basic::CompareOp, prelude::*};
+use pyo3::{basic::CompareOp, prelude::*, IntoPyObjectExt};
 use std::convert::{From, Into};
 use std::sync::Arc;
 
@@ -33,7 +33,9 @@ use datafusion_expr::{
 use sort_expr::PySortExpr;
 
 use crate::common::data_type::{DataTypeMap, RexType};
-use crate::errors::{py_datafusion_err, py_runtime_err, py_type_err, DataFusionError};
+use crate::errors::{
+    py_datafusion_err, py_runtime_err, py_type_err, to_datafusion_err, DataFusionError,
+};
 use crate::expr::aggregate_expr::PyAggregateFunction;
 use crate::expr::binary_expr::PyBinaryExpr;
 use crate::expr::case::PyCase;
@@ -123,35 +125,36 @@ pub fn py_expr_list(expr: &[Expr]) -> PyResult<Vec<PyExpr>> {
 #[pymethods]
 impl PyExpr {
     /// Return the specific expression
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        //TODO add ScalarFunction back
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         Python::with_gil(|_| match &self.expr {
-            Expr::Alias(alias) => Ok(PyAlias::new(&alias.expr, &alias.name).into_py(py)),
-            Expr::Column(col) => Ok(PyColumn::from(col.clone()).into_py(py)),
+            Expr::Alias(alias) => Ok(PyAlias::new(&alias.expr, &alias.name).into_bound_py_any(py)?),
+            Expr::Column(col) => Ok(PyColumn::from(col.clone()).into_bound_py_any(py)?),
             Expr::ScalarVariable(data_type, variables) => {
-                Ok(PyScalarVariable::new(data_type, variables).into_py(py))
+                Ok(PyScalarVariable::new(data_type, variables).into_bound_py_any(py)?)
             }
-            Expr::Like(value) => Ok(PyLike::from(value.clone()).into_py(py)),
-            Expr::Literal(value) => Ok(PyLiteral::from(value.clone()).into_py(py)),
-            Expr::BinaryExpr(expr) => Ok(PyBinaryExpr::from(expr.clone()).into_py(py)),
-            Expr::Not(expr) => Ok(PyNot::new(*expr.clone()).into_py(py)),
-            Expr::IsNotNull(expr) => Ok(PyIsNotNull::new(*expr.clone()).into_py(py)),
-            Expr::IsNull(expr) => Ok(PyIsNull::new(*expr.clone()).into_py(py)),
-            Expr::IsTrue(expr) => Ok(PyIsTrue::new(*expr.clone()).into_py(py)),
-            Expr::IsFalse(expr) => Ok(PyIsFalse::new(*expr.clone()).into_py(py)),
-            Expr::IsUnknown(expr) => Ok(PyIsUnknown::new(*expr.clone()).into_py(py)),
-            Expr::IsNotTrue(expr) => Ok(PyIsNotTrue::new(*expr.clone()).into_py(py)),
-            Expr::IsNotFalse(expr) => Ok(PyIsNotFalse::new(*expr.clone()).into_py(py)),
-            Expr::IsNotUnknown(expr) => Ok(PyIsNotUnknown::new(*expr.clone()).into_py(py)),
-            Expr::Negative(expr) => Ok(PyNegative::new(*expr.clone()).into_py(py)),
-            Expr::Cast(cast) => Ok(PyCast::from(cast.clone()).into_py(py)),
-            Expr::Case(case) => Ok(PyCase::from(case.clone()).into_py(py)),
+            Expr::Like(value) => Ok(PyLike::from(value.clone()).into_bound_py_any(py)?),
+            Expr::Literal(value) => Ok(PyLiteral::from(value.clone()).into_bound_py_any(py)?),
+            Expr::BinaryExpr(expr) => Ok(PyBinaryExpr::from(expr.clone()).into_bound_py_any(py)?),
+            Expr::Not(expr) => Ok(PyNot::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotNull(expr) => Ok(PyIsNotNull::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNull(expr) => Ok(PyIsNull::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsTrue(expr) => Ok(PyIsTrue::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsFalse(expr) => Ok(PyIsFalse::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsUnknown(expr) => Ok(PyIsUnknown::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotTrue(expr) => Ok(PyIsNotTrue::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotFalse(expr) => Ok(PyIsNotFalse::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotUnknown(expr) => {
+                Ok(PyIsNotUnknown::new(*expr.clone()).into_bound_py_any(py)?)
+            }
+            Expr::Negative(expr) => Ok(PyNegative::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::Cast(cast) => Ok(PyCast::from(cast.clone()).into_bound_py_any(py)?),
+            Expr::Case(case) => Ok(PyCase::from(case.clone()).into_bound_py_any(py)?),
             Expr::Wildcard {
                 qualifier,
                 options: _,
-            } => Ok(PyWildcard::new(qualifier.clone()).into_py(py)),
+            } => Ok(PyWildcard::new(qualifier.clone()).into_bound_py_any(py)?),
             Expr::AggregateFunction(expr) => {
-                Ok(PyAggregateFunction::from(expr.clone()).into_py(py))
+                Ok(PyAggregateFunction::from(expr.clone()).into_bound_py_any(py)?)
             }
             other => Err(py_runtime_err(format!(
                 "Cannot convert this Expr to a Python object: {:?}",
@@ -318,63 +321,195 @@ impl PyExpr {
                         "ScalarValue::Null".to_string(),
                     ),
                 )),
-                ScalarValue::Boolean(v) => Ok(v.into_py(py)),
+                ScalarValue::Boolean(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 ScalarValue::Float16(_) => Err(py_datafusion_err(
                     datafusion_common::DataFusionError::NotImplemented(
                         "ScalarValue::Float16".to_string(),
                     ),
                 )),
-                ScalarValue::Float32(v) => Ok(v.into_py(py)),
-                ScalarValue::Float64(v) => Ok(v.into_py(py)),
-                ScalarValue::Decimal128(v, _, _) => Ok(v.into_py(py)),
+                ScalarValue::Float32(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Float64(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Decimal128(v, _, _) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 ScalarValue::Decimal256(_, _, _) => Err(py_datafusion_err(
                     datafusion_common::DataFusionError::NotImplemented(
                         "ScalarValue::Decimal256".to_string(),
                     ),
                 )),
-                ScalarValue::Int8(v) => Ok(v.into_py(py)),
-                ScalarValue::Int16(v) => Ok(v.into_py(py)),
-                ScalarValue::Int32(v) => Ok(v.into_py(py)),
-                ScalarValue::Int64(v) => Ok(v.into_py(py)),
-                ScalarValue::UInt8(v) => Ok(v.into_py(py)),
-                ScalarValue::UInt16(v) => Ok(v.into_py(py)),
-                ScalarValue::UInt32(v) => Ok(v.into_py(py)),
-                ScalarValue::UInt64(v) => Ok(v.into_py(py)),
-                ScalarValue::Utf8(v) => Ok(v.clone().into_py(py)),
-                ScalarValue::LargeUtf8(v) => Ok(v.clone().into_py(py)),
-                ScalarValue::Binary(v) => Ok(v.clone().into_py(py)),
+                ScalarValue::Int8(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Int16(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Int32(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Int64(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt8(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt16(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt32(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt64(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Utf8(v) => Ok(v
+                    .clone()
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::LargeUtf8(v) => Ok(v
+                    .clone()
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Binary(v) => Ok(v
+                    .clone()
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 ScalarValue::FixedSizeBinary(_, _) => Err(py_datafusion_err(
                     datafusion_common::DataFusionError::NotImplemented(
                         "ScalarValue::FixedSizeBinary".to_string(),
                     ),
                 )),
-                ScalarValue::LargeBinary(v) => Ok(v.clone().into_py(py)),
+                ScalarValue::LargeBinary(v) => Ok(v
+                    .clone()
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 ScalarValue::List(_) => Err(py_datafusion_err(
                     datafusion_common::DataFusionError::NotImplemented(
                         "ScalarValue::List".to_string(),
                     ),
                 )),
-                ScalarValue::Date32(v) => Ok(v.into_py(py)),
-                ScalarValue::Date64(v) => Ok(v.into_py(py)),
-                ScalarValue::Time32Second(v) => Ok(v.into_py(py)),
-                ScalarValue::Time32Millisecond(v) => Ok(v.into_py(py)),
-                ScalarValue::Time64Microsecond(v) => Ok(v.into_py(py)),
-                ScalarValue::Time64Nanosecond(v) => Ok(v.into_py(py)),
-                ScalarValue::TimestampSecond(v, _) => Ok(v.into_py(py)),
-                ScalarValue::TimestampMillisecond(v, _) => Ok(v.into_py(py)),
-                ScalarValue::TimestampMicrosecond(v, _) => Ok(v.into_py(py)),
-                ScalarValue::TimestampNanosecond(v, _) => Ok(v.into_py(py)),
-                ScalarValue::IntervalYearMonth(v) => Ok(v.into_py(py)),
+                ScalarValue::Date32(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Date64(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Time32Second(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Time32Millisecond(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Time64Microsecond(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Time64Nanosecond(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::TimestampSecond(v, _) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::TimestampMillisecond(v, _) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::TimestampMicrosecond(v, _) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::TimestampNanosecond(v, _) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::IntervalYearMonth(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 ScalarValue::IntervalDayTime(v) => Ok(ScalarValue::IntervalDayTime(*v)
-                    .into_pyobject(py)?
-                    .to_object(py)),
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 ScalarValue::IntervalMonthDayNano(v) => Ok(ScalarValue::IntervalMonthDayNano(*v)
-                    .into_pyobject(py)?
-                    .to_object(py)),
-                ScalarValue::DurationSecond(v) => Ok(v.into_py(py)),
-                ScalarValue::DurationMicrosecond(v) => Ok(v.into_py(py)),
-                ScalarValue::DurationNanosecond(v) => Ok(v.into_py(py)),
-                ScalarValue::DurationMillisecond(v) => Ok(v.into_py(py)),
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::DurationSecond(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::DurationMicrosecond(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::DurationNanosecond(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::DurationMillisecond(v) => Ok(v
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 ScalarValue::Struct(_) => Err(py_datafusion_err(
                     datafusion_common::DataFusionError::NotImplemented(
                         "ScalarValue::Struct".to_string(),
