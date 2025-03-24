@@ -19,9 +19,9 @@ use std::fmt::{self, Display, Formatter};
 
 use datafusion_expr::{logical_plan::Explain, LogicalPlan};
 use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
 
 use super::logical_node::LogicalNode;
-use crate::errors::to_datafusion_err;
 use crate::{common::df_schema::PyDFSchema, errors::py_type_err, sql::logical::PyLogicalPlan};
 
 #[pyclass(name = "Explain", module = "datafusion.expr", subclass)]
@@ -104,12 +104,7 @@ impl LogicalNode for PyExplain {
         vec![]
     }
 
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self
-            .clone()
-            .into_pyobject(py)
-            .map_err(to_datafusion_err)?
-            .into_any()
-            .unbind())
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.clone().into_bound_py_any(py)
     }
 }

@@ -17,10 +17,10 @@
 
 use std::fmt::{self, Display, Formatter};
 
-use crate::errors::to_datafusion_err;
 use crate::sql::logical::PyLogicalPlan;
 use datafusion_expr::Subquery;
 use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
 
 use super::logical_node::LogicalNode;
 
@@ -75,12 +75,7 @@ impl LogicalNode for PySubquery {
         vec![]
     }
 
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self
-            .clone()
-            .into_pyobject(py)
-            .map_err(to_datafusion_err)?
-            .into_any()
-            .unbind())
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.clone().into_bound_py_any(py)
     }
 }

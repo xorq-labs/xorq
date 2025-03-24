@@ -15,18 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
+use super::logical_node::LogicalNode;
+use crate::common::df_schema::PyDFSchema;
+use crate::errors::py_type_err;
+use crate::expr::PyExpr;
+use crate::sql::logical::PyLogicalPlan;
 use datafusion_common::DataFusionError;
 use datafusion_expr::expr::{AggregateFunction, Alias};
 use datafusion_expr::logical_plan::Aggregate;
 use datafusion_expr::Expr;
 use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
 use std::fmt::{self, Display, Formatter};
-
-use super::logical_node::LogicalNode;
-use crate::common::df_schema::PyDFSchema;
-use crate::errors::{py_type_err, to_datafusion_err};
-use crate::expr::PyExpr;
-use crate::sql::logical::PyLogicalPlan;
 
 #[pyclass(name = "Aggregate", module = "datafusion.expr", subclass)]
 #[derive(Clone)]
@@ -151,12 +151,7 @@ impl LogicalNode for PyAggregate {
         vec![PyLogicalPlan::from((*self.aggregate.input).clone())]
     }
 
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self
-            .clone()
-            .into_pyobject(py)
-            .map_err(to_datafusion_err)?
-            .into_any()
-            .unbind())
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.clone().into_bound_py_any(py)
     }
 }
