@@ -3,7 +3,6 @@ from pathlib import Path
 from typing import Any
 
 import pyarrow as pa
-import pyarrow.parquet as pq
 import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
@@ -134,7 +133,7 @@ class Backend(IbisPostgresBackend):
                 )
             else:
                 table_name = gen_name("ls-read-parquet")
-        record_batches = pq.ParquetFile(path).iter_batches()
+        record_batches = xo.read_parquet(path).to_pyarrow_batches()
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
