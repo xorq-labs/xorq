@@ -37,7 +37,7 @@ impl Stream for RecordBatchReaderAdapter {
                 .spawn(move || {
                     let option = Python::with_gil(|py| {
                         let batches = self.record_batch_reader.bind(py);
-                        let mut batches = PyIterator::from_bound_object(batches).unwrap();
+                        let mut batches = PyIterator::from_object(batches).unwrap();
                         Some(
                             batches
                                 .next()?

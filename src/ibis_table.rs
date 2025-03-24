@@ -17,6 +17,7 @@ use pyo3::{PyAny, PyObject, PyResult, Python};
 use crate::ibis_filter_expression::IbisFilterExpression;
 use crate::ibis_table_exec::IbisTableExec;
 
+use crate::errors::to_datafusion_err;
 use pyo3::prelude::*;
 
 // Wraps an ibis.Table class and implements a Datafusion TableProvider around it
@@ -28,7 +29,7 @@ pub(crate) struct IbisTable {
 impl IbisTable {
     // Creates a Python ibis.Table
     pub fn new(ibis_table: &Bound<'_, PyAny>, py: Python) -> PyResult<Self> {
-        let pa = PyModule::import_bound(py, "ibis.expr.types")?;
+        let pa = PyModule::import(py, "ibis.expr.types")?;
         let table = pa.getattr("Table")?;
         let table_type = table.downcast::<PyType>()?;
 
@@ -88,7 +89,7 @@ impl TableProvider for IbisTable {
                             .clone_ref(py)
                     })
                     .collect::<Vec<PyObject>>();
-                let ibis_filters = PyTuple::new_bound(py, &args);
+                let ibis_filters = PyTuple::new(py, &args).map_err(to_datafusion_err)?;
                 self.ibis_table
                     .call_method1(py, "filter", ibis_filters)
                     .map_err(|err| DataFusionError::Execution(format!("{err}")))?

@@ -384,8 +384,8 @@ impl PyDataFrame {
         let table = self.to_arrow_table(py)?;
 
         Python::with_gil(|py| {
-            let dataframe = py.import_bound("polars")?.getattr("DataFrame")?;
-            let args = PyTuple::new_bound(py, &[table]);
+            let dataframe = py.import("polars")?.getattr("DataFrame")?;
+            let args = PyTuple::new(py, &[table])?;
             let result: PyObject = dataframe.call1(args)?.into();
             Ok(result)
         })
@@ -415,7 +415,7 @@ fn print_dataframe(py: Python, df: DataFrame) -> PyResult<()> {
 
     // Import the Python 'builtins' module to access the print function
     // Note that println! does not print to the Python debug console and is not visible in notebooks for instance
-    let print = py.import_bound("builtins")?.getattr("print")?;
+    let print = py.import("builtins")?.getattr("print")?;
     print.call1((result,))?;
     Ok(())
 }

@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use datafusion_common::TableReference;
-use datafusion_expr::logical_plan::TableScan;
-use pyo3::prelude::*;
-use std::fmt::{self, Display, Formatter};
-
 use crate::expr::logical_node::LogicalNode;
 use crate::sql::logical::PyLogicalPlan;
 use crate::{common::df_schema::PyDFSchema, expr::PyExpr};
+use datafusion_common::TableReference;
+use datafusion_expr::logical_plan::TableScan;
+use pyo3::prelude::*;
+use pyo3::IntoPyObjectExt;
+use std::fmt::{self, Display, Formatter};
 
 #[pyclass(name = "TableScan", module = "datafusion.expr", subclass)]
 #[derive(Clone)]
@@ -146,7 +146,7 @@ impl LogicalNode for PyTableScan {
         vec![]
     }
 
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.clone().into_bound_py_any(py)
     }
 }

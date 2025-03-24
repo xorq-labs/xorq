@@ -19,10 +19,10 @@ use std::fmt::{self, Display, Formatter};
 
 use datafusion_expr::SubqueryAlias;
 use pyo3::prelude::*;
-
-use crate::{common::df_schema::PyDFSchema, sql::logical::PyLogicalPlan};
+use pyo3::IntoPyObjectExt;
 
 use super::logical_node::LogicalNode;
+use crate::{common::df_schema::PyDFSchema, sql::logical::PyLogicalPlan};
 
 #[pyclass(name = "SubqueryAlias", module = "datafusion.expr", subclass)]
 #[derive(Clone)]
@@ -85,7 +85,7 @@ impl LogicalNode for PySubqueryAlias {
         vec![PyLogicalPlan::from((*self.subquery_alias.input).clone())]
     }
 
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        self.clone().into_bound_py_any(py)
     }
 }

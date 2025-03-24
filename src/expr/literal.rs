@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use crate::errors::DataFusionError;
+use crate::errors::{to_datafusion_err, DataFusionError};
 use datafusion_common::ScalarValue;
 use pyo3::prelude::*;
 
@@ -145,7 +145,12 @@ impl PyLiteral {
 
     #[allow(clippy::wrong_self_convention)]
     fn into_type(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+        Ok(self
+            .clone()
+            .into_pyobject(py)
+            .map_err(to_datafusion_err)?
+            .into_any()
+            .unbind())
     }
 
     fn __repr__(&self) -> PyResult<String> {
