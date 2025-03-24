@@ -11,7 +11,6 @@ import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils.func_utils import (
     maybe_log_excepts,
-    with_lock,
 )
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -20,7 +19,6 @@ from xorq.common.utils.rbr_utils import (
 
 
 logger = logging.getLogger(__name__)
-lock = threading.Lock()
 
 
 class BasicAuthServerMiddlewareFactory(pa.flight.ServerMiddlewareFactory):
@@ -129,6 +127,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         # FIXME: copy instead of mutate
         self.exchangers = E.exchangers
         self.actions = A.actions
+        self.lock = threading.Lock()
 
     def _make_flight_info(self, query):
         """
@@ -154,55 +153,59 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         return self._make_flight_info(query)
 
     @maybe_log_excepts
-    @with_lock(lock)
     def do_get(self, context, ticket):
         """
         Execute SQL query and return results
         """
-        kwargs = loads(ticket.ticket)
-        expr = kwargs.pop("expr")
-        try:
-            # Execute query and convert to Arrow table
-            rbr = self._conn.to_pyarrow_batches(expr)
-            return pyarrow.flight.RecordBatchStream(rbr)
-        except Exception as e:
-            raise pyarrow.flight.FlightServerError(f"Error executing query: {str(e)}")
+        with self.lock:
+            kwargs = loads(ticket.ticket)
+            expr = kwargs.pop("expr")
+            try:
+                # Execute query and convert to Arrow table
+                rbr = self._conn.to_pyarrow_batches(expr)
+                return pyarrow.flight.RecordBatchStream(rbr)
+            except Exception as e:
+                raise pyarrow.flight.FlightServerError(
+                    f"Error executing query: {str(e)}"
+                )
 
     @maybe_log_excepts
-    @with_lock(lock)
     def do_put(self, context, descriptor, reader, writer):
-        table_name = descriptor.command.decode("utf-8")
-        # FIXME: pass record batch reader to con when possible
-        data = copy_rbr_batches(make_filtered_reader(reader)).read_all()
-        try:
-            if table_name in self._conn.tables:
-                self._conn.insert(table_name, data)
-            else:
-                self._conn.create_table(table_name, data)
+        with self.lock:
+            table_name = descriptor.command.decode("utf-8")
+            # FIXME: pass record batch reader to con when possible
+            data = copy_rbr_batches(make_filtered_reader(reader)).read_all()
+            try:
+                if table_name in self._conn.tables:
+                    self._conn.insert(table_name, data)
+                else:
+                    self._conn.create_table(table_name, data)
 
-        except Exception as e:
-            raise pyarrow.flight.FlightServerError(
-                f"Error handling table '{table_name}': {str(e)}"
-            )
+            except Exception as e:
+                raise pyarrow.flight.FlightServerError(
+                    f"Error handling table '{table_name}': {str(e)}"
+                )
 
     @maybe_log_excepts
-    @with_lock(lock)
     def do_action(self, context, action):
-        cls = self.actions.get(action.type)
-        if cls:
-            logger.info(f"doing action: {action.type}")
-            yield from cls.do_action(self, context, action)
-        else:
-            raise KeyError("Unknown action {!r}".format(action.type))
+        with self.lock:
+            cls = self.actions.get(action.type)
+            if cls:
+                print(f"doing action: {action.type}")
+                logger.info(f"doing action: {action.type}")
+                yield from cls.do_action(self, context, action)
+            else:
+                raise KeyError("Unknown action {!r}".format(action.type))
 
     @maybe_log_excepts
-    @with_lock(lock)
     def do_exchange(self, context, descriptor, reader, writer):
-        if descriptor.descriptor_type != pyarrow.flight.DescriptorType.CMD:
-            raise pa.ArrowInvalid("Must provide a command descriptor")
-        command = descriptor.command.decode("ascii")
-        if command in self.exchangers:
-            logger.info(f"Doing exchange: {command}")
-            return self.exchangers[command].exchange_f(context, reader, writer)
-        else:
-            raise pa.ArrowInvalid("Unknown command: {}".format(descriptor.command))
+        with self.lock:
+            if descriptor.descriptor_type != pyarrow.flight.DescriptorType.CMD:
+                raise pa.ArrowInvalid("Must provide a command descriptor")
+            command = descriptor.command.decode("ascii")
+            if command in self.exchangers:
+                print(f"Doing exchange: {command}")
+                logger.info(f"Doing exchange: {command}")
+                return self.exchangers[command].exchange_f(context, reader, writer)
+            else:
+                raise pa.ArrowInvalid("Unknown command: {}".format(descriptor.command))
