@@ -51,6 +51,24 @@ class HealthCheckAction(AbstractAction):
         yield make_flight_result(None)
 
 
+class ListActionsAction(AbstractAction):
+    @classmethod
+    @property
+    def name(cls):
+        return "list-actions"
+
+    @classmethod
+    @property
+    def description(cls):
+        return "Get a list of all actions available on this server."
+
+    @classmethod
+    def do_action(cls, server, context, action):
+        yield make_flight_result(
+            tuple(action.name for action in server.actions.values())
+        )
+
+
 class ListExchangesAction(AbstractAction):
     @classmethod
     @property
@@ -237,6 +255,7 @@ class VersionAction(AbstractAction):
 
 class GetSchemaQueryAction(AbstractAction):
     @classmethod
+    @property
     def name(cls):
         return "get_schema_using_query"
 
@@ -255,6 +274,7 @@ actions = {
     action.name: action
     for action in (
         HealthCheckAction,
+        ListActionsAction,
         ListExchangesAction,
         QueryExchangeAction,
         AddActionAction,
