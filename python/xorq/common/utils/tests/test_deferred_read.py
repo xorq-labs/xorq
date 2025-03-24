@@ -272,3 +272,33 @@ def test_cached_csv_mutate(con, iris_csv, tmp_path):
     assert not storage.exists(expr)
     assert xo.execute(expr).equals(df)
     assert storage.exists(expr)
+
+
+@pytest.mark.parametrize(
+    "method_name,path",
+    [
+        (
+            "deferred_read_csv",
+            "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv",
+        ),
+        (
+            "deferred_read_parquet",
+            "https://nasa-avionics-data-ml.s3.us-east-2.amazonaws.com/Tail_652_1_parquet/652200101120916.16p0.parquet",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    "remote",
+    [True, False],
+)
+def test_deferred_read_cache(con, tmp_path, method_name, path, remote):
+    storage = ParquetStorage(source=xo.connect(), path=tmp_path)
+    read_method = getattr(xo, method_name)
+    connection = con if remote else xo.duckdb.connect()
+
+    t = read_method(connection, path)
+    uncached = t.head(10)
+    assert storage.get_key(uncached) is not None
+
+    expr = uncached.cache(storage=storage)
+    assert not expr.execute().empty

@@ -2,6 +2,8 @@ import itertools
 import pathlib
 import re
 import types
+import urllib.error
+import urllib.request
 
 import dask
 import sqlglot as sg
@@ -269,12 +271,13 @@ def normalize_read(read):
     if isinstance(path, (str, pathlib.Path)):
         path = str(path)
         if path.startswith("http") or path.startswith("https:"):
-            import requests
+            req = urllib.request.Request(path, method="HEAD")
+            resp = urllib.request.urlopen(req)
 
-            resp = requests.head(path)
-            resp.raise_for_status()
+            headers = resp.info()
+
             tpls = tuple(
-                (k, resp.headers[k])
+                (k, headers.get(k))
                 for k in (
                     "Last-Modified",
                     "Content-Length",
