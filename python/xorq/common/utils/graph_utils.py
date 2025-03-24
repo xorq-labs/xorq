@@ -16,25 +16,30 @@ def walk_nodes(node_types, expr):
     def process_node(op):
         match op:
             case rel.RemoteTable():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(
                     node_types,
                     op.remote_expr,
                 )
             case rel.CachedNode():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(
                     node_types,
                     op.parent,
                 )
             case rel.FlightExpr():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(node_types, op.input_expr)
             case rel.FlightUDXF():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(node_types, op.input_expr)
             case udf.ExprScalarUDF():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(
                     node_types,
                     op.computed_kwargs_expr,
