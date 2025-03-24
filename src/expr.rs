@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-use pyo3::{basic::CompareOp, prelude::*};
+use pyo3::{basic::CompareOp, prelude::*, IntoPyObjectExt};
 use std::convert::{From, Into};
 use std::sync::Arc;
 
@@ -125,114 +125,37 @@ pub fn py_expr_list(expr: &[Expr]) -> PyResult<Vec<PyExpr>> {
 #[pymethods]
 impl PyExpr {
     /// Return the specific expression
-    fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        //TODO add ScalarFunction back
+    fn to_variant<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         Python::with_gil(|_| match &self.expr {
-            Expr::Alias(alias) => Ok(PyAlias::new(&alias.expr, &alias.name)
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::Column(col) => Ok(PyColumn::from(col.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
+            Expr::Alias(alias) => Ok(PyAlias::new(&alias.expr, &alias.name).into_bound_py_any(py)?),
+            Expr::Column(col) => Ok(PyColumn::from(col.clone()).into_bound_py_any(py)?),
             Expr::ScalarVariable(data_type, variables) => {
-                Ok(PyScalarVariable::new(data_type, variables)
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind())
+                Ok(PyScalarVariable::new(data_type, variables).into_bound_py_any(py)?)
             }
-            Expr::Like(value) => Ok(PyLike::from(value.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::Literal(value) => Ok(PyLiteral::from(value.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::BinaryExpr(expr) => Ok(PyBinaryExpr::from(expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::Not(expr) => Ok(PyNot::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsNotNull(expr) => Ok(PyIsNotNull::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsNull(expr) => Ok(PyIsNull::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsTrue(expr) => Ok(PyIsTrue::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsFalse(expr) => Ok(PyIsFalse::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsUnknown(expr) => Ok(PyIsUnknown::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsNotTrue(expr) => Ok(PyIsNotTrue::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsNotFalse(expr) => Ok(PyIsNotFalse::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::IsNotUnknown(expr) => Ok(PyIsNotUnknown::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::Negative(expr) => Ok(PyNegative::new(*expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::Cast(cast) => Ok(PyCast::from(cast.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::Case(case) => Ok(PyCase::from(case.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
+            Expr::Like(value) => Ok(PyLike::from(value.clone()).into_bound_py_any(py)?),
+            Expr::Literal(value) => Ok(PyLiteral::from(value.clone()).into_bound_py_any(py)?),
+            Expr::BinaryExpr(expr) => Ok(PyBinaryExpr::from(expr.clone()).into_bound_py_any(py)?),
+            Expr::Not(expr) => Ok(PyNot::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotNull(expr) => Ok(PyIsNotNull::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNull(expr) => Ok(PyIsNull::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsTrue(expr) => Ok(PyIsTrue::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsFalse(expr) => Ok(PyIsFalse::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsUnknown(expr) => Ok(PyIsUnknown::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotTrue(expr) => Ok(PyIsNotTrue::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotFalse(expr) => Ok(PyIsNotFalse::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::IsNotUnknown(expr) => {
+                Ok(PyIsNotUnknown::new(*expr.clone()).into_bound_py_any(py)?)
+            }
+            Expr::Negative(expr) => Ok(PyNegative::new(*expr.clone()).into_bound_py_any(py)?),
+            Expr::Cast(cast) => Ok(PyCast::from(cast.clone()).into_bound_py_any(py)?),
+            Expr::Case(case) => Ok(PyCase::from(case.clone()).into_bound_py_any(py)?),
             Expr::Wildcard {
                 qualifier,
                 options: _,
-            } => Ok(PyWildcard::new(qualifier.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
-            Expr::AggregateFunction(expr) => Ok(PyAggregateFunction::from(expr.clone())
-                .into_pyobject(py)
-                .map_err(to_datafusion_err)?
-                .into_any()
-                .unbind()),
+            } => Ok(PyWildcard::new(qualifier.clone()).into_bound_py_any(py)?),
+            Expr::AggregateFunction(expr) => {
+                Ok(PyAggregateFunction::from(expr.clone()).into_bound_py_any(py)?)
+            }
             other => Err(py_runtime_err(format!(
                 "Cannot convert this Expr to a Python object: {:?}",
                 other
