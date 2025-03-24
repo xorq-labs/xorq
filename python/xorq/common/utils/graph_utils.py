@@ -50,7 +50,7 @@ def walk_nodes(node_types, expr):
             case _:
                 if isinstance(op, opaque_ops):
                     raise ValueError(f"unhandled opaque op {type(op)}")
-                yield from op.find(node_types)
+                yield from op.find(opaque_ops + tuple(node_types))
 
     def inner(rest, seen):
         if not rest:
@@ -63,7 +63,8 @@ def walk_nodes(node_types, expr):
 
     initial_op = expr.op() if hasattr(expr, "op") else expr
     rest = process_node(initial_op)
-    return inner(set(rest), set())
+    nodes = inner(set(rest), set())
+    return tuple(node for node in nodes if isinstance(node, node_types))
 
 
 def find_all_sources(expr):
