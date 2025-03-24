@@ -1,10 +1,10 @@
 use pyo3::prelude::*;
 
+use crate::errors::DataFusionError;
+use crate::pyarrow_filter_expression::extract_scalar_list;
 use datafusion_common::{Column, ScalarValue};
 use datafusion_expr::expr::InList;
 use datafusion_expr::{Between, BinaryExpr, Expr, Operator};
-
-use crate::errors::{to_datafusion_err, DataFusionError};
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -30,79 +30,6 @@ fn operator_to_py<'py>(
         }
     };
     Ok(py_op)
-}
-
-fn extract_scalar_list(exprs: &[Expr], py: Python) -> Result<Vec<PyObject>, DataFusionError> {
-    let ret: Result<Vec<PyObject>, DataFusionError> = exprs
-        .iter()
-        .map(|expr| match expr {
-            Expr::Literal(v) => match v {
-                ScalarValue::Boolean(Some(b)) => Ok(b.into_py(py)),
-                ScalarValue::Int8(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::Int16(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::Int32(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::Int64(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::UInt8(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::UInt16(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::UInt32(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::UInt64(Some(i)) => Ok(i
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::Float32(Some(f)) => Ok(f
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::Float64(Some(f)) => Ok(f
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                ScalarValue::Utf8(Some(s)) => Ok(s
-                    .into_pyobject(py)
-                    .map_err(to_datafusion_err)?
-                    .into_any()
-                    .unbind()),
-                _ => Err(DataFusionError::Common(format!(
-                    "Ibis can't handle ScalarValue: {v:?}"
-                ))),
-            },
-            _ => Err(DataFusionError::Common(format!(
-                "Only a list of Literals are supported got {expr:?}"
-            ))),
-        })
-        .collect();
-    ret
 }
 
 impl IbisFilterExpression {

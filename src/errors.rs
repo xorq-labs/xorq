@@ -7,6 +7,8 @@ use datafusion::error::DataFusionError as InnerDataFusionError;
 use prost::EncodeError;
 use pyo3::{exceptions::PyException, PyErr};
 
+pub type PyDataFusionResult<T> = std::result::Result<T, DataFusionError>;
+
 #[derive(Debug)]
 pub enum DataFusionError {
     ExecutionError(InnerDataFusionError),
