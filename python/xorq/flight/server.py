@@ -163,8 +163,8 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         expr = kwargs.pop("expr")
         try:
             # Execute query and convert to Arrow table
-            result = self._conn.to_pyarrow_batches(expr).read_all()
-            return pyarrow.flight.RecordBatchStream(result)
+            rbr = self._conn.to_pyarrow_batches(expr)
+            return pyarrow.flight.RecordBatchStream(rbr)
         except Exception as e:
             raise pyarrow.flight.FlightServerError(f"Error executing query: {str(e)}")
 
