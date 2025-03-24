@@ -120,6 +120,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         )
         self._conn = con_callable()
         self._location = location
+        # FIXME: copy instead of mutate
         self.exchangers = E.exchangers
         self.actions = A.actions
 
@@ -172,12 +173,6 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             raise pyarrow.flight.FlightServerError(
                 f"Error handling table '{table_name}': {str(e)}"
             )
-
-    def list_actions(self, context):
-        """
-        List available custom actions
-        """
-        return [(action.name, action.description) for action in self.actions.values()]
 
     def do_action(self, context, action):
         cls = self.actions.get(action.type)
