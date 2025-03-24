@@ -1,5 +1,4 @@
 import functools
-import urllib
 from abc import (
     ABC,
     abstractmethod,
@@ -7,9 +6,7 @@ from abc import (
 from typing import Callable
 
 import dask
-import pandas as pd
 import pyarrow as pa
-import requests
 import toolz
 
 import xorq as xo
@@ -183,199 +180,6 @@ class EchoExchanger(AbstractExchanger):
     @property
     def command(cls):
         return "echo"
-
-
-class RowSumAppendExchanger(AbstractExchanger):
-    @classmethod
-    @property
-    def exchange_f(cls):
-        def exchange_transform(context, reader, writer):
-            """Sum rows in an uploaded table."""
-            for field in reader.schema:
-                if not pa.types.is_integer(field.type):
-                    raise pa.ArrowInvalid("Invalid field: " + repr(field))
-            table = reader.read_all()
-            result = table.append_column(
-                "sum",
-                pa.array(table.to_pandas().sum(axis=1)),
-            )
-            writer.begin(result.schema)
-            writer.write_table(result)
-
-        return exchange_transform
-
-    @classmethod
-    @property
-    def schema_in_required(cls):
-        return None
-
-    @classmethod
-    @property
-    def schema_in_condition(cls):
-        def condition(schema_in):
-            return all(pa.types.is_integer(t) for t in schema_in.types)
-
-        return condition
-
-    @classmethod
-    @property
-    def calc_schema_out(cls):
-        def f(schema_in):
-            return schema_in.append(pa.field("sum", pa.int64()))
-
-        return f
-
-    @classmethod
-    @property
-    def description(cls):
-        return "sums all the values sent"
-
-    @classmethod
-    @property
-    def command(cls):
-        return "row-sum-append"
-
-
-class RowSumExchanger(AbstractExchanger):
-    @classmethod
-    @property
-    def exchange_f(cls):
-        def exchange_transform(context, reader, writer):
-            """Sum rows in an uploaded table."""
-            for field in reader.schema:
-                if not pa.types.is_integer(field.type):
-                    raise pa.ArrowInvalid("Invalid field: " + repr(field))
-            table = reader.read_all()
-            sums = [0] * table.num_rows
-            for column in table:
-                for row, value in enumerate(column):
-                    sums[row] += value.as_py()
-            result = pa.Table.from_arrays([pa.array(sums)], names=["sum"])
-            writer.begin(result.schema)
-            writer.write_table(result)
-
-        return exchange_transform
-
-    @classmethod
-    @property
-    def schema_in_required(cls):
-        return None
-
-    @classmethod
-    @property
-    def schema_in_condition(cls):
-        def condition(schema_in):
-            return all(pa.types.is_integer(t) for t in schema_in.types)
-
-        return condition
-
-    @classmethod
-    @property
-    def calc_schema_out(cls):
-        def f(schema_in):
-            return pa.schema((pa.field("sum", pa.int64()),))
-
-        return f
-
-    @classmethod
-    @property
-    def description(cls):
-        return "sums all the values sent"
-
-    @classmethod
-    @property
-    def command(cls):
-        return "row-sum"
-
-
-class UrlOperatorExchanger(AbstractExchanger):
-    url_field_name = "url"
-    url_field_typ = pa.string()
-    scheme_field_name = "scheme_url"
-    scheme_field_typ = pa.string()
-    length_field_name = "response-length"
-    length_field_typ = pa.int64()
-    schemes = ("http", "https")
-
-    @classmethod
-    @property
-    def exchange_f(cls):
-        def exchange_transform(context, reader, writer):
-            """fetch the url and return the length of the response content"""
-            if not cls.schema_in_condition(reader.schema):
-                raise pa.ArrowInvalid("Input does not satisfy schema_in_condition")
-            table = reader.read_all()
-
-            def f(url):
-                """Return a row for each scheme"""
-                parsed = urllib.parse.urlparse(url)
-                scheme_urls = tuple(
-                    parsed._replace(scheme=scheme).geturl() for scheme in cls.schemes
-                )
-                lengths = tuple(
-                    len(requests.get(scheme_url).content) for scheme_url in scheme_urls
-                )
-                df = pd.DataFrame(
-                    {
-                        cls.url_field_name: [url] * len(cls.schemes),
-                        cls.scheme_field_name: scheme_urls,
-                        cls.length_field_name: lengths,
-                    }
-                )
-                table = pa.Table.from_pandas(df)
-                return table
-
-            result = pa.concat_tables(
-                map(
-                    f,
-                    table.column(cls.url_field_name).to_pylist(),
-                )
-            ).combine_chunks()
-            writer.begin(result.schema)
-            writer.write_table(result)
-
-        return exchange_transform
-
-    @classmethod
-    @property
-    def schema_in_required(cls):
-        return pa.schema((pa.field(cls.url_field_name, cls.url_field_typ),))
-
-    @classmethod
-    @property
-    def schema_in_condition(cls):
-        def condition(schema_in):
-            return all(field in schema_in for field in cls.schema_in_required)
-
-        return condition
-
-    @classmethod
-    @property
-    def calc_schema_out(cls):
-        def f(schema_in):
-            return pa.schema(
-                tuple(field for field in schema_in)
-                + (
-                    pa.field(cls.scheme_field_name, cls.scheme_field_typ),
-                    pa.field(cls.length_field_name, cls.length_field_typ),
-                )
-            )
-
-        return f
-
-    @classmethod
-    @property
-    def description(cls):
-        return (
-            f"fetches the content from field `{cls.url_field_name}` ({cls.url_field_typ})"
-            f"\nfor each scheme in {cls.schemes}"
-            f"\nCalculates its length and puts it in field `{cls.length_field_name}` ({cls.length_field_typ})"
-        )
-
-    @classmethod
-    @property
-    def command(cls):
-        return "url-response-length"
 
 
 class PandasUDFExchanger(AbstractExchanger):
@@ -568,12 +372,4 @@ def make_udxf(
     return typ
 
 
-exchangers = {
-    exchanger.command: exchanger
-    for exchanger in (
-        EchoExchanger,
-        RowSumExchanger,
-        RowSumAppendExchanger,
-        UrlOperatorExchanger,
-    )
-}
+exchangers = {exchanger.command: exchanger for exchanger in (EchoExchanger,)}
