@@ -8,6 +8,9 @@ from cloudpickle import loads
 
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
+from xorq.common.utils.func_utils import (
+    maybe_log_excepts,
+)
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     make_filtered_reader,
@@ -147,6 +150,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         query = descriptor.command
         return self._make_flight_info(query)
 
+    @maybe_log_excepts
     def do_get(self, context, ticket):
         """
         Execute SQL query and return results
@@ -160,6 +164,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         except Exception as e:
             raise pyarrow.flight.FlightServerError(f"Error executing query: {str(e)}")
 
+    @maybe_log_excepts
     def do_put(self, context, descriptor, reader, writer):
         table_name = descriptor.command.decode("utf-8")
         data = copy_rbr_batches(make_filtered_reader(reader)).read_all()
@@ -174,6 +179,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
                 f"Error handling table '{table_name}': {str(e)}"
             )
 
+    @maybe_log_excepts
     def do_action(self, context, action):
         cls = self.actions.get(action.type)
         if cls:
@@ -182,6 +188,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         else:
             raise KeyError("Unknown action {!r}".format(action.type))
 
+    @maybe_log_excepts
     def do_exchange(self, context, descriptor, reader, writer):
         if descriptor.descriptor_type != pyarrow.flight.DescriptorType.CMD:
             raise pa.ArrowInvalid("Must provide a command descriptor")
