@@ -159,8 +159,9 @@ class Backend(SQLBackend):
         database: tuple[str, str] | str | None = None,
         force: bool = False,
     ) -> None:
+        kwargs = {"name": name, "database": database, "force": force}
         self.con.do_action(
-            DropTableAction.name, action_body=name, options=self.con._options
+            DropTableAction.name, action_body=kwargs, options=self.con._options
         )
 
     def drop_view(
@@ -171,8 +172,9 @@ class Backend(SQLBackend):
         schema: str | None = None,
         force: bool = False,
     ) -> None:
+        kwargs = {"name": name, "database": database, "schema": schema, "force": force}
         self.con.do_action(
-            DropViewAction.name, action_body=name, options=self.con._options
+            DropViewAction.name, action_body=kwargs, options=self.con._options
         )
 
     def to_pyarrow_batches(
