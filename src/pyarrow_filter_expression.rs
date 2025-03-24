@@ -6,7 +6,7 @@ use std::result::Result;
 use datafusion_common::{Column, ScalarValue};
 use datafusion_expr::{expr::InList, Between, BinaryExpr, Expr, Operator};
 
-use crate::errors::DataFusionError;
+use crate::errors::{to_datafusion_err, DataFusionError};
 
 #[derive(Debug)]
 #[repr(transparent)]
@@ -40,17 +40,61 @@ fn extract_scalar_list(exprs: &[Expr], py: Python) -> Result<Vec<PyObject>, Data
         .map(|expr| match expr {
             Expr::Literal(v) => match v {
                 ScalarValue::Boolean(Some(b)) => Ok(b.into_py(py)),
-                ScalarValue::Int8(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::Int16(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::Int32(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::Int64(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::UInt8(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::UInt16(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::UInt32(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::UInt64(Some(i)) => Ok(i.into_py(py)),
-                ScalarValue::Float32(Some(f)) => Ok(f.into_py(py)),
-                ScalarValue::Float64(Some(f)) => Ok(f.into_py(py)),
-                ScalarValue::Utf8(Some(s)) => Ok(s.into_py(py)),
+                ScalarValue::Int8(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Int16(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Int32(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Int64(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt8(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt16(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt32(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::UInt64(Some(i)) => Ok(i
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Float32(Some(f)) => Ok(f
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Float64(Some(f)) => Ok(f
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
+                ScalarValue::Utf8(Some(s)) => Ok(s
+                    .into_pyobject(py)
+                    .map_err(to_datafusion_err)?
+                    .into_any()
+                    .unbind()),
                 _ => Err(DataFusionError::Common(format!(
                     "PyArrow can't handle ScalarValue: {v:?}"
                 ))),
@@ -74,8 +118,8 @@ impl TryFrom<&Expr> for PyArrowFilterExpression {
 
     fn try_from(expr: &Expr) -> Result<Self, Self::Error> {
         Python::with_gil(|py| {
-            let pc = Python::import_bound(py, "pyarrow.compute")?;
-            let op_module = Python::import_bound(py, "operator")?;
+            let pc = Python::import(py, "pyarrow.compute")?;
+            let op_module = Python::import(py, "operator")?;
             let pc_expr: Result<Bound<'_, PyAny>, DataFusionError> = match expr {
                 Expr::Column(Column { name, .. }) => Ok(pc.getattr("field")?.call1((name,))?),
                 Expr::Literal(v) => match v {

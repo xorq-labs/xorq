@@ -20,9 +20,9 @@ use std::fmt::{self, Display, Formatter};
 use datafusion_expr::{CreateView, DdlStatement, LogicalPlan};
 use pyo3::prelude::*;
 
-use crate::{errors::py_type_err, sql::logical::PyLogicalPlan};
-
 use super::logical_node::LogicalNode;
+use crate::errors::to_datafusion_err;
+use crate::{errors::py_type_err, sql::logical::PyLogicalPlan};
 
 #[pyclass(name = "CreateView", module = "datafusion.expr", subclass)]
 #[derive(Clone)]
@@ -89,7 +89,12 @@ impl LogicalNode for PyCreateView {
     }
 
     fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+        Ok(self
+            .clone()
+            .into_pyobject(py)
+            .map_err(to_datafusion_err)?
+            .into_any()
+            .unbind())
     }
 }
 

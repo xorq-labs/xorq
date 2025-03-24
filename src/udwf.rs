@@ -58,8 +58,8 @@ impl PartitionEvaluator for RustPartitionEvaluator {
 
     fn get_range(&self, idx: usize, n_rows: usize) -> Result<Range<usize>> {
         Python::with_gil(|py| {
-            let py_args = vec![idx.to_object(py), n_rows.to_object(py)];
-            let py_args = PyTuple::new_bound(py, py_args);
+            let py_args = vec![idx.into_pyobject(py)?, n_rows.into_pyobject(py)?];
+            let py_args = PyTuple::new(py, py_args)?;
 
             self.evaluator
                 .bind(py)

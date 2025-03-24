@@ -24,7 +24,7 @@ use std::fmt::{self, Display, Formatter};
 
 use super::logical_node::LogicalNode;
 use crate::common::df_schema::PyDFSchema;
-use crate::errors::py_type_err;
+use crate::errors::{py_type_err, to_datafusion_err};
 use crate::expr::PyExpr;
 use crate::sql::logical::PyLogicalPlan;
 
@@ -152,6 +152,11 @@ impl LogicalNode for PyAggregate {
     }
 
     fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+        Ok(self
+            .clone()
+            .into_pyobject(py)
+            .map_err(to_datafusion_err)?
+            .into_any()
+            .unbind())
     }
 }

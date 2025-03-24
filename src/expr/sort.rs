@@ -21,6 +21,7 @@ use pyo3::prelude::*;
 use std::fmt::{self, Display, Formatter};
 
 use crate::common::df_schema::PyDFSchema;
+use crate::errors::to_datafusion_err;
 use crate::expr::logical_node::LogicalNode;
 use crate::expr::ordered::PyOrdered;
 use crate::sql::logical::PyLogicalPlan;
@@ -97,6 +98,11 @@ impl LogicalNode for PySort {
     }
 
     fn to_variant(&self, py: Python) -> PyResult<PyObject> {
-        Ok(self.clone().into_py(py))
+        Ok(self
+            .clone()
+            .into_pyobject(py)
+            .map_err(to_datafusion_err)?
+            .into_any()
+            .unbind())
     }
 }

@@ -2,15 +2,15 @@ use std::sync::Arc;
 
 use pyo3::{prelude::*, types::PyTuple};
 
+use crate::errors::to_datafusion_err;
+use crate::expr::PyExpr;
+use crate::utils::parse_volatility;
 use datafusion::arrow::array::{Array, ArrayRef};
 use datafusion::arrow::datatypes::DataType;
 use datafusion::arrow::pyarrow::{PyArrowType, ToPyArrow};
 use datafusion::common::ScalarValue;
 use datafusion::error::{DataFusionError, Result};
 use datafusion_expr::{create_udaf, Accumulator, AccumulatorFactoryFunction, AggregateUDF};
-
-use crate::expr::PyExpr;
-use crate::utils::parse_volatility;
 
 #[derive(Debug)]
 struct RustAccumulator {
@@ -31,13 +31,13 @@ impl Accumulator for RustAccumulator {
                 .iter()
                 .map(|arg| arg.into_data().to_pyarrow(py).unwrap())
                 .collect::<Vec<_>>();
-            let py_args = PyTuple::new_bound(py, py_args);
+            let py_args = PyTuple::new(py, py_args).map_err(to_datafusion_err)?;
 
             // 2. call function
             self.accum
                 .bind(py)
                 .call_method1("update", py_args)
-                .map_err(|e| DataFusionError::Execution(format!("{e}")))?;
+                .map_err(to_datafusion_err)?;
 
             Ok(())
         })
@@ -84,13 +84,13 @@ impl Accumulator for RustAccumulator {
                 .iter()
                 .map(|arg| arg.into_data().to_pyarrow(py).unwrap())
                 .collect::<Vec<_>>();
-            let py_args = PyTuple::new_bound(py, py_args);
+            let py_args = PyTuple::new(py, py_args).map_err(to_datafusion_err)?;
 
             // 2. call function
             self.accum
                 .bind(py)
                 .call_method1("retract_batch", py_args)
-                .map_err(|e| DataFusionError::Execution(format!("{e}")))?;
+                .map_err(to_datafusion_err)?;
 
             Ok(())
         })
