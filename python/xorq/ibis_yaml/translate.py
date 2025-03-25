@@ -579,6 +579,12 @@ def _string_concat_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
     return functools.reduce(lambda x, y: x.concat(y), args)
 
 
+@register_from_yaml_handler("StringContains")
+def _string_contains_from_yaml(yaml_dict: dict, context: TranslationContext) -> dict:
+    haystack, needle = (translate_from_yaml(arg, context) for arg in yaml_dict["args"])
+    return ops.StringContains(haystack, needle).to_expr()
+
+
 @translate_to_yaml.register(ops.BinaryOp)
 def _binary_op_to_yaml(op: ops.BinaryOp, context: TranslationContext) -> dict:
     return freeze(
@@ -1222,6 +1228,12 @@ def _not_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 def _is_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
     return arg.isnull()
+
+
+@register_from_yaml_handler("NotNull")
+def _not_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["args"][0], context)
+    return arg.notnull()
 
 
 @register_from_yaml_handler(
