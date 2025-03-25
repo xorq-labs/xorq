@@ -603,3 +603,10 @@ def test_profile_from_con_preserves_env_vars(monkeypatch, tmp_path):
             pytest.skip(f"Database connection failed: {e}")
         else:
             raise
+
+
+def test_profile_matches_find_backend(data_dir):
+    path = data_dir / "parquet" / "diamonds.parquet"
+    con = xo.connect()
+    t = xo.deferred_read_parquet(con, path)
+    assert con._profile == t._find_backend()._profile

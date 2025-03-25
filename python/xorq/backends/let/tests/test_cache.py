@@ -942,9 +942,8 @@ def test_ls_exists_doesnt_materialize(cached_two):
     "cls",
     [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
 )
-def test_cache_find_backend(con, cls):
+def test_cache_find_backend(con, cls, parquet_dir):
+    astronauts_path = parquet_dir / "astronauts.parquet"
     storage = cls(source=con)
-    expr = con.read_parquet(xo.options.pins.get_path("astronauts")).cache(
-        storage=storage
-    )
-    assert expr._find_backend().name == "let"
+    expr = con.read_parquet(astronauts_path).cache(storage=storage)
+    assert expr._find_backend().name == con.name

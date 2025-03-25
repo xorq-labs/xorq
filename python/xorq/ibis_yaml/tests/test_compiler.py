@@ -90,11 +90,11 @@ def test_ibis_compiler_parquet_reader(build_dir):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_compiler_sql(build_dir):
+def test_compiler_sql(build_dir, parquet_dir):
     backend = xo.datafusion.connect()
     awards_players = deferred_read_parquet(
         backend,
-        xo.config.options.pins.get_path("awards_players"),
+        str(parquet_dir / "awards_players.parquet"),
         table_name="awards_players",
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
@@ -114,7 +114,7 @@ def test_compiler_sql(build_dir):
     expected_result = (
         "queries:\n"
         "  main:\n"
-        "    engine: let\n"
+        "    engine: datafusion\n"
         f"    profile_name: {expr._find_backend()._profile.hash_name}\n"
         "    relations:\n"
         f"    - {expected_relation}\n"
