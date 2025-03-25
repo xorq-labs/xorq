@@ -42,6 +42,14 @@ class ExprScalarUDF(ScalarUDF):
     def post_process_fn(self):
         return self.__config__["post_process_fn"]
 
+    @property
+    def schema(self):
+        return self.__config__["schema"]
+
+    def on_expr(self, e, **kwargs):
+        # rebind deferred_model (computed_kwargs_expr) to a new expr
+        return type(self)(*(e[c] for c in self.schema), **kwargs)
+
 
 @toolz.curry
 def make_pandas_expr_udf(
@@ -86,6 +94,7 @@ def make_pandas_expr_udf(
         "__config__": FrozenDict(
             computed_kwargs_expr=computed_kwargs_expr,
             post_process_fn=post_process_fn,
+            schema=schema,
             **kwargs,
         ),
         "__udf_namespace__": Namespace(database=database, catalog=catalog),
