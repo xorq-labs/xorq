@@ -128,6 +128,8 @@ def test_flight_udxf(con, diamonds, baseline):
 
 
 def test_flight_udxf_cached(con, diamonds, baseline):
+    from xorq.common.utils.graph_utils import find_all_sources
+
     input_expr = diamonds.pipe(do_agg)
     process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
     maybe_schema_in = input_expr.schema().to_pyarrow()
@@ -156,13 +158,7 @@ def test_flight_udxf_cached(con, diamonds, baseline):
     compiler = YamlExpressionTranslator()
     yaml_dict = compiler.to_yaml(expr)
 
-    diamonds_con = diamonds._find_backend()
-
-    profiles = {
-        con._profile.hash_name: con,
-        diamonds_con._profile.hash_name: diamonds_con,
-        ddb_con._profile.hash_name: ddb_con,
-    }
+    profiles = {con._profile.hash_name: con for con in find_all_sources(expr)}
     roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
 
     expected = expr.execute()
