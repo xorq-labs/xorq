@@ -89,7 +89,8 @@ sentiment_udxf = make_udxf(
 
 # Start the Flight server with our exchanger
 flight_port = 8815
-flight_server = FlightServer(FlightUrl(port=flight_port), exchangers=[sentiment_udxf])
+flight_url = FlightUrl(port=flight_port)
+flight_server = FlightServer(flight_url, exchangers=[sentiment_udxf])
 flight_server.serve()
 
 # Get a client to test the server
@@ -109,6 +110,7 @@ def test_flight_service():
 print("Testing Flight service...")
 test_flight_service()
 flight_server.close()
+flight_url.unbind_socket()
 
 """
 Next Steps: use the cli to build and see how things look like:
