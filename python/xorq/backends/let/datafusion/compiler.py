@@ -634,7 +634,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         from xorq.expr.relations import legacy_replace_cache_table
 
         out = op.map_clear(legacy_replace_cache_table)
-        return super().to_sqlglot(out.to_expr(), limit=limit, params=params)
+        return super().to_sqlglot(out.to_expr().unbind(), limit=limit, params=params)
 
 
 compiler = DataFusionCompiler()

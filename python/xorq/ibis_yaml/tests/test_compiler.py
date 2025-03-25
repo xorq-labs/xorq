@@ -7,6 +7,7 @@ import yaml
 
 import xorq as xo
 import xorq.vendor.ibis as ibis
+from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
 from xorq.ibis_yaml.config import config
@@ -211,6 +212,31 @@ def test_multi_engine_with_caching(build_dir):
 
     awards_players = xo.examples.awards_players.fetch(con0).into_backend(con1).cache()
     batting = xo.examples.batting.fetch(con2).into_backend(con1).cache()
+    expr = (
+        awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
+        .into_backend(con3)
+        .filter(xo._.G == 1)
+    )
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert expr.execute().equals(roundtrip_expr.execute())
+
+
+def test_multi_engine_with_caching_with_parquet(build_dir, tmp_path):
+    con0 = xo.connect()
+    con1 = xo.connect()
+    con2 = xo.duckdb.connect()
+    con3 = xo.connect()
+
+    storage = ParquetStorage(source=con1, path=tmp_path)
+
+    awards_players = (
+        xo.examples.awards_players.fetch(con0).into_backend(con1).cache(storage=storage)
+    )
+    batting = xo.examples.batting.fetch(con1).into_backend(con2).cache(storage=storage)
     expr = (
         awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
         .into_backend(con3)
