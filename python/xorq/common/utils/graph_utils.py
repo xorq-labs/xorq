@@ -1,31 +1,56 @@
 import xorq.expr.relations as rel
+import xorq.expr.udf as udf
+
+
+opaque_ops = (
+    rel.Read,
+    rel.CachedNode,
+    rel.RemoteTable,
+    rel.FlightUDXF,
+    rel.FlightExpr,
+    udf.ExprScalarUDF,
+)
 
 
 def walk_nodes(node_types, expr):
     def process_node(op):
         match op:
             case rel.RemoteTable():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(
                     node_types,
                     op.remote_expr,
                 )
             case rel.CachedNode():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(
                     node_types,
                     op.parent,
                 )
             case rel.FlightExpr():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(node_types, op.input_expr)
-
             case rel.FlightUDXF():
-                yield op
+                if isinstance(op, node_types):
+                    yield op
                 yield from walk_nodes(node_types, op.input_expr)
-
+            case udf.ExprScalarUDF():
+                if isinstance(op, node_types):
+                    yield op
+                yield from walk_nodes(
+                    node_types,
+                    op.computed_kwargs_expr,
+                )
+            case rel.Read():
+                if isinstance(op, node_types):
+                    yield op
             case _:
-                yield from op.find(node_types)
+                if isinstance(op, opaque_ops):
+                    raise ValueError(f"unhandled opaque op {type(op)}")
+                yield from op.find(opaque_ops + tuple(node_types))
 
     def inner(rest, seen):
         if not rest:
@@ -38,7 +63,8 @@ def walk_nodes(node_types, expr):
 
     initial_op = expr.op() if hasattr(expr, "op") else expr
     rest = process_node(initial_op)
-    return inner(set(rest), set())
+    nodes = inner(set(rest), set())
+    return tuple(node for node in nodes if isinstance(node, node_types))
 
 
 def find_all_sources(expr):
