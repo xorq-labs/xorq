@@ -3,7 +3,7 @@
 #
 #    maturin generate-ci github
 #
-name: ci-publish
+name: ci-release
 
 on:
   workflow_dispatch:
