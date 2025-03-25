@@ -191,7 +191,6 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         with self.lock:
             cls = self.actions.get(action.type)
             if cls:
-                print(f"doing action: {action.type}")
                 logger.info(f"doing action: {action.type}")
                 yield from cls.do_action(self, context, action)
             else:
@@ -204,7 +203,6 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
                 raise pa.ArrowInvalid("Must provide a command descriptor")
             command = descriptor.command.decode("ascii")
             if command in self.exchangers:
-                print(f"Doing exchange: {command}")
                 logger.info(f"Doing exchange: {command}")
                 return self.exchangers[command].exchange_f(context, reader, writer)
             else:
