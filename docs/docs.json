@@ -31,6 +31,12 @@
               ]
           },
           {
+            "group": "Vignettes",
+            "pages": [
+              "vignettes/duckdb_concurrent"
+            ]
+          },
+          {
             "group": "Tutorials",
             "pages": [
               "tutorials/hn_data_prep",
