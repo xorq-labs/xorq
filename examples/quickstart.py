@@ -7,12 +7,16 @@ sentiment scores using another pre-trained XGBoost model.
 import pathlib
 import pickle
 
+import pandas as pd
+import toolz
 import xgboost as xgb
 
 import xorq as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
+from xorq.flight import FlightServer, FlightUrl
+from xorq.flight.exchanger import make_udxf
 
 
 # paths
@@ -34,14 +38,28 @@ def load_models():
     return transformer, xgb_model
 
 
+def predict_sentiment(titles):
+    transformer, xgb_model = load_models()
+    return xgb_model.predict(transformer.transform(titles))
+
+
+schema_in = xo.schema({"title": str})
+schema_out = xo.schema({"sentiment_score": dt.double})
+
+
 @xo.udf.make_pandas_udf(
     schema=xo.schema({"title": str}),
     return_type=dt.float64,
     name="title_transformed",
 )
 def transform_predict(df):
-    transformer, xgb_model = load_models()
-    return xgb_model.predict(transformer.transform(df["title"]))
+    return predict_sentiment(df["title"])
+
+
+# For Flight server
+def sentiment_analysis(df: pd.DataFrame):
+    scores = predict_sentiment(df["title"])
+    return pd.DataFrame({"sentiment_score": [float(scores)]})
 
 
 # connect to xorq's embedded engine
@@ -63,6 +81,36 @@ pipeline = (
 
 results = pipeline.execute()
 
+
+# Create the UDXF for Flight server
+sentiment_udxf = make_udxf(
+    sentiment_analysis, schema_in.to_pyarrow(), schema_out.to_pyarrow()
+)
+
+# Start the Flight server with our exchanger
+flight_port = 8324
+flight_url = FlightUrl(port=flight_port)
+flight_server = FlightServer(flight_url, exchangers=[sentiment_udxf])
+flight_server.serve()
+
+# Get a client to test the server
+client = flight_server.client
+do_sentiment = toolz.curry(client.do_exchange, sentiment_udxf.command)
+
+
+def test_flight_service():
+    test_data = xo.memtable(
+        {"title": ["This is an amazing HackerNews post"]}, schema=schema_in
+    )
+    result = do_sentiment(test_data.to_pyarrow_batches())
+    res = result[1].read_pandas()
+    print("Flight service test result:\n", res)
+
+
+print("Testing Flight service...")
+test_flight_service()
+flight_server.close()
+
 """
 Next Steps: use the cli to build and see how things look like:
 
@@ -72,4 +120,6 @@ Building pipeline from scripts/hn_inference.py
 Note: You have installed the 'manylinux2014' variant of XGBoost. Certain features such as GPU algorithms or federated learning are not available. To use these features, please upgrade to a recent Linux distro with glibc 2.28+, and install the 'manylinux_2_28' variant.
   warnings.warn(
 Written 'pipeline' to builds/36293178ec4f
+
+> xorq serve (coming soon)
 """
