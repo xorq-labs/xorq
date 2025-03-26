@@ -406,23 +406,6 @@ class Expr(Immutable, Coercible):
                 raise e
         return current_backend
 
-    def _find_backend_non_tables(self):
-        from xorq.config import _backend_init
-        from xorq.expr.relations import CachedNode, Read
-
-        node_types = (Read, CachedNode)
-        backends = set()
-        for node in self.op().find(node_types):
-            backends.add(node.source)
-
-        backend = None
-        if len(backends) > 1:
-            backend = _backend_init()
-        elif len(backends) == 1:
-            backend = backends.pop()
-
-        return backend
-
     def into_backend(self, con, name=None):
         """
         Converts the Expr to a table in the given backend `con` with an optional table name `name`.
