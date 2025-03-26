@@ -63,17 +63,11 @@ def predict_xgboost_model(model, df):
 
 
 def make_outsample_expr():
-    # simulated etch live and predict
+    # simulated fetch live and predict
     z = (
         xo.memtable([{"maxitem": 43346282, "n": 1000}])
         .pipe(do_hackernews_fetcher_udxf)
         .filter(xo._.text.notnull())
-        # .mutate(
-        #     **{
-        #         SENTIMENT: xo.literal(None).cast(str),
-        #         target: xo.literal(None).cast(int),
-        #     }
-        # )
     )
     return z
 
@@ -126,7 +120,7 @@ def do_fit(expr, storage=None):
     )
     predicted = (
         transformed
-        # if i add into backend here, i don't get ArrowNotImplementedError: Unsupported cast
+        # into_backend prevents ArrowNotImplementedError: Unsupported cast
         .into_backend(xo.connect()).mutate(
             **{f"{target}_predicted": deferred_predict.on_expr}
         )
@@ -137,8 +131,7 @@ def do_fit(expr, storage=None):
 def do_transform_predict(expr, deferred_transform, deferred_predict):
     return (
         expr.mutate(**{f"{transform_col}_transformed": deferred_transform.on_expr})
-        # if i add into backend here, i don't get ArrowNotImplementedError: Unsupported cast
-        # why is this stable-name required?
+        # into_backend prevents ArrowNotImplementedError: Unsupported cast
         .into_backend(xo.connect())
         .mutate(**{f"{target}_predicted": deferred_predict.on_expr})
     )
@@ -254,8 +247,6 @@ def predict(transform_port, predict_port):
 
 
 def validate_commands(transform_do_exchange, predict_do_exchange):
-    # expected_transform_command = "execute-unbound-expr-320d55f053400d5480c73ebee3148d07"
-    # expected_predict_commnd = "execute-unbound-expr-73909b2bafaa66b13e29121e698c8ccd"
     (transform_command, predict_command) = (
         do_exchange.args[1]
         for do_exchange in (transform_do_exchange, predict_do_exchange)
