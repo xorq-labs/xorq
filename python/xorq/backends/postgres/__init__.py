@@ -32,13 +32,14 @@ class Backend(IbisPostgresBackend):
         return make_connection(**kwargs)
 
     @classmethod
-    def connect_examples(cls):
-        return cls().connect(
-            host="examples.letsql.com",
-            user="letsql",
-            password="letsql",
-            database="letsql",
-        )
+    def connect_examples(cls, **kwargs):
+        examples_kwargs = {
+            "host": "examples.letsql.com",
+            "user": "letsql",
+            "password": "letsql",
+            "database": "letsql",
+        }
+        return cls().connect(**(examples_kwargs | kwargs))
 
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
