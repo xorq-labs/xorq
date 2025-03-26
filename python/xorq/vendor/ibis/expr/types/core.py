@@ -335,9 +335,17 @@ class Expr(Immutable, Coercible):
             A list of the backends found.
         """
 
+        import xorq.expr.relations as rel
+
         backends = set()
         has_unbound = False
-        node_types = (ops.UnboundTable, ops.DatabaseTable, ops.SQLQueryResult)
+        node_types = (
+            ops.UnboundTable,
+            ops.DatabaseTable,
+            ops.SQLQueryResult,
+            rel.CachedNode,
+            rel.Read,
+        )
         for table in self.op().find(node_types):
             if isinstance(table, ops.UnboundTable):
                 has_unbound = True
@@ -388,13 +396,9 @@ class Expr(Immutable, Coercible):
 
     def _find_backend(self, *, use_default=True):
         from xorq.config import _backend_init
-        from xorq.expr.relations import CachedNode, Read
 
         try:
-            if tuple(op.source for op in self.op().find((Read, CachedNode))):
-                current_backend = _backend_init()
-            else:
-                current_backend = self._find_backend_original(use_default=use_default)
+            current_backend = self._find_backend_original(use_default=use_default)
         except XorqError as e:
             if "Multiple backends found" in e.args[0]:
                 current_backend = _backend_init()
