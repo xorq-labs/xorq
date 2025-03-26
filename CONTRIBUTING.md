@@ -21,6 +21,25 @@ python -m pip install -r requirements-dev.txt
 pre-commit install
 ```
 
+#### Using uv
+
+This assumes you have uv installed, otherwise please follow these [instructions](https://docs.astral.sh/uv/getting-started/installation/).
+
+```bash
+# fetch this repo
+git clone git@github.com:xorq-labs/xorq.git
+# set uv run command to not sync 
+export UV_NO_SYNC=1
+# prepare development environment and install dependencies
+uv sync --all-extras --all-groups --no-install-project
+# compile and install the rust extensions
+uv run maturin develop --uv --release --strip
+# activate the venv
+source venv/bin/activate
+# set up the git hook scripts
+uv run pre-commit install
+```
+
 ### Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
 Download example data to run the tests successfully.
