@@ -1,4 +1,5 @@
 import functools
+import json
 import operator
 import os
 from pathlib import Path
@@ -8,11 +9,6 @@ import dask
 import pandas as pd
 import toolz
 from openai import OpenAI
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-)
 
 import xorq as xo
 from xorq.flight.utils import (
@@ -21,8 +17,16 @@ from xorq.flight.utils import (
 )
 
 
+_completions_kwargs = (
+    ("model", "gpt-3.5-turbo"),
+    ("max_tokens", 30),
+    ("temperature", 0),
+    ("timeout", 3),
+)
+
+
 @toolz.curry
-def simple_disk_cache(f, cache_dir):
+def simple_disk_cache(f, cache_dir, serde):
     cache_dir = Path(cache_dir).absolute()
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -30,10 +34,10 @@ def simple_disk_cache(f, cache_dir):
         name = dask.base.tokenize(*args, **kwargs)
         path = cache_dir.joinpath(name)
         if path.exists():
-            value = path.read_text()
+            value = serde.loads(path.read_text())
         else:
             value = f(*args, **kwargs)
-            path.write_text(value)
+            path.write_text(serde.dumps(value))
         return value
 
     return wrapped
@@ -47,17 +51,12 @@ def get_client():
     return client
 
 
-request_timeout = 3
+@simple_disk_cache(cache_dir=Path("./openai-sentiment"), serde=json)
+def request_chat_completions_dict(**kwargs):
+    return get_client().chat.completions.create(**kwargs).model_dump()
 
 
-@simple_disk_cache(cache_dir=Path("./openai-sentiment"))
-def extract_sentiment(text):
-    @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(3))
-    def completion_with_backoff(**kwargs):
-        return get_client().chat.completions.create(**kwargs)
-
-    if text == "":
-        return "NEUTRAL"
+def make_hn_sentiment_messages(text):
     messages = [
         {
             "role": "system",
@@ -69,27 +68,37 @@ def extract_sentiment(text):
             f"Return only a single word, either POSITIVE, NEGATIVE or NEUTRAL: {text}",
         },
     ]
+    return messages
+
+
+def request_one_chat_completion(messages, **kwargs):
+    if kwargs.get("n", 1) != 1:
+        raise ValueError
+    if "messages" in kwargs:
+        raise ValueError
+    _kwargs = dict(_completions_kwargs) | kwargs
+    response_dict = request_chat_completions_dict(
+        messages=messages,
+        **_kwargs,
+    )
+    content = response_dict["choices"][0]["message"]["content"]
+    return content
+
+
+def extract_hn_sentiment(text, **kwargs):
+    if text == "":
+        return "NEUTRAL"
+    messages = make_hn_sentiment_messages(text)
     try:
-        response = completion_with_backoff(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            max_tokens=30,
-            temperature=0,
-            timeout=request_timeout,
-        )
-        return response.choices[0].message.content
+        content = request_one_chat_completion(messages, **kwargs)
     except Exception as e:
-        return f"ERROR: {e}"
+        content = f"ERROR: {e}"
+    return content
 
 
 @toolz.curry
 def get_hackernews_sentiment_batch(df: pd.DataFrame, input_col, append_col):
-    import concurrent.futures
-
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        values = tuple(
-            executor.map(toolz.compose(extract_sentiment, unquote_plus), df[input_col])
-        )
+    values = df[input_col].map(toolz.compose(extract_hn_sentiment, unquote_plus))
     return df.assign(**{append_col: values})
 
 
