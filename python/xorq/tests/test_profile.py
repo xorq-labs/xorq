@@ -57,11 +57,11 @@ def test_profiles(monkeypatch, tmp_path):
     assert default_profile_dir == pathlib.Path("~/.config/xorq/profiles").expanduser()
     profiles = Profiles()
     assert profiles.profile_dir == default_profile_dir
-    assert not profiles.list()  # why do this ?
 
     monkeypatch.setattr(xo.options.profiles, "profile_dir", tmp_path)
     profiles = Profiles()
     assert profiles.profile_dir == tmp_path
+    assert not profiles.list()
 
 
 @pytest.mark.parametrize("connector", remote_connectors + local_connectors)
@@ -603,3 +603,10 @@ def test_profile_from_con_preserves_env_vars(monkeypatch, tmp_path):
             pytest.skip(f"Database connection failed: {e}")
         else:
             raise
+
+
+def test_profile_matches_find_backend(data_dir):
+    path = data_dir / "parquet" / "diamonds.parquet"
+    con = xo.connect()
+    t = xo.deferred_read_parquet(con, path)
+    assert con._profile == t._find_backend()._profile
