@@ -79,6 +79,7 @@ examples = [
     "tenacity>=9.0.0",
     "adbc-driver-postgresql>=1.4.0",
     "psycopg2-binary>=2.9.10",
+    "mcp>=1.5.0",
 ]
 postgres = [
     "adbc-driver-postgresql>=1.4.0",
