@@ -7,11 +7,13 @@ import xgboost as xgb
 
 import xorq as xo
 import xorq.expr.datatypes as dt
-from xorq.common.utils.import_utils import import_python
+from xorq.common.utils.import_utils import import_from_gist
 from xorq.flight.exchanger import make_udxf
 
 
-FlightMCPServer = import_python("examples/libs/mcp_lib.py").FlightMCPServer
+FlightMCPServer = import_from_gist(
+    "dlovell", "ced8b9b8f8979ab68c326877549004c7"
+).FlightMCPServer
 
 
 TFIDF_MODEL_PATH = pathlib.Path(xo.options.pins.get_path("hn_tfidf_fitted_model"))
