@@ -12,13 +12,6 @@ def csv_dir():
     return data_dir
 
 
-@pytest.fixture(scope="session")
-def parquet_dir():
-    root = Path(__file__).absolute().parents[5]
-    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
-    return data_dir
-
-
 def test_register_read_csv(csv_dir):
     # this will use ls.options.backend: do we want to clear it out between function invocations?
     api_batting = xo.read_csv(csv_dir / "batting.csv", table_name="api_batting")

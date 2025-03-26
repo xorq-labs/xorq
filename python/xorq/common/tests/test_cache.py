@@ -1,17 +1,8 @@
-from pathlib import Path
-
 import pytest
 
 import xorq as xo
 import xorq.backends.let
 from xorq.caching import ParquetStorage
-
-
-@pytest.fixture(scope="session")
-def parquet_dir():
-    root = Path(__file__).absolute().parents[4]
-    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
-    return data_dir
 
 
 def test_put_get_drop(tmp_path, parquet_dir):

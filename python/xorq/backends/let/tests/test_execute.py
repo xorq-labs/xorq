@@ -75,13 +75,6 @@ def csv_dir():
 
 
 @pytest.fixture(scope="session")
-def parquet_dir():
-    root = Path(__file__).absolute().parents[5]
-    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
-    return data_dir
-
-
-@pytest.fixture(scope="session")
 def dirty_duckdb_con(csv_dir):
     con = xo.duckdb.connect()
     con.read_csv(csv_dir / "awards_players.csv", table_name="ddb_players")
