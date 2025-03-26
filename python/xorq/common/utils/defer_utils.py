@@ -1,8 +1,12 @@
+from pathlib import Path
+
 import pandas as pd
 import pyarrow as pa
 import toolz
 
 import xorq as xo
+import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.let import Backend
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -10,6 +14,7 @@ from xorq.expr.relations import (
     Read,
 )
 from xorq.vendor import ibis
+from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.util import (
     gen_name,
 )
@@ -64,7 +69,13 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
     return rbr
 
 
-def deferred_read_csv(con, path, table_name=None, schema=None, **kwargs):
+def deferred_read_csv(
+    con: Backend,
+    path: str | Path,
+    table_name: str | None = None,
+    schema: Schema | None = None,
+    **kwargs,
+) -> ir.Table:
     """
     Create a deferred read operation for CSV files that will execute only when needed.
 
@@ -129,7 +140,9 @@ def deferred_read_csv(con, path, table_name=None, schema=None, **kwargs):
     ).to_expr()
 
 
-def deferred_read_parquet(con, path, table_name=None, **kwargs):
+def deferred_read_parquet(
+    con: Backend, path: str | Path, table_name: str | None = None, **kwargs
+) -> ir.Table:
     """
      Create a deferred read operation for Parquet files that will execute only when needed.
 
