@@ -20,8 +20,8 @@ use crate::common::df_schema::PyDFSchema;
 use crate::errors::py_type_err;
 use crate::expr::PyExpr;
 use crate::sql::logical::PyLogicalPlan;
+use datafusion::logical_expr::expr::{AggregateFunction, AggregateFunctionParams, Alias};
 use datafusion_common::DataFusionError;
-use datafusion_expr::expr::{AggregateFunction, Alias};
 use datafusion_expr::logical_plan::Aggregate;
 use datafusion_expr::Expr;
 use pyo3::prelude::*;
@@ -126,9 +126,12 @@ impl PyAggregate {
         match expr {
             // TODO: This Alias logic seems to be returning some strange results that we should investigate
             Expr::Alias(Alias { expr, .. }) => self._aggregation_arguments(expr.as_ref()),
-            Expr::AggregateFunction(AggregateFunction { func: _, args, .. }) => {
-                Ok(args.iter().map(|e| PyExpr::from(e.clone())).collect())
-            }
+            Expr::AggregateFunction(AggregateFunction {
+                func: _,
+
+                params: AggregateFunctionParams { args, .. },
+                ..
+            }) => Ok(args.iter().map(|e| PyExpr::from(e.clone())).collect()),
             _ => Err(py_type_err(
                 "Encountered a non Aggregate type in aggregation_arguments",
             )),

@@ -22,6 +22,7 @@ use std::sync::Arc;
 use datafusion::arrow::datatypes::{DataType, Field};
 use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion::functions::core::expr_ext::FieldAccessor;
+use datafusion::logical_expr::expr::{AggregateFunctionParams, WindowFunctionParams};
 use datafusion::scalar::ScalarValue;
 use datafusion_expr::{
     col,
@@ -149,6 +150,7 @@ impl PyExpr {
             Expr::Negative(expr) => Ok(PyNegative::new(*expr.clone()).into_bound_py_any(py)?),
             Expr::Cast(cast) => Ok(PyCast::from(cast.clone()).into_bound_py_any(py)?),
             Expr::Case(case) => Ok(PyCase::from(case.clone()).into_bound_py_any(py)?),
+            #[allow(deprecated)]
             Expr::Wildcard {
                 qualifier,
                 options: _,
@@ -289,7 +291,6 @@ impl PyExpr {
             | Expr::AggregateFunction { .. }
             | Expr::WindowFunction { .. }
             | Expr::InList { .. }
-            | Expr::Wildcard { .. }
             | Expr::Exists { .. }
             | Expr::InSubquery { .. }
             | Expr::GroupingSet(..)
@@ -303,6 +304,8 @@ impl PyExpr {
             | Expr::Unnest(_)
             | Expr::IsNotUnknown(_) => RexType::Call,
             Expr::ScalarSubquery(..) => RexType::ScalarSubquery,
+            #[allow(deprecated)]
+            Expr::Wildcard { .. } => RexType::Call,
         })
     }
 
@@ -586,11 +589,15 @@ impl PyExpr {
             | Expr::InSubquery(InSubquery { expr, .. }) => Ok(vec![PyExpr::from(*expr.clone())]),
 
             // Expr variants containing a collection of Expr(s) for operands
-            Expr::AggregateFunction(AggregateFunction { args, .. })
+            Expr::AggregateFunction(AggregateFunction {
+                params: AggregateFunctionParams { args, .. },
+                ..
+            })
             | Expr::ScalarFunction(ScalarFunction { args, .. })
-            | Expr::WindowFunction(WindowFunction { args, .. }) => {
-                Ok(args.iter().map(|arg| PyExpr::from(arg.clone())).collect())
-            }
+            | Expr::WindowFunction(WindowFunction {
+                params: WindowFunctionParams { args, .. },
+                ..
+            }) => Ok(args.iter().map(|arg| PyExpr::from(arg.clone())).collect()),
 
             // Expr(s) that require more specific processing
             Expr::Case(Case {
@@ -654,6 +661,7 @@ impl PyExpr {
             ]),
 
             // Currently un-support/implemented Expr types for Rex Call operations
+            #[allow(deprecated)]
             Expr::GroupingSet(..)
             | Expr::Unnest(_)
             | Expr::OuterReferenceColumn(_, _)
@@ -735,6 +743,7 @@ impl PyExpr {
         input_plan: &LogicalPlan,
     ) -> Result<Arc<Field>, DataFusionError> {
         match expr {
+            #[allow(deprecated)]
             Expr::Wildcard { .. } => {
                 // Since * could be any of the valid column names just return the first one
                 Ok(Arc::new(input_plan.schema().field(0).clone()))
