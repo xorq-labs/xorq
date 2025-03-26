@@ -29,8 +29,8 @@ from xorq.flight.client import FlightClient
 
 transform_port = 8765
 predict_port = 8766
-expected_transform_command = "execute-unbound-expr-2344306a05bdbd32a903fdb37d3066c8"
-expected_predict_command = "execute-unbound-expr-93bc6e0f5a060c4b2d633e57899d2132"
+expected_transform_command = "execute-unbound-expr-d785a558027791af18dac689ed381d42"
+expected_predict_command = "execute-unbound-expr-2f54734d557f2914929e8f0fc8784c42"
 
 
 do_hackernews_fetcher_udxf = import_python(
