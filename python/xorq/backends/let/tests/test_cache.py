@@ -946,4 +946,4 @@ def test_cache_find_backend(con, cls, parquet_dir):
     astronauts_path = parquet_dir / "astronauts.parquet"
     storage = cls(source=con)
     expr = con.read_parquet(astronauts_path).cache(storage=storage)
-    assert expr._find_backend().name == con.name
+    assert expr._find_backend()._profile == con._profile

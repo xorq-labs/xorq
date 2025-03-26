@@ -1,5 +1,4 @@
 from datetime import date
-from pathlib import Path
 
 import pytest
 
@@ -792,10 +791,3 @@ def compiler(build_dir):
     from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 
     return YamlExpressionTranslator()
-
-
-@pytest.fixture(scope="session")
-def parquet_dir():
-    root = Path(__file__).absolute().parents[4]
-    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
-    return data_dir
