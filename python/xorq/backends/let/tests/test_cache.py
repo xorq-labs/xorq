@@ -64,13 +64,6 @@ def csv_dir():
     return data_dir
 
 
-@pytest.fixture(scope="session")
-def parquet_dir():
-    root = pathlib.Path(__file__).absolute().parents[5]
-    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
-    return data_dir
-
-
 def test_cache_simple(con, alltypes, alltypes_df):
     initial_tables = con.list_tables()
 
