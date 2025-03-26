@@ -12,6 +12,11 @@ dask.base.normalize_token.dispatch(np.dtype)
 dask.base.normalize_token.dispatch(pd.DataFrame)
 
 
+@dask.base.normalize_token.register(dict)
+def normalize_dict(dct):
+    return normalize_seq_with_caller(*sorted(dct.items()))
+
+
 @dask.base.normalize_token.register(pd._libs.interval.Interval)
 def normalize_interval(interval):
     objs = (interval.left, interval.right, interval.closed)
