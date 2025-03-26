@@ -1,6 +1,8 @@
 import importlib
 import json
 import sys
+import tempfile
+import urllib
 from pathlib import Path
 
 
@@ -81,3 +83,16 @@ def import_from_path(path):
         raise ValueError(
             f"Unsupported file type: {path.suffix}. Only .py and .ipynb files are supported."
         )
+
+
+def import_from_gist(user, gist):
+    path = f"https://gist.githubusercontent.com/{user}/{gist}/raw/"
+    req = urllib.request.Request(path, method="GET")
+    resp = urllib.request.urlopen(req)
+    if resp.code != 200:
+        raise ValueError
+    with tempfile.NamedTemporaryFile() as ntfh:
+        path = Path(ntfh.name)
+        path.write_text(resp.read().decode("ascii"))
+        module = import_python(path)
+        return module
