@@ -111,10 +111,3 @@ def tls_key_pair(tmp_path_factory):
     create_tls_keypair(cert_file, key_file)
 
     return cert_file, key_file
-
-
-@pytest.fixture(scope="session")
-def parquet_dir():
-    root = Path(__file__).absolute().parents[4]
-    data_dir = root / "ci" / "ibis-testing-data" / "parquet"
-    return data_dir
