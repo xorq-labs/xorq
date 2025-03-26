@@ -165,7 +165,8 @@ def make_exprs():
     con = xo.connect()
     storage = ParquetStorage(source=con)
     # pg.postgres.connect_env().create_catalog("caching")
-    pg = xo.postgres.connect_env(database="caching")
+    # pg = xo.postgres.connect_env(database="caching")
+    pg = xo.postgres.connect_examples(database="caching")
 
     (train_expr, test_expr) = (
         deferred_read_parquet(
