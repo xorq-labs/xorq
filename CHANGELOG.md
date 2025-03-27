@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.0] - 2025-03-27
+### Details
+This release enhances xorq with ExprScalarUDF walk_nodes support, multi-duck vignette, import_from_gist functionality, 
+and type annotations for deferred reading functions. Key changes centralize parquet fixtures and generalize OpenAI invocation. 
+Fixes address Postgres HTTP Parquet reading, backend detection, command hashes, and dictionary registration. 
+PyO3 warnings and unused exchanger components were removed.
+
+#### Added
+- Add ExprScalarUDF to walk_nodes by @dlovell in [#693](https://github.com/xorq-labs/xorq/pull/693)
+- Add hn part4 by @hussainsultan in [#713](https://github.com/xorq-labs/xorq/pull/713)
+- Add multi-duck vignette by @hussainsultan in [#719](https://github.com/xorq-labs/xorq/pull/719)
+- Add import_from_gist by @dlovell in [#733](https://github.com/xorq-labs/xorq/pull/733)
+- Add uv section by @mesejo in [#730](https://github.com/xorq-labs/xorq/pull/730)
+- Add type annotations to deferred_read_csv and deferred_read_parquet by @soheil-star01 in [#738](https://github.com/xorq-labs/xorq/pull/738)
+
+#### Changed
+- ParquetStorage to build and run by @mesejo in [#684](https://github.com/xorq-labs/xorq/pull/684)
+- Centralize definition of parquet_dir fixture by @dlovell in [#722](https://github.com/xorq-labs/xorq/pull/722)
+- Generalize openai invocation by @dlovell in [#732](https://github.com/xorq-labs/xorq/pull/732)
+- Connect_examples pass kwargs by @dlovell in [#736](https://github.com/xorq-labs/xorq/pull/736)
+
+#### Fixed
+- Postgres deferred_read_parquet fails for http source by @mesejo in [#708](https://github.com/xorq-labs/xorq/pull/708)
+- Spurious backend in _find_backend by @mesejo in [#717](https://github.com/xorq-labs/xorq/pull/717)
+- Update expected command hashes by @dlovell in [#734](https://github.com/xorq-labs/xorq/pull/734)
+- Register dict by @dlovell in [#735](https://github.com/xorq-labs/xorq/pull/735)
+
+#### Removed
+- Remove PyO3 migration warnings by @mesejo in [#707](https://github.com/xorq-labs/xorq/pull/707)
+- Remove unused exchanger by @mesejo in [#715](https://github.com/xorq-labs/xorq/pull/715)
+
+## New Contributors
+* @soheil-star01 made their first contribution in [#738](https://github.com/xorq-labs/xorq/pull/738)
+
 ## [0.1.17] - 2025-03-24
 ### Details
 This release enhances xorq documentation with new quickstart guides, HN dataset tutorials, normalization helpers, 
