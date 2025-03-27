@@ -33,7 +33,9 @@
           {
             "group": "Vignettes",
             "pages": [
-              "vignettes/duckdb_concurrent"
+              "vignettes/duckdb_concurrent",
+              "vignettes/mcp_flight_server"
+
             ]
           },
           {
