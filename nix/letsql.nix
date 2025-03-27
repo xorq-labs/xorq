@@ -94,6 +94,30 @@ let
       editableOverlay = workspace.mkEditablePyprojectOverlay {
         root = "$REPO_ROOT";
       };
+
+      virtualenv-pure-pypi =
+        let
+        workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./pure-pypi; };
+        wheelOverlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
+        # pyprojectOverrides-base
+        pythonSet-base =
+          # Use base package set from pyproject.nix builders
+          (pkgs.callPackage pyproject-nix.build.packages {
+            inherit python;
+          }).overrideScope
+            (
+              pkgs.lib.composeManyExtensions (
+                [
+                  pyproject-build-systems.overlays.default
+                  wheelOverlay
+                  pyprojectOverrides-base
+                ]
+                ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ darwinPyprojectOverrides ]
+              )
+            );
+        virtualenv = pythonSet-base.mkVirtualEnv "xorq" workspace.deps.all;
+        in virtualenv;
+
       pyprojectOverrides-base = final: prev: {
         cityhash = prev.cityhash.overrideAttrs (
           addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
@@ -127,16 +151,6 @@ let
               ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ darwinPyprojectOverrides ]
             )
           );
-      pyprojectOverrides-pypi = final: prev: {
-        xorq = prev.xorq.overrideAttrs (old: {
-          src = pkgs.fetchurl {
-            url = "https://files.pythonhosted.org/packages/82/7c/4f6fa35ac8bc4aeef68f94c91f2001a799aa6210456c2d806d3574f7ea1f/letsql-0.1.12-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl";
-            sha256 = "sha256-1SSYEzLzPYt1dE1q4s7sEbVRA6Sc0j3/VSWx1Q0kGRk=";
-          };
-          format = "wheel";
-          nativeBuildInputs = crateWheelLib.usePyprojectWheelHook old pythonSet-base;
-        });
-      };
       overridePythonSet =
         overrides: pythonSet-base.overrideScope (pkgs.lib.composeManyExtensions overrides);
       pythonSet-editable = overridePythonSet [
@@ -144,10 +158,8 @@ let
         editableOverlay
       ];
       pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
-      pythonSet-pypi = overridePythonSet [ pyprojectOverrides-pypi ];
       virtualenv-editable = pythonSet-editable.mkVirtualEnv "xorq" workspace.deps.all;
       virtualenv = pythonSet-wheel.mkVirtualEnv "xorq" workspace.deps.all;
-      virtualenv-pypi = pythonSet-pypi.mkVirtualEnv "xorq" workspace.deps.all;
 
       editableShellHook = ''
         # Undo dependency propagation by nixpkgs.
@@ -209,14 +221,6 @@ let
           unset PYTHONPATH
         '';
       };
-      pypiShell = pkgs.mkShell {
-        packages = [
-          virtualenv-pypi
-        ];
-        shellHook = ''
-          unset PYTHONPATH
-        '';
-      };
       editableShell = pkgs.mkShell {
         packages = [
           virtualenv-editable
@@ -236,15 +240,14 @@ let
         pythonSet-wheel
         virtualenv
         virtualenv-editable
-        virtualenv-pypi
         editableShellHook
         maybeMaturinBuildHook
         toolchain
         letsql-commands-star
         toolsPackages
         shell
+        virtualenv-pure-pypi
         editableShell
-        pypiShell
         ;
     };
 in
