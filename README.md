@@ -51,25 +51,32 @@ pip install xorq
 ```python
 # your_pipeline.py
 import xorq as xo
+import xorq.expr.datatypes as dt
 
+@xo.udf.make_pandas_udf(
+    schema=xo.schema({"title": str, "url": str}),
+    return_type=dt.bool,
+    name="url_in_title",
+)
+def url_in_title(df):
+    return df.apply(
+        lambda s: (s.url or "") in (s.title or ""),
+        axis=1,
+    )
 
-pg = xo.postgres.connect_env()
-db = xo.duckdb.connect()
+# Connect to xorq's embedded engine
+con = xo.connect()
 
-batting = pg.table("batting")
-awards_players = xo.examples.awards_players.fetch(backend=db)
+# Reference to the parquet file
+name = "hn-data-small.parquet"
 
-left = batting.filter(batting.yearID == 2015)
+expr = xo.deferred_read_parquet(
+    con,
+    xo.options.pins.get_path(name),
+    name,
+).mutate(**{"url_in_title": url_in_title.on_expr})
 
-right = (awards_players.filter(awards_players.lgID == "NL")
-                       .drop("yearID", "lgID")
-                       .into_backend(pg, "filtered"))
-
-expr = (left.join(right, ["playerID"], how="semi")
-            .cache()
-            .select(["yearID", "stint"]))
-
-result = expr.execute()
+expr.execute().head()
 ```
 
 xorq provides a CLI that enables you to build serialized artifacts from expressions, making your pipelines reproducible and deployable:
