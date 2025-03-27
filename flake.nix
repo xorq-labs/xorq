@@ -100,11 +100,19 @@
             drv = letsql-312.virtualenv;
             name = "ipython";
           };
-          ipython-310-v0-1-12 = drvToApp {
-            drv = letsql-310.virtualenv-pypi;
+          ipython-310-v0-2-0 = drvToApp {
+            drv = letsql-310.virtualenv-pure-pypi;
             name = "ipython";
           };
-          default = self.apps.${system}.ipython-310;
+          ipython-311-v0-2-0 = drvToApp {
+            drv = letsql-311.virtualenv-pure-pypi;
+            name = "ipython";
+          };
+          ipython-312-v0-2-0 = drvToApp {
+            drv = letsql-312.virtualenv-pure-pypi;
+            name = "ipython";
+          };
+          default = self.apps.${system}.ipython-310-v0-2-0;
         };
         lib = {
           inherit
@@ -140,7 +148,6 @@
           virtualenv-editable-311 = letsql-311.editableShell;
           virtualenv-312 = letsql-312.shell;
           virtualenv-editable-312 = letsql-312.editableShell;
-          virtualenv-pypi-310 = letsql-310.pypiShell;
           default = self.devShells.${system}.virtualenv-310;
         };
       }

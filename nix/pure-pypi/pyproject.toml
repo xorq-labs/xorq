@@ -1,0 +1,14 @@
+[project]
+name = "xorq-0-2-0"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "xorq[duckdb,examples,postgres,snowflake]>=0.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "ipython>=8.34.0",
+]
