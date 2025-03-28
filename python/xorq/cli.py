@@ -8,14 +8,14 @@ from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
 
 
-def build_command(script_path, expression, builds_dir="builds"):
+def build_command(script_path, expr_name, builds_dir="builds"):
     """
     Generate artifacts from an expression in a given Python script
 
     Parameters
     ----------
     script_path : Path to the Python script
-    expression : The name of the expression to build
+    expr_name : The name of the expression to build
     builds_dir : Directory where artifacts will be generated
 
     Returns
@@ -23,38 +23,32 @@ def build_command(script_path, expression, builds_dir="builds"):
 
     """
 
-    if len(expression) != 1:
-        print("Expected one, and only one expression", file=sys.stderr)
-        sys.exit(1)
-
-    (expression,) = expression
-
     if not os.path.exists(script_path):
         print(f"Error: Script not found at {script_path}", file=sys.stderr)
         sys.exit(1)
 
-    print(f"Building {expression} from {script_path}")
+    print(f"Building {expr_name} from {script_path}")
 
     build_manager = BuildManager(builds_dir)
 
     vars_module = import_from_path(script_path)
 
-    if not hasattr(vars_module, expression):
-        print(f"Expression {expression} not found", file=sys.stderr)
+    if not hasattr(vars_module, expr_name):
+        print(f"Expression {expr_name} not found", file=sys.stderr)
         sys.exit(1)
 
-    expr = getattr(vars_module, expression)
+    expr = getattr(vars_module, expr_name)
 
     if not isinstance(expr, Expr):
         print(
-            f"The object {expression} must be an instance of {Expr.__module__}.{Expr.__name__}",
+            f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}",
             file=sys.stderr,
         )
         sys.exit(1)
 
     expr_hash = build_manager.compile_expr(expr)
     print(
-        f"Written '{expression}' to {build_manager.artifact_store.get_path(expr_hash)}"
+        f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",
     )
 
 
@@ -111,8 +105,8 @@ def main():
     build_parser.add_argument("script_path", help="Path to the Python script")
     build_parser.add_argument(
         "-e",
-        "--expressions",
-        nargs="?",
+        "--expr-name",
+        default="expr",
         help="Name of the expression variable in the Python script",
     )
     build_parser.add_argument(
@@ -139,8 +133,7 @@ def main():
 
     match args.command:
         case "build":
-            expressions = [args.expressions] if args.expressions else []
-            build_command(args.script_path, expressions, args.builds_dir)
+            build_command(args.script_path, args.expr_name, args.builds_dir)
         case "run":
             run_command(args.build_path, args.output_path, args.format)
         case _:
