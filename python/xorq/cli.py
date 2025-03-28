@@ -49,7 +49,9 @@ def build_command(script_path, expr_name, builds_dir="builds"):
     expr_hash = build_manager.compile_expr(expr)
     print(
         f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",
+        file=sys.stderr,
     )
+    print(build_manager.artifact_store.get_path(expr_hash))
 
 
 def run_command(expr_path, output_path=None, output_format="parquet"):
