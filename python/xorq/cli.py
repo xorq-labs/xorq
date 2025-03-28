@@ -47,7 +47,7 @@ def build_command(script_path, expression, builds_dir="builds"):
 
     if not isinstance(expr, Expr):
         print(
-            f"The object {expression} must be an instance of {type(expr)}",
+            f"The object {expression} must be an instance of {Expr.__module__}.{Expr.__name__}",
             file=sys.stderr,
         )
         sys.exit(1)
