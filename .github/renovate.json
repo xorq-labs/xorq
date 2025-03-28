@@ -17,7 +17,7 @@
   ],
   "packageRules": [
     {
-      "matchManagers": ["cargo"],
+      "matchManagers": ["github-actions", "cargo"],
       "rangeStrategy": "pin",
       "automerge": false
     }
