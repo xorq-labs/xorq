@@ -94,8 +94,7 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
         sys.exit(1)
 
 
-def main():
-    """Main entry point for the xorq CLI."""
+def parse_args(override=None):
     parser = argparse.ArgumentParser(description="xorq - build and run expressions")
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
@@ -131,7 +130,13 @@ def main():
         help="Output format (default: parquet)",
     )
 
-    args = parser.parse_args()
+    args = parser.parse_args(override)
+    return args
+
+
+def main():
+    """Main entry point for the xorq CLI."""
+    args = parse_args()
 
     match args.command:
         case "build":
