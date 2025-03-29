@@ -26,3 +26,4 @@ client = flight_server.client
 do_exchange = toolz.curry(client.do_exchange, dummy_udxf.command)
 
 do_exchange(xo.memtable({"dummy": [0]}, schema=schema_in).to_pyarrow_batches())
+pytest_examples_passed = True

@@ -10,3 +10,4 @@ t = con.create_table("frame", df)
 
 res = t.head(3).execute()
 print(res)
+pytest_examples_passed = True

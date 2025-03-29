@@ -56,3 +56,4 @@ agg_udf = udf.agg.pandas_df(
 )
 expr = t.group_by(by).agg(agg_udf.on_expr(t).name("best_features")).order_by(by)
 result = xo.execute(expr)
+pytest_examples_passed = True

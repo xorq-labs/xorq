@@ -9,11 +9,16 @@ import xorq as xo
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
 LIBRARY_SCRIPTS = ("pandas_example",)
+NON_TESTABLE = (
+    "mcp_flight_server.py",
+    "duckdb_flight_example.py",
+    "complex_cached_expr.py",
+)
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent
 examples_dir = file_path.parents[3] / "examples"
-scripts = examples_dir.glob("*.py")
+scripts = (p for p in examples_dir.glob("*.py") if p.name not in NON_TESTABLE)
 
 
 def teardown_function():
@@ -37,4 +42,5 @@ def maybe_library(name: str):
     ],
 )
 def test_script_execution(script):
-    runpy.run_path(str(script))
+    dct = runpy.run_path(str(script))
+    assert dct.get("pytest_examples_passed")

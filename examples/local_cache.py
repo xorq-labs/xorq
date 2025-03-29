@@ -34,3 +34,4 @@ print(f"{path} exists?: {path.exists()}")
 result = xo.execute(cached)  # the filter is executed on the local table
 print(f"{path} exists?: {path.exists()}")
 print(result)
+pytest_examples_passed = True

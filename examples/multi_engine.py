@@ -15,3 +15,4 @@ expr = left.join(into_backend(right, pg), ["playerID"], how="semi")[["yearID", "
 
 result = xo.execute(expr)
 print(result)
+pytest_examples_passed = True

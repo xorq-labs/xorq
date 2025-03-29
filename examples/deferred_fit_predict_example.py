@@ -48,3 +48,4 @@ cached_predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
 
 
 assert predicted.equals(cached_predicted)
+pytest_examples_passed = True

@@ -25,3 +25,4 @@ build_manager = BuildManager("builds")
 expr_hash = build_manager.compile_expr(expr)
 
 roundtrip_expr = build_manager.load_expr(expr_hash)
+pytest_examples_passed = True

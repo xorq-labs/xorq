@@ -162,3 +162,4 @@ print(f"\nAUC Score: {auc:.4f}")
 
 print("\nClassification Report:")
 print(classification_report(predictions_df[target_column], binary_predictions))
+pytest_examples_passed = True
