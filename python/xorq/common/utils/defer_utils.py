@@ -47,6 +47,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
     if chunksize is None:
         raise ValueError("chunksize must not be `None`")
     if schema is not None:
+        schema = xo.schema(schema)
         dtype = {col: typ.to_pandas() for col, typ in schema.items()}
         schema = schema.to_pyarrow()
     # schema is always nullable (this is good)
