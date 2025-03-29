@@ -23,3 +23,4 @@ expr = left.join(
 
 res = expr.execute()
 print(res)
+pytest_examples_passed = True

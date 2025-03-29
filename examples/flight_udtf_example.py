@@ -102,3 +102,4 @@ t = xo.memtable(
 expr = do_hackernews_fetcher_udxf(t)
 df = expr.execute()
 print(df)
+pytest_examples_passed = True

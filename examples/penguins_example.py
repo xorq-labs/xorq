@@ -14,3 +14,4 @@ path = storage.get_loc(op.to_expr().ls.get_key())
 print(f"{path} exists?: {path.exists()}")
 result = xo.execute(cached)
 print(f"{path} exists?: {path.exists()}")
+pytest_examples_passed = True

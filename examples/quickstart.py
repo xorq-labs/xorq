@@ -110,6 +110,7 @@ def test_flight_service():
 print("Testing Flight service...")
 test_flight_service()
 flight_server.close()
+pytest_examples_passed = True
 
 """
 Next Steps: use the cli to build and see how things look like:

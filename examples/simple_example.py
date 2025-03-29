@@ -11,3 +11,4 @@ res = (
 )
 
 print(res)
+pytest_examples_passed = True

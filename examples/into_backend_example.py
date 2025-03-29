@@ -18,3 +18,4 @@ expr = (
 print(expr)
 print(expr.execute())
 print(con.list_tables())
+pytest_examples_passed = True
