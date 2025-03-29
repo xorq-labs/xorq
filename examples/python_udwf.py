@@ -336,3 +336,4 @@ for col in expected.filter(like="smooth").columns:
         assert_series_equal(result[col], expected[col])
     except Exception:
         print(f"col {col} failed")
+pytest_examples_passed = True

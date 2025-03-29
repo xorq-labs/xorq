@@ -59,3 +59,4 @@ other_counts = xo.execute(c.value_counts().order_by(c.get_name())).set_index(nam
     f"{name}_count"
 ]
 assert counts.equals(other_counts)
+pytest_examples_passed = True

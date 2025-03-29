@@ -114,3 +114,6 @@ with FlightServer() as server:
     df_out = instrument_reader(rbr_out, prefix="output ::").read_pandas()
     print(fut.result())
     print(df_out.assign(model=df_out.model_binary.map(pickle.loads)))
+
+
+pytest_examples_passed = True

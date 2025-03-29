@@ -76,3 +76,4 @@ predict_expr_udf = make_pandas_expr_udf(
 from_ls = test.mutate(predict_expr_udf.on_expr(test).name(prediction_key)).execute()
 
 pd._testing.assert_frame_equal(from_ls, from_pd)
+pytest_examples_passed = True

@@ -51,3 +51,4 @@ try:
     raise Exception("do_exchange should have raised")
 except Exception:
     pass
+pytest_examples_passed = True
