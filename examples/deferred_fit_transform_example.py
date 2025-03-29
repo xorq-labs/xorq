@@ -61,3 +61,4 @@ assert transformed.equals(cached_transformed)
 (x, y) = (pickle.loads(el) for el in (model, cached_model))
 assert all(x.idf_ == y.idf_)
 assert x.vocabulary_ == y.vocabulary_
+pytest_examples_passed = True

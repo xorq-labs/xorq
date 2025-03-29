@@ -22,3 +22,4 @@ print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
 res = xo.execute(t)
 print(res)
 print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
+pytest_examples_passed = True

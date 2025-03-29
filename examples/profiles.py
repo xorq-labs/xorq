@@ -90,3 +90,4 @@ for name in profiles.list():
     print(f"Profile: {name}")
     print(f"  - Connection: {p.get_con()}")
     print(f"  - Profile: {p}")
+pytest_examples_passed = True

@@ -110,3 +110,4 @@ expr = (
 
 df = expr.execute()
 print(df)
+pytest_examples_passed = True

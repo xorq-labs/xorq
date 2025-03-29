@@ -43,3 +43,4 @@ print(len(xo.execute(expr)))
 
 # don't forget to clean up
 pg.drop_table(csv_name)
+pytest_examples_passed = True
