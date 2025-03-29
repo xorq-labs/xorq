@@ -46,20 +46,22 @@ def predict_xgboost_model(model, df, features=features):
     return model.predict(xgb.DMatrix(df[list(features)]))
 
 
+def run_pd(train, test):
+    train_df = train.execute()
+    test_df = test.execute()
+    model = train_xgboost_model(train_df)
+    from_pd = test_df.assign(
+        **{prediction_key: predict_xgboost_model(model)},
+    )
+    return from_pd
+
+
 t = xo.read_parquet(xo.config.options.pins.get_path("lending-club"))
 (train, test) = xo.train_test_splits(
     t,
     unique_key=ROWNUM,
     test_sizes=0.7,
 )
-
-# manual run
-model = train_xgboost_model(train.execute())
-from_pd = test.execute().assign(
-    **{prediction_key: predict_xgboost_model(model)},
-)
-
-# using expr-scalar-udf
 model_udaf = udf.agg.pandas_df(
     fn=toolz.compose(pickle.dumps, train_xgboost_model),
     schema=t[features + (target,)].schema(),
@@ -73,7 +75,11 @@ predict_expr_udf = make_pandas_expr_udf(
     return_type=dt.dtype(prediction_typ),
     name=prediction_key,
 )
-from_ls = test.mutate(predict_expr_udf.on_expr(test).name(prediction_key)).execute()
+expr = test.mutate(predict_expr_udf.on_expr(test).name(prediction_key))
 
-pd._testing.assert_frame_equal(from_ls, from_pd)
-pytest_examples_passed = True
+
+if __name__ == "__main__":
+    from_pd = run_pd(train, test)
+    from_xo = expr.execute()
+    pd._testing.assert_frame_equal(from_xo, from_pd)
+    pytest_examples_passed = True
