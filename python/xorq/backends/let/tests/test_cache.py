@@ -556,6 +556,13 @@ def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
     assert expr.execute() is not None
 
 
+def test_read_parquet_and_cache_xorq(ls_con, parquet_dir, tmp_path):
+    batting_path = parquet_dir / "batting.parquet"
+    t = ls_con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
+    expr = t.cache(storage=ParquetStorage(source=ls_con, path=tmp_path))
+    assert expr.execute() is not None
+
+
 def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
