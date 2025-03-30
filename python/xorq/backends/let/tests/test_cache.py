@@ -556,6 +556,13 @@ def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
     assert expr.execute() is not None
 
 
+def test_read_parquet_and_cache_xorq(ls_con, parquet_dir, tmp_path):
+    batting_path = parquet_dir / "batting.parquet"
+    t = ls_con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
+    expr = t.cache(storage=ParquetStorage(source=ls_con, path=tmp_path))
+    assert expr.execute() is not None
+
+
 def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
@@ -947,3 +954,11 @@ def test_cache_find_backend(con, cls, parquet_dir):
     storage = cls(source=con)
     expr = con.read_parquet(astronauts_path).cache(storage=storage)
     assert expr._find_backend()._profile == con._profile
+
+
+def test_cache_record_batch_provider_exec(pg, ls_con):
+    batches = pg.table("batting").to_pyarrow_batches()
+    t = ls_con.register(batches, table_name="batting_batches")
+    storage = SourceStorage(source=ls_con)
+
+    assert storage.get_key(t) is not None
