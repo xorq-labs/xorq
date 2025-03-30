@@ -6,11 +6,6 @@ from urllib.parse import unquote_plus
 import pandas as pd
 import toolz
 from openai import OpenAI
-from tenacity import (
-    retry,
-    stop_after_attempt,
-    wait_random_exponential,
-)
 
 import xorq as xo
 from xorq.flight.utils import (
@@ -31,10 +26,6 @@ request_timeout = 3
 
 
 def extract_sentiment(text):
-    @retry(wait=wait_random_exponential(min=1, max=60), stop=stop_after_attempt(3))
-    def completion_with_backoff(**kwargs):
-        return get_client().chat.completions.create(**kwargs)
-
     if text == "":
         return "NEUTRAL"
     messages = [
@@ -49,7 +40,7 @@ def extract_sentiment(text):
         },
     ]
     try:
-        response = completion_with_backoff(
+        response = get_client().chat.completions.create(
             model="gpt-3.5-turbo",
             messages=messages,
             max_tokens=30,
