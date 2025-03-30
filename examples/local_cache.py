@@ -15,11 +15,9 @@ storage = ParquetStorage(
 alltypes = con.register(
     pg.table("functional_alltypes"), table_name="pg_functional_alltypes"
 )
-cached = (
-    alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col).cache(
-        storage=storage
-    )  # cache expression (this creates a local table)
-)
+cached = alltypes.select(
+    alltypes.smallint_col, alltypes.int_col, alltypes.float_col
+).cache(storage=storage)
 expr = cached.filter(
     [
         cached.float_col > 0,
@@ -27,11 +25,12 @@ expr = cached.filter(
         cached.int_col < cached.float_col * 2,
     ]
 )
-path = storage.get_loc(cached.ls.get_key())
 
 
-print(f"{path} exists?: {path.exists()}")
-result = xo.execute(cached)  # the filter is executed on the local table
-print(f"{path} exists?: {path.exists()}")
-print(result)
-pytest_examples_passed = True
+if __name__ == "__main__":
+    path = storage.get_loc(cached.ls.get_key())
+    print(f"{path} exists?: {path.exists()}")
+    result = xo.execute(cached)  # the filter is executed on the local table
+    print(f"{path} exists?: {path.exists()}")
+    print(result)
+    pytest_examples_passed = True
