@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pyarrow as pa
 import pytest
 
@@ -12,13 +10,6 @@ def tmp_model_dir(tmpdir):
     # Create a temporary directory for the model
     model_dir = tmpdir.mkdir("models")
     return model_dir
-
-
-@pytest.fixture(scope="session")
-def data_dir():
-    root = Path(__file__).absolute().parents[6]
-    data_dir = root / "ci" / "ibis-testing-data"
-    return data_dir
 
 
 @pytest.fixture(scope="session")
