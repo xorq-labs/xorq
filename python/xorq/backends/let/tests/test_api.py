@@ -1,15 +1,6 @@
-from pathlib import Path
-
 import pytest
 
 import xorq as xo
-
-
-@pytest.fixture(scope="session")
-def csv_dir():
-    root = Path(__file__).absolute().parents[5]
-    data_dir = root / "ci" / "ibis-testing-data" / "csv"
-    return data_dir
 
 
 def test_register_read_csv(csv_dir):

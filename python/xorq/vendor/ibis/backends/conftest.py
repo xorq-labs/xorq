@@ -6,7 +6,6 @@ import importlib.metadata
 import itertools
 import operator
 from functools import cache
-from pathlib import Path
 from typing import Any
 
 import _pytest
@@ -161,20 +160,6 @@ FILES_WITH_STRICT_EXCEPTION_CHECK = [
 ]
 
 ALL_BACKENDS = set(_get_backend_names())
-
-
-@pytest.fixture(scope="session")
-def data_dir() -> Path:
-    """Return the test data directory.
-
-    Returns
-    -------
-    Path
-        Test data directory
-    """
-    root = Path(__file__).absolute().parents[2]
-
-    return root / "ci" / "ibis-testing-data"
 
 
 def _get_backend_conf(backend_str: str):

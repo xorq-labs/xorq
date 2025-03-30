@@ -1,15 +1,14 @@
 import re
 import sys
-from pathlib import Path
 
 import pytest
 
 from xorq.cli import build_command, main
 
 
-def test_build_command(monkeypatch, tmp_path, capsys):
+def test_build_command(monkeypatch, tmp_path, fixture_dir, capsys):
     builds_dir = tmp_path / "builds"
-    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
+    script_path = fixture_dir / "pipeline.py"
 
     test_args = [
         "xorq",
@@ -35,9 +34,9 @@ def test_build_command(monkeypatch, tmp_path, capsys):
     assert builds_dir.exists()
 
 
-def test_build_command_with_udtf(monkeypatch, tmp_path, capsys):
+def test_build_command_with_udtf(monkeypatch, tmp_path, fixture_dir, capsys):
     builds_dir = tmp_path / "builds"
-    script_path = Path(__file__).absolute().parent / "fixtures" / "udxf_expr.py"
+    script_path = fixture_dir / "udxf_expr.py"
 
     test_args = [
         "xorq",
@@ -61,9 +60,9 @@ def test_build_command_with_udtf(monkeypatch, tmp_path, capsys):
     assert builds_dir.exists()
 
 
-def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
+def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
     builds_dir = tmp_path / "builds"
-    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.ipynb"
+    script_path = fixture_dir / "pipeline.ipynb"
 
     test_args = [
         "xorq",
@@ -89,9 +88,9 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
     assert builds_dir.exists()
 
 
-def test_run_command_default(monkeypatch, tmp_path, capsys):
+def test_run_command_default(monkeypatch, tmp_path, fixture_dir, capsys):
     target_dir = tmp_path / "build"
-    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
+    script_path = fixture_dir / "pipeline.py"
 
     build_command(str(script_path), "expr", builds_dir=str(target_dir))
     capture = capsys.readouterr()
@@ -114,9 +113,9 @@ def test_run_command_default(monkeypatch, tmp_path, capsys):
 
 
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
-def test_run_command(monkeypatch, tmp_path, capsys, output_format):
+def test_run_command(monkeypatch, tmp_path, fixture_dir, capsys, output_format):
     target_dir = tmp_path / "build"
-    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
+    script_path = fixture_dir / "pipeline.py"
 
     build_command(str(script_path), "expr", builds_dir=str(target_dir))
     capture = capsys.readouterr()
@@ -147,9 +146,11 @@ def test_run_command(monkeypatch, tmp_path, capsys, output_format):
 
 
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
-def test_run_command_stdout(monkeypatch, tmp_path, capsysbinary, output_format):
+def test_run_command_stdout(
+    monkeypatch, tmp_path, fixture_dir, capsysbinary, output_format
+):
     target_dir = tmp_path / "build"
-    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
+    script_path = fixture_dir / "pipeline.py"
 
     build_command(str(script_path), "expr", builds_dir=str(target_dir))
     capture = capsysbinary.readouterr()
@@ -186,10 +187,10 @@ def test_run_command_stdout(monkeypatch, tmp_path, capsysbinary, output_format):
     ],
 )
 def test_build_command_bad_expr_name(
-    monkeypatch, tmp_path, capsys, expression, message
+    monkeypatch, tmp_path, fixture_dir, capsys, expression, message
 ):
     builds_dir = tmp_path / "builds"
-    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
+    script_path = fixture_dir / "pipeline.py"
 
     test_args = [
         "xorq",
