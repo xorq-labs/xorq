@@ -30,7 +30,7 @@ def test_build_command(monkeypatch, tmp_path, capsys):
 
     # Check output
     captured = capsys.readouterr()
-    assert "Building expr" in captured.out
+    assert "Building expr" in captured.err
 
     assert builds_dir.exists()
 
@@ -56,7 +56,7 @@ def test_build_command_with_udtf(monkeypatch, tmp_path, capsys):
         pass
 
     captured = capsys.readouterr()
-    assert "Building expr" in captured.out
+    assert "Building expr" in captured.err
 
     assert builds_dir.exists()
 
@@ -84,7 +84,7 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, capsys):
 
     # Check output
     captured = capsys.readouterr()
-    assert "Building expr" in captured.out
+    assert "Building expr" in captured.err
 
     assert builds_dir.exists()
 
