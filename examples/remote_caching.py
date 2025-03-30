@@ -21,6 +21,8 @@ expr = left.join(
     "playerID",
 ).cache(SourceStorage(source=pg))
 
-res = expr.execute()
-print(res)
-pytest_examples_passed = True
+
+if __name__ == "__main__":
+    res = expr.execute()
+    print(res)
+    pytest_examples_passed = True
