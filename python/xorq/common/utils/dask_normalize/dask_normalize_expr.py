@@ -84,14 +84,16 @@ def normalize_datafusion_databasetable(dt):
         raise ValueError
     table = dt.source.con.table(dt.name)
     ep_str = str(table.execution_plan())
-    if ep_str.startswith(("ParquetExec:", "CsvExec:")):
+    if ep_str.startswith(("ParquetExec:", "CsvExec:")) or re.match(
+        r"DataSourceExec:.+file_type=(csv|parquet)", ep_str
+    ):
         return normalize_seq_with_caller(
             dt.schema.to_pandas(),
             # ep_str denotes the parquet files to be read
             # FIXME: md5sum on detected .parquet files?
             ep_str,
         )
-    elif ep_str.startswith("MemoryExec:"):
+    elif ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
         return normalize_memory_databasetable(dt)
     elif ep_str.startswith("PyRecordBatchProviderExec"):
         return normalize_seq_with_caller(
