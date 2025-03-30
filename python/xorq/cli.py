@@ -116,11 +116,13 @@ def parse_args(override=None):
     )
     run_parser.add_argument("build_path", help="Path to the build script")
     run_parser.add_argument(
+        "-o",
         "--output-path",
         default=None,
         help=f"Path to write output (default: {os.devnull})",
     )
     run_parser.add_argument(
+        "-f",
         "--format",
         choices=["csv", "json", "parquet"],
         default="parquet",
@@ -128,6 +130,12 @@ def parse_args(override=None):
     )
 
     args = parser.parse_args(override)
+    if getattr(args, "output_path", None) == "-":
+        if args.format == "json":
+            # FIXME: deal with windows
+            args.output_path = sys.stdout
+        else:
+            args.output_path = sys.stdout.buffer
     return args
 
 

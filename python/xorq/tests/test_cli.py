@@ -146,6 +146,38 @@ def test_run_command(monkeypatch, tmp_path, capsys, output_format):
         raise AssertionError("No expression hash")
 
 
+@pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
+def test_run_command_stdout(monkeypatch, tmp_path, capsysbinary, output_format):
+    target_dir = tmp_path / "build"
+    script_path = Path(__file__).absolute().parent / "fixtures" / "pipeline.py"
+
+    build_command(str(script_path), "expr", builds_dir=str(target_dir))
+    capture = capsysbinary.readouterr()
+
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", str(capture.out)):
+        expression_path = match.group()
+        test_args = [
+            "xorq",
+            "run",
+            expression_path,
+            "--output-path",
+            "-",
+            "--format",
+            output_format,
+        ]
+        monkeypatch.setattr(sys, "argv", test_args)
+
+        try:
+            main()
+        except SystemExit:
+            pass
+        capture = capsysbinary.readouterr()
+        assert capture.out
+
+    else:
+        raise AssertionError("No expression hash")
+
+
 @pytest.mark.parametrize(
     "expression,message",
     [

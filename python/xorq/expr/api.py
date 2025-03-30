@@ -33,6 +33,7 @@ from xorq.vendor.ibis.expr.types import Table
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
+    from io import TextIOWrapper
     from pathlib import Path
 
     import pandas as pd
@@ -439,22 +440,24 @@ def to_csv(
     import pyarrow.csv as pcsv
     import pyarrow_hotfix  # noqa: F401
 
-    with to_pyarrow_batches(expr, params=params) as batch_reader:
-        with pcsv.CSVWriter(path, schema=batch_reader.schema, **kwargs) as writer:
+    with pcsv.CSVWriter(path, schema=expr.schema().to_pyarrow(), **kwargs) as writer:
+        with to_pyarrow_batches(expr, params=params) as batch_reader:
             for batch in batch_reader:
                 writer.write_batch(batch)
 
 
 def to_json(
     expr: ir.Expr,
-    path: str | Path,
+    path: str | Path | TextIOWrapper,
     params: Mapping[ir.Scalar, Any] | None = None,
 ):
     import pyarrow  # noqa: ICN001, F401
     import pyarrow_hotfix  # noqa: F401
 
-    with to_pyarrow_batches(expr, params=params) as batch_reader:
-        with open(path, "w") as f:
+    from xorq.common.utils.io_utils import maybe_open
+
+    with maybe_open(path, "w") as f:
+        with to_pyarrow_batches(expr, params=params) as batch_reader:
             for batch in batch_reader:
                 df = batch.to_pandas()
                 batch_json = df.to_json(orient="records", lines=True)
