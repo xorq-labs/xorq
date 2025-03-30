@@ -12,3 +12,8 @@ def root_dir():
 def parquet_dir(root_dir):
     data_dir = root_dir / "ci" / "ibis-testing-data" / "parquet"
     return data_dir
+
+
+@pytest.fixture(scope="session")
+def fixture_dir(root_dir):
+    return root_dir.joinpath("python", "xorq", "tests", "fixtures")
