@@ -1,6 +1,8 @@
 import argparse
 import os
+import pdb
 import sys
+import traceback
 from pathlib import Path
 
 from xorq.common.utils.import_utils import import_from_path
@@ -24,27 +26,23 @@ def build_command(script_path, expr_name, builds_dir="builds"):
     """
 
     if not os.path.exists(script_path):
-        print(f"Error: Script not found at {script_path}", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Error: Script not found at {script_path}")
 
-    print(f"Building {expr_name} from {script_path}")
+    print(f"Building {expr_name} from {script_path}", file=sys.stderr)
 
     build_manager = BuildManager(builds_dir)
 
     vars_module = import_from_path(script_path)
 
     if not hasattr(vars_module, expr_name):
-        print(f"Expression {expr_name} not found", file=sys.stderr)
-        sys.exit(1)
+        raise ValueError(f"Expression {expr_name} not found")
 
     expr = getattr(vars_module, expr_name)
 
     if not isinstance(expr, Expr):
-        print(
-            f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}",
-            file=sys.stderr,
+        raise ValueError(
+            f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
         )
-        sys.exit(1)
 
     expr_hash = build_manager.compile_expr(expr)
     print(
@@ -74,11 +72,11 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
     if output_path is None:
         output_path = os.devnull
 
-    try:
-        expr_path = Path(expr_path)
-        build_manager = BuildManager(expr_path.parent)
-        expr = build_manager.load_expr(expr_path.stem)
+    expr_path = Path(expr_path)
+    build_manager = BuildManager(expr_path.parent)
+    expr = build_manager.load_expr(expr_path.stem)
 
+    try:
         match output_format:
             case "csv":
                 expr.to_csv(output_path)
@@ -88,14 +86,13 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
                 expr.to_parquet(output_path)
             case _:
                 raise ValueError(f"Unknown output_format: {output_format}")
-
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        raise RuntimeError(f"Error: {e}")
 
 
 def parse_args(override=None):
     parser = argparse.ArgumentParser(description="xorq - build and run expressions")
+    parser.add_argument("--pdb", action="store_true", help="Drop into pdb on failure")
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
@@ -138,13 +135,21 @@ def main():
     """Main entry point for the xorq CLI."""
     args = parse_args()
 
-    match args.command:
-        case "build":
-            build_command(args.script_path, args.expr_name, args.builds_dir)
-        case "run":
-            run_command(args.build_path, args.output_path, args.format)
-        case _:
-            raise ValueError(f"Unknown command: {args.command}")
+    try:
+        match args.command:
+            case "build":
+                build_command(args.script_path, args.expr_name, args.builds_dir)
+            case "run":
+                run_command(args.build_path, args.output_path, args.format)
+            case _:
+                raise ValueError(f"Unknown command: {args.command}")
+    except Exception as e:
+        if args.pdb:
+            traceback.print_exception(e)
+            pdb.post_mortem(e.__traceback__)
+        else:
+            print(e, file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
