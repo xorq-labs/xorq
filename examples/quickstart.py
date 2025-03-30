@@ -15,7 +15,7 @@ import xorq as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
-from xorq.flight import FlightServer, FlightUrl
+from xorq.flight import FlightServer
 from xorq.flight.exchanger import make_udxf
 
 
@@ -62,6 +62,15 @@ def sentiment_analysis(df: pd.DataFrame):
     return pd.DataFrame({"sentiment_score": [float(scores)]})
 
 
+def test_flight_service(do_sentiment, schema_in):
+    test_data = xo.memtable(
+        {"title": ["This is an amazing HackerNews post"]}, schema=schema_in
+    )
+    (_, rbr) = do_sentiment(test_data.to_pyarrow_batches())
+    res = rbr.read_pandas()
+    print("Flight service test result:\n", res)
+
+
 # connect to xorq's embedded engine
 connection = xo.connect()
 
@@ -79,38 +88,28 @@ pipeline = (
     .mutate(sentiment_score=transform_predict.on_expr)
 )
 
-results = pipeline.execute()
-
-
 # Create the UDXF for Flight server
 sentiment_udxf = make_udxf(
     sentiment_analysis, schema_in.to_pyarrow(), schema_out.to_pyarrow()
 )
 
-# Start the Flight server with our exchanger
-flight_port = 8324
-flight_url = FlightUrl(port=flight_port)
-flight_server = FlightServer(flight_url, exchangers=[sentiment_udxf])
-flight_server.serve()
 
-# Get a client to test the server
-client = flight_server.client
-do_sentiment = toolz.curry(client.do_exchange, sentiment_udxf.command)
+if __name__ == "__main__":
+    # demonstrate pipeline
+    results = pipeline.execute()
 
+    # Start the Flight server with our exchanger
+    flight_server = FlightServer(exchangers=[sentiment_udxf])
+    flight_server.serve()
 
-def test_flight_service():
-    test_data = xo.memtable(
-        {"title": ["This is an amazing HackerNews post"]}, schema=schema_in
-    )
-    result = do_sentiment(test_data.to_pyarrow_batches())
-    res = result[1].read_pandas()
-    print("Flight service test result:\n", res)
+    # Get a client to test the server
+    client = flight_server.client
+    do_sentiment = toolz.curry(client.do_exchange, sentiment_udxf.command)
 
-
-print("Testing Flight service...")
-test_flight_service()
-flight_server.close()
-pytest_examples_passed = True
+    print("Testing Flight service...")
+    test_flight_service(do_sentiment, schema_in)
+    flight_server.close()
+    pytest_examples_passed = True
 
 """
 Next Steps: use the cli to build and see how things look like:
