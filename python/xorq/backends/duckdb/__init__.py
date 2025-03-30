@@ -2,15 +2,12 @@ from typing import Any, Mapping
 
 import pyarrow as pa
 
-from xorq.backends.duckdb.compiler import DuckDBCompiler
 from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
 
 class Backend(IbisDuckDBBackend):
-    compiler = DuckDBCompiler()
-
     def execute(
         self,
         expr: ir.Expr,
