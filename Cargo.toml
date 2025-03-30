@@ -20,7 +20,7 @@ datafusion-optimizer = "=45.0.0"
 datafusion-sql = "=45.0.0"
 futures = "=0.3.31"
 async-trait = "=0.1.88"
-arrow = "=54.3.0"
+arrow = "=54.3.1"
 arrow-ord = "=54.3.0"
 datafusion-functions-aggregate = { version = "=45.0.0" }
 aws-config = "=0.101.0"
