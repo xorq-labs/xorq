@@ -32,7 +32,8 @@ def build_command(script_path, expr_name, builds_dir="builds"):
 
     build_manager = BuildManager(builds_dir)
 
-    vars_module = import_from_path(script_path)
+    module_name = "__main__" if script_path.endswith(".ipynb") else None
+    vars_module = import_from_path(script_path, module_name)
 
     if not hasattr(vars_module, expr_name):
         raise ValueError(f"Expression {expr_name} not found")

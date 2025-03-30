@@ -1,7 +1,7 @@
 import itertools
 import random
 from operator import methodcaller
-from pathlib import Path, PosixPath
+from pathlib import PosixPath
 
 import numpy as np
 import pandas as pd
@@ -65,13 +65,6 @@ def union_subsets(alltypes, alltypes_df):
     dc = alltypes_df[(alltypes_df.id >= 5213) & (alltypes_df.id <= 5220)][cols_c]
 
     return (a, b, c), (da, db, dc)
-
-
-@pytest.fixture(scope="session")
-def csv_dir():
-    root = Path(__file__).absolute().parents[5]
-    data_dir = root / "ci" / "ibis-testing-data" / "csv"
-    return data_dir
 
 
 @pytest.fixture(scope="session")

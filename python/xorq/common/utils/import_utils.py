@@ -51,7 +51,7 @@ def import_ipynb(path, module_name):
     return module
 
 
-def import_from_path(path):
+def import_from_path(path, module_name="__main__"):
     """
     Import a Python script or Jupyter notebook as a module.
 
@@ -71,8 +71,6 @@ def import_from_path(path):
     # Check if path exists
     if not path.exists():
         raise ImportError(f"File not found: {path}")
-
-    module_name = "__main__"
 
     # Handle based on file extension
     if path.suffix == ".py":

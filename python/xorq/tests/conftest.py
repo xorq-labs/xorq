@@ -184,16 +184,8 @@ def pytest_runtest_setup(item):
 
 
 @pytest.fixture(scope="session")
-def data_dir():
-    root = Path(__file__).absolute().parents[3]
-    data_dir = root / "ci" / "ibis-testing-data"
-    return data_dir
-
-
-@pytest.fixture(scope="session")
-def ddl_file():
-    root = Path(__file__).absolute().parents[3]
-    ddl_dir = root / "db" / "datafusion.sql"
+def ddl_file(root_dir):
+    ddl_dir = root_dir / "db" / "datafusion.sql"
     return ddl_dir
 
 

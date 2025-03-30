@@ -57,13 +57,6 @@ def pg_alltypes(pg):
     return pg.table("functional_alltypes")
 
 
-@pytest.fixture(scope="session")
-def csv_dir():
-    root = pathlib.Path(__file__).absolute().parents[5]
-    data_dir = root / "ci" / "ibis-testing-data" / "csv"
-    return data_dir
-
-
 def test_cache_simple(con, alltypes, alltypes_df):
     initial_tables = con.list_tables()
 
