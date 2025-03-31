@@ -23,24 +23,6 @@ expected_tables = (
 )
 
 
-@pytest.fixture(scope="session")
-def pg():
-    conn = xo.postgres.connect(
-        host="localhost",
-        port=5432,
-        user="postgres",
-        password="postgres",
-        database="ibis_testing",
-    )
-    yield conn
-    remove_unexpected_tables(conn)
-
-
-@pytest.fixture(scope="session")
-def dirty(pg):
-    return pg
-
-
 def remove_unexpected_tables(dirty):
     # drop tables
     for table in dirty.list_tables():
@@ -57,11 +39,11 @@ def remove_unexpected_tables(dirty):
 
 
 @pytest.fixture(scope="function")
-def con(dirty):
-    remove_unexpected_tables(dirty)
-    yield dirty
+def con(pg):
+    remove_unexpected_tables(pg)
+    yield pg
     # cleanup
-    remove_unexpected_tables(dirty)
+    remove_unexpected_tables(pg)
 
 
 @pytest.fixture(scope="session")
@@ -83,18 +65,18 @@ def ls_con(dirty_ls_con):
 
 
 @pytest.fixture(scope="session")
-def alltypes(dirty):
-    return dirty.table("functional_alltypes")
+def alltypes(pg):
+    return pg.table("functional_alltypes")
 
 
 @pytest.fixture(scope="session")
-def batting(dirty):
-    return dirty.table("batting")
+def batting(pg):
+    return pg.table("batting")
 
 
 @pytest.fixture(scope="session")
-def awards_players(dirty):
-    return dirty.table("awards_players")
+def awards_players(pg):
+    return pg.table("awards_players")
 
 
 @pytest.fixture(scope="session")
