@@ -1147,9 +1147,9 @@ def _abs_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 
 @register_from_yaml_handler("Modulus")
-def _sum_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
-    return args[0].sum()
+def _mod_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    (col, modulus) = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
+    return col.mod(modulus)
 
 
 @register_from_yaml_handler("Count")
