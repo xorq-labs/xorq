@@ -65,5 +65,10 @@ jobs:
           command: clippy
           args: --all-targets --all-features -- -D clippy::all -A clippy::redundant_closure
 
-      - name: check that all files are frozen
-        run: git diff --exit-code --stat
+      - name: Verify no uncommitted changes
+        run: |
+          echo "Checking for uncommitted changes in the workspace..."
+          if ! git diff --exit-code --stat; then
+            echo "::error::Error: The linting process must not create uncommitted files"
+            exit 1
+          fi
