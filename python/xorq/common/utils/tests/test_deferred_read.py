@@ -2,6 +2,7 @@ import functools
 import itertools
 import pathlib
 
+import dask
 import duckdb
 import pandas as pd
 import pytest
@@ -302,3 +303,13 @@ def test_deferred_read_cache(con, tmp_path, method_name, path, remote):
 
     expr = uncached.cache(storage=storage)
     assert not expr.execute().empty
+
+
+def test_deferred_read_kwargs(pg):
+    name = "iris"
+    read0, read1 = (
+        xo.examples.get_table_from_name(name, pg, mode=mode)
+        for mode in ("create", "replace")
+    )
+    hash0, hash1 = (dask.base.tokenize(expr) for expr in (read0, read1))
+    assert hash0 != hash1
