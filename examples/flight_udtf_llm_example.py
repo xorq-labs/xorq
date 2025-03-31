@@ -99,6 +99,8 @@ expr = (
     .pipe(do_hackernews_sentiment_udxf)
 )
 
-df = expr.execute()
-print(df)
-pytest_examples_passed = True
+
+if __name__ == "__main__":
+    df = expr.execute()
+    print(df)
+    pytest_examples_passed = True
