@@ -5,21 +5,20 @@ from xorq.caching import ParquetStorage
 
 pg = xo.postgres.connect_examples()
 con = xo.connect()
+storage = ParquetStorage(source=con)
 
-for table_name in pg.list_tables():
-    if table_name.startswith(xo.config.options.cache.key_prefix):
-        pg.drop_table(table_name)
 
-cache = ParquetStorage(source=con)
-
-t = (
+expr = (
     pg.table("batting")
     .mutate(row_number=xo.row_number().over(group_by=[_.playerID], order_by=[_.yearID]))
     .filter(_.row_number == 1)
-    .cache(storage=cache)
+    .cache(storage=storage)
 )
-print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
-res = xo.execute(t)
-print(res)
-print(f"{t.ls.get_key()} exists?: {t.ls.exists()}")
-pytest_examples_passed = True
+
+
+if __name__ == "__main__":
+    print(f"{expr.ls.get_key()} exists?: {expr.ls.exists()}")
+    res = xo.execute(expr)
+    print(res)
+    print(f"{expr.ls.get_key()} exists?: {expr.ls.exists()}")
+    pytest_examples_passed = True

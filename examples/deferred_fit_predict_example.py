@@ -26,26 +26,27 @@ deferred_linear_regression = deferred_fit_predict_sklearn(
 
 
 con = xo.connect()
+storage = ParquetStorage(source=con)
 (df, features, target) = make_data()
 t = con.register(df, "t")
 
 
 # uncached run
-(computed_kwargs_expr, model_udaf, predict_expr_udf) = deferred_linear_regression(
-    t, target, features
-)
-model = computed_kwargs_expr.execute()
-predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+(deferred_model, model_udaf, predict) = deferred_linear_regression(t, target, features)
+predicted = t.mutate(predict.on_expr(t))
 
 
 # cached run
-storage = ParquetStorage(source=con)
-(computed_kwargs_expr, model_udaf, predict_expr_udf) = deferred_linear_regression(
+(cached_deferred_model, cached_model_udaf, cached_predict) = deferred_linear_regression(
     t, target, features, storage=storage
 )
-((cached_model,),) = computed_kwargs_expr.execute().values
-cached_predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+cached_predicted = t.mutate(cached_predict.on_expr(t))
 
 
-assert predicted.equals(cached_predicted)
-pytest_examples_passed = True
+if __name__ == "__main__":
+    # model = deferred_model.execute()
+    # ((cached_model,),) = cached_deferred_model.execute().values
+    predicted_df = predicted.execute()
+    cached_predicted_df = cached_predicted.execute()
+    assert predicted_df.equals(cached_predicted_df)
+    pytest_examples_passed = True

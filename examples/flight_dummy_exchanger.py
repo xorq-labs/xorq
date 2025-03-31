@@ -2,11 +2,8 @@ import pandas as pd
 import toolz
 
 import xorq as xo
-from xorq.flight import FlightServer, FlightUrl
+from xorq.flight import FlightServer
 from xorq.flight.exchanger import make_udxf
-
-
-flight_port = 8815
 
 
 def dummy(df: pd.DataFrame):
@@ -18,7 +15,7 @@ schema_out = xo.schema({"row_count": "int64"})
 
 dummy_udxf = make_udxf(dummy, schema_in.to_pyarrow(), schema_out.to_pyarrow())
 
-flight_server = FlightServer(FlightUrl(port=None), exchangers=[dummy_udxf])
+flight_server = FlightServer(exchangers=[dummy_udxf])
 flight_server.serve()
 
 client = flight_server.client

@@ -276,41 +276,48 @@ def smooth_two_col(self, values: list[pa.Array], num_rows: int) -> pa.Array:
     return pa.array(results)
 
 
-con = xo.connect()
-t = con.register(
-    pa.Table.from_batches(
-        [
-            pa.RecordBatch.from_arrays(
-                [
-                    pa.array([1.0, 2.1, 2.9, 4.0, 5.1, 6.0, 6.9, 8.0]),
-                    pa.array([1, 2, None, 4, 5, 6, None, 8]),
-                    pa.array(["A", "A", "A", "A", "A", "B", "B", "B"]),
-                ],
-                names=["a", "b", "c"],
+def make_t():
+    con = xo.connect()
+    t = con.register(
+        pa.Table.from_batches(
+            [
+                pa.RecordBatch.from_arrays(
+                    [
+                        pa.array([1.0, 2.1, 2.9, 4.0, 5.1, 6.0, 6.9, 8.0]),
+                        pa.array([1, 2, None, 4, 5, 6, None, 8]),
+                        pa.array(["A", "A", "A", "A", "A", "B", "B", "B"]),
+                    ],
+                    names=["a", "b", "c"],
+                )
+            ]
+        ),
+        table_name="t",
+    )
+    return t
+
+
+def make_expr(t):
+    expr = (
+        t.mutate(exp_smooth=exp_smooth.on_expr(t).round(3))
+        .mutate(smooth_two_row=smooth_two_row.on_expr(t))
+        .mutate(smooth_rank=smooth_rank.on_expr(t).over(ibis.window(order_by="c")))
+        .mutate(
+            smooth_two_col=smooth_two_col.on_expr(t).over(
+                ibis.window(preceding=None, following=0)
             )
-        ]
-    ),
-    table_name="t",
-)
-expr = (
-    t.mutate(exp_smooth=exp_smooth.on_expr(t).round(3))
-    .mutate(smooth_two_row=smooth_two_row.on_expr(t))
-    .mutate(smooth_rank=smooth_rank.on_expr(t).over(ibis.window(order_by="c")))
-    .mutate(
-        smooth_two_col=smooth_two_col.on_expr(t).over(
-            ibis.window(preceding=None, following=0)
         )
+        .mutate(
+            smooth_frame=smooth_frame.on_expr(t)
+            .over(ibis.window(preceding=None, following=0))
+            .round(3)
+        )
+        .order_by(["c", "a"])
     )
-    .mutate(
-        smooth_frame=smooth_frame.on_expr(t)
-        .over(ibis.window(preceding=None, following=0))
-        .round(3)
-    )
-)
-result = xo.execute(expr).sort_values(["c", "a"], ignore_index=True)
-expected = (
-    t.execute()
-    .combine_first(
+    return expr
+
+
+def run_pd(t):
+    return t.execute().combine_first(
         pd.DataFrame(
             {
                 "exp_smooth": pa.array(
@@ -327,13 +334,18 @@ expected = (
             }
         )
     )
-    .reindex_like(result)
-)
 
 
-for col in expected.filter(like="smooth").columns:
-    try:
-        assert_series_equal(result[col], expected[col])
-    except Exception:
-        print(f"col {col} failed")
-pytest_examples_passed = True
+t = make_t()
+expr = make_expr(t)
+
+
+if __name__ == "__main__":
+    expected = run_pd(t)
+    result = xo.execute(expr).reindex_like(expected)
+    for col in expected.filter(like="smooth").columns:
+        try:
+            assert_series_equal(result[col], expected[col])
+        except Exception:
+            print(f"col {col} failed")
+    pytest_examples_passed = True

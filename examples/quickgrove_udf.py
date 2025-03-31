@@ -23,11 +23,11 @@ t = (
     .filter(xo._.carat < 1)
     .select(xo._.pred)
 )
-
 t_pruned = rewrite_quickgrove_expr(t)
 
-original = xo.execute(t)
-pruned = xo.execute(t_pruned)
 
-pd.testing.assert_frame_equal(original, pruned, rtol=3)
-pytest_examples_passed = True
+if __name__ == "__main__":
+    original = xo.execute(t)
+    pruned = xo.execute(t_pruned)
+    pd.testing.assert_frame_equal(original, pruned, rtol=3)
+    pytest_examples_passed = True

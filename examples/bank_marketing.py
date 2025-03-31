@@ -148,18 +148,21 @@ def make_pipeline_exprs(dataset_name, target_column, predicted_col):
     "predicted",
 )
 results = make_pipeline_exprs(dataset_name, target_column, predicted_col)
+encoded_test = results["encoded_test"]
 
-predictions_df = results["predictions"].execute()
-binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 
-cm = confusion_matrix(predictions_df[target_column], binary_predictions)
-print("\nConfusion Matrix:")
-print(f"TN: {cm[0, 0]}, FP: {cm[0, 1]}")
-print(f"FN: {cm[1, 0]}, TP: {cm[1, 1]}")
+if __name__ == "__main__":
+    predictions_df = results["predictions"].execute()
+    binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 
-auc = roc_auc_score(predictions_df[target_column], predictions_df[predicted_col])
-print(f"\nAUC Score: {auc:.4f}")
+    cm = confusion_matrix(predictions_df[target_column], binary_predictions)
+    print("\nConfusion Matrix:")
+    print(f"TN: {cm[0, 0]}, FP: {cm[0, 1]}")
+    print(f"FN: {cm[1, 0]}, TP: {cm[1, 1]}")
 
-print("\nClassification Report:")
-print(classification_report(predictions_df[target_column], binary_predictions))
-pytest_examples_passed = True
+    auc = roc_auc_score(predictions_df[target_column], predictions_df[predicted_col])
+    print(f"\nAUC Score: {auc:.4f}")
+
+    print("\nClassification Report:")
+    print(classification_report(predictions_df[target_column], binary_predictions))
+    pytest_examples_passed = True

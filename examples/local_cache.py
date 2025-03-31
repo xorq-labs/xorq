@@ -5,33 +5,32 @@ from xorq.caching import ParquetStorage
 
 
 pg = xo.postgres.connect_examples()
-con = xo.connect()  # empty connection
+con = xo.connect()
 storage = ParquetStorage(
     source=con,
     path=Path.cwd(),
 )
 
 
-alltypes = con.register(
-    pg.table("functional_alltypes"), table_name="pg_functional_alltypes"
-)
 cached = (
-    alltypes.select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col).cache(
-        storage=storage
-    )  # cache expression (this creates a local table)
+    pg.table("functional_alltypes")
+    .into_backend(con)
+    .select(xo._.smallint_col, xo._.int_col, xo._.float_col)
+    .cache(storage=storage)
 )
 expr = cached.filter(
     [
-        cached.float_col > 0,
-        cached.smallint_col > 4,
-        cached.int_col < cached.float_col * 2,
+        xo._.float_col > 0,
+        xo._.smallint_col > 4,
+        xo._.int_col < cached.float_col * 2,
     ]
 )
-path = storage.get_loc(cached.ls.get_key())
 
 
-print(f"{path} exists?: {path.exists()}")
-result = xo.execute(cached)  # the filter is executed on the local table
-print(f"{path} exists?: {path.exists()}")
-print(result)
-pytest_examples_passed = True
+if __name__ == "__main__":
+    path = storage.get_loc(cached.ls.get_key())
+    print(f"{path} exists?: {path.exists()}")
+    result = xo.execute(expr)
+    print(f"{path} exists?: {path.exists()}")
+    print(result)
+    pytest_examples_passed = True

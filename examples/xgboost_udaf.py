@@ -47,7 +47,10 @@ curried_calc_best_features = toolz.curry(
 ibis_output_type = dt.infer(({"feature": "feature", "score": 0.0},))
 
 
-t = xo.connect().read_parquet(xo.config.options.pins.get_path("lending-club"))
+t = xo.deferred_read_parquet(
+    xo.connect(),
+    xo.options.pins.get_path("lending-club"),
+)
 agg_udf = udf.agg.pandas_df(
     curried_calc_best_features,
     t[cols].schema(),
@@ -55,5 +58,8 @@ agg_udf = udf.agg.pandas_df(
     name="calc_best_features",
 )
 expr = t.group_by(by).agg(agg_udf.on_expr(t).name("best_features")).order_by(by)
-result = xo.execute(expr)
-pytest_examples_passed = True
+
+
+if __name__ == "__main__":
+    result = xo.execute(expr)
+    pytest_examples_passed = True
