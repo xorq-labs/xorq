@@ -6,6 +6,7 @@ import functools
 import operator
 from typing import Any
 
+import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
@@ -420,21 +421,21 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
 def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     schema_ref = yaml_dict["schema_ref"]
     schema_def = context.definitions["schemas"][schema_ref]
-
     schema = {
         name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
     }
 
-    profile_hash_name = yaml_dict.get("profile")
-
-    source = context.profiles[profile_hash_name]
-
+    source = context.profiles[yaml_dict["profile"]]
+    read_kwargs = tuple(
+        (k, xo.schema(v)) if k == "schema" else (k, v)
+        for k, v in yaml_dict.get("read_kwargs", ())
+    )
     read_op = Read(
         method_name=yaml_dict["method_name"],
         name=yaml_dict["name"],
         schema=schema,
         source=source,
-        read_kwargs=yaml_dict.get("read_kwargs", {}),
+        read_kwargs=read_kwargs,
     )
 
     return read_op.to_expr()
