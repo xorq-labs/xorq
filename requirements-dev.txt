@@ -87,7 +87,7 @@ charset-normalizer==3.4.1
     # via
     #   requests
     #   snowflake-connector-python
-cityhash==0.4.7 ; python_full_version < '4.0'
+cityhash==0.4.8 ; python_full_version < '4.0'
     # via xorq
 click==8.1.8
     # via
@@ -110,7 +110,7 @@ colorama==0.4.6
     #   tqdm
 comm==0.2.2
     # via ipykernel
-coverage==7.7.1
+coverage==7.8.0
     # via pytest-cov
 cryptography==44.0.2
     # via
@@ -187,7 +187,7 @@ google-cloud-core==2.4.3 ; python_full_version < '4.0'
     # via google-cloud-storage
 google-cloud-storage==3.1.0 ; python_full_version < '4.0'
     # via gcsfs
-google-crc32c==1.7.0 ; python_full_version < '4.0'
+google-crc32c==1.7.1 ; python_full_version < '4.0'
     # via
     #   google-cloud-storage
     #   google-resumable-media
@@ -195,7 +195,7 @@ google-resumable-media==2.7.2 ; python_full_version < '4.0'
     # via google-cloud-storage
 googleapis-common-protos==1.69.2 ; python_full_version < '4.0'
     # via google-api-core
-griffe==1.6.2
+griffe==1.7.1
     # via quartodoc
 h11==0.14.0
     # via
@@ -210,7 +210,7 @@ httpx==0.28.1
     #   openai
 httpx-sse==0.4.0
     # via mcp
-humanize==4.12.1 ; python_full_version < '4.0'
+humanize==4.12.2 ; python_full_version < '4.0'
     # via pins
 identify==2.6.9
     # via pre-commit
@@ -322,7 +322,7 @@ matplotlib-inline==0.1.7
     #   ipykernel
     #   ipython
 maturin==1.8.3
-mcp==1.5.0
+mcp==1.6.0
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -365,7 +365,7 @@ nvidia-nccl-cu12==2.26.2 ; platform_machine != 'aarch64' and sys_platform == 'li
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.68.2
+openai==1.69.0
     # via xorq
 overrides==7.7.0
     # via jupyter-server
@@ -420,13 +420,13 @@ prometheus-client==0.21.1
     # via jupyter-server
 prompt-toolkit==3.0.50
     # via ipython
-propcache==0.3.0 ; python_full_version < '4.0'
+propcache==0.3.1 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
 proto-plus==1.26.1 ; python_full_version < '4.0'
     # via google-api-core
-protobuf==6.30.1 ; python_full_version < '4.0'
+protobuf==6.30.2 ; python_full_version < '4.0'
     # via
     #   google-api-core
     #   googleapis-common-protos
@@ -451,17 +451,17 @@ pyasn1==0.6.1 ; python_full_version < '4.0'
     # via
     #   pyasn1-modules
     #   rsa
-pyasn1-modules==0.4.1 ; python_full_version < '4.0'
+pyasn1-modules==0.4.2 ; python_full_version < '4.0'
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.10.6
+pydantic==2.11.1
     # via
     #   mcp
     #   openai
     #   pydantic-settings
     #   quartodoc
-pydantic-core==2.27.2
+pydantic-core==2.33.0
     # via pydantic
 pydantic-settings==2.8.1
     # via mcp
@@ -499,7 +499,7 @@ python-json-logger==3.3.0
     # via jupyter-events
 pythran==0.17.0 ; sys_platform == 'darwin'
     # via xorq
-pytz==2025.1
+pytz==2025.2
     # via
     #   pandas
     #   snowflake-connector-python
@@ -556,13 +556,13 @@ rfc3986-validator==0.1.1
     # via
     #   jsonschema
     #   jupyter-events
-rich==13.9.4
+rich==14.0.0
     # via
     #   blackdoc
     #   plum-dispatch
     #   pytest-codspeed
     #   vendoring
-rpds-py==0.23.1
+rpds-py==0.24.0
     # via
     #   jsonschema
     #   referencing
@@ -577,7 +577,7 @@ scipy==1.15.2
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==77.0.3
+setuptools==78.1.0
     # via
     #   jupyterlab
     #   pythran
@@ -664,7 +664,7 @@ traitlets==5.14.3
 trino==0.333.0
 types-python-dateutil==2.9.0.20241206
     # via arrow
-typing-extensions==4.12.2
+typing-extensions==4.13.0
     # via
     #   adbc-driver-manager
     #   anyio
@@ -685,8 +685,11 @@ typing-extensions==4.12.2
     #   rich
     #   snowflake-connector-python
     #   structlog
+    #   typing-inspection
     #   uvicorn
     #   xorq
+typing-inspection==0.4.0
+    # via pydantic
 tzdata==2025.2 ; python_full_version < '4.0' or sys_platform == 'win32'
     # via
     #   pandas
