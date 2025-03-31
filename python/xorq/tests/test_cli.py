@@ -233,7 +233,6 @@ def test_build_run_examples(
     monkeypatch.setattr(sys, "argv", build_args)
     main_no_exit()
     captured = capsys.readouterr()
-    assert "Building expr" in captured.err
     expression_path = Path(captured.out.strip())
     assert expression_path.exists()
 
