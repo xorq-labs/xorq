@@ -364,13 +364,7 @@ def test_multiple_execution_letsql_register_table(ls_con, csv_dir):
         xo.connect(),
         xo.datafusion.connect(),
         xo.duckdb.connect(),
-        xo.postgres.connect(
-            host="localhost",
-            port=5432,
-            user="postgres",
-            password="postgres",
-            database="ibis_testing",
-        ),
+        xo.postgres.connect_env(),
     ],
 )
 def test_expr_over_same_table_multiple_times(ls_con, parquet_dir, other_con):
