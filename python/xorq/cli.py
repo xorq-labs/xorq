@@ -77,18 +77,15 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
     build_manager = BuildManager(expr_path.parent)
     expr = build_manager.load_expr(expr_path.stem)
 
-    try:
-        match output_format:
-            case "csv":
-                expr.to_csv(output_path)
-            case "json":
-                expr.to_json(output_path)
-            case "parquet":
-                expr.to_parquet(output_path)
-            case _:
-                raise ValueError(f"Unknown output_format: {output_format}")
-    except Exception as e:
-        raise RuntimeError(f"Error: {e}")
+    match output_format:
+        case "csv":
+            expr.to_csv(output_path)
+        case "json":
+            expr.to_json(output_path)
+        case "parquet":
+            expr.to_parquet(output_path)
+        case _:
+            raise ValueError(f"Unknown output_format: {output_format}")
 
 
 def parse_args(override=None):
