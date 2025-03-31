@@ -14,6 +14,7 @@ build_run_examples_expr_names = (
     ("remote_caching.py", "expr"),
     ("iris_example.py", "expr"),
     ("simple_example.py", "expr"),
+    ("deferred_read_csv.py", "pg_expr_replace"),
 )
 
 
