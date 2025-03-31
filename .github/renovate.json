@@ -2,7 +2,7 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "rangeStrategy": "widen",
   "extends": [
-    "config:recommended", ":enablePreCommit", ":disableDependencyDashboard"
+    "config:recommended", ":disableDependencyDashboard"
   ],
   "semanticCommits": "enabled",
   "lockFileMaintenance": { "enabled": false },
@@ -13,17 +13,18 @@
     "github-actions",
     "pep621",
     "poetry",
-    "cargo"
+    "cargo",
+    "pre-commit"
   ],
   "packageRules": [
     {
-      "matchManagers": ["github-actions", "cargo"],
+      "matchManagers": ["github-actions", "cargo", "pre-commit"],
       "rangeStrategy": "pin",
       "automerge": false
     }
   ],
   "pre-commit": {
-    "enabled": false
+    "enabled": true
   },
   "prHourlyLimit": 3,
   "automerge": false,
