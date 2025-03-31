@@ -305,6 +305,16 @@ def normalize_read(read):
         raise NotImplementedError
     else:
         raise NotImplementedError
+    tpls += tuple(
+        (k, v)
+        for k, v in read.read_kwargs
+        if k
+        in (
+            "mode",
+            "schema",
+            "temporary",
+        )
+    )
     return normalize_seq_with_caller(
         read.schema,
         tpls,

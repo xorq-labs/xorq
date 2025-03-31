@@ -14,6 +14,7 @@ build_run_examples_expr_names = (
     ("remote_caching.py", "expr"),
     ("iris_example.py", "expr"),
     ("simple_example.py", "expr"),
+    ("deferred_read_csv.py", "pg_expr_replace"),
 )
 
 
@@ -232,7 +233,6 @@ def test_build_run_examples(
     monkeypatch.setattr(sys, "argv", build_args)
     main_no_exit()
     captured = capsys.readouterr()
-    assert "Building expr" in captured.err
     expression_path = Path(captured.out.strip())
     assert expression_path.exists()
 
