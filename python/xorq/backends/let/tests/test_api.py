@@ -42,7 +42,15 @@ def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
 
 
 def test_read_postgres():
-    uri = "postgres://postgres:postgres@localhost:5432/ibis_testing"
+    import os
+
+    uri = (
+        f"postgres://{os.environ['POSTGRES_USER']}:"
+        f"{os.environ['POSTGRES_PASSWORD']}@"
+        f"{os.environ['POSTGRES_HOST']}:"
+        f"{os.environ['POSTGRES_PORT']}/"
+        f"{os.environ['POSTGRES_DATABASE']}"
+    )
     t = xo.read_postgres(uri, table_name="batting")
     res = xo.execute(t)
 
