@@ -12,6 +12,8 @@ build_run_examples_expr_names = (
     ("local_cache.py", "expr"),
     ("multi_engine.py", "expr"),
     ("remote_caching.py", "expr"),
+    ("iris_example.py", "expr"),
+    ("simple_example.py", "expr"),
 )
 
 
