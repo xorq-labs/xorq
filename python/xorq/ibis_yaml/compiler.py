@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import dask
+import toolz
 import yaml
 
 import xorq as xo
@@ -13,6 +14,7 @@ import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.expr.relations import Read
 from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import SchemaRegistry, TranslationContext
 from xorq.ibis_yaml.config import config
@@ -24,6 +26,7 @@ from xorq.ibis_yaml.translate import (
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.operations import InMemoryTable
 
 
 class CleanDictYAMLDumper(yaml.SafeDumper):
@@ -226,6 +229,7 @@ class BuildManager:
 
     def compile_expr(self, expr: ir.Expr) -> str:
         expr_hash = self.artifact_store.get_expr_hash(expr)
+        expr = replace_memtables(self.artifact_store.root_path, expr)
 
         backends = find_all_sources(expr)
         profiles = {
@@ -274,7 +278,9 @@ class BuildManager:
         translator = YamlExpressionTranslator()
 
         yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
-        return translator.from_yaml(yaml_dict, profiles=profiles)
+        expr = translator.from_yaml(yaml_dict, profiles=profiles)
+        expr = replace_deferred_reads(expr)
+        return expr
 
     # TODO: maybe change name
     def load_sql_plans(self, expr_hash: str) -> Dict[str, Any]:
@@ -282,3 +288,56 @@ class BuildManager:
 
     def load_deferred_reads(self, expr_hash: str) -> Dict[str, Any]:
         return self.artifact_store.load_yaml(expr_hash, "deferred_reads.yaml")
+
+
+IS_INMEMORY = "is-inmemory"
+
+
+@toolz.curry
+def replace_from_to(from_, to_, node, kwargs):
+    if node == from_:
+        return to_
+    elif kwargs:
+        return node.__recreate__(kwargs)
+    else:
+        return node
+
+
+def replace_deferred_reads(loaded):
+    def deferred_read_to_memtable(dr):
+        assert dr.values.get(IS_INMEMORY)
+        path = next(v for k, v in dr.read_kwargs if k == "path")
+        df = xo.read_parquet(path).execute()
+        mt = xo.memtable(df, schema=dr.schema, name=dr.name)
+        return mt
+
+    drs = tuple(dr for dr in loaded.op().find(Read) if dr.values.get(IS_INMEMORY))
+    op = loaded.op()
+    for dr in drs:
+        mt = deferred_read_to_memtable(dr)
+        op = op.replace(replace_from_to(dr, mt))
+    return op.to_expr()
+
+
+def replace_memtables(build_dir, expr):
+    def memtable_to_read_op(builds_dir, mt, con=xo.config._backend_init()):
+        memtables_dir = Path(builds_dir).joinpath("memtables")
+        memtables_dir.mkdir(parents=True, exist_ok=True)
+        df = mt.to_expr().execute()
+        parquet_path = memtables_dir.joinpath(dask.base.tokenize(df)).with_suffix(
+            ".parquet"
+        )
+        df.to_parquet(parquet_path)
+        # FIXME: enable Path
+        dr = xo.deferred_read_parquet(con, str(parquet_path), table_name=mt.name)
+        op = dr.op()
+        op.values.setdefault(IS_INMEMORY, True)
+        return op
+
+    op = expr.op()
+    mts = expr.op().find(InMemoryTable)
+    for mt in mts:
+        dr_op = memtable_to_read_op(build_dir, mt)
+        op = op.replace(replace_from_to(mt, dr_op))
+    new_expr = op.to_expr()
+    return new_expr
