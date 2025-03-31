@@ -1,9 +1,22 @@
 import re
 import sys
+from pathlib import Path
 
 import pytest
+import toolz
 
 from xorq.cli import build_command, main
+
+
+build_run_examples_expr_names = (
+    ("local_cache.py", "expr"),
+    ("multi_engine.py", "expr"),
+    ("remote_caching.py", "expr"),
+)
+
+
+# Run the CLI (with try/except to prevent SystemExit)
+main_no_exit = toolz.excepts(SystemExit, main)
 
 
 def test_build_command(monkeypatch, tmp_path, fixture_dir, capsys):
@@ -20,12 +33,7 @@ def test_build_command(monkeypatch, tmp_path, fixture_dir, capsys):
         str(builds_dir),
     ]
     monkeypatch.setattr(sys, "argv", test_args)
-
-    # Run the CLI (with try/except to prevent SystemExit)
-    try:
-        main()
-    except SystemExit:
-        pass
+    main_no_exit()
 
     # Check output
     captured = capsys.readouterr()
@@ -49,10 +57,7 @@ def test_build_command_with_udtf(monkeypatch, tmp_path, fixture_dir, capsys):
     ]
     monkeypatch.setattr(sys, "argv", test_args)
 
-    try:
-        main()
-    except SystemExit:
-        pass
+    main_no_exit()
 
     captured = capsys.readouterr()
     assert "Building expr" in captured.err
@@ -75,11 +80,7 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
     ]
     monkeypatch.setattr(sys, "argv", test_args)
 
-    # Run the CLI (with try/except to prevent SystemExit)
-    try:
-        main()
-    except SystemExit:
-        pass
+    main_no_exit()
 
     # Check output
     captured = capsys.readouterr()
@@ -104,10 +105,7 @@ def test_run_command_default(monkeypatch, tmp_path, fixture_dir, capsys):
         ]
         monkeypatch.setattr(sys, "argv", test_args)
 
-        try:
-            main()
-        except SystemExit:
-            pass
+        main_no_exit()
     else:
         raise AssertionError("No expression hash")
 
@@ -134,10 +132,7 @@ def test_run_command(monkeypatch, tmp_path, fixture_dir, capsys, output_format):
         ]
         monkeypatch.setattr(sys, "argv", test_args)
 
-        try:
-            main()
-        except SystemExit:
-            pass
+        main_no_exit()
         assert output_path.exists()
         assert output_path.stat().st_size > 0
 
@@ -168,10 +163,7 @@ def test_run_command_stdout(
         ]
         monkeypatch.setattr(sys, "argv", test_args)
 
-        try:
-            main()
-        except SystemExit:
-            pass
+        main_no_exit()
         capture = capsysbinary.readouterr()
         assert capture.out
 
@@ -203,12 +195,58 @@ def test_build_command_bad_expr_name(
     ]
     monkeypatch.setattr(sys, "argv", test_args)
 
-    # Run the CLI (with try/except to prevent SystemExit)
-    try:
-        main()
-    except SystemExit:
-        pass
+    main_no_exit()
 
     # Check output
     captured = capsys.readouterr()
     assert message in captured.err
+
+
+@pytest.mark.parametrize(
+    ("example", "expr_name"),
+    build_run_examples_expr_names,
+)
+def test_build_run_examples(
+    example,
+    expr_name,
+    examples_dir,
+    tmp_path,
+    monkeypatch,
+    capsys,
+):
+    # build
+    builds_dir = tmp_path / "builds"
+    example_path = examples_dir / example
+    assert example_path.exists()
+    build_args = (
+        "xorq",
+        "build",
+        str(example_path),
+        "--expr-name",
+        expr_name,
+        "--builds-dir",
+        str(builds_dir),
+    )
+    monkeypatch.setattr(sys, "argv", build_args)
+    main_no_exit()
+    captured = capsys.readouterr()
+    assert "Building expr" in captured.err
+    expression_path = Path(captured.out.strip())
+    assert expression_path.exists()
+
+    # run
+    output_format = "parquet"
+    output_path = expression_path / f"test.{output_format}"
+    assert not output_path.exists()
+    run_args = (
+        "xorq",
+        "run",
+        str(expression_path),
+        "--format",
+        output_format,
+        "--output-path",
+        str(output_path),
+    )
+    monkeypatch.setattr(sys, "argv", run_args)
+    main_no_exit()
+    assert output_path.exists()
