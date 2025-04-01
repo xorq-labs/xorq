@@ -20,7 +20,7 @@ repos:
     hooks:
       # Run the linter.
       - id: ruff
-        args: ["--output-format=full", "--fix", "python", "examples", "docs"]
+        args: ["--output-format=full", "--fix", "xorq", "examples", "docs"]
       # Run the formatter.
       - id: ruff-format
   - repo: https://github.com/astral-sh/uv-pre-commit

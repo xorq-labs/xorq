@@ -133,8 +133,14 @@ trino = "xorq.backends.trino"
 [project.scripts]
 xorq = "xorq.cli:main"
 
+[tool.hatch.build.targets.wheel]
+packages = ["xorq"]
+
+[tool.hatch.build.targets.sdist]
+packages = ["xorq"]
+
 [tool.vendoring]
-destination = "python/xorq/vendor/"
+destination = "xorq/vendor/"
 requirements = "vendors.txt"
 namespace = "xorq.vendor"
 
@@ -156,7 +162,7 @@ drop = [
 extend-select = ["I", "ICN"]
 
 [tool.ruff.lint.per-file-ignores]
-"python/xorq/__init__.py" = ["I001"]
+"xorq/__init__.py" = ["I001"]
 
 [tool.ruff.lint.flake8-import-conventions.extend-aliases]
 "xorq" = "xo"
