@@ -89,7 +89,7 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 1. Ensure you're on upstream main: `git switch main && git pull`
 2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
 3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
-4. Update the version number in `Cargo.toml`: `version = "$version_number"`
+4. Update the version number in `pyproject.toml`: `version = "$version_number"`
 5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.).
 6. Create commit with message denoting the release: `git add --update && git commit -m "release: $version_number"`.
 7. Push the new branch: `git push --set-upstream upstream "release-$version_number"`
