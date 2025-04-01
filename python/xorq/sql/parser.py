@@ -1,4 +1,4 @@
-from xorq._internal import parser
+from xorq_datafusion._internal import parser
 
 
 def __getattr__(name):

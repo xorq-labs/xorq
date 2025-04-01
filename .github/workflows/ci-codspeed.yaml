@@ -23,20 +23,6 @@ jobs:
       - name: download test data
         run: just download-data
 
-      - name: Rust latest
-        run: rustup update
-
-      - name: cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ./target/
-          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12.9"
@@ -47,21 +33,8 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --all-extras --all-groups --no-install-project
+        run: uv sync --all-extras --all-groups
         working-directory: ${{ github.workspace }}
-
-      - name: maturin develop
-        uses: PyO3/maturin-action@v1
-        with:
-          command: 'develop'
-          args: --release
-          sccache: 'true'
-          manylinux: 'auto'
-          working-directory: ${{ github.workspace }}
-        env:
-          # make sure profiling information is present
-          CARGO_PROFILE_RELEASE_DEBUG: "line-tables-only"
-          CARGO_PROFILE_RELEASE_STRIP: false
 
       - name: start services
         run: docker compose up --build --wait
