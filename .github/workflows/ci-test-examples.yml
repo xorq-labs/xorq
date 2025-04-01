@@ -58,7 +58,7 @@ jobs:
       - name: pytest
         run: |
           source .venv/bin/activate
-          python -m pytest --import-mode=importlib python/xorq/tests/test_examples.py -v --cov --cov-report=xml
+          python -m pytest --import-mode=importlib xorq/tests/test_examples.py -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
