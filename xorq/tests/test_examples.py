@@ -17,7 +17,7 @@ NON_TESTABLE = (
 
 file_path = pathlib.Path(__file__).absolute()
 root = file_path.parent
-examples_dir = file_path.parents[3] / "examples"
+examples_dir = file_path.parents[2] / "examples"
 scripts = (p for p in examples_dir.glob("*.py") if p.name not in NON_TESTABLE)
 
 

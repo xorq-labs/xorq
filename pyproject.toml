@@ -133,12 +133,6 @@ trino = "xorq.backends.trino"
 [project.scripts]
 xorq = "xorq.cli:main"
 
-[tool.hatch.build.targets.wheel]
-packages = ["xorq"]
-
-[tool.hatch.build.targets.sdist]
-packages = ["xorq"]
-
 [tool.vendoring]
 destination = "xorq/vendor/"
 requirements = "vendors.txt"
