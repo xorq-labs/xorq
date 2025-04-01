@@ -441,6 +441,29 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return read_op.to_expr()
 
 
+@translate_to_yaml.register(str)
+def _str_to_yaml(string: str, context: TranslationContext) -> str:
+    return string
+
+
+@translate_to_yaml.register(ops.Alias)
+def _alias_to_yaml(op: ops.Alias, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "Alias",
+            "type": _translate_type(op.dtype),
+            "args": [translate_to_yaml(arg, context) for arg in op.args],
+        }
+    )
+
+
+@register_from_yaml_handler("Alias")
+def _alias_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    (arg, name) = yaml_dict["args"]
+    arg = translate_from_yaml(arg, context)
+    return arg.name(name)
+
+
 @translate_to_yaml.register(ops.Literal)
 def _literal_to_yaml(op: ops.Literal, context: TranslationContext) -> dict:
     value = _translate_literal_value(op.value, op.dtype)
