@@ -50,7 +50,7 @@ jobs:
       - name: install package in editable mode
         run: |
           source .venv/bin/activate
-          python -m pip install -e '.examples'
+          python -m pip install -e .
 
       - name: test
         run: |
