@@ -6,7 +6,7 @@ adbc-driver-postgresql==1.5.0
     # via xorq
 aiohappyeyeballs==2.6.1 ; python_full_version < '4.0'
     # via aiohttp
-aiohttp==3.11.14 ; python_full_version < '4.0'
+aiohttp==3.11.15 ; python_full_version < '4.0'
     # via gcsfs
 aiosignal==1.3.2 ; python_full_version < '4.0'
     # via aiohttp
@@ -321,7 +321,6 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-maturin==1.8.3
 mcp==1.6.0
     # via xorq
 mdurl==0.1.2
@@ -330,7 +329,7 @@ mistune==3.1.3
     # via nbconvert
 more-itertools==10.6.0
     # via blackdoc
-multidict==6.2.0 ; python_full_version < '4.0'
+multidict==6.3.0 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
@@ -445,6 +444,7 @@ pyarrow==19.0.1
     # via
     #   datafusion
     #   xorq
+    #   xorq-datafusion
 pyarrow-hotfix==0.6 ; python_full_version < '4.0'
     # via xorq
 pyasn1==0.6.1 ; python_full_version < '4.0'
@@ -628,7 +628,6 @@ tomli==2.2.1
     #   codespell
     #   coverage
     #   jupyterlab
-    #   maturin
     #   pytest
 tomlkit==0.13.2 ; python_full_version < '4.0'
     # via snowflake-connector-python
@@ -718,6 +717,8 @@ webencodings==0.5.1
 websocket-client==1.8.0
     # via jupyter-server
 xgboost==3.0.0
+    # via xorq
+xorq-datafusion==0.1.0
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4.0'
     # via pins

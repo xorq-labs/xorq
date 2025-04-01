@@ -41,20 +41,6 @@ jobs:
       - name: start services
         run: docker compose up --build --wait
 
-      - name: Rust latest
-        run: rustup update
-
-      - name: cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ./target/
-          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-
       # check how to use virtual environment https://stackoverflow.com/q/74668349/4001592
       - name: create virtual environment
         run: python -m venv .venv
@@ -62,12 +48,12 @@ jobs:
       - name: install dependencies
         run: |
           source .venv/bin/activate
-          python -m pip install pytest maturin pytest-cov
+          python -m pip install pytest pytest-cov
 
-      - name: develop
+      - name: install package in editable mode
         run: |
           source .venv/bin/activate
-          python -m maturin develop --extras=examples
+          python -m pip install -e '.examples'
 
       - name: pytest
         run: |
