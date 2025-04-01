@@ -2,8 +2,6 @@
 
 ### Setting up a development environment
 
-This assumes that you have rust and cargo installed. We use the workflow recommended by [pyo3](https://github.com/PyO3/pyo3) and [maturin](https://github.com/PyO3/maturin).
-
 #### Using pip and venv
 
 ```bash
@@ -17,6 +15,8 @@ source venv/bin/activate
 python -m pip install -U pip
 # install dependencies 
 python -m pip install -r requirements-dev.txt
+# install current package in editable mode
+python -m pip install -e .
 # set up the git hook scripts
 pre-commit install
 ```
@@ -30,10 +30,8 @@ This assumes you have uv installed, otherwise please follow these [instructions]
 git clone git@github.com:xorq-labs/xorq.git
 # set uv run command to not sync 
 export UV_NO_SYNC=1
-# prepare development environment and install dependencies
-uv sync --all-extras --all-groups --no-install-project
-# compile and install the rust extensions
-uv run maturin develop --uv --release --strip
+# prepare development environment and install dependencies (including current package)
+uv sync --all-extras --all-groups
 # activate the venv
 source venv/bin/activate
 # set up the git hook scripts
@@ -61,7 +59,6 @@ export POSTGRES_PORT=5432
 To test the code:
 ```bash
 # make sure you activate the venv using "source venv/bin/activate" first
-maturin develop
 just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
