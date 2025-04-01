@@ -48,7 +48,7 @@ def pg():
 
 @pytest.fixture(scope="session")
 def root_dir():
-    return Path(__file__).absolute().parents[2]
+    return Path(__file__).absolute().parents[1]
 
 
 @pytest.fixture(scope="session")
@@ -59,7 +59,7 @@ def parquet_dir(root_dir):
 
 @pytest.fixture(scope="session")
 def fixture_dir(root_dir):
-    return root_dir.joinpath("python", "xorq", "tests", "fixtures")
+    return root_dir.joinpath("xorq", "tests", "fixtures")
 
 
 @pytest.fixture(scope="session")
