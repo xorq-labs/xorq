@@ -23,22 +23,6 @@ repos:
         args: ["--output-format=full", "--fix", "python", "examples", "docs"]
       # Run the formatter.
       - id: ruff-format
-  - repo: local
-    hooks:
-      - id: rust-fmt
-        name: Rust fmt
-        description: Run cargo fmt on files included in the commit. rustfmt should be installed before-hand.
-        entry: cargo fmt --all --
-        pass_filenames: true
-        types: [file, rust]
-        language: system
-      - id: rust-clippy
-        name: Rust clippy
-        description: Run cargo clippy on files included in the commit. clippy should be installed before-hand.
-        entry: cargo clippy --all-targets --all-features -- -Dclippy::all -Aclippy::redundant_closure
-        pass_filenames: false
-        types: [file, rust]
-        language: system
   - repo: https://github.com/astral-sh/uv-pre-commit
     # uv version.
     rev: 0.6.11
