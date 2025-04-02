@@ -464,6 +464,31 @@ def _alias_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return arg.name(name)
 
 
+@translate_to_yaml.register(ops.Round)
+def _round_to_yaml(op: ops.Round, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": op.__class__.__name__,
+            "type": _translate_type(op.dtype),
+            "args": [translate_to_yaml(arg, context) for arg in op.args],
+        }
+    )
+
+
+@register_from_yaml_handler("Round")
+def _round_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    (arg, digits) = (
+        None if arg is None else translate_from_yaml(arg, context)
+        for arg in yaml_dict["args"]
+    )
+    return arg.round(digits)
+
+
+@translate_to_yaml.register(type(None))
+def _none_to_yaml(value: None, context: TranslationContext) -> None:
+    return None
+
+
 @translate_to_yaml.register(ops.Literal)
 def _literal_to_yaml(op: ops.Literal, context: TranslationContext) -> dict:
     value = _translate_literal_value(op.value, op.dtype)
