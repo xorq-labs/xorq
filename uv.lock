@@ -1878,29 +1878,6 @@ wheels = [
 ]
 
 [[package]]
-name = "maturin"
-version = "1.8.3"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "tomli", marker = "python_full_version < '3.11'" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/30/0b/3fd746cf5cfa3c8d7e20ea08c0dbc2c2c765ae051d0fc43d808a38bc9548/maturin-1.8.3.tar.gz", hash = "sha256:304762f86fd53a8031b1bf006d12572a2aa0a5235485031113195cc0152e1e12", size = 199656 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/78/80/08579d0184ba743345bbd350a3b6419510ff8a4f6e9e671f713160d41fbb/maturin-1.8.3-py3-none-linux_armv6l.whl", hash = "sha256:fa27466b627150123729b2e611f9f9cfade84d24385d72c6877f78c30de30e89", size = 7758366 },
-    { url = "https://files.pythonhosted.org/packages/87/1c/00755d28ae277daa828e183c3d118e2923e8b8f0cba4ff708b15d274ac0e/maturin-1.8.3-py3-none-macosx_10_12_x86_64.macosx_11_0_arm64.macosx_10_12_universal2.whl", hash = "sha256:583404d20d7f1d9c8f3c18dcab9014faacabbed6be02da80062c06cd0e279554", size = 15201378 },
-    { url = "https://files.pythonhosted.org/packages/58/9f/b8738dc55ba3eb149ad2686d3f9b3c24e44b7baff46cc6baa85e5dc8cf5e/maturin-1.8.3-py3-none-macosx_10_12_x86_64.whl", hash = "sha256:f9ffdac53dfe0089cf19b597410bc552eb34c856ddb41482b243a695e8b549d3", size = 7934215 },
-    { url = "https://files.pythonhosted.org/packages/18/68/300f1a279486d6f63b624a76b81f0fba82545d027127c1ca4d5ded0d1b43/maturin-1.8.3-py3-none-manylinux_2_12_i686.manylinux2010_i686.musllinux_1_1_i686.whl", hash = "sha256:7949a4a17637341f84e88f4cbf0c155998780bbb7a145ed735725b907881c0ae", size = 7791270 },
-    { url = "https://files.pythonhosted.org/packages/2e/6d/bf1b8bb9a8b1d9adad242b4089794be318446142975762d04f04ffabae40/maturin-1.8.3-py3-none-manylinux_2_12_x86_64.manylinux2010_x86_64.musllinux_1_1_x86_64.whl", hash = "sha256:11564fac7486313b7baf3aa4e82c20e1b20364aad3fde2ccbc4c07693c0b7e16", size = 8282824 },
-    { url = "https://files.pythonhosted.org/packages/18/e9/c601de8699e546774d3f9e761eab374988f88e4ed7006afbb5ff61bb41c0/maturin-1.8.3-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.musllinux_1_1_aarch64.whl", hash = "sha256:8555d8701cdba6c19c4705a22ce4d2a1814efd792f55dc5873262ff903317540", size = 7595855 },
-    { url = "https://files.pythonhosted.org/packages/34/b8/82ae650e6b589289f4219a480f2b220bcf3d9391ae9ea02cc7a58ef59cfc/maturin-1.8.3-py3-none-manylinux_2_17_armv7l.manylinux2014_armv7l.musllinux_1_1_armv7l.whl", hash = "sha256:5b2a513468c1c9b4d1728d4b6d3d044b7c183985ef819c9ef15e373b70d99c7d", size = 7634888 },
-    { url = "https://files.pythonhosted.org/packages/ac/4a/4f898a66cf4697267c447a6f240b6cbcc2dcacd3cab89735bfbd44810be1/maturin-1.8.3-py3-none-manylinux_2_17_ppc64le.manylinux2014_ppc64le.musllinux_1_1_ppc64le.whl", hash = "sha256:2fe8fdff420cfccde127bbc3d8e40835163dcebb6d28c49fffd9aaf1e6ec1090", size = 9810616 },
-    { url = "https://files.pythonhosted.org/packages/31/bd/21b0d471e6ade0801f27c33672bca4d563eb1d1e624e534f3bef8a01b1ac/maturin-1.8.3-py3-none-manylinux_2_17_s390x.manylinux2014_s390x.whl", hash = "sha256:22cd8b6dc490fee99a62590f914f0c04ddad1dd6dbd5c7e933b3f882b1bd78c2", size = 10923701 },
-    { url = "https://files.pythonhosted.org/packages/6c/07/85c32f03ed757c0626e2fc5a9d6454988228be96a756991702a2a757691b/maturin-1.8.3-py3-none-win32.whl", hash = "sha256:2427924546c9d1079b1c0c6c5c1d380e1b8187baba4e6342cca81597a0f3d697", size = 7016502 },
-    { url = "https://files.pythonhosted.org/packages/d5/62/f92a130a370dd7aca13c316844b82853647f048cfe1594a81f628ab7101f/maturin-1.8.3-py3-none-win_amd64.whl", hash = "sha256:85f2b882d8235c1c1cb0a38d382ccd5b3ba0674d99cb548d49df9342cc688e36", size = 7953286 },
-    { url = "https://files.pythonhosted.org/packages/04/95/8379140838cd95472de843e982d0bf674e8dbf25a899c44e2f76b15704d9/maturin-1.8.3-py3-none-win_arm64.whl", hash = "sha256:33939aabf9a06a8a14ca6c399d32616c7e574fcca8d4ff6dcd984441051f32fb", size = 6687772 },
-]
-
-[[package]]
 name = "mcp"
 version = "1.6.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4102,6 +4079,7 @@ wheels = [
 
 [[package]]
 name = "xorq"
+version = "0.2.1"
 source = { editable = "." }
 dependencies = [
     { name = "atpublic" },
@@ -4124,6 +4102,7 @@ dependencies = [
     { name = "structlog", marker = "python_full_version < '4.0'" },
     { name = "toolz" },
     { name = "typing-extensions" },
+    { name = "xorq-datafusion" },
 ]
 
 [package.optional-dependencies]
@@ -4165,7 +4144,6 @@ dev = [
     { name = "git-cliff" },
     { name = "ipython", version = "8.34.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "ipython", version = "9.0.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
-    { name = "maturin" },
     { name = "pip" },
     { name = "pre-commit" },
     { name = "pytest" },
@@ -4231,6 +4209,7 @@ requires-dist = [
     { name = "toolz", specifier = ">=0.11" },
     { name = "typing-extensions", specifier = ">=4.3.0" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=1.6.1" },
+    { name = "xorq-datafusion", specifier = ">=0.1.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -4241,7 +4220,6 @@ dev = [
     { name = "coverage", extras = ["toml"], specifier = "==7.8.0" },
     { name = "git-cliff", specifier = ">=2.2.1,<3.0.0" },
     { name = "ipython", specifier = ">=8.19.0,<9.1.0" },
-    { name = "maturin", specifier = ">=1.7.4" },
     { name = "pip", specifier = ">=24.3.1" },
     { name = "pre-commit", specifier = "==4.2.0" },
     { name = "pytest", specifier = "==8.3.5" },
@@ -4267,6 +4245,24 @@ test = [
     { name = "quickgrove", specifier = ">=0.1.2" },
     { name = "scikit-learn", specifier = ">=1.4.0,<2.0.0" },
     { name = "xgboost", specifier = ">=1.6.1" },
+]
+
+[[package]]
+name = "xorq-datafusion"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyarrow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d3/a1/f94987100ac1ab4bf7b5b694a88ce8c87a6225cde298a1a9a9e1c2922b92/xorq_datafusion-0.1.0.tar.gz", hash = "sha256:39911c85e3f840e4e10f0908dae19ecb317368e0cc212dd774392f4c1dc509e3", size = 19265437 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/15/85/001aa61aed62d6ffab9fd166bfbe0372cb977fa125c3c15d16677bed4dc4/xorq_datafusion-0.1.0-cp38-abi3-macosx_10_12_x86_64.whl", hash = "sha256:62218fc51dd801cd1c459013416b2baa724a1c8efea9a579505a331ce2d985a6", size = 33101591 },
+    { url = "https://files.pythonhosted.org/packages/33/7a/6b242cd639fcfad53acb9e8ae30f1f1601a677e8f5ed2da7f85c2d5be904/xorq_datafusion-0.1.0-cp38-abi3-macosx_11_0_arm64.whl", hash = "sha256:bd752483439fd78843d8ade2302873023c452d241856c136191b263b99614b93", size = 31205019 },
+    { url = "https://files.pythonhosted.org/packages/f8/94/c5b281d780302f3ecdd788fe34b48f43d0aa12e125e90b9825cc56a6bff8/xorq_datafusion-0.1.0-cp38-abi3-manylinux_2_17_i686.manylinux2014_i686.whl", hash = "sha256:0b70856854fddf69380180da0b5b3dd749287a09f860ed889ec6c65e5e29456c", size = 39083841 },
+    { url = "https://files.pythonhosted.org/packages/17/1a/98346430d1bda983c6ade389360ceec1a0afb4a30ece569090837b51a2b5/xorq_datafusion-0.1.0-cp38-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:d36175669bd296a9022fbf765f0744a6f811ed6b444cd6f5060cc01f50c16e89", size = 35770832 },
+    { url = "https://files.pythonhosted.org/packages/87/7e/11bfa0f1707cafba1f5f5572583310f8735271cee1b12bdb985ffd468fbe/xorq_datafusion-0.1.0-cp38-abi3-manylinux_2_28_aarch64.whl", hash = "sha256:2a074c3a3493339071b59770fa25fa1bde720140075d618071f73148c92585fc", size = 34516691 },
+    { url = "https://files.pythonhosted.org/packages/c1/cc/c0ee04b9387d01c9af65e67af5d2e54c108054a285124ce6fb785389c81d/xorq_datafusion-0.1.0-cp38-abi3-win32.whl", hash = "sha256:d5d7ff885322193cf75f3fbff35a58a1bcfb77efe174dc4818b016580dd07ffc", size = 26839210 },
+    { url = "https://files.pythonhosted.org/packages/d0/c4/7a6e86997afaca80a0e5611f43b82de8ef81f6acbe61d87599660c5cdccc/xorq_datafusion-0.1.0-cp38-abi3-win_amd64.whl", hash = "sha256:c2911beaccabfa6b2feff4bef5c99520ab55394a0ac17bbfb42b319aebb1f063", size = 29896058 },
 ]
 
 [[package]]
