@@ -95,7 +95,7 @@ dev = [
     "ipython<9.1.0,>=8.19.0",
     "pre-commit==4.2.0",
     "pytest==8.3.5",
-    "pytest-cov==6.0.0",
+    "pytest-cov==6.1.0",
     "ruff==0.11.2",
     "trino==0.333.0",
     "pytest-codspeed<4.0.0,>=3.0.0",
