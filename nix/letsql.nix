@@ -1,10 +1,8 @@
 {
-  system,
   pkgs,
   pyproject-nix,
   uv2nix,
   pyproject-build-systems,
-  crane,
   src,
 }:
 let
@@ -79,16 +77,6 @@ let
               pkgs.lib.listToAttrs (map (name: pkgs.lib.nameValuePair name [ ]) names)
             );
         });
-      toolchain = pkgs.rust-bin.fromRustupToolchainFile (append src "rust-toolchain.toml");
-      crateWheelLib = import ./crate-wheel.nix {
-        inherit
-          system
-          pkgs
-          crane
-          src
-          toolchain
-          ;
-      };
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
       wheelOverlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
       editableOverlay = workspace.mkEditablePyprojectOverlay {
@@ -123,16 +111,12 @@ let
           addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
         );
       };
-      pyprojectOverrides-wheel = crateWheelLib.mkPyprojectOverrides-wheel python pythonSet-base;
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ [
-            ./pyproject.build-system.diff
-          ];
           nativeBuildInputs =
             (old.nativeBuildInputs or [ ])
             ++ final.resolveBuildSystem {
-              setuptools = [ ];
+              editables = [ ];
             };
         });
       };
@@ -157,47 +141,14 @@ let
         pyprojectOverrides-editable
         editableOverlay
       ];
-      pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
       virtualenv-editable = pythonSet-editable.mkVirtualEnv "xorq" workspace.deps.all;
-      virtualenv = pythonSet-wheel.mkVirtualEnv "xorq" workspace.deps.all;
+      virtualenv = pythonSet-base.mkVirtualEnv "xorq" workspace.deps.all;
 
       editableShellHook = ''
         # Undo dependency propagation by nixpkgs.
         unset PYTHONPATH
         # Get repository root using git. This is expanded at runtime by the editable `.pth` machinery.
         export REPO_ROOT=$(git rev-parse --show-toplevel)
-      '';
-      maybeMaturinBuildHook = ''
-        set -eu
-
-        repo_dir=$(git rev-parse --show-toplevel)
-        if [ "$(basename "$repo_dir")" != "xorq" ]; then
-          echo "not in xorq, exiting"
-          exit 1
-        fi
-        case $(uname) in
-          Darwin) suffix=dylib ;;
-          *)      suffix=so    ;;
-        esac
-        source=$repo_dir/target/release/maturin/libletsql.$suffix
-        target=$repo_dir/python/xorq/_internal.abi3.so
-
-        if [ -e "$target" ]; then
-          for other in $(find src -name '*rs'); do
-            if [ "$target" -ot "$other" ]; then
-              rm -f "$target"
-              break
-            fi
-          done
-        fi
-
-        if [ ! -e "$source" -o ! -e "$target" ]; then
-          maturin build --release
-        fi
-        if [ ! -L "$target" -o "$(realpath "$source")" != "$(realpath "$target")" ]; then
-          rm -f "$target"
-          ln -s "$source" "$target"
-        fi
       '';
 
       inherit
@@ -209,7 +160,6 @@ let
         ;
       toolsPackages = [
         pkgs.uv
-        toolchain
         letsql-commands-star
         pkgs.gh
       ];
@@ -225,11 +175,7 @@ let
         packages = [
           virtualenv-editable
         ] ++ toolsPackages;
-        shellHook = pkgs.lib.strings.concatStrings [
-          editableShellHook
-          "\n"
-          maybeMaturinBuildHook
-        ];
+        shellHook = editableShellHook;
       };
 
     in
@@ -237,12 +183,9 @@ let
       inherit
         pythonSet-base
         pythonSet-editable
-        pythonSet-wheel
         virtualenv
         virtualenv-editable
         editableShellHook
-        maybeMaturinBuildHook
-        toolchain
         letsql-commands-star
         toolsPackages
         shell
