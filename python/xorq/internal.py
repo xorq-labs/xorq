@@ -2,8 +2,7 @@ from abc import ABCMeta, abstractmethod
 from typing import List
 
 import pyarrow as pa
-
-from xorq._internal import (
+from xorq_datafusion._internal import (
     AggregateUDF,
     ContextProvider,
     DataFrame,
