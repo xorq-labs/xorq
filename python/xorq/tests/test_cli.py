@@ -211,7 +211,7 @@ def test_build_command_bad_expr_name(
     ("example", "expr_name"),
     build_run_examples_expr_names,
 )
-def test_build_run_examples(
+def test_examples(
     example,
     expr_name,
     examples_dir,
