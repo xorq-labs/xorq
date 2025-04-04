@@ -151,6 +151,21 @@ def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return dct
 
 
+@translate_to_yaml.register(ops.udf.InputType)
+def _inputtype_to_yaml(it: ops.udf.InputType, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "InputType",
+            "name": it.name,
+        }
+    )
+
+
+@register_from_yaml_handler("InputType")
+def _inputtype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    return getattr(ops.udf.InputType, yaml_dict["name"])
+
+
 @translate_to_yaml.register(FlightExpr)
 def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
     input_expr_yaml = translate_to_yaml(op.input_expr, context)
