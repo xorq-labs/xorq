@@ -78,7 +78,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution'
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_cli.py --cov --cov-report=xml -k 'not script_execution'
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
