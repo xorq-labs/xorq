@@ -151,6 +151,21 @@ def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return dct
 
 
+@translate_to_yaml.register(ops.Namespace)
+def _namespace_to_yaml(ns: ops.Namespace, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "Namespace",
+            "dict": {argname: arg for argname, arg in zip(ns.argnames, ns.args)},
+        }
+    )
+
+
+@register_from_yaml_handler("Namespace")
+def _namespace_from_yaml(yaml_dict: dict, compiler: any) -> any:
+    return ops.Namespace(**yaml_dict["dict"])
+
+
 @translate_to_yaml.register(ops.udf.InputType)
 def _inputtype_to_yaml(it: ops.udf.InputType, context: TranslationContext) -> dict:
     return freeze(
