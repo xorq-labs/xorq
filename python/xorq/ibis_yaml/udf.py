@@ -109,6 +109,21 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     return node(*args).to_expr()
 
 
+@translate_to_yaml.register(bool)
+def _bool_to_yaml(value: bool, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "bool",
+            "value": value,
+        }
+    )
+
+
+@register_from_yaml_handler("bool")
+def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
+    return yaml_dict["value"]
+
+
 @translate_to_yaml.register(dt.DataType)
 def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
     return freeze(
