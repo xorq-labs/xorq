@@ -331,7 +331,9 @@ def replace_memtables(build_dir, expr):
         # FIXME: enable Path
         dr = xo.deferred_read_parquet(con, str(parquet_path), table_name=mt.name)
         op = dr.op()
-        op.values.setdefault(IS_INMEMORY, True)
+        args = dict(zip(op.__argnames__, op.__args__))
+        args["values"] = {IS_INMEMORY: True}
+        op = op.__recreate__(args)
         return op
 
     op = expr.op()
