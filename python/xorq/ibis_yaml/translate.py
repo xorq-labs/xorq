@@ -443,7 +443,15 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 @translate_to_yaml.register(str)
 def _str_to_yaml(string: str, context: TranslationContext) -> str:
-    return string
+    return {
+        "op": "str",
+        "value": string,
+    }
+
+
+@register_from_yaml_handler("str")
+def _str_from_yaml(yaml_dict: dict, context: TranslationContext) -> str:
+    return yaml_dict["value"]
 
 
 @translate_to_yaml.register(ops.Alias)
