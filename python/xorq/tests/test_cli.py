@@ -15,6 +15,8 @@ build_run_examples_expr_names = (
     ("iris_example.py", "expr"),
     ("simple_example.py", "expr"),
     ("deferred_read_csv.py", "pg_expr_replace"),
+    ("train_test_splits.py", "train_table"),
+    ("train_test_splits.py", "split_column"),
 )
 
 
