@@ -124,7 +124,7 @@ class Cache:
 
 
 @frozen
-class ModificationTimeStragegy(CacheStrategy):
+class ModificationTimeStrategy(CacheStrategy):
     key_prefix = field(
         validator=instance_of(str),
         factory=functools.partial(xorq.options.get, "cache.key_prefix"),
@@ -381,7 +381,7 @@ class ParquetStorage:
 
     def __attrs_post_init__(self):
         cache = Cache(
-            strategy=ModificationTimeStragegy(),
+            strategy=ModificationTimeStrategy(),
             storage=_ParquetStorage(
                 self.source,
                 self.path,
@@ -416,7 +416,7 @@ class SourceStorage:
 
     def __attrs_post_init__(self):
         cache = Cache(
-            strategy=ModificationTimeStragegy(), storage=_SourceStorage(self.source)
+            strategy=ModificationTimeStrategy(), storage=_SourceStorage(self.source)
         )
         object.__setattr__(self, "cache", cache)
 
