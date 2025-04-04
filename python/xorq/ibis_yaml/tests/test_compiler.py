@@ -64,7 +64,6 @@ none: null
     assert expected_yaml == result
 
 
-@pytest.mark.xfail(reason="MemTable is not serializable")
 def test_ibis_compiler(t, build_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
