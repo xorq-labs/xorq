@@ -212,6 +212,30 @@ def make_op_kwargs(op):
     return kwargs
 
 
+def make_dunder_func(fn, kwargs):
+    import pandas as pd
+
+    import xorq as xo
+
+    schema = xo.schema(
+        {
+            argname: typ
+            for (argname, typ) in (
+                (argname, arg.type()) for argname, arg in kwargs.items()
+            )
+        }
+    )
+
+    def fn_from_arrays(*arrays):
+        df = pd.DataFrame(
+            {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
+        )
+        return fn(df)
+
+    __func__ = property(fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays)
+    return __func__
+
+
 @translate_to_yaml.register(ops.udf.AggUDF)
 def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
     require_input_types((ops.udf.InputType.PYARROW,), op)
@@ -242,35 +266,16 @@ def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
 
 @register_from_yaml_handler("AggUDF")
 def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
-    import pandas as pd
-
-    import xorq as xo
-
     (op, class_name, fn_pickled, kwargs, meta) = (
         yaml_dict[key] for key in ("op", "class_name", "fn_pickled", "kwargs", "meta")
     )
-    fn = deserialize_udf_function(fn_pickled)
-
-    def fn_from_arrays(*arrays):
-        df = pd.DataFrame(
-            {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
-        )
-        return fn(df)
-
-    __func__ = property(fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays)
     (kwargs, meta) = (
         translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
     )
+    fn = deserialize_udf_function(fn_pickled)
+    __func__ = make_dunder_func(fn, kwargs)
     meta["__config__"]["fn"] = fn
     class_name = yaml_dict["class_name"]
-    schema = xo.schema(
-        {
-            argname: typ
-            for (argname, typ) in (
-                (argname, arg.type()) for argname, arg in kwargs.items()
-            )
-        }
-    )
     fields = {
         argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
         for (argname, typ) in ((argname, arg.type()) for argname, arg in kwargs.items())
