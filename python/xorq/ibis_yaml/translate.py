@@ -467,8 +467,7 @@ def _alias_to_yaml(op: ops.Alias, context: TranslationContext) -> dict:
 
 @register_from_yaml_handler("Alias")
 def _alias_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    (arg, name) = yaml_dict["args"]
-    arg = translate_from_yaml(arg, context)
+    (arg, name) = (translate_from_yaml(arg, context) for arg in yaml_dict["args"])
     return arg.name(name)
 
 
