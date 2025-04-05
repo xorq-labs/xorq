@@ -90,7 +90,7 @@ def get_read_options(read_instance) -> Dict[str, Any]:
 
 def generate_sql_plans(expr: ir.Expr) -> Tuple[SQLPlans, DeferredReadsPlan]:
     remote_tables, deferred_reads = find_tables(expr)
-    main_sql = ibis.to_sql(expr)
+    main_sql = ibis.to_sql(expr.ls.uncached)
     backend = expr._find_backend()
 
     queries: Dict[str, QueryInfo] = {
