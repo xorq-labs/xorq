@@ -132,6 +132,25 @@ def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     )
 
 
+@translate_to_yaml.register(dict)
+def _dict_to_yaml(dct: dict, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "dict",
+        }
+        | {key: translate_to_yaml(value, context) for key, value in dct.items()}
+    )
+
+
+@register_from_yaml_handler("dict")
+def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    dct = {
+        key: translate_from_yaml(value, context)
+        for key, value in toolz.dissoc(yaml_dict, "op").items()
+    }
+    return dct
+
+
 @translate_to_yaml.register(FlightExpr)
 def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
     input_expr_yaml = translate_to_yaml(op.input_expr, context)
