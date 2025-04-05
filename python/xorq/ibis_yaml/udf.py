@@ -196,18 +196,26 @@ def _inputtype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return getattr(ops.udf.InputType, yaml_dict["name"])
 
 
-@translate_to_yaml.register(ops.udf.AggUDF)
-def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
-    if (input_type := getattr(op.__class__, "__input_type__", None)) not in [
-        ops.udf.InputType.PYARROW
-    ]:
+def require_input_types(input_types, op):
+    if (input_type := getattr(op.__class__, "__input_type__", None)) not in input_types:
         raise NotImplementedError(
             f"Translation of UDFs with input type {input_type} is not supported"
+            f"\n\tsupported input types: {input_types}"
         )
+
+
+def make_op_kwargs(op):
     (*argnames, where) = op.argnames
     if where != "where":
         raise ValueError
     kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args)}
+    return kwargs
+
+
+@translate_to_yaml.register(ops.udf.AggUDF)
+def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
+    require_input_types((ops.udf.InputType.PYARROW,), op)
+    kwargs = make_op_kwargs(op)
     meta = {
         "__config__": toolz.dissoc(op.__config__, "fn"),
     } | {
