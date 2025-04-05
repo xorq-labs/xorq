@@ -239,7 +239,7 @@ class agg(_agg):
                 fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays
             ),
             # valid config keys: volatility
-            "__config__": FrozenDict(**kwargs),
+            "__config__": FrozenDict(fn=fn, **kwargs),
             "__udf_namespace__": Namespace(database=database, catalog=catalog),
             "__module__": fn.__module__,
             # FIXME: determine why this fails with case mismatch by default
