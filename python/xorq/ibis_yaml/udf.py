@@ -2,12 +2,14 @@ import base64
 from typing import Any, Dict
 
 import cloudpickle
+import toolz
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.rules as rlz
 from xorq.expr.relations import FlightExpr, FlightUDXF
 from xorq.ibis_yaml.common import (
+    TranslationContext,
     _translate_type,
     register_from_yaml_handler,
     translate_from_yaml,
@@ -105,6 +107,29 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     )
 
     return node(*args).to_expr()
+
+
+@translate_to_yaml.register(dt.DataType)
+def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "DataType",
+            "type": type(dtype).__name__,
+        }
+        | {
+            argname: translate_to_yaml(arg, context)
+            for argname, arg in zip(dtype.argnames, dtype.args)
+        }
+    )
+
+
+@register_from_yaml_handler("DataType")
+def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    typ = getattr(dt, yaml_dict["type"])
+    dct = toolz.dissoc(yaml_dict, "op", "type")
+    return typ(
+        **{key: translate_from_yaml(value, context) for key, value in dct.items()}
+    )
 
 
 @translate_to_yaml.register(FlightExpr)
