@@ -18,6 +18,7 @@ build_run_examples_expr_names = (
     ("train_test_splits.py", "train_table"),
     ("train_test_splits.py", "split_column"),
     ("postgres_caching.py", "expr"),
+    ("xgboost_udaf.py", "expr"),
 )
 
 
