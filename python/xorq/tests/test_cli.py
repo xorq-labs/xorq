@@ -239,7 +239,8 @@ def test_examples(
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
     expression_path = Path(captured.out.strip())
-    assert expression_path.exists()
+    # debugging can capture stdout and result in spurious path of "."
+    assert expression_path.name and expression_path.exists()
 
     # run
     output_format = "parquet"
