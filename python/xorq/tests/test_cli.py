@@ -237,7 +237,7 @@ def test_examples(
     monkeypatch.setattr(sys, "argv", build_args)
     main_no_exit()
     captured = capsys.readouterr()
-    print(captured.err, sys.stderr)
+    print(captured.err, file=sys.stderr)
     expression_path = Path(captured.out.strip())
     assert expression_path.exists()
 
@@ -257,5 +257,5 @@ def test_examples(
     monkeypatch.setattr(sys, "argv", run_args)
     main_no_exit()
     captured = capsys.readouterr()
-    print(captured.err, sys.stderr)
+    print(captured.err, file=sys.stderr)
     assert output_path.exists()
