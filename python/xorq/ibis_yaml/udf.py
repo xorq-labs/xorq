@@ -1,33 +1,23 @@
-import base64
 from typing import Any, Callable, Dict
 
-import cloudpickle
 import toolz
 
 import xorq.expr.datatypes as dt
+import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.rules as rlz
 from xorq.expr.relations import FlightExpr, FlightUDXF
 from xorq.ibis_yaml.common import (
     TranslationContext,
     _translate_type,
+    deserialize_callable,
     register_from_yaml_handler,
+    serialize_callable,
     translate_from_yaml,
     translate_to_yaml,
 )
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.annotations import Argument
-
-
-def serialize_udf_function(fn: callable) -> str:
-    pickled = cloudpickle.dumps(fn)
-    encoded = base64.b64encode(pickled).decode("ascii")
-    return encoded
-
-
-def deserialize_udf_function(encoded_fn: str) -> callable:
-    pickled = base64.b64decode(encoded_fn)
-    return cloudpickle.loads(pickled)
 
 
 @translate_to_yaml.register(ops.ScalarUDF)
@@ -51,7 +41,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
             "input_type": input_type,
             "args": [translate_to_yaml(arg, compiler) for arg in op.args],
             "type": _translate_type(op.dtype),
-            "pickle": serialize_udf_function(op.__func__),
+            "pickle": serialize_callable(op.__func__),
             "module": op.__module__,
             "class_name": op.__class__.__name__,
             "arg_names": arg_names,
@@ -65,7 +55,7 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     encoded_fn = yaml_dict.get("pickle")
     if not encoded_fn:
         raise ValueError("Missing pickle data for ScalarUDF")
-    fn = deserialize_udf_function(encoded_fn)
+    fn = deserialize_callable(encoded_fn)
 
     args = tuple(
         translate_from_yaml(arg, compiler) for arg in yaml_dict.get("args", [])
@@ -242,7 +232,7 @@ def _object_to_yaml(obj: object, compiler: Any) -> dict:
         return freeze(
             {
                 "op": "Callabe",
-                "pickled_fn": serialize_udf_function(obj),
+                "pickled_fn": serialize_callable(obj),
             }
         )
     else:
@@ -251,7 +241,7 @@ def _object_to_yaml(obj: object, compiler: Any) -> dict:
 
 @register_from_yaml_handler("Callabe")
 def _callable_from_yaml(yaml_dict: dict, compiler: any) -> Callable:
-    return deserialize_udf_function(yaml_dict["pickled_fn"])
+    return deserialize_callable(yaml_dict["pickled_fn"])
 
 
 @translate_to_yaml.register(ops.udf.AggUDF)
@@ -308,8 +298,8 @@ def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
 
     schema_id = context.schema_registry.register_schema(op.schema)
 
-    make_server_pickle = serialize_udf_function(op.make_server)
-    make_connection_pickle = serialize_udf_function(op.make_connection)
+    make_server_pickle = serialize_callable(op.make_server)
+    make_connection_pickle = serialize_callable(op.make_connection)
 
     return freeze(
         {
@@ -338,12 +328,10 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     unbound_expr = translate_from_yaml(unbound_expr_yaml, context)
 
     make_server = (
-        deserialize_udf_function(make_server_pickle) if make_server_pickle else None
+        deserialize_callable(make_server_pickle) if make_server_pickle else None
     )
     make_connection = (
-        deserialize_udf_function(make_connection_pickle)
-        if make_connection_pickle
-        else None
+        deserialize_callable(make_connection_pickle) if make_connection_pickle else None
     )
 
     return FlightExpr.from_exprs(
@@ -360,9 +348,9 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
 def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
     input_expr_yaml = translate_to_yaml(op.input_expr, context)
     schema_id = context.schema_registry.register_schema(op.schema)
-    udxf_pickle = serialize_udf_function(op.udxf)
-    make_server_pickle = serialize_udf_function(op.make_server)
-    make_connection_pickle = serialize_udf_function(op.make_connection)
+    udxf_pickle = serialize_callable(op.udxf)
+    make_server_pickle = serialize_callable(op.make_server)
+    make_connection_pickle = serialize_callable(op.make_connection)
 
     return freeze(
         {
@@ -388,14 +376,12 @@ def flight_udxf_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     do_instrument_reader = yaml_dict.get("do_instrument_reader", False)
 
     input_expr = translate_from_yaml(input_expr_yaml, context)
-    udxf = deserialize_udf_function(udxf_pickle)
+    udxf = deserialize_callable(udxf_pickle)
     make_server = (
-        deserialize_udf_function(make_server_pickle) if make_server_pickle else None
+        deserialize_callable(make_server_pickle) if make_server_pickle else None
     )
     make_connection = (
-        deserialize_udf_function(make_connection_pickle)
-        if make_connection_pickle
-        else None
+        deserialize_callable(make_connection_pickle) if make_connection_pickle else None
     )
 
     return FlightUDXF.from_expr(

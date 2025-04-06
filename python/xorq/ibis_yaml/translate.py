@@ -16,7 +16,9 @@ from xorq.expr.relations import CachedNode, Read, RemoteTable, into_backend
 from xorq.ibis_yaml.common import (
     TranslationContext,
     _translate_type,
+    deserialize_callable,
     register_from_yaml_handler,
+    serialize_callable,
     translate_from_yaml,
     translate_to_yaml,
 )
