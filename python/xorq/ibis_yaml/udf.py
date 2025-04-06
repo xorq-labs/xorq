@@ -18,6 +18,7 @@ from xorq.ibis_yaml.common import (
 )
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.annotations import Argument
+from xorq.vendor.ibis.expr.schema import Schema
 
 
 @translate_to_yaml.register(ops.ScalarUDF)
@@ -112,6 +113,32 @@ def _bool_to_yaml(value: bool, context: TranslationContext) -> dict:
 @register_from_yaml_handler("bool")
 def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
     return yaml_dict["value"]
+
+
+@translate_to_yaml.register(Schema)
+def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
+    context.schema_registry.register_schema(schema)
+    return freeze(
+        {
+            "op": schema.__class__.__name__,
+            "value": freeze(
+                {
+                    key: translate_to_yaml(value, context)
+                    for key, value in schema.items()
+                }
+            ),
+        }
+    )
+
+
+@register_from_yaml_handler(Schema.__name__)
+def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
+    return Schema(
+        {
+            key: translate_from_yaml(value, context)
+            for key, value in yaml_dict["value"].items()
+        }
+    )
 
 
 @translate_to_yaml.register(dt.DataType)
