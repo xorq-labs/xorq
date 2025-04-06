@@ -6,6 +6,7 @@ import pytest
 import toolz
 
 from xorq.cli import build_command, main
+from xorq.common.utils.func_utils import return_constant
 
 
 build_run_examples_expr_names = (
@@ -23,7 +24,7 @@ build_run_examples_expr_names = (
 
 
 # Run the CLI (with try/except to prevent SystemExit)
-main_no_exit = toolz.excepts(SystemExit, main)
+main_no_exit = toolz.excepts(SystemExit, main, return_constant(1))
 
 
 def test_build_command(monkeypatch, tmp_path, fixture_dir, capsys):
@@ -235,7 +236,9 @@ def test_examples(
         str(builds_dir),
     )
     monkeypatch.setattr(sys, "argv", build_args)
-    main_no_exit()
+    value = main_no_exit()
+    if value:
+        raise ValueError
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
     expression_path = Path(captured.out.strip())
@@ -256,7 +259,9 @@ def test_examples(
         str(output_path),
     )
     monkeypatch.setattr(sys, "argv", run_args)
-    main_no_exit()
+    value = main_no_exit()
+    if value:
+        raise ValueError
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
     assert output_path.exists()
