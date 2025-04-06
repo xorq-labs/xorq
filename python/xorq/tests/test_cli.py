@@ -17,6 +17,7 @@ build_run_examples_expr_names = (
     ("deferred_read_csv.py", "pg_expr_replace"),
     ("train_test_splits.py", "train_table"),
     ("train_test_splits.py", "split_column"),
+    ("postgres_caching.py", "expr"),
 )
 
 
@@ -235,6 +236,7 @@ def test_examples(
     monkeypatch.setattr(sys, "argv", build_args)
     main_no_exit()
     captured = capsys.readouterr()
+    print(captured.err, file=sys.stderr)
     expression_path = Path(captured.out.strip())
     assert expression_path.exists()
 
@@ -253,4 +255,6 @@ def test_examples(
     )
     monkeypatch.setattr(sys, "argv", run_args)
     main_no_exit()
+    captured = capsys.readouterr()
+    print(captured.err, file=sys.stderr)
     assert output_path.exists()
