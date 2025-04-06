@@ -235,12 +235,13 @@ def test_examples(
         "--builds-dir",
         str(builds_dir),
     )
+    print(" ".join(build_args), file=sys.stderr)
     monkeypatch.setattr(sys, "argv", build_args)
     value = main_no_exit()
-    if value:
-        raise ValueError
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
+    if value:
+        raise ValueError
     expression_path = Path(captured.out.strip())
     # debugging can capture stdout and result in spurious path of "."
     assert expression_path.name and expression_path.exists()
@@ -258,10 +259,11 @@ def test_examples(
         "--output-path",
         str(output_path),
     )
+    print(" ".join(build_args), file=sys.stderr)
     monkeypatch.setattr(sys, "argv", run_args)
     value = main_no_exit()
-    if value:
-        raise ValueError
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
+    if value:
+        raise ValueError
     assert output_path.exists()
