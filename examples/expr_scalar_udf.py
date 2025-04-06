@@ -56,11 +56,15 @@ def run_pd(train, test):
     return from_pd
 
 
-t = xo.read_parquet(xo.config.options.pins.get_path("lending-club"))
+t = xo.deferred_read_parquet(
+    xo.connect(), xo.config.options.pins.get_path("lending-club")
+)
+
 (train, test) = xo.train_test_splits(
     t,
     unique_key=ROWNUM,
     test_sizes=0.7,
+    random_seed=42,
 )
 model_udaf = udf.agg.pandas_df(
     fn=toolz.compose(pickle.dumps, train_xgboost_model),
