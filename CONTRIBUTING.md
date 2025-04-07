@@ -63,6 +63,26 @@ just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
 
+### Working with xorq-datafusion
+
+xorq-datafusion is a Backend developed by xorq labs based on the DataFusion query engine, occasionally we make change to it
+that must be reflected in xorq. So when working with both repos, the following workflow is proposed:
+
+1. Add the following config in `pyproject.toml` of `xorq` (see more in [here](https://docs.astral.sh/uv/concepts/projects/dependencies/#path)):
+
+```toml
+[tool.uv.sources]
+xorq-datafusion = { path = "local/path/to/xorq-datafusion-repo" }
+```
+
+2. Make changes to `xorq-datafusion` (add tests if required).
+3. Verify the change in xorq via tests.
+4. Commit the changes to `xorq-datafusion`, open a PR, commit to main, and release a new version of `xorq-datafusion`.
+5. Remove `tool.uv.sources` from the `pyproject.toml` and open a PR with the respective change to `xorq`.
+
+Notice that that our test run with `--no-sources` so they will fail if a new version of `xorq-datafusion` with the required 
+change is not present in PyPI. 
+
 ### Writing the commit
 
 xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
