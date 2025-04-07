@@ -195,9 +195,9 @@ def require_input_types(input_types, op):
 
 
 def make_op_kwargs(op):
-    (*argnames, where) = op.argnames
-    if where != "where":
-        raise ValueError
+    argnames = op.argnames
+    if argnames and argnames[-1] == "where":
+        (*argnames, _) = argnames
     kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args)}
     return kwargs
 
