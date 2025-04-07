@@ -32,6 +32,6 @@ jobs:
           enable-cache: true
       - name: publish package
         run: |
-          uv build
+          uv build --no-sources
           uv publish --publish-url https://test.pypi.org/legacy/ --trusted-publishing always
 

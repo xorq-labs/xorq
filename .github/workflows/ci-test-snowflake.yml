@@ -33,14 +33,14 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --extra snowflake --extra postgres --group dev --group test
+        run: uv sync --no-sources --extra snowflake --extra postgres --group dev --group test
         working-directory: ${{ github.workspace }}
 
       - name: start services
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-project pytest --import-mode=importlib python/xorq/backends/snowflake -v --cov --cov-report=xml
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/backends/snowflake -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_GH_USER_PASSWORD }}
