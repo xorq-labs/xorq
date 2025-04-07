@@ -272,6 +272,34 @@ class GetSchemaQueryAction(AbstractAction):
         yield make_flight_result(schema)
 
 
+class GetTableSchemaAction(AbstractAction):
+    @classmethod
+    @property
+    def name(cls):
+        return "get_table_schema"
+
+    @classmethod
+    @property
+    def description(cls):
+        return "Get schema for a table by name"
+
+    @classmethod
+    def do_action(cls, server, context, action):
+        table_name = loads(action.body).get("table_name")
+        if table_name in server._conn.tables:
+
+            schema = server._conn.table(table_name).schema().to_pyarrow()
+            
+            yield make_flight_result({
+                "exists": True,
+                "schema": schema
+            })
+        else:
+            yield make_flight_result({
+                "exists": False,
+                "schema": None
+            })
+
 actions = {
     action.name: action
     for action in (
@@ -288,5 +316,6 @@ actions = {
         ReadParquetAction,
         VersionAction,
         GetSchemaQueryAction,
+        GetTableSchemaAction
     )
 }
