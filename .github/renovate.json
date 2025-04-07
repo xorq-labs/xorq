@@ -16,6 +16,7 @@
     "cargo",
     "pre-commit"
   ],
+  "prBodyTemplate": "{{{table}}}{{{notes}}}{{{warnings}}}{{{controls}}}",
   "packageRules": [
     {
       "matchManagers": ["github-actions", "cargo", "pre-commit"],
