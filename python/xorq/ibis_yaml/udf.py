@@ -1,4 +1,4 @@
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 
 import toolz
 
@@ -200,24 +200,6 @@ def make_op_kwargs(op):
         raise ValueError
     kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args)}
     return kwargs
-
-
-@translate_to_yaml.register(object)
-def _object_to_yaml(obj: object, compiler: Any) -> dict:
-    if isinstance(obj, Callable):
-        return freeze(
-            {
-                "op": "Callabe",
-                "pickled_fn": serialize_callable(obj),
-            }
-        )
-    else:
-        raise ValueError
-
-
-@register_from_yaml_handler("Callabe")
-def _callable_from_yaml(yaml_dict: dict, compiler: any) -> Callable:
-    return deserialize_callable(yaml_dict["pickled_fn"])
 
 
 @translate_to_yaml.register(ops.udf.AggUDF)
