@@ -1,5 +1,5 @@
 import base64
-from typing import Any, Dict
+from typing import Any, Callable, Dict
 
 import cloudpickle
 import toolz
@@ -196,24 +196,73 @@ def _inputtype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return getattr(ops.udf.InputType, yaml_dict["name"])
 
 
-@translate_to_yaml.register(ops.udf.AggUDF)
-def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
-    if (input_type := getattr(op.__class__, "__input_type__", None)) not in [
-        ops.udf.InputType.PYARROW
-    ]:
+def require_input_types(input_types, op):
+    if (input_type := getattr(op.__class__, "__input_type__", None)) not in input_types:
         raise NotImplementedError(
             f"Translation of UDFs with input type {input_type} is not supported"
+            f"\n\tsupported input types: {input_types}"
         )
+
+
+def make_op_kwargs(op):
     (*argnames, where) = op.argnames
     if where != "where":
         raise ValueError
     kwargs = {argname: arg for (argname, arg) in zip(argnames, op.args)}
+    return kwargs
+
+
+def make_dunder_func(fn, kwargs):
+    import pandas as pd
+
+    import xorq as xo
+
+    schema = xo.schema(
+        {
+            argname: typ
+            for (argname, typ) in (
+                (argname, arg.type()) for argname, arg in kwargs.items()
+            )
+        }
+    )
+
+    def fn_from_arrays(*arrays):
+        df = pd.DataFrame(
+            {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
+        )
+        return fn(df)
+
+    __func__ = property(fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays)
+    return __func__
+
+
+@translate_to_yaml.register(object)
+def _object_to_yaml(obj: object, compiler: Any) -> dict:
+    if isinstance(obj, Callable):
+        return freeze(
+            {
+                "op": "Callabe",
+                "pickled_fn": serialize_udf_function(obj),
+            }
+        )
+    else:
+        raise ValueError
+
+
+@register_from_yaml_handler("Callabe")
+def _callable_from_yaml(yaml_dict: dict, compiler: any) -> Callable:
+    return deserialize_udf_function(yaml_dict["pickled_fn"])
+
+
+@translate_to_yaml.register(ops.udf.AggUDF)
+def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
+    require_input_types((ops.udf.InputType.PYARROW,), op)
+    kwargs = make_op_kwargs(op)
     meta = {
-        "__config__": toolz.dissoc(op.__config__, "fn"),
-    } | {
         name: getattr(op, name)
         for name in (
             "dtype",
+            "__config__",
             "__input_type__",
             "__udf_namespace__",
             "__module__",
@@ -224,8 +273,6 @@ def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
         {
             "op": "AggUDF",
             "class_name": op.__class__.__name__,
-            # FIXME: register Callable with translate_to_yaml
-            "fn_pickled": serialize_udf_function(op.__config__["fn"]),
             "kwargs": translate_to_yaml(freeze(kwargs), compiler),
             "meta": translate_to_yaml(freeze(meta), compiler),
         }
@@ -234,39 +281,16 @@ def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
 
 @register_from_yaml_handler("AggUDF")
 def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
-    import pandas as pd
-
-    import xorq as xo
-
-    (op, class_name, fn_pickled, kwargs, meta) = (
-        yaml_dict[key] for key in ("op", "class_name", "fn_pickled", "kwargs", "meta")
-    )
-    fn = deserialize_udf_function(fn_pickled)
-
-    def fn_from_arrays(*arrays):
-        df = pd.DataFrame(
-            {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
-        )
-        return fn(df)
-
-    __func__ = property(fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays)
     (kwargs, meta) = (
         translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
     )
-    meta["__config__"]["fn"] = fn
-    class_name = yaml_dict["class_name"]
-    schema = xo.schema(
-        {
-            argname: typ
-            for (argname, typ) in (
-                (argname, arg.type()) for argname, arg in kwargs.items()
-            )
-        }
-    )
+    __func__ = make_dunder_func(meta["__config__"]["fn"], kwargs)
     fields = {
         argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
         for (argname, typ) in ((argname, arg.type()) for argname, arg in kwargs.items())
     }
+    #
+    class_name = yaml_dict["class_name"]
     bases = (ops.udf.AggUDF,)
     kwds = fields | meta | {"__func__": __func__}
     node = type(
