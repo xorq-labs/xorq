@@ -2,6 +2,7 @@ import functools
 import pickle
 from typing import Any
 
+import pandas as pd
 import pyarrow as pa
 import toolz
 
@@ -22,6 +23,47 @@ from xorq.vendor.ibis.expr.operations.udf import (
 from xorq.vendor.ibis.expr.operations.udf import (
     agg as _agg,
 )
+
+
+def property_wrap_fn(fn):
+    return property(fget=lambda _, fn=fn: fn)
+
+
+def arrays_to_df(names, *arrays):
+    return pd.DataFrame(
+        {name: array.to_pandas() for (name, array) in zip(names, arrays)}
+    )
+
+
+def make_pyarrow_array(return_type, series):
+    return pa.Array.from_pandas(series, type=return_type.to_pyarrow())
+
+
+def make_dunder_func(fn, schema, return_type=None):
+    def fn_from_arrays(*arrays):
+        df = arrays_to_df(schema, *arrays)
+        value = fn(df)
+        if return_type is not None:
+            value = make_pyarrow_array(return_type, value)
+        return value
+
+    return property_wrap_fn(fn_from_arrays)
+
+
+def make_expr_scalar_udf_dunder_func(fn, schema, return_type):
+    def fn_from_arrays(*arrays, computed_arg=None, **kwargs):
+        if computed_arg is None:
+            raise ValueError(
+                "Caller must bind computed_arg to the output of computed_kwargs_expr"
+            )
+        df = arrays_to_df(schema, *arrays)
+        value = fn(computed_arg, df, **kwargs)
+        return make_pyarrow_array(
+            return_type,
+            value,
+        )
+
+    return property_wrap_fn(fn_from_arrays)
 
 
 @toolz.curry
@@ -64,20 +106,6 @@ def make_pandas_expr_udf(
     post_process_fn=unwrap_model,
     **kwargs,
 ):
-    import pandas as pd
-
-    def fn_from_arrays(*arrays, computed_arg=None, **kwargs):
-        if computed_arg is None:
-            raise ValueError(
-                "Caller must bind computed_arg to the output of computed_kwargs_expr"
-            )
-        df = pd.DataFrame(
-            {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
-        )
-        return pa.Array.from_pandas(
-            fn(computed_arg, df, **kwargs), type=return_type.to_pyarrow()
-        )
-
     name = name if name is not None else _make_udf_name(fn)
     bases = (ExprScalarUDF,)
     fields = {
@@ -87,14 +115,13 @@ def make_pandas_expr_udf(
     meta = {
         "dtype": return_type,
         "__input_type__": InputType.PYARROW,
-        "__func__": property(
-            fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays
-        ),
+        "__func__": make_expr_scalar_udf_dunder_func(fn, schema, return_type),
         # valid config keys: computed_kwargs_expr, post_process_fn, volatility
         "__config__": FrozenDict(
             computed_kwargs_expr=computed_kwargs_expr,
             post_process_fn=post_process_fn,
             schema=schema,
+            fn=fn,
             **kwargs,
         ),
         "__udf_namespace__": Namespace(database=database, catalog=catalog),
@@ -130,15 +157,7 @@ def make_pandas_expr_udf(
 def make_pandas_udf(
     fn, schema, return_type, database=None, catalog=None, name=None, **kwargs
 ):
-    import pandas as pd
-
     from xorq.vendor.ibis.expr.operations.udf import ScalarUDF
-
-    def fn_from_arrays(*arrays):
-        df = pd.DataFrame(
-            {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
-        )
-        return pa.Array.from_pandas(fn(df), type=return_type.to_pyarrow())
 
     name = name if name is not None else _make_udf_name(fn)
     bases = (ScalarUDF,)
@@ -149,9 +168,7 @@ def make_pandas_udf(
     meta = {
         "dtype": return_type,
         "__input_type__": InputType.PYARROW,
-        "__func__": property(
-            fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays
-        ),
+        "__func__": make_dunder_func(fn, schema, return_type),
         # valid config keys: volatility
         "__config__": FrozenDict(**kwargs),
         "__udf_namespace__": Namespace(database=database, catalog=catalog),
@@ -218,14 +235,6 @@ class agg(_agg):
         name=None,
         **kwargs,
     ):
-        import pandas as pd
-
-        def fn_from_arrays(*arrays):
-            df = pd.DataFrame(
-                {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
-            )
-            return fn(df)
-
         name = name if name is not None else _make_udf_name(fn)
         bases = (cls._base,)
         fields = {
@@ -235,9 +244,7 @@ class agg(_agg):
         meta = {
             "dtype": return_type,
             "__input_type__": InputType.PYARROW,
-            "__func__": property(
-                fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays
-            ),
+            "__func__": make_dunder_func(fn, schema),
             # valid config keys: volatility
             "__config__": FrozenDict(fn=fn, **kwargs),
             "__udf_namespace__": Namespace(database=database, catalog=catalog),

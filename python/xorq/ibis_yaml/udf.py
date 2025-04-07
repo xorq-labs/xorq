@@ -80,7 +80,7 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     meta = {
         "dtype": dt.dtype(yaml_dict["type"]["name"]),
         "__input_type__": input_type,
-        "__func__": property(fget=lambda _, f=fn: f),
+        "__func__": udf.property_wrap_fn(fn),
         "__config__": {"volatility": "immutable"},
         "__udf_namespace__": None,
         "__module__": yaml_dict.get("module", "__main__"),
@@ -202,30 +202,6 @@ def make_op_kwargs(op):
     return kwargs
 
 
-def make_dunder_func(fn, kwargs):
-    import pandas as pd
-
-    import xorq as xo
-
-    schema = xo.schema(
-        {
-            argname: typ
-            for (argname, typ) in (
-                (argname, arg.type()) for argname, arg in kwargs.items()
-            )
-        }
-    )
-
-    def fn_from_arrays(*arrays):
-        df = pd.DataFrame(
-            {name: array.to_pandas() for (name, array) in zip(schema, arrays)}
-        )
-        return fn(df)
-
-    __func__ = property(fget=lambda _, fn_from_arrays=fn_from_arrays: fn_from_arrays)
-    return __func__
-
-
 @translate_to_yaml.register(object)
 def _object_to_yaml(obj: object, compiler: Any) -> dict:
     if isinstance(obj, Callable):
@@ -274,7 +250,6 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     (kwargs, meta) = (
         translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
     )
-    __func__ = make_dunder_func(meta["__config__"]["fn"], kwargs)
     fields = {
         argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
         for (argname, typ) in ((argname, arg.type()) for argname, arg in kwargs.items())
@@ -282,7 +257,11 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     #
     class_name = yaml_dict["class_name"]
     bases = (ops.udf.AggUDF,)
-    kwds = fields | meta | {"__func__": __func__}
+    kwds = (
+        fields
+        | meta
+        | {"__func__": udf.make_dunder_func(meta["__config__"]["fn"], kwargs)}
+    )
     node = type(
         class_name,
         bases,
