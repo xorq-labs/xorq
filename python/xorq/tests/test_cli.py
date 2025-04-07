@@ -6,6 +6,7 @@ import pytest
 import toolz
 
 from xorq.cli import build_command, main
+from xorq.common.utils.func_utils import return_constant
 
 
 build_run_examples_expr_names = (
@@ -23,7 +24,7 @@ build_run_examples_expr_names = (
 
 
 # Run the CLI (with try/except to prevent SystemExit)
-main_no_exit = toolz.excepts(SystemExit, main)
+main_no_exit = toolz.excepts(SystemExit, main, return_constant(1))
 
 
 def test_build_command(monkeypatch, tmp_path, fixture_dir, capsys):
@@ -234,12 +235,16 @@ def test_examples(
         "--builds-dir",
         str(builds_dir),
     )
+    print(" ".join(build_args), file=sys.stderr)
     monkeypatch.setattr(sys, "argv", build_args)
-    main_no_exit()
+    value = main_no_exit()
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
+    if value:
+        raise ValueError
     expression_path = Path(captured.out.strip())
-    assert expression_path.exists()
+    # debugging can capture stdout and result in spurious path of "."
+    assert expression_path.name and expression_path.exists()
 
     # run
     output_format = "parquet"
@@ -254,8 +259,11 @@ def test_examples(
         "--output-path",
         str(output_path),
     )
+    print(" ".join(build_args), file=sys.stderr)
     monkeypatch.setattr(sys, "argv", run_args)
-    main_no_exit()
+    value = main_no_exit()
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
+    if value:
+        raise ValueError
     assert output_path.exists()
