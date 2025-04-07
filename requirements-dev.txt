@@ -482,7 +482,7 @@ pytest==8.3.5
     #   pytest-mock
     #   pytest-snapshot
 pytest-codspeed==3.2.0
-pytest-cov==6.1.0
+pytest-cov==6.1.1
 pytest-mock==3.14.0 ; python_full_version < '4.0'
     # via xorq
 pytest-snapshot==0.9.0
@@ -721,7 +721,7 @@ xgboost==3.0.0
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4.0'
     # via pins
-yarl==1.18.3 ; python_full_version < '4.0'
+yarl==1.19.0 ; python_full_version < '4.0'
     # via aiohttp
 zipp==3.21.0
     # via importlib-metadata
