@@ -190,6 +190,13 @@ markers = [
     "library",
     "s3",
     "snapshot_check",
+    "datafusion: Apache Datafusion tests",
+    "duckdb: DuckDB tests",
+    "let",
+    "pandas",
+    "postgres",
+    "trino",
+    "core"
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
