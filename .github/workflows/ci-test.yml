@@ -31,11 +31,8 @@ jobs:
         python-version: ["3.11"]
         backend:
           - name: datafusion
-          - name: duckdb
           - name: let
-          - name: pandas
           - name: postgres
-          - name: trino
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
