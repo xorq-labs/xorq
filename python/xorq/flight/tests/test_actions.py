@@ -53,10 +53,12 @@ def test_get_schema_query():
             {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
         ).to_pandas()
         main.con.register(data, table_name="users")
-        expected = {
-            "id": pa.int64(),
-            "name": pa.string(),
-        }
+        expected = xo.Schema(
+            {
+                "id": pa.int64(),
+                "name": pa.string(),
+            }
+        )
         # WHEN
         actual = main.client.do_action_one(
             GetSchemaQueryAction.name, action_body="SELECT * FROM users;"
