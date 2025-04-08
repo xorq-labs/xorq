@@ -132,7 +132,7 @@ distlib==0.3.9
     # via virtualenv
 distro==1.9.0
     # via openai
-duckdb==1.2.1
+duckdb==1.2.2
     # via xorq
 envyaml==1.10.211231
     # via xorq
@@ -236,9 +236,9 @@ iniconfig==2.1.0
     # via pytest
 ipykernel==6.29.5
     # via jupyterlab
-ipython==8.34.0 ; python_full_version < '3.11'
+ipython==8.35.0 ; python_full_version < '3.11'
     # via ipykernel
-ipython==9.0.2 ; python_full_version >= '3.11'
+ipython==9.1.0 ; python_full_version >= '3.11'
     # via ipykernel
 ipython-pygments-lexers==1.1.1 ; python_full_version >= '3.11'
     # via ipython
@@ -365,7 +365,7 @@ nvidia-nccl-cu12==2.26.2 ; platform_machine != 'aarch64' and sys_platform == 'li
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.70.0
+openai==1.71.0
     # via xorq
 overrides==7.7.0
     # via jupyter-server
@@ -455,7 +455,7 @@ pyasn1-modules==0.4.2 ; python_full_version < '4.0'
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.11.2
+pydantic==2.11.3
     # via
     #   mcp
     #   openai
