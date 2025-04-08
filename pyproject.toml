@@ -35,6 +35,7 @@ dependencies = [
     "xorq-datafusion==0.2.1",
     "opentelemetry-sdk>=1.32.1",
     "opentelemetry-exporter-otlp>=1.32.1",
+    "pyiceberg[sql-sqlite]>=0.9.0",
 ]
 requires-python = ">=3.10"
 authors = [
@@ -139,6 +140,7 @@ datafusion = "xorq.backends.datafusion"
 duckdb = "xorq.backends.duckdb"
 pandas = "xorq.backends.pandas"
 trino = "xorq.backends.trino"
+pyiceberg = "xorq.backends.pyiceberg"
 
 [project.scripts]
 xorq = "xorq.cli:main"
