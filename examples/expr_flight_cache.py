@@ -3,7 +3,7 @@ from attr.validators import instance_of
 from toolz import compose, curry, pipe
 
 import xorq as xo
-from xorq.caching import Cache, CacheStorage, ModificationTimeStrategy
+from xorq.caching import Cache, CacheStorage, SnapshotStrategy, SourceStorage
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.flight.client import FlightClient
 from xorq.vendor.ibis.expr import types as ir
@@ -100,7 +100,7 @@ class FlightCache:
     def __attrs_post_init__(self):
         flight_cache = pipe(
             FlightStorage(client=self.client, source=self.source),
-            lambda storage: Cache(strategy=ModificationTimeStrategy(), storage=storage),
+            lambda storage: Cache(strategy=SnapshotStrategy(), storage=storage),
         )
 
         object.__setattr__(self, "cache", flight_cache)
@@ -125,14 +125,33 @@ class FlightCache:
 
 # Example usage
 # run python examples/duckdb_flight_example serve -p 50051
+snow = xo.snowflake.connect_env()
 flight_client = FlightClient(host="localhost", port=50051)
-cache = FlightCache(
-    client=flight_client,
-    source=xo.config._backend_init(),
-)
-con = xo.connect()
+cache = FlightCache(client=flight_client)
 
-expr = xo.deferred_read_csv(
-    path=xo.options.pins.get_path("bank-marketing"),
-    con=con,
-).cache(storage=cache)
+customers = snow.table("CUSTOMER")
+orders = snow.table("ORDERS")
+lineitem = snow.table("LINEITEM")
+nation = snow.table("NATION")
+
+query = customers.join(orders, customers.C_CUSTKEY == orders.O_CUSTKEY)
+query = query.join(lineitem, orders.O_ORDERKEY == lineitem.L_ORDERKEY)
+query = query.join(nation, customers.C_NATIONKEY == nation.N_NATIONKEY)
+
+query = query.select(
+    [
+        customers.C_CUSTKEY.name("customer_id"),
+        customers.C_NAME.name("customer_name"),
+        nation.N_NAME.name("nation"),
+        lineitem.L_QUANTITY.name("quantity"),
+        lineitem.L_EXTENDEDPRICE.name("price"),
+        lineitem.L_DISCOUNT.name("discount"),
+        orders.O_ORDERDATE.name("order_date"),
+    ]
+)
+
+query = query.filter(orders.O_ORDERDATE >= "1995-01-01").cache(storage=cache)
+
+ice_con = xo.pyiceberg.connect()
+
+query = query.cache(storage=SourceStorage(ice_con))
