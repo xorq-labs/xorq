@@ -2,6 +2,7 @@ from typing import Any, Dict
 
 import toolz
 
+import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
@@ -18,6 +19,7 @@ from xorq.ibis_yaml.common import (
 )
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.annotations import Argument
+from xorq.vendor.ibis.expr.schema import Schema
 
 
 @translate_to_yaml.register(ops.ScalarUDF)
@@ -114,6 +116,32 @@ def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
     return yaml_dict["value"]
 
 
+@translate_to_yaml.register(Schema)
+def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
+    context.schema_registry.register_schema(schema)
+    return freeze(
+        {
+            "op": schema.__class__.__name__,
+            "value": freeze(
+                {
+                    key: translate_to_yaml(value, context)
+                    for key, value in schema.items()
+                }
+            ),
+        }
+    )
+
+
+@register_from_yaml_handler(Schema.__name__)
+def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
+    return Schema(
+        {
+            key: translate_from_yaml(value, context)
+            for key, value in yaml_dict["value"].items()
+        }
+    )
+
+
 @translate_to_yaml.register(dt.DataType)
 def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
     return freeze(
@@ -202,6 +230,18 @@ def make_op_kwargs(op):
     return kwargs
 
 
+def kwargs_to_schema(kwargs):
+    schema = xo.schema(
+        {
+            argname: typ
+            for (argname, typ) in (
+                (argname, arg.type()) for argname, arg in kwargs.items()
+            )
+        }
+    )
+    return schema
+
+
 @translate_to_yaml.register(ops.udf.AggUDF)
 def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
     require_input_types((ops.udf.InputType.PYARROW,), op)
@@ -243,6 +283,60 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         fields
         | meta
         | {"__func__": udf.make_dunder_func(meta["__config__"]["fn"], kwargs)}
+    )
+    node = type(
+        class_name,
+        bases,
+        kwds,
+    )
+    return node(**kwargs).to_expr()
+
+
+@translate_to_yaml.register(udf.ExprScalarUDF)
+def _exprscalarudf_to_yaml(op: udf.ExprScalarUDF, compiler: Any) -> dict:
+    require_input_types((ops.udf.InputType.PYARROW,), op)
+    kwargs = make_op_kwargs(op)
+    meta = {
+        name: getattr(op, name)
+        for name in (
+            "dtype",
+            "__input_type__",
+            "__config__",
+            "__udf_namespace__",
+            "__module__",
+            "__func_name__",
+        )
+    }
+    return freeze(
+        {
+            "op": udf.ExprScalarUDF.__name__,
+            "class_name": op.__class__.__name__,
+            "kwargs": translate_to_yaml(freeze(kwargs), compiler),
+            "meta": translate_to_yaml(freeze(meta), compiler),
+        }
+    )
+
+
+@register_from_yaml_handler(udf.ExprScalarUDF.__name__)
+def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
+    (kwargs, meta) = (
+        translate_from_yaml(yaml_dict[name], compiler) for name in ("kwargs", "meta")
+    )
+    fields = {
+        argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
+        for (argname, typ) in ((argname, arg.type()) for argname, arg in kwargs.items())
+    }
+    #
+    class_name = yaml_dict["class_name"]
+    bases = (udf.ExprScalarUDF,)
+    kwds = (
+        fields
+        | meta
+        | {
+            "__func__": udf.make_expr_scalar_udf_dunder_func(
+                meta["__config__"]["fn"], kwargs_to_schema(kwargs), meta["dtype"]
+            )
+        }
     )
     node = type(
         class_name,
