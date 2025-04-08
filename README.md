@@ -5,7 +5,7 @@
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
 ![PyPI - Status](https://img.shields.io/pypi/status/xorq)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
-![Codecov](https://img.shields.io/codecov/c/github/letsql/letsql)
+![Codecov](https://img.shields.io/codecov/c/github/xorq-labs/xorq)
 
 xorq is a deferred computational framework that brings the replicability and
 performance of declarative pipelines to the Python ML ecosystem. It enables us
