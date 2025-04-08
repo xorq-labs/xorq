@@ -30,12 +30,12 @@ jobs:
         target: [x86_64]
         python-version: ["3.11"]
         backend:
-          - datafusion
-          - duckdb
-          - let
-          - pandas
-          - postgres
-          - trino
+          - name: datafusion
+          - name: duckdb
+          - name: let
+          - name: pandas
+          - name: postgres
+          - name: trino
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
