@@ -1068,15 +1068,6 @@ wheels = [
 ]
 
 [[package]]
-name = "geoarrow-types"
-version = "0.2.0"
-source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/2a/ad/bddd2262d615eee672a04a894c4cabc4ce121f18b4c5835edc4a19c36a2e/geoarrow_types-0.2.0.tar.gz", hash = "sha256:2dcb3db9c80b2079a7a61c3e74aa46904f1c899136735f1cacc015757707e924", size = 17511 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/12/c3/2c9ab1a5d52729fc2ea76fd6fee6233ea0aade366a22f6ea3522e722dbb5/geoarrow_types-0.2.0-py3-none-any.whl", hash = "sha256:b83bd7e4cee92356df1904bc681cd86938ae808778aef8f836d2dce8f234cb7e", size = 14464 },
-]
-
-[[package]]
 name = "git-cliff"
 version = "2.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4110,7 +4101,6 @@ dependencies = [
     { name = "cloudpickle" },
     { name = "dask", marker = "python_full_version < '4.0'" },
     { name = "envyaml" },
-    { name = "geoarrow-types", marker = "python_full_version < '4.0'" },
     { name = "pandas", marker = "python_full_version < '4.0'" },
     { name = "parsy" },
     { name = "pyarrow", marker = "python_full_version < '4.0'" },
@@ -4207,7 +4197,6 @@ requires-dist = [
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.3" },
     { name = "envyaml", specifier = ">=1.10.211231" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=2024.6.1,<2025.3.3" },
-    { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.2,<1" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
     { name = "pandas", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=1.5.3,<3" },
