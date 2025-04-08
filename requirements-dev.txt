@@ -184,8 +184,6 @@ gast==0.6.0 ; sys_platform == 'darwin'
     #   pythran
 gcsfs==2025.3.2 ; python_full_version < '4.0'
     # via pins
-geoarrow-types==0.2.0 ; python_full_version < '4.0'
-    # via xorq
 git-cliff==2.8.0
 google-api-core==2.24.2 ; python_full_version < '4.0'
     # via
