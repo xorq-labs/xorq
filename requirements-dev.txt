@@ -62,8 +62,10 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-cachetools==5.5.2 ; python_full_version < '4.0'
-    # via google-auth
+cachetools==5.5.2
+    # via
+    #   google-auth
+    #   pyiceberg
 certifi==2025.1.31
     # via
     #   httpcore
@@ -93,6 +95,7 @@ click==8.1.8
     # via
     #   black
     #   dask
+    #   pyiceberg
     #   quartodoc
     #   uvicorn
     #   vendoring
@@ -155,11 +158,12 @@ frozenlist==1.5.0 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   aiosignal
-fsspec==2025.3.2 ; python_full_version < '4.0'
+fsspec==2025.3.2
     # via
     #   dask
     #   gcsfs
     #   pins
+    #   pyiceberg
     #   xorq
 gast==0.6.0 ; sys_platform == 'darwin'
     # via
@@ -195,6 +199,8 @@ google-resumable-media==2.7.2 ; python_full_version < '4.0'
     # via google-cloud-storage
 googleapis-common-protos==1.69.2 ; python_full_version < '4.0'
     # via google-api-core
+greenlet==3.1.1 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
+    # via sqlalchemy
 griffe==1.7.2
     # via quartodoc
 h11==0.14.0
@@ -328,6 +334,8 @@ mdurl==0.1.2
     # via markdown-it-py
 mistune==3.1.3
     # via nbconvert
+mmh3==5.1.0
+    # via pyiceberg
 more-itertools==10.6.0
     # via blackdoc
 multidict==6.3.2 ; python_full_version < '4.0'
@@ -460,6 +468,7 @@ pydantic==2.11.2
     #   mcp
     #   openai
     #   pydantic-settings
+    #   pyiceberg
     #   quartodoc
 pydantic-core==2.33.1
     # via pydantic
@@ -471,10 +480,14 @@ pygments==2.19.1
     #   ipython-pygments-lexers
     #   nbconvert
     #   rich
+pyiceberg==0.9.0
+    # via xorq
 pyjwt==2.10.1 ; python_full_version < '4.0'
     # via snowflake-connector-python
 pyopenssl==25.0.0
     # via snowflake-connector-python
+pyparsing==3.2.3
+    # via pyiceberg
 pytest==8.3.5
     # via
     #   pytest-codspeed
@@ -491,6 +504,7 @@ python-dateutil==2.9.0.post0
     #   arrow
     #   jupyter-client
     #   pandas
+    #   strictyaml
     #   trino
     #   xorq
 python-dotenv==1.1.0
@@ -541,6 +555,7 @@ requests==2.32.3
     #   google-cloud-storage
     #   jupyterlab-server
     #   pins
+    #   pyiceberg
     #   quartodoc
     #   requests-oauthlib
     #   snowflake-connector-python
@@ -556,10 +571,11 @@ rfc3986-validator==0.1.1
     # via
     #   jsonschema
     #   jupyter-events
-rich==14.0.0
+rich==13.9.4
     # via
     #   blackdoc
     #   plum-dispatch
+    #   pyiceberg
     #   pytest-codspeed
     #   vendoring
 rpds-py==0.24.0
@@ -591,12 +607,16 @@ sniffio==1.3.1
     #   openai
 snowflake-connector-python==3.14.0 ; python_full_version < '4.0'
     # via xorq
-sortedcontainers==2.4.0 ; python_full_version < '4.0'
-    # via snowflake-connector-python
+sortedcontainers==2.4.0
+    # via
+    #   pyiceberg
+    #   snowflake-connector-python
 soupsieve==2.6
     # via beautifulsoup4
 sphobjinv==2.3.1.2
     # via quartodoc
+sqlalchemy==2.0.40
+    # via pyiceberg
 sqlglot==25.20.2
     # via xorq
 sse-starlette==2.2.1
@@ -607,10 +627,14 @@ starlette==0.46.1
     # via
     #   mcp
     #   sse-starlette
+strictyaml==1.7.3
+    # via pyiceberg
 structlog==25.2.0 ; python_full_version < '4.0'
     # via xorq
 tabulate==0.9.0
     # via quartodoc
+tenacity==9.1.2
+    # via pyiceberg
 terminado==0.18.1
     # via
     #   jupyter-server
@@ -684,6 +708,7 @@ typing-extensions==4.13.1
     #   referencing
     #   rich
     #   snowflake-connector-python
+    #   sqlalchemy
     #   structlog
     #   typing-inspection
     #   uvicorn

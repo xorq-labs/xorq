@@ -30,7 +30,7 @@ __all__ = [  # noqa: PLE0604
     *udf.__all__,
 ]
 
-_CUSTOM_BACKENDS = ["postgres", "snowflake"]
+_CUSTOM_BACKENDS = ["postgres", "snowflake", "pyiceberg"]
 
 
 def _load_entry_points():
