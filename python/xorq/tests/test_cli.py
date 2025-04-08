@@ -238,6 +238,8 @@ def test_examples(
     print(" ".join(build_args), file=sys.stderr)
     monkeypatch.setattr(sys, "argv", build_args)
     value = main_no_exit()
+    if value:
+        raise ValueError
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
     if value:
@@ -262,6 +264,8 @@ def test_examples(
     print(" ".join(build_args), file=sys.stderr)
     monkeypatch.setattr(sys, "argv", run_args)
     value = main_no_exit()
+    if value:
+        raise ValueError
     captured = capsys.readouterr()
     print(captured.err, file=sys.stderr)
     if value:
