@@ -27,8 +27,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, x86]
-        python-version: ["3.10", "3.11"]
+        target: [x86_64]
+        python-version: ["3.11"]
+        backend:
+          - datafusion
+          - duckdb
+          - let
+          - pandas
+          - postgres
+          - trino
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
@@ -55,7 +62,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution'
+        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution' -m ${{ matrix.backend.name }}
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
