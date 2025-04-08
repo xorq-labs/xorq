@@ -1,8 +1,10 @@
+import base64
 import functools
 import itertools
 from typing import Any
 
 import attr
+import cloudpickle
 from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
@@ -12,6 +14,17 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
+
+
+def serialize_callable(fn: callable) -> str:
+    pickled = cloudpickle.dumps(fn)
+    encoded = base64.b64encode(pickled).decode("ascii")
+    return encoded
+
+
+def deserialize_callable(encoded_fn: str) -> callable:
+    pickled = base64.b64decode(encoded_fn)
+    return cloudpickle.loads(pickled)
 
 
 class SchemaRegistry:
