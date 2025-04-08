@@ -20,6 +20,9 @@ build_run_examples_expr_names = (
     ("train_test_splits.py", "split_column"),
     ("postgres_caching.py", "expr"),
     ("xgboost_udaf.py", "expr"),
+    ("expr_scalar_udf.py", "expr"),
+    ("bank_marketing.py", "encoded_test"),
+    ("flight_udtf_llm_example.py", "expr"),
 )
 
 
