@@ -4,7 +4,7 @@ import datetime
 import decimal
 import functools
 import operator
-from typing import Any
+from typing import Any, Callable
 
 import xorq as xo
 import xorq.expr.datatypes as dt
@@ -16,7 +16,9 @@ from xorq.expr.relations import CachedNode, Read, RemoteTable, into_backend
 from xorq.ibis_yaml.common import (
     TranslationContext,
     _translate_type,
+    deserialize_callable,
     register_from_yaml_handler,
+    serialize_callable,
     translate_from_yaml,
     translate_to_yaml,
 )
@@ -35,6 +37,24 @@ def should_register_node(node_dict):
     if "parent" in node_dict and isinstance(node_dict["parent"], dict):
         return True
     return False
+
+
+@translate_to_yaml.register(object)
+def _object_to_yaml(obj: object, compiler: Any) -> dict:
+    if isinstance(obj, Callable):
+        return freeze(
+            {
+                "op": "Callabe",
+                "pickled_fn": serialize_callable(obj),
+            }
+        )
+    else:
+        raise ValueError
+
+
+@register_from_yaml_handler("Callabe")
+def _callable_from_yaml(yaml_dict: dict, compiler: any) -> Callable:
+    return deserialize_callable(yaml_dict["pickled_fn"])
 
 
 @_translate_type.register(dt.Timestamp)
