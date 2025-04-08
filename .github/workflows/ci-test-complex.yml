@@ -1,4 +1,4 @@
-name: ci-test-core
+name: ci-test-complex
 
 on:
   push:
@@ -74,11 +74,8 @@ jobs:
           sccache: 'true'
           manylinux: 'auto'
 
-      - name: start services
-        run: docker compose up --build --wait
-
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/ --cov --cov-report=xml -k 'not script_execution and not test_complex_exprs'
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_complex_exprs.py --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
