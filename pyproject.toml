@@ -14,7 +14,6 @@ dependencies = [
     "cityhash>=0.4.7,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "pandas>=1.5.3,<3 ; python_version >= '3.10' and python_version < '4.0'",
     "pyarrow-hotfix>=0.4,<1 ; python_version >= '3.10' and python_version < '4.0'",
-    "geoarrow-types>=0.2,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "pythran>=0.17.0 ; sys_platform == 'darwin'",
     "atpublic>=5.1",
     "parsy>=2",
@@ -190,6 +189,13 @@ markers = [
     "library",
     "s3",
     "snapshot_check",
+    "datafusion: Apache Datafusion tests",
+    "duckdb: DuckDB tests",
+    "let",
+    "pandas",
+    "postgres",
+    "trino",
+    "core"
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

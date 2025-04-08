@@ -1,4 +1,4 @@
-name: ci-test
+name: ci-test-complex
 
 on:
   push:
@@ -29,10 +29,6 @@ jobs:
       matrix:
         target: [x86_64]
         python-version: ["3.11"]
-        backend:
-          - name: datafusion
-          - name: let
-          - name: postgres
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
@@ -78,11 +74,8 @@ jobs:
           sccache: 'true'
           manylinux: 'auto'
 
-      - name: start services
-        run: docker compose up --build --wait
-
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution' -m ${{ matrix.backend.name }}
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_complex_exprs.py --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
