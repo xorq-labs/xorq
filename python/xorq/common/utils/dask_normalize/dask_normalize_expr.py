@@ -17,6 +17,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.defer_utils import (
     Read,
 )
+from xorq.common.utils.gcloud_utils import get_file_metadata
 from xorq.expr.relations import (
     FlightExpr,
     FlightUDXF,
@@ -288,6 +289,8 @@ def normalize_read(read):
             )
         elif path.startswith("s3"):
             raise NotImplementedError
+        elif path.startswith("gs"):
+            tpls = get_file_metadata(path)
         elif (path := pathlib.Path(path)).exists():
             stat = path.stat()
             tpls = tuple(
