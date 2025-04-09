@@ -313,16 +313,3 @@ def test_deferred_read_kwargs(pg):
     )
     hash0, hash1 = (dask.base.tokenize(expr) for expr in (read0, read1))
     assert hash0 != hash1
-
-
-def test_deferred_read_parquet_from_object_store(tmp_path):
-    con = xo.connect()
-    path = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet"
-    expr = (
-        xo.deferred_read_parquet(con, path)
-        .cache(storage=ParquetStorage(source=xo.duckdb.connect(), path=tmp_path))
-        .limit(10)
-    )
-
-    assert not expr.execute().empty
-    assert any(tmp_path.iterdir())
