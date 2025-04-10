@@ -189,6 +189,7 @@ markers = [
     "snowflake",
     "library",
     "s3",
+    "gcs",
     "snapshot_check",
 ]
 consider_namespace_packages = true

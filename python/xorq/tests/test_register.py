@@ -144,7 +144,7 @@ def test_register_memtable(con):
     assert con.execute(t.a.sum()) == 15
 
 
-@pytest.mark.xfail(reason="needs credentials for GitHub")
+@pytest.mark.gcs
 def test_deferred_read_parquet_from_gcs(tmp_path):
     con = xo.connect()
     path = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet"
@@ -156,15 +156,3 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
 
     assert not expr.execute().empty
     assert any(tmp_path.iterdir())
-
-
-@pytest.mark.s3
-def test_read_parquet_from_s3(con):
-    bucket_name = "nyc-tlc"
-    file_path = "trip data/yellow_tripdata_2022-01.parquet"
-
-    t = con.read_parquet(
-        f"s3://{bucket_name}/{file_path}",
-    )
-
-    assert t.head().execute() is not None

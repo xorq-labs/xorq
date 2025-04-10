@@ -61,6 +61,11 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
       - name: Install the project
         run: uv sync --locked --extra examples --extra postgres --group dev --group test --no-install-project
         working-directory: ${{ github.workspace }}
@@ -86,6 +91,7 @@ jobs:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
+          GCS_ENABLED: True
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.0
