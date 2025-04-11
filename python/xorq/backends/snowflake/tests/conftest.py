@@ -1,4 +1,3 @@
-import types
 from contextlib import contextmanager
 
 import pytest
@@ -68,56 +67,28 @@ def inside_temp_schema(con, temp_catalog, temp_db):
         )
 
 
-class MockSnowflakeADBC:
-    def __init__(self, snowflake_adbc, database=None, schema=None):
-        self.snowflake_adbc = snowflake_adbc
-        self.database = database
-        self.schema = schema
+def generate_mock_get_conn(original_get_conn, temp_catalog, temp_db):
+    @contextmanager
+    def mock_get_conn(self, **kwargs):
+        kwargs["database"] = "SNOWFLAKE_SAMPLE_DATA"
+        kwargs["schema"] = "TPCH_SF1"
+        with original_get_conn(self, **kwargs) as conn:
+            yield MockSnowFlakeADBCCon(conn, temp_catalog, temp_db)
 
-    def adbc_ingest(
-        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
-    ):
-        with self.snowflake_adbc.get_conn(
-            database=self.database, schema=self.schema
-        ) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    f'USE SCHEMA "{self.snowflake_adbc.con.current_catalog}"."{self.snowflake_adbc.con.current_database}"'
-                )
-                self.snowflake_adbc._adbc_ingest(
-                    cur,
-                    table_name,
-                    record_batch_reader,
-                    mode=mode,
-                    temporary=temporary,
-                    **kwargs,
-                )
-            # must commit!
-            conn.commit()
+    return mock_get_conn
 
 
-@contextmanager
-def mock_snowflake_adbc(con, database, schema):
-    def read_record_batches(
-        self,
-        record_batches,
-        table_name: str | None = None,
-        password: str | None = None,
-        temporary: bool = False,
-        mode: str = "create",
-        **kwargs,
-    ):
-        from xorq.common.utils.snowflake_utils import SnowflakeADBC
+class MockSnowFlakeADBCCon:
+    def __init__(self, snowflake_adbc_con, temp_catalog, temp_db):
+        self.snowflake_adbc_con = snowflake_adbc_con
+        self.temp_catalog = temp_catalog
+        self.temp_db = temp_db
 
-        snowflake_adbc = MockSnowflakeADBC(
-            SnowflakeADBC(self, password), database=database, schema=schema
-        )
-        snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
-        return self.table(table_name)
+    @contextmanager
+    def cursor(self):
+        with self.snowflake_adbc_con.cursor() as cur:
+            cur.execute(f'USE SCHEMA "{self.temp_catalog}"."{self.temp_db}"')
+            yield cur
 
-    prev_record_batches = con.read_record_batches
-    con.read_record_batches = types.MethodType(read_record_batches, con)
-
-    yield con
-
-    con.read_record_batches = prev_record_batches
+    def commit(self):
+        self.snowflake_adbc_con.commit()

@@ -175,29 +175,12 @@ class SnowflakeADBC:
     def conn(self):
         return self.get_conn()
 
-    @staticmethod
-    def _adbc_ingest(
-        cur, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
-    ):
-        cur.adbc_ingest(
-            table_name,
-            record_batch_reader,
-            mode=mode,
-            temporary=temporary,
-            **kwargs,
-        )
-
     def adbc_ingest(
         self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
     ):
         with self.get_conn() as conn:
-            # here create the tmp table
-            # and also insert cur.execute(f'USE SCHEMA "{self.con.current_catalog}"."{self.con.current_database}"')
-
             with conn.cursor() as cur:
-                # cur.execute(f'USE SCHEMA "{self.con.current_catalog}"."{self.con.current_database}"')
-                self._adbc_ingest(
-                    cur,
+                cur.adbc_ingest(
                     table_name,
                     record_batch_reader,
                     mode=mode,

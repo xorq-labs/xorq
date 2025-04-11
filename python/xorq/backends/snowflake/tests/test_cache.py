@@ -11,14 +11,15 @@ from xorq.backends.conftest import (
     get_storage_uncached,
 )
 from xorq.backends.snowflake.tests.conftest import (
+    generate_mock_get_conn,
     inside_temp_schema,
-    mock_snowflake_adbc,
 )
 from xorq.caching import (
     ParquetStorage,
     SourceSnapshotStorage,
 )
 from xorq.common.utils.snowflake_utils import (
+    SnowflakeADBC,
     get_session_query_df,
     get_snowflake_last_modification_time,
 )
@@ -175,20 +176,28 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
 
 @pytest.mark.snowflake
 def test_snowflake_cross_source_native_cache(
-    sf_con, pg, temp_catalog, temp_db, tmp_path
+    sf_con, pg, temp_catalog, temp_db, tmp_path, mocker
 ):
     group_by = "number"
     table = pg.table("astronauts")
     storage = ParquetStorage(source=sf_con, path=tmp_path)
 
+    mocker.patch.object(
+        SnowflakeADBC,
+        "get_conn",
+        side_effect=generate_mock_get_conn(
+            SnowflakeADBC.get_conn, temp_catalog, temp_db
+        ),
+        autospec=True,
+    )
+
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
-        with mock_snowflake_adbc(sf_con, "SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"):
-            cached_expr = (
-                table.group_by(group_by)
-                .agg({f"count_{col}": table[col].count() for col in table.columns})
-                .cache(storage)
-            )
-            actual = cached_expr.execute()
+        cached_expr = (
+            table.group_by(group_by)
+            .agg({f"count_{col}": table[col].count() for col in table.columns})
+            .cache(storage)
+        )
+        actual = cached_expr.execute()
 
     assert not actual.empty
     assert any(tmp_path.glob(f"{KEY_PREFIX}*")), (
