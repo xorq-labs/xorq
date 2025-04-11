@@ -1,3 +1,4 @@
+import os
 import shutil
 from pathlib import Path
 
@@ -181,6 +182,9 @@ def pytest_runtest_setup(item):
     if any(mark.name == "s3" for mark in item.iter_markers()):
         if not have_s3_credentials:
             pytest.skip("cannot run s3 tests without s3 credentials")
+    if any(mark.name == "gcs" for mark in item.iter_markers()):
+        if not os.environ.get("GCS_ENABLED", False):
+            pytest.skip("GCS are not enabled by default")
 
 
 @pytest.fixture(scope="session")

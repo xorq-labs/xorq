@@ -8,6 +8,7 @@ import pyarrow.dataset as ds
 import pytest
 
 import xorq as xo
+from xorq.caching import ParquetStorage
 from xorq.tests.util import assert_frame_equal
 
 
@@ -141,3 +142,17 @@ def test_register_memtable(con):
     data = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [2, 3, 4, 5, 6]})
     t = xo.memtable(data)
     assert con.execute(t.a.sum()) == 15
+
+
+@pytest.mark.gcs
+def test_deferred_read_parquet_from_gcs(tmp_path):
+    con = xo.connect()
+    path = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet"
+    expr = (
+        xo.deferred_read_parquet(con, path)
+        .cache(storage=ParquetStorage(source=xo.duckdb.connect(), path=tmp_path))
+        .limit(10)
+    )
+
+    assert not expr.execute().empty
+    assert any(tmp_path.iterdir())
