@@ -21,7 +21,7 @@ datafusion-sql = "=46.0.1"
 futures = "=0.3.31"
 async-trait = "=0.1.88"
 arrow = "=54.3.0"
-arrow-ord = "=54.3.0"
+arrow-ord = "=55.0.0"
 datafusion-functions-aggregate = { version = "=46.0.1" }
 aws-config = "=0.101.0"
 aws-credential-types = "=0.101.0"
