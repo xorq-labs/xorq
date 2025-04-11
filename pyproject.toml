@@ -113,6 +113,8 @@ test = [
     "scikit-learn<2.0.0,>=1.4.0",
     "xgboost>=1.6.1",
     "quickgrove>=0.1.2",
+    "adbc-driver-postgresql>=1.4.0",
+    "psycopg2-binary>=2.9.10",
 ]
 docs = [
     "quartodoc<0.10.0,>=0.7.2",
