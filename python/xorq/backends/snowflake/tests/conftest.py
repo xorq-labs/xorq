@@ -1,3 +1,4 @@
+import types
 from contextlib import contextmanager
 
 import pytest
@@ -65,3 +66,56 @@ def inside_temp_schema(con, temp_catalog, temp_db):
                 kind="SCHEMA", this=sg.table(prev_db, db=prev_catalog, quoted=True)
             ).sql(dialect=con.name),
         )
+
+
+class MockSnowflakeADBC:
+    def __init__(self, snowflake_adbc, database=None, schema=None):
+        self.snowflake_adbc = snowflake_adbc
+        self.database = database
+        self.schema = schema
+
+    def adbc_ingest(
+        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
+    ):
+        with self.snowflake_adbc.get_conn(
+            database=self.database, schema=self.schema
+        ) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    f'USE SCHEMA "{self.snowflake_adbc.con.current_catalog}"."{self.snowflake_adbc.con.current_database}"'
+                )
+                self.snowflake_adbc._adbc_ingest(
+                    cur,
+                    table_name,
+                    record_batch_reader,
+                    mode=mode,
+                    temporary=temporary,
+                    **kwargs,
+                )
+
+
+@contextmanager
+def mock_snowflake_adbc(con, database, schema):
+    def read_record_batches(
+        self,
+        record_batches,
+        table_name: str | None = None,
+        password: str | None = None,
+        temporary: bool = False,
+        mode: str = "create",
+        **kwargs,
+    ):
+        from xorq.common.utils.snowflake_utils import SnowflakeADBC
+
+        snowflake_adbc = MockSnowflakeADBC(
+            SnowflakeADBC(self, password), database=database, schema=schema
+        )
+        snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
+        return self.table(table_name)
+
+    prev_record_batches = con.read_record_batches
+    con.read_record_batches = types.MethodType(read_record_batches, con)
+
+    yield con
+
+    con.read_record_batches = prev_record_batches

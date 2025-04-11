@@ -2,8 +2,20 @@ import os
 
 import pandas as pd
 import snowflake.connector
+from adbc_driver_snowflake import dbapi
+from attr import (
+    field,
+    frozen,
+)
+from attr.validators import (
+    instance_of,
+    optional,
+)
 
 import xorq as xo
+from xorq.backends.snowflake import (
+    Backend as SnowflakeBackend,
+)
 
 
 def make_credential_defaults():
@@ -121,3 +133,76 @@ def get_session_query_df(con):
     """
     session_query_df = con.raw_sql(stmt).fetch_pandas_all()
     return session_query_df
+
+
+@frozen
+class SnowflakeADBC:
+    con = field(validator=instance_of(SnowflakeBackend))
+    password = field(validator=optional(instance_of(str)), default=None, repr=False)
+
+    def __attrs_post_init__(self):
+        if self.password is None:
+            object.__setattr__(self, "password", make_credential_defaults()["password"])
+
+    @property
+    def params(self):
+        con = self.con.con
+
+        dct = {
+            "user": con.user,
+            "password": self.password,
+            "host": con.host,
+            "database": con.database,
+            "schema": con.schema,
+            "warehouse": con.warehouse,
+            "role": con.role,
+        }
+        return dct
+
+    def get_uri(self, **kwargs):
+        params = {**self.params, **kwargs}
+        uri = f"{params['user']}:{params['password']}@{params['host']}/{params['database']}/{params['schema']}?warehouse={params['warehouse']}&role={params['role']}"
+        return uri
+
+    @property
+    def uri(self):
+        return self.get_uri()
+
+    def get_conn(self, **kwargs):
+        return dbapi.connect(self.get_uri(**kwargs))
+
+    @property
+    def conn(self):
+        return self.get_conn()
+
+    @staticmethod
+    def _adbc_ingest(
+        cur, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
+    ):
+        cur.adbc_ingest(
+            table_name,
+            record_batch_reader,
+            mode=mode,
+            temporary=temporary,
+            **kwargs,
+        )
+
+    def adbc_ingest(
+        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
+    ):
+        with self.get_conn() as conn:
+            # here create the tmp table
+            # and also insert cur.execute(f'USE SCHEMA "{self.con.current_catalog}"."{self.con.current_database}"')
+
+            with conn.cursor() as cur:
+                # cur.execute(f'USE SCHEMA "{self.con.current_catalog}"."{self.con.current_database}"')
+                self._adbc_ingest(
+                    cur,
+                    table_name,
+                    record_batch_reader,
+                    mode=mode,
+                    temporary=temporary,
+                    **kwargs,
+                )
+            # must commit!
+            conn.commit()

@@ -206,3 +206,18 @@ class Backend(IbisSnowflakeBackend):
                 cur.execute("SELECT CURRENT_TIME")
             except Exception:  # noqa: BLE001
                 pass
+
+    def read_record_batches(
+        self,
+        record_batches: pa.RecordBatchReader,
+        table_name: str | None = None,
+        password: str | None = None,
+        temporary: bool = False,
+        mode: str = "create",
+        **kwargs: Any,
+    ) -> ir.Table:
+        from xorq.common.utils.snowflake_utils import SnowflakeADBC
+
+        snowflake_adbc = SnowflakeADBC(self, password)
+        snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
+        return self.table(table_name)

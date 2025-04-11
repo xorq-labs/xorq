@@ -1,4 +1,5 @@
 version = 1
+revision = 1
 requires-python = ">=3.10"
 resolution-markers = [
     "python_full_version >= '3.13'",
@@ -53,6 +54,23 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/39/c9/add6659f0df14d001d2933dbbf94511ea507c6a94fd4ae09aed9ab1f1b78/adbc_driver_postgresql-1.5.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:3dfe69557d1af24d0d6c05085f91df825f02ac837f0861528ba5c7aa79e0cf0d", size = 3190202 },
     { url = "https://files.pythonhosted.org/packages/22/dd/5335cee201c4f3e9cc3a101f306d1a09cf5956d44de8c80850bc958b7cd0/adbc_driver_postgresql-1.5.0-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:39b955dc6a53e3f01875659637d875b46bd04bf1ec361524c326c6963f5bc48a", size = 2846677 },
     { url = "https://files.pythonhosted.org/packages/cd/9d/e34bafc8e99c93fd42227ec1bb15d80f5f661beefc30e98b4e3b54ce0792/adbc_driver_postgresql-1.5.0-py3-none-win_amd64.whl", hash = "sha256:251674ada39becb6ae86949c4d0987950d18c9b9ff6a941ff7a96f6eba2e4365", size = 2702604 },
+]
+
+[[package]]
+name = "adbc-driver-snowflake"
+version = "1.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "adbc-driver-manager" },
+    { name = "importlib-resources" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a1/fe/64ab4f633571b7b3376b4f0492b56796e834b2786843ad22d9039048ac84/adbc_driver_snowflake-1.5.0.tar.gz", hash = "sha256:af37ed7d6270b67e36057450fba05363d475b00fd06b111d6d70e058f47b2592", size = 17939 }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/96/a75a1268f72c7ecc2d3624b139ebcafc4cd47c6e5f1eaeca11dc60e2e2c3/adbc_driver_snowflake-1.5.0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:ed40afac3c61dd5cc642b5d1717291343b72e3ef397b50d50e4e9243ecc36894", size = 15702226 },
+    { url = "https://files.pythonhosted.org/packages/93/9b/bf1e23e4a77917eaa4e24ea4f6962871b7148694ba1fdbcd385a6e8a1fb4/adbc_driver_snowflake-1.5.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:7ecb05659b24d12b9efbb40d0bbbd5e12f6497848beaad598c779dbe9ea47d45", size = 13926541 },
+    { url = "https://files.pythonhosted.org/packages/85/64/5484d46eeac8f411966ff71c0527545c50edb06d2997e00a88c8673b110d/adbc_driver_snowflake-1.5.0-py3-none-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:fd057072ef6a7c645015049982eeceb77caa51a85ff987b4da9ed651b57fdc29", size = 13600682 },
+    { url = "https://files.pythonhosted.org/packages/bb/ba/e829259eada490d23d977cb13961b9c2c575f61c6672e515cf84b040ed3c/adbc_driver_snowflake-1.5.0-py3-none-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:c24665377fb3f1c6cff9b93c46a38ae4311704a7f0fc65633e7ff8f47c6d3581", size = 15872864 },
+    { url = "https://files.pythonhosted.org/packages/5d/d1/a7dfca901e227edd7cc40772a9f634bce4416628d4f29beab492223f9b01/adbc_driver_snowflake-1.5.0-py3-none-win_amd64.whl", hash = "sha256:9961587976750c5434390f8e5584c8d954cdbcf4fcfda7299e561484bca683e4", size = 29339406 },
 ]
 
 [[package]]
@@ -4163,6 +4181,7 @@ quickgrove = [
     { name = "quickgrove" },
 ]
 snowflake = [
+    { name = "adbc-driver-snowflake" },
     { name = "snowflake-connector-python", marker = "python_full_version < '4.0'" },
 ]
 
@@ -4207,6 +4226,7 @@ test = [
 requires-dist = [
     { name = "adbc-driver-postgresql", marker = "extra == 'examples'", specifier = ">=1.4.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },
+    { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.5.0" },
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=24.0.0,<26" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4.7,<1" },
@@ -4242,6 +4262,7 @@ requires-dist = [
     { name = "typing-extensions", specifier = ">=4.3.0" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=1.6.1" },
 ]
+provides-extras = ["duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres"]
 
 [package.metadata.requires-dev]
 dev = [

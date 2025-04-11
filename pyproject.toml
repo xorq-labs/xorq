@@ -63,7 +63,8 @@ datafusion = [
     "datafusion>=0.6,<46; python_version >= '3.10' and python_version < '4.0'"
 ]
 snowflake = [
-    "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'"
+    "adbc-driver-snowflake>=1.5.0",
+    "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'",
 ]
 quickgrove = [
     "quickgrove>=0.1.2",
