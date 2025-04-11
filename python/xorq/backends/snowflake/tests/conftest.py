@@ -92,6 +92,8 @@ class MockSnowflakeADBC:
                     temporary=temporary,
                     **kwargs,
                 )
+            # must commit!
+            conn.commit()
 
 
 @contextmanager

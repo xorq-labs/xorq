@@ -190,7 +190,7 @@ def test_snowflake_cross_source_native_cache(
             )
             actual = cached_expr.execute()
 
-    assert isinstance(actual, pd.DataFrame)
+    assert not actual.empty
     assert any(tmp_path.glob(f"{KEY_PREFIX}*")), (
         "The ParquetStorage MUST write a parquet file to the given directory"
     )
