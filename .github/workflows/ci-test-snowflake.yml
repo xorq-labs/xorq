@@ -55,6 +55,11 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_GH_WAREHOUSE }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_GH_ROLE }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_GH_ACCOUNT }}
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing
 
       - name: Upload coverage reports to Codecov
         if: success()
