@@ -152,5 +152,5 @@ def test_write(alltypes, df, tmp_path, extension, write, read):
         "deferred_read_parquet",
     ],
 )
-def test_deferred_read_csv(method):
+def test_deferred_read(method):
     assert hasattr(xo, method)
