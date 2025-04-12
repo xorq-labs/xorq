@@ -160,6 +160,7 @@ let
       pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
       virtualenv-editable = pythonSet-editable.mkVirtualEnv "xorq" workspace.deps.all;
       virtualenv = pythonSet-wheel.mkVirtualEnv "xorq" workspace.deps.all;
+      virtualenv-default = pythonSet-wheel.mkVirtualEnv "xorq-default" workspace.deps.default;
 
       editableShellHook = ''
         # Undo dependency propagation by nixpkgs.
@@ -213,6 +214,14 @@ let
         letsql-commands-star
         pkgs.gh
       ];
+      defaultShell = pkgs.mkShell {
+        packages = [
+          virtualenv-default
+        ] ++ toolsPackages;
+        shellHook = ''
+          unset PYTHONPATH
+        '';
+      };
       shell = pkgs.mkShell {
         packages = [
           virtualenv
@@ -240,6 +249,7 @@ let
         pythonSet-wheel
         virtualenv
         virtualenv-editable
+        virtualenv-default
         editableShellHook
         maybeMaturinBuildHook
         toolchain
@@ -248,6 +258,7 @@ let
         shell
         virtualenv-pure-pypi
         editableShell
+        defaultShell
         ;
     };
 in

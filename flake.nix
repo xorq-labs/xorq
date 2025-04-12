@@ -143,6 +143,7 @@
             '';
           };
           virtualenv-310 = letsql-310.shell;
+          virtualenv-default-310 = letsql-310.defaultShell;
           virtualenv-editable-310 = letsql-310.editableShell;
           virtualenv-311 = letsql-311.shell;
           virtualenv-editable-311 = letsql-311.editableShell;
