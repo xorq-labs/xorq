@@ -453,6 +453,31 @@ class SourceSnapshotStorage:
     __getattr__ = chained_getattr
 
 
+@public
+@frozen
+class GCStorage:
+    bucket_name = field(validator=instance_of(str))
+    source = field(
+        validator=instance_of(xo.vendor.ibis.backends.BaseBackend),
+        factory=xo.config._backend_init,
+    )
+    cache = field(validator=instance_of(Cache), init=False)
+
+    def __attrs_post_init__(self):
+        from xorq.common.utils.gcloud_utils import _GCStorage
+
+        cache = Cache(
+            strategy=ModificationTimeStrategy(),
+            storage=_GCStorage(
+                bucket_name=self.bucket_name,
+                source=self.source,
+            ),
+        )
+        object.__setattr__(self, "cache", cache)
+
+    __getattr__ = chained_getattr
+
+
 def maybe_prevent_cross_source_caching(expr, storage):
     from xorq.expr.relations import (
         into_backend,
