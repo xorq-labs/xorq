@@ -203,3 +203,28 @@ def test_snowflake_cross_source_native_cache(
     assert any(tmp_path.glob(f"{KEY_PREFIX}*")), (
         "The ParquetStorage MUST write a parquet file to the given directory"
     )
+
+
+def test_snowflake_with_failing_name(sf_con, pg, temp_catalog, temp_db, mocker):
+    group_by = "tinyint_col"
+    table = pg.table("functional_alltypes")
+
+    # caches
+    snow_storage = SourceSnapshotStorage(sf_con)
+
+    mocker.patch.object(
+        SnowflakeADBC,
+        "get_conn",
+        side_effect=generate_mock_get_conn(
+            SnowflakeADBC.get_conn, temp_catalog, temp_db
+        ),
+        autospec=True,
+    )
+
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        cached_expr = (
+            table.group_by(group_by).agg(xo._.float_col.mean()).cache(snow_storage)
+        )
+        actual = cached_expr.execute()
+
+    assert not actual.empty
