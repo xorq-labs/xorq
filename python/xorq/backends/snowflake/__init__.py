@@ -10,12 +10,16 @@ import sqlglot.expressions as sge
 
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.logging_utils import get_logger
 from xorq.expr.relations import replace_cache_table
 from xorq.vendor.ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
 from xorq.vendor.ibis.backends.snowflake import Backend as IbisSnowflakeBackend
 from xorq.vendor.ibis.expr.operations.relations import (
     Namespace,
 )
+
+
+logger = get_logger(__name__)
 
 
 class Backend(IbisSnowflakeBackend):
@@ -217,6 +221,16 @@ class Backend(IbisSnowflakeBackend):
         **kwargs: Any,
     ) -> ir.Table:
         from xorq.common.utils.snowflake_utils import SnowflakeADBC
+
+        logger.info(
+            "reading record batches with SnowflakeADBC",
+            **{
+                "table_name": table_name,
+                "temporary": temporary,
+                "mode": mode,
+                **kwargs,
+            },
+        )
 
         snowflake_adbc = SnowflakeADBC(self, password)
         snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
