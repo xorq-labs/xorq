@@ -26,6 +26,8 @@ dependencies = [
     "pyyaml>=6.0.2",
     "cloudpickle>=3.1.1",
     "envyaml>=1.10.211231",
+    "opentelemetry-sdk>=1.32.1",
+    "opentelemetry-exporter-otlp>=1.32.1",
 ]
 requires-python = ">=3.10"
 authors = [
