@@ -65,3 +65,30 @@ def inside_temp_schema(con, temp_catalog, temp_db):
                 kind="SCHEMA", this=sg.table(prev_db, db=prev_catalog, quoted=True)
             ).sql(dialect=con.name),
         )
+
+
+def generate_mock_get_conn(original_get_conn, temp_catalog, temp_db):
+    @contextmanager
+    def mock_get_conn(self, **kwargs):
+        kwargs["database"] = "SNOWFLAKE_SAMPLE_DATA"
+        kwargs["schema"] = "TPCH_SF1"
+        with original_get_conn(self, **kwargs) as conn:
+            yield MockSnowFlakeADBCCon(conn, temp_catalog, temp_db)
+
+    return mock_get_conn
+
+
+class MockSnowFlakeADBCCon:
+    def __init__(self, snowflake_adbc_con, temp_catalog, temp_db):
+        self.snowflake_adbc_con = snowflake_adbc_con
+        self.temp_catalog = temp_catalog
+        self.temp_db = temp_db
+
+    @contextmanager
+    def cursor(self):
+        with self.snowflake_adbc_con.cursor() as cur:
+            cur.execute(f'USE SCHEMA "{self.temp_catalog}"."{self.temp_db}"')
+            yield cur
+
+    def commit(self):
+        self.snowflake_adbc_con.commit()
