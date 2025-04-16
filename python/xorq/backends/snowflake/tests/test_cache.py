@@ -11,6 +11,7 @@ from xorq.backends.conftest import (
     get_storage_uncached,
 )
 from xorq.backends.snowflake.tests.conftest import (
+    generate_mock_get_conn,
     inside_temp_schema,
 )
 from xorq.caching import (
@@ -18,11 +19,15 @@ from xorq.caching import (
     SourceSnapshotStorage,
 )
 from xorq.common.utils.snowflake_utils import (
+    SnowflakeADBC,
     get_session_query_df,
     get_snowflake_last_modification_time,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.util import gen_name
+
+
+KEY_PREFIX = xo.config.options.cache.key_prefix
 
 
 @pytest.mark.snowflake
@@ -167,3 +172,59 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
         assert storage.exists(uncached)
         executed2 = xo.execute(cached_expr.ls.uncached)
         assert not executed0.equals(executed2)
+
+
+@pytest.mark.snowflake
+def test_snowflake_cross_source_native_cache(
+    sf_con, pg, temp_catalog, temp_db, tmp_path, mocker
+):
+    group_by = "number"
+    table = pg.table("astronauts")
+    storage = ParquetStorage(source=sf_con, path=tmp_path)
+
+    mocker.patch.object(
+        SnowflakeADBC,
+        "get_conn",
+        side_effect=generate_mock_get_conn(
+            SnowflakeADBC.get_conn, temp_catalog, temp_db
+        ),
+        autospec=True,
+    )
+
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        cached_expr = (
+            table.group_by(group_by)
+            .agg({f"count_{col}": table[col].count() for col in table.columns})
+            .cache(storage)
+        )
+        actual = cached_expr.execute()
+
+    assert not actual.empty
+    assert any(tmp_path.glob(f"{KEY_PREFIX}*")), (
+        "The ParquetStorage MUST write a parquet file to the given directory"
+    )
+
+
+def test_snowflake_with_failing_name(sf_con, pg, temp_catalog, temp_db, mocker):
+    group_by = "tinyint_col"
+    table = pg.table("functional_alltypes")
+
+    # caches
+    snow_storage = SourceSnapshotStorage(sf_con)
+
+    mocker.patch.object(
+        SnowflakeADBC,
+        "get_conn",
+        side_effect=generate_mock_get_conn(
+            SnowflakeADBC.get_conn, temp_catalog, temp_db
+        ),
+        autospec=True,
+    )
+
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        cached_expr = (
+            table.group_by(group_by).agg(xo._.float_col.mean()).cache(snow_storage)
+        )
+        actual = cached_expr.execute()
+
+    assert not actual.empty
