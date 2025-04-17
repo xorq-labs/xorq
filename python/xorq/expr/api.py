@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 import pyarrow as pa
 import pyarrow.dataset as ds
+from opentelemetry import trace
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.caching_utils import find_backend
@@ -16,6 +17,8 @@ from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_parquet,
     rbr_wrapper,
 )
+from xorq.common.utils.otel_utils import tracer
+from xorq.common.utils.rbr_utils import otel_instrument_reader
 from xorq.expr.ml import (
     calc_split_column,
     train_test_splits,
@@ -370,6 +373,7 @@ def _transform_deferred_reads(expr):
     return expr, dt_to_read
 
 
+@tracer.start_as_current_span("execute")
 def execute(expr: ir.Expr, **kwargs: Any):
     batch_reader = to_pyarrow_batches(expr, **kwargs)
     return expr.__pandas_result__(batch_reader.read_pandas(timestamp_as_object=True))
@@ -382,6 +386,7 @@ def _transform_expr(expr):
     return (expr, created)
 
 
+@tracer.start_as_current_span("to_pyarrow_batches")
 def to_pyarrow_batches(
     expr: ir.Expr,
     *,
@@ -390,12 +395,16 @@ def to_pyarrow_batches(
 ):
     from xorq.expr.relations import FlightExpr, FlightUDXF
 
+    span = trace.get_current_span()
+
     if isinstance(expr.op(), (FlightExpr, FlightUDXF)):
         # TODO: verify correct caching behavior
+        span.set_attribute("engine", "flight")
         return expr.op().to_rbr()
     (expr, created) = _transform_expr(expr)
     con, _ = find_backend(expr.op(), use_default=True)
 
+    span.set_attribute("engine", con.name)
     reader = con.to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
 
     def clean_up():
@@ -405,7 +414,7 @@ def to_pyarrow_batches(
             except Exception:
                 conn.drop_view(table_name)
 
-    return rbr_wrapper(reader, clean_up)
+    return otel_instrument_reader(rbr_wrapper(reader, clean_up))
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):

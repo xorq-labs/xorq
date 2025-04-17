@@ -5,12 +5,16 @@ import sys
 import traceback
 from pathlib import Path
 
+from opentelemetry import trace
+
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils.import_utils import import_from_path
+from xorq.common.utils.otel_utils import tracer
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
 
 
+@tracer.start_as_current_span("cli.build_command")
 def build_command(script_path, expr_name, builds_dir="builds"):
     """
     Generate artifacts from an expression in a given Python script
@@ -25,6 +29,15 @@ def build_command(script_path, expr_name, builds_dir="builds"):
     -------
 
     """
+
+    span = trace.get_current_span()
+    span.add_event(
+        "build.params",
+        {
+            "script_path": str(script_path),
+            "expr_name": expr_name,
+        },
+    )
 
     if not os.path.exists(script_path):
         raise ValueError(f"Error: Script not found at {script_path}")
@@ -46,6 +59,7 @@ def build_command(script_path, expr_name, builds_dir="builds"):
         )
 
     expr_hash = build_manager.compile_expr(expr)
+    span.add_event("build.outputs", {"expr_hash": expr_hash})
     print(
         f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",
         file=sys.stderr,
@@ -53,6 +67,7 @@ def build_command(script_path, expr_name, builds_dir="builds"):
     print(build_manager.artifact_store.get_path(expr_hash))
 
 
+@tracer.start_as_current_span("cli.run_command")
 def run_command(expr_path, output_path=None, output_format="parquet"):
     """
     Execute an artifact
@@ -70,6 +85,17 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
     -------
 
     """
+
+    span = trace.get_current_span()
+    span.add_event(
+        "run.params",
+        {
+            "expr_path": str(expr_path),
+            "output_path": str(output_path),
+            "output_format": output_format,
+        },
+    )
+
     if output_path is None:
         output_path = os.devnull
 
