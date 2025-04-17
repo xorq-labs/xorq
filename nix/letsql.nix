@@ -229,6 +229,11 @@ let
         shellHook = ''
           unset PYTHONPATH
         '';
+        env = {
+          UV_NO_SYNC = "1";
+          UV_PYTHON = "${virtualenv}/bin/python";
+          UV_PYTHON_DOWNLOADS = "never";
+        };
       };
       editableShell = pkgs.mkShell {
         packages = [
@@ -239,6 +244,11 @@ let
           "\n"
           maybeMaturinBuildHook
         ];
+        env = {
+          UV_NO_SYNC = "1";
+          UV_PYTHON = "${virtualenv-editable}/bin/python";
+          UV_PYTHON_DOWNLOADS = "never";
+        };
       };
 
     in
