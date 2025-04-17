@@ -1,5 +1,3 @@
-import os
-
 import adbc_driver_postgresql.dbapi
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -15,6 +13,10 @@ from attr.validators import (
 
 from xorq.backends.postgres import (
     Backend as PGBackend,
+)
+from xorq.common.utils.env_utils import (
+    EnvConfigable,
+    env_templates_dir,
 )
 from xorq.vendor import ibis
 
@@ -86,18 +88,24 @@ class PgADBC:
             conn.commit()
 
 
+PostgresConfig = EnvConfigable.from_env_file(
+    env_templates_dir.joinpath(".env.postgres.template")
+)
+postgres_config = PostgresConfig.from_env()
+
+
 def make_credential_defaults():
     return {
-        "user": os.environ.get("POSTGRES_USER"),
-        "password": os.environ.get("POSTGRES_PASSWORD"),
+        "user": postgres_config.get("POSTGRES_USER"),
+        "password": postgres_config.get("POSTGRES_PASSWORD"),
     }
 
 
 def make_connection_defaults():
     return {
-        "host": os.environ.get("POSTGRES_HOST"),
-        "port": os.environ.get("POSTGRES_PORT"),
-        "database": os.environ.get("POSTGRES_DATABASE"),
+        "host": postgres_config.get("POSTGRES_HOST"),
+        "port": postgres_config.get("POSTGRES_PORT"),
+        "database": postgres_config.get("POSTGRES_DATABASE"),
     }
 
 

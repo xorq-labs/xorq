@@ -12,6 +12,11 @@ from attr.validators import (
 )
 
 
+env_templates_dir = Path(__file__).parent.parent.parent.parent.parent.joinpath(
+    "env-templates"
+)
+
+
 def parse_env_file(env_file):
     pattern = "(export )?([^=]+)=(.*)"
     lines = Path(env_file).read_text().split("\n")
