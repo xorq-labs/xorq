@@ -1,0 +1,42 @@
+# otel-collector-config.yaml
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: "0.0.0.0:${env:OTEL_COLLECTOR_PORT_GRPC}"
+      http:
+        endpoint: "0.0.0.0:${env:OTEL_COLLECTOR_PORT_HTTP}"
+exporters:
+  # NOTE: Prior to v0.86.0 use `logging` instead of `debug`.
+  debug:
+    verbosity: detailed
+  file:
+    path: "${env:logs_container_path}/otel-log.json"
+  otlphttp/grafana_cloud:
+    endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}"
+
+    auth:
+      authenticator: basicauth/grafana_cloud
+extensions:
+  basicauth/grafana_cloud:
+    # https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/extension/basicauthextension
+    client_auth:
+      username: "${env:GRAFANA_CLOUD_INSTANCE_ID}"
+      password: "${env:GRAFANA_CLOUD_API_KEY}"
+processors:
+  batch:
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [debug, file, otlphttp/grafana_cloud]
+      processors: [batch]
+    metrics:
+      receivers: [otlp]
+      exporters: [debug]
+      processors: [batch]
+    logs:
+      receivers: [otlp]
+      exporters: [debug, file]
+      processors: [batch]
+  extensions: [basicauth/grafana_cloud]
