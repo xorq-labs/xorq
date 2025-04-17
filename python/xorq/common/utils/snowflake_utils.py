@@ -1,5 +1,3 @@
-import os
-
 import pandas as pd
 import snowflake.connector
 from adbc_driver_snowflake import dbapi
@@ -16,20 +14,30 @@ import xorq as xo
 from xorq.backends.snowflake import (
     Backend as SnowflakeBackend,
 )
+from xorq.common.utils.env_utils import (
+    EnvConfigable,
+    env_templates_dir,
+)
+
+
+SnowflakeConfig = EnvConfigable.from_env_file(
+    env_templates_dir.joinpath(".env.snowflake.template")
+)
+snowflake_config = SnowflakeConfig.from_env()
 
 
 def make_credential_defaults():
     return {
-        "user": os.environ.get("SNOWFLAKE_USER"),
-        "password": os.environ.get("SNOWFLAKE_PASSWORD"),
+        "user": snowflake_config.get("SNOWFLAKE_USER"),
+        "password": snowflake_config.get("SNOWFLAKE_PASSWORD"),
     }
 
 
 def make_connection_defaults():
     return {
-        "account": os.environ.get("SNOWFLAKE_ACCOUNT"),
-        "role": os.environ.get("SNOWFLAKE_ROLE"),
-        "warehouse": os.environ.get("SNOWFLAKE_WAREHOUSE"),
+        "account": snowflake_config.get("SNOWFLAKE_ACCOUNT"),
+        "role": snowflake_config.get("SNOWFLAKE_ROLE"),
+        "warehouse": snowflake_config.get("SNOWFLAKE_WAREHOUSE"),
     }
 
 
