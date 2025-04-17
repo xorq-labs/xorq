@@ -17,6 +17,7 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
+from opentelemetry import trace
 from public import public
 
 import xorq as xo
@@ -30,6 +31,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_expr import (
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
 )
+from xorq.common.utils.otel_utils import tracer
 from xorq.expr.relations import (
     Read,
     RemoteTable,
@@ -108,11 +110,16 @@ class Cache:
             key = self.get_key(expr)
             return self.storage._put(key, value)
 
+    @tracer.start_as_current_span("cache.set_default")
     def set_default(self, expr: ir.Expr, default):
+        span = trace.get_current_span()
         key = self.get_key(expr)
         if not self.key_exists(key):
-            return self.storage._put(key, default)
+            span.add_event("cache.miss", {"key": key})
+            with tracer.start_as_current_span("cache._put"):
+                return self.storage._put(key, default)
         else:
+            span.add_event("cache.hit", {"key": key})
             return self.storage._get(key)
 
     def drop(self, expr: ir.Expr):
