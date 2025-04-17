@@ -114,6 +114,32 @@ let
     ${python}/bin/maturin build --release
   '';
 
+  xorq-docker-run-otel-collector = pkgs.writeShellScriptBin "xorq-docker-run-otel-collector" ''
+    set -eux
+
+    image_name=otel/opentelemetry-collector-contrib:latest
+    yaml_host_path=${../docker/otel/otel-collector-config.yaml}
+    yaml_container_path=/etc/otel-collector-config.yaml
+    logs_host_path=~/.local/share/xorq/logs/otel-logs
+    logs_container_path=/otel-logs
+
+    mkdir --mode=777 --parents "$logs_host_path"
+
+    ${pkgs.docker}/bin/docker run \
+      --publish "$OTEL_COLLECTOR_PORT_GRPC:$OTEL_COLLECTOR_PORT_GRPC" \
+      --publish "$OTEL_COLLECTOR_PORT_HTTP:$OTEL_COLLECTOR_PORT_HTTP" \
+      --env "GRAFANA_CLOUD_INSTANCE_ID=$GRAFANA_CLOUD_INSTANCE_ID" \
+      --env "GRAFANA_CLOUD_API_KEY=$GRAFANA_CLOUD_API_KEY" \
+      --env "GRAFANA_CLOUD_OTLP_ENDPOINT=$GRAFANA_CLOUD_OTLP_ENDPOINT" \
+      --env "OTEL_COLLECTOR_PORT_GRPC=$OTEL_COLLECTOR_PORT_GRPC" \
+      --env "OTEL_COLLECTOR_PORT_HTTP=$OTEL_COLLECTOR_PORT_HTTP" \
+      --env "logs_container_path=$logs_container_path" \
+      --volume "$yaml_host_path:$yaml_container_path" \
+      --volume "$logs_host_path:$logs_container_path" \
+      "$image_name" \
+      --config="$yaml_container_path"
+  '';
+
   letsql-commands = {
     inherit
       xorq-kill-lsof-grep-port
@@ -127,6 +153,7 @@ let
       letsql-git-config-blame-ignore-revs
       letsql-maturin-build
       xorq-gh-config-set-browser-false
+      xorq-docker-run-otel-collector
       ;
   };
 
