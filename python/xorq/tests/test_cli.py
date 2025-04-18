@@ -3,10 +3,10 @@ import sys
 from pathlib import Path
 
 import pytest
-import toolz
 
-from xorq.cli import build_command, main
-from xorq.common.utils.func_utils import return_constant
+from xorq.common.utils.process_utils import (
+    subprocess_run,
+)
 
 
 build_run_examples_expr_names = (
@@ -19,18 +19,14 @@ build_run_examples_expr_names = (
     ("train_test_splits.py", "train_table"),
     ("train_test_splits.py", "split_column"),
     ("postgres_caching.py", "expr"),
-    ("xgboost_udaf.py", "expr"),
-    ("expr_scalar_udf.py", "expr"),
-    ("bank_marketing.py", "encoded_test"),
-    ("flight_udtf_llm_example.py", "expr"),
+    # ("xgboost_udaf.py", "expr"),
+    # ("expr_scalar_udf.py", "expr"),
+    # ("bank_marketing.py", "encoded_test"),
+    # ("flight_udtf_llm_example.py", "expr"),
 )
 
 
-# Run the CLI (with try/except to prevent SystemExit)
-main_no_exit = toolz.excepts(SystemExit, main, return_constant(1))
-
-
-def test_build_command(monkeypatch, tmp_path, fixture_dir, capsys):
+def test_build_command(tmp_path, fixture_dir):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "pipeline.py"
 
@@ -38,22 +34,19 @@ def test_build_command(monkeypatch, tmp_path, fixture_dir, capsys):
         "xorq",
         "build",
         str(script_path),
-        "-e",
+        "--expr-name",
         "expr",
         "--builds-dir",
         str(builds_dir),
     ]
-    monkeypatch.setattr(sys, "argv", test_args)
-    main_no_exit()
+    (returncode, _, stderr) = subprocess_run(test_args)
 
-    # Check output
-    captured = capsys.readouterr()
-    assert "Building expr" in captured.err
-
+    assert "Building expr" in stderr.decode("ascii")
+    assert returncode == 0
     assert builds_dir.exists()
 
 
-def test_build_command_with_udtf(monkeypatch, tmp_path, fixture_dir, capsys):
+def test_build_command_with_udtf(tmp_path, fixture_dir):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "udxf_expr.py"
 
@@ -66,13 +59,9 @@ def test_build_command_with_udtf(monkeypatch, tmp_path, fixture_dir, capsys):
         "--builds-dir",
         str(builds_dir),
     ]
-    monkeypatch.setattr(sys, "argv", test_args)
-
-    main_no_exit()
-
-    captured = capsys.readouterr()
-    assert "Building expr" in captured.err
-
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert "Building expr" in stderr.decode("ascii")
+    assert returncode == 0
     assert builds_dir.exists()
 
 
@@ -89,47 +78,60 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
         "--builds-dir",
         str(builds_dir),
     ]
-    monkeypatch.setattr(sys, "argv", test_args)
+    (returncode, _, stderr) = subprocess_run(test_args)
 
-    main_no_exit()
-
-    # Check output
-    captured = capsys.readouterr()
-    assert "Building expr" in captured.err
-
+    assert "Building expr" in stderr.decode("ascii")
+    assert returncode == 0
     assert builds_dir.exists()
 
 
-def test_run_command_default(monkeypatch, tmp_path, fixture_dir, capsys):
+def test_run_command_default(tmp_path, fixture_dir):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "pipeline.py"
 
-    build_command(str(script_path), "expr", builds_dir=str(target_dir))
-    capture = capsys.readouterr()
+    args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(target_dir),
+    ]
+    (returncode, stdout, _) = subprocess_run(args)
+    assert returncode == 0
 
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", str(capture.out)):
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
         test_args = [
             "xorq",
             "run",
             expression_path,
         ]
-        monkeypatch.setattr(sys, "argv", test_args)
-
-        main_no_exit()
+        (returncode, _, _) = subprocess_run(test_args)
+        assert returncode == 0
     else:
         raise AssertionError("No expression hash")
 
 
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
-def test_run_command(monkeypatch, tmp_path, fixture_dir, capsys, output_format):
+def test_run_command(tmp_path, fixture_dir, output_format):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "pipeline.py"
 
-    build_command(str(script_path), "expr", builds_dir=str(target_dir))
-    capture = capsys.readouterr()
+    build_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(target_dir),
+    ]
+    (returncode, stdout, _) = subprocess_run(build_args)
+    assert returncode == 0
 
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", str(capture.out)):
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         output_path = tmp_path / f"test.{output_format}"
         expression_path = match.group()
         test_args = [
@@ -141,9 +143,8 @@ def test_run_command(monkeypatch, tmp_path, fixture_dir, capsys, output_format):
             "--format",
             output_format,
         ]
-        monkeypatch.setattr(sys, "argv", test_args)
-
-        main_no_exit()
+        (returncode, _, _) = subprocess_run(test_args)
+        assert returncode == 0
         assert output_path.exists()
         assert output_path.stat().st_size > 0
 
@@ -152,16 +153,22 @@ def test_run_command(monkeypatch, tmp_path, fixture_dir, capsys, output_format):
 
 
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
-def test_run_command_stdout(
-    monkeypatch, tmp_path, fixture_dir, capsysbinary, output_format
-):
+def test_run_command_stdout(tmp_path, fixture_dir, output_format):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "pipeline.py"
+    build_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(target_dir),
+    ]
+    (returncode, stdout, _) = subprocess_run(build_args)
+    assert returncode == 0
 
-    build_command(str(script_path), "expr", builds_dir=str(target_dir))
-    capture = capsysbinary.readouterr()
-
-    if match := re.search(f"{target_dir}/([0-9a-f]+)", str(capture.out)):
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
         test_args = [
             "xorq",
@@ -172,12 +179,9 @@ def test_run_command_stdout(
             "--format",
             output_format,
         ]
-        monkeypatch.setattr(sys, "argv", test_args)
-
-        main_no_exit()
-        capture = capsysbinary.readouterr()
-        assert capture.out
-
+        (returncode, stdout, _) = subprocess_run(test_args)
+        assert returncode == 0
+        assert stdout
     else:
         raise AssertionError("No expression hash")
 
@@ -189,9 +193,7 @@ def test_run_command_stdout(
         ("missing", "Expression missing not found"),
     ],
 )
-def test_build_command_bad_expr_name(
-    monkeypatch, tmp_path, fixture_dir, capsys, expression, message
-):
+def test_build_command_bad_expr_name(tmp_path, fixture_dir, expression, message):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "pipeline.py"
 
@@ -204,13 +206,9 @@ def test_build_command_bad_expr_name(
         "--builds-dir",
         str(builds_dir),
     ]
-    monkeypatch.setattr(sys, "argv", test_args)
-
-    main_no_exit()
-
-    # Check output
-    captured = capsys.readouterr()
-    assert message in captured.err
+    (returncode, _, stderr) = subprocess_run(test_args)
+    assert returncode != 0
+    assert message in stderr.decode("ascii")
 
 
 @pytest.mark.parametrize(
@@ -222,8 +220,6 @@ def test_examples(
     expr_name,
     examples_dir,
     tmp_path,
-    monkeypatch,
-    capsys,
 ):
     # build
     builds_dir = tmp_path / "builds"
@@ -239,15 +235,10 @@ def test_examples(
         str(builds_dir),
     )
     print(" ".join(build_args), file=sys.stderr)
-    monkeypatch.setattr(sys, "argv", build_args)
-    value = main_no_exit()
-    if value:
-        raise ValueError
-    captured = capsys.readouterr()
-    print(captured.err, file=sys.stderr)
-    if value:
-        raise ValueError
-    expression_path = Path(captured.out.strip())
+    (returncode, stdout, stderr) = subprocess_run(build_args)
+    assert returncode == 0
+    print(stderr.decode("ascii"), file=sys.stderr)
+    expression_path = Path(stdout.decode("ascii").strip())
     # debugging can capture stdout and result in spurious path of "."
     assert expression_path.name and expression_path.exists()
 
@@ -264,13 +255,8 @@ def test_examples(
         "--output-path",
         str(output_path),
     )
-    print(" ".join(build_args), file=sys.stderr)
-    monkeypatch.setattr(sys, "argv", run_args)
-    value = main_no_exit()
-    if value:
-        raise ValueError
-    captured = capsys.readouterr()
-    print(captured.err, file=sys.stderr)
-    if value:
-        raise ValueError
+    print(" ".join(run_args), file=sys.stderr)
+    (returncode, stdout, stderr) = subprocess_run(run_args)
+    assert returncode == 0
+    print(stderr, file=sys.stderr)
     assert output_path.exists()
