@@ -55,7 +55,7 @@ babel==2.17.0
     # via jupyterlab-server
 beartype==0.20.2
     # via plum-dispatch
-beautifulsoup4==4.13.3
+beautifulsoup4==4.13.4
     # via nbconvert
 beniget==0.4.2.post1 ; sys_platform == 'darwin'
     # via pythran
@@ -155,7 +155,7 @@ filelock==3.18.0
     #   virtualenv
 fqdn==1.5.1
     # via jsonschema
-frozenlist==1.5.0 ; python_full_version < '4.0'
+frozenlist==1.6.0 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   aiosignal
@@ -178,7 +178,7 @@ google-api-core==2.24.2 ; python_full_version < '4.0'
     # via
     #   google-cloud-core
     #   google-cloud-storage
-google-auth==2.38.0 ; python_full_version < '4.0'
+google-auth==2.39.0 ; python_full_version < '4.0'
     # via
     #   gcsfs
     #   google-api-core
@@ -197,7 +197,7 @@ google-crc32c==1.7.1 ; python_full_version < '4.0'
     #   google-resumable-media
 google-resumable-media==2.7.2 ; python_full_version < '4.0'
     # via google-cloud-storage
-googleapis-common-protos==1.69.2 ; python_full_version < '4.0'
+googleapis-common-protos==1.70.0 ; python_full_version < '4.0'
     # via google-api-core
 griffe==1.7.2
     # via quartodoc
@@ -370,7 +370,7 @@ nvidia-nccl-cu12==2.26.2.post1 ; platform_machine != 'aarch64' and sys_platform 
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.72.0
+openai==1.75.0
     # via xorq
 overrides==7.7.0
     # via jupyter-server
@@ -423,7 +423,7 @@ ply==3.11 ; sys_platform == 'darwin'
 pre-commit==4.2.0
 prometheus-client==0.21.1
     # via jupyter-server
-prompt-toolkit==3.0.50
+prompt-toolkit==3.0.51
     # via ipython
 propcache==0.3.1 ; python_full_version < '4.0'
     # via
@@ -468,7 +468,7 @@ pydantic==2.11.3
     #   quartodoc
 pydantic-core==2.33.1
     # via pydantic
-pydantic-settings==2.8.1
+pydantic-settings==2.9.0
     # via mcp
 pygments==2.19.1
     # via
@@ -571,7 +571,7 @@ rpds-py==0.24.0
     # via
     #   jsonschema
     #   referencing
-rsa==4.9 ; python_full_version < '4.0'
+rsa==4.9.1 ; python_full_version < '4.0'
     # via google-auth
 ruff==0.11.5
 scikit-learn==1.6.1
@@ -608,7 +608,7 @@ sse-starlette==2.2.1
     # via mcp
 stack-data==0.6.3
     # via ipython
-starlette==0.46.1
+starlette==0.46.2
     # via
     #   mcp
     #   sse-starlette
@@ -694,7 +694,9 @@ typing-extensions==4.13.2
     #   uvicorn
     #   xorq
 typing-inspection==0.4.0
-    # via pydantic
+    # via
+    #   pydantic
+    #   pydantic-settings
 tzdata==2025.2 ; python_full_version < '4.0' or sys_platform == 'win32'
     # via
     #   pandas
@@ -705,7 +707,7 @@ uri-template==1.3.0
     # via jsonschema
 urllib3==2.4.0
     # via requests
-uvicorn==0.34.0
+uvicorn==0.34.1
     # via mcp
 vendoring==1.2.0
 virtualenv==20.30.0
@@ -726,7 +728,7 @@ xgboost==3.0.0
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4.0'
     # via pins
-yarl==1.19.0 ; python_full_version < '4.0'
+yarl==1.20.0 ; python_full_version < '4.0'
     # via aiohttp
 zipp==3.21.0
     # via importlib-metadata
