@@ -117,6 +117,9 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
 def parse_args(override=None):
     parser = argparse.ArgumentParser(description="xorq - build and run expressions")
     parser.add_argument("--pdb", action="store_true", help="Drop into pdb on failure")
+    parser.add_argument(
+        "--pdb-runcall", action="store_true", help="Invoke with pdb.runcall"
+    )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
@@ -170,11 +173,24 @@ def main():
     try:
         match args.command:
             case "build":
-                build_command(args.script_path, args.expr_name, args.builds_dir)
+                (f, f_args) = (
+                    build_command,
+                    (args.script_path, args.expr_name, args.builds_dir),
+                )
             case "run":
-                run_command(args.build_path, args.output_path, args.format)
+                (f, f_args) = (
+                    run_command,
+                    (args.build_path, args.output_path, args.format),
+                )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
+        match args.pdb_runcall:
+            case True:
+                pdb.runcall(f, *f_args)
+            case False:
+                f(*f_args)
+            case _:
+                raise ValueError(f"Unknown value for pdb_runcall: {args.pdb_runcall}")
     except Exception as e:
         if args.pdb:
             traceback.print_exception(e)
