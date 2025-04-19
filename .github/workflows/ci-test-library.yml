@@ -76,6 +76,6 @@ jobs:
           POSTGRES_DATABASE: ${{ vars.POSTGRES_DATABASE }}
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5.4.0
+        uses: codecov/codecov-action@v5.4.2
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
