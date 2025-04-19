@@ -5,9 +5,7 @@ import sys
 import traceback
 from pathlib import Path
 
-from xorq.common.utils.import_utils import import_from_path
 from xorq.ibis_yaml.compiler import BuildManager
-from xorq.vendor.ibis import Expr
 
 
 def build_command(script_path, expr_name, builds_dir="builds"):
@@ -31,21 +29,7 @@ def build_command(script_path, expr_name, builds_dir="builds"):
     print(f"Building {expr_name} from {script_path}", file=sys.stderr)
 
     build_manager = BuildManager(builds_dir)
-
-    module_name = "__main__" if script_path.endswith(".ipynb") else None
-    vars_module = import_from_path(script_path, module_name)
-
-    if not hasattr(vars_module, expr_name):
-        raise ValueError(f"Expression {expr_name} not found")
-
-    expr = getattr(vars_module, expr_name)
-
-    if not isinstance(expr, Expr):
-        raise ValueError(
-            f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
-        )
-
-    expr_hash = build_manager.compile_expr(expr)
+    expr_hash = build_manager.compile_expr(script_path, expr_name)
     print(
         f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",
         file=sys.stderr,

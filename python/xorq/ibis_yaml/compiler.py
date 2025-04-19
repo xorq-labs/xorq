@@ -14,6 +14,7 @@ import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.common.utils.import_utils import import_from_path
 from xorq.expr.relations import Read
 from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import SchemaRegistry, TranslationContext
@@ -24,9 +25,27 @@ from xorq.ibis_yaml.translate import (
     translate_to_yaml,
 )
 from xorq.ibis_yaml.utils import freeze
+from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import InMemoryTable
+
+
+def script_path_and_expr_name_to_expr(script_path, expr_name):
+    # NOTE: script will be imported with module name of the path stem
+    module_name = "__main__" if str(script_path).endswith(".ipynb") else None
+    vars_module = import_from_path(script_path, module_name)
+
+    if not hasattr(vars_module, expr_name):
+        raise ValueError(f"Expression {expr_name} not found")
+
+    expr = getattr(vars_module, expr_name)
+
+    if not isinstance(expr, Expr):
+        raise ValueError(
+            f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
+        )
+    return expr
 
 
 class CleanDictYAMLDumper(yaml.SafeDumper):
@@ -169,6 +188,26 @@ class YamlExpressionTranslator:
         return translate_from_yaml(expr_dict, freeze(context))
 
 
+def make_script_name(script_path, expr_name):
+    script_path = Path(script_path)
+    content = script_path.read_text()
+    script_hash = dask.base.tokenize(content)
+    script_name = f"{script_hash}-{expr_name}{script_path.suffix}"
+    return script_name
+
+
+def extract_expr(script_path, expr_name):
+    import tempfile
+
+    script_name = make_script_name(script_path, expr_name)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp_script_path = Path(tmpdir).joinpath(script_name)
+        tmp_script_path.write_text(script_path.read_text())
+        # as a side effect, this loads defined functions into the module namespace
+        expr = script_path_and_expr_name_to_expr(str(tmp_script_path), expr_name)
+    return expr
+
+
 class BuildManager:
     def __init__(self, build_dir: pathlib.Path):
         self.artifact_store = ArtifactStore(build_dir)
@@ -227,8 +266,18 @@ class BuildManager:
 
         return updated_reads
 
-    def compile_expr(self, expr: ir.Expr) -> str:
+    def compile_expr(self, script_path: Path, expr_name: str) -> str:
+        script_path = Path(script_path)
+        script_name = make_script_name(script_path, expr_name)
+        expr = extract_expr(script_path, expr_name)
         expr_hash = self.artifact_store.get_expr_hash(expr)
+
+        self.artifact_store.write_text(
+            script_path.read_text(),
+            expr_hash,
+            script_name,
+        )
+
         expr = replace_memtables(self.artifact_store.root_path, expr)
 
         backends = find_all_sources(expr)
@@ -261,6 +310,17 @@ class BuildManager:
         return expr_hash
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
+        ##################
+        script_path = next(
+            el
+            for el in self.artifact_store.root_path.joinpath(expr_hash).iterdir()
+            if el.suffix in (".py", ".ipynb")
+        )
+        (_, expr_name) = script_path.stem.split("-")
+        # side effect of importing
+        script_path_and_expr_name_to_expr(script_path, expr_name)
+        ##################
+
         profiles_dict = self.artifact_store.load_yaml(expr_hash, "profiles.yaml")
 
         def f(values):
