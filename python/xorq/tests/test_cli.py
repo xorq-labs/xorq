@@ -238,7 +238,7 @@ def test_examples(
     (returncode, stdout, stderr) = subprocess_run(build_args)
     assert returncode == 0
     print(stderr.decode("ascii"), file=sys.stderr)
-    expression_path = Path(stdout.decode("ascii").strip())
+    expression_path = Path(stdout.decode("ascii").strip().split("\n")[-1])
     # debugging can capture stdout and result in spurious path of "."
     assert expression_path.name and expression_path.exists()
 
