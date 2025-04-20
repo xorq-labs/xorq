@@ -94,7 +94,7 @@ sentiment_udxf = make_udxf(
 )
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     # demonstrate pipeline
     results = pipeline.execute()
 

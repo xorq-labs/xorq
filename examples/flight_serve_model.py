@@ -43,12 +43,13 @@ train_expr, test_expr = (
 bound_expr = test_expr.mutate(**{"transformed": deferred_transform.on_expr})
 
 
-server, do_exchange = xo.expr.relations.flight_serve(bound_expr)
-df = do_exchange(test_expr).read_pandas()
-server.close()
-try:
-    do_exchange(test_expr.limit(10)).read_pandas()
-    raise Exception("do_exchange should have raised")
-except Exception:
-    pass
-pytest_examples_passed = True
+if __name__ == "__pytest_main__":
+    server, do_exchange = xo.expr.relations.flight_serve(bound_expr)
+    df = do_exchange(test_expr).read_pandas()
+    server.close()
+    try:
+        do_exchange(test_expr.limit(10)).read_pandas()
+        raise Exception("do_exchange should have raised")
+    except Exception:
+        pass
+    pytest_examples_passed = True

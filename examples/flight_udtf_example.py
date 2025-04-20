@@ -93,13 +93,14 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
     maybe_schema_out=schema_out.to_pyarrow(),
     name="HackerNewsFetcher",
 )
-
-
 t = xo.memtable(
     data=({"maxitem": 43182839, "n": 1000},),
     name="t",
 )
 expr = do_hackernews_fetcher_udxf(t)
-df = expr.execute()
-print(df)
-pytest_examples_passed = True
+
+
+if __name__ == "__pytest_main__":
+    df = expr.execute()
+    print(df)
+    pytest_examples_passed = True

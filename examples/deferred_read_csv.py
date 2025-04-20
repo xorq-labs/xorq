@@ -81,4 +81,6 @@ if __name__ == "__main__":
         cleanup()
     else:
         main()
+elif __name__ == "__pytest_main__":
+    main()
     pytest_examples_passed = True

@@ -11,7 +11,7 @@ storage = ParquetStorage(source=con, path=Path.cwd())
 expr = t.filter([t.species == "Adelie"]).cache(storage=storage)
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     (op,) = expr.ls.cached_nodes
     path = storage.get_loc(op.to_expr().ls.get_key())
     print(f"{path} exists?: {path.exists()}")

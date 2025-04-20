@@ -100,7 +100,7 @@ expr = (
 )
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     df = expr.execute()
     print(df)
     pytest_examples_passed = True

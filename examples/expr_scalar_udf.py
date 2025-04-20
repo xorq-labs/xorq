@@ -82,7 +82,7 @@ predict_expr_udf = make_pandas_expr_udf(
 expr = test.mutate(predict_expr_udf.on_expr(test).name(prediction_key))
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     from_pd = run_pd(train, test)
     from_xo = expr.execute()
     pd._testing.assert_frame_equal(from_xo, from_pd)

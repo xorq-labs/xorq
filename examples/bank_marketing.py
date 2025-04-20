@@ -151,7 +151,7 @@ results = make_pipeline_exprs(dataset_name, target_column, predicted_col)
 encoded_test = results["encoded_test"]
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     predictions_df = results["predictions"].execute()
     binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 

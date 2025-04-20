@@ -112,13 +112,13 @@ test_xgb_predicted = (
 )
 
 
-print(deferred_tfidf_model.ls.get_key(), deferred_tfidf_model.ls.exists())
-print(deferred_xgb_model.ls.get_key(), deferred_xgb_model.ls.exists())
+if __name__ == "__pytest_main__":
+    print(deferred_tfidf_model.ls.get_key(), deferred_tfidf_model.ls.exists())
+    print(deferred_xgb_model.ls.get_key(), deferred_xgb_model.ls.exists())
 
-
-# EXECUTION
-df = train_xgb_predicted.execute()
-df2 = test_xgb_predicted.execute()
-print(df[[target, target_predicted]].corr())
-print(df2[[target, target_predicted]].corr())
-pytest_examples_passed = True
+    # EXECUTION
+    df = train_xgb_predicted.execute()
+    df2 = test_xgb_predicted.execute()
+    print(df[[target, target_predicted]].corr())
+    print(df2[[target, target_predicted]].corr())
+    pytest_examples_passed = True
