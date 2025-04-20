@@ -5,6 +5,7 @@ import sys
 import traceback
 from pathlib import Path
 
+import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils.import_utils import import_from_path
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
