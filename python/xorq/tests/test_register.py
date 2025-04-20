@@ -92,7 +92,7 @@ def test_read_csv_from_url(con):
 @pytest.mark.s3
 def test_read_csv_from_s3(con):
     t = con.read_csv(
-        "s3://opendata-downloads/opa_properties_public.csv",
+        "s3://humor-detection-pds/Humorous.csv",
     )
     assert t.head().execute() is not None
 
