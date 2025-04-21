@@ -477,6 +477,16 @@ class GCStorage:
         )
         object.__setattr__(self, "cache", cache)
 
+    def get_path(self, expr):
+        return (
+            Path(
+                self.bucket_name,
+                self.cache.get_key(expr),
+            )
+            .with_suffix(".parquet")
+            .as_posix()
+        )
+
     __getattr__ = chained_getattr
 
 
