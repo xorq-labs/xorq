@@ -56,7 +56,7 @@ class EnvConfigable:
         return cls(**(kwargs | cls.get_env_overrides()))
 
     @classmethod
-    def from_kwargs(cls, *args, **kwargs):
+    def subclass_from_kwargs(cls, *args, **kwargs):
         fields = {
             name: field(
                 default=os.environ.get(name, ""), validator=optional(instance_of(str))
@@ -78,9 +78,9 @@ class EnvConfigable:
         )
 
     @classmethod
-    def from_env_file(cls, env_file):
+    def subclass_from_env_file(cls, env_file):
         env_file = Path(env_file).resolve()
-        return cls.from_kwargs(
+        return cls.subclass_from_kwargs(
             **(
                 parse_env_file(env_file)
                 | {

@@ -4,7 +4,9 @@ from xorq.common.utils.env_utils import (
 )
 
 
-AWSConfig = EnvConfigable.from_env_file(env_templates_dir.joinpath(".env.aws.template"))
+AWSConfig = EnvConfigable.subclass_from_env_file(
+    env_templates_dir.joinpath(".env.aws.template")
+)
 aws_config = AWSConfig.from_env()
 
 

@@ -6,11 +6,11 @@ import pytest
 from xorq.common.utils.env_utils import EnvConfigable
 
 
-def test_from_kwargs(monkeypatch):
+def test_subclass_from_kwargs(monkeypatch):
     monkeypatch.setitem(os.environ, "X", "1")
     monkeypatch.delitem(os.environ, "SHOULDNT_EXIST", raising=False)
 
-    EnvConfig = EnvConfigable.from_kwargs("X", "SHOULDNT_EXIST")
+    EnvConfig = EnvConfigable.subclass_from_kwargs("X", "SHOULDNT_EXIST")
     env_config = EnvConfig.from_env()
     assert env_config.X == "1"
     assert env_config.SHOULDNT_EXIST == ""
@@ -21,19 +21,19 @@ def test_from_kwargs(monkeypatch):
     assert env_config.SHOULDNT_EXIST == ""
 
     # X is an env var so will be passed as a string but must be an int
-    EnvConfig = EnvConfigable.from_kwargs("SHOULDNT_EXIST", X=1)
+    EnvConfig = EnvConfigable.subclass_from_kwargs("SHOULDNT_EXIST", X=1)
     with pytest.raises(TypeError):
         env_config = EnvConfig.from_env()
 
     # so when using from_env, non-string fields must not exist in the env
     monkeypatch.delitem(os.environ, "X")
-    EnvConfig = EnvConfigable.from_kwargs("SHOULDNT_EXIST", X=1)
+    EnvConfig = EnvConfigable.subclass_from_kwargs("SHOULDNT_EXIST", X=1)
     env_config = EnvConfig.from_env()
     assert env_config.X == 1
     assert env_config.SHOULDNT_EXIST == ""
 
 
-def test_from_env_file(monkeypatch, tmp_path):
+def test_subclass_from_env_file(monkeypatch, tmp_path):
     content = "\n".join(
         (
             "export X=2",
@@ -43,7 +43,7 @@ def test_from_env_file(monkeypatch, tmp_path):
     )
     env_file = Path(tmp_path).joinpath(".env")
     env_file.write_text(content)
-    EnvConfig = EnvConfigable.from_env_file(env_file)
+    EnvConfig = EnvConfigable.subclass_from_env_file(env_file)
 
     env_config = EnvConfig()
     assert env_config.X == "2"

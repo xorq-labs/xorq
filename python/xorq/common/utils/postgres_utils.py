@@ -88,7 +88,7 @@ class PgADBC:
             conn.commit()
 
 
-PostgresConfig = EnvConfigable.from_env_file(
+PostgresConfig = EnvConfigable.subclass_from_env_file(
     env_templates_dir.joinpath(".env.postgres.template")
 )
 postgres_config = PostgresConfig.from_env()

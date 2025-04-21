@@ -20,7 +20,7 @@ from xorq.common.utils.env_utils import (
 )
 
 
-SnowflakeConfig = EnvConfigable.from_env_file(
+SnowflakeConfig = EnvConfigable.subclass_from_env_file(
     env_templates_dir.joinpath(".env.snowflake.template")
 )
 snowflake_config = SnowflakeConfig.from_env()
