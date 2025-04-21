@@ -3,9 +3,11 @@ from __future__ import annotations
 import contextlib
 import functools
 import operator
-import pathlib
 from abc import (
     abstractmethod,
+)
+from pathlib import (
+    Path,
 )
 
 import dask
@@ -39,7 +41,7 @@ from xorq.vendor.ibis.expr import types as ir
 
 
 abs_path_converter = toolz.compose(
-    operator.methodcaller("expanduser"), operator.methodcaller("absolute"), pathlib.Path
+    operator.methodcaller("expanduser"), operator.methodcaller("absolute"), Path
 )
 
 
@@ -217,7 +219,7 @@ class _ParquetStorage(CacheStorage):
         factory=xorq.config._backend_init,
     )
     path = field(
-        validator=instance_of(pathlib.Path),
+        validator=instance_of(Path),
         converter=abs_path_converter,
         factory=functools.partial(xorq.options.get, "cache.default_path"),
     )
@@ -305,7 +307,7 @@ class ParquetSnapshotStorage:
     ----------
     source : ibis.backends.BaseBackend
         The backend to use for execution. Defaults to xorq's default backend.
-    path : pathlib.Path
+    path : Path
         The directory where Parquet files will be stored. Defaults to
         xorq.options.cache.default_path.
     """
@@ -315,7 +317,7 @@ class ParquetSnapshotStorage:
         factory=xorq.config._backend_init,
     )
     path = field(
-        validator=instance_of(pathlib.Path),
+        validator=instance_of(Path),
         converter=abs_path_converter,
         factory=functools.partial(xorq.options.get, "cache.default_path"),
     )
@@ -363,7 +365,7 @@ class ParquetStorage:
     ----------
     source : ibis.backends.BaseBackend
         The backend to use for execution. Defaults to xorq's default backend.
-    path : pathlib.Path
+    path : Path
         The directory where Parquet files will be stored. Defaults to
         xorq.options.cache.default_path.
     """
@@ -373,7 +375,7 @@ class ParquetStorage:
         factory=xorq.config._backend_init,
     )
     path = field(
-        validator=instance_of(pathlib.Path),
+        validator=instance_of(Path),
         converter=abs_path_converter,
         factory=functools.partial(xorq.options.get, "cache.default_path"),
     )
