@@ -27,9 +27,6 @@ def parse_env_file(env_file):
 
 @frozen
 class EnvConfigable:
-    def get(self, key, default=None):
-        return getattr(self, key, default)
-
     def __getitem__(self, key):
         return getattr(self, key)
 

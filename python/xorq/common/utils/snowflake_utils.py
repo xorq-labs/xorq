@@ -28,16 +28,16 @@ snowflake_config = SnowflakeConfig.from_env()
 
 def make_credential_defaults():
     return {
-        "user": snowflake_config.get("SNOWFLAKE_USER"),
-        "password": snowflake_config.get("SNOWFLAKE_PASSWORD"),
+        "user": snowflake_config["SNOWFLAKE_USER"],
+        "password": snowflake_config["SNOWFLAKE_PASSWORD"],
     }
 
 
 def make_connection_defaults():
     return {
-        "account": snowflake_config.get("SNOWFLAKE_ACCOUNT"),
-        "role": snowflake_config.get("SNOWFLAKE_ROLE"),
-        "warehouse": snowflake_config.get("SNOWFLAKE_WAREHOUSE"),
+        "account": snowflake_config["SNOWFLAKE_ACCOUNT"],
+        "role": snowflake_config["SNOWFLAKE_ROLE"],
+        "warehouse": snowflake_config["SNOWFLAKE_WAREHOUSE"],
     }
 
 
