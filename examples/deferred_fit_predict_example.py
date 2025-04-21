@@ -43,7 +43,7 @@ predicted = t.mutate(predict.on_expr(t))
 cached_predicted = t.mutate(cached_predict.on_expr(t))
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     # model = deferred_model.execute()
     # ((cached_model,),) = cached_deferred_model.execute().values
     predicted_df = predicted.execute()

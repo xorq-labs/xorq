@@ -22,6 +22,7 @@ deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
 
 
 con = xo.connect()
+storage = ParquetStorage(source=con)
 train_expr, test_expr = (
     deferred_read_parquet(
         con,
@@ -38,27 +39,26 @@ train_expr, test_expr = (
 )
 
 
-# uncached run
 (deferred_model, model_udaf, deferred_transform) = deferred_fit_transform_tfidf(
     train_expr,
 )
-model = deferred_model.execute()
-transformed = test_expr.mutate(**{"transformed": deferred_transform.on_expr}).execute()
-
-
-# cached run
-storage = ParquetStorage(source=con)
-(deferred_model, model_udaf, deferred_transform) = deferred_fit_transform_tfidf(
-    train_expr, storage=storage
+(cached_deferred_model, cached_model_udaf, cached_deferred_transform) = (
+    deferred_fit_transform_tfidf(train_expr, storage=storage)
 )
-((cached_model,),) = deferred_model.execute().values
-cached_transformed = test_expr.mutate(
-    **{"transformed": deferred_transform.on_expr}
-).execute()
 
 
-assert transformed.equals(cached_transformed)
-(x, y) = (pickle.loads(el) for el in (model, cached_model))
-assert all(x.idf_ == y.idf_)
-assert x.vocabulary_ == y.vocabulary_
-pytest_examples_passed = True
+if __name__ == "__pytest_main__":
+    model = deferred_model.execute()
+    transformed = test_expr.mutate(
+        **{"transformed": deferred_transform.on_expr}
+    ).execute()
+    ((cached_model,),) = cached_deferred_model.execute().values
+    cached_transformed = test_expr.mutate(
+        **{"transformed": deferred_transform.on_expr}
+    ).execute()
+
+    assert transformed.equals(cached_transformed)
+    (x, y) = (pickle.loads(el) for el in (model, cached_model))
+    assert all(x.idf_ == y.idf_)
+    assert x.vocabulary_ == y.vocabulary_
+    pytest_examples_passed = True

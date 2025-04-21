@@ -19,10 +19,10 @@ build_run_examples_expr_names = (
     ("train_test_splits.py", "train_table"),
     ("train_test_splits.py", "split_column"),
     ("postgres_caching.py", "expr"),
-    # ("xgboost_udaf.py", "expr"),
-    # ("expr_scalar_udf.py", "expr"),
-    # ("bank_marketing.py", "encoded_test"),
-    # ("flight_udtf_llm_example.py", "expr"),
+    ("xgboost_udaf.py", "expr"),
+    ("expr_scalar_udf.py", "expr"),
+    ("bank_marketing.py", "encoded_test"),
+    ("flight_udtf_llm_example.py", "expr"),
 )
 
 
@@ -238,7 +238,7 @@ def test_examples(
     (returncode, stdout, stderr) = subprocess_run(build_args)
     assert returncode == 0
     print(stderr.decode("ascii"), file=sys.stderr)
-    expression_path = Path(stdout.decode("ascii").strip())
+    expression_path = Path(stdout.decode("ascii").strip().split("\n")[-1])
     # debugging can capture stdout and result in spurious path of "."
     assert expression_path.name and expression_path.exists()
 

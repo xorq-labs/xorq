@@ -5,6 +5,7 @@ import sys
 import traceback
 from pathlib import Path
 
+import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils.import_utils import import_from_path
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
@@ -32,8 +33,7 @@ def build_command(script_path, expr_name, builds_dir="builds"):
 
     build_manager = BuildManager(builds_dir)
 
-    module_name = "__main__" if script_path.endswith(".ipynb") else None
-    vars_module = import_from_path(script_path, module_name)
+    vars_module = import_from_path(script_path, module_name="__main__")
 
     if not hasattr(vars_module, expr_name):
         raise ValueError(f"Expression {expr_name} not found")

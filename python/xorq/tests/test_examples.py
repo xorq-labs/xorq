@@ -42,5 +42,5 @@ def maybe_library(name: str):
     ],
 )
 def test_script_execution(script):
-    dct = runpy.run_path(str(script), run_name="__main__")
+    dct = runpy.run_path(str(script), run_name="__pytest_main__")
     assert dct.get("pytest_examples_passed")

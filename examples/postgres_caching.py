@@ -16,7 +16,7 @@ expr = (
 )
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     print(f"{expr.ls.get_key()} exists?: {expr.ls.exists()}")
     res = xo.execute(expr)
     print(res)

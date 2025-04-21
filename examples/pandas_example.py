@@ -10,7 +10,7 @@ t = con.create_table("frame", df)
 expr = t.head(3)
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     res = expr.execute()
     print(res)
     pytest_examples_passed = True

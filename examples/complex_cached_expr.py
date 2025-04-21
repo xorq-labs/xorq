@@ -2,7 +2,6 @@ import argparse
 import functools
 
 import pandas as pd
-import toolz
 import xgboost as xgb
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
@@ -15,6 +14,7 @@ from xorq.caching import (
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
+from xorq.common.utils.toolz_utils import curry
 from xorq.expr.ml import (
     deferred_fit_predict,
     deferred_fit_transform_series_sklearn,
@@ -41,7 +41,7 @@ do_hackernews_sentiment_udxf = import_python(
 ).do_hackernews_sentiment_udxf
 
 
-@toolz.curry
+@curry
 def fit_xgboost_model(feature_df, target_series, seed=0):
     xgb_r = xgb.XGBRegressor(
         objective="multi:softmax",
@@ -57,7 +57,7 @@ def fit_xgboost_model(feature_df, target_series, seed=0):
     return xgb_r
 
 
-@toolz.curry
+@curry
 def predict_xgboost_model(model, df):
     return model.predict(df.squeeze().tolist())
 
@@ -98,7 +98,7 @@ do_deferred_fit_predict_xgb = deferred_fit_predict(
     return_type=dt.float32,
     name="predict_xgb",
 )
-do_train_test_split = toolz.curry(
+do_train_test_split = curry(
     train_test_splits,
     unique_key="id",
     test_sizes=(0.6, 0.4),
@@ -232,13 +232,11 @@ def serve(transform_port, predict_port):
 
 def predict(transform_port, predict_port):
     transform_client = FlightClient(port=transform_port)
-    transform_do_exchange = toolz.curry(
+    transform_do_exchange = curry(
         transform_client.do_exchange, expected_transform_command
     )
     predict_client = FlightClient(port=predict_port)
-    predict_do_exchange = toolz.curry(
-        predict_client.do_exchange, expected_predict_command
-    )
+    predict_do_exchange = curry(predict_client.do_exchange, expected_predict_command)
     predicted = predict_do_exchange(
         transform_do_exchange(make_outsample_expr().to_pyarrow_batches())[1]
     )[1].read_pandas()

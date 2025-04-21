@@ -7,12 +7,13 @@ import requests
 import toolz
 
 import xorq as xo
+from xorq.common.utils.toolz_utils import curry
 
 
 base_api_url = "https://hacker-news.firebaseio.com/v0"
 
 
-@toolz.curry
+@curry
 def simple_disk_cache(f, cache_dir, serde):
     cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -57,7 +58,7 @@ def get_hackernews_stories(maxitem, n):
     return df
 
 
-@toolz.curry
+@curry
 def get_hackernews_stories_batch(df, filter=slice(None)):
     series = df.apply(lambda row: get_hackernews_stories(**row), axis=1)
     return (
@@ -93,13 +94,14 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
     maybe_schema_out=schema_out.to_pyarrow(),
     name="HackerNewsFetcher",
 )
-
-
 t = xo.memtable(
     data=({"maxitem": 43182839, "n": 1000},),
     name="t",
 )
 expr = do_hackernews_fetcher_udxf(t)
-df = expr.execute()
-print(df)
-pytest_examples_passed = True
+
+
+if __name__ == "__pytest_main__":
+    df = expr.execute()
+    print(df)
+    pytest_examples_passed = True

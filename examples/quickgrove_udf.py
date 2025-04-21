@@ -26,7 +26,7 @@ t = (
 t_pruned = rewrite_quickgrove_expr(t)
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     original = xo.execute(t)
     pruned = xo.execute(t_pruned)
     pd.testing.assert_frame_equal(original, pruned, rtol=3)

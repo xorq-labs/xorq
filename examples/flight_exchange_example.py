@@ -104,16 +104,20 @@ expr = train_test_split_union(
 )
 
 
-rbr_in = instrument_reader(xo.to_pyarrow_batches(expr), prefix="input ::")
-with FlightServer() as server:
-    client = server.client
-    client.do_action(
-        AddExchangeAction.name, IterativeSplitTrainExchanger, options=client._options
-    )
-    (fut, rbr_out) = client.do_exchange(IterativeSplitTrainExchanger.command, rbr_in)
-    df_out = instrument_reader(rbr_out, prefix="output ::").read_pandas()
-    print(fut.result())
-    print(df_out.assign(model=df_out.model_binary.map(pickle.loads)))
+if __name__ == "__pytest_main__":
+    rbr_in = instrument_reader(xo.to_pyarrow_batches(expr), prefix="input ::")
+    with FlightServer() as server:
+        client = server.client
+        client.do_action(
+            AddExchangeAction.name,
+            IterativeSplitTrainExchanger,
+            options=client._options,
+        )
+        (fut, rbr_out) = client.do_exchange(
+            IterativeSplitTrainExchanger.command, rbr_in
+        )
+        df_out = instrument_reader(rbr_out, prefix="output ::").read_pandas()
+        print(fut.result())
+        print(df_out.assign(model=df_out.model_binary.map(pickle.loads)))
 
-
-pytest_examples_passed = True
+    pytest_examples_passed = True

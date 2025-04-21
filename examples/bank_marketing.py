@@ -1,7 +1,6 @@
 import functools
 
 import pandas as pd
-import toolz
 import xgboost as xgb
 from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
 from sklearn.preprocessing import OneHotEncoder
@@ -10,6 +9,7 @@ import xorq as xo
 import xorq.selectors as s
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_csv
+from xorq.common.utils.toolz_utils import curry
 from xorq.expr.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform,
@@ -26,7 +26,7 @@ def fit(
     return model
 
 
-@toolz.curry
+@curry
 def transform(model, df, features=slice(None)):
     names = model.get_feature_names_out()
     return pd.Series(
@@ -151,7 +151,7 @@ results = make_pipeline_exprs(dataset_name, target_column, predicted_col)
 encoded_test = results["encoded_test"]
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     predictions_df = results["predictions"].execute()
     binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 
