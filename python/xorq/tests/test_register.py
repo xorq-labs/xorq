@@ -91,10 +91,6 @@ def test_read_csv_from_url(con):
 
 @pytest.mark.s3
 def test_read_csv_from_s3(con):
-    import os
-
-    os.environ["AWS_REGION"] = "us-west-2"
-
     schema = pa.schema(
         [
             pa.field("question", pa.string()),
@@ -107,6 +103,9 @@ def test_read_csv_from_s3(con):
     t = con.read_csv(
         "s3://humor-detection-pds/Humorous.csv",
         schema=schema,
+        storage_options={
+            "aws.region": "us-west-2",
+        },
     )
     assert t.head().execute() is not None
 
