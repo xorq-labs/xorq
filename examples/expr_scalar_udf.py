@@ -7,6 +7,7 @@ import xgboost as xgb
 import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
+from xorq.common.utils.toolz_utils import curry
 from xorq.expr.udf import (
     make_pandas_expr_udf,
 )
@@ -27,7 +28,7 @@ prediction_key = "predicted"
 prediction_typ = "float32"
 
 
-@toolz.curry
+@curry
 def train_xgboost_model(df, features=features, target=target, seed=0):
     param = {"max_depth": 4, "eta": 1, "objective": "binary:logistic", "seed": seed}
     num_round = 10
@@ -41,7 +42,7 @@ def train_xgboost_model(df, features=features, target=target, seed=0):
     return bst
 
 
-@toolz.curry
+@curry
 def predict_xgboost_model(model, df, features=features):
     return model.predict(xgb.DMatrix(df[list(features)]))
 
@@ -82,7 +83,7 @@ predict_expr_udf = make_pandas_expr_udf(
 expr = test.mutate(predict_expr_udf.on_expr(test).name(prediction_key))
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     from_pd = run_pd(train, test)
     from_xo = expr.execute()
     pd._testing.assert_frame_equal(from_xo, from_pd)

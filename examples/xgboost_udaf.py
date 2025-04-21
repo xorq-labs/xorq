@@ -1,9 +1,9 @@
 import pandas as pd
-import toolz
 import xgboost as xgb
 
 import xorq as xo
 import xorq.expr.datatypes as dt
+from xorq.common.utils.toolz_utils import curry
 from xorq.expr import udf
 
 
@@ -41,7 +41,7 @@ candidates = (
 by = "issue_y"
 target = "event_occurred"
 cols = list(candidates) + [by, target, ROWNUM]
-curried_calc_best_features = toolz.curry(
+curried_calc_best_features = curry(
     calc_best_features, candidates=candidates, target=target, n=2
 )
 ibis_output_type = dt.infer(({"feature": "feature", "score": 0.0},))
@@ -60,6 +60,6 @@ agg_udf = udf.agg.pandas_df(
 expr = t.group_by(by).agg(agg_udf.on_expr(t).name("best_features")).order_by(by)
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     result = xo.execute(expr)
     pytest_examples_passed = True

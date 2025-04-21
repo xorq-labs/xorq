@@ -8,6 +8,7 @@ import toolz
 from openai import OpenAI
 
 import xorq as xo
+from xorq.common.utils.toolz_utils import curry
 from xorq.flight.utils import (
     schema_concat,
     schema_contains,
@@ -52,7 +53,7 @@ def extract_sentiment(text):
         return f"ERROR: {e}"
 
 
-@toolz.curry
+@curry
 def get_hackernews_sentiment_batch(df: pd.DataFrame, input_col, append_col):
     return df.assign(
         **{
@@ -100,7 +101,7 @@ expr = (
 )
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     df = expr.execute()
     print(df)
     pytest_examples_passed = True

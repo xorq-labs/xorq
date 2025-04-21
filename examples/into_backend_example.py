@@ -15,7 +15,7 @@ expr = (
 )
 
 
-if __name__ == "__main__":
+if __name__ == "__pytest_main__":
     print(expr)
     print(expr.execute())
     print(con.list_tables())

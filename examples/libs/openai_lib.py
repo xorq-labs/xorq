@@ -11,6 +11,7 @@ import toolz
 from openai import OpenAI
 
 import xorq as xo
+from xorq.common.utils.toolz_utils import curry
 from xorq.flight.utils import (
     schema_concat,
     schema_contains,
@@ -25,7 +26,7 @@ _completions_kwargs = (
 )
 
 
-@toolz.curry
+@curry
 def simple_disk_cache(f, cache_dir, serde):
     cache_dir = Path(cache_dir).absolute()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -96,7 +97,7 @@ def extract_hn_sentiment(text, **kwargs):
     return content
 
 
-@toolz.curry
+@curry
 def get_hackernews_sentiment_batch(df: pd.DataFrame, input_col, append_col):
     values = df[input_col].map(toolz.compose(extract_hn_sentiment, unquote_plus))
     return df.assign(**{append_col: values})

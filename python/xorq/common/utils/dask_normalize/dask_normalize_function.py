@@ -14,6 +14,9 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
 )
+from xorq.common.utils.toolz_utils import (
+    curry as xo_curry,
+)
 
 
 CODE_ATTRS = (
@@ -86,7 +89,7 @@ def normalize_toolz_compose(composed):
     )
 
 
-@dask.base.normalize_token.register(toolz.curry)
+@dask.base.normalize_token.register((toolz.curry, xo_curry))
 def normalize_toolz_curry(curried):
     partial_arguments = get_partial_arguments(
         curried.func, *curried.args, **curried.keywords
