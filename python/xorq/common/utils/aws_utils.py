@@ -27,8 +27,6 @@ def make_s3_connection(AWS_REGION=None, **kwargs):
 
     if region := AWS_REGION or aws_config["AWS_REGION"]:
         connection["aws.region"] = region
-    else:
-        connection["aws.region"] = "us-west-2"
 
     return connection, connection_is_set(connection)
 
