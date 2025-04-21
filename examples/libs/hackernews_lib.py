@@ -7,12 +7,13 @@ import requests
 import toolz
 
 import xorq as xo
+from xorq.common.utils.toolz_utils import curry
 
 
 base_api_url = "https://hacker-news.firebaseio.com/v0"
 
 
-@toolz.curry
+@curry
 def simple_disk_cache(f, cache_dir, serde):
     cache_dir = Path(cache_dir).absolute()
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -58,7 +59,7 @@ def get_hackernews_stories(maxitem, n):
     return df
 
 
-@toolz.curry
+@curry
 def get_hackernews_stories_batch(df, filter=slice(None)):
     series = df.apply(lambda row: get_hackernews_stories(**row), axis=1)
     return (

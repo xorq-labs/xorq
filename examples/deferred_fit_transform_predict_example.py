@@ -1,5 +1,4 @@
 import pandas as pd
-import toolz
 import xgboost as xgb
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
@@ -9,6 +8,7 @@ import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
+from xorq.common.utils.toolz_utils import curry
 from xorq.ml import (
     deferred_fit_predict,
     deferred_fit_transform_series_sklearn,
@@ -19,7 +19,7 @@ from xorq.ml import (
 m = import_python(xo.options.pins.get_path("hackernews_lib"))
 
 
-@toolz.curry
+@curry
 def fit_xgboost_model(feature_df, target_series, seed=0):
     xgb_r = xgb.XGBRegressor(
         objective="reg:squarederror",
@@ -34,7 +34,7 @@ def fit_xgboost_model(feature_df, target_series, seed=0):
     return xgb_r
 
 
-@toolz.curry
+@curry
 def predict_xgboost_model(model, df):
     return model.predict(df.squeeze().tolist())
 

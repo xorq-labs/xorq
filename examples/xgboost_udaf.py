@@ -1,9 +1,9 @@
 import pandas as pd
-import toolz
 import xgboost as xgb
 
 import xorq as xo
 import xorq.expr.datatypes as dt
+from xorq.common.utils.toolz_utils import curry
 from xorq.expr import udf
 
 
@@ -41,7 +41,7 @@ candidates = (
 by = "issue_y"
 target = "event_occurred"
 cols = list(candidates) + [by, target, ROWNUM]
-curried_calc_best_features = toolz.curry(
+curried_calc_best_features = curry(
     calc_best_features, candidates=candidates, target=target, n=2
 )
 ibis_output_type = dt.infer(({"feature": "feature", "score": 0.0},))
