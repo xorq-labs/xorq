@@ -169,3 +169,10 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
 
     assert not expr.execute().empty
     assert any(tmp_path.iterdir())
+
+
+def test_get_object_metadata_local_filesystem(con, data_dir):
+    url = data_dir / "parquet" / "functional_alltypes.parquet"
+    metadata = con.con.get_object_metadata(str(url.resolve()), "parquet")
+
+    assert isinstance(metadata, dict)
