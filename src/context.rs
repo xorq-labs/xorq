@@ -7,7 +7,7 @@ use crate::functions::greatest::GreatestFunc;
 use crate::functions::hash_int::HashIntFunc;
 use crate::functions::least::LeastFunc;
 use crate::ibis_table::IbisTable;
-use crate::object_storage::{get_object_store, register_object_store_and_config_extensions};
+use crate::object_storage::register_object_store_and_config_extensions;
 use crate::optimizer::PyOptimizerRule;
 use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
@@ -34,8 +34,7 @@ use datafusion_common::config::ConfigFileType;
 use datafusion_common::ScalarValue;
 use datafusion_expr::Expr;
 use datafusion_expr::ScalarUDF;
-use object_store::path::Path;
-use object_store::{ObjectMeta, ObjectStore};
+use object_store::{parse_url, ObjectMeta, ObjectStore};
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -545,13 +544,7 @@ impl PySessionContext {
         }
 
         let result = async {
-            // Retrieve the appropriate object store based on the scheme, URL, and modified table options
-            let store = get_object_store(&self.ctx.state(), scheme, url, &table_options)
-                .await
-                .unwrap();
-
-            let object_path = Path::from(path);
-
+            let (store, object_path) = parse_url(url)?;
             store.head(&object_path).await
         };
 

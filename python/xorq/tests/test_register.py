@@ -178,6 +178,13 @@ def test_get_object_metadata_local_filesystem(con, data_dir):
     assert isinstance(metadata, dict)
 
 
+def test_get_object_metadata_https(con):
+    url = "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv"
+
+    metadata = con.con.get_object_metadata(url, "csv")
+    assert isinstance(metadata, dict)
+
+
 @pytest.mark.s3
 def test_get_object_metadata_s3(con):
     metadata = con.con.get_object_metadata(
