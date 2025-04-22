@@ -602,7 +602,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         storage_options, is_connection_set = make_s3_connection()
         if is_connection_set:
-            kwargs.setdefault("storage_options", storage_options)
+            kwargs["storage_options"] = storage_options | kwargs.get(
+                "storage_options", {}
+            )
 
         # Our other backends support overwriting views / tables when re-registering
         self.con.deregister_table(table_name)
