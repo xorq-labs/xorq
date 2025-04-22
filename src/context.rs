@@ -7,7 +7,7 @@ use crate::functions::greatest::GreatestFunc;
 use crate::functions::hash_int::HashIntFunc;
 use crate::functions::least::LeastFunc;
 use crate::ibis_table::IbisTable;
-use crate::object_storage::register_object_store_and_config_extensions;
+use crate::object_storage::{get_object_store, register_object_store_and_config_extensions};
 use crate::optimizer::PyOptimizerRule;
 use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
@@ -22,6 +22,7 @@ use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
 use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
+use datafusion::datasource::listing::ListingTableUrl;
 use datafusion::datasource::MemTable;
 use datafusion::datasource::TableProvider;
 use datafusion::execution::context::{SessionConfig, SessionContext, SessionState};
@@ -33,8 +34,11 @@ use datafusion_common::config::ConfigFileType;
 use datafusion_common::ScalarValue;
 use datafusion_expr::Expr;
 use datafusion_expr::ScalarUDF;
+use object_store::path::Path;
+use object_store::{ObjectMeta, ObjectStore};
 use pyo3::exceptions::{PyKeyError, PyValueError};
 use pyo3::prelude::*;
+use pyo3::types::PyDict;
 use std::collections::{HashMap, HashSet};
 use std::ops::Deref;
 use std::path::PathBuf;
@@ -498,6 +502,65 @@ impl PySessionContext {
         Ok(())
     }
 
+    #[pyo3(signature = (path, file_format, storage_options=None))]
+    pub fn get_object_metadata(
+        &mut self,
+        path: PathBuf,
+        file_format: &str,
+        storage_options: Option<HashMap<String, String>>,
+        py: Python,
+    ) -> PyResult<Py<PyDict>> {
+        let path = path
+            .to_str()
+            .ok_or_else(|| PyValueError::new_err("Unable to convert path to a string"))?;
+
+        let storage_options = storage_options.unwrap_or_default();
+
+        let location = &path.to_string();
+
+        // Parse the location URL to extract the scheme and other components
+        let table_path = ListingTableUrl::parse(location)?;
+
+        // Extract the scheme (e.g., "s3", "gcs") from the parsed URL
+        let scheme = table_path.scheme();
+
+        // Obtain a reference to the URL
+        let url = table_path.as_ref();
+
+        let format = match file_format {
+            "csv" => Some(ConfigFileType::CSV),
+            "json" => Some(ConfigFileType::JSON),
+            "parquet" => Some(ConfigFileType::PARQUET),
+            _ => None,
+        };
+
+        // Clone and modify the default table options based on the provided options
+        let mut table_options = self.ctx.state().default_table_options().clone();
+        if let Some(format) = format {
+            table_options.set_config_format(format);
+        }
+
+        if let "s3" | "oss" | "cos" | "gs" | "gcs" = scheme {
+            table_options.alter_with_string_hash_map(&storage_options)?;
+        }
+
+        let result = async {
+            // Retrieve the appropriate object store based on the scheme, URL, and modified table options
+            let store = get_object_store(&self.ctx.state(), scheme, url, &table_options)
+                .await
+                .unwrap();
+
+            let object_path = Path::from(path);
+
+            store.head(&object_path).await
+        };
+
+        let metadata =
+            wait_for_future(py, result).map_err(|e| PyValueError::new_err(format!("Err: {e}")))?;
+
+        metadata_to_pydict(py, metadata)
+    }
+
     fn __repr__(&self) -> PyResult<String> {
         let config = self.ctx.copied_config();
         let mut config_entries = config
@@ -560,4 +623,21 @@ fn parse_file_compression_type(
         .map_err(|_| {
             PyValueError::new_err("file_compression_type must one of: gzip, bz2, xz, zstd")
         })
+}
+
+/// Convert ObjectMeta to a Python dictionary
+fn metadata_to_pydict(py: Python, metadata: ObjectMeta) -> PyResult<Py<PyDict>> {
+    let dict = PyDict::new(py);
+
+    dict.set_item("location", metadata.location.to_string())?;
+    dict.set_item("last_modified", metadata.last_modified.to_string())?;
+    dict.set_item("size", metadata.size)?;
+    dict.set_item("e_tag", metadata.e_tag.unwrap_or_default())?;
+
+    // Add any version information if available
+    if let Some(version) = metadata.version {
+        dict.set_item("version", version)?;
+    }
+
+    Ok(dict.into())
 }
