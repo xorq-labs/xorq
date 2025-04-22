@@ -176,9 +176,36 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
     assert any(tmp_path.iterdir())
 
 
-def test_get_object_metadata_local_filesystem(ctx, data_dir):
+@pytest.mark.s3
+def test_read_csv_from_s3_and_cache(con, tmp_path):
+    schema = pa.schema(
+        [
+            pa.field("question", pa.string()),
+            pa.field("product_description", pa.string()),
+            pa.field("image_url", pa.string()),
+            pa.field("label", pa.uint8(), nullable=True),
+        ]
+    )
+
+    t = con.read_csv(
+        "s3://humor-detection-pds/Humorous.csv",
+        schema=schema,
+        storage_options={
+            "aws.region": "us-west-2",
+        },
+    )
+
+    expr = t.cache(
+        storage=ParquetStorage(source=xo.duckdb.connect(), path=tmp_path)
+    ).limit(10)
+
+    assert not expr.execute().empty
+    assert any(tmp_path.iterdir())
+
+
+def test_get_object_metadata_local_filesystem(data_dir):
     url = data_dir / "parquet" / "functional_alltypes.parquet"
-    metadata = ctx.get_object_metadata(str(url.resolve()), "parquet")
+    metadata = xo.get_object_metadata(str(url.resolve()))
 
     assert isinstance(metadata, dict)
 
@@ -188,7 +215,7 @@ def test_get_object_metadata_https(ctx):
 
     url = "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv"
 
-    metadata = ctx.get_object_metadata(url, "csv")
+    metadata = xo.get_object_metadata(url)
     assert isinstance(metadata, dict)
 
     request = Request(url, method="GET")
@@ -198,10 +225,9 @@ def test_get_object_metadata_https(ctx):
 
 
 @pytest.mark.s3
-def test_get_object_metadata_s3(ctx):
-    metadata = ctx.get_object_metadata(
+def test_get_object_metadata_s3():
+    metadata = xo.get_object_metadata(
         "s3://humor-detection-pds/Humorous.csv",
-        "csv",
         storage_options={
             "aws.region": "us-west-2",
         },
@@ -211,9 +237,8 @@ def test_get_object_metadata_s3(ctx):
 
 
 @pytest.mark.gcs
-def test_get_object_metadata_gcs(ctx):
-    metadata = ctx.get_object_metadata(
+def test_get_object_metadata_gcs():
+    metadata = xo.get_object_metadata(
         "gs://cloud-samples-data/bigquery/us-states/us-states.parquet",
-        "parquet",
     )
     assert isinstance(metadata, dict)

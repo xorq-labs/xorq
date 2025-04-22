@@ -286,12 +286,12 @@ def normalize_read(read):
                     "Content-Type",
                 )
             )
-        elif path.startswith("s3"):
-            raise NotImplementedError
-        elif path.startswith("gs"):
-            from xorq.common.utils.gcloud_utils import get_file_metadata
-
-            tpls = get_file_metadata(path)
+        elif path.startswith(("s3", "gs", "gcs")):
+            metadata = xo.get_object_metadata(path)
+            tpls = tuple(
+                (k, metadata.get(k))
+                for k in ("location", "last_modified", "size", "e_tag", "version")
+            )
         elif (path := pathlib.Path(path)).exists():
             stat = path.stat()
             tpls = tuple(
