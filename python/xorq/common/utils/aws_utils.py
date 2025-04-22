@@ -4,25 +4,28 @@ from xorq.common.utils.env_utils import (
 )
 
 
-AWSConfig = EnvConfigable.from_env_file(env_templates_dir.joinpath(".env.aws.template"))
+AWSConfig = EnvConfigable.subclass_from_env_file(
+    env_templates_dir.joinpath(".env.aws.template")
+)
 aws_config = AWSConfig.from_env()
 
 
 def make_s3_credentials_defaults():
     return {
-        "aws.access_key_id": aws_config.get("AWS_ACCESS_KEY_ID"),
-        "aws.secret_access_key": aws_config.get("AWS_SECRET_ACCESS_KEY"),
+        "aws.access_key_id": aws_config["AWS_ACCESS_KEY_ID"],
+        "aws.secret_access_key": aws_config["AWS_SECRET_ACCESS_KEY"],
     }
 
 
-def make_s3_connection():
+def make_s3_connection(AWS_REGION=None, **kwargs):
     connection = {
         **make_s3_credentials_defaults(),
-        "aws.session_token": aws_config.get("AWS_SESSION_TOKEN", ""),
-        "aws.allow_http": aws_config.get("AWS_ALLOW_HTTP", "false"),
+        "aws.session_token": aws_config["AWS_SESSION_TOKEN"],
+        "aws.allow_http": aws_config["AWS_ALLOW_HTTP"],
+        **kwargs,
     }
 
-    if region := aws_config.get("AWS_REGION"):
+    if region := AWS_REGION or aws_config["AWS_REGION"]:
         connection["aws.region"] = region
 
     return connection, connection_is_set(connection)

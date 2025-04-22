@@ -27,11 +27,13 @@ def parse_env_file(env_file):
 
 @frozen
 class EnvConfigable:
-    def get(self, key, default=None):
-        return getattr(self, key, default)
+    def __getitem__(self, key):
+        return getattr(self, key)
 
-    def __getitem__(self, key, default=None):
-        return getattr(self, key, default)
+    def clone(self, **overrides):
+        return type(self)(
+            **({varname: self[varname] for varname in self.varnames} | overrides)
+        )
 
     @property
     def varnames(self):
@@ -59,7 +61,7 @@ class EnvConfigable:
         return cls(**(kwargs | cls.get_env_overrides()))
 
     @classmethod
-    def from_kwargs(cls, *args, **kwargs):
+    def subclass_from_kwargs(cls, *args, **kwargs):
         fields = {
             name: field(
                 default=os.environ.get(name, ""), validator=optional(instance_of(str))
@@ -81,9 +83,9 @@ class EnvConfigable:
         )
 
     @classmethod
-    def from_env_file(cls, env_file):
+    def subclass_from_env_file(cls, env_file):
         env_file = Path(env_file).resolve()
-        return cls.from_kwargs(
+        return cls.subclass_from_kwargs(
             **(
                 parse_env_file(env_file)
                 | {
