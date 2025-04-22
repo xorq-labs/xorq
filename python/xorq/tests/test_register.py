@@ -176,3 +176,16 @@ def test_get_object_metadata_local_filesystem(con, data_dir):
     metadata = con.con.get_object_metadata(str(url.resolve()), "parquet")
 
     assert isinstance(metadata, dict)
+
+
+@pytest.mark.s3
+def test_get_object_metadata_s3(con):
+    metadata = con.con.get_object_metadata(
+        "s3://humor-detection-pds/Humorous.csv",
+        "csv",
+        storage_options={
+            "aws.region": "us-west-2",
+        },
+    )
+
+    assert isinstance(metadata, dict)
