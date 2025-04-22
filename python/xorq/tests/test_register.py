@@ -91,8 +91,21 @@ def test_read_csv_from_url(con):
 
 @pytest.mark.s3
 def test_read_csv_from_s3(con):
+    schema = pa.schema(
+        [
+            pa.field("question", pa.string()),
+            pa.field("product_description", pa.string()),
+            pa.field("image_url", pa.string()),
+            pa.field("label", pa.uint8(), nullable=True),
+        ]
+    )
+
     t = con.read_csv(
-        "s3://opendata-downloads/opa_properties_public.csv",
+        "s3://humor-detection-pds/Humorous.csv",
+        schema=schema,
+        storage_options={
+            "aws.region": "us-west-2",
+        },
     )
     assert t.head().execute() is not None
 
