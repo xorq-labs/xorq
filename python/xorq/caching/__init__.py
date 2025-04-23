@@ -118,7 +118,8 @@ class Cache:
         key = self.get_key(expr)
         if not self.key_exists(key):
             span.add_event("cache.miss", {"key": key})
-            with tracer.start_as_current_span("cache._put"):
+            with tracer.start_as_current_span("cache._put") as child_span:
+                child_span.add_event("cache.miss", {"key": key})
                 return self.storage._put(key, default)
         else:
             span.add_event("cache.hit", {"key": key})

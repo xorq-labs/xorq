@@ -9,6 +9,7 @@ import xorq.common.exceptions as com
 import xorq.vendor.ibis.expr.builders as bl
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils.otel_utils import tracer
 from xorq.vendor import ibis
 from xorq.vendor.ibis.common.deferred import Deferred, _, deferrable
 from xorq.vendor.ibis.common.grounds import Singleton
@@ -1281,6 +1282,7 @@ class Scalar(Value):
             table[0][0], self.type() if schema is None else schema.types[0]
         )
 
+    @tracer.start_as_current_span("__pyarrow_result__")
     def __pandas_result__(
         self,
         df: pd.DataFrame,
