@@ -1,38 +1,38 @@
-import os
+import pytest
 
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 
 
 print("=== XORQ PROFILES DEMONSTRATION ===\n")
 
-# Set environment variables for database connection
-print("Setting up environment variables...")
-# This is a PostgreSQL database running at examples.letsql.com
-os.environ["POSTGRES_DATABASE"] = "letsql"
-os.environ["POSTGRES_HOST"] = "examples.letsql.com"
-os.environ["POSTGRES_USER"] = "letsql"
-os.environ["POSTGRES_PASSWORD"] = "letsql"
-os.environ["POSTGRES_PORT"] = "5432"
+# Set environment variables for database connection (monkey patch to not interfere with possibly set env variables)
+with pytest.MonkeyPatch().context() as ctx:
+    # This is a PostgreSQL database running at examples.letsql.com
+    ctx.setenv("POSTGRES_DATABASE", "letsql")
+    ctx.setenv("POSTGRES_HOST", "examples.letsql.com")
+    ctx.setenv("POSTGRES_USER", "letsql")
+    ctx.setenv("POSTGRES_PASSWORD", "letsql")
+    ctx.setenv("POSTGRES_PORT", "5432")
 
-# 1. Create a profile with environment variable references
-print("\n1. Creating profile with environment variable references...")
-profile = Profile(
-    con_name="postgres",
-    kwargs_tuple=(
-        ("host", "${POSTGRES_HOST}"),
-        ("port", 5432),
-        ("database", "postgres"),
-        ("user", "${POSTGRES_USER}"),
-        ("password", "${POSTGRES_PASSWORD}"),
-    ),
-)
+    # 1. Create a profile with environment variable references
+    print("\n1. Creating profile with environment variable references...")
+    profile = Profile(
+        con_name="postgres",
+        kwargs_tuple=(
+            ("host", "${POSTGRES_HOST}"),
+            ("port", 5432),
+            ("database", "postgres"),
+            ("user", "${POSTGRES_USER}"),
+            ("password", "${POSTGRES_PASSWORD}"),
+        ),
+    )
 
-print(f"Profile representation:\n{profile}")
+    print(f"Profile representation:\n{profile}")
 
-# 2. Save the profile with an alias
-print("\n2. Saving profile with alias...")
-path = profile.save(alias="postgres_example", clobber=True)
-print(f"Profile saved to: {path}")
+    # 2. Save the profile with an alias
+    print("\n2. Saving profile with alias...")
+    path = profile.save(alias="postgres_example", clobber=True)
+    print(f"Profile saved to: {path}")
 
 # 3. Load the profile
 print("\n3. Loading profile from disk...")
