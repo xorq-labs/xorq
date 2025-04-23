@@ -21,6 +21,11 @@ def gzip_csv(data_dir, tmp_path):
     return str(f.absolute())
 
 
+@pytest.fixture
+def ctx(con):
+    return con.con
+
+
 def test_register_csv(con, data_dir):
     fname = "diamonds.csv"
     table_name = "diamonds"
@@ -171,23 +176,30 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
     assert any(tmp_path.iterdir())
 
 
-def test_get_object_metadata_local_filesystem(con, data_dir):
+def test_get_object_metadata_local_filesystem(ctx, data_dir):
     url = data_dir / "parquet" / "functional_alltypes.parquet"
-    metadata = con.con.get_object_metadata(str(url.resolve()), "parquet")
+    metadata = ctx.get_object_metadata(str(url.resolve()), "parquet")
 
     assert isinstance(metadata, dict)
 
 
-def test_get_object_metadata_https(con):
+def test_get_object_metadata_https(ctx):
+    from urllib.request import Request, urlopen
+
     url = "https://raw.githubusercontent.com/ibis-project/testing-data/refs/heads/master/csv/astronauts.csv"
 
-    metadata = con.con.get_object_metadata(url, "csv")
+    metadata = ctx.get_object_metadata(url, "csv")
     assert isinstance(metadata, dict)
+
+    request = Request(url, method="GET")
+    with urlopen(request) as response:
+        etag = response.headers.get("ETag")
+        assert etag == metadata["e_tag"]
 
 
 @pytest.mark.s3
-def test_get_object_metadata_s3(con):
-    metadata = con.con.get_object_metadata(
+def test_get_object_metadata_s3(ctx):
+    metadata = ctx.get_object_metadata(
         "s3://humor-detection-pds/Humorous.csv",
         "csv",
         storage_options={
