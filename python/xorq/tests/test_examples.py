@@ -9,6 +9,7 @@ import xorq as xo
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
 LIBRARY_SCRIPTS = ("pandas_example",)
+GCS_SCRIPTS = ("gcstorage_example",)
 NON_TESTABLE = (
     "mcp_flight_server.py",
     "duckdb_flight_example.py",
@@ -34,10 +35,19 @@ def maybe_library(name: str):
     return pytest.mark.library if name in LIBRARY_SCRIPTS else ()
 
 
+def maybe_gcs(name: str):
+    return pytest.mark.gcs if name in GCS_SCRIPTS else ()
+
+
+def maybe_marks(name: str):
+    fs = (maybe_library, maybe_gcs)
+    return tuple(filter(None, (f(name) for f in fs)))
+
+
 @pytest.mark.parametrize(
     "script",
     [
-        param(script, id=script.stem, marks=maybe_library(script.stem))
+        param(script, id=script.stem, marks=maybe_marks(script.stem))
         for script in scripts
     ],
 )
