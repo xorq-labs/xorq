@@ -6,8 +6,10 @@ from typing import Any, Callable
 
 import pyarrow as pa
 import toolz
+from opentelemetry import trace
 
 import xorq as xo
+from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
@@ -418,6 +420,7 @@ class Read(ops.Relation):
 _count = itertools.count()
 
 
+@tracer.start_as_current_span("register_and_transform_remote_tables")
 def register_and_transform_remote_tables(expr):
     created = {}
 
@@ -433,6 +436,9 @@ def register_and_transform_remote_tables(expr):
                 if isinstance(arg, RemoteTable):
                     counts[arg] += 1
 
+    trace.get_current_span().add_event(
+        "remote_table.replace", {"counts.values": tuple(counts.values())}
+    )
     batches_table = {}
     for arg, count in counts.items():
         ex = arg.remote_expr
