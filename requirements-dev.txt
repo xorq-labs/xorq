@@ -132,6 +132,12 @@ decorator==5.2.1
     #   ipython
 defusedxml==0.7.1
     # via nbconvert
+deprecated==1.2.18
+    # via
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-semantic-conventions
 distlib==0.3.9
     # via virtualenv
 distro==1.9.0
@@ -197,10 +203,15 @@ google-crc32c==1.7.1 ; python_full_version < '4.0'
     #   google-resumable-media
 google-resumable-media==2.7.2 ; python_full_version < '4.0'
     # via google-cloud-storage
-googleapis-common-protos==1.70.0 ; python_full_version < '4.0'
-    # via google-api-core
+googleapis-common-protos==1.70.0
+    # via
+    #   google-api-core
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
 griffe==1.7.2
     # via quartodoc
+grpcio==1.71.0
+    # via opentelemetry-exporter-otlp-proto-grpc
 h11==0.14.0
     # via
     #   httpcore
@@ -229,6 +240,7 @@ idna==3.10
 importlib-metadata==8.6.1
     # via
     #   dask
+    #   opentelemetry-api
     #   pins
     #   quartodoc
 importlib-resources==6.5.2
@@ -372,6 +384,34 @@ oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
 openai==1.75.0
     # via xorq
+opentelemetry-api==1.32.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-sdk
+    #   opentelemetry-semantic-conventions
+opentelemetry-exporter-otlp==1.32.1
+    # via xorq
+opentelemetry-exporter-otlp-proto-common==1.32.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-exporter-otlp-proto-grpc==1.32.1
+    # via opentelemetry-exporter-otlp
+opentelemetry-exporter-otlp-proto-http==1.32.1
+    # via opentelemetry-exporter-otlp
+opentelemetry-proto==1.32.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-common
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+opentelemetry-sdk==1.32.1
+    # via
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+    #   xorq
+opentelemetry-semantic-conventions==0.53b1
+    # via opentelemetry-sdk
 overrides==7.7.0
     # via jupyter-server
 packaging==24.2
@@ -431,10 +471,11 @@ propcache==0.3.1 ; python_full_version < '4.0'
     #   yarl
 proto-plus==1.26.1 ; python_full_version < '4.0'
     # via google-api-core
-protobuf==6.30.2 ; python_full_version < '4.0'
+protobuf==5.29.4
     # via
     #   google-api-core
     #   googleapis-common-protos
+    #   opentelemetry-proto
     #   proto-plus
 psutil==7.0.0
     # via ipykernel
@@ -545,6 +586,7 @@ requests==2.32.3
     #   google-api-core
     #   google-cloud-storage
     #   jupyterlab-server
+    #   opentelemetry-exporter-otlp-proto-http
     #   pins
     #   quartodoc
     #   requests-oauthlib
@@ -681,6 +723,7 @@ typing-extensions==4.13.2
     #   mistune
     #   multidict
     #   openai
+    #   opentelemetry-sdk
     #   plum-dispatch
     #   pydantic
     #   pydantic-core
@@ -724,6 +767,8 @@ webencodings==0.5.1
     #   tinycss2
 websocket-client==1.8.0
     # via jupyter-server
+wrapt==1.17.2
+    # via deprecated
 xgboost==3.0.0
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4.0'
