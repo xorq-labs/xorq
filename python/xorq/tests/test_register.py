@@ -177,7 +177,8 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
 
 
 @pytest.mark.s3
-def test_read_csv_from_s3_and_cache(con, tmp_path):
+def test_read_csv_from_s3_and_cache(tmp_path):
+    con = xo.connect()
     schema = pa.schema(
         [
             pa.field("question", pa.string()),
@@ -187,8 +188,10 @@ def test_read_csv_from_s3_and_cache(con, tmp_path):
         ]
     )
 
-    t = con.read_csv(
-        "s3://humor-detection-pds/Humorous.csv",
+    path = "s3://humor-detection-pds/Humorous.csv"
+    t = xo.deferred_read_csv(
+        con,
+        path,
         schema=schema,
         storage_options={
             "aws.region": "us-west-2",

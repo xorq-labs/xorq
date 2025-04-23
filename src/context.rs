@@ -549,7 +549,7 @@ impl PySessionContext {
                 .await
                 .map_err(|e| Error::Generic {
                     store: "Config",
-                    source: format!("Original: {e}").into(),
+                    source: format!("Source: {e}").into(),
                 })?;
             let (_, object_path) = ObjectStoreScheme::parse(url)?;
             store.head(&object_path).await
