@@ -10,6 +10,7 @@ import pytest
 import xorq as xo
 from xorq.caching import ParquetStorage
 from xorq.tests.util import assert_frame_equal
+from xorq.vendor.ibis.common.collections import FrozenDict
 
 
 @pytest.fixture
@@ -193,9 +194,11 @@ def test_read_csv_from_s3_and_cache(tmp_path):
         con,
         path,
         schema=schema,
-        storage_options={
-            "aws.region": "us-west-2",
-        },
+        storage_options=FrozenDict(
+            {
+                "aws.region": "us-west-2",
+            }
+        ),
     )
 
     expr = t.cache(

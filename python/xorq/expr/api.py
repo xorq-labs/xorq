@@ -488,4 +488,7 @@ def get_object_metadata(path: str, **kwargs: Any) -> dict:
 
     suffix = extract_suffix(path).lstrip(".")
 
+    if "storage_options" in kwargs:
+        kwargs["storage_options"] = dict(kwargs.pop("storage_options"))
+
     return con.con.get_object_metadata(path, suffix, **kwargs)

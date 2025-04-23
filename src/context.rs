@@ -7,7 +7,9 @@ use crate::functions::greatest::GreatestFunc;
 use crate::functions::hash_int::HashIntFunc;
 use crate::functions::least::LeastFunc;
 use crate::ibis_table::IbisTable;
-use crate::object_storage::{get_object_store, register_object_store_and_config_extensions};
+use crate::object_storage::{
+    get_object_store, register_object_store_and_config_extensions, AwsOptions, GcpOptions,
+};
 use crate::optimizer::PyOptimizerRule;
 use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
@@ -525,6 +527,23 @@ impl PySessionContext {
 
         // Obtain a reference to the URL
         let url = table_path.as_ref();
+
+        match scheme {
+            // For Amazon S3 or Alibaba Cloud OSS
+            "s3" | "oss" | "cos" => {
+                // Register AWS specific table options in the session context:
+                self.ctx
+                    .register_table_options_extension(AwsOptions::default())
+            }
+            // For Google Cloud Storage
+            "gs" | "gcs" => {
+                // Register GCP specific table options in the session context:
+                self.ctx
+                    .register_table_options_extension(GcpOptions::default())
+            }
+            // For unsupported schemes, do nothing:
+            _ => {}
+        }
 
         let format = match file_format {
             "csv" => Some(ConfigFileType::CSV),
