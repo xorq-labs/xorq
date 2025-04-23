@@ -40,6 +40,17 @@ jobs:
       - name: Rust latest
         run: rustup update
 
+      - name: cargo cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ./target/
+          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+
       - name: Install uv
         uses: astral-sh/setup-uv@v5
         with:
@@ -50,14 +61,19 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: maturin develop
-        run: uv run maturin develop
-        working-directory: ${{ github.workspace }}
+        uses: PyO3/maturin-action@v1
+        with:
+          command: 'develop'
+          args: '--release --strip'
+          target: ${{ matrix.target }}
+          sccache: 'true'
+          manylinux: 'auto'
 
       - name: start services
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run pytest --import-mode=importlib python/xorq/tests/test_register.py -v --cov --cov-report=xml
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_register.py -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
