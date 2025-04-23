@@ -30,9 +30,10 @@ def localhost_and_listening(uri):
             return True
         else:
             return False
+    return None
 
 
-OTELConfig = EnvConfigable.from_env_file(
+OTELConfig = EnvConfigable.subclass_from_env_file(
     Path(__file__).parent.parent.parent.parent.parent.joinpath(
         "env-templates", ".env.otel.template"
     )
@@ -47,12 +48,12 @@ resource = Resource(
 )
 provider = TracerProvider(resource=resource)
 processor = BatchSpanProcessor(
-    OTLPSpanExporter(endpoint=otel_config.get("OTEL_ENDPOINT_URI"))
-    if otel_config.get("OTEL_ENDPOINT_URI")
-    and localhost_and_listening(otel_config.get("OTEL_ENDPOINT_URI"))
+    OTLPSpanExporter(endpoint=otel_config["OTEL_ENDPOINT_URI"])
+    if otel_config["OTEL_ENDPOINT_URI"]
+    and localhost_and_listening(otel_config["OTEL_ENDPOINT_URI"])
     else ConsoleSpanExporter(
         out=sys.stdout
-        if otel_config.get("OTEL_EXPORTER_CONSOLE_FALLBACK")
+        if otel_config["OTEL_EXPORTER_CONSOLE_FALLBACK"]
         else open(os.devnull, "w")
     )
 )
