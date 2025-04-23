@@ -503,19 +503,23 @@ impl PySessionContext {
         Ok(())
     }
 
-    #[pyo3(signature = (path, file_format, storage_options=None))]
+    #[pyo3(signature = (path, file_format, **kwargs))]
     pub fn get_object_metadata(
         &mut self,
         path: PathBuf,
         file_format: &str,
-        storage_options: Option<HashMap<String, String>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
         py: Python,
     ) -> PyResult<Py<PyDict>> {
         let path = path
             .to_str()
             .ok_or_else(|| PyValueError::new_err("Unable to convert path to a string"))?;
 
-        let storage_options = storage_options.unwrap_or_default();
+        let storage_options = kwargs
+            .unwrap_or(&PyDict::new(py))
+            .get_item("storage_options")
+            .and_then(|item| item.unwrap_or(PyDict::new(py).into_any()).extract())
+            .unwrap_or_default();
 
         let location = &path.to_string();
 
