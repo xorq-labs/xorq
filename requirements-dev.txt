@@ -10,7 +10,7 @@ adbc-driver-snowflake==1.5.0
     # via xorq
 aiohappyeyeballs==2.6.1 ; python_full_version < '4.0'
     # via aiohttp
-aiohttp==3.11.16 ; python_full_version < '4.0'
+aiohttp==3.11.18 ; python_full_version < '4.0'
     # via gcsfs
 aiosignal==1.3.2 ; python_full_version < '4.0'
     # via aiohttp
@@ -66,6 +66,13 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
+boto3==1.38.0 ; python_full_version < '4.0'
+    # via snowflake-connector-python
+botocore==1.38.0 ; python_full_version < '4.0'
+    # via
+    #   boto3
+    #   s3transfer
+    #   snowflake-connector-python
 cachetools==5.5.2 ; python_full_version < '4.0'
     # via google-auth
 certifi==2025.1.31
@@ -191,7 +198,7 @@ google-auth==2.39.0 ; python_full_version < '4.0'
     #   google-auth-oauthlib
     #   google-cloud-core
     #   google-cloud-storage
-google-auth-oauthlib==1.2.1 ; python_full_version < '4.0'
+google-auth-oauthlib==1.2.2 ; python_full_version < '4.0'
     # via gcsfs
 google-cloud-core==2.4.3 ; python_full_version < '4.0'
     # via google-cloud-storage
@@ -227,7 +234,7 @@ httpx-sse==0.4.0
     # via mcp
 humanize==4.12.2 ; python_full_version < '4.0'
     # via pins
-identify==2.6.9
+identify==2.6.10
     # via pre-commit
 idna==3.10
     # via
@@ -272,6 +279,10 @@ jinja2==3.1.6
     #   pins
 jiter==0.9.0
     # via openai
+jmespath==1.0.1 ; python_full_version < '4.0'
+    # via
+    #   boto3
+    #   botocore
 joblib==1.4.2
     # via
     #   pins
@@ -316,7 +327,7 @@ jupyter-server==2.15.0
     #   notebook-shim
 jupyter-server-terminals==0.5.3
     # via jupyter-server
-jupyterlab==4.4.0
+jupyterlab==4.4.1
     # via notebook
 jupyterlab-pygments==0.3.0
     # via nbconvert
@@ -345,13 +356,13 @@ mdurl==0.1.2
     # via markdown-it-py
 mistune==3.1.3
     # via nbconvert
-more-itertools==10.6.0
+more-itertools==10.7.0
     # via blackdoc
 multidict==6.4.3 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
-mypy-extensions==1.0.0
+mypy-extensions==1.1.0
     # via black
 nbclient==0.10.2
     # via nbconvert
@@ -366,12 +377,12 @@ nest-asyncio==1.6.0
     # via ipykernel
 nodeenv==1.9.1
     # via pre-commit
-notebook==7.4.0
+notebook==7.4.1
 notebook-shim==0.2.4
     # via
     #   jupyterlab
     #   notebook
-numpy==2.2.4
+numpy==2.2.5
     # via
     #   pandas
     #   pythran
@@ -414,7 +425,7 @@ opentelemetry-semantic-conventions==0.53b1
     # via opentelemetry-sdk
 overrides==7.7.0
     # via jupyter-server
-packaging==24.2
+packaging==25.0
     # via
     #   black
     #   dask
@@ -535,6 +546,7 @@ pytest-snapshot==0.9.0
 python-dateutil==2.9.0.post0
     # via
     #   arrow
+    #   botocore
     #   jupyter-client
     #   pandas
     #   trino
@@ -616,6 +628,8 @@ rpds-py==0.24.0
 rsa==4.9.1 ; python_full_version < '4.0'
     # via google-auth
 ruff==0.11.6
+s3transfer==0.12.0 ; python_full_version < '4.0'
+    # via boto3
 scikit-learn==1.6.1
     # via xorq
 scipy==1.15.2
@@ -624,7 +638,7 @@ scipy==1.15.2
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==78.1.0
+setuptools==79.0.0
     # via
     #   jupyterlab
     #   pythran
@@ -636,11 +650,11 @@ sniffio==1.3.1
     # via
     #   anyio
     #   openai
-snowflake-connector-python==3.14.0 ; python_full_version < '4.0'
+snowflake-connector-python==3.14.1 ; python_full_version < '4.0'
     # via xorq
 sortedcontainers==2.4.0 ; python_full_version < '4.0'
     # via snowflake-connector-python
-soupsieve==2.6
+soupsieve==2.7
     # via beautifulsoup4
 sphobjinv==2.3.1.2
     # via quartodoc
@@ -749,7 +763,9 @@ tzlocal==5.3.1
 uri-template==1.3.0
     # via jsonschema
 urllib3==2.4.0
-    # via requests
+    # via
+    #   botocore
+    #   requests
 uvicorn==0.34.2
     # via mcp
 vendoring==1.2.0
