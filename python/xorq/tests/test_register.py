@@ -8,6 +8,7 @@ import pyarrow.dataset as ds
 import pytest
 
 import xorq as xo
+from xorq import Schema
 from xorq.caching import ParquetStorage
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenDict
@@ -180,10 +181,24 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
 @pytest.mark.s3
 def test_read_csv_from_s3_and_cache(tmp_path):
     con = xo.connect()
+
+    # by providing the schema we avoid calling pandas
+    schema = Schema.from_pyarrow(
+        pa.schema(
+            [
+                pa.field("question", pa.string()),
+                pa.field("product_description", pa.string()),
+                pa.field("image_url", pa.string()),
+                pa.field("label", pa.uint8(), nullable=True),
+            ]
+        )
+    )
+
     path = "s3://humor-detection-pds/Humorous.csv"
     t = xo.deferred_read_csv(
         con,
         path,
+        schema=schema,
         storage_options=FrozenDict(
             {
                 "aws.region": "us-west-2",
