@@ -140,6 +140,19 @@ let
       --config="$yaml_container_path"
   '';
 
+  xorq-docker-exec-otel-print-initial-config = pkgs.writeShellScriptBin "xorq-docker-exec-otel-print-initial-config" ''
+    set -eux
+
+    container=$1
+    yaml_container_path=/etc/otel-collector-config.yaml
+    ${pkgs.docker}/bin/docker exec \
+      --interactive --tty \
+      "$container" \
+      /otelcol-contrib print-initial-config \
+      --config "$yaml_container_path" \
+      --feature-gates otelcol.printInitialConfig
+  '';
+
   letsql-commands = {
     inherit
       xorq-kill-lsof-grep-port
@@ -153,7 +166,7 @@ let
       letsql-git-config-blame-ignore-revs
       letsql-maturin-build
       xorq-gh-config-set-browser-false
-      xorq-docker-run-otel-collector
+      xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
       ;
   };
 
