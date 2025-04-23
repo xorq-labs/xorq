@@ -208,3 +208,12 @@ def test_get_object_metadata_s3(ctx):
     )
 
     assert isinstance(metadata, dict)
+
+
+@pytest.mark.gcs
+def test_get_object_metadata_gcs(ctx):
+    metadata = ctx.get_object_metadata(
+        "gs://cloud-samples-data/bigquery/us-states/us-states.parquet",
+        "parquet",
+    )
+    assert isinstance(metadata, dict)
