@@ -11,7 +11,7 @@ exporters:
   debug:
     verbosity: detailed
   file:
-    path: "${env:logs_container_path}/otel-log.json"
+    path: "${env:OTEL_COLLECTOR_CONTAINER_LOG_DIR}/${env:OTEL_LOG_FILE_NAME}"
   otlphttp/grafana_cloud:
     endpoint: "${env:GRAFANA_CLOUD_OTLP_ENDPOINT}"
 

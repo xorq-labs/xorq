@@ -120,8 +120,9 @@ let
     image_name=otel/opentelemetry-collector-contrib:latest
     yaml_host_path=${../docker/otel/otel-collector-config.yaml}
     yaml_container_path=/etc/otel-collector-config.yaml
-    logs_host_path=~/.local/share/xorq/logs/otel-logs
-    logs_container_path=/otel-logs
+
+    logs_host_path=''${OTEL_HOST_LOG_DIR:-~/.local/share/xorq/logs/otel-logs}
+    logs_container_path=''${OTEL_COLLECTOR_CONTAINER_LOG_DIR:-/otel-logs}
 
     mkdir --mode=777 --parents "$logs_host_path"
 
@@ -133,6 +134,8 @@ let
       --env "GRAFANA_CLOUD_OTLP_ENDPOINT=$GRAFANA_CLOUD_OTLP_ENDPOINT" \
       --env "OTEL_COLLECTOR_PORT_GRPC=$OTEL_COLLECTOR_PORT_GRPC" \
       --env "OTEL_COLLECTOR_PORT_HTTP=$OTEL_COLLECTOR_PORT_HTTP" \
+      --env "OTEL_LOG_FILE_NAME=$OTEL_LOG_FILE_NAME" \
+      --env "OTEL_COLLECTOR_CONTAINER_LOG_DIR=$OTEL_COLLECTOR_CONTAINER_LOG_DIR" \
       --env "logs_container_path=$logs_container_path" \
       --volume "$yaml_host_path:$yaml_container_path" \
       --volume "$logs_host_path:$logs_container_path" \
