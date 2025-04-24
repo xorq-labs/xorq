@@ -2,6 +2,15 @@ import pandas as pd
 import pytest
 
 import xorq as xo
+from xorq.conftest import remove_unexpected_tables
+
+
+@pytest.fixture(scope="function")
+def con(pg):
+    remove_unexpected_tables(pg)
+    yield pg
+    # cleanup
+    remove_unexpected_tables(pg)
 
 
 def test_read_csv(con):
