@@ -7,7 +7,9 @@ use crate::functions::greatest::GreatestFunc;
 use crate::functions::hash_int::HashIntFunc;
 use crate::functions::least::LeastFunc;
 use crate::ibis_table::IbisTable;
-use crate::object_storage::{get_object_store, register_object_store_and_config_extensions};
+use crate::object_storage::{
+    get_object_store, register_object_store_and_config_extensions, AwsOptions, GcpOptions,
+};
 use crate::optimizer::PyOptimizerRule;
 use crate::provider::PyTableProvider;
 use crate::py_record_batch_provider::PyRecordBatchProvider;
@@ -501,19 +503,23 @@ impl PySessionContext {
         Ok(())
     }
 
-    #[pyo3(signature = (path, file_format, storage_options=None))]
+    #[pyo3(signature = (path, file_format, **kwargs))]
     pub fn get_object_metadata(
         &mut self,
         path: PathBuf,
         file_format: &str,
-        storage_options: Option<HashMap<String, String>>,
+        kwargs: Option<&Bound<'_, PyDict>>,
         py: Python,
     ) -> PyResult<Py<PyDict>> {
         let path = path
             .to_str()
             .ok_or_else(|| PyValueError::new_err("Unable to convert path to a string"))?;
 
-        let storage_options = storage_options.unwrap_or_default();
+        let storage_options = kwargs
+            .unwrap_or(&PyDict::new(py))
+            .get_item("storage_options")
+            .and_then(|item| item.unwrap_or(PyDict::new(py).into_any()).extract())
+            .unwrap_or_default();
 
         let location = &path.to_string();
 
@@ -525,6 +531,23 @@ impl PySessionContext {
 
         // Obtain a reference to the URL
         let url = table_path.as_ref();
+
+        match scheme {
+            // For Amazon S3 or Alibaba Cloud OSS
+            "s3" | "oss" | "cos" => {
+                // Register AWS specific table options in the session context:
+                self.ctx
+                    .register_table_options_extension(AwsOptions::default())
+            }
+            // For Google Cloud Storage
+            "gs" | "gcs" => {
+                // Register GCP specific table options in the session context:
+                self.ctx
+                    .register_table_options_extension(GcpOptions::default())
+            }
+            // For unsupported schemes, do nothing:
+            _ => {}
+        }
 
         let format = match file_format {
             "csv" => Some(ConfigFileType::CSV),
@@ -549,7 +572,7 @@ impl PySessionContext {
                 .await
                 .map_err(|e| Error::Generic {
                     store: "Config",
-                    source: format!("Original: {e}").into(),
+                    source: format!("Source: {e}").into(),
                 })?;
             let (_, object_path) = ObjectStoreScheme::parse(url)?;
             store.head(&object_path).await

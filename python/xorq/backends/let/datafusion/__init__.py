@@ -606,6 +606,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 "storage_options", {}
             )
 
+        if schema := kwargs.get("schema"):
+            if isinstance(schema, xo.Schema):
+                kwargs["schema"] = schema.to_pyarrow()
+
         # Our other backends support overwriting views / tables when re-registering
         self.con.deregister_table(table_name)
         self.con.register_csv(table_name, path, **kwargs)
