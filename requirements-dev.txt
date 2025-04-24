@@ -215,7 +215,7 @@ googleapis-common-protos==1.70.0
     #   google-api-core
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-griffe==1.7.2
+griffe==1.7.3
     # via quartodoc
 grpcio==1.71.0
     # via opentelemetry-exporter-otlp-proto-grpc

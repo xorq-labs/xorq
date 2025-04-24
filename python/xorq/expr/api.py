@@ -17,6 +17,7 @@ from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_parquet,
     rbr_wrapper,
 )
+from xorq.common.utils.io_utils import extract_suffix
 from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import otel_instrument_reader
 from xorq.expr.ml import (
@@ -48,7 +49,6 @@ if TYPE_CHECKING:
 __all__ = (
     "execute",
     "calc_split_column",
-    "get_plans",
     "read_csv",
     "read_parquet",
     "read_postgres",
@@ -63,6 +63,7 @@ __all__ = (
     "get_plans",
     "deferred_read_csv",
     "deferred_read_parquet",
+    "get_object_metadata",
     *api.__all__,
 )
 
@@ -478,3 +479,16 @@ def get_plans(expr):
     con, _ = find_backend(_expr.op())
     sql = f"EXPLAIN {to_sql(_expr)}"
     return con.con.sql(sql).to_pandas().set_index("plan_type")["plan"].to_dict()
+
+
+def get_object_metadata(path: str, **kwargs: Any) -> dict:
+    from xorq.config import _backend_init
+
+    con = _backend_init()
+
+    suffix = extract_suffix(path).lstrip(".")
+
+    if "storage_options" in kwargs:
+        kwargs["storage_options"] = dict(kwargs.pop("storage_options"))
+
+    return con.con.get_object_metadata(path, suffix, **kwargs)

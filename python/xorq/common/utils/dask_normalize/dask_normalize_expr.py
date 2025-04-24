@@ -258,10 +258,11 @@ def normalize_ibis_datatype(datatype):
 
 @dask.base.normalize_token.register(Read)
 def normalize_read(read):
+    read_kwargs = dict(read.read_kwargs)
     path = next(
         el
         for el in (
-            dict(read.read_kwargs).get(name)
+            read_kwargs.get(name)
             for name in (
                 "path",
                 "source",
@@ -286,12 +287,14 @@ def normalize_read(read):
                     "Content-Type",
                 )
             )
-        elif path.startswith("s3"):
-            raise NotImplementedError
-        elif path.startswith("gs"):
-            from xorq.common.utils.gcloud_utils import get_file_metadata
-
-            tpls = get_file_metadata(path)
+        elif path.startswith(("s3", "gs", "gcs")):
+            metadata = xo.get_object_metadata(
+                path, **{k: v for k, v in read_kwargs.items() if k != "path"}
+            )
+            tpls = tuple(
+                (k, metadata.get(k))
+                for k in ("location", "last_modified", "size", "e_tag", "version")
+            )
         elif (path := pathlib.Path(path)).exists():
             stat = path.stat()
             tpls = tuple(
