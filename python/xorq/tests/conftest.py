@@ -390,3 +390,21 @@ def tmp_model_dir(tmpdir):
     # Create a temporary directory for the model
     model_dir = tmpdir.mkdir("models")
     return model_dir
+
+
+@pytest.fixture(scope="session")
+def dirty_ls_con():
+    con = xo.connect()
+    return con
+
+
+@pytest.fixture(scope="function")
+def ls_con(dirty_ls_con):
+    # since we don't register, maybe just create a fresh con
+    yield dirty_ls_con
+    # drop tables
+    for table_name in dirty_ls_con.list_tables():
+        dirty_ls_con.drop_table(table_name, force=True)
+    # drop view
+    for table_name in dirty_ls_con.list_tables():
+        dirty_ls_con.drop_view(table_name, force=True)

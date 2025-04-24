@@ -183,9 +183,9 @@ smooth_two_col = udwf(
 )
 
 
-def test_smooth_frame(df):
+def test_smooth_frame(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_frame)
 
     query = """
@@ -198,9 +198,9 @@ def test_smooth_frame(df):
     assert actual is not None
 
 
-def test_smooth_default(df):
+def test_smooth_default(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_default)
 
     query = """
@@ -213,9 +213,9 @@ def test_smooth_default(df):
     assert actual is not None
 
 
-def test_smooth_default_partitioned(df):
+def test_smooth_default_partitioned(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_default)
 
     query = """
@@ -228,9 +228,9 @@ def test_smooth_default_partitioned(df):
     assert actual is not None
 
 
-def test_smooth_default_ordered(df):
+def test_smooth_default_ordered(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_default)
 
     query = """
@@ -243,9 +243,9 @@ def test_smooth_default_ordered(df):
     assert actual is not None
 
 
-def test_smooth_bounded(df):
+def test_smooth_bounded(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_bounded)
 
     query = """
@@ -258,9 +258,9 @@ def test_smooth_bounded(df):
     assert actual is not None
 
 
-def test_smooth_bounded_ignores_frame(df):
+def test_smooth_bounded_ignores_frame(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_bounded)
 
     query = """
@@ -278,9 +278,9 @@ def test_smooth_bounded_ignores_frame(df):
     )
 
 
-def test_smooth_frame_bounded(df):
+def test_smooth_frame_bounded(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_frame)
 
     query = """
@@ -297,9 +297,9 @@ def test_smooth_frame_bounded(df):
     )
 
 
-def test_smooth_frame_unbounded(df):
+def test_smooth_frame_unbounded(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_frame)
 
     query = """
@@ -316,9 +316,9 @@ def test_smooth_frame_unbounded(df):
     )
 
 
-def test_smooth_rank(df):
+def test_smooth_rank(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_rank)
 
     query = """
@@ -331,9 +331,9 @@ def test_smooth_rank(df):
     assert actual is not None
 
 
-def test_smooth_two_column(df):
+def test_smooth_two_column(pandas_df):
     con = xo.connect()
-    con.register(df, table_name="t")
+    con.register(pandas_df, table_name="t")
     con.register_udwf(smooth_two_col)
 
     query = """

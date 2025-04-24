@@ -1,232 +1,110 @@
-from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-import numpy as np
-import pandas as pd
-import pandas.testing as tm
+import pyarrow as pa
 import pytest
-import rich.console
 from pytest import param
 
 import xorq as xo
-from xorq.tests.util import assert_frame_equal
+from xorq.tests.util import (
+    assert_frame_equal,
+)
 from xorq.vendor import ibis
 
 
-if TYPE_CHECKING:
-    pass
+def test_register_record_batch_reader(df):
+    con = xo.connect()
+    t = con.register(df, "alltypes")
+    record_batch_reader = t.to_pyarrow_batches()
+    t2 = con.register(record_batch_reader, "t2")
+    actual = xo.execute(t2)
+
+    assert isinstance(record_batch_reader, pa.RecordBatchReader)
+    assert_frame_equal(actual, df)
 
 
-@pytest.fixture
-def new_schema():
-    return xo.schema([("a", "string"), ("b", "bool"), ("c", "int32")])
+def test_register_expr(df):
+    con = xo.connect()
+    t = con.register(df, "alltypes")
+    t2 = con.register(t, "alltypes2")
+    actual = xo.execute(t2)
+    assert_frame_equal(actual, df)
 
 
-def _create_temp_table_with_schema(con, temp_table_name, schema, data=None):
-    temporary = con.create_table(temp_table_name, schema=schema)
-    assert temporary.to_pandas().empty
+def test_execute_nonnull():
+    schema = pa.schema((pa.field("x", pa.int64(), nullable=False),))
+    tab = pa.table({"x": [1, 2, 3]}, schema=schema)
+    con = xo.connect()
+    t = con.register(tab, "my_table")
+    xo.execute(t)
 
-    if data is not None and isinstance(data, pd.DataFrame):
-        assert not data.empty
-        tmp = con.create_table(temp_table_name, data, overwrite=True)
-        result = tmp.to_pandas()
-        assert len(result) == len(data.index)
-        tm.assert_frame_equal(
-            result.sort_values(result.columns[0]).reset_index(drop=True),
-            data.sort_values(result.columns[0]).reset_index(drop=True),
-        )
-        return tmp
 
-    return temporary
+def test_register_record_batch_reader_with_filter(alltypes, df):
+    con = xo.connect()
+    t = con.register(df, "alltypes")
+    record_batch_reader = t.to_pyarrow_batches()
+    t2 = con.register(record_batch_reader, "t2")
+    cols_a = [ca for ca in alltypes.columns.copy() if ca != "timestamp_col"]
+    expr = t2.filter((t2.id >= 5200) & (t2.id <= 5210))[cols_a]
+    xo.execute(expr)
+
+
+def test_create_table(con):
+    import pandas as pd
+
+    con.create_table("UPPERCASE", schema=ibis.schema({"A": "int"}))
+    con.create_table("name", pd.DataFrame({"a": [1]}))
+
+
+def test_register_table_with_uppercase(ls_con):
+    db_con = xo.duckdb.connect()
+    db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
+
+    uppercase_table_name = "UPPERCASE"
+    t = ls_con.register(db_t, uppercase_table_name)
+    assert uppercase_table_name in ls_con.list_tables()
+    assert xo.execute(t) is not None
+
+
+def test_register_table_with_uppercase_multiple_times(ls_con):
+    db_con = xo.duckdb.connect()
+    db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
+
+    uppercase_table_name = "UPPERCASE"
+    ls_con.register(db_t, uppercase_table_name)
+
+    expected_schema = ibis.schema({"B": "int"})
+    db_t = db_con.create_table("lowercase_2", schema=expected_schema)
+    t = ls_con.register(db_t, uppercase_table_name)
+
+    assert uppercase_table_name in ls_con.list_tables()
+    assert xo.execute(t) is not None
+    assert t.schema() == expected_schema
 
 
 @pytest.mark.parametrize(
-    ("expr", "expected"),
+    "keys",
     [
-        param(
-            xo.memtable([(1, 2.0, "3")], columns=list("abc")),
-            pd.DataFrame([(1, 2.0, "3")], columns=list("abc")),
-            id="simple",
-        ),
-        param(
-            xo.memtable([(1, 2.0, "3")]),
-            pd.DataFrame([(1, 2.0, "3")], columns=["col0", "col1", "col2"]),
-            id="simple_auto_named",
-        ),
-        param(
-            xo.memtable(
-                [(1, 2.0, "3")],
-                schema=xo.schema(dict(a="int8", b="float32", c="string")),
-            ),
-            pd.DataFrame([(1, 2.0, "3")], columns=list("abc")).astype(
-                {"a": "int8", "b": "float32"}
-            ),
-            id="simple_schema",
-        ),
-        param(
-            xo.memtable(
-                pd.DataFrame({"a": [1], "b": [2.0], "c": ["3"]}).astype(
-                    {"a": "int8", "b": "float32"}
-                )
-            ),
-            pd.DataFrame([(1, 2.0, "3")], columns=list("abc")).astype(
-                {"a": "int8", "b": "float32"}
-            ),
-            id="dataframe",
-        ),
-        param(
-            xo.memtable([dict(a=1), dict(a=2)]),
-            pd.DataFrame({"a": [1, 2]}),
-            id="list_of_dicts",
-        ),
+        param(tuple(), id="empty"),
+        param((xo.asc("yearID"),), id="one-column"),
+        param((xo.asc("yearID"), xo.desc("stint")), id="two-columns"),
     ],
 )
-def test_in_memory_table(con, expr, expected):
-    result = con.execute(expr)
-    assert_frame_equal(result, expected)
+def test_register_record_batch_reader_sorted(batting_df, keys):
+    con = xo.connect()
+    t = con.register(batting_df, "batting")
 
+    if keys:
+        t = t.order_by(*keys)
 
-def test_filter_memory_table(con):
-    t = xo.memtable([(1, 2), (3, 4), (5, 6)], columns=["x", "y"])
-    expr = t.filter(t.x > 1)
-    expected = pd.DataFrame({"x": [3, 5], "y": [4, 6]})
-    result = con.execute(expr)
-    assert_frame_equal(result, expected)
-
-
-def test_agg_memory_table(con):
-    t = xo.memtable([(1, 2), (3, 4), (5, 6)], columns=["x", "y"])
-    expr = t.x.count()
-    result = con.execute(expr)
-    assert result == 3
-
-
-def test_self_join_memory_table(con):
-    t = xo.memtable({"x": [1, 2], "y": [2, 1], "z": ["a", "b"]})
-    t_view = t.view()
-    expr = t.join(t_view, t.x == t_view.y).select("x", "y", "z", "z_right")
-    result = con.execute(expr).sort_values("x").reset_index(drop=True)
-    expected = pd.DataFrame(
-        {"x": [1, 2], "y": [2, 1], "z": ["a", "b"], "z_right": ["b", "a"]}
+    record_batch_reader = t.select("yearID", "stint").to_pyarrow_batches()
+    t = con.register(
+        record_batch_reader,
+        "t2",
+        ordering=[key.resolve(t) for key in keys],
     )
-    assert_frame_equal(result, expected)
+    expr = t.group_by("yearID").agg(max_tiny=t["stint"].max())
 
-
-@pytest.mark.parametrize("dtype", [None, "f8"])
-def test_dunder_array_table(alltypes, dtype):
-    expr = alltypes.group_by("string_col").int_col.sum().order_by("string_col")
-    result = np.asarray(expr, dtype=dtype)
-    expected = np.asarray(expr.execute(), dtype=dtype)
-    np.testing.assert_array_equal(result, expected)
-
-
-@pytest.mark.parametrize("dtype", [None, "f8"])
-def test_dunder_array_column(alltypes, dtype):
-    from xorq.vendor.ibis import _
-
-    expr = alltypes.group_by("string_col").agg(int_col=_.int_col.sum()).int_col
-    result = np.sort(np.asarray(expr, dtype=dtype))
-    expected = np.sort(np.asarray(xo.execute(expr), dtype=dtype))
-    np.testing.assert_array_equal(result, expected)
-
-
-@pytest.mark.xfail
-@pytest.mark.parametrize("interactive", [True, False])
-def test_repr(alltypes, interactive, monkeypatch):
-    monkeypatch.setattr(xo.options, "interactive", interactive)
-
-    expr = alltypes.select("date_string_col")
-
-    s = repr(expr)
-    # no control characters
-    assert all(c.isprintable() or c in "\n\r\t" for c in s)
-    if interactive:
-        assert "/" in s
+    physical_plan = xo.get_plans(expr)["physical_plan"]
+    ordering_string = "ordering_mode=Sorted"
+    if keys:
+        assert ordering_string in physical_plan
     else:
-        assert "/" not in s
-
-
-@pytest.mark.xfail
-@pytest.mark.parametrize("show_types", [True, False])
-def test_interactive_repr_show_types(alltypes, show_types, monkeypatch):
-    monkeypatch.setattr(xo.options, "interactive", True)
-    monkeypatch.setattr(xo.options.repr.interactive, "show_types", show_types)
-
-    expr = alltypes.select("id")
-    s = repr(expr)
-    if show_types:
-        assert "int" in s
-    else:
-        assert "int" not in s
-
-
-@pytest.mark.xfail
-@pytest.mark.parametrize("is_jupyter", [True, False])
-def test_interactive_repr_max_columns(alltypes, is_jupyter, monkeypatch):
-    monkeypatch.setattr(xo.options, "interactive", True)
-
-    cols = {f"c_{i}": ibis._.id + i for i in range(50)}
-    expr = alltypes.mutate(**cols).select(*cols)
-
-    console = rich.console.Console(force_jupyter=is_jupyter, width=80)
-    options = console.options.copy()
-
-    # max_columns = 0
-    text = "".join(s.text for s in console.render(expr, options))
-    assert " c_0 " in text
-    if is_jupyter:
-        # All columns are written
-        assert " c_49 " in text
-    else:
-        # width calculations truncate well before 20 columns
-        assert " c_19 " not in text
-
-    # max_columns = 3
-    monkeypatch.setattr(xo.options.repr.interactive, "max_columns", 3)
-    text = "".join(s.text for s in console.render(expr, options))
-    assert " c_2 " in text
-    assert " c_3 " not in text
-
-    # max_columns = None
-    monkeypatch.setattr(xo.options.repr.interactive, "max_columns", None)
-    text = "".join(s.text for s in console.render(expr, options))
-    assert " c_0 " in text
-    if is_jupyter:
-        # All columns written
-        assert " c_49 " in text
-    else:
-        # width calculations still truncate
-        assert " c_19 " not in text
-
-
-@pytest.mark.xfail
-@pytest.mark.parametrize("expr_type", ["table", "column"])
-@pytest.mark.parametrize("interactive", [True, False])
-def test_repr_mimebundle(alltypes, interactive, expr_type, monkeypatch):
-    monkeypatch.setattr(xo.options, "interactive", interactive)
-
-    if expr_type == "column":
-        expr = alltypes.date_string_col
-    else:
-        expr = alltypes.select("date_string_col")
-
-    reprs = expr._repr_mimebundle_(include=["text/plain", "text/html"], exclude=[])
-    for fmt in ["text/plain", "text/html"]:
-        if interactive:
-            assert "r0.date_string_col" not in reprs[fmt]
-        else:
-            assert "r0.date_string_col" in reprs[fmt]
-
-
-@pytest.mark.parametrize(
-    "option", ["max_rows", "max_length", "max_string", "max_depth"]
-)
-def test_ibis_config_wrapper(option, monkeypatch):
-    from xorq.vendor import ibis
-
-    xorq_option_value = getattr(xo.options.repr.interactive, option)
-    assert xorq_option_value == getattr(ibis.options.repr.interactive, option)
-
-    monkeypatch.setattr(xo.options.repr.interactive, option, xorq_option_value + 1)
-    assert getattr(ibis.options.repr.interactive, option) == xorq_option_value + 1
+        assert ordering_string not in physical_plan

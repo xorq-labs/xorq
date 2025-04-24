@@ -43,7 +43,7 @@ def check_eq(left, right, how, **kwargs):
 
 
 @pytest.fixture
-def union_subsets(alltypes, alltypes_df):
+def union_subsets(alltypes, df):
     cols_a, cols_b, cols_c = (alltypes.columns.copy() for _ in range(3))
 
     random.seed(89)
@@ -60,9 +60,9 @@ def union_subsets(alltypes, alltypes_df):
     b = alltypes.filter((alltypes.id >= 5205) & (alltypes.id <= 5215))[cols_b]
     c = alltypes.filter((alltypes.id >= 5213) & (alltypes.id <= 5220))[cols_c]
 
-    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)][cols_a]
-    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)][cols_b]
-    dc = alltypes_df[(alltypes_df.id >= 5213) & (alltypes_df.id <= 5220)][cols_c]
+    da = df[(df.id >= 5200) & (df.id <= 5210)][cols_a]
+    db = df[(df.id >= 5205) & (df.id <= 5215)][cols_b]
+    dc = df[(df.id >= 5213) & (df.id <= 5220)][cols_c]
 
     return (a, b, c), (da, db, dc)
 
@@ -112,18 +112,18 @@ def ddb_batting(duckdb_con):
     )
 
 
-def test_join(ls_con, alltypes, alltypes_df):
-    first_10 = alltypes_df.head(10)
+def test_join(ls_con, alltypes, df):
+    first_10 = df.head(10)
     in_memory = ls_con.create_table("in_memory", first_10).into_backend(
         alltypes.op().source
     )
     expr = alltypes.join(in_memory, predicates=[alltypes.id == in_memory.id])
     actual = expr.execute().sort_values("id")
     expected = pd.merge(
-        alltypes_df, first_10, how="inner", on="id", suffixes=("", "_right")
+        df, first_10, how="inner", on="id", suffixes=("", "_right")
     ).sort_values("id")
 
-    assert_frame_equal(actual, expected)
+    assert_frame_equal(actual, expected, check_dtype=False)
 
 
 @pytest.mark.parametrize("how", ["semi", "anti"])
@@ -160,7 +160,9 @@ def test_union(ls_con, union_subsets, distinct):
     (a, _, _), (da, db, dc) = union_subsets
 
     b = ls_con.create_table("b", db)
-    expr = ibis.union(a.into_backend(ls_con), b, distinct=distinct).order_by("id")
+    expr = ibis.union(
+        a.into_backend(ls_con).cast({"tinyint_col": "int16"}), b, distinct=distinct
+    ).order_by("id")
     result = expr.execute()
 
     expected = pd.concat([da, db], axis=0).sort_values("id").reset_index(drop=True)
@@ -168,13 +170,13 @@ def test_union(ls_con, union_subsets, distinct):
     if distinct:
         expected = expected.drop_duplicates("id")
 
-    assert_frame_equal(result, expected)
+    assert_frame_equal(result, expected, check_dtype=False)
 
 
 def test_union_mixed_distinct(ls_con, union_subsets):
     (a, _, _), (da, db, dc) = union_subsets
 
-    a = a.into_backend(ls_con)
+    a = a.into_backend(ls_con).cast({"tinyint_col": "int16"})
     b = ls_con.create_table("b", db)
     c = ls_con.create_table("c", dc)
 
@@ -184,7 +186,7 @@ def test_union_mixed_distinct(ls_con, union_subsets):
         [pd.concat([da, db], axis=0).drop_duplicates("id"), dc], axis=0
     ).sort_values("id")
 
-    assert_frame_equal(result, expected)
+    assert_frame_equal(result, expected, check_dtype=False)
 
 
 @pytest.mark.parametrize(

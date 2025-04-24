@@ -47,6 +47,11 @@ def pg():
 
 
 @pytest.fixture(scope="session")
+def pg_batting(pg):
+    return pg.table("batting")
+
+
+@pytest.fixture(scope="session")
 def root_dir():
     return Path(__file__).absolute().parents[2]
 

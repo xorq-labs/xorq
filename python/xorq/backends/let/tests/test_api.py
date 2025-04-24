@@ -1,102 +1,156 @@
+from __future__ import annotations
+
+from typing import Callable
+
+import pandas as pd
 import pytest
+from pytest import param
 
 import xorq as xo
+import xorq.vendor.ibis.expr.types as ir
+from xorq.tests.conftest import TEST_TABLES
 
 
-def test_register_read_csv(csv_dir):
-    # this will use ls.options.backend: do we want to clear it out between function invocations?
-    api_batting = xo.read_csv(csv_dir / "batting.csv", table_name="api_batting")
-    result = xo.execute(api_batting)
-
-    assert result is not None
-
-
-def test_register_read_parquet(parquet_dir):
-    # this will use ls.options.backend: do we want to clear it out between function invocations?
-    api_batting = xo.read_parquet(
-        parquet_dir / "batting.parquet", table_name="api_batting"
-    )
-    result = xo.execute(api_batting)
-
-    assert result is not None
+def test_list_tables(con):
+    tables = con.list_tables()
+    assert isinstance(tables, list)
+    key = "functional_alltypes"
+    assert key in tables or key.upper() in tables
+    assert all(isinstance(table, str) for table in tables)
 
 
-@pytest.mark.xfail(reason="No purpose with no registration api")
-def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
-    con = xo.config._backend_init()
-    spy = mocker.spy(con, "execute")
+def test_tables_accessor_mapping(con):
+    if con.name == "snowflake":
+        pytest.skip("snowflake sometimes counts more tables than are around")
 
-    parquet_table = xo.read_parquet(parquet_dir / "batting.parquet")[
-        lambda t: t.yearID == 2015
-    ]
+    name = "functional_alltypes"
 
-    csv_table = xo.read_csv(csv_dir / "batting.csv")[lambda t: t.yearID == 2014]
+    assert isinstance(con.tables[name], ir.Table)
 
-    expr = parquet_table.join(
-        csv_table,
-        "playerID",
-    )
+    with pytest.raises(KeyError, match="doesnt_exist"):
+        con.tables["doesnt_exist"]
 
-    assert xo.execute(expr) is not None
-    assert spy.call_count == 1
+    # temporary might pop into existence in parallel test runs, in between the
+    # first `list_tables` call and the second, so we check that there's a
+    # non-empty intersection
+    assert TEST_TABLES.keys() & set(map(str.lower, con.list_tables()))
+    assert TEST_TABLES.keys() & set(map(str.lower, con.tables))
 
 
-def test_read_postgres():
-    import os
+def test_tables_accessor_getattr(con):
+    name = "functional_alltypes"
+    assert isinstance(getattr(con.tables, name), ir.Table)
 
-    uri = (
-        f"postgres://{os.environ['POSTGRES_USER']}:"
-        f"{os.environ['POSTGRES_PASSWORD']}@"
-        f"{os.environ['POSTGRES_HOST']}:"
-        f"{os.environ['POSTGRES_PORT']}/"
-        f"{os.environ['POSTGRES_DATABASE']}"
-    )
-    t = xo.read_postgres(uri, table_name="batting")
-    res = xo.execute(t)
+    with pytest.raises(AttributeError, match="doesnt_exist"):
+        con.tables.doesnt_exist  # noqa: B018
 
-    assert res is not None and len(res)
+    # Underscore/double-underscore attributes are never available, since many
+    # python apis expect that checking for the absence of these to be cheap.
+    with pytest.raises(AttributeError, match="_private_attr"):
+        con.tables._private_attr  # noqa: B018
 
 
-@pytest.mark.xfail
-def test_read_sqlite(tmp_path):
-    import sqlite3
+def test_tables_accessor_tab_completion(con):
+    name = "functional_alltypes"
+    attrs = dir(con.tables)
+    assert name in attrs
+    assert "keys" in attrs  # type methods also present
 
-    xo.options.interactive = True
-    db_path = tmp_path / "sqlite.db"
-    with sqlite3.connect(db_path) as sq3:
-        sq3.execute("DROP TABLE IF EXISTS t")
-        sq3.execute("CREATE TABLE t (a INT, b TEXT)")
-        sq3.execute("INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')")
-    t = xo.read_sqlite(path=db_path, table_name="t")
-    res = xo.execute(t)
+    keys = con.tables._ipython_key_completions_()
+    assert name in keys
 
-    assert res is not None and len(res)
+
+def test_tables_accessor_repr(con):
+    name = "functional_alltypes"
+    result = repr(con.tables)
+    assert f"- {name}" in result
 
 
 @pytest.mark.parametrize(
-    ("with_repartition_file_scans", "keep_partition_by_columns"),
-    [(True, True), (True, False), (False, True), (False, False)],
+    "expr_fn",
+    [
+        param(lambda t: t.limit(5).limit(10), id="small_big"),
+        param(lambda t: t.limit(10).limit(5), id="big_small"),
+    ],
 )
-def test_with_config(
-    with_repartition_file_scans, keep_partition_by_columns, parquet_dir
-):
-    import pandas as pd
-
-    from xorq import SessionConfig
-
-    session_config = (
-        SessionConfig()
-        .with_repartition_file_scans(with_repartition_file_scans)
-        .set(
-            "datafusion.execution.keep_partition_by_columns",
-            str(keep_partition_by_columns).lower(),
-        )
-    )
-
-    con = xo.connect(session_config=session_config)
-
-    expr = con.read_parquet(parquet_dir / "batting.parquet").limit(10)
+def test_limit_chain(alltypes, expr_fn):
+    expr = expr_fn(alltypes)
     result = expr.execute()
+    assert len(result) == 5
 
-    assert isinstance(result, pd.DataFrame)
-    assert len(result) == 10
+
+@pytest.mark.xfail
+@pytest.mark.parametrize(
+    "expr_fn",
+    [
+        param(lambda t: t, id="alltypes table"),
+        param(lambda t: t.join(t.view(), [("id", "int_col")]), id="self join"),
+    ],
+)
+def test_unbind(alltypes, expr_fn: Callable):
+    xo.options.interactive = False
+
+    expr = expr_fn(alltypes)
+    assert expr.unbind() != expr
+    assert expr.unbind().schema() == expr.schema()
+
+    assert "Unbound" not in repr(expr)
+    assert "Unbound" in repr(expr.unbind())
+
+
+@pytest.mark.parametrize(
+    ("extension", "method"),
+    [("parquet", xo.read_parquet), ("csv", xo.read_csv)],
+)
+def test_read(data_dir, extension, method):
+    table = method(
+        data_dir / extension / f"batting.{extension}", table_name=f"batting-{extension}"
+    )
+    assert table.execute() is not None
+
+
+@pytest.mark.parametrize(
+    ("extension", "write", "read"),
+    [
+        (
+            "parquet",
+            xo.to_parquet,
+            lambda path, schema: xo.read_parquet(
+                path, schema=schema.to_pyarrow()
+            ).execute(),
+        ),
+        (
+            "csv",
+            xo.to_csv,
+            lambda path, schema: xo.read_csv(
+                path, schema=schema.to_pyarrow()
+            ).execute(),
+        ),
+        (
+            "json",
+            xo.to_json,
+            lambda path, schema: pd.read_json(
+                path, lines=True, dtype=dict(schema.to_pandas())
+            ),
+        ),
+    ],
+)
+def test_write(alltypes, df, tmp_path, extension, write, read):
+    output_path = tmp_path / f"alltypes.{extension}"
+    write(alltypes, output_path)
+    actual = read(output_path, alltypes.schema())
+
+    assert output_path.exists()
+    assert output_path.stat().st_size > 0
+    assert isinstance(actual, pd.DataFrame)
+
+
+@pytest.mark.parametrize(
+    "method",
+    [
+        "deferred_read_csv",
+        "deferred_read_parquet",
+    ],
+)
+def test_deferred_read(method):
+    assert hasattr(xo, method)

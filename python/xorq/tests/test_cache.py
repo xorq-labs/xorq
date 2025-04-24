@@ -57,7 +57,7 @@ def pg_alltypes(pg):
     return pg.table("functional_alltypes")
 
 
-def test_cache_simple(con, alltypes, alltypes_df):
+def test_cache_simple(con, alltypes, df):
     initial_tables = con.list_tables()
 
     expr = alltypes.select(
@@ -72,10 +72,10 @@ def test_cache_simple(con, alltypes, alltypes_df):
     cached = expr.cache(storage=SourceStorage(source=con))
     tables_after_caching = con.list_tables()
 
-    expected = alltypes_df[
-        (alltypes_df["float_col"] > 0)
-        & (alltypes_df["smallint_col"] == 9)
-        & (alltypes_df["int_col"] < alltypes_df["float_col"] * 2)
+    expected = df[
+        (df["float_col"] > 0)
+        & (df["smallint_col"] == 9)
+        & (df["int_col"] < df["float_col"] * 2)
     ][["smallint_col", "int_col", "float_col"]]
 
     executed = cached.execute()
@@ -92,7 +92,7 @@ def test_cache_simple(con, alltypes, alltypes_df):
     )
 
 
-def test_cache_multiple_times(con, alltypes, alltypes_df):
+def test_cache_multiple_times(con, alltypes, df):
     expr = alltypes.select(
         alltypes.smallint_col, alltypes.int_col, alltypes.float_col
     ).filter(
@@ -123,10 +123,10 @@ def test_cache_multiple_times(con, alltypes, alltypes_df):
     second = re_cached.execute()
     tables_after_second_caching = con.list_tables()
 
-    expected = alltypes_df[
-        (alltypes_df["float_col"] > 0)
-        & (alltypes_df["smallint_col"] == 9)
-        & (alltypes_df["int_col"] < alltypes_df["float_col"] * 2)
+    expected = df[
+        (df["float_col"] > 0)
+        & (df["smallint_col"] == 9)
+        & (df["int_col"] < df["float_col"] * 2)
     ][["smallint_col", "int_col", "float_col"]]
 
     assert_frame_equal(first, expected)
@@ -192,9 +192,9 @@ def test_cache_recreate(alltypes):
             ]
         )
 
-    alltypes_df = alltypes.execute()
+    df = alltypes.execute()
     cons = (con0, con1) = xo.connect(), xo.connect()
-    ts = tuple(con.create_table("alltypes", alltypes_df) for con in cons)
+    ts = tuple(con.create_table("alltypes", df) for con in cons)
     exprs = tuple(make_expr(t) for t in ts)
 
     for con, expr in zip(cons, exprs):
@@ -251,16 +251,16 @@ def test_cache_execution(alltypes):
     assert_frame_equal(actual, expected)
 
 
-def test_parquet_cache_storage(tmp_path, alltypes_df):
+def test_parquet_cache_storage(tmp_path, df):
     tmp_path = pathlib.Path(tmp_path)
     path = tmp_path.joinpath("to-delete.parquet")
 
     con = xo.connect()
-    alltypes_df.to_parquet(path)
+    df.to_parquet(path)
     t = con.read_parquet(path, "t")
     cols = ["id", "bool_col", "float_col", "string_col"]
     expr = t[cols]
-    expected = alltypes_df[cols]
+    expected = df[cols]
     source = expr._find_backend()
     storage = ParquetStorage(
         source=source,
@@ -271,7 +271,7 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     assert_frame_equal(actual, expected)
 
     # the file must exist and have the same schema
-    alltypes_df.head(1).to_parquet(path)
+    df.head(1).to_parquet(path)
     actual = cached.execute()
     assert_frame_equal(actual, expected)
 
@@ -674,13 +674,13 @@ def test_cache_default_path_set(pg, ls_con, tmp_path):
     assert cache_files
 
 
-def test_pandas_snapshot(ls_con, alltypes_df):
+def test_pandas_snapshot(ls_con, df):
     group_by = "year"
     name = ibis.util.gen_name("tmp_table")
 
     # create a temp table we can mutate
     pd_con = xo.pandas.connect()
-    table = pd_con.create_table(name, alltypes_df)
+    table = pd_con.create_table(name, df)
 
     cached_expr = (
         table.group_by(group_by)
@@ -706,7 +706,7 @@ def test_pandas_snapshot(ls_con, alltypes_df):
 
     # test NO cache invalidation
     pd_con.reconnect()
-    table2 = pd_con.create_table(name, pd.concat((alltypes_df, alltypes_df)))
+    table2 = pd_con.create_table(name, pd.concat((df, df)))
 
     cached_expr = (
         table2.group_by(group_by)
@@ -726,13 +726,13 @@ def test_pandas_snapshot(ls_con, alltypes_df):
     assert not executed0.equals(executed2)
 
 
-def test_duckdb_snapshot(ls_con, alltypes_df):
+def test_duckdb_snapshot(ls_con, df):
     group_by = "year"
     name = ibis.util.gen_name("tmp_table")
 
     # create a temp table we can mutate
     db_con = xo.duckdb.connect()
-    table = db_con.create_table(name, alltypes_df)
+    table = db_con.create_table(name, df)
 
     cached_expr = (
         table.group_by(group_by)
@@ -753,7 +753,7 @@ def test_duckdb_snapshot(ls_con, alltypes_df):
     assert executed0.equals(executed1)
 
     # test NO cache invalidation
-    db_con.insert(name, alltypes_df)
+    db_con.insert(name, df)
     executed2 = cached_expr.execute()
     executed3 = cached_expr.ls.uncached.execute()
     assert executed0.equals(executed2)
@@ -761,13 +761,13 @@ def test_duckdb_snapshot(ls_con, alltypes_df):
     assert storage.get_key(uncached).count(KEY_PREFIX) == 1
 
 
-def test_datafusion_snapshot(ls_con, alltypes_df):
+def test_datafusion_snapshot(ls_con, df):
     group_by = "year"
     name = ibis.util.gen_name("tmp_table")
 
     # create a temp table we can mutate
     df_con = xo.datafusion.connect()
-    table = df_con.create_table(name, alltypes_df)
+    table = df_con.create_table(name, df)
 
     cached_expr = (
         table.group_by(group_by)
@@ -788,7 +788,7 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     assert executed0.equals(executed1)
 
     # test NO cache invalidation
-    df_con.insert(name, alltypes_df)
+    df_con.insert(name, df)
     executed2 = cached_expr.execute()
     executed3 = cached_expr.ls.uncached.execute()
     assert executed0.equals(executed2)
@@ -797,7 +797,7 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
 
 
 @pytest.mark.snapshot_check
-def test_udf_caching(ls_con, alltypes_df, snapshot):
+def test_udf_caching(ls_con, df, snapshot):
     @xo.udf.scalar.pyarrow
     def my_mul(tinyint_col: dt.int16, smallint_col: dt.int16) -> dt.int16:
         return pc.multiply(tinyint_col, smallint_col)
@@ -813,12 +813,12 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
     cols = list(inspect.signature(my_mul).parameters)
 
     expr = (
-        ls_con.create_table("alltypes", alltypes_df)[cols]
+        ls_con.create_table("alltypes", df)[cols]
         .pipe(lambda t: t.mutate(mulled=my_mul(*(t[col] for col in cols))))
         .cache()
     )
     from_ls = expr.execute()
-    from_pandas = alltypes_df[cols].assign(mulled=wrapper(my_mul))
+    from_pandas = df[cols].assign(mulled=wrapper(my_mul))
     assert from_ls.equals(from_pandas)
 
     py_version = f"py{get_python_version_no_dot()}"
@@ -826,16 +826,16 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
 
 
 @pytest.mark.snapshot_check
-def test_udaf_caching(ls_con, alltypes_df, snapshot):
+def test_udaf_caching(ls_con, df, snapshot):
     def my_mul_sum(df):
         return df.sum().sum()
 
     cols = ["tinyint_col", "smallint_col"]
-    ibis_output_type = dt.infer(alltypes_df[cols].sum().sum())
+    ibis_output_type = dt.infer(df[cols].sum().sum())
     by = "bool_col"
     name = "my_mul_sum"
 
-    t = ls_con.create_table("alltypes", alltypes_df)
+    t = ls_con.create_table("alltypes", df)
     agg_udf = agg.pandas_df(
         my_mul_sum,
         t[cols].schema(),
@@ -843,7 +843,7 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
         name=name,
     )
     from_pandas = (
-        alltypes_df.groupby(by)[cols]
+        df.groupby(by)[cols]
         .apply(my_mul_sum)
         .rename(name)
         .reset_index()
@@ -879,12 +879,12 @@ def test_caching_pandas(csv_dir):
 
 
 @pytest.mark.parametrize("expr_con", [xo.datafusion.connect(), xo.duckdb.connect()])
-def test_cross_source_snapshot(ls_con, alltypes_df, expr_con):
+def test_cross_source_snapshot(ls_con, df, expr_con):
     group_by = "year"
     name = ibis.util.gen_name("tmp_table")
 
     # create a temp table we can mutate
-    table = expr_con.create_table(name, alltypes_df)
+    table = expr_con.create_table(name, df)
 
     storage = ParquetSnapshotStorage(source=ls_con)
 
@@ -899,21 +899,21 @@ def test_cross_source_snapshot(ls_con, alltypes_df, expr_con):
     assert storage.source is not expr_con  # the cache is cross source
 
     # test cache creation
-    df = cached_expr.execute()
+    expr_df = cached_expr.execute()
 
-    assert not df.empty
+    assert not expr_df.empty
     assert storage.exists(expr)
 
     # test cache use
     executed1 = cached_expr.execute()
-    assert df.equals(executed1)
+    assert expr_df.equals(executed1)
 
     # test NO cache invalidation
-    expr_con.insert(name, alltypes_df)
+    expr_con.insert(name, df)
     executed2 = cached_expr.execute()
     executed3 = cached_expr.ls.uncached.execute()
-    assert df.equals(executed2)
-    assert not df.equals(executed3)
+    assert expr_df.equals(executed2)
+    assert not expr_df.equals(executed3)
 
 
 def test_storage_exists_doesnt_materialize(cached_two):

@@ -91,8 +91,8 @@ def my_sum(arr: dt.float64) -> dt.float64:
     return pc.sum(arr)
 
 
-def test_group_by_udf_agg_pyarrow(ls_con, alltypes_df):
-    alltypes = ls_con.register(alltypes_df, "pg-alltypes")
+def test_group_by_udf_agg_pyarrow(ls_con, df):
+    alltypes = ls_con.register(df, "pg-alltypes")
 
     expr = (
         alltypes[_.string_col == "1"]
@@ -103,7 +103,7 @@ def test_group_by_udf_agg_pyarrow(ls_con, alltypes_df):
 
     result = xo.execute(expr).astype({"x": "int64"})
     expected = (
-        alltypes_df.loc[alltypes_df.string_col == "1", :]
+        df.loc[df.string_col == "1", :]
         .assign(x=1)
         .groupby("x")
         .double_col.sum()

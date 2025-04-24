@@ -173,9 +173,9 @@ def smooth_two_col(self, values: list[pa.Array], num_rows: int) -> pa.Array:
         (ibis.window(order_by=_.b), [0.551, 1.13, 2.3, 2.755, 3.876, 5.0, 5.513]),
     ],
 )
-def test_smooth_default(df, window, expected):
+def test_smooth_default(pandas_df, window, expected):
     con = xo.connect()
-    t = con.register(df, table_name="t")
+    t = con.register(pandas_df, table_name="t")
 
     expr = t.select(
         t.a,
@@ -188,9 +188,9 @@ def test_smooth_default(df, window, expected):
     np.testing.assert_allclose(actual, expected, rtol=1e-3)
 
 
-def test_smooth_bounded(df):
+def test_smooth_bounded(pandas_df):
     con = xo.connect()
-    t = con.register(df, table_name="t")
+    t = con.register(pandas_df, table_name="t")
 
     expr = t.select(
         t.a,
@@ -203,9 +203,9 @@ def test_smooth_bounded(df):
     np.testing.assert_allclose(actual, [0, 0.9, 1.9, 2.9, 3.9, 4.9, 5.9], rtol=1e-3)
 
 
-def test_smooth_two_column(df):
+def test_smooth_two_column(pandas_df):
     con = xo.connect()
-    t = con.register(df, table_name="t")
+    t = con.register(pandas_df, table_name="t")
 
     expr = t.select(
         t.a,
@@ -218,9 +218,9 @@ def test_smooth_two_column(df):
     np.testing.assert_allclose(actual, [0.0, 1.0, 2.0, 2.2, 3.2, 5.0, 6.0], rtol=1e-3)
 
 
-def test_smooth_rank(df):
+def test_smooth_rank(pandas_df):
     con = xo.connect()
-    t = con.register(df, table_name="t")
+    t = con.register(pandas_df, table_name="t")
 
     expr = t.select(
         t.a,
@@ -244,9 +244,9 @@ def test_smooth_rank(df):
         ),
     ],
 )
-def test_smooth_frame_bounded(df, window, expected):
+def test_smooth_frame_bounded(pandas_df, window, expected):
     con = xo.connect()
-    t = con.register(df, table_name="t")
+    t = con.register(pandas_df, table_name="t")
 
     expr = t.select(
         t.a,
