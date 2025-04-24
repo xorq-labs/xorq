@@ -5,6 +5,111 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.1] - 2025-04-24
+### Details
+This release includes numerous additions, like MCP server support, GC Storage integration, and OTEL instrumentation,
+alongside extensive updates to dependencies and developer tools through Renovate bot automation.
+Multiple fixes addressed type handling, schema management, and file reading functionality across various object storage, including S3 and GCS. Several refactoring efforts improved code organization by factoring out helpers, enabling features like memtable, AggUDF,
+and ExprScalarUDF while removing redundant components like the compiler and external dependencies.
+
+#### Added
+- Add mcp server example by @hussainsultan in [#731](https://github.com/xorq-labs/xorq/pull/731)
+- Add files for pure-pypi uv env by @dlovell in [#742](https://github.com/xorq-labs/xorq/pull/742)
+- Add workflow for checking PR titles by @mesejo in [#716](https://github.com/xorq-labs/xorq/pull/716)
+- Add default value to expr_name by @dlovell in [#748](https://github.com/xorq-labs/xorq/pull/748)
+- Add top level --pdb and drop into post mortem on failure by @dlovell in [#753](https://github.com/xorq-labs/xorq/pull/753)
+- Additional checks by @dlovell in [#810](https://github.com/xorq-labs/xorq/pull/810)
+- Add test for query schema action by @hussainsultan in [#822](https://github.com/xorq-labs/xorq/pull/822)
+- Add normalization GCS path by @mesejo in [#829](https://github.com/xorq-labs/xorq/pull/829)
+- Add GCStorage by @dlovell in [#838](https://github.com/xorq-labs/xorq/pull/838)
+- Add virtualenv-default by @dlovell in [#841](https://github.com/xorq-labs/xorq/pull/841)
+- Add read_record_batches to Snowflake Backend by @mesejo in [#834](https://github.com/xorq-labs/xorq/pull/834)
+- Add env_utils, EnvConfigable by @dlovell in [#843](https://github.com/xorq-labs/xorq/pull/843)
+- Add env vars to reduce uv actions by @dlovell in [#844](https://github.com/xorq-labs/xorq/pull/844)
+- Add otel instrumentation by @dlovell in [#845](https://github.com/xorq-labs/xorq/pull/845)
+- Add get_object_metadata to SessionContext by @mesejo in [#865](https://github.com/xorq-labs/xorq/pull/865)
+- Add normalization for s3 and gcs objects by @mesejo in [#871](https://github.com/xorq-labs/xorq/pull/871)
+
+#### Changed
+- Update README with xorq info by @mesejo in [#741](https://github.com/xorq-labs/xorq/pull/741)
+- Make github-actions dependencies pin by @mesejo in [#744](https://github.com/xorq-labs/xorq/pull/744)
+- Update dependency node to v22 by @renovate[bot] in [#743](https://github.com/xorq-labs/xorq/pull/743)
+- Pin dependencies by @renovate[bot] in [#745](https://github.com/xorq-labs/xorq/pull/745)
+- Enable writing to stdout by @dlovell in [#757](https://github.com/xorq-labs/xorq/pull/757)
+- Update to datafusion 46 by @mesejo in [#724](https://github.com/xorq-labs/xorq/pull/724)
+- Define fixture fixture_dir by @dlovell in [#761](https://github.com/xorq-labs/xorq/pull/761)
+- Enable renovatebot for pre-commit dependencies by @mesejo in [#770](https://github.com/xorq-labs/xorq/pull/770)
+- Make git diff message explicit and descriptive by @mesejo in [#774](https://github.com/xorq-labs/xorq/pull/774)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.6.11 by @renovate[bot] in [#773](https://github.com/xorq-labs/xorq/pull/773)
+- Upgrade requirements-dev.txt to uv 0.6.11 format by @mesejo in [#775](https://github.com/xorq-labs/xorq/pull/775)
+- Update pre-commit hook codespell-project/codespell to v2.4.1 by @renovate[bot] in [#771](https://github.com/xorq-labs/xorq/pull/771)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.11.2 by @renovate[bot] in [#772](https://github.com/xorq-labs/xorq/pull/772)
+- Enable xorq buildable by @dlovell in [#764](https://github.com/xorq-labs/xorq/pull/764)
+- Update dependency coverage to v7.8.0 by @renovate[bot] in [#769](https://github.com/xorq-labs/xorq/pull/769)
+- Centralised postgres connection fixture by @mesejo in [#776](https://github.com/xorq-labs/xorq/pull/776)
+- Register Alias in ibis_yaml translate by @dlovell in [#783](https://github.com/xorq-labs/xorq/pull/783)
+- Register Round by @dlovell in [#790](https://github.com/xorq-labs/xorq/pull/790)
+- Update dependency pytest-cov to v6.1.0 by @renovate[bot] in [#791](https://github.com/xorq-labs/xorq/pull/791)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.6.12 by @renovate[bot] in [#796](https://github.com/xorq-labs/xorq/pull/796)
+- Enable memtable by @dlovell in [#784](https://github.com/xorq-labs/xorq/pull/784)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.11.4 by @renovate[bot] in [#800](https://github.com/xorq-labs/xorq/pull/800)
+- Update bitnami/minio docker tag to v2025.4.3 by @renovate[bot] in [#801](https://github.com/xorq-labs/xorq/pull/801)
+- Update dependency ruff to v0.11.4 by @renovate[bot] in [#799](https://github.com/xorq-labs/xorq/pull/799)
+- Enable memtable test by @mesejo in [#804](https://github.com/xorq-labs/xorq/pull/804)
+- Enable `AggUDF` by @dlovell in [#807](https://github.com/xorq-labs/xorq/pull/807)
+- Update dependency pytest-cov to v6.1.1 by @renovate[bot] in [#808](https://github.com/xorq-labs/xorq/pull/808)
+- Factor out helpers by @dlovell in [#811](https://github.com/xorq-labs/xorq/pull/811)
+- Make PR description compact by @mesejo in [#814](https://github.com/xorq-labs/xorq/pull/814)
+- Update codecov badge in README by @mesejo in [#825](https://github.com/xorq-labs/xorq/pull/825)
+- Rationalize helpers by @dlovell in [#818](https://github.com/xorq-labs/xorq/pull/818)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.6.13 by @renovate[bot] in [#821](https://github.com/xorq-labs/xorq/pull/821)
+- Update dependency ipython to <9.2.0,>=8.19.0 by @renovate[bot] in [#815](https://github.com/xorq-labs/xorq/pull/815)
+- Enable exprscalarudf by @dlovell in [#813](https://github.com/xorq-labs/xorq/pull/813)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.6.14 by @renovate[bot] in [#831](https://github.com/xorq-labs/xorq/pull/831)
+- Update bitnami/minio docker tag to v2025.4.8 by @renovate[bot] in [#827](https://github.com/xorq-labs/xorq/pull/827)
+- Update dependency ruff to v0.11.5 by @renovate[bot] in [#832](https://github.com/xorq-labs/xorq/pull/832)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.11.5 by @renovate[bot] in [#833](https://github.com/xorq-labs/xorq/pull/833)
+- Use gcs built in uri ctor by @dlovell in [#839](https://github.com/xorq-labs/xorq/pull/839)
+- Update google-github-actions/auth action to v2 by @renovate[bot] in [#835](https://github.com/xorq-labs/xorq/pull/835)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.11.6 by @renovate[bot] in [#847](https://github.com/xorq-labs/xorq/pull/847)
+- Update dependency ruff to v0.11.6 by @renovate[bot] in [#846](https://github.com/xorq-labs/xorq/pull/846)
+- Update dependency ruff to v0.11.6 by @renovate[bot] in [#848](https://github.com/xorq-labs/xorq/pull/848)
+- Update codecov/codecov-action action to v5.4.2 by @renovate[bot] in [#842](https://github.com/xorq-labs/xorq/pull/842)
+- Gcstorage improvement by @dlovell in [#863](https://github.com/xorq-labs/xorq/pull/863)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.6.16 by @renovate[bot] in [#864](https://github.com/xorq-labs/xorq/pull/864)
+- Update bitnami/minio docker tag to v2025.4.22 by @renovate[bot] in [#869](https://github.com/xorq-labs/xorq/pull/869)
+- Avoid double rust compilation and use cargo cache by @mesejo in [#873](https://github.com/xorq-labs/xorq/pull/873)
+- Update trinodb/trino docker tag to v475 by @renovate[bot] in [#876](https://github.com/xorq-labs/xorq/pull/876)
+- Use python 3.10 by @mesejo in [#877](https://github.com/xorq-labs/xorq/pull/877)
+
+#### Fixed
+- Specify the correct type when raising on incorrect type by @dlovell in [#747](https://github.com/xorq-labs/xorq/pull/747)
+- Require explicit variable for tests by @dlovell in [#749](https://github.com/xorq-labs/xorq/pull/749)
+- Read_csv_rbr: ensure Schema by @dlovell in [#751](https://github.com/xorq-labs/xorq/pull/751)
+- Update dependency fsspec to >=2024.6.1,<2025.3.2 by @renovate[bot] in [#768](https://github.com/xorq-labs/xorq/pull/768)
+- Test cli on select examples by @dlovell in [#763](https://github.com/xorq-labs/xorq/pull/763)
+- Dont raise blocking raise by @dlovell in [#765](https://github.com/xorq-labs/xorq/pull/765)
+- Read with schema by @dlovell in [#766](https://github.com/xorq-labs/xorq/pull/766)
+- Fix Mod deserialization by @dlovell in [#778](https://github.com/xorq-labs/xorq/pull/778)
+- Update dependency fsspec to >=2024.6.1,<2025.3.3 by @renovate[bot] in [#780](https://github.com/xorq-labs/xorq/pull/780)
+- Read: capture read_kwargs by @dlovell in [#777](https://github.com/xorq-labs/xorq/pull/777)
+- Typo in modification time caching strategy by @hussainsultan in [#803](https://github.com/xorq-labs/xorq/pull/803)
+- Enable `CachedNode` by @dlovell in [#806](https://github.com/xorq-labs/xorq/pull/806)
+- Sundry fixes by @dlovell in [#819](https://github.com/xorq-labs/xorq/pull/819)
+- Update rust crate tokio to v1.44.2 [security] by @renovate[bot] in [#823](https://github.com/xorq-labs/xorq/pull/823)
+- Prevent optional dependency leakage by @dlovell in [#840](https://github.com/xorq-labs/xorq/pull/840)
+- Subprocess not monkeypatch by @dlovell in [#849](https://github.com/xorq-labs/xorq/pull/849)
+- Enable __main__ `curry`/`functools.lru_cache` by @dlovell in [#856](https://github.com/xorq-labs/xorq/pull/856)
+- Clean up api by @dlovell in [#862](https://github.com/xorq-labs/xorq/pull/862)
+- Read_csv from s3 URL by @mesejo in [#852](https://github.com/xorq-labs/xorq/pull/852)
+- Update otel_utils to last EnvConfigable version by @mesejo in [#870](https://github.com/xorq-labs/xorq/pull/870)
+- Skip setting env variables in profiles.py example by @mesejo in [#875](https://github.com/xorq-labs/xorq/pull/875)
+
+#### Removed
+- Remove redundant compiler by @mesejo in [#756](https://github.com/xorq-labs/xorq/pull/756)
+- Remove tenacity from examples by @mesejo in [#759](https://github.com/xorq-labs/xorq/pull/759)
+- Remove commintlint by @mesejo in [#779](https://github.com/xorq-labs/xorq/pull/779)
+
 ## [0.2.0] - 2025-03-27
 ### Details
 This release enhances xorq with ExprScalarUDF walk_nodes support, multi-duck vignette, import_from_gist functionality, 
