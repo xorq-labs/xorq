@@ -73,13 +73,13 @@ jobs:
           python -m pip install pytest pytest-cov
           mkdir test-directory
           cd test-directory
-          python -c "import pathlib; print(f'{pathlib.Path.cwd()}')"
+          python -c "import pathlib; print(f'cwd: {pathlib.Path.cwd()}')"
           python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
 
       - name: test
         run: |
           source .venv-test/bin/activate
-          python examples/pandas_example.py
+          python -m pytest --import-mode=importlib python/xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.2
