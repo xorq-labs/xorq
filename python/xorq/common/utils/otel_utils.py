@@ -1,6 +1,5 @@
 import os
 import sys
-from pathlib import Path
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
@@ -13,6 +12,7 @@ from opentelemetry.sdk.trace.export import (
 
 from xorq.common.utils.env_utils import (
     EnvConfigable,
+    env_templates_dir,
 )
 
 
@@ -34,9 +34,7 @@ def localhost_and_listening(uri):
 
 
 OTELConfig = EnvConfigable.subclass_from_env_file(
-    Path(__file__).parent.parent.parent.parent.parent.joinpath(
-        "env-templates", ".env.otel.template"
-    )
+    env_templates_dir.joinpath(".env.otel.template")
 )
 otel_config = OTELConfig.from_env()
 
