@@ -27,6 +27,22 @@ def test_string_upper_lower(compiler):
     assert lower_yaml["args"][0]["value"] == "Hello"
 
 
+def test_string_to_date(compiler):
+    value = "20170206"
+    format_str = "%Y%m%d"
+    s = ibis.literal(value)
+    expr = s.as_date(format_str)
+
+    expr_yaml = compiler.to_yaml(expr)
+    yaml_dict = expr_yaml["expression"]
+    assert yaml_dict["op"] == "StringToDate"
+    assert yaml_dict["arg"]["value"] == value
+    assert yaml_dict["format_str"]["value"] == format_str
+
+    roundtrip = compiler.from_yaml(expr_yaml)
+    assert roundtrip.equals(expr)
+
+
 def test_string_length(compiler):
     s = ibis.literal("hello")
     expr = s.length()
