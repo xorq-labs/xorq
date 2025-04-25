@@ -79,7 +79,8 @@ jobs:
       - name: test
         run: |
           source .venv-test/bin/activate
-          python -m pytest --import-mode=importlib python/xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
+          cd python
+          python -m pytest --import-mode=importlib xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.2
