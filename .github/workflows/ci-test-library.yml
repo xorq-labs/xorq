@@ -76,11 +76,12 @@ jobs:
           python -c "import pathlib; print(f'cwd: {pathlib.Path.cwd()}')"
           python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
 
+      # need to cd into python because otherwise pytest confuses the package name
       - name: test
         run: |
           source .venv-test/bin/activate
           cd python
-          python -m pytest --import-mode=importlib xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
+          pytest --import-mode=importlib xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.2
