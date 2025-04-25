@@ -31,9 +31,6 @@ jobs:
         python-version: ["3.11"]
     steps:
       - uses: actions/checkout@v4
-      - uses: extractions/setup-just@v3
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: rust latest
         run: rustup update
@@ -50,30 +47,40 @@ jobs:
           key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
 
       # check how to use virtual environment https://stackoverflow.com/q/74668349/4001592
-      - name: create virtual environment
+      - name: create build virtual environment
         run: python -m venv .venv
 
       - name: install dependencies
         run: |
           source .venv/bin/activate
-          python -m pip install pytest maturin pytest-cov
+          python -m pip install maturin
 
-      - name: develop
+      - name: build package
         run: |
           source .venv/bin/activate
-          python -m maturin develop --release --strip
+          python -m maturin build --release --strip
 
+      - name: create test virtual environment
+        run: python -m venv .venv-test
+
+      - name: Install and test wheel in virtual environment
+        run: |
+          source .venv-test/bin/activate
+          python -m pip install target/wheels/*.whl
+          python -m pip install pytest pytest-cov
+          mkdir test-directory
+          cd test-directory
+          python -c "import pathlib; print(f'cwd: {pathlib.Path.cwd()}')"
+          python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
+
+      # need to cd into python because otherwise pytest confuses the package name
+      # using pytest as opposed to python -m pytest to avoid adding the local dir to sys.path
+      # https://blog.ganssle.io/articles/2019/08/test-as-installed.html
       - name: test
         run: |
-          source .venv/bin/activate
-          python -m pytest --import-mode=importlib python/xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
-        working-directory: ${{ github.workspace }}
-        env:
-          POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASSWORD }}
-          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
-          POSTGRES_HOST: ${{ vars.POSTGRES_HOST }}
-          POSTGRES_PORT: ${{ vars.POSTGRES_PORT }}
-          POSTGRES_DATABASE: ${{ vars.POSTGRES_DATABASE }}
+          source .venv-test/bin/activate
+          cd python
+          pytest --import-mode=importlib xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.2
