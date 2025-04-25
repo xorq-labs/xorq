@@ -12,9 +12,7 @@ from attr.validators import (
 )
 
 
-env_templates_dir = Path(__file__).parent.parent.parent.parent.parent.joinpath(
-    "env-templates"
-)
+env_templates_dir = Path(__file__).parents[2].joinpath("env_templates")
 
 
 def parse_env_file(env_file):
