@@ -73,6 +73,7 @@ jobs:
           python -m pip install pytest pytest-cov
           mkdir test-directory
           cd test-directory
+          python -c "import pathlib; print(f'{pathlib.Path.cwd()}')"
           python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
 
       - name: test
