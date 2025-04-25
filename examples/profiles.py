@@ -1,38 +1,50 @@
+from contextlib import (
+    contextmanager,
+)
+
 import pytest
 
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 
 
+# This is a read-only PostgreSQL database running at examples.letsql.com
+env_kwargs = {
+    "POSTGRES_HOST": "examples.letsql.com",
+    "POSTGRES_USER": "letsql",
+    "POSTGRES_PASSWORD": "letsql",
+}
+
+
+@contextmanager
+def env_context(**kwargs):
+    # Set environment variables for database connection (monkey patch to not interfere with possibly set env variables)
+    with pytest.MonkeyPatch().context() as ctx:
+        for k, v in kwargs.items():
+            ctx.setenv(k, v)
+        yield
+
+
 print("=== XORQ PROFILES DEMONSTRATION ===\n")
 
-# Set environment variables for database connection (monkey patch to not interfere with possibly set env variables)
-with pytest.MonkeyPatch().context() as ctx:
-    # This is a PostgreSQL database running at examples.letsql.com
-    ctx.setenv("POSTGRES_DATABASE", "letsql")
-    ctx.setenv("POSTGRES_HOST", "examples.letsql.com")
-    ctx.setenv("POSTGRES_USER", "letsql")
-    ctx.setenv("POSTGRES_PASSWORD", "letsql")
-    ctx.setenv("POSTGRES_PORT", "5432")
+# 1. Create a profile with environment variable references
+print("\n1. Creating profile with environment variable references...")
+profile = Profile(
+    con_name="postgres",
+    kwargs_tuple=(
+        ("host", "${POSTGRES_HOST}"),
+        ("port", 5432),
+        ("database", "postgres"),
+        ("user", "${POSTGRES_USER}"),
+        ("password", "${POSTGRES_PASSWORD}"),
+    ),
+)
 
-    # 1. Create a profile with environment variable references
-    print("\n1. Creating profile with environment variable references...")
-    profile = Profile(
-        con_name="postgres",
-        kwargs_tuple=(
-            ("host", "${POSTGRES_HOST}"),
-            ("port", 5432),
-            ("database", "postgres"),
-            ("user", "${POSTGRES_USER}"),
-            ("password", "${POSTGRES_PASSWORD}"),
-        ),
-    )
+print(f"Profile representation:\n{profile}")
 
-    print(f"Profile representation:\n{profile}")
-
-    # 2. Save the profile with an alias
-    print("\n2. Saving profile with alias...")
-    path = profile.save(alias="postgres_example", clobber=True)
-    print(f"Profile saved to: {path}")
+# 2. Save the profile with an alias
+print("\n2. Saving profile with alias...")
+path = profile.save(alias="postgres_example", clobber=True)
+print(f"Profile saved to: {path}")
 
 # 3. Load the profile
 print("\n3. Loading profile from disk...")
@@ -40,9 +52,15 @@ loaded_profile = Profile.load("postgres_example")
 print(f"Loaded profile representation:\n{loaded_profile}")
 
 # 4. Create a connection from the profile
-print("\n4. Creating connection from profile...")
-connection = loaded_profile.get_con()
-print("Connection successful!")
+with env_context(**env_kwargs):
+    print("\n4. Creating connection from profile...")
+    connection = loaded_profile.get_con()
+    print("Connection successful!")
+assert env_kwargs == {
+    f"POSTGRES_{k.upper()}": v
+    for k, v in connection._con_kwargs.items()
+    if f"POSTGRES_{k.upper()}" in env_kwargs
+}
 
 # 5. Verify connection works
 tables = connection.list_tables()
@@ -82,12 +100,14 @@ print("\n10. Security verification...")
 print("Throughout this entire process, actual values of environment")
 print("variables were never stored in profiles or exposed in output.")
 
+profiles = Profiles()
 # 13. Demonstrating how to explore with profiles
 print("\n11. Exploring available profiles...")
-profiles = Profiles()
-for name in profiles.list():
-    p = profiles.get(name)
-    print(f"Profile: {name}")
-    print(f"  - Connection: {p.get_con()}")
-    print(f"  - Profile: {p}")
+with env_context(**env_kwargs):
+    for name in profiles.list()[:5]:
+        p = profiles.get(name)
+        print(f"Profile: {name}")
+        print(f"  - Connection: {p.get_con()}")
+        print(f"  - Profile: {p}")
+
 pytest_examples_passed = True
