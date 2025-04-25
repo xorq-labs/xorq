@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.2.1] - 2025-04-24
+## [0.2.1] - 2025-04-25
 ### Details
 This release includes numerous additions, like MCP server support, GC Storage integration, and OTEL instrumentation,
 alongside extensive updates to dependencies and developer tools through Renovate bot automation.
@@ -104,6 +104,8 @@ and ExprScalarUDF while removing redundant components like the compiler and exte
 - Read_csv from s3 URL by @mesejo in [#852](https://github.com/xorq-labs/xorq/pull/852)
 - Update otel_utils to last EnvConfigable version by @mesejo in [#870](https://github.com/xorq-labs/xorq/pull/870)
 - Skip setting env variables in profiles.py example by @mesejo in [#875](https://github.com/xorq-labs/xorq/pull/875)
+- Use env var contextmanager whenever get_con is invoked by @dlovell in [#879](https://github.com/xorq-labs/xorq/pull/879)
+- Include env_templates files in wheel by @mesejo in [#882](https://github.com/xorq-labs/xorq/pull/882)
 
 #### Removed
 - Remove redundant compiler by @mesejo in [#756](https://github.com/xorq-labs/xorq/pull/756)
