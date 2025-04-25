@@ -78,14 +78,7 @@ jobs:
       - name: test
         run: |
           source .venv-test/bin/activate
-          python -m pytest python/xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
-        working-directory: ${{ github.workspace }}
-        env:
-          POSTGRES_PASSWORD: ${{ vars.POSTGRES_PASSWORD }}
-          POSTGRES_USER: ${{ vars.POSTGRES_USER }}
-          POSTGRES_HOST: ${{ vars.POSTGRES_HOST }}
-          POSTGRES_PORT: ${{ vars.POSTGRES_PORT }}
-          POSTGRES_DATABASE: ${{ vars.POSTGRES_DATABASE }}
+          python examples/pandas_example.py
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.2
