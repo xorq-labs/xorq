@@ -127,7 +127,10 @@
           impure = pkgs.mkShell {
             packages = [
               pkgs.python310
-            ] ++ letsql-310.toolsPackages;
+              letsql-310.toolchain
+              pkgs.uv
+              pkgs.gh
+            ];
             env =
               {
                 # Prevent uv from managing Python downloads
