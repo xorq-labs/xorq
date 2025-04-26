@@ -44,7 +44,7 @@ def _object_to_yaml(obj: object, compiler: Any) -> dict:
     if isinstance(obj, Callable):
         return freeze(
             {
-                "op": "Callabe",
+                "op": "Callable",
                 "pickled_fn": serialize_callable(obj),
             }
         )
@@ -52,7 +52,7 @@ def _object_to_yaml(obj: object, compiler: Any) -> dict:
         raise ValueError
 
 
-@register_from_yaml_handler("Callabe")
+@register_from_yaml_handler("Callable")
 def _callable_from_yaml(yaml_dict: dict, compiler: any) -> Callable:
     return deserialize_callable(yaml_dict["pickled_fn"])
 

@@ -43,6 +43,9 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
         return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
 
+    def represent_posix_path(self, data):
+        return self.represent_scalar("tag:yaml.org,2002:str", str(data.resolve()))
+
 
 CleanDictYAMLDumper.add_representer(
     FrozenOrderedDict, CleanDictYAMLDumper.represent_frozenordereddict
@@ -53,6 +56,10 @@ CleanDictYAMLDumper.add_representer(
 )
 
 CleanDictYAMLDumper.add_representer(InputType, CleanDictYAMLDumper.represent_enum)
+
+CleanDictYAMLDumper.add_representer(
+    pathlib.PosixPath, CleanDictYAMLDumper.represent_posix_path
+)
 
 
 class ArtifactStore:
