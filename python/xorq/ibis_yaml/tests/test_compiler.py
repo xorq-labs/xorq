@@ -93,7 +93,7 @@ def test_compiler_sql(build_dir, parquet_dir):
     backend = xo.datafusion.connect()
     awards_players = deferred_read_parquet(
         backend,
-        str(parquet_dir / "awards_players.parquet"),
+        parquet_dir / "awards_players.parquet",
         table_name="awards_players",
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
