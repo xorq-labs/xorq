@@ -638,6 +638,24 @@ def _string_length_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
     return arg.length()
 
 
+@translate_to_yaml.register(ops.StringToDate)
+def _string_to_date_to_yaml(op: ops.StringToDate, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "StringToDate",
+            "arg": translate_to_yaml(op.arg, context),
+            "format_str": translate_to_yaml(op.format_str, context),
+        }
+    )
+
+
+@register_from_yaml_handler("StringToDate")
+def _string_to_date_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+    format_str = translate_from_yaml(yaml_dict["format_str"], context)
+    return arg.as_date(format_str)
+
+
 @translate_to_yaml.register(ops.StringConcat)
 def _string_concat_to_yaml(op: ops.StringConcat, context: TranslationContext) -> dict:
     return freeze(
