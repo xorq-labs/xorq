@@ -793,7 +793,6 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     assert not executed0.equals(executed3)
 
 
-@pytest.mark.xfail
 @pytest.mark.snapshot_check
 def test_udf_caching(ls_con, alltypes_df, snapshot):
     @xo.udf.scalar.pyarrow
@@ -823,7 +822,6 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
     snapshot.assert_match(expr.ls.get_key(), f"{py_version}_udf_caching.txt")
 
 
-@pytest.mark.xfail
 @pytest.mark.snapshot_check
 def test_udaf_caching(ls_con, alltypes_df, snapshot):
     def my_mul_sum(df):
