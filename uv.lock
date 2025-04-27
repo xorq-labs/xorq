@@ -4489,6 +4489,7 @@ examples = [
     { name = "pins", extra = ["gcs"], marker = "python_full_version < '4.0'" },
     { name = "psycopg2-binary" },
     { name = "quickgrove" },
+    { name = "requests" },
     { name = "scikit-learn" },
     { name = "xgboost", marker = "python_full_version < '4.0'" },
 ]
@@ -4575,6 +4576,7 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.2" },
     { name = "quickgrove", marker = "extra == 'examples'", specifier = ">=0.1.2" },
     { name = "quickgrove", marker = "extra == 'quickgrove'", specifier = ">=0.1.2" },
+    { name = "requests", marker = "extra == 'examples'", specifier = ">=2.32.3" },
     { name = "scikit-learn", marker = "extra == 'examples'", specifier = ">=1.4.0,<2.0.0" },
     { name = "snowflake-connector-python", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'snowflake'", specifier = ">=3.10.1,<4" },
     { name = "sqlglot", specifier = "==25.20.2" },
