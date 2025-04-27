@@ -605,6 +605,7 @@ requests==2.32.3
     #   snowflake-connector-python
     #   trino
     #   vendoring
+    #   xorq
 requests-oauthlib==2.0.0 ; python_full_version < '4.0'
     # via google-auth-oauthlib
 rfc3339-validator==0.1.4
