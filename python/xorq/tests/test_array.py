@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from functools import partial
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -309,3 +311,42 @@ def test_array_slice(array_types, start, stop):
     expected = array_types.y.execute().map(lambda x: x[start:stop])
     result = expr.sliced.execute()
     assert_series_equal(result, expected)
+
+
+def _agg_with_nulls(agg, x):
+    if x is None:
+        return None
+    x = [y for y in x if not pd.isna(y)]
+    if not x:
+        return None
+    return agg(x)
+
+
+@pytest.mark.parametrize(
+    ("agg", "baseline_func"),
+    [
+        (ir.ArrayValue.anys, partial(_agg_with_nulls, any)),
+        (ir.ArrayValue.alls, partial(_agg_with_nulls, all)),
+    ],
+    ids=["anys", "alls"],
+)
+@pytest.mark.parametrize(
+    "data",
+    [
+        param(
+            [[True, None], [False, None], [None]],
+            id="nulls",
+        ),
+        param([[True, False], [True], [False], [], None], id="no-nulls"),
+    ],
+)
+def test_array_agg_bool(con, data, agg, baseline_func):
+    t = xo.memtable({"x": data, "id": range(len(data))})
+    t = t.mutate(y=agg(t.x))
+    assert t.y.type().is_boolean()
+    # sort so debugging is easier
+    df = con.to_pandas(t.order_by("id"))
+    result = df.y.tolist()
+    result = [x if pd.notna(x) else None for x in result]
+    expected = [baseline_func(x) for x in df.x]
+    assert result == expected
