@@ -623,6 +623,44 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_Hash(self, op, *, arg):
         return self.f.hash_int(arg)
 
+    def visit_ArrayAll(self, op, *, arg):
+        value_type = op.arg.dtype.value_type
+        return self.if_(
+            arg.is_(NULL),
+            self.cast(NULL, dt.bool),
+            self.if_(
+                self.f.array_length(arg) > 0,
+                self.if_(
+                    self.f.array_has_all(
+                        self.f.make_array(self.cast(NULL, value_type)), arg
+                    ),
+                    self.cast(NULL, dt.bool),
+                    self.f.array_has_all(
+                        self.f.make_array(True, self.cast(NULL, value_type)), arg
+                    ),
+                ),
+                self.cast(NULL, dt.bool),
+            ),
+        )
+
+    def visit_ArrayAny(self, op, *, arg):
+        value_type = op.arg.dtype.value_type
+        return self.if_(
+            arg.is_(NULL),
+            self.cast(NULL, dt.bool),
+            self.if_(
+                self.f.array_length(arg) > 0,
+                self.if_(
+                    self.f.array_has_all(
+                        self.f.make_array(self.cast(NULL, value_type)), arg
+                    ),
+                    self.cast(NULL, dt.bool),
+                    self.f.array_has_any(self.f.make_array(True), arg),
+                ),
+                self.cast(NULL, dt.bool),
+            ),
+        )
+
     def to_sqlglot(
         self,
         expr: ir.Expr,
