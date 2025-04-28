@@ -41,7 +41,7 @@ def test_in_subquery(compiler):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "InSubquery"
-    assert expression["type"]["name"] == "Boolean"
+    assert expression["type"]["type"] == "Boolean"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

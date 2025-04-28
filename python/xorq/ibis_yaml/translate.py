@@ -44,17 +44,48 @@ def _object_to_yaml(obj: object, compiler: Any) -> dict:
     if isinstance(obj, Callable):
         return freeze(
             {
-                "op": "Callabe",
+                "op": "Callable",
                 "pickled_fn": serialize_callable(obj),
             }
         )
     else:
-        raise ValueError
+        raise ValueError(f"type(obj): {type(obj)}")
 
 
-@register_from_yaml_handler("Callabe")
+@register_from_yaml_handler("Callable")
 def _callable_from_yaml(yaml_dict: dict, compiler: any) -> Callable:
     return deserialize_callable(yaml_dict["pickled_fn"])
+
+
+@translate_to_yaml.register(tm.IntervalUnit)
+def _interval_unit_to_yaml(
+    interval_unit: tm.IntervalUnit, context: TranslationContext
+) -> dict:
+    if interval_unit.is_date():
+        unit_name = "DateUnit"
+    elif interval_unit.is_time():
+        unit_name = "TimeUnit"
+    else:
+        unit_name = "IntervalUnit"
+
+    return freeze(
+        {"op": "IntervalUnit", "name": unit_name, "value": interval_unit.value}
+    )
+
+
+@register_from_yaml_handler("IntervalUnit")
+def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    return tm.IntervalUnit(yaml_dict["value"])
+
+
+@translate_to_yaml.register(int)
+def _dict_to_yaml(dct: int, context: TranslationContext) -> dict:
+    return freeze({"op": "int", "value": str(dct)})
+
+
+@register_from_yaml_handler("int")
+def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    return int(yaml_dict["value"])
 
 
 @_translate_type.register(dt.Timestamp)
@@ -80,7 +111,7 @@ def _translate_array_type(dtype: dt.Array) -> dict:
     return freeze(
         {
             "name": "Array",
-            "value_type": _translate_type(dtype.value_type),
+            "value_type": translate_to_yaml(dtype.value_type, None),
             "nullable": dtype.nullable,
         }
     )
@@ -91,15 +122,15 @@ def _translate_map_type(dtype: dt.Map) -> dict:
     return freeze(
         {
             "name": "Map",
-            "key_type": _translate_type(dtype.key_type),
-            "value_type": _translate_type(dtype.value_type),
+            "key_type": translate_to_yaml(dtype.key_type, None),
+            "value_type": translate_to_yaml(dtype.value_type, None),
             "nullable": dtype.nullable,
         }
     )
 
 
 @_translate_type.register(dt.Interval)
-def _tranlate_type_interval(dtype: dt.Interval) -> dict:
+def _translate_type_interval(dtype: dt.Interval) -> dict:
     return freeze(
         {
             "name": "Interval",
@@ -479,7 +510,7 @@ def _alias_to_yaml(op: ops.Alias, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": "Alias",
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
             "args": [translate_to_yaml(arg, context) for arg in op.args],
         }
     )
@@ -496,7 +527,7 @@ def _round_to_yaml(op: ops.Round, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": op.__class__.__name__,
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
             "args": [translate_to_yaml(arg, context) for arg in op.args],
         }
     )
@@ -519,13 +550,15 @@ def _none_to_yaml(value: None, context: TranslationContext) -> None:
 @translate_to_yaml.register(ops.Literal)
 def _literal_to_yaml(op: ops.Literal, context: TranslationContext) -> dict:
     value = _translate_literal_value(op.value, op.dtype)
-    return freeze({"op": "Literal", "value": value, "type": _translate_type(op.dtype)})
+    return freeze(
+        {"op": "Literal", "value": value, "type": translate_to_yaml(op.dtype, context)}
+    )
 
 
 @register_from_yaml_handler("Literal")
 def _literal_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     value = yaml_dict["value"]
-    dtype = _type_from_yaml(yaml_dict["type"])
+    dtype = translate_from_yaml(yaml_dict["type"], context)
     return ibis.literal(value, type=dtype)
 
 
@@ -592,7 +625,7 @@ def _string_unary_to_yaml(op: ops.StringUnary, context: TranslationContext) -> d
         {
             "op": type(op).__name__,
             "args": [translate_to_yaml(op.arg, context)],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -612,7 +645,9 @@ def _substring_to_yaml(op: ops.Substring, context: TranslationContext) -> dict:
     ]
     if op.length is not None:
         args.append(translate_to_yaml(op.length, context))
-    return freeze({"op": "Substring", "args": args, "type": _translate_type(op.dtype)})
+    return freeze(
+        {"op": "Substring", "args": args, "type": translate_to_yaml(op.dtype, context)}
+    )
 
 
 @register_from_yaml_handler("Substring")
@@ -627,7 +662,7 @@ def _string_length_to_yaml(op: ops.StringLength, context: TranslationContext) ->
         {
             "op": "StringLength",
             "args": [translate_to_yaml(op.arg, context)],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -644,7 +679,7 @@ def _string_concat_to_yaml(op: ops.StringConcat, context: TranslationContext) ->
         {
             "op": "StringConcat",
             "args": [translate_to_yaml(arg, context) for arg in op.arg],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -670,7 +705,7 @@ def _binary_op_to_yaml(op: ops.BinaryOp, context: TranslationContext) -> dict:
                 translate_to_yaml(op.left, context),
                 translate_to_yaml(op.right, context),
             ],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -849,7 +884,7 @@ def _sort_key_to_yaml(op: ops.SortKey, context: TranslationContext) -> dict:
             "arg": translate_to_yaml(op.expr, context),
             "ascending": op.ascending,
             "nulls_first": op.nulls_first,
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -888,7 +923,7 @@ def _scalar_subquery_to_yaml(
         {
             "op": "ScalarSubquery",
             "args": [translate_to_yaml(arg, context) for arg in op.args],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -907,7 +942,7 @@ def _exists_subquery_to_yaml(
         {
             "op": "ExistsSubquery",
             "rel": translate_to_yaml(op.rel, context),
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -925,7 +960,7 @@ def _in_subquery_to_yaml(op: ops.InSubquery, context: TranslationContext) -> dic
             "op": "InSubquery",
             "needle": translate_to_yaml(op.needle, context),
             "haystack": translate_to_yaml(op.rel, context),
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -943,7 +978,7 @@ def _field_to_yaml(op: ops.Field, context: TranslationContext) -> dict:
         "op": "Field",
         "name": op.name,
         "relation": translate_to_yaml(op.rel, context),
-        "type": _translate_type(op.dtype),
+        "type": translate_to_yaml(op.dtype, context),
     }
 
     if op.args and len(op.args) >= 2 and isinstance(op.args[1], str):
@@ -981,7 +1016,7 @@ def _in_values_to_yaml(op: ops.InValues, context: TranslationContext) -> dict:
                 translate_to_yaml(op.value, context),
                 *[translate_to_yaml(opt, context) for opt in op.options],
             ],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -1002,7 +1037,7 @@ def _simple_case_to_yaml(op: ops.SimpleCase, context: TranslationContext) -> dic
             "cases": [translate_to_yaml(case, context) for case in op.cases],
             "results": [translate_to_yaml(result, context) for result in op.results],
             "default": translate_to_yaml(op.default, context),
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -1026,7 +1061,7 @@ def _if_else_to_yaml(op: ops.IfElse, context: TranslationContext) -> dict:
             "bool_expr": translate_to_yaml(op.bool_expr, context),
             "true_expr": translate_to_yaml(op.true_expr, context),
             "false_null_expr": translate_to_yaml(op.false_null_expr, context),
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -1045,7 +1080,7 @@ def _coalesce_to_yaml(op: ops.Coalesce, context: TranslationContext) -> dict:
         {
             "op": "Coalesce",
             "args": [translate_to_yaml(arg, context) for arg in op.arg],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -1062,7 +1097,7 @@ def _count_distinct_to_yaml(op: ops.CountDistinct, context: TranslationContext) 
         {
             "op": "CountDistinct",
             "args": [translate_to_yaml(op.arg, context)],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -1141,7 +1176,7 @@ def _searched_case_to_yaml(op: ops.SearchedCase, context: TranslationContext) ->
             "cases": [translate_to_yaml(case, context) for case in op.cases],
             "results": [translate_to_yaml(result, context) for result in op.results],
             "default": translate_to_yaml(op.default, context),
-            "dtype": _translate_type(op.dtype),
+            "dtype": translate_to_yaml(op.dtype, context),
         }
     )
 

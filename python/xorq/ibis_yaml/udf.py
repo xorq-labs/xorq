@@ -10,7 +10,6 @@ import xorq.vendor.ibis.expr.rules as rlz
 from xorq.expr.relations import FlightExpr, FlightUDXF
 from xorq.ibis_yaml.common import (
     TranslationContext,
-    _translate_type,
     deserialize_callable,
     register_from_yaml_handler,
     serialize_callable,
@@ -42,7 +41,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
             "func_name": op.__func_name__,
             "input_type": input_type,
             "args": [translate_to_yaml(arg, compiler) for arg in op.args],
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, None),
             "pickle": serialize_callable(op.__func__),
             "module": op.__module__,
             "class_name": op.__class__.__name__,
@@ -80,7 +79,7 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 
     bases = (ops.ScalarUDF,)
     meta = {
-        "dtype": dt.dtype(yaml_dict["type"]["name"]),
+        "dtype": dt.dtype(yaml_dict["type"]["type"]),
         "__input_type__": input_type,
         "__func__": udf.property_wrap_fn(fn),
         "__config__": {"volatility": "immutable"},
@@ -161,7 +160,10 @@ def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     typ = getattr(dt, yaml_dict["type"])
     dct = toolz.dissoc(yaml_dict, "op", "type")
     return typ(
-        **{key: translate_from_yaml(value, context) for key, value in dct.items()}
+        **{
+            key: translate_from_yaml(value, context) if value is not None else None
+            for key, value in dct.items()
+        }
     )
 
 

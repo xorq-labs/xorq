@@ -23,9 +23,9 @@ def test_implicit_cast(compiler):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Add"
-    assert expression["args"][0]["type"]["name"] == "Int8"
-    assert expression["args"][1]["type"]["name"] == "Float64"
-    assert expression["type"]["name"] == "Float64"
+    assert expression["args"][0]["type"]["type"] == "Int8"
+    assert expression["args"][1]["type"]["type"] == "Float64"
+    assert expression["type"]["type"] == "Float64"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

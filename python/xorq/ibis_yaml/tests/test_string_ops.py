@@ -10,7 +10,11 @@ def test_string_concat(compiler):
     assert yaml_dict["op"] == "StringConcat"
     assert yaml_dict["args"][0]["value"] == "hello"
     assert yaml_dict["args"][1]["value"] == "world"
-    assert yaml_dict["type"] == {"name": "String", "nullable": True}
+    assert yaml_dict["type"] == {
+        "op": "DataType",
+        "type": "String",
+        "nullable": {"op": "bool", "value": True},
+    }
 
 
 def test_string_upper_lower(compiler):
@@ -34,7 +38,11 @@ def test_string_length(compiler):
 
     assert yaml_dict["op"] == "StringLength"
     assert yaml_dict["args"][0]["value"] == "hello"
-    assert yaml_dict["type"] == {"name": "Int32", "nullable": True}
+    assert yaml_dict["type"] == {
+        "op": "DataType",
+        "type": "Int32",
+        "nullable": {"op": "bool", "value": True},
+    }
 
 
 def test_string_substring(compiler):
