@@ -1324,6 +1324,18 @@ def _is_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return arg.isnull()
 
 
+@register_from_yaml_handler("IsInf")
+def _is_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["args"][0], context)
+    return arg.isinf()
+
+
+@register_from_yaml_handler("IsNan")
+def _is_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["args"][0], context)
+    return arg.isnan()
+
+
 @register_from_yaml_handler("NotNull")
 def _not_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
