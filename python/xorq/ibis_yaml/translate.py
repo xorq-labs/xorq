@@ -198,7 +198,7 @@ def _window_function_to_yaml(
     result = {
         "op": "WindowFunction",
         "args": [translate_to_yaml(op.func, context)],
-        "type": _translate_type(op.dtype),
+        "type": translate_to_yaml(op.dtype, context),
     }
 
     if op.group_by:
@@ -246,7 +246,7 @@ def _window_boundary_to_yaml(
             "op": "WindowBoundary",
             "value": translate_to_yaml(op.value, context),
             "preceding": op.preceding,
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
         }
     )
 
@@ -303,7 +303,8 @@ def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
     catalog = namespace_dict.get("catalog")
     database = namespace_dict.get("database")
     schema = {
-        name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
+        name: translate_from_yaml(dtype_yaml, context)
+        for name, dtype_yaml in schema_def.items()
     }
     # TODO: use UnboundTable node to construct instead of builder API
     return ibis.table(schema, name=table_name, catalog=catalog, database=database)
@@ -351,7 +352,7 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
     schema_def = context.definitions["schemas"][schema_ref]
     fields = []
     for name, dtype_yaml in schema_def.items():
-        dtype = _type_from_yaml(dtype_yaml)
+        dtype = translate_from_yaml(dtype_yaml, context)
         fields.append((name, dtype))
     schema = ibis.Schema.from_tuples(fields)
 
@@ -392,7 +393,8 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         raise ValueError(f"Schema {schema_ref} not found in definitions")
 
     schema = {
-        name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
+        name: translate_from_yaml(dtype_yaml, context)
+        for name, dtype_yaml in schema_def.items()
     }
 
     parent_expr = translate_from_yaml(yaml_dict["parent"], context)
@@ -473,7 +475,8 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     schema_ref = yaml_dict["schema_ref"]
     schema_def = context.definitions["schemas"][schema_ref]
     schema = {
-        name: _type_from_yaml(dtype_yaml) for name, dtype_yaml in schema_def.items()
+        name: translate_from_yaml(dtype_yaml, context)
+        for name, dtype_yaml in schema_def.items()
     }
 
     source = context.profiles[yaml_dict["profile"]]
@@ -567,7 +570,7 @@ def _value_op_to_yaml(op: ops.ValueOp, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": type(op).__name__,
-            "type": _translate_type(op.dtype),
+            "type": translate_to_yaml(op.dtype, context),
             "args": [
                 translate_to_yaml(arg, context)
                 for arg in op.args
@@ -590,7 +593,7 @@ def _lag_to_yaml(op: ops.Lag, context: TranslationContext) -> dict:
     result = {
         "op": "Lag",
         "arg": translate_to_yaml(op.arg, context),
-        "type": _translate_type(op.dtype),
+        "type": translate_to_yaml(op.dtype, context),
     }
 
     if op.offset is not None:
@@ -1390,7 +1393,7 @@ def _timestamp_arithmetic_from_yaml(
 @register_from_yaml_handler("Cast")
 def _cast_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
-    target_dtype = _type_from_yaml(yaml_dict["type"])
+    target_dtype = translate_from_yaml(yaml_dict["type"], context)
     return arg.cast(target_dtype)
 
 

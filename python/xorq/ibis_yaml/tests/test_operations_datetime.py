@@ -15,7 +15,7 @@ def test_date_extract(compiler):
     expression = year_yaml["expression"]
     assert expression["op"] == "ExtractYear"
     assert expression["args"][0]["value"] == "2024-03-14T15:09:26"
-    assert expression["type"]["name"] == "Int32"
+    assert expression["type"]["type"] == "Int32"
     roundtrip_year = compiler.from_yaml(year_yaml)
     assert roundtrip_year.equals(year)
 
@@ -42,7 +42,7 @@ def test_time_extract(compiler):
     hour_expression = hour_yaml["expression"]
     assert hour_expression["op"] == "ExtractHour"
     assert hour_expression["args"][0]["value"] == "2024-03-14T15:09:26"
-    assert hour_expression["type"]["name"] == "Int32"
+    assert hour_expression["type"]["type"] == "Int32"
     roundtrip_hour = compiler.from_yaml(hour_yaml)
     assert roundtrip_hour.equals(hour)
 
