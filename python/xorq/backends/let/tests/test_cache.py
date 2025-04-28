@@ -721,6 +721,7 @@ def test_pandas_snapshot(ls_con, alltypes_df):
     # everything else is stable, despite the different data
     assert normalized0[1][1] == normalized1[1][1]
     assert storage.exists(uncached)
+    assert storage.get_key(uncached).count(KEY_PREFIX) == 1
     executed2 = cached_expr.ls.uncached.execute()
     assert not executed0.equals(executed2)
 
@@ -757,6 +758,7 @@ def test_duckdb_snapshot(ls_con, alltypes_df):
     executed3 = cached_expr.ls.uncached.execute()
     assert executed0.equals(executed2)
     assert not executed0.equals(executed3)
+    assert storage.get_key(uncached).count(KEY_PREFIX) == 1
 
 
 def test_datafusion_snapshot(ls_con, alltypes_df):
@@ -791,9 +793,9 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
     executed3 = cached_expr.ls.uncached.execute()
     assert executed0.equals(executed2)
     assert not executed0.equals(executed3)
+    assert storage.get_key(uncached).count(KEY_PREFIX) == 1
 
 
-@pytest.mark.xfail
 @pytest.mark.snapshot_check
 def test_udf_caching(ls_con, alltypes_df, snapshot):
     @xo.udf.scalar.pyarrow
@@ -823,7 +825,6 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
     snapshot.assert_match(expr.ls.get_key(), f"{py_version}_udf_caching.txt")
 
 
-@pytest.mark.xfail
 @pytest.mark.snapshot_check
 def test_udaf_caching(ls_con, alltypes_df, snapshot):
     def my_mul_sum(df):

@@ -140,7 +140,7 @@ class ModificationTimeStrategy(CacheStrategy):
     )
 
     def get_key(self, expr: ir.Expr):
-        return self.key_prefix + dask.base.tokenize(expr)
+        return dask.base.tokenize(expr)
 
 
 @frozen
