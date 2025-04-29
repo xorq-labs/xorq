@@ -24,16 +24,17 @@ use datafusion::arrow::ffi_stream::ArrowArrayStreamReader;
 use datafusion::arrow::pyarrow::PyArrowType;
 use datafusion::arrow::record_batch::RecordBatch;
 use datafusion::datasource::file_format::file_compression_type::FileCompressionType;
-use datafusion::datasource::listing::ListingTableUrl;
+use datafusion::datasource::listing::{ListingTable, ListingTableConfig, ListingTableUrl};
 use datafusion::datasource::MemTable;
 use datafusion::datasource::TableProvider;
-use datafusion::execution::context::{SessionConfig, SessionContext, SessionState};
+use datafusion::execution::context::{DataFilePaths, SessionConfig, SessionContext, SessionState};
+use datafusion::execution::options::ReadOptions;
 use datafusion::execution::runtime_env::RuntimeEnvBuilder;
 use datafusion::execution::session_state::SessionStateBuilder;
 use datafusion::physical_expr::{expressions, LexOrdering, PhysicalSortExpr};
 use datafusion::prelude::{CsvReadOptions, DataFrame, ParquetReadOptions};
 use datafusion_common::config::ConfigFileType;
-use datafusion_common::ScalarValue;
+use datafusion_common::{exec_err, ScalarValue, TableReference};
 use datafusion_expr::Expr;
 use datafusion_expr::ScalarUDF;
 use object_store::{Error, ObjectMeta, ObjectStore, ObjectStoreScheme};
@@ -45,6 +46,7 @@ use std::ops::Deref;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
+use tokio::task::JoinSet;
 
 /// Configuration options for a SessionContext
 #[pyclass(name = "SessionConfig", module = "let", subclass)]
@@ -290,7 +292,7 @@ impl PySessionContext {
 
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (name,
-                        path,
+                        paths,
                         schema=None,
                         has_header=true,
                         delimiter=",",
@@ -301,7 +303,7 @@ impl PySessionContext {
     fn register_csv(
         &mut self,
         name: &str,
-        path: PathBuf,
+        paths: &Bound<'_, PyAny>,
         schema: Option<PyArrowType<Schema>>,
         has_header: bool,
         delimiter: &str,
@@ -311,9 +313,11 @@ impl PySessionContext {
         storage_options: Option<HashMap<String, String>>,
         py: Python,
     ) -> PyResult<()> {
-        let path = path
-            .to_str()
-            .ok_or_else(|| PyValueError::new_err("Unable to convert path to a string"))?;
+        let paths = paths.extract::<Vec<String>>()?;
+
+        // let table_paths = table_paths
+        //     .to_str()
+        //     .ok_or_else(|| PyValueError::new_err("Unable to convert path to a string"))?;
         let delimiter = delimiter.as_bytes();
         if delimiter.len() != 1 {
             return Err(PyValueError::new_err(
@@ -331,14 +335,27 @@ impl PySessionContext {
         options.schema = schema.as_ref().map(|x| &x.0);
 
         let result = async {
-            register_object_store_and_config_extensions(
-                &self.ctx,
-                &path.to_string(),
-                Some(ConfigFileType::CSV),
-                &storage_options,
-            )
-            .await?;
-            self.ctx.register_csv(name, path, options).await
+            let mut set = JoinSet::new();
+
+            for path in paths.iter() {
+                let path_clone = path.clone(); // Clone each path for ownership
+                let ctx = self.ctx.clone(); // Clone if needed
+                let storage_options = storage_options.clone(); // Clone if needed
+
+                set.spawn(async move {
+                    register_object_store_and_config_extensions(
+                        &ctx,
+                        &path_clone,
+                        Some(ConfigFileType::CSV),
+                        &storage_options,
+                    )
+                    .await
+                });
+            }
+
+            set.join_all().await;
+            self.register_csv_from_multiple_paths(name, paths, options)
+                .await
         };
 
         wait_for_future(py, result).map_err(DataFusionError::from)?;
@@ -616,6 +633,46 @@ impl PySessionContext {
 impl PySessionContext {
     async fn _table(&self, name: &str) -> datafusion_common::Result<DataFrame> {
         self.ctx.table(name).await
+    }
+
+    async fn register_csv_from_multiple_paths(
+        &self,
+        name: &str,
+        table_paths: Vec<String>,
+        options: CsvReadOptions<'_>,
+    ) -> datafusion::common::Result<()> {
+        let table_paths = table_paths.to_urls()?;
+        let session_config = self.ctx.copied_config();
+        let listing_options =
+            options.to_listing_options(&session_config, self.ctx.copied_table_options());
+
+        let option_extension = listing_options.file_extension.clone();
+
+        if table_paths.is_empty() {
+            return exec_err!("No table paths were provided");
+        }
+
+        // check if the file extension matches the expected extension
+        for path in &table_paths {
+            let file_path = path.as_str();
+            if !file_path.ends_with(option_extension.clone().as_str()) && !path.is_collection() {
+                return exec_err!(
+                    "File path '{file_path}' does not match the expected extension '{option_extension}'"
+                );
+            }
+        }
+
+        let resolved_schema = options
+            .get_resolved_schema(&session_config, self.ctx.state(), table_paths[0].clone())
+            .await?;
+
+        let config = ListingTableConfig::new_with_multi_paths(table_paths)
+            .with_listing_options(listing_options)
+            .with_schema(resolved_schema);
+        let table = ListingTable::try_new(config)?;
+        self.ctx
+            .register_table(TableReference::Bare { table: name.into() }, Arc::new(table))?;
+        Ok(())
     }
 }
 

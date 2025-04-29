@@ -576,7 +576,10 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 self._register_in_memory_table(memtable)
 
     def read_csv(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
+        self,
+        path: str | Path | list[str | Path],
+        table_name: str | None = None,
+        **kwargs: Any,
     ) -> ir.Table:
         """Register a CSV file as a table in the current database.
 
@@ -609,6 +612,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if schema := kwargs.get("schema"):
             if isinstance(schema, xo.Schema):
                 kwargs["schema"] = schema.to_pyarrow()
+
+        if not isinstance(path, list):
+            path = [path]
 
         # Our other backends support overwriting views / tables when re-registering
         self.con.deregister_table(table_name)
