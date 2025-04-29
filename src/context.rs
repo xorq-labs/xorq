@@ -315,9 +315,6 @@ impl PySessionContext {
     ) -> PyResult<()> {
         let paths = paths.extract::<Vec<String>>()?;
 
-        // let table_paths = table_paths
-        //     .to_str()
-        //     .ok_or_else(|| PyValueError::new_err("Unable to convert path to a string"))?;
         let delimiter = delimiter.as_bytes();
         if delimiter.len() != 1 {
             return Err(PyValueError::new_err(

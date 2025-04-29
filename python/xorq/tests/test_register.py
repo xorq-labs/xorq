@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import csv
+import glob
 import gzip
 
 import pandas as pd
@@ -34,6 +36,69 @@ def test_register_csv(con, data_dir):
     table = con.read_csv(data_dir / "csv" / fname, table_name=table_name)
     assert any(table_name in t for t in con.list_tables())
     assert table.count().execute() > 0
+
+
+def test_register_csv_multiple_paths(con, data_dir):
+    fname = "diamonds.csv"
+    table_name = "diamonds"
+    diamonds_path = data_dir / "csv" / fname
+    table = con.read_csv(diamonds_path, table_name=table_name)
+    table_multiple_paths = con.read_csv(
+        [
+            diamonds_path,
+            diamonds_path,
+        ],
+        table_name=f"{table_name}_multiple_paths",
+    )
+
+    assert any(f"{table_name}_multiple_paths" in t for t in con.list_tables())
+    assert table.schema() == table_multiple_paths.schema()
+    assert table_multiple_paths.count().execute() == 2 * table.count().execute()
+
+
+@pytest.fixture(scope="function")
+def list_option(request, data_dir):
+    return request.param(data_dir)
+
+
+@pytest.mark.parametrize(
+    "list_option",
+    [
+        pytest.param(
+            lambda x: (x / "csv").glob("astronauts.csv"), id="pathlib.Path-iterable"
+        ),
+        pytest.param(lambda x: glob.glob(f"{x}/csv/astronauts.csv"), id="glob-list"),
+        pytest.param(lambda x: x / "csv" / "astronauts.csv", id="str"),
+    ],
+    indirect=True,
+)
+def test_register_csv_multiple_list_options(con, list_option):
+    table_name = "astronauts"
+    table = con.read_csv(list_option, table_name=table_name)
+    assert any(table_name in t for t in con.list_tables())
+    assert table.count().execute()
+
+
+def test_register_csv_files_fails(con, tmp_path):
+    # Define the file paths
+    a_file_path = tmp_path / "data1.csv"
+    b_file_path = tmp_path / "data2.tsv"
+
+    # Create the first CSV file with some data
+    with open(a_file_path, "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Name", "Age", "City"])
+        writer.writerow(["Alice", 28, "New York"])
+        writer.writerow(["Bob", 35, "San Francisco"])
+        writer.writerow(["Charlie", 42, "Chicago"])
+
+    with open(b_file_path, "w", newline="") as csvfile:
+        writer = csv.writer(csvfile)
+        writer.writerow(["Name", "Age", "City"])
+        writer.writerow(["Alice", 28, "New York"])
+
+    with pytest.raises(Exception):
+        con.read_csv([a_file_path, b_file_path], table_name="names")
 
 
 @pytest.mark.xfail
