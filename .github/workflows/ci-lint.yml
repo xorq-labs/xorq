@@ -44,14 +44,14 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --locked --only-group dev
+        run: uv sync --no-sources --locked --only-group dev
 
       - name: Check requirements-dev.txt
         run: uv export --frozen --no-hashes --no-emit-project --all-groups --all-extras --output-file=requirements-dev.txt
 
       # Update output format to enable automatic inline annotations.
       - name: Run Ruff
-        run: uv run --no-project ruff check --output-format=github python examples docs
+        run: uv run --no-sync ruff check --output-format=github python examples docs
 
       - name: Run fmt
         uses: actions-rs/cargo@v1
