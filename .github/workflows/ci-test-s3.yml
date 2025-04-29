@@ -73,11 +73,16 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_register.py -v --cov --cov-report=xml
+        run: uv run --no-sync pytest --import-mode=importlib -m s3 python/xorq/ -v --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.S3_AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.S3_AWS_SECRET_ACCESS_KEY }}
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing
 
       - name: Upload coverage reports to Codecov
         if: success()
