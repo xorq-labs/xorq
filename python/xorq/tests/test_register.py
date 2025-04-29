@@ -97,7 +97,7 @@ def test_register_csv_files_fails(con, tmp_path):
         writer.writerow(["Name", "Age", "City"])
         writer.writerow(["Alice", 28, "New York"])
 
-    with pytest.raises(Exception):
+    with pytest.raises(ValueError):
         con.read_csv([a_file_path, b_file_path], table_name="names")
 
 

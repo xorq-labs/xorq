@@ -355,7 +355,7 @@ impl PySessionContext {
                 .await
         };
 
-        wait_for_future(py, result).map_err(DataFusionError::from)?;
+        wait_for_future(py, result).map_err(|e| PyValueError::new_err(format!("{e}")))?;
 
         Ok(())
     }
