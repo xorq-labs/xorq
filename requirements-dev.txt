@@ -66,9 +66,9 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.7 ; python_full_version < '4.0'
+boto3==1.38.8 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.7 ; python_full_version < '4.0'
+botocore==1.38.8 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -283,7 +283,7 @@ jmespath==1.0.1 ; python_full_version < '4.0'
     # via
     #   boto3
     #   botocore
-joblib==1.4.2
+joblib==1.5.0
     # via
     #   pins
     #   scikit-learn
@@ -349,7 +349,6 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-maturin==1.8.3
 mcp==1.7.1
     # via xorq
 mdurl==0.1.2
@@ -389,7 +388,7 @@ numpy==2.2.5
     #   scikit-learn
     #   scipy
     #   xgboost
-nvidia-nccl-cu12==2.26.2.post1 ; platform_machine != 'aarch64' and sys_platform == 'linux'
+nvidia-nccl-cu12==2.26.5 ; platform_machine != 'aarch64' and sys_platform == 'linux'
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
@@ -502,6 +501,7 @@ pyarrow==20.0.0
     # via
     #   datafusion
     #   xorq
+    #   xorq-datafusion
 pyarrow-hotfix==0.7 ; python_full_version < '4.0'
     # via xorq
 pyasn1==0.6.1 ; python_full_version < '4.0'
@@ -641,7 +641,7 @@ scipy==1.15.2
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==80.1.0
+setuptools==80.3.1
     # via
     #   jupyterlab
     #   pythran
@@ -663,7 +663,7 @@ sphobjinv==2.3.1.2
     # via quartodoc
 sqlglot==25.20.2
     # via xorq
-sse-starlette==2.3.3
+sse-starlette==2.3.4
     # via mcp
 stack-data==0.6.3
     # via ipython
@@ -692,7 +692,6 @@ tomli==2.2.1
     #   codespell
     #   coverage
     #   jupyterlab
-    #   maturin
     #   pytest
 tomlkit==0.13.2 ; python_full_version < '4.0'
     # via snowflake-connector-python
@@ -789,6 +788,8 @@ websocket-client==1.8.0
 wrapt==1.17.2
     # via deprecated
 xgboost==3.0.0
+    # via xorq
+xorq-datafusion==0.2.1
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4.0'
     # via pins
