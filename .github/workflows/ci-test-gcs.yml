@@ -37,20 +37,6 @@ jobs:
       - name: download test data
         run: just download-data
 
-      - name: Rust latest
-        run: rustup update
-
-      - name: cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ./target/
-          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-
       - name: Install uv
         uses: astral-sh/setup-uv@v6
         with:
@@ -62,17 +48,8 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Install the project
-        run: uv sync --no-sources --extra examples --group dev --group test --no-install-project
+        run: uv sync --no-sources --extra examples --group dev --group test
         working-directory: ${{ github.workspace }}
-
-      - name: maturin develop
-        uses: PyO3/maturin-action@v1
-        with:
-          command: 'develop'
-          args: '--release --strip'
-          target: ${{ matrix.target }}
-          sccache: 'true'
-          manylinux: 'auto'
 
       - name: start services
         run: docker compose up --build --wait
