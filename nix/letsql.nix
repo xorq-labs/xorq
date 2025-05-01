@@ -50,14 +50,57 @@ let
           prev.setuptools
           prev.pybind11
         ]);
-        pyarrow = prev.pyarrow.overrideAttrs (addNativeBuildInputs [
-          prev.setuptools
-          prev.cython
-          pkgs.cmake
-          prev.numpy
-          pkgs.pkg-config
-          pkgs.arrow-cpp
-        ]);
+        pyarrow = let
+          arrow-testing = pkgs.fetchFromGitHub {
+            name = "arrow-testing";
+            owner = "apache";
+            repo = "arrow-testing";
+            rev = "d2a13712303498963395318a4eb42872e66aead7";
+            hash = "sha256-IkiCbuy0bWyClPZ4ZEdkEP7jFYLhM7RCuNLd6Lazd4o=";
+          };
+          parquet-testing = pkgs.fetchFromGitHub {
+            name = "parquet-testing";
+            owner = "apache";
+            repo = "parquet-testing";
+            rev = "18d17540097fca7c40be3d42c167e6bfad90763c";
+            hash = "sha256-MnVYupmfxaglxBnyKeW+q1nm4nYdOH9LjbBIvHDAHFU=";
+          };
+          version = "20.0.0";
+          arrow-cpp = pkgs.arrow-cpp.overrideAttrs (old: {
+            inherit version;
+            src = pkgs.fetchFromGitHub {
+              owner = "apache";
+              repo = "arrow";
+              rev = "apache-arrow-${version}";
+              hash = "sha256-JFPdKraCU+xRkBTAHyY4QGnBVlOjQ1P5+gq9uxyqJtk=";
+            };
+            PARQUET_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${parquet-testing}/data";
+            ARROW_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${arrow-testing}/data";
+          });
+        in (prev.pyarrow.overrideAttrs (compose [
+          (addBuildInputs [
+            pkgs.pkg-config
+            arrow-cpp
+          ])
+          (addNativeBuildInputs [
+            python
+            pkgs.cmake
+            pkgs.pkg-config
+            arrow-cpp
+            prev.pyprojectBuildHook
+            prev.pyprojectWheelHook
+          ])
+          (addResolved final [
+            "setuptools"
+            "cython"
+            "numpy"
+          ])
+        ])).overrideAttrs (_: {
+            preBuild = ''
+              cd ..
+            '';
+        })
+        ;
         google-crc32c = prev.google-crc32c.overrideAttrs (addNativeBuildInputs [ prev.setuptools ]);
         psycopg2-binary = prev.psycopg2-binary.overrideAttrs (addNativeBuildInputs [
           prev.setuptools
