@@ -66,27 +66,26 @@ let
         ]);
 
         grpcio = prev.grpcio.overrideAttrs (compose [
-          (addBuildInputs [ pkgs.zlib pkgs.openssl pkgs.c-ares ])
-          (addNativeBuildInputs [ pkgs.pkg-config pkgs.cmake ])
-        
+          (addNativeBuildInputs [
+            pkgs.pkg-config pkgs.cmake
+          ])
           (old: {
              NIX_CFLAGS_COMPILE = (old.NIX_CFLAGS_COMPILE or "") +
                " -DTARGET_OS_OSX=1 -D_DARWIN_C_SOURCE" +
                " -I${pkgs.zlib.dev}/include" +
                " -I${pkgs.openssl.dev}/include" +
                " -I${pkgs.c-ares.dev}/include";
-             
              NIX_LDFLAGS = (old.NIX_LDFLAGS or "") +
                " -L${pkgs.zlib.out}/lib -lz" +
                " -L${pkgs.openssl.out}/lib -lssl -lcrypto" +
                " -L${pkgs.c-ares.out}/lib -lcares";
-        
             GRPC_PYTHON_BUILD_SYSTEM_OPENSSL = "1";
             GRPC_PYTHON_BUILD_SYSTEM_ZLIB    = "1";
             GRPC_PYTHON_BUILD_SYSTEM_CARES   = "1";
-        
+
             preBuild = ''
               export PYTHONPATH=${final.setuptools}/${python.sitePackages}:$PYTHONPATH
+              unset AR
             '';
           })
         ]);
