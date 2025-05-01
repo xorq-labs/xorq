@@ -19,12 +19,14 @@ let
         (append src "README.md")
         (append src "LICENSE")
         (append src "python/xorq/internal.py")
+        (append src "python/xorq/env_templates")
         (fileFilter (file: file.hasExt "rs") (append src "src"))
       ];
       pySrcSet = unions [
         rustSrcSet
         (fileFilter (file: file.hasExt "py") (append src "python"))
         (fileFilter (file: file.hasExt "sql") (append src "python"))
+        (append src "python/xorq/env_templates")
       ];
       rustSrc = toSource {
         root = src;
