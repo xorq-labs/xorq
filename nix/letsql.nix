@@ -61,7 +61,7 @@ let
         google-crc32c = prev.google-crc32c.overrideAttrs (addNativeBuildInputs [ prev.setuptools ]);
         psycopg2-binary = prev.psycopg2-binary.overrideAttrs (addNativeBuildInputs [
           prev.setuptools
-          pkgs.postgresql
+          pkgs.postgresql.pg_config
           pkgs.openssl
         ]);
 
