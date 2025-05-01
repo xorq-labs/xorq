@@ -10,7 +10,11 @@ def test_equals(compiler):
     assert expression["op"] == "Equals"
     assert expression["args"][0]["value"] == 5
     assert expression["args"][1]["value"] == 5
-    assert expression["type"] == {"name": "Boolean", "nullable": True}
+    assert expression["type"] == {
+        "op": "DataType",
+        "type": "Boolean",
+        "nullable": {"op": "bool", "value": True},
+    }
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 

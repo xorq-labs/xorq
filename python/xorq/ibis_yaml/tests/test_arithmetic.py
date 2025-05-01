@@ -13,7 +13,11 @@ def test_add(compiler):
     assert expression["args"][0]["value"] == 5
     assert expression["args"][1]["op"] == "Literal"
     assert expression["args"][1]["value"] == 3
-    assert expression["type"] == {"name": "Int8", "nullable": True}
+    assert expression["type"] == {
+        "op": "DataType",
+        "type": "Int8",
+        "nullable": {"op": "bool", "value": True},
+    }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -31,7 +35,11 @@ def test_subtract(compiler):
     assert expression["args"][0]["value"] == 5
     assert expression["args"][1]["op"] == "Literal"
     assert expression["args"][1]["value"] == 3
-    assert expression["type"] == {"name": "Int8", "nullable": True}
+    assert expression["type"] == {
+        "op": "DataType",
+        "type": "Int8",
+        "nullable": {"op": "bool", "value": True},
+    }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -49,7 +57,11 @@ def test_multiply(compiler):
     assert expression["args"][0]["value"] == 5
     assert expression["args"][1]["op"] == "Literal"
     assert expression["args"][1]["value"] == 3
-    assert expression["type"] == {"name": "Int8", "nullable": True}
+    assert expression["type"] == {
+        "op": "DataType",
+        "type": "Int8",
+        "nullable": {"op": "bool", "value": True},
+    }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -67,7 +79,11 @@ def test_divide(compiler):
     assert expression["args"][0]["value"] == 6.0
     assert expression["args"][1]["op"] == "Literal"
     assert expression["args"][1]["value"] == 2.0
-    assert expression["type"] == {"name": "Float64", "nullable": True}
+    assert expression["type"] == {
+        "op": "DataType",
+        "type": "Float64",
+        "nullable": {"op": "bool", "value": True},
+    }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -81,7 +97,11 @@ def test_mixed_arithmetic(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Multiply"
-    assert expression["type"] == {"name": "Float64", "nullable": True}
+    assert expression["type"] == {
+        "op": "DataType",
+        "type": "Float64",
+        "nullable": {"op": "bool", "value": True},
+    }
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
