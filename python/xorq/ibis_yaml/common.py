@@ -35,7 +35,7 @@ class SchemaRegistry:
 
     def register_schema(self, schema):
         frozen_schema = freeze(
-            {name: _translate_type(dtype) for name, dtype in schema.items()}
+            {name: translate_to_yaml(dtype, None) for name, dtype in schema.items()}
         )
         for schema_id, existing_schema in self.schemas.items():
             if existing_schema == frozen_schema:
