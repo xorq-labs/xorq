@@ -117,6 +117,7 @@
         lib = {
           inherit
             pkgs
+            src
             mkLETSQL
             letsql-310
             letsql-311

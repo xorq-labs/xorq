@@ -50,26 +50,100 @@ let
           prev.setuptools
           prev.pybind11
         ]);
-        pyarrow = prev.pyarrow.overrideAttrs (addNativeBuildInputs [
-          prev.setuptools
-          prev.cython
-          pkgs.cmake
-          prev.numpy
-          pkgs.pkg-config
-          pkgs.arrow-cpp
-        ]);
+        pyarrow = let
+          arrow-testing = pkgs.fetchFromGitHub {
+            name = "arrow-testing";
+            owner = "apache";
+            repo = "arrow-testing";
+            rev = "d2a13712303498963395318a4eb42872e66aead7";
+            hash = "sha256-IkiCbuy0bWyClPZ4ZEdkEP7jFYLhM7RCuNLd6Lazd4o=";
+          };
+          parquet-testing = pkgs.fetchFromGitHub {
+            name = "parquet-testing";
+            owner = "apache";
+            repo = "parquet-testing";
+            rev = "18d17540097fca7c40be3d42c167e6bfad90763c";
+            hash= "sha256-gKEQc2RKpVp39RmuZbIeIXAwiAXDHGnLXF6VQuJtnRA=";
+          };
+          version = "20.0.0";
+          arrow-cpp = pkgs.arrow-cpp.overrideAttrs (old: {
+            inherit version;
+            src = pkgs.fetchFromGitHub {
+              owner = "apache";
+              repo = "arrow";
+              rev = "apache-arrow-${version}";
+              hash = "sha256-JFPdKraCU+xRkBTAHyY4QGnBVlOjQ1P5+gq9uxyqJtk=";
+            };
+            PARQUET_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${parquet-testing}/data";
+            ARROW_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${arrow-testing}/data";
+          });
+        in (prev.pyarrow.overrideAttrs (compose [
+          (addBuildInputs [
+            pkgs.pkg-config
+            arrow-cpp
+          ])
+          (addNativeBuildInputs [
+            python
+            pkgs.cmake
+            pkgs.pkg-config
+            arrow-cpp
+            prev.pyprojectBuildHook
+            prev.pyprojectWheelHook
+          ])
+          (addResolved final [
+            "setuptools"
+            "cython"
+            "numpy"
+          ])
+        ])).overrideAttrs (_: {
+            preBuild = ''
+              cd ..
+            '';
+        })
+        ;
         google-crc32c = prev.google-crc32c.overrideAttrs (addNativeBuildInputs [ prev.setuptools ]);
         psycopg2-binary = prev.psycopg2-binary.overrideAttrs (addNativeBuildInputs [
           prev.setuptools
-          pkgs.postgresql
+          pkgs.postgresql.pg_config
           pkgs.openssl
         ]);
+
+        grpcio = prev.grpcio.overrideAttrs (compose [
+          (addNativeBuildInputs [
+            pkgs.pkg-config pkgs.cmake
+          ])
+          (old: {
+             NIX_CFLAGS_COMPILE = (old.NIX_CFLAGS_COMPILE or "") +
+               " -DTARGET_OS_OSX=1 -D_DARWIN_C_SOURCE" +
+               " -I${pkgs.zlib.dev}/include" +
+               " -I${pkgs.openssl.dev}/include" +
+               " -I${pkgs.c-ares.dev}/include";
+             NIX_LDFLAGS = (old.NIX_LDFLAGS or "") +
+               " -L${pkgs.zlib.out}/lib -lz" +
+               " -L${pkgs.openssl.out}/lib -lssl -lcrypto" +
+               " -L${pkgs.c-ares.out}/lib -lcares";
+            GRPC_PYTHON_BUILD_SYSTEM_OPENSSL = "1";
+            GRPC_PYTHON_BUILD_SYSTEM_ZLIB    = "1";
+            GRPC_PYTHON_BUILD_SYSTEM_CARES   = "1";
+
+            preBuild = ''
+              export PYTHONPATH=${final.setuptools}/${python.sitePackages}:$PYTHONPATH
+              unset AR
+            '';
+          })
+        ]);
+
       };
       addNativeBuildInputs =
         drvs:
         (old: {
           nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ drvs;
         });
+      addBuildInputs =
+        drvs:
+        old: {
+          buildInputs = (old.buildInputs or []) ++ drvs;
+        };
       addResolved =
         final: names:
         (old: {
