@@ -66,9 +66,9 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.3 ; python_full_version < '4.0'
+boto3==1.38.7 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.3 ; python_full_version < '4.0'
+botocore==1.38.7 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -232,7 +232,7 @@ httpx==0.28.1
     #   openai
 httpx-sse==0.4.0
     # via mcp
-humanize==4.12.2 ; python_full_version < '4.0'
+humanize==4.12.3 ; python_full_version < '4.0'
     # via pins
 identify==2.6.10
     # via pre-commit
@@ -350,7 +350,7 @@ matplotlib-inline==0.1.7
     #   ipykernel
     #   ipython
 maturin==1.8.3
-mcp==1.6.0
+mcp==1.7.0
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -393,7 +393,7 @@ nvidia-nccl-cu12==2.26.2.post1 ; platform_machine != 'aarch64' and sys_platform 
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.76.0
+openai==1.76.2
     # via xorq
 opentelemetry-api==1.32.1
     # via
@@ -512,13 +512,13 @@ pyasn1-modules==0.4.2 ; python_full_version < '4.0'
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.11.3
+pydantic==2.11.4
     # via
     #   mcp
     #   openai
     #   pydantic-settings
     #   quartodoc
-pydantic-core==2.33.1
+pydantic-core==2.33.2
     # via pydantic
 pydantic-settings==2.9.1
     # via mcp
@@ -555,6 +555,8 @@ python-dotenv==1.1.0
     # via pydantic-settings
 python-json-logger==3.3.0
     # via jupyter-events
+python-multipart==0.0.20
+    # via mcp
 pythran==0.17.0 ; sys_platform == 'darwin'
     # via xorq
 pytz==2025.2
@@ -628,7 +630,7 @@ rpds-py==0.24.0
     #   referencing
 rsa==4.9.1 ; python_full_version < '4.0'
     # via google-auth
-ruff==0.11.7
+ruff==0.11.8
 s3transfer==0.12.0 ; python_full_version < '4.0'
     # via boto3
 scikit-learn==1.6.1
@@ -639,7 +641,7 @@ scipy==1.15.2
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==80.0.0
+setuptools==80.1.0
     # via
     #   jupyterlab
     #   pythran
@@ -651,7 +653,7 @@ sniffio==1.3.1
     # via
     #   anyio
     #   openai
-snowflake-connector-python==3.14.1 ; python_full_version < '4.0'
+snowflake-connector-python==3.15.0 ; python_full_version < '4.0'
     # via xorq
 sortedcontainers==2.4.0 ; python_full_version < '4.0'
     # via snowflake-connector-python
@@ -767,7 +769,7 @@ urllib3==2.4.0
     # via
     #   botocore
     #   requests
-uvicorn==0.34.2
+uvicorn==0.34.2 ; sys_platform != 'emscripten'
     # via mcp
 vendoring==1.2.0
 virtualenv==20.30.0
