@@ -6,11 +6,15 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 import sqlglot as sg
 import sqlglot.expressions as sge
+from opentelemetry import trace
 
 import xorq.common.exceptions as exc
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.otel_utils import (
+    tracer,
+)
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import BaseBackend
@@ -143,6 +147,7 @@ class SQLBackend(BaseBackend, _DatabaseSchemaHandler):
             namespace=ops.Namespace(catalog=catalog, database=database),
         ).to_expr()
 
+    @tracer.start_as_current_span("compile")
     def compile(
         self,
         expr: ir.Expr,
@@ -153,6 +158,7 @@ class SQLBackend(BaseBackend, _DatabaseSchemaHandler):
         """Compile an Ibis expression to a SQL string."""
         query = self.compiler.to_sqlglot(expr, limit=limit, params=params)
         sql = query.sql(dialect=self.dialect, pretty=pretty, copy=False)
+        trace.get_current_span().add_event("compile.sql", {"sql": sql})
         self._log(sql)
         return sql
 
