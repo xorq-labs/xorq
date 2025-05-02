@@ -94,7 +94,7 @@ cfgv==3.4.0
     # via pre-commit
 chardet==5.2.0
     # via codespell
-charset-normalizer==3.4.1
+charset-normalizer==3.4.2
     # via
     #   requests
     #   snowflake-connector-python
@@ -123,7 +123,7 @@ comm==0.2.2
     # via ipykernel
 coverage==7.8.0
     # via pytest-cov
-cryptography==44.0.2
+cryptography==44.0.3
     # via
     #   pyopenssl
     #   snowflake-connector-python
@@ -350,7 +350,7 @@ matplotlib-inline==0.1.7
     #   ipykernel
     #   ipython
 maturin==1.8.3
-mcp==1.7.0
+mcp==1.7.1
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -393,7 +393,7 @@ nvidia-nccl-cu12==2.26.2.post1 ; platform_machine != 'aarch64' and sys_platform 
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.76.2
+openai==1.77.0
     # via xorq
 opentelemetry-api==1.32.1
     # via
@@ -458,7 +458,7 @@ pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via ipython
 pins==0.8.7 ; python_full_version < '4.0'
     # via xorq
-pip==25.1
+pip==25.1.1
 platformdirs==4.3.7
     # via
     #   black
@@ -725,7 +725,7 @@ traitlets==5.14.3
     #   nbclient
     #   nbconvert
     #   nbformat
-trino==0.333.0
+trino==0.334.0
 types-python-dateutil==2.9.0.20241206
     # via arrow
 typing-extensions==4.13.2
