@@ -83,18 +83,24 @@ def list_option(request, data_dir):
     "list_option",
     [
         pytest.param(
-            lambda x: (x / "csv").glob("astronauts.csv"), id="pathlib.Path-iterable"
+            lambda x: (x / "csv").glob("*astronauts.csv"), id="pathlib.Path-iterable"
         ),
-        pytest.param(lambda x: glob.glob(f"{x}/csv/astronauts.csv"), id="glob-list"),
+        pytest.param(lambda x: glob.glob(f"{x}/csv/*astronauts.csv"), id="glob-list"),
         pytest.param(lambda x: x / "csv" / "astronauts.csv", id="str"),
+        pytest.param(lambda x: str(x / "csv" / "*astronauts.csv"), id="glob-str"),
     ],
     indirect=True,
 )
-def test_register_csv_multiple_list_options(con, list_option):
+def test_register_csv_multiple_list_options(con, list_option, data_dir):
     table_name = "astronauts"
     table = con.read_csv(list_option, table_name=table_name)
+    expected = con.read_csv(
+        data_dir / "csv" / "astronauts.csv", table_name=f"expected_{table_name}"
+    )
+
     assert any(table_name in t for t in con.list_tables())
-    assert table.count().execute()
+    assert table.count().execute() == expected.count().execute()
+    assert table.schema() == expected.schema()
 
 
 def test_register_csv_files_fails(con, tmp_path):

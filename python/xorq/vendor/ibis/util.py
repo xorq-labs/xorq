@@ -511,6 +511,14 @@ def normalize_filename(source: str | Path) -> str:
 
 
 def normalize_filenames(source_list):
+    import glob
+
+    try:
+        if not os.path.exists(source_list):
+            source_list = glob.glob(source_list)
+    except TypeError:
+        pass
+
     # Promote to list
     source_list = promote_list(source_list)
 
