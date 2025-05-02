@@ -60,4 +60,4 @@ trace.set_tracer_provider(provider)
 
 
 # Creates a tracer from the global tracer provider
-tracer = trace.get_tracer("xorq-otel-tracer")
+tracer = trace.get_tracer("xorq.tracer")

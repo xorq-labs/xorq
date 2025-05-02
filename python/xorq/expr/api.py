@@ -336,6 +336,7 @@ def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
     return SQLString(_cached_with_op(expr.unbind().op(), pretty))
 
 
+@tracer.start_as_current_span("_register_and_transform_cache_tables")
 def _register_and_transform_cache_tables(expr):
     """This function will sequentially execute any cache node that is not already cached"""
 
@@ -353,13 +354,25 @@ def _register_and_transform_cache_tables(expr):
     return out.to_expr()
 
 
+@tracer.start_as_current_span("_transform_deferred_reads")
 def _transform_deferred_reads(expr):
     dt_to_read = {}
+
+    span = trace.get_current_span()
 
     def replace_read(node, _kwargs):
         from xorq.expr.relations import Read
 
         if isinstance(node, Read):
+            read_kwargs = dict(node.read_kwargs)
+            span.add_event(
+                "replace_read",
+                {
+                    "engine": node.source.name,
+                    "method_name": node.method_name,
+                    "path": read_kwargs.get("path") or read_kwargs.get("source"),
+                },
+            )
             if node.source.name == "pandas":
                 # FIXME: pandas read is not lazy, leave it to the pandas executor to do
                 node = dt_to_read[node] = node.make_dt()
@@ -377,9 +390,12 @@ def _transform_deferred_reads(expr):
 @tracer.start_as_current_span("execute")
 def execute(expr: ir.Expr, **kwargs: Any):
     batch_reader = to_pyarrow_batches(expr, **kwargs)
-    return expr.__pandas_result__(batch_reader.read_pandas(timestamp_as_object=True))
+    with tracer.start_as_current_span("read_pandas"):
+        df = batch_reader.read_pandas(timestamp_as_object=True)
+    return expr.__pandas_result__(df)
 
 
+@tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr):
     expr = _register_and_transform_cache_tables(expr)
     expr, created = register_and_transform_remote_tables(expr)

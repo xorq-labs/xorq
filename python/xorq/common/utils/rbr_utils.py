@@ -7,7 +7,9 @@ import toolz
 from opentelemetry import trace
 
 import xorq as xo
-from xorq.common.utils.otel_utils import tracer
+from xorq.common.utils.otel_utils import (
+    tracer,
+)
 
 
 @toolz.curry
@@ -18,8 +20,14 @@ def excepts_print_exc(func, exc=Exception, handler=toolz.functoolz.return_none):
 
 @tracer.start_as_current_span("otel_instrument_reader")
 def otel_instrument_reader(reader):
-    reader_id = id(reader)
-    span_link = trace.Link(trace.get_current_span().get_span_context())
+    span = trace.get_current_span()
+    ctx = span.get_span_context()
+    span_link = trace.Link(ctx)
+    event_ids = {"reader_id": id(reader), "trace_id": hex(ctx.trace_id)[2:]}
+    span.add_event(
+        "span.metrics.rbr.make_reader",
+        event_ids,
+    )
 
     def record_metrics(**kwargs):
         # we can't directly instrument a generator
@@ -27,10 +35,9 @@ def otel_instrument_reader(reader):
         with tracer.start_as_current_span(
             "otel_instrument_reader.metrics_recorder", links=[span_link]
         ) as span:
-            # https://opentelemetry.io/docs/languages/python/instrumentation/#adding-links
             span.add_event(
-                "metrics.rbr.record_reader",
-                kwargs | {"reader_id": reader_id},
+                "span.metrics.rbr.record_reader",
+                kwargs | event_ids,
             )
 
     def instrument_reader(reader):
@@ -42,11 +49,6 @@ def otel_instrument_reader(reader):
             yield batch
         record_metrics(n_batches=n_batches, sum_buffer_size=sum_buffer_size)
 
-    span = trace.get_current_span()
-    span.add_event(
-        "metrics.rbr.make_reader",
-        {"reader_id": reader_id},
-    )
     return pa.RecordBatchReader.from_batches(reader.schema, instrument_reader(reader))
 
 
