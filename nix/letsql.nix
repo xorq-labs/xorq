@@ -63,7 +63,7 @@ let
             owner = "apache";
             repo = "parquet-testing";
             rev = "18d17540097fca7c40be3d42c167e6bfad90763c";
-            hash = "sha256-MnVYupmfxaglxBnyKeW+q1nm4nYdOH9LjbBIvHDAHFU=";
+            hash= "sha256-gKEQc2RKpVp39RmuZbIeIXAwiAXDHGnLXF6VQuJtnRA=";
           };
           version = "20.0.0";
           arrow-cpp = pkgs.arrow-cpp.overrideAttrs (old: {
