@@ -17,6 +17,11 @@ from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
 
+# we use the PyIceberg's default connection
+# TODO: See if there is anything to be done for creating connection profile for PyIceberg backend
+# TODO: needs tests
+
+
 def parse_url(url: str) -> Dict[str, Any]:
     from urllib.parse import parse_qs, urlparse
 
@@ -90,6 +95,8 @@ class Backend(SQLBackend):
             self.duckdb_con.raw_sql(cmd)
 
     def _reflect_views(self):
+        # required for duckdb backend but for PyIceberg backend this will not
+        # be necessary
         table_names = [t[1] for t in self.catalog.list_tables(self.namespace)]
 
         for table_name in table_names:
@@ -210,6 +217,11 @@ class Backend(SQLBackend):
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
         self._reflect_views()
+        # FIXME: this should just use pyiceberg's scan operator respecting any
+        # predicate and/or projection pushdowns
+        # TODO: add a ibis select expression to pyiceberg's scan operator converter
+        # Check with dan if the utils already exist.
+        # Raise NotImplementedError if not a selection
         return self.duckdb_con.to_pyarrow_batches(
             expr, params=params, limit=limit, chunk_size=chunk_size
         )
