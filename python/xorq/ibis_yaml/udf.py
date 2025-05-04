@@ -76,13 +76,15 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 
     schema = {}
     for i, arg_yaml in enumerate(args_yaml):
-        if "node_ref" in arg_yaml:
-            node_id = arg_yaml["node_ref"]
-            node = compiler.definitions["nodes"].get(node_id)
-            if node and "op" in node and node["op"] == "Field" and "name" in node:
-                schema[node["name"]] = args[i].type()
-                continue
-        schema[f"arg{i}"] = args[i].type()
+        arg_name = f"arg{i}"
+
+        if "node_ref" in arg_yaml and (
+            node := compiler.definitions["nodes"].get(arg_yaml["node_ref"])
+        ):
+            if node.get("op") == "Field" and "name" in node:
+                arg_name = node["name"]
+
+        schema[arg_name] = args[i].type()
 
     fields = {}
     for name, typ in schema.items():
@@ -92,7 +94,7 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
         "dtype": dtype,
         "__input_type__": input_type,
         "__func__": udf.property_wrap_fn(fn),
-        "__config__": {"volatility": "immutable", "fn": fn, "schema": schema},
+        "__config__": {"volatility": "immutable"},
         "__udf_namespace__": None,
         "__module__": yaml_dict.get("module", "__main__"),
         "__func_name__": yaml_dict["func_name"],
