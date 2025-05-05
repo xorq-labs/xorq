@@ -100,19 +100,7 @@
             drv = letsql-312.virtualenv;
             name = "ipython";
           };
-          ipython-310-v0-2-0 = drvToApp {
-            drv = letsql-310.virtualenv-pure-pypi;
-            name = "ipython";
-          };
-          ipython-311-v0-2-0 = drvToApp {
-            drv = letsql-311.virtualenv-pure-pypi;
-            name = "ipython";
-          };
-          ipython-312-v0-2-0 = drvToApp {
-            drv = letsql-312.virtualenv-pure-pypi;
-            name = "ipython";
-          };
-          default = self.apps.${system}.ipython-310-v0-2-0;
+          default = self.apps.${system}.ipython-312;
         };
         lib = {
           inherit
