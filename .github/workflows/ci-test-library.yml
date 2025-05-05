@@ -32,33 +32,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: rust latest
-        run: rustup update
-
-      - name: cargo cache
-        uses: actions/cache@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ./target/
-          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
+          enable-cache: true
 
       # check how to use virtual environment https://stackoverflow.com/q/74668349/4001592
       - name: create build virtual environment
-        run: python -m venv .venv
-
-      - name: install dependencies
-        run: |
-          source .venv/bin/activate
-          python -m pip install maturin
+        run: uv venv .venv
 
       - name: build package
-        run: |
-          source .venv/bin/activate
-          python -m maturin build --release --strip
+        run: uv build
 
       - name: create test virtual environment
         run: python -m venv .venv-test
@@ -66,7 +50,7 @@ jobs:
       - name: Install and test wheel in virtual environment
         run: |
           source .venv-test/bin/activate
-          python -m pip install target/wheels/*.whl
+          python -m pip install dist/*.whl
           python -m pip install pytest pytest-cov
           mkdir test-directory
           cd test-directory

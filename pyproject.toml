@@ -1,10 +1,16 @@
 [build-system]
-requires = ["maturin>=1.2,<2.0"]
-build-backend = "maturin"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+sources = ["python"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["python"]
 
 [project]
 name = "xorq"
-dynamic = ["version"]
+version = "0.2.1"
 dependencies = [
     "dask==2025.1.0; python_version >= '3.10' and python_version < '4.0'",
     "attrs>=24.0.0,<26; python_version >= '3.10' and python_version < '4.0'",
@@ -26,6 +32,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "cloudpickle>=3.1.1",
     "envyaml>=1.10.211231",
+    "xorq-datafusion==0.2.1",
     "opentelemetry-sdk>=1.32.1",
     "opentelemetry-exporter-otlp>=1.32.1",
 ]
@@ -103,7 +110,6 @@ dev = [
     "ruff==0.11.8",
     "trino==0.334.0",
     "pytest-codspeed<4.0.0,>=3.0.0",
-    "maturin>=1.7.4",
     "pip>=24.3.1",
     "quickgrove>=0.1.2",
     "vendoring>=1.2.0",
@@ -136,11 +142,6 @@ trino = "xorq.backends.trino"
 
 [project.scripts]
 xorq = "xorq.cli:main"
-
-[tool.maturin]
-module-name = "xorq._internal"
-python-source = "python"
-features = ["pyo3/extension-module"]
 
 [tool.vendoring]
 destination = "python/xorq/vendor/"
