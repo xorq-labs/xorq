@@ -200,13 +200,10 @@ let
       pyprojectOverrides-wheel = crateWheelLib.mkPyprojectOverrides-wheel python pythonSet-base;
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
-          patches = (old.patches or [ ]) ++ [
-            ./pyproject.build-system.diff
-          ];
           nativeBuildInputs =
             (old.nativeBuildInputs or [ ])
             ++ final.resolveBuildSystem {
-              setuptools = [ ];
+              editables = [ ];
             };
         });
       };

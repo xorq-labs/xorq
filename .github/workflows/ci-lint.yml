@@ -53,18 +53,6 @@ jobs:
       - name: Run Ruff
         run: uv run --no-sync ruff check --output-format=github python examples docs
 
-      - name: Run fmt
-        uses: actions-rs/cargo@v1
-        with:
-          command: fmt
-          args: -- --check
-
-      - name: Run Clippy
-        uses: actions-rs/cargo@v1
-        with:
-          command: clippy
-          args: --all-targets --all-features -- -D clippy::all -A clippy::redundant_closure
-
       - name: Verify no uncommitted changes
         run: |
           echo "Checking for uncommitted changes in the workspace..."
