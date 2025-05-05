@@ -154,50 +154,17 @@ let
             );
         });
       toolchain = pkgs.rust-bin.fromRustupToolchainFile (append src "rust-toolchain.toml");
-      crateWheelLib = import ./crate-wheel.nix {
-        inherit
-          system
-          pkgs
-          crane
-          src
-          toolchain
-          ;
-      };
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
       wheelOverlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
       editableOverlay = workspace.mkEditablePyprojectOverlay {
         root = "$REPO_ROOT";
       };
 
-      virtualenv-pure-pypi =
-        let
-        workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = ./pure-pypi; };
-        wheelOverlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
-        # pyprojectOverrides-base
-        pythonSet-base =
-          # Use base package set from pyproject.nix builders
-          (pkgs.callPackage pyproject-nix.build.packages {
-            inherit python;
-          }).overrideScope
-            (
-              pkgs.lib.composeManyExtensions (
-                [
-                  pyproject-build-systems.overlays.default
-                  wheelOverlay
-                  pyprojectOverrides-base
-                ]
-                ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ darwinPyprojectOverrides ]
-              )
-            );
-        virtualenv = pythonSet-base.mkVirtualEnv "xorq" workspace.deps.all;
-        in virtualenv;
-
       pyprojectOverrides-base = final: prev: {
         cityhash = prev.cityhash.overrideAttrs (
           addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
         );
       };
-      pyprojectOverrides-wheel = crateWheelLib.mkPyprojectOverrides-wheel python pythonSet-base;
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
           nativeBuildInputs =
@@ -228,48 +195,15 @@ let
         pyprojectOverrides-editable
         editableOverlay
       ];
-      pythonSet-wheel = overridePythonSet [ pyprojectOverrides-wheel ];
-      virtualenv-editable = pythonSet-editable.mkVirtualEnv "xorq" workspace.deps.all;
-      virtualenv = pythonSet-wheel.mkVirtualEnv "xorq" workspace.deps.all;
-      virtualenv-default = pythonSet-wheel.mkVirtualEnv "xorq-default" workspace.deps.default;
+      virtualenv-default = pythonSet-base.mkVirtualEnv "xorq-default" workspace.deps.default;
+      virtualenv-all = pythonSet-base.mkVirtualEnv "xorq-all" workspace.deps.all;
+      virtualenv-editable = pythonSet-editable.mkVirtualEnv "xorq-editable" workspace.deps.all;
 
       editableShellHook = ''
         # Undo dependency propagation by nixpkgs.
         unset PYTHONPATH
         # Get repository root using git. This is expanded at runtime by the editable `.pth` machinery.
         export REPO_ROOT=$(git rev-parse --show-toplevel)
-      '';
-      maybeMaturinBuildHook = ''
-        set -eu
-
-        repo_dir=$(git rev-parse --show-toplevel)
-        if [ "$(basename "$repo_dir")" != "xorq" ]; then
-          echo "not in xorq, exiting"
-          exit 1
-        fi
-        case $(uname) in
-          Darwin) suffix=dylib ;;
-          *)      suffix=so    ;;
-        esac
-        source=$repo_dir/target/release/maturin/libletsql.$suffix
-        target=$repo_dir/python/xorq/_internal.abi3.so
-
-        if [ -e "$target" ]; then
-          for other in $(find src -name '*rs'); do
-            if [ "$target" -ot "$other" ]; then
-              rm -f "$target"
-              break
-            fi
-          done
-        fi
-
-        if [ ! -e "$source" -o ! -e "$target" ]; then
-          maturin build --release
-        fi
-        if [ ! -L "$target" -o "$(realpath "$source")" != "$(realpath "$target")" ]; then
-          rm -f "$target"
-          ln -s "$source" "$target"
-        fi
       '';
 
       inherit
@@ -295,14 +229,14 @@ let
       };
       shell = pkgs.mkShell {
         packages = [
-          virtualenv
+          virtualenv-all
         ] ++ toolsPackages;
         shellHook = ''
           unset PYTHONPATH
         '';
         env = {
           UV_NO_SYNC = "1";
-          UV_PYTHON = "${virtualenv}/bin/python";
+          UV_PYTHON = "${virtualenv-all}/bin/python";
           UV_PYTHON_DOWNLOADS = "never";
         };
       };
@@ -310,11 +244,7 @@ let
         packages = [
           virtualenv-editable
         ] ++ toolsPackages;
-        shellHook = pkgs.lib.strings.concatStrings [
-          editableShellHook
-          "\n"
-          maybeMaturinBuildHook
-        ];
+        shellHook = editableShellHook;
         env = {
           UV_NO_SYNC = "1";
           UV_PYTHON = "${virtualenv-editable}/bin/python";
@@ -327,19 +257,16 @@ let
       inherit
         pythonSet-base
         pythonSet-editable
-        pythonSet-wheel
-        virtualenv
-        virtualenv-editable
         virtualenv-default
+        virtualenv-all
+        virtualenv-editable
         editableShellHook
-        maybeMaturinBuildHook
         toolchain
         letsql-commands-star
         toolsPackages
-        shell
-        virtualenv-pure-pypi
-        editableShell
         defaultShell
+        shell
+        editableShell
         ;
     };
 in
