@@ -4,22 +4,17 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 import pandas as pd
 import pyarrow as pa
 from pyiceberg.catalog import load_catalog
-from pyiceberg.io.pyarrow import pyarrow_to_schema
 from pyiceberg.table import ALWAYS_TRUE
 from pyiceberg.table import Table as IcebergTable
-from pyiceberg.table.name_mapping import MappedField, NameMapping
 
-import xorq as xo
+import xorq.vendor.ibis.expr.operations as ops
+from xorq.backends.postgres.compiler import compiler as postgres_compiler
+from xorq.backends.pyiceberg.compiler import PyIceberg, translate
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
-
-
-# we use the PyIceberg's default connection
-# TODO: See if there is anything to be done for creating connection profile for PyIceberg backend
-# TODO: needs tests
 
 
 def parse_url(url: str) -> Dict[str, Any]:
@@ -42,23 +37,51 @@ def parse_url(url: str) -> Dict[str, Any]:
     }
 
 
+def _overwrite_table_data(iceberg_table: IcebergTable, data: pa.Table):
+    tx = iceberg_table.transaction()
+    tx.delete(delete_filter=ALWAYS_TRUE)
+
+    update_snapshot = tx.update_snapshot()
+    with update_snapshot.fast_append() as append_files:
+        for data_file in iceberg_table.writer().write_table(data):
+            append_files.append_data_file(data_file)
+
+    tx.commit_transaction()
+
+
 class Backend(SQLBackend):
     name = "pyiceberg"
-    version = "0.0.0"
+    dialect = PyIceberg
+    compiler = postgres_compiler
 
-    def __init__(self):
-        super().__init__()
+    @property
+    def version(self):
+        import importlib.metadata
+
+        return importlib.metadata.version("pyiceberg")
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__(*args, **kwargs)
         self.catalog = None
         self.namespace = "default"
         self.warehouse_path = None
         self.duckdb_con = None
+        self.catalog_params = None
+        self.uri = None
 
     @staticmethod
     def _from_url(url: str) -> Dict[str, Any]:
         return parse_url(url)
 
+    @classmethod
+    def connect_env(cls, **kwargs):
+        from xorq.common.utils.pyiceberg_utils import make_connection
+
+        return make_connection(**kwargs)
+
     def do_connect(
         self,
+        uri=None,
         warehouse_path="warehouse",
         namespace="default",
         catalog_name="default",
@@ -66,12 +89,12 @@ class Backend(SQLBackend):
     ) -> None:
         self.warehouse_path = Path(warehouse_path).absolute()
         self.namespace = namespace
-
-        Path(self.warehouse_path).mkdir(exist_ok=True)
+        self.warehouse_path.mkdir(exist_ok=True)
+        self.uri = uri or f"sqlite:///{self.warehouse_path}/pyiceberg_catalog.db"
 
         self.catalog_params = {
             "type": catalog_type,
-            "uri": f"sqlite:///{self.warehouse_path}/pyiceberg_catalog.db",
+            "uri": self.uri,
             "warehouse": f"file://{self.warehouse_path}",
         }
 
@@ -80,40 +103,19 @@ class Backend(SQLBackend):
         if self.namespace not in [n[0] for n in self.catalog.list_namespaces()]:
             self.catalog.create_namespace(self.namespace)
 
-        self.duckdb_con = xo.duckdb.connect()
-        self._setup_duckdb_connection()
-        self._reflect_views()
-
-    def _setup_duckdb_connection(self):
-        """Configure DuckDB connection with required settings"""
-        commands = [
-            "INSTALL iceberg;",
-            "LOAD iceberg;",
-            "SET unsafe_enable_version_guessing=true;",
-        ]
-        for cmd in commands:
-            self.duckdb_con.raw_sql(cmd)
-
-    def _reflect_views(self):
-        # required for duckdb backend but for PyIceberg backend this will not
-        # be necessary
-        table_names = [t[1] for t in self.catalog.list_tables(self.namespace)]
-
-        for table_name in table_names:
-            table_path = f"{self.warehouse_path}/{self.namespace}.db/{table_name}"
-            self._setup_duckdb_connection()
-
-            escaped_path = table_path.replace("'", "''")
-            safe_name = f'"{table_name}"' if "-" in table_name else table_name
-
-            self.duckdb_con.raw_sql(f"""
-                CREATE OR REPLACE VIEW {safe_name} AS
-                SELECT * FROM iceberg_scan(
-                    '{escaped_path}', 
-                    version='?',
-                    allow_moved_paths=true
-                )
-            """)
+    def table(
+        self,
+        name: str,
+        schema: str | None = None,
+        database: tuple[str, str] | str | None = None,
+    ) -> ir.Table:
+        table_schema = self.get_schema(name, catalog=schema, database=database)
+        return ops.DatabaseTable(
+            name,
+            schema=table_schema,
+            source=self,
+            namespace=ops.Namespace(catalog=schema, database=database),
+        ).to_expr()
 
     def create_table(
         self,
@@ -141,25 +143,21 @@ class Backend(SQLBackend):
         elif isinstance(obj, ir.Table):
             obj = self.to_pyarrow(obj)
 
-        mapped_fields = []
-        for i, field in enumerate(obj.schema, 1):
-            mapped_fields.append(
-                MappedField(
-                    field_id=i,
-                    names=[field.name],
-                    fields=[],  # nested?
-                )
+        # NEEDS this to reset the field_id
+        obj = obj.cast(
+            pa.schema(
+                [
+                    pa.field(name, type=typ)
+                    for name, typ in zip(obj.schema.names, obj.schema.types)
+                ]
             )
+        )
 
-        name_mapping = NameMapping(mapped_fields)
-
-        iceberg_schema = pyarrow_to_schema(obj.schema, name_mapping=name_mapping)
         iceberg_table = self.catalog.create_table(
-            identifier=full_table_name, schema=iceberg_schema
+            identifier=full_table_name, schema=obj.schema
         )
         iceberg_table.append(obj)
 
-        self._reflect_views()
         return self.table(name)
 
     def insert(
@@ -184,28 +182,23 @@ class Backend(SQLBackend):
         iceberg_table.refresh()
 
         if mode == "overwrite":
-            self._overwrite_table_data(iceberg_table, data)
+            _overwrite_table_data(iceberg_table, data)
         else:
             with iceberg_table.transaction() as transaction:
                 transaction.append(data)
 
-        self._reflect_views()
         return True
 
-    def _overwrite_table_data(self, iceberg_table: IcebergTable, data: pa.Table):
-        tx = iceberg_table.transaction()
-        tx.delete(delete_filter=ALWAYS_TRUE)
-
-        update_snapshot = tx.update_snapshot()
-        with update_snapshot.fast_append() as append_files:
-            for data_file in iceberg_table.writer().write_table(data):
-                append_files.append_data_file(data_file)
-
-        tx.commit_transaction()
-
-    def to_pyarrow(self, expr: ir.Expr) -> pa.Table:
-        batches = self.to_pyarrow_batches(expr)
-        return pa.Table.from_batches(batches.read_all())
+    def to_pyarrow(
+        self,
+        expr: ir.Expr,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        **kwargs: Any,
+    ) -> pa.Table:
+        batches = self.to_pyarrow_batches(expr, params=params, limit=limit, **kwargs)
+        return batches.read_all()
 
     def to_pyarrow_batches(
         self,
@@ -216,15 +209,8 @@ class Backend(SQLBackend):
         chunk_size: int = 10_000,
         **_: Any,
     ) -> pa.ipc.RecordBatchReader:
-        self._reflect_views()
-        # FIXME: this should just use pyiceberg's scan operator respecting any
-        # predicate and/or projection pushdowns
-        # TODO: add a ibis select expression to pyiceberg's scan operator converter
-        # Check with dan if the utils already exist.
-        # Raise NotImplementedError if not a selection
-        return self.duckdb_con.to_pyarrow_batches(
-            expr, params=params, limit=limit, chunk_size=chunk_size
-        )
+        query = translate(expr.op(), namespace=self.namespace, catalog=self.catalog)
+        return query.to_arrow_batch_reader()
 
     def list_tables(
         self,
@@ -261,18 +247,17 @@ class Backend(SQLBackend):
         database: Optional[str] = None,
     ) -> sch.Schema:
         database = database or self.namespace
+        catalog = (
+            self.catalog
+            if catalog is None
+            else load_catalog(catalog, **self.catalog_params)
+        )
 
-        sql = f"SELECT * FROM '{table_name}' LIMIT 0"
-        result = self.duckdb_con.sql(sql)
-        pa_table = result.to_pyarrow()
-        return sch.Schema.from_pyarrow(pa_table.schema)
+        table = catalog.load_table(f"{database}.{table_name}")
+        return sch.Schema.from_pyarrow(table.schema().as_arrow())
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
-        limit_query = f"SELECT * FROM ({query}) AS t LIMIT 0"
-        result = self.duckdb_con.sql(limit_query)
-
-        pa_table = result.to_pyarrow()
-        return sch.Schema.from_pyarrow(pa_table.schema)
+        raise NotImplementedError("_get_schema_using_query")
 
     def read_record_batches(
         self,
@@ -280,8 +265,7 @@ class Backend(SQLBackend):
         table_name: Optional[str] = None,
     ) -> ir.Table:
         table_name = table_name or gen_name("read_record_batches")
-        table = pa.Table.from_batches([batch for batch in reader])
+        table = pa.Table.from_batches(reader, reader.schema)
 
         self.create_table(name=table_name, obj=table, database=self.namespace)
-        self._reflect_views()
         return self.table(table_name)
