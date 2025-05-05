@@ -39,7 +39,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
         {
             "op": "ScalarUDF",
             "func_name": op.__func_name__,
-            "input_type": input_type,
+            "input_type": str(input_type),
             "args": [translate_to_yaml(arg, compiler) for arg in op.args],
             "type": translate_to_yaml(op.dtype, None),
             "pickle": serialize_callable(op.__func__),
@@ -52,34 +52,46 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
 
 @register_from_yaml_handler("ScalarUDF")
 def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
-    # TODO: use make_pandas_udf (expr/udf.py)
     encoded_fn = yaml_dict.get("pickle")
     if not encoded_fn:
         raise ValueError("Missing pickle data for ScalarUDF")
     fn = deserialize_callable(encoded_fn)
 
-    args = tuple(
-        translate_from_yaml(arg, compiler) for arg in yaml_dict.get("args", [])
-    )
+    args_yaml = yaml_dict.get("args", [])
+    args = [translate_from_yaml(arg, compiler) for arg in args_yaml]
     if not args:
         raise ValueError("ScalarUDF requires at least one argument")
 
-    arg_names = yaml_dict.get("arg_names", [f"arg{i}" for i in range(len(args))])
-    input_type = yaml_dict.get("input_type")
+    input_type_str = yaml_dict.get("input_type")
 
-    if input_type == "BUILTIN":
+    if input_type_str == "InputType.BUILTIN":
         input_type = ops.udf.InputType.BUILTIN
-    elif input_type == "PYARROW":
+    elif input_type_str == "InputType.PYARROW":
         input_type = ops.udf.InputType.PYARROW
+    else:
+        raise ValueError(f"Unsupported input type: {input_type_str}")
 
-    fields = {
-        name: Argument(pattern=rlz.ValueOf(arg.type()), typehint=arg.type())
-        for name, arg in zip(arg_names, args)
-    }
+    dtype = dt.dtype(yaml_dict["type"]["type"])
+    class_name = yaml_dict.get("class_name", yaml_dict["func_name"])
 
-    bases = (ops.ScalarUDF,)
+    schema = {}
+    for i, arg_yaml in enumerate(args_yaml):
+        arg_name = f"arg{i}"
+
+        if "node_ref" in arg_yaml and (
+            node := compiler.definitions["nodes"].get(arg_yaml["node_ref"])
+        ):
+            if node.get("op") == "Field" and "name" in node:
+                arg_name = node["name"]
+
+        schema[arg_name] = args[i].type()
+
+    fields = {}
+    for name, typ in schema.items():
+        fields[name] = Argument(pattern=rlz.ValueOf(typ), typehint=typ)
+
     meta = {
-        "dtype": dt.dtype(yaml_dict["type"]["type"]),
+        "dtype": dtype,
         "__input_type__": input_type,
         "__func__": udf.property_wrap_fn(fn),
         "__config__": {"volatility": "immutable"},
@@ -89,11 +101,9 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     }
 
     kwds = {**fields, **meta}
-    class_name = yaml_dict.get("class_name", yaml_dict["func_name"])
-
     node = type(
         class_name,
-        bases,
+        (ops.ScalarUDF,),
         kwds,
     )
 

@@ -69,3 +69,30 @@ def test_built_in_udf(compiler):
     xorq.ibis_yaml.utils.diff_ibis_exprs(expr, roundtrip_expr)
 
     assert roundtrip_expr.equals(expr)
+
+
+def test_pandas_udf_properties(compiler):
+    t = xo.table({"a": "int64", "b": "float64"}, name="t")
+
+    @xo.udf.make_pandas_udf(
+        schema=xo.schema({"a": int, "b": float}),
+        return_type=xo.expr.datatypes.float64,
+        name="multiply_add",
+    )
+    def multiply_add(df):
+        return df["a"] * df["b"] + df["a"]
+
+    expr = t.mutate(result=multiply_add.on_expr(t))
+    yaml_dict = compiler.to_yaml(expr)
+
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+
+    original_mutation = expr.op()
+    roundtrip_mutation = roundtrip_expr.op()
+    original_udf = original_mutation.values["result"]
+    roundtrip_udf = roundtrip_mutation.values["result"]
+
+    assert original_udf.__func_name__ == roundtrip_udf.__func_name__
+    assert original_udf.__input_type__ == roundtrip_udf.__input_type__
+    assert original_udf.dtype == roundtrip_udf.dtype
+    assert len(original_udf.args) == len(roundtrip_udf.args)
