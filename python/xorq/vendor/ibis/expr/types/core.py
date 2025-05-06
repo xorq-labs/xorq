@@ -601,22 +601,12 @@ class LETSQLAccessor:
 
     @property
     def cached_nodes(self):
+        from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import (
             CachedNode,
-            RemoteTable,
         )
 
-        def _find(node):
-            cached = node.find((CachedNode, RemoteTable))
-            for no in cached:
-                if isinstance(no, RemoteTable):
-                    yield from _find(no.remote_expr.op())
-                else:
-                    yield from _find(no.parent.op())
-                    yield no
-
-        op = self.expr.op()
-        return tuple(_find(op))
+        return walk_nodes((CachedNode,), self.expr)
 
     @property
     def storage(self):
