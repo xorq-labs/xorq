@@ -705,7 +705,7 @@ class LETSQLAccessor:
             return self.expr
 
     def get_key(self):
-        if self.is_cached and (self.exists() or not self.uncached_one.ls.has_cached):
+        if self.is_cached:
             return self.storage.get_key(self.uncached_one)
         else:
             return None
