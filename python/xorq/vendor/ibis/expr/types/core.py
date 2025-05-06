@@ -634,21 +634,18 @@ class LETSQLAccessor:
 
     @property
     def dts(self):
-        # FIXME: update for other opaque nodes: FlightExpr, FlightUDXF
+        from xorq.common.utils.graph_utils import (
+            walk_nodes,
+        )
         from xorq.expr.relations import (
             RemoteTable,
         )
 
-        nodes = set(self.op.find(self.node_types))
-        for node in self.cached_nodes:
-            candidates = node.parent.op().find(self.node_types)
-            nodes.update(
-                candidate
-                for candidate in candidates
-                if not isinstance(candidate, RemoteTable)
-            )
-
-        return tuple(nodes)
+        return tuple(
+            el
+            for el in walk_nodes(self.node_types, self.expr)
+            if not isinstance(el, RemoteTable)
+        )
 
     @property
     def is_cached(self):
