@@ -677,20 +677,7 @@ class LETSQLAccessor:
 
     @property
     def has_cached(self):
-        from xorq.expr.relations import (
-            CachedNode,
-            RemoteTable,
-        )
-
-        def _has_cached(node):
-            if tuple(node.find_topmost(CachedNode)):
-                return True
-            elif tables := node.find_topmost(RemoteTable):
-                return any(_has_cached(table.remote_expr.op()) for table in tables)
-            else:
-                return False
-
-        return _has_cached(self.op)
+        return bool(self.cached_nodes)
 
     @property
     def uncached(self):
