@@ -30,8 +30,6 @@ __all__ = [  # noqa: PLE0604
     *udf.__all__,
 ]
 
-_CUSTOM_BACKENDS = ["postgres", "snowflake"]
-
 
 def _load_entry_points():
     eps = importlib_metadata.entry_points(group="xorq.backends")

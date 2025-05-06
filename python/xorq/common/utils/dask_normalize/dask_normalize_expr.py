@@ -130,6 +130,22 @@ def normalize_postgres_databasetable(dt):
     )
 
 
+def normalize_pyiceberg_database_table(dt):
+    from xorq.common.utils.pyiceberg_utils import get_iceberg_snapshots_ids
+
+    if dt.source.name != "pyiceberg":
+        raise ValueError
+
+    return normalize_seq_with_caller(
+        dt.name,
+        dt.schema,
+        dt.source,
+        dt.namespace,
+        get_iceberg_snapshots_ids(dt),
+        caller="normalize_pyiceberg_databasetable",
+    )
+
+
 def normalize_snowflake_databasetable(dt):
     from xorq.common.utils.snowflake_utils import get_snowflake_last_modification_time
 
@@ -340,6 +356,7 @@ def normalize_databasetable(dt):
         "duckdb": normalize_duckdb_databasetable,
         "trino": normalize_remote_databasetable,
         "bigquery": normalize_bigquery_databasetable,
+        "pyiceberg": normalize_pyiceberg_database_table,
     }
     f = dct[dt.source.name]
     return f(dt)
@@ -377,6 +394,11 @@ def normalize_backend(con):
         con_details = (
             con.project_id,
             con.dataset_id,
+        )
+    elif name == "pyiceberg":
+        catalog_params = con.catalog_params
+        con_details = (con.catalog.name,) + tuple(
+            catalog_params[k] for k in ("type", "uri", "warehouse")
         )
     else:
         raise ValueError
