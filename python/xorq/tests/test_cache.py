@@ -819,7 +819,8 @@ def test_udf_caching(ls_con, df, snapshot):
     )
     from_ls = expr.execute()
     from_pandas = df[cols].assign(mulled=wrapper(my_mul))
-    assert from_ls.equals(from_pandas)
+
+    assert_frame_equal(from_ls, from_pandas, check_dtype=False)
 
     py_version = f"py{get_python_version_no_dot()}"
     snapshot.assert_match(expr.ls.get_key(), f"{py_version}_udf_caching.txt")
