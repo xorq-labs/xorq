@@ -104,6 +104,30 @@ def test_is_null(compiler):
     assert roundtrip_expr.equals(expr)
 
 
+def test_is_inf(compiler):
+    a = ibis.literal(float("inf"))
+    expr = a.isinf()
+    yaml_dict = compiler.to_yaml(expr)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "IsInf"
+    assert expression["args"][0]["value"] == float("inf")
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(expr)
+
+
+def test_is_nan(compiler):
+    from math import isnan
+
+    a = ibis.literal(float("nan"))
+    expr = a.isnan()
+    yaml_dict = compiler.to_yaml(expr)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "IsNan"
+    isnan(expression["args"][0]["value"])
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(expr)
+
+
 def test_between(compiler):
     a = ibis.literal(5)
     expr = a.between(3, 7)
