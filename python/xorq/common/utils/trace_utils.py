@@ -191,6 +191,8 @@ class Span:
                 "duration": self.duration,
                 "name": event.name,
                 "key": attribute.value,
+                "start_datetime": self.start_datetime,
+                "end_datetime": self.end_datetime,
             }
         else:
             return None
@@ -438,6 +440,10 @@ class Trace:
     @property
     def start_datetime(self):
         return self.parent_span.start_datetime
+
+    @property
+    def end_datetime(self):
+        return self.parent_span.end_datetime
 
     def get_spans_named(self, name):
         return tuple(span for span in self.spans if span.name == name)
