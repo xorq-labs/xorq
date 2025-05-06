@@ -386,6 +386,21 @@ class Trace:
             lineage += (span,)
         return lineage
 
+    @property
+    def attribute_df(self):
+        import pandas as pd
+
+        return pd.DataFrame(
+            {
+                f"attribute.{getattr(attribute, 'name')}": getattr(attribute, "value")
+                for attribute in event.attributes
+            }
+            | {f"event.{k}": getattr(event, k) for k in ("time", "name")}
+            | {k: getattr(span, k) for k in ("trace_id", "span_id", "name")}
+            for span in self.spans
+            for event in span.events
+        )
+
     def get_depth(self, depth):
         return self.get_depths().get(depth, ())
 
