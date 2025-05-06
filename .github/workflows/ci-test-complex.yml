@@ -38,20 +38,6 @@ jobs:
       - name: download test data
         run: just download-data
 
-      - name: rust latest
-        run: rustup update
-
-      - name: cargo cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            ./target/
-          key: cargo-cache-${{ matrix.python-version }}-${{ matrix.target }}-${{ hashFiles('**/Cargo.toml', '**/Cargo.lock') }}
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
@@ -65,17 +51,8 @@ jobs:
         run: uv sync --locked --extra examples --extra postgres --group dev --group test --no-install-project
         working-directory: ${{ github.workspace }}
 
-      - name: maturin develop
-        uses: PyO3/maturin-action@v1
-        with:
-          command: 'develop'
-          args: '--release --strip'
-          target: ${{ matrix.target }}
-          sccache: 'true'
-          manylinux: 'auto'
-
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_complex_exprs.py --cov --cov-report=xml
+        run: uv run pytest --import-mode=importlib python/xorq/tests/test_complex_exprs.py --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
