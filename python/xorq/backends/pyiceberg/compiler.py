@@ -35,14 +35,12 @@ def column(op, **_):
 
 
 @translate.register(ops.DatabaseTable)
-def table(op, **kwargs):
-    if "catalog" not in kwargs:
-        raise ValueError("catalog must be specified")
-    catalog = kwargs["catalog"]
-
-    if "namespace" not in kwargs:
+def table(op, catalog=None, namespace=None, **kwargs):
+    if catalog is None:
+        raise ValueError("catalog cannot be None")
+    if namespace is None:
         raise ValueError("namespace cannot be None")
-    namespace = kwargs["namespace"]
+
     ice_table = catalog.load_table(f"{namespace}.{op.name}")
 
     return ice_table.scan()
