@@ -621,28 +621,11 @@ class LETSQLAccessor:
 
     @property
     def backends(self):
-        from xorq.expr.relations import (
-            CachedNode,
-            RemoteTable,
+        from xorq.common.utils.graph_utils import (
+            find_all_sources,
         )
 
-        def _find_backends(expr):
-            _backends, _ = expr._find_backends()
-            _backends = set(_backends)
-            if backend := expr._find_backend():
-                _backends.add(backend)
-
-            for node in expr.op().find_topmost(CachedNode):
-                _backends.update(_find_backends(node.parent))
-
-            for node in expr.op().find_topmost(RemoteTable):
-                _backends.update(_find_backends(node.remote_expr))
-
-            return _backends
-
-        backends = _find_backends(self.expr)
-
-        return tuple(backends)
+        return find_all_sources(self.expr)
 
     @property
     def is_multiengine(self):
