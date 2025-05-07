@@ -105,3 +105,24 @@ def comparison(op, **kw):
     if func is None:
         raise com.OperationNotDefinedError(f"{type(op).__name__} not supported")
     return func(left, right)
+
+
+@translate.register(ops.InValues)
+def in_values(op, **kw):
+    value = translate(op.value, **kw)
+    options = list(map(translate, op.options))
+    if not options:
+        return ice.AlwaysFalse()
+    return ice.In(value, options)
+
+
+@translate.register(ops.IsNan)
+def is_nan(op, **kw):
+    arg = translate(op.arg, **kw)
+    return ice.IsNaN(arg)
+
+
+@translate.register(ops.IsNull)
+def is_null(op, **kw):
+    arg = translate(op.arg, **kw)
+    return ice.IsNull(arg)
