@@ -7,7 +7,6 @@ from pyiceberg.catalog import load_catalog
 from pyiceberg.table import ALWAYS_TRUE
 from pyiceberg.table import Table as IcebergTable
 
-import xorq as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import compiler as postgres_compiler
 from xorq.backends.pyiceberg.compiler import PyIceberg, translate
@@ -69,7 +68,6 @@ class Backend(SQLBackend):
         self.duckdb_con = None
         self.catalog_params = None
         self.uri = None
-        self._duckdb_con = None
 
     @staticmethod
     def _from_url(url: str) -> Dict[str, Any]:
@@ -258,45 +256,21 @@ class Backend(SQLBackend):
         table = catalog.load_table(f"{database}.{table_name}")
         return sch.Schema.from_pyarrow(table.schema().as_arrow())
 
-    def _setup_duckdb_connection(self):
-        """Configure DuckDB connection with required settings"""
-        commands = [
-            "INSTALL iceberg;",
-            "LOAD iceberg;",
-            "SET unsafe_enable_version_guessing=true;",
-        ]
-        for cmd in commands:
-            self._duckdb_con.raw_sql(cmd)
-
-    def _reflect_views(self):
-        table_names = [t[1] for t in self.catalog.list_tables(self.namespace)]
-
-        for table_name in table_names:
-            table_path = f"{self.warehouse_path}/{self.namespace}.db/{table_name}"
-
-            escaped_path = table_path.replace("'", "''")
-            safe_name = f'"{table_name}"' if "-" in table_name else table_name
-
-            self._duckdb_con.raw_sql(f"""
-                CREATE OR REPLACE VIEW {safe_name} AS
-                SELECT * FROM iceberg_scan(
-                    '{escaped_path}', 
-                    version='?',
-                    allow_moved_paths=true
-                )
-            """)
-
     def _get_schema_using_query(self, query: str) -> sch.Schema:
-        if self._duckdb_con is None:
-            self._duckdb_con = xo.duckdb.connect()
-            self._setup_duckdb_connection()
-        self._reflect_views()
+        from xorq.expr.translate import plan_to_ibis
+        from xorq.internal import ContextProvider
+        from xorq.sql import parser
 
-        limit_query = f"SELECT * FROM ({query}) AS t LIMIT 0"
-        result = self._duckdb_con.sql(limit_query)
+        tables = {
+            table_name: self.get_schema(table_name) for table_name in self.list_tables()
+        }
+        context = ContextProvider(
+            {table_name: schema.to_pyarrow() for table_name, schema in tables.items()}
+        )
 
-        pa_table = result.to_pyarrow()
-        return sch.Schema.from_pyarrow(pa_table.schema)
+        plan = parser.parse_sql(query, context)
+        expr = plan_to_ibis(plan, tables)
+        return expr.as_table().schema()
 
     def read_record_batches(
         self,
