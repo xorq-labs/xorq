@@ -114,25 +114,30 @@ class FlightClient:
 
         return reader
 
-    def upload_data(self, table_name, data):
+    def upload_data(self, table_name, data, **kwargs):
         """
         Upload data to create or replace a table
 
         Args:
             table_name: Name of the table to create
             data: pa.Table containing the data
+            **kwargs: Additional metadata (e.g., "target": "duckdb" or "iceberg")
         """
+        command_payload = {"table_name": table_name, "kwargs": kwargs}
+
         writer, _ = self._client.do_put(
-            pa.flight.FlightDescriptor.for_command(table_name.encode("utf-8")),
+            pa.flight.FlightDescriptor.for_command(dumps(command_payload)),
             data.schema,
             options=self._options,
         )
         writer.write_table(data)
         writer.close()
 
-    def upload_batches(self, table_name, reader):
+    def upload_batches(self, table_name, reader, **kwargs):
+        command_payload = {"table_name": table_name, "kwargs": kwargs}
+
         writer, _ = self._client.do_put(
-            pa.flight.FlightDescriptor.for_command(table_name.encode("utf-8")),
+            pa.flight.FlightDescriptor.for_command(dumps(command_payload)),
             reader.schema,
             options=self._options,
         )
