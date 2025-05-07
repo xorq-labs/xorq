@@ -88,6 +88,7 @@ def test_list_exchanges():
         pytest.param(xo.duckdb.connect, None, id="duckdb"),
         pytest.param(xo.datafusion.connect, None, id="datafusion"),
         pytest.param(xo.connect, None, id="xorq"),
+        pytest.param(xo.pyiceberg.connect, None, id="pyiceberg"),
     ],
 )
 def test_register_and_list_tables(connection, port):
