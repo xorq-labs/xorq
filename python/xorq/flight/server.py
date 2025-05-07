@@ -172,14 +172,22 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
     @maybe_log_excepts
     def do_put(self, context, descriptor, reader, writer):
         with self.lock:
-            table_name = descriptor.command.decode("utf-8")
+            command_payload = loads(descriptor.command)
+
+            if isinstance(command_payload, bytes):
+                table_name = command_payload.decode("utf-8")
+                kwargs = {}
+            else:
+                table_name = command_payload["table_name"]
+                kwargs = command_payload.get("kwargs", {})
+
             # FIXME: pass record batch reader to con when possible
             data = copy_rbr_batches(make_filtered_reader(reader)).read_all()
             try:
                 if table_name in self._conn.tables:
-                    self._conn.insert(table_name, data)
+                    self._conn.insert(table_name, data, **kwargs)
                 else:
-                    self._conn.create_table(table_name, data)
+                    self._conn.create_table(table_name, data, **kwargs)
 
             except Exception as e:
                 raise pyarrow.flight.FlightServerError(
