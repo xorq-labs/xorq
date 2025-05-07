@@ -257,7 +257,20 @@ class Backend(SQLBackend):
         return sch.Schema.from_pyarrow(table.schema().as_arrow())
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
-        raise NotImplementedError("_get_schema_using_query")
+        from xorq.expr.translate import plan_to_ibis
+        from xorq.internal import ContextProvider
+        from xorq.sql import parser
+
+        tables = {
+            table_name: self.get_schema(table_name) for table_name in self.list_tables()
+        }
+        context = ContextProvider(
+            {table_name: schema.to_pyarrow() for table_name, schema in tables.items()}
+        )
+
+        plan = parser.parse_sql(query, context)
+        expr = plan_to_ibis(plan, tables)
+        return expr.as_table().schema()
 
     def read_record_batches(
         self,

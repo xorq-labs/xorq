@@ -68,3 +68,28 @@ def test_read_record_batches(iceberg_con, quotes_table):
 
 def test_get_schema(iceberg_con):
     iceberg_con.get_schema(QUOTES_TABLE_NAME)
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        pytest.param("select * from quotes", id="scan"),
+        pytest.param("select * from quotes limit 10", id="limit"),
+        pytest.param(
+            "select * from quotes where symbol='GOOGL' limit 10 ", id="limit-filter"
+        ),
+        pytest.param("select symbol, bid from quotes limit 10 ", id="limit-project"),
+        pytest.param(
+            "select symbol, bid from quotes where symbol='GOOGL' limit 10 ",
+            id="limit-filter-project",
+        ),
+        pytest.param("select symbol, bid from quotes", id="project"),
+        pytest.param("select * from quotes where symbol='GOOGL'", id="filter"),
+        pytest.param(
+            "select symbol, bid from quotes where symbol='GOOGL'", id="filter-project"
+        ),
+    ],
+)
+def test_get_schema_using_query(iceberg_con, query):
+    schema = iceberg_con._get_schema_using_query(query)
+    assert schema is not None

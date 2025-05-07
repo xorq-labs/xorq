@@ -93,8 +93,8 @@ def convert_limit(limit, catalog):
 
 
 @convert.register(Wildcard)
-def convert_wildcard(wildcard, catalog, table):
-    return table
+def convert_wildcard(wildcard, catalog):
+    return None
 
 
 @convert.register(Projection)
