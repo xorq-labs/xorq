@@ -21,6 +21,7 @@ except ModuleNotFoundError:
 __all__ = [  # noqa: PLE0604
     "api",
     "examples",
+    "flight",
     "connect",
     "options",
     "SessionConfig",
@@ -74,6 +75,9 @@ def connect(session_config: SessionConfig | None = None) -> Backend:
     instance = Backend()
     instance.do_connect(session_config)
     return instance
+
+
+from xorq import flight  # noqa: E402
 
 
 def __getattr__(name):
