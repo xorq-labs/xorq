@@ -5,6 +5,49 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.2] - 2025-05-08
+### Details
+
+#### Added
+- Support StringToDate in build by @mesejo in [#892](https://github.com/xorq-labs/xorq/pull/892)
+- Add ArrayAny and ArrayAll to xorq backend by @mesejo in [#893](https://github.com/xorq-labs/xorq/pull/893)
+- Add IsInf and IsNan ops by @mesejo in [#898](https://github.com/xorq-labs/xorq/pull/898)
+- Add pyiceberg backend by @mesejo in [#910](https://github.com/xorq-labs/xorq/pull/910)
+
+#### Changed
+- Update dependency ruff to v0.11.7 by @renovate[bot] in [#883](https://github.com/xorq-labs/xorq/pull/883)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.11.7 by @renovate[bot] in [#884](https://github.com/xorq-labs/xorq/pull/884)
+- Update astral-sh/setup-uv action to v6 by @renovate[bot] in [#880](https://github.com/xorq-labs/xorq/pull/880)
+- Test library as an installed wheel by @mesejo in [#885](https://github.com/xorq-labs/xorq/pull/885)
+- Update dependency ipython to <9.3.0,>=8.19.0 by @renovate[bot] in [#889](https://github.com/xorq-labs/xorq/pull/889)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.6.17 by @renovate[bot] in [#891](https://github.com/xorq-labs/xorq/pull/891)
+- Ensure requests is installed for examples by @mesejo in [#890](https://github.com/xorq-labs/xorq/pull/890)
+- Run tests mark with s3 in workflow by @mesejo in [#900](https://github.com/xorq-labs/xorq/pull/900)
+- Ensure dependencies are resolved against PyPI index by @mesejo in [#901](https://github.com/xorq-labs/xorq/pull/901)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.7.0 by @renovate[bot] in [#902](https://github.com/xorq-labs/xorq/pull/902)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.7.2 by @renovate[bot] in [#903](https://github.com/xorq-labs/xorq/pull/903)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.11.8 by @renovate[bot] in [#905](https://github.com/xorq-labs/xorq/pull/905)
+- Trace utils by @dlovell in [#874](https://github.com/xorq-labs/xorq/pull/874)
+- Darwin override for grpcio by @hussainsultan in [#881](https://github.com/xorq-labs/xorq/pull/881)
+- Update dependency ruff to v0.11.8 by @renovate[bot] in [#904](https://github.com/xorq-labs/xorq/pull/904)
+- Update dependency trino to v0.334.0 by @renovate[bot] in [#908](https://github.com/xorq-labs/xorq/pull/908)
+- Migrate to xorq-datafusion by @mesejo in [#792](https://github.com/xorq-labs/xorq/pull/792)
+- Update astral-sh/setup-uv action to v6 by @renovate[bot] in [#911](https://github.com/xorq-labs/xorq/pull/911)
+- Hook up kwargs in client.upload_data by @hussainsultan in [#917](https://github.com/xorq-labs/xorq/pull/917)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.7.3 by @renovate[bot] in [#921](https://github.com/xorq-labs/xorq/pull/921)
+
+#### Fixed
+- DevShells.impure: don't require commands to build by @dlovell in [#861](https://github.com/xorq-labs/xorq/pull/861)
+- Register translation for PosixPath by @mesejo in [#888](https://github.com/xorq-labs/xorq/pull/888)
+- Update dependency pyarrow to v20 by @renovate[bot] in [#895](https://github.com/xorq-labs/xorq/pull/895)
+- Change _translate_type to translate yaml by @mesejo in [#897](https://github.com/xorq-labs/xorq/pull/897)
+- Ensure inclusion of env_templates by @dlovell in [#906](https://github.com/xorq-labs/xorq/pull/906)
+- Flight server issues by @mesejo in [#922](https://github.com/xorq-labs/xorq/pull/922)
+
+#### Removed
+- Remove double prefix by @mesejo in [#896](https://github.com/xorq-labs/xorq/pull/896)
+- Remove old rust build related code by @dlovell in [#912](https://github.com/xorq-labs/xorq/pull/912)
+
 ## [0.2.1] - 2025-04-25
 ### Details
 This release includes numerous additions, like MCP server support, GC Storage integration, and OTEL instrumentation,
