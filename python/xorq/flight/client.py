@@ -78,18 +78,18 @@ class FlightClient:
                 logger.info(f"Flight server unavailable, sleeping {n_seconds} seconds")
                 time.sleep(n_seconds)
 
-    def execute_query(self, query):
+    def execute(self, expr, **kwargs):
         """
-        Execute SQL query and return results as Arrow table
+        Execute Expr and return results as Arrow table
 
         Args:
-            query: SQL query string
+            expr: xorq Expression
 
         Returns:
             pa.Table
         """
 
-        batches = self.execute_batches(query)
+        batches = self.execute_batches(expr, **kwargs)
         return batches.read_all()
 
     def execute_batches(self, expr, **kwargs):

@@ -1,4 +1,6 @@
 import datetime
+import threading
+import time
 
 import pandas as pd
 import pyarrow as pa
@@ -336,6 +338,42 @@ def test_execute_query_non_relation_expr(expr):
         connection=xo.duckdb.connect,
     ) as main:
         main.con.register(data, table_name="users")
-        actual = main.client.execute_query(expr)
+        actual = main.client.execute(expr)
         assert isinstance(actual, pa.Table)
         assert len(actual) > 0
+
+
+@pytest.mark.parametrize("block", [True, False])
+def test_server_blocks(block):
+    flight_url = make_flight_url(None)
+    server = FlightServer(
+        flight_url=flight_url,
+        verify_client=False,
+        connection=xo.duckdb.connect,
+    )
+
+    def serve():
+        server.serve(block=block)
+
+    server_thread = threading.Thread(target=serve)
+    server_thread.daemon = True
+
+    is_blocking = True
+
+    def check_if_still_running():
+        nonlocal is_blocking
+        time.sleep(1)
+        is_blocking = server_thread.is_alive()
+
+    server_thread.start()
+
+    checker_thread = threading.Thread(target=check_if_still_running)
+    checker_thread.start()
+    checker_thread.join()
+
+    # Try to stop the inner server
+    server.server.shutdown()
+    server_thread.join(timeout=2.0)
+
+    assert is_blocking == block
+    assert not server_thread.is_alive()

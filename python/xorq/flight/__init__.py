@@ -32,7 +32,6 @@ DEFAULT_AUTH_MIDDLEWARE = {
     )
 }
 
-
 allowed_schemes = ("grpc",)
 default_host = "localhost"
 
@@ -186,7 +185,7 @@ class FlightServer:
         self.serve()
         return self
 
-    def serve(self):
+    def serve(self, block=False):
         self.flight_url.unbind_socket()
         self.server = FlightServerDelegate(
             self.connection,
@@ -198,6 +197,9 @@ class FlightServer:
             self.client.do_action(
                 AddExchangeAction.name, udxf, options=self.client._options
             )
+        if block:
+            # https://arrow.apache.org/docs/python/generated/pyarrow.flight.FlightServerBase.html#pyarrow.flight.FlightServerBase.serve
+            self.server.serve()
 
     def close(self, *args):
         args = args or (None, None, None)
@@ -209,4 +211,20 @@ class FlightServer:
         self.close(*args)
 
 
-__all__ = ["FlightServer", "BasicAuth"]
+def connect(
+    host="localhost",
+    port=8815,
+    username=None,
+    password=None,
+    tls_roots=None,
+):
+    from xorq.flight.backend import Backend
+
+    new_backend = Backend()
+    new_backend.do_connect(
+        host=host, port=port, username=username, password=password, tls_roots=tls_roots
+    )
+    return new_backend
+
+
+__all__ = ["FlightServer", "BasicAuth", "connect"]

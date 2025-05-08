@@ -24,7 +24,7 @@ table_name = "concurrent_test"
 
 
 def read_data(expr, client):
-    result = client.execute_query(expr)
+    result = client.execute(expr)
     try:
         ((count,),) = result.to_pandas().values
         print(f"{datetime.now().isoformat()} count: {count}")
