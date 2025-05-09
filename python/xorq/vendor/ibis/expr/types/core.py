@@ -601,22 +601,12 @@ class LETSQLAccessor:
 
     @property
     def cached_nodes(self):
+        from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import (
             CachedNode,
-            RemoteTable,
         )
 
-        def _find(node):
-            cached = node.find((CachedNode, RemoteTable))
-            for no in cached:
-                if isinstance(no, RemoteTable):
-                    yield from _find(no.remote_expr.op())
-                else:
-                    yield from _find(no.parent.op())
-                    yield no
-
-        op = self.expr.op()
-        return tuple(_find(op))
+        return walk_nodes((CachedNode,), self.expr)
 
     @property
     def storage(self):
@@ -631,28 +621,11 @@ class LETSQLAccessor:
 
     @property
     def backends(self):
-        from xorq.expr.relations import (
-            CachedNode,
-            RemoteTable,
+        from xorq.common.utils.graph_utils import (
+            find_all_sources,
         )
 
-        def _find_backends(expr):
-            _backends, _ = expr._find_backends()
-            _backends = set(_backends)
-            if backend := expr._find_backend():
-                _backends.add(backend)
-
-            for node in expr.op().find_topmost(CachedNode):
-                _backends.update(_find_backends(node.parent))
-
-            for node in expr.op().find_topmost(RemoteTable):
-                _backends.update(_find_backends(node.remote_expr))
-
-            return _backends
-
-        backends = _find_backends(self.expr)
-
-        return tuple(backends)
+        return find_all_sources(self.expr)
 
     @property
     def is_multiengine(self):
@@ -661,21 +634,18 @@ class LETSQLAccessor:
 
     @property
     def dts(self):
-        # FIXME: update for other opaque nodes: FlightExpr, FlightUDXF
+        from xorq.common.utils.graph_utils import (
+            walk_nodes,
+        )
         from xorq.expr.relations import (
             RemoteTable,
         )
 
-        nodes = set(self.op.find(self.node_types))
-        for node in self.cached_nodes:
-            candidates = node.parent.op().find(self.node_types)
-            nodes.update(
-                candidate
-                for candidate in candidates
-                if not isinstance(candidate, RemoteTable)
-            )
-
-        return tuple(nodes)
+        return tuple(
+            el
+            for el in walk_nodes(self.node_types, self.expr)
+            if not isinstance(el, RemoteTable)
+        )
 
     @property
     def is_cached(self):
@@ -687,20 +657,7 @@ class LETSQLAccessor:
 
     @property
     def has_cached(self):
-        from xorq.expr.relations import (
-            CachedNode,
-            RemoteTable,
-        )
-
-        def _has_cached(node):
-            if tuple(node.find_topmost(CachedNode)):
-                return True
-            elif tables := node.find_topmost(RemoteTable):
-                return any(_has_cached(table.remote_expr.op()) for table in tables)
-            else:
-                return False
-
-        return _has_cached(self.op)
+        return bool(self.cached_nodes)
 
     @property
     def uncached(self):
@@ -728,7 +685,7 @@ class LETSQLAccessor:
             return self.expr
 
     def get_key(self):
-        if self.is_cached and (self.exists() or not self.uncached_one.ls.has_cached):
+        if self.is_cached:
             return self.storage.get_key(self.uncached_one)
         else:
             return None
