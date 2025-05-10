@@ -80,7 +80,7 @@ xorq-datafusion = { path = "local/path/to/xorq-datafusion-repo" }
 4. Commit the changes to `xorq-datafusion`, open a PR, commit to main, and release a new version of `xorq-datafusion`.
 5. Remove `tool.uv.sources` from the `pyproject.toml` and open a PR with the respective change to `xorq`.
 
-Notice that that our test run with `--no-sources` so they will fail if a new version of `xorq-datafusion` with the required 
+Notice that our test run with `--no-sources` so they will fail if a new version of `xorq-datafusion` with the required 
 change is not present in PyPI. 
 
 ### Writing the commit
@@ -111,11 +111,11 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
 4. Update the version number in `pyproject.toml`: `version = "$version_number"`
 5. Update the CHANGELOG using `git cliff --github-repo xorq-labs/xorq -p CHANGELOG.md --tag v$version_number -u`, manually add any additional notes (links to blogposts, etc.).
-6. Create commit with message denoting the release: `git add --update && git commit -m "release: $version_number"`.
+6. Create commit with a message denoting the release: `git add --update && git commit -m "release: $version_number"`.
 7. Push the new branch: `git push --set-upstream upstream "release-$version_number"`
 8. Open a PR for the new branch `release-$version_number`
 9. Trigger the [ci-pre-release action](https://github.com/xorq-labs/xorq/actions/workflows/ci-pre-release.yml) from the branch created: Run workflow -> Use workflow from -> Branch `$version_number`
-10. Wait for the ci-pre-release tests to all pass
+10. Wait for all ci-pre-release tests to pass
 11. "Squash and merge" the PR
 12. Tag the updated main with `v$version_number` and push the tag: `git fetch && git tag v$version_number origin/main && git push --tags`
 13. Create a [GitHub release](https://github.com/xorq-labs/xorq/releases/new) to trigger the publishing workflow.
