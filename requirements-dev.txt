@@ -42,7 +42,7 @@ async-lru==2.0.5
     # via jupyterlab
 async-timeout==5.0.1 ; python_full_version < '3.11'
     # via aiohttp
-atpublic==5.1
+atpublic==6.0.1
     # via xorq
 attrs==25.3.0
     # via
@@ -66,9 +66,9 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.9 ; python_full_version < '4.0'
+boto3==1.38.13 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.9 ; python_full_version < '4.0'
+botocore==1.38.13 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -195,7 +195,7 @@ google-api-core==2.24.2 ; python_full_version < '4.0'
     # via
     #   google-cloud-core
     #   google-cloud-storage
-google-auth==2.40.0 ; python_full_version < '4.0'
+google-auth==2.40.1 ; python_full_version < '4.0'
     # via
     #   gcsfs
     #   google-api-core
@@ -219,7 +219,7 @@ googleapis-common-protos==1.70.0
     #   google-api-core
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-greenlet==3.2.1 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
+greenlet==3.2.2 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
     # via sqlalchemy
 griffe==1.7.3
     # via quartodoc
@@ -333,7 +333,7 @@ jupyter-server==2.15.0
     #   notebook-shim
 jupyter-server-terminals==0.5.3
     # via jupyter-server
-jupyterlab==4.4.1
+jupyterlab==4.4.2
     # via notebook
 jupyterlab-pygments==0.3.0
     # via nbconvert
@@ -355,7 +355,7 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-mcp==1.7.1
+mcp==1.8.0
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -384,7 +384,7 @@ nest-asyncio==1.6.0
     # via ipykernel
 nodeenv==1.9.1
     # via pre-commit
-notebook==7.4.1
+notebook==7.4.2
 notebook-shim==0.2.4
     # via
     #   jupyterlab
@@ -400,35 +400,35 @@ nvidia-nccl-cu12==2.26.5 ; platform_machine != 'aarch64' and sys_platform == 'li
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.77.0
+openai==1.78.0
     # via xorq
-opentelemetry-api==1.32.1
+opentelemetry-api==1.33.0
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-exporter-otlp==1.32.1
+opentelemetry-exporter-otlp==1.33.0
     # via xorq
-opentelemetry-exporter-otlp-proto-common==1.32.1
+opentelemetry-exporter-otlp-proto-common==1.33.0
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-grpc==1.32.1
+opentelemetry-exporter-otlp-proto-grpc==1.33.0
     # via opentelemetry-exporter-otlp
-opentelemetry-exporter-otlp-proto-http==1.32.1
+opentelemetry-exporter-otlp-proto-http==1.33.0
     # via opentelemetry-exporter-otlp
-opentelemetry-proto==1.32.1
+opentelemetry-proto==1.33.0
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk==1.32.1
+opentelemetry-sdk==1.33.0
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
     #   xorq
-opentelemetry-semantic-conventions==0.53b1
+opentelemetry-semantic-conventions==0.54b0
     # via opentelemetry-sdk
 overrides==7.7.0
     # via jupyter-server
@@ -466,7 +466,7 @@ pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
 pins==0.8.7 ; python_full_version < '4.0'
     # via xorq
 pip==25.1.1
-platformdirs==4.3.7
+platformdirs==4.3.8
     # via
     #   black
     #   jupyter-core
@@ -648,18 +648,18 @@ rpds-py==0.24.0
     #   referencing
 rsa==4.9.1 ; python_full_version < '4.0'
     # via google-auth
-ruff==0.11.8
+ruff==0.11.9
 s3transfer==0.12.0 ; python_full_version < '4.0'
     # via boto3
 scikit-learn==1.6.1
     # via xorq
-scipy==1.15.2
+scipy==1.15.3
     # via
     #   scikit-learn
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==80.3.1
+setuptools==80.4.0
     # via
     #   jupyterlab
     #   pythran
@@ -798,7 +798,7 @@ urllib3==2.4.0
 uvicorn==0.34.2 ; sys_platform != 'emscripten'
     # via mcp
 vendoring==1.2.0
-virtualenv==20.31.1
+virtualenv==20.31.2
     # via pre-commit
 watchdog==6.0.0
     # via quartodoc
