@@ -313,3 +313,20 @@ def test_deferred_read_kwargs(pg):
     )
     hash0, hash1 = (dask.base.tokenize(expr) for expr in (read0, read1))
     assert hash0 != hash1
+
+
+def test_deferred_read_parquet_multiple_paths():
+    path = xo.config.options.pins.get_path("lending-club")
+    expr = deferred_read_parquet(xo.connect(), (path, path))
+    assert not expr.execute().empty
+
+
+def test_deferred_read_csv_multiple_paths():
+    path = xo.config.options.pins.get_path("iris")
+    con = xo.connect()
+
+    t = con.read_csv(path, table_name="iris")
+
+    expr = deferred_read_csv(con, (path, path), schema=t.schema())
+
+    assert not expr.execute().empty
