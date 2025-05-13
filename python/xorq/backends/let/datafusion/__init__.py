@@ -53,7 +53,7 @@ from xorq.vendor.ibis.expr.operations.udf import InputType
 from xorq.vendor.ibis.formats.pyarrow import (
     PyArrowType,
 )
-from xorq.vendor.ibis.util import gen_name, normalize_filename
+from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filenames
 
 
 def _compile_pyarrow_udwf(udwf_node):
@@ -596,9 +596,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             The just-registered table
 
         """
-        path = normalize_filename(path)
+        path = normalize_filenames(path)
         table_name = table_name or gen_name("read_csv")
-        kwargs.setdefault("file_extension", Path(path).suffix)
+        kwargs.setdefault("file_extension", Path(path[0]).suffix)
 
         storage_options, is_connection_set = make_s3_connection()
         if is_connection_set:
@@ -636,9 +636,9 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             The just-registered table
 
         """
-        path = normalize_filename(path)
+        path = normalize_filenames(path)
         table_name = table_name or gen_name("read_parquet")
-        kwargs.setdefault("file_extension", Path(path).suffix)
+        kwargs.setdefault("file_extension", Path(path[0]).suffix)
 
         # Our other backends support overwriting views / tables when reregistering
         self.con.deregister_table(table_name)
