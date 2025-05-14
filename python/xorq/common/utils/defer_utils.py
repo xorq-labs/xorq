@@ -1,3 +1,4 @@
+from itertools import chain
 from pathlib import Path
 
 import pandas as pd
@@ -17,6 +18,7 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.util import (
     gen_name,
+    normalize_filenames,
 )
 
 
@@ -51,21 +53,30 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
         dtype = {col: typ.to_pandas() for col, typ in schema.items()}
         schema = schema.to_pyarrow()
     # schema is always nullable (this is good)
+    paths = normalize_filenames(*args)
+
     gen = map(
         pa.RecordBatch.from_pandas,
-        pd.read_csv(
-            *args,
-            dtype=dtype,
-            chunksize=chunksize,
-            **kwargs,
+        chain.from_iterable(
+            pd.read_csv(
+                path,
+                dtype=dtype,
+                chunksize=chunksize,
+                **kwargs,
+            )
+            for path in paths
         ),
     )
     if schema is None:
         (el, gen) = toolz.peek(gen)
         schema = el.schema
+
+    def cast_gen():
+        yield from (batch.cast(schema) for batch in gen)
+
     rbr = pa.RecordBatchReader.from_batches(
         schema,
-        gen,
+        cast_gen(),
     )
     return rbr
 
