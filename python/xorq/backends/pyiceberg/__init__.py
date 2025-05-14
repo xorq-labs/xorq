@@ -10,6 +10,7 @@ from pyiceberg.table import Table as IcebergTable
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import compiler as postgres_compiler
 from xorq.backends.pyiceberg.compiler import PyIceberg, translate
+from xorq.backends.pyiceberg.relations import PyIcebergTable
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
@@ -108,13 +109,16 @@ class Backend(SQLBackend):
         name: str,
         schema: str | None = None,
         database: tuple[str, str] | str | None = None,
+        snapshot_id: str | None = None,
     ) -> ir.Table:
         table_schema = self.get_schema(name, catalog=schema, database=database)
-        return ops.DatabaseTable(
-            name,
+
+        return PyIcebergTable(
+            name=name,
             schema=table_schema,
             source=self,
             namespace=ops.Namespace(catalog=schema, database=database),
+            snapshot_id=snapshot_id,
         ).to_expr()
 
     def create_table(
@@ -269,3 +273,17 @@ class Backend(SQLBackend):
 
         self.create_table(name=table_name, obj=table, database=self.namespace)
         return self.table(table_name)
+
+    def list_snapshots(self, database=None) -> dict[str, int]:
+        database = database or self.namespace
+        table_names = [t[1] for t in self.catalog.list_tables(database)]
+
+        snapshots = {}
+        for table_name in table_names:
+            ice_table = self.catalog.load_table(f"{database}.{table_name}")
+            ice_table.inspect.snapshots()
+            snapshots[table_name] = (
+                ice_table.inspect.snapshots().column("snapshot_id").to_pylist()
+            )
+
+        return snapshots
