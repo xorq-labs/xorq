@@ -6,6 +6,7 @@ import base64
 import collections
 import collections.abc
 import functools
+import glob
 import importlib.metadata
 import itertools
 import operator
@@ -514,7 +515,18 @@ def normalize_filenames(source_list):
     # Promote to list
     source_list = promote_list(source_list)
 
-    return list(map(normalize_filename, source_list))
+    paths = []
+    for path in source_list:
+        if _maybe_glob_pattern(path):
+            paths.extend(glob.glob(path))
+        else:
+            paths.append(path)
+
+    return list(map(normalize_filename, paths))
+
+
+def _maybe_glob_pattern(path):
+    return not os.path.exists(path) and re.search(r"^(?:.+)://", path) is None
 
 
 def gen_name(namespace: str) -> str:
