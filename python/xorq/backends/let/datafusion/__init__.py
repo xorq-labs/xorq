@@ -25,6 +25,7 @@ import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.let.datafusion.compiler import compiler
 from xorq.backends.let.datafusion.provider import IbisTableProvider
+from xorq.common.utils import classproperty
 from xorq.common.utils.aws_utils import (
     make_s3_connection,
 )
@@ -117,8 +118,7 @@ def _compile_pyarrow_udaf(udaf_node):
     struct_type = make_struct_type(names, input_types)
 
     class MyAggregator(PyAggregator):
-        @classmethod
-        @property
+        @classproperty
         def struct_type(cls):
             return struct_type
 
@@ -127,13 +127,11 @@ def _compile_pyarrow_udaf(udaf_node):
             args = (struct_array.field(field_name) for field_name in self.names)
             return func(*args)
 
-        @classmethod
-        @property
+        @classproperty
         def return_type(cls):
             return return_type
 
-        @classmethod
-        @property
+        @classproperty
         def name(cls):
             return name
 
