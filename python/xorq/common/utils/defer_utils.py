@@ -35,7 +35,8 @@ def make_read_kwargs(f, *args, **kwargs):
 
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
-    gen = pd.read_csv(path, chunksize=chunksize, **kwargs)
+    path = normalize_filenames(path)
+    gen = pd.read_csv(path[0], chunksize=chunksize, **kwargs)
     df = next(gen)
     batch = pa.RecordBatch.from_pandas(df)
     schema = ibis.Schema.from_pyarrow(batch.schema)
