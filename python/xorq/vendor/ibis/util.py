@@ -522,7 +522,12 @@ def normalize_filenames(source_list):
         else:
             paths.append(path)
 
-    return list(map(normalize_filename, paths))
+    paths = list(map(normalize_filename, paths))
+
+    if not paths:
+        raise ValueError("At least one path is required")
+
+    return paths
 
 
 def _maybe_glob_pattern(path):

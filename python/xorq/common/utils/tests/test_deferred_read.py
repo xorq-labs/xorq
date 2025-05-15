@@ -351,11 +351,20 @@ def backend(request, con):
 )
 def test_register_csv_with_glob_string(data_dir, backend):
     table_name = f"{backend.name}_astronauts"
-    path = str(data_dir / "csv" / "*astronauts.csv")
-    expected = backend.read_csv(path, table_name=f"{table_name}_expected").execute()
+    glob_pattern = str(data_dir / "csv" / "*astronauts.csv")
+    expected = backend.read_csv(
+        glob_pattern, table_name=f"{table_name}_expected"
+    ).execute()
 
-    read = xo.deferred_read_csv(backend, path, table_name=table_name)
+    read = xo.deferred_read_csv(backend, glob_pattern, table_name=table_name)
     actual = read.execute()  # triggers the table creation
 
     assert any(table_name in t for t in backend.list_tables())
     assert_frame_equal(expected, actual)
+
+
+def test_register_empty_glob_pattern_fails(data_dir, con):
+    glob_pattern = str(data_dir / "csv" / "*foo.csv")
+
+    with pytest.raises(ValueError, match="At least one path is required"):
+        xo.deferred_read_csv(con, glob_pattern, table_name="foo")
