@@ -189,6 +189,36 @@ class Backend(SQLBackend):
 
         return True
 
+    def upsert(
+        self,
+        table_name: str,
+        data: Union[pd.DataFrame, pa.Table, ir.Table],
+        database: Optional[str] = None,
+        join_cols=None,
+        when_matched_update_all=True,
+        when_not_matched_insert_all=True,
+        case_sensitive=True,
+    ):
+        """Wrapper around upsert"""
+        database = database or self.namespace
+        full_table_name = f"{database}.{table_name}"
+
+        if isinstance(data, pd.DataFrame):
+            data = pa.Table.from_pandas(data)
+        elif isinstance(data, ir.Table):
+            data = self.to_pyarrow(data)
+
+        iceberg_table = self.catalog.load_table(full_table_name)
+        iceberg_table.upsert(
+            data,
+            join_cols=join_cols,
+            when_matched_update_all=when_matched_update_all,
+            when_not_matched_insert_all=when_not_matched_insert_all,
+            case_sensitive=case_sensitive,
+        )
+
+        return self.table(table_name)
+
     def to_pyarrow(
         self,
         expr: ir.Expr,
