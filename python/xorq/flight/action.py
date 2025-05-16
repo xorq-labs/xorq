@@ -8,6 +8,8 @@ import pyarrow.flight as paf
 import toolz
 from cloudpickle import dumps, loads
 
+from xorq.common.utils import classproperty
+
 
 make_flight_result = toolz.compose(
     paf.Result,
@@ -17,32 +19,28 @@ make_flight_result = toolz.compose(
 
 
 class AbstractAction(ABC):
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def name(cls):
         pass
 
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def description(cls):
         pass
 
-    @classmethod
+    @classproperty
     @abstractmethod
     def do_action(cls, server, context, action):
         pass
 
 
 class HealthCheckAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "healthcheck"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "NOP: check that communication is established"
 
@@ -52,13 +50,11 @@ class HealthCheckAction(AbstractAction):
 
 
 class ListActionsAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "list-actions"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Get a list of all actions available on this server."
 
@@ -70,13 +66,11 @@ class ListActionsAction(AbstractAction):
 
 
 class ListExchangesAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "list-exchanges"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Get a list of all exchange commands available on this server."
 
@@ -88,13 +82,11 @@ class ListExchangesAction(AbstractAction):
 
 
 class AddActionAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "add-action"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Add an action to the server's repertoire of actions"
 
@@ -106,13 +98,11 @@ class AddActionAction(AbstractAction):
 
 
 class AddExchangeAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "add-exchange"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Add an exchange to the server's repertoire of exchanges"
 
@@ -124,13 +114,11 @@ class AddExchangeAction(AbstractAction):
 
 
 class QueryExchangeAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "query-exchange"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Get metadata about a particular exchange available on this server."
 
@@ -143,13 +131,11 @@ class QueryExchangeAction(AbstractAction):
 
 
 class ListTablesAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "list_tables"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Get the names of all tables available on this server."
 
@@ -161,13 +147,11 @@ class ListTablesAction(AbstractAction):
 
 
 class TableInfoAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "table_info"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Get info about a particular table available on this server."
 
@@ -180,13 +164,11 @@ class TableInfoAction(AbstractAction):
 
 
 class DropTableAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "drop_table"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Drop a table on this server."
 
@@ -199,13 +181,11 @@ class DropTableAction(AbstractAction):
 
 
 class DropViewAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "drop_view"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Drop a view on this server."
 
@@ -218,13 +198,11 @@ class DropViewAction(AbstractAction):
 
 
 class ReadParquetAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "read_parquet"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Read parquet files into this server."
 
@@ -240,13 +218,11 @@ class ReadParquetAction(AbstractAction):
 
 
 class VersionAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "version"
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "Return the version of the underlying backend"
 
@@ -256,8 +232,7 @@ class VersionAction(AbstractAction):
 
 
 class GetSchemaQueryAction(AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "get_schema_using_query"
 

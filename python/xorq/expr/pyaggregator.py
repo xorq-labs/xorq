@@ -6,6 +6,7 @@ from abc import (
 
 import pyarrow as pa
 
+from xorq.common.utils import classproperty
 from xorq.internal import Accumulator
 
 
@@ -58,23 +59,19 @@ class PyAggregator(Accumulator, ABC):
         for state in states.to_pylist():
             self._states.extend(state)
 
-    @classmethod
-    @property
+    @classproperty
     def state_type(cls):
         return pa.list_(pa.binary())
 
-    @classmethod
-    @property
+    @classproperty
     def names(cls):
         return tuple(field.name for field in cls.struct_type)
 
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def struct_type(cls):
         pass
 
-    @classmethod
-    @property
+    @classproperty
     def volatility(cls):
         return "stable"

@@ -84,6 +84,7 @@
         letsql-310 = mkLETSQL pkgs.python310;
         letsql-311 = mkLETSQL pkgs.python311;
         letsql-312 = mkLETSQL pkgs.python312;
+        letsql-313 = mkLETSQL pkgs.python313;
       in
       {
         formatter = pkgs.nixfmt-rfc-style;
@@ -98,6 +99,10 @@
           };
           ipython-312 = drvToApp {
             drv = letsql-312.virtualenv;
+            name = "ipython";
+          };
+          ipython-313 = drvToApp {
+            drv = letsql-313.virtualenv;
             name = "ipython";
           };
           default = self.apps.${system}.ipython-312;
@@ -153,6 +158,8 @@
           virtualenv-editable-311 = letsql-311.editableShell;
           virtualenv-312 = letsql-312.shell;
           virtualenv-editable-312 = letsql-312.editableShell;
+          virtualenv-313 = letsql-313.shell;
+          virtualenv-editable-313 = letsql-313.editableShell;
           default = self.devShells.${system}.virtualenv-310;
         };
       }
