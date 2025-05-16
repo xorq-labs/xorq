@@ -1,6 +1,17 @@
 { pkgs, python }:
 let
 
+  cachix-cache = "xorq-labs";
+
+  xorq-cachix-use = pkgs.writeShellScriptBin "xorq-cachix-use" ''
+    ${pkgs.cachix}/bin/cachix use ${cachix-cache}
+  '';
+
+  xorq-cachix-push = pkgs.writeShellScriptBin "xorq-cachix-push" ''
+    ${pkgs.nix}/bin/nix build .#devShells.x86_64-linux.default --print-out-paths --no-link | \
+      ${pkgs.cachix}/bin/cachix push ${cachix-cache}
+  '';
+
   xorq-kill-lsof-grep-port = pkgs.writeShellScriptBin "xorq-kill-lsof-grep-port" ''
     set -eux
 
@@ -170,6 +181,7 @@ let
       letsql-maturin-build
       xorq-gh-config-set-browser-false
       xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
+      xorq-cachix-use xorq-cachix-push
       ;
   };
 
