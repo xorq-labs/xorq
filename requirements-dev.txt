@@ -66,9 +66,9 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.14 ; python_full_version < '4.0'
+boto3==1.38.17 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.14 ; python_full_version < '4.0'
+botocore==1.38.17 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -355,7 +355,7 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-mcp==1.8.1
+mcp==1.9.0
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -472,7 +472,7 @@ platformdirs==4.3.8
     #   jupyter-core
     #   snowflake-connector-python
     #   virtualenv
-pluggy==1.5.0
+pluggy==1.6.0
     # via pytest
 plum-dispatch==2.5.7
     # via quartodoc
@@ -642,13 +642,13 @@ rich==13.9.4
     #   pyiceberg
     #   pytest-codspeed
     #   vendoring
-rpds-py==0.24.0
+rpds-py==0.25.0
     # via
     #   jsonschema
     #   referencing
 rsa==4.9.1 ; python_full_version < '4.0'
     # via google-auth
-ruff==0.11.9
+ruff==0.11.10
 s3transfer==0.12.0 ; python_full_version < '4.0'
     # via boto3
 scikit-learn==1.6.1
@@ -659,7 +659,7 @@ scipy==1.15.3
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==80.4.0
+setuptools==80.7.1
     # via
     #   jupyterlab
     #   pythran
@@ -681,7 +681,7 @@ soupsieve==2.7
     # via beautifulsoup4
 sphobjinv==2.3.1.2
     # via quartodoc
-sqlalchemy==2.0.40
+sqlalchemy==2.0.41
     # via pyiceberg
 sqlglot==25.20.2
     # via xorq
@@ -726,7 +726,7 @@ toolz==1.0.0
     #   dask
     #   partd
     #   xorq
-tornado==6.4.2
+tornado==6.5
     # via
     #   ipykernel
     #   jupyter-client
@@ -751,7 +751,7 @@ traitlets==5.14.3
     #   nbconvert
     #   nbformat
 trino==0.334.0
-types-python-dateutil==2.9.0.20241206
+types-python-dateutil==2.9.0.20250516
     # via arrow
 typing-extensions==4.13.2
     # via
@@ -815,7 +815,7 @@ websocket-client==1.8.0
     # via jupyter-server
 wrapt==1.17.2
     # via deprecated
-xgboost==3.0.0
+xgboost==3.0.1
     # via xorq
 xorq-datafusion==0.2.2
     # via xorq
