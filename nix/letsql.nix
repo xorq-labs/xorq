@@ -164,6 +164,11 @@ let
         cityhash = prev.cityhash.overrideAttrs (
           addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
         );
+        pyiceberg = prev.pyiceberg.overrideAttrs (old: {
+          nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
+            prev.poetry-core
+          ];
+        });
       };
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
