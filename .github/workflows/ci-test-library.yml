@@ -67,6 +67,6 @@ jobs:
           pytest --import-mode=importlib xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
 
       - name: Upload coverage reports to Codecov
-        uses: codecov/codecov-action@v5.4.2
+        uses: codecov/codecov-action@v5.4.3
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
