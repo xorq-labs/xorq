@@ -34,7 +34,6 @@ from xorq.vendor.ibis.backends.pandas.rewrites import (
     PandasWindowFunction,
     plan,
 )
-from xorq.vendor.ibis.common.dispatch import Dispatched
 from xorq.vendor.ibis.formats.pandas import PandasData, PandasType
 from xorq.vendor.ibis.util import any_of, gen_name
 
@@ -42,7 +41,7 @@ from xorq.vendor.ibis.util import any_of, gen_name
 # ruff: noqa: F811
 
 
-class PandasExecutor(Dispatched, PandasUtils):
+class PandasExecutor(PandasUtils):
     name = "pandas"
     kernels = pandas_kernels
 
@@ -53,7 +52,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         )
 
     @classmethod
-    def visit(cls, op: ops.Literal, value, dtype):
+    def visit_Literal(cls, op: ops.Literal, value, dtype):
         if dtype.is_interval():
             value = pd.Timedelta(value, dtype.unit.short)
         elif dtype.is_array():
@@ -63,22 +62,22 @@ class PandasExecutor(Dispatched, PandasUtils):
         return value
 
     @classmethod
-    def visit(cls, op: ops.Field, rel, name):
+    def visit_Field(cls, op: ops.Field, rel, name):
         return rel[name]
 
     @classmethod
-    def visit(cls, op: ops.Alias, arg, name):
+    def visit_Alias(cls, op: ops.Alias, arg, name):
         try:
             return arg.rename(name)
         except AttributeError:
             return arg
 
     @classmethod
-    def visit(cls, op: ops.SortKey, expr, ascending, nulls_first):
+    def visit_SortKey(cls, op: ops.SortKey, expr, ascending, nulls_first):
         return expr
 
     @classmethod
-    def visit(cls, op: ops.Cast, arg, to):
+    def visit_Cast(cls, op: ops.Cast, arg, to):
         if arg is None:
             return None
         elif isinstance(arg, pd.Series):
@@ -87,19 +86,19 @@ class PandasExecutor(Dispatched, PandasUtils):
             return PandasConverter.convert_scalar(arg, to)
 
     @classmethod
-    def visit(cls, op: ops.Greatest, arg):
+    def visit_Greatest(cls, op: ops.Greatest, arg):
         return cls.columnwise(lambda df: df.max(axis=1), arg)
 
     @classmethod
-    def visit(cls, op: ops.Least, arg):
+    def visit_Least(cls, op: ops.Least, arg):
         return cls.columnwise(lambda df: df.min(axis=1), arg)
 
     @classmethod
-    def visit(cls, op: ops.Coalesce, arg):
+    def visit_Coalesce(cls, op: ops.Coalesce, arg):
         return cls.columnwise(lambda df: df.bfill(axis=1).iloc[:, 0], arg)
 
     @classmethod
-    def visit(cls, op: ops.Value, **operands):
+    def visit_Value(cls, op: ops.Value, **operands):
         # automatically pick the correct kernel based on the operand types
         typ = type(op)
         name = op.name
@@ -159,7 +158,7 @@ class PandasExecutor(Dispatched, PandasUtils):
                 )
 
     @classmethod
-    def visit(cls, op: ops.IsNan, arg):
+    def visit_IsNan(cls, op: ops.IsNan, arg):
         try:
             return np.isnan(arg)
         except (TypeError, ValueError):
@@ -169,7 +168,7 @@ class PandasExecutor(Dispatched, PandasUtils):
             return arg != arg
 
     @classmethod
-    def visit(
+    def visit_SearchedCase(
         cls, op: ops.SearchedCase | ops.SimpleCase, cases, results, default, base=None
     ):
         if base is not None:
@@ -181,7 +180,9 @@ class PandasExecutor(Dispatched, PandasUtils):
         return pd.Series(out, index=index)
 
     @classmethod
-    def visit(cls, op: ops.TimestampTruncate | ops.DateTruncate, arg, unit):
+    def visit_TimestampTruncate(
+        cls, op: ops.TimestampTruncate | ops.DateTruncate, arg, unit
+    ):
         # TODO(kszucs): should use serieswise()
         if vparse(pd.__version__) >= vparse("2.2"):
             units = {"m": "min"}
@@ -198,7 +199,7 @@ class PandasExecutor(Dispatched, PandasUtils):
             return arg.dt.to_period(unit).dt.to_timestamp()
 
     @classmethod
-    def visit(cls, op: ops.IntervalFromInteger, unit, **kwargs):
+    def visit_IntervalFromInteger(cls, op: ops.IntervalFromInteger, unit, **kwargs):
         if unit.short in {"Y", "Q", "M", "W"}:
             return cls.elementwise(lambda v: pd.DateOffset(**{unit.plural: v}), kwargs)
         else:
@@ -207,7 +208,7 @@ class PandasExecutor(Dispatched, PandasUtils):
             )
 
     @classmethod
-    def visit(cls, op: ops.BetweenTime, arg, lower_bound, upper_bound):
+    def visit_BetweenTime(cls, op: ops.BetweenTime, arg, lower_bound, upper_bound):
         idx = pd.DatetimeIndex(arg)
         if idx.tz is not None:
             idx = idx.tz_convert(None)  # make naive because times are naive
@@ -217,7 +218,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return pd.Series(result)
 
     @classmethod
-    def visit(cls, op: ops.FindInSet, needle, values):
+    def visit_FindInSet(cls, op: ops.FindInSet, needle, values):
         (needle, *haystack), _ = cls.asframe((needle, *values), concat=False)
         condlist = [needle == col for col in haystack]
         choicelist = [i for i, _ in enumerate(haystack)]
@@ -225,25 +226,25 @@ class PandasExecutor(Dispatched, PandasUtils):
         return pd.Series(result, name=op.name)
 
     @classmethod
-    def visit(cls, op: ops.Array, exprs):
+    def visit_Array(cls, op: ops.Array, exprs):
         return cls.rowwise(lambda row: np.array(row, dtype=object), exprs)
 
     @classmethod
-    def visit(cls, op: ops.StructColumn, names, values):
+    def visit_StructColumn(cls, op: ops.StructColumn, names, values):
         return cls.rowwise(lambda row: dict(zip(names, row)), values)
 
     @classmethod
-    def visit(cls, op: ops.ArrayConcat, arg):
+    def visit_ArrayConcat(cls, op: ops.ArrayConcat, arg):
         return cls.rowwise(lambda row: np.concatenate(row.values), arg)
 
     @classmethod
-    def visit(cls, op: ops.Unnest, arg):
+    def visit_Unnest(cls, op: ops.Unnest, arg):
         arg = cls.asseries(arg)
         mask = arg.map(lambda v: bool(len(v)), na_action="ignore")
         return arg[mask].explode()
 
     @classmethod
-    def visit(
+    def visit_ElementWiseVectorizedUDF(
         cls, op: ops.ElementWiseVectorizedUDF, func, func_args, input_type, return_type
     ):
         """Execute an elementwise UDF."""
@@ -258,7 +259,7 @@ class PandasExecutor(Dispatched, PandasUtils):
     ############################# Reductions ##################################
 
     @classmethod
-    def visit(cls, op: ops.Reduction, arg, where, order_by=()):
+    def visit_Reduction(cls, op: ops.Reduction, arg, where, order_by=()):
         if order_by:
             raise UnsupportedOperationError(
                 "ordering of order-sensitive aggregations via `order_by` is "
@@ -268,7 +269,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return cls.agg(func, arg, where)
 
     @classmethod
-    def visit(cls, op: ops.CountStar, arg, where):
+    def visit_CountStar(cls, op: ops.CountStar, arg, where):
         def agg(df):
             if where is None:
                 return len(df)
@@ -278,7 +279,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.CountDistinctStar, arg, where):
+    def visit_CountDistinctStar(cls, op: ops.CountDistinctStar, arg, where):
         def agg(df):
             if where is None:
                 return df.nunique()
@@ -288,11 +289,11 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.Arbitrary, arg, where):
+    def visit_Arbitrary(cls, op: ops.Arbitrary, arg, where):
         return cls.agg(cls.kernels.reductions[ops.Arbitrary], arg, where)
 
     @classmethod
-    def visit(cls, op: ops.ArgMin | ops.ArgMax, arg, key, where):
+    def visit_ArgMin(cls, op: ops.ArgMin | ops.ArgMax, arg, key, where):
         func = operator.methodcaller(op.__class__.__name__.lower())
 
         if where is None:
@@ -311,17 +312,19 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.Variance, arg, where, how):
+    def visit_Variance(cls, op: ops.Variance, arg, where, how):
         ddof = {"pop": 0, "sample": 1}[how]
         return cls.agg(lambda x: x.var(ddof=ddof), arg, where)
 
     @classmethod
-    def visit(cls, op: ops.StandardDev, arg, where, how):
+    def visit_StandardDev(cls, op: ops.StandardDev, arg, where, how):
         ddof = {"pop": 0, "sample": 1}[how]
         return cls.agg(lambda x: x.std(ddof=ddof), arg, where)
 
     @classmethod
-    def visit(cls, op: ops.ArrayCollect, arg, where, order_by, include_null):
+    def visit_ArrayCollect(
+        cls, op: ops.ArrayCollect, arg, where, order_by, include_null
+    ):
         if order_by:
             raise UnsupportedOperationError(
                 "ordering of order-sensitive aggregations via `order_by` is "
@@ -332,7 +335,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         )
 
     @classmethod
-    def visit(cls, op: ops.First, arg, where, order_by, include_null):
+    def visit_First(cls, op: ops.First, arg, where, order_by, include_null):
         if order_by:
             raise UnsupportedOperationError(
                 "ordering of order-sensitive aggregations via `order_by` is "
@@ -347,7 +350,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return cls.agg(first, arg, where)
 
     @classmethod
-    def visit(cls, op: ops.Last, arg, where, order_by, include_null):
+    def visit_Last(cls, op: ops.Last, arg, where, order_by, include_null):
         if order_by:
             raise UnsupportedOperationError(
                 "ordering of order-sensitive aggregations via `order_by` is "
@@ -362,7 +365,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return cls.agg(last, arg, where)
 
     @classmethod
-    def visit(cls, op: ops.Correlation, left, right, where, how):
+    def visit_Correlation(cls, op: ops.Correlation, left, right, where, how):
         if where is None:
 
             def agg(df):
@@ -378,7 +381,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.Covariance, left, right, where, how):
+    def visit_Covariance(cls, op: ops.Covariance, left, right, where, how):
         ddof = {"pop": 0, "sample": 1}[how]
         if where is None:
 
@@ -395,7 +398,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.GroupConcat, arg, sep, where, order_by):
+    def visit_GroupConcat(cls, op: ops.GroupConcat, arg, sep, where, order_by):
         if order_by:
             raise UnsupportedOperationError(
                 "ordering of order-sensitive aggregations via `order_by` is "
@@ -418,15 +421,15 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.Quantile, arg, quantile, where):
+    def visit_Quantile(cls, op: ops.Quantile, arg, quantile, where):
         return cls.agg(lambda x: x.quantile(quantile), arg, where)
 
     @classmethod
-    def visit(cls, op: ops.MultiQuantile, arg, quantile, where):
+    def visit_MultiQuantile(cls, op: ops.MultiQuantile, arg, quantile, where):
         return cls.agg(lambda x: list(x.quantile(quantile)), arg, where)
 
     @classmethod
-    def visit(
+    def visit_ReductionVectorizedUDF(
         cls, op: ops.ReductionVectorizedUDF, func, func_args, input_type, return_type
     ):
         def agg(df):
@@ -438,14 +441,14 @@ class PandasExecutor(Dispatched, PandasUtils):
     ############################# Analytic ####################################
 
     @classmethod
-    def visit(cls, op: ops.RowNumber):
+    def visit_RowNumber(cls, op: ops.RowNumber):
         def agg(df, order_keys):
             return pd.Series(np.arange(len(df)), index=df.index)
 
         return agg
 
     @classmethod
-    def visit(cls, op: ops.Lag | ops.Lead, arg, offset, default):
+    def visit_Lag(cls, op: ops.Lag | ops.Lead, arg, offset, default):
         if isinstance(op, ops.Lag):
             sign = operator.pos
         else:
@@ -473,7 +476,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.MinRank | ops.DenseRank):
+    def visit_MinRank(cls, op: ops.MinRank | ops.DenseRank):
         method = "dense" if isinstance(op, ops.DenseRank) else "min"
 
         def agg(df, order_keys):
@@ -489,7 +492,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.PercentRank):
+    def visit_PercentRank(cls, op: ops.PercentRank):
         def agg(df, order_keys):
             if len(order_keys) == 0:
                 raise ValueError("order_by argument is required for rank functions")
@@ -503,7 +506,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(cls, op: ops.CumeDist):
+    def visit_CumeDist(cls, op: ops.CumeDist):
         def agg(df, order_keys):
             if len(order_keys) == 0:
                 raise ValueError("order_by argument is required for rank functions")
@@ -517,7 +520,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return agg
 
     @classmethod
-    def visit(
+    def visit_AnalyticVectorizedUDF(
         cls, op: ops.AnalyticVectorizedUDF, func, func_args, input_type, return_type
     ):
         def agg(df, order_keys):
@@ -533,11 +536,13 @@ class PandasExecutor(Dispatched, PandasUtils):
     ############################ Window functions #############################
 
     @classmethod
-    def visit(cls, op: ops.WindowBoundary, value, preceding):
+    def visit_WindowBoundary(cls, op: ops.WindowBoundary, value, preceding):
         return value
 
     @classmethod
-    def visit(cls, op: PandasWindowFrame, table, how, start, end, group_by, order_by):
+    def visit_PandasWindowFrame(
+        cls, op: PandasWindowFrame, table, how, start, end, group_by, order_by
+    ):
         if start is not None and op.start.preceding:
             start = -start
         if end is not None and op.end.preceding:
@@ -573,7 +578,7 @@ class PandasExecutor(Dispatched, PandasUtils):
             raise NotImplementedError(f"Unsupported window frame type: {how}")
 
     @classmethod
-    def visit(cls, op: PandasWindowFunction, func, frame):
+    def visit_PandasWindowFunction(cls, op: PandasWindowFunction, func, frame):
         if isinstance(op.func, ops.Analytic):
             order_keys = [key.name for key in op.frame.order_by]
             return frame.apply_analytic(func, order_keys=order_keys)
@@ -583,7 +588,9 @@ class PandasExecutor(Dispatched, PandasUtils):
     ############################ Relational ###################################
 
     @classmethod
-    def visit(cls, op: ops.DatabaseTable, name, schema, source, namespace):
+    def visit_DatabaseTable(
+        cls, op: ops.DatabaseTable, name, schema, source, namespace
+    ):
         try:
             return source.dictionary[name]
         except KeyError:
@@ -593,24 +600,24 @@ class PandasExecutor(Dispatched, PandasUtils):
             )
 
     @classmethod
-    def visit(cls, op: ops.InMemoryTable, name, schema, data):
+    def visit_InMemoryTable(cls, op: ops.InMemoryTable, name, schema, data):
         return data.to_frame()
 
     @classmethod
-    def visit(cls, op: ops.DummyTable, values):
+    def visit_DummyTable(cls, op: ops.DummyTable, values):
         df, _ = cls.asframe(values)
         return df
 
     @classmethod
-    def visit(cls, op: ops.Reference, parent, **kwargs):
+    def visit_Reference(cls, op: ops.Reference, parent, **kwargs):
         return parent
 
     @classmethod
-    def visit(cls, op: PandasRename, parent, mapping):
+    def visit_PandasRename(cls, op: PandasRename, parent, mapping):
         return parent.rename(columns=mapping)
 
     @classmethod
-    def visit(cls, op: PandasLimit, parent, n, offset):
+    def visit_PandasLimit(cls, op: PandasLimit, parent, n, offset):
         n = n.iat[0, 0]
         offset = offset.iat[0, 0]
         if n is None:
@@ -619,22 +626,22 @@ class PandasExecutor(Dispatched, PandasUtils):
             return parent.iloc[offset : offset + n]
 
     @classmethod
-    def visit(cls, op: PandasResetIndex, parent):
+    def visit_PandasResetIndex(cls, op: PandasResetIndex, parent):
         return parent.reset_index(drop=True)
 
     @classmethod
-    def visit(cls, op: ops.Sample, parent, fraction, method, seed):
+    def visit_Sample(cls, op: ops.Sample, parent, fraction, method, seed):
         return parent.sample(frac=fraction, random_state=seed)
 
     @classmethod
-    def visit(cls, op: ops.Project, parent, values):
+    def visit_Project(cls, op: ops.Project, parent, values):
         df, all_scalars = cls.asframe(values)
         if all_scalars and len(parent) != len(df):
             df = cls.concat([df] * len(parent))
         return df
 
     @classmethod
-    def visit(cls, op: ops.Filter, parent, predicates):
+    def visit_Filter(cls, op: ops.Filter, parent, predicates):
         if predicates:
             pred = reduce(operator.and_, predicates)
             if len(pred) != len(parent):
@@ -645,7 +652,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return parent
 
     @classmethod
-    def visit(cls, op: ops.Sort, parent, keys):
+    def visit_Sort(cls, op: ops.Sort, parent, keys):
         # 1. add sort key columns to the dataframe if they are not already present
         # 2. sort the dataframe using those columns
         # 3. drop the sort key columns
@@ -674,11 +681,11 @@ class PandasExecutor(Dispatched, PandasUtils):
         return df.drop(columns=names)
 
     @classmethod
-    def visit(cls, op: ops.DropColumns, parent, columns_to_drop):
+    def visit_DropColumns(cls, op: ops.DropColumns, parent, columns_to_drop):
         return parent.drop(columns=list(columns_to_drop))
 
     @classmethod
-    def visit(cls, op: PandasAggregate, parent, groups, metrics):
+    def visit_PandasAggregate(cls, op: PandasAggregate, parent, groups, metrics):
         if groups:
             parent = parent.groupby([col.name for col in groups.values()])
             metrics = {k: parent.apply(v) for k, v in metrics.items()}
@@ -691,7 +698,7 @@ class PandasExecutor(Dispatched, PandasUtils):
             return combined
 
     @classmethod
-    def visit(cls, op: PandasJoin, how, left, right, left_on, right_on):
+    def visit_PandasJoin(cls, op: PandasJoin, how, left, right, left_on, right_on):
         # broadcast predicates if they are scalar values
         left_on = [cls.asseries(v, like=left) for v in left_on]
         right_on = [cls.asseries(v, like=right) for v in right_on]
@@ -729,7 +736,7 @@ class PandasExecutor(Dispatched, PandasUtils):
             return df
 
     @classmethod
-    def visit(
+    def visit_PandasAsofJoin(
         cls,
         op: PandasAsofJoin,
         how,
@@ -792,12 +799,12 @@ class PandasExecutor(Dispatched, PandasUtils):
         return df
 
     @classmethod
-    def visit(cls, op: ops.Union, left, right, distinct):
+    def visit_Union(cls, op: ops.Union, left, right, distinct):
         result = cls.concat([left, right], axis=0)
         return result.drop_duplicates() if distinct else result
 
     @classmethod
-    def visit(cls, op: ops.Intersection, left, right, distinct):
+    def visit_Intersection(cls, op: ops.Intersection, left, right, distinct):
         if not distinct:
             raise NotImplementedError(
                 "`distinct=False` is not supported by the pandas backend"
@@ -805,7 +812,7 @@ class PandasExecutor(Dispatched, PandasUtils):
         return left.merge(right, on=list(left.columns), how="inner")
 
     @classmethod
-    def visit(cls, op: ops.Difference, left, right, distinct):
+    def visit_Difference(cls, op: ops.Difference, left, right, distinct):
         if not distinct:
             raise NotImplementedError(
                 "`distinct=False` is not supported by the pandas backend"
@@ -815,11 +822,11 @@ class PandasExecutor(Dispatched, PandasUtils):
         return result
 
     @classmethod
-    def visit(cls, op: ops.Distinct, parent):
+    def visit_Distinct(cls, op: ops.Distinct, parent):
         return parent.drop_duplicates()
 
     @classmethod
-    def visit(cls, op: ops.DropNull, parent, how, subset):
+    def visit_DropNull(cls, op: ops.DropNull, parent, how, subset):
         if op.subset is not None:
             subset = [col.name for col in op.subset]
         else:
@@ -827,18 +834,18 @@ class PandasExecutor(Dispatched, PandasUtils):
         return parent.dropna(how=how, subset=subset)
 
     @classmethod
-    def visit(cls, op: ops.FillNull, parent, replacements):
+    def visit_FillNull(cls, op: ops.FillNull, parent, replacements):
         return parent.fillna(replacements)
 
     @classmethod
-    def visit(cls, op: ops.InValues, value, options):
+    def visit_InValues(cls, op: ops.InValues, value, options):
         if isinstance(value, pd.Series):
             return value.isin(options)
         else:
             return value in options
 
     @classmethod
-    def visit(cls, op: ops.InSubquery, rel, needle):
+    def visit_InSubquery(cls, op: ops.InSubquery, rel, needle):
         first_column = rel.iloc[:, 0]
         if isinstance(needle, pd.Series):
             return needle.isin(first_column)
@@ -846,13 +853,26 @@ class PandasExecutor(Dispatched, PandasUtils):
             return needle in first_column
 
     @classmethod
-    def visit(cls, op: PandasScalarSubquery, rel):
+    def visit_PandasScalarSubquery(cls, op: PandasScalarSubquery, rel):
         return rel.iat[0, 0]
 
     @classmethod
     def execute(cls, node, backend, params):
         def fn(node, _, **kwargs):
-            return cls.visit(node, **kwargs)
+            if isinstance(node, ops.Reduction):
+                return cls.visit_Reduction(node, **kwargs)
+            else:
+                method = getattr(cls, f"visit_{type(node).__name__}", None)
+                if method is not None:
+                    return method(node, **kwargs)
+                elif isinstance(node, ops.Value):
+                    return cls.visit_Value(node, **kwargs)
+                else:
+                    raise OperationNotDefinedError(
+                        f"No translation rule for {type(node).__name__}"
+                    )
+
+            # return cls.visit(node, **kwargs)
 
         original = node
         node = node.to_expr().as_table().op()

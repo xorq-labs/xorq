@@ -27,8 +27,8 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64, x86]
-        python-version: ["3.10", "3.11"]
+        target: [x86_64]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
