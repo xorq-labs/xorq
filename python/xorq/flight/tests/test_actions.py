@@ -7,7 +7,6 @@ from xorq.flight.action import DropTableAction, GetSchemaQueryAction, ListTables
 
 def test_list_tables_kwargs():
     with FlightServer(
-        verify_client=False,
         connection=xo.duckdb.connect,
     ) as main:
         # GIVEN
@@ -26,7 +25,6 @@ def test_list_tables_kwargs():
 
 def test_drop_table():
     with FlightServer(
-        verify_client=False,
         connection=xo.duckdb.connect,
     ) as main:
         # GIVEN
@@ -45,7 +43,6 @@ def test_drop_table():
 
 def test_get_schema_query():
     with FlightServer(
-        verify_client=False,
         connection=xo.duckdb.connect,
     ) as main:
         # GIVEN

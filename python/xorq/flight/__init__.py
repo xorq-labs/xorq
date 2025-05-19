@@ -1,6 +1,8 @@
 import functools
 import random
 import socket
+import tempfile
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlunparse
 
@@ -32,7 +34,7 @@ DEFAULT_AUTH_MIDDLEWARE = {
     )
 }
 
-allowed_schemes = ("grpc",)
+allowed_schemes = ("grpc", "grpc+tls")
 default_host = "localhost"
 
 
@@ -119,9 +121,9 @@ class FlightServer:
     def __init__(
         self,
         flight_url=None,
+        enable_tls=False,
         certificate_path=None,
         key_path=None,
-        verify_client=False,
         root_certificates=None,
         auth: BasicAuth = None,
         connection=xo.connect,
@@ -130,10 +132,23 @@ class FlightServer:
         self.flight_url = flight_url or FlightUrl()
         self.certificate_path = certificate_path
         self.key_path = key_path
+        self.cleanup = False
+
+        if enable_tls and (certificate_path is None and key_path is None):
+            from xorq.common.utils.tls_utils import create_tls_keypair
+
+            with tempfile.TemporaryDirectory() as tls_dir:
+                tls_dir = Path(tls_dir).resolve()
+
+            self.certificate_path = str(tls_dir / "server.crt")
+            self.key_path = str(tls_dir / "server.key")
+            create_tls_keypair(self.certificate_path, self.key_path)
+            self.cleanup = True
+
         self.root_certificates = root_certificates
         self.auth = auth
         self.connection = connection
-        self.verify_client = verify_client
+        self.verify_client = False
         self.server = None
         self.exchangers = exchangers
 
@@ -205,6 +220,10 @@ class FlightServer:
         args = args or (None, None, None)
         self.server.__exit__(*args)
         self.server = None
+        if self.cleanup:
+            Path(self.key_path).unlink(missing_ok=True)
+            Path(self.certificate_path).unlink(missing_ok=True)
+
         self.flight_url.bind_socket()
 
     def __exit__(self, *args):

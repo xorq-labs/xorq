@@ -39,12 +39,16 @@ class FlightClient:
             tls_roots: TLS Root path
         """
         kwargs = {}
-
         if tls_roots:
             with open(tls_roots, "rb") as root_certs:
-                kwargs["tls_root_certs"] = root_certs.read()
+                kwargs = {
+                    "tls_root_certs": root_certs.read(),
+                    "disable_server_verification": False,
+                }
 
-        self._client = pa.flight.FlightClient(f"grpc://{host}:{port}", **kwargs)
+        scheme = "grpc+tls" if tls_roots else "grpc"
+
+        self._client = pa.flight.FlightClient(f"{scheme}://{host}:{port}", **kwargs)
         self._wait_on_healthcheck()
 
         if username and password:
@@ -73,6 +77,8 @@ class FlightClient:
                 pass
             except pa.flight.FlightUnauthenticatedError:
                 break
+            except Exception as ee:
+                print(ee)
             finally:
                 n_seconds = 1
                 logger.info(f"Flight server unavailable, sleeping {n_seconds} seconds")
