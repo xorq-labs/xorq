@@ -32,7 +32,7 @@ DEFAULT_AUTH_MIDDLEWARE = {
     )
 }
 
-allowed_schemes = ("grpc",)
+allowed_schemes = ("grpc", "grpc+tls")
 default_host = "localhost"
 
 
@@ -119,38 +119,59 @@ class FlightServer:
     def __init__(
         self,
         flight_url=None,
+        enable_tls=False,
         certificate_path=None,
         key_path=None,
-        verify_client=False,
-        root_certificates=None,
+        enable_mtls=False,
         auth: BasicAuth = None,
         connection=xo.connect,
         exchangers=(),
     ):
         self.flight_url = flight_url or FlightUrl()
-        self.certificate_path = certificate_path
-        self.key_path = key_path
-        self.root_certificates = root_certificates
+        self.enable_tls = enable_tls
+        self.enable_mtls = enable_mtls
         self.auth = auth
         self.connection = connection
-        self.verify_client = verify_client
         self.server = None
         self.exchangers = exchangers
+
+        if self.enable_mtls and not self.enable_tls:
+            raise ValueError("TLS must be enabled in order to use MTLS")
+
+        if self.auth is not None and not self.enable_tls:
+            raise ValueError("TLS must be enabled in order to use authentication")
+
+        if self.enable_tls:
+            from xorq.common.utils.tls_utils import TLSKeyPair
+
+            if certificate_path is None and key_path is None:
+                self.tls_key_pair = TLSKeyPair.from_common_name()
+            else:
+                self.tls_key_pair = TLSKeyPair.from_key_and_cert_paths(
+                    key_path, certificate_path
+                )
+        else:
+            self.tls_key_pair = None
+
+        if self.enable_mtls:
+            from xorq.common.utils.tls_utils import CAKeyPair, ClientKeyPair
+
+            self.ca_key_pair = CAKeyPair.from_common_name()
+            self.client_key_pair = ClientKeyPair.from_ca_key_pair(self.ca_key_pair)
+        else:
+            self.ca_key_pair = None
+            self.client_key_pair = None
 
     @property
     def auth_kwargs(self):
         kwargs = {
-            "root_certificates": self.root_certificates,
+            "root_certificates": self.ca_key_pair.root_certificates
+            if self.ca_key_pair
+            else None,
         }
 
-        if self.key_path is not None and self.certificate_path is not None:
-            with open(self.certificate_path, "rb") as cert_file:
-                tls_cert_chain = cert_file.read()
-
-            with open(self.key_path, "rb") as key_file:
-                tls_private_key = key_file.read()
-
-            kwargs["tls_certificates"] = [(tls_cert_chain, tls_private_key)]
+        if self.enable_tls:
+            kwargs["tls_certificates"] = self.tls_key_pair.tls_certificates
 
         if self.auth is not None:
             kwargs["auth_handler"] = NoOpAuthHandler()
@@ -170,8 +191,11 @@ class FlightServer:
             kwargs["username"] = self.auth.username
             kwargs["password"] = self.auth.password
 
-        if self.certificate_path is not None:
-            kwargs["tls_roots"] = self.certificate_path
+        if self.enable_tls:
+            kwargs["tls_roots"] = self.tls_key_pair.cert_file
+
+        if self.enable_mtls:
+            kwargs["mlts"] = self.client_key_pair.mtls
 
         instance = Backend()
         instance.do_connect(**kwargs)
@@ -190,7 +214,7 @@ class FlightServer:
         self.server = FlightServerDelegate(
             self.connection,
             self.flight_url.to_location(),
-            verify_client=self.verify_client,
+            verify_client=self.enable_mtls,
             **self.auth_kwargs,
         )
         for udxf in self.exchangers:
@@ -205,6 +229,17 @@ class FlightServer:
         args = args or (None, None, None)
         self.server.__exit__(*args)
         self.server = None
+
+        key_pairs = (
+            self.tls_key_pair,
+            self.ca_key_pair,
+            self.client_key_pair,
+        )
+
+        for key_pair in key_pairs:
+            if key_pair is not None:
+                key_pair.cleanup()
+
         self.flight_url.bind_socket()
 
     def __exit__(self, *args):
