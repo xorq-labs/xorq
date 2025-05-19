@@ -175,18 +175,22 @@ class TLSCert:
         client_kwargs = {
             "tls_root_certs": ca_tlscert.cert_bytes,
         }
-        return (
-            # must keep a reference to the tlscert objects else they disappear
-            (ca_tlscert, server_tlscert),
+
+        # must keep a reference to the tlscert objects else they disappear
+        return TLSKwargsTuple(
+            ca_tlscert,
+            server_tlscert,
+            None,
             server_kwargs,
             client_kwargs,
         )
 
     @classmethod
     def create_mtls_kwargs(cls, ca_kwargs, server_kwargs, client_kwargs):
-        ((ca_tlscert, server_tlscert), *_) = cls.create_tls_kwargs(
-            ca_kwargs, server_kwargs
-        )
+        kwargs_tuple = cls.create_tls_kwargs(ca_kwargs, server_kwargs)
+        ca_tlscert = kwargs_tuple._ca_tlscert
+        server_tlscert = kwargs_tuple._server_tlscert
+
         client_tlscert = cls.from_common_name(sign_with=ca_tlscert, **client_kwargs)
         server_kwargs = {
             "root_certificates": ca_tlscert.cert_bytes,
@@ -197,12 +201,29 @@ class TLSCert:
             "cert_chain": client_tlscert.cert_bytes,
             "private_key": client_tlscert.private_key_bytes,
         }
-        return (
-            # must keep a reference to the tlscert objects else they disappear
-            (ca_tlscert, server_tlscert, client_tlscert),
+
+        # must keep a reference to the tlscert objects else they disappear
+        return TLSKwargsTuple(
+            ca_tlscert,
+            server_tlscert,
+            client_tlscert,
             server_kwargs,
             client_kwargs,
         )
+
+
+class TLSKwargsTuple:
+    def __init__(
+        self, ca_tlscert, server_tlscert, client_tlscert, server_kwargs, client_kwargs
+    ):
+        self._ca_tlscert = ca_tlscert
+        self._server_tlscert = server_tlscert
+        self._client_tlscert = client_tlscert
+        self.server_kwargs = server_kwargs
+        self.client_kwargs = client_kwargs
+
+    def __iter__(self):
+        return iter([self.server_kwargs, self.client_kwargs])
 
 
 def get_san(cert):

@@ -12,15 +12,21 @@ import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils import classproperty
 from xorq.common.utils.rbr_utils import instrument_reader
-from xorq.flight import FlightServer, FlightUrl
+from xorq.common.utils.tls_utils import TLSCert
+from xorq.flight import (
+    Backend,
+    BasicAuth,
+    FlightServer,
+    FlightUrl,
+)
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
 
 
-def make_flight_url(port):
+def make_flight_url(port, scheme="grpc"):
     if port is not None:
         assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
+    flight_url = FlightUrl(port=port, scheme=scheme)
     assert FlightUrl.port_in_use(flight_url.port), (
         f"Port {flight_url.port} should be in use"
     )
@@ -115,6 +121,68 @@ def test_register_and_list_tables(connection, port):
         assert t.schema() is not None
         assert "users" in con.list_tables()
         assert isinstance(actual, pd.DataFrame)
+
+
+@pytest.mark.parametrize("auth", [None, BasicAuth("username", "password")])
+@pytest.mark.parametrize("verify_client", [False, True])
+def test_tls_encryption(auth, verify_client, tls_kwargs, mtls_kwargs):
+    flight_url = make_flight_url(None, scheme="grpc+tls")
+
+    tls_cert = TLSCert.from_common_name()
+
+    server_kwargs, _ = (
+        tls_cert.create_mtls_kwargs(**mtls_kwargs)
+        if verify_client
+        else tls_cert.create_tls_kwargs(**tls_kwargs)
+    )
+
+    with FlightServer(
+        flight_url=flight_url,
+        verify_client=verify_client,
+        auth=auth,
+        **server_kwargs,
+    ) as main:
+        con = main.con
+        assert con.version is not None
+
+        data = pa.table(
+            {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
+        ).to_pandas()
+
+        con.register(data, table_name="users")
+        t = con.table("users")
+        actual = xo.execute(t)
+
+        assert t.schema() is not None
+        assert "users" in con.list_tables()
+        assert isinstance(actual, pd.DataFrame)
+
+
+def test_failed_auth(tls_kwargs):
+    flight_url = make_flight_url(None, scheme="grpc+tls")
+
+    tls_cert = TLSCert.from_common_name()
+
+    kwargs, _ = tls_cert.create_tls_kwargs(**tls_kwargs)
+
+    with FlightServer(
+        flight_url=flight_url,
+        auth=BasicAuth("username", "password"),
+        **kwargs,
+    ) as server:
+        kwargs = {
+            "host": server.flight_url.host,
+            "port": server.flight_url.port,
+            "username": server.auth.username,
+            "password": "not_the_password",
+            "tls_root_certs": kwargs["root_certificates"],
+        }
+
+        from pyarrow._flight import FlightUnauthenticatedError
+
+        with pytest.raises(FlightUnauthenticatedError):
+            instance = Backend()
+            instance.do_connect(**kwargs)
 
 
 @pytest.mark.parametrize(

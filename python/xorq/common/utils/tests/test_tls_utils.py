@@ -51,37 +51,33 @@ def test_tlscert_roundtrip(password, tmpdir):
 
 
 def test_tls_creation():
-    (tlscerts, *_) = ((ca_tlscert, server_tlscert), client_kwargs, server_kwargs) = (
-        TLSCert.create_tls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-        )
+    kwargs_tuple = TLSCert.create_tls_kwargs(
+        ca_kwargs={
+            "common_name": "root_cert",
+        },
+        server_kwargs={
+            "common_name": "server",
+            "sans": ("localhost",),
+        },
     )
-    ca_tlscert.verify(server_tlscert)
+    kwargs_tuple._ca_tlscert.verify(kwargs_tuple._server_tlscert)
 
 
 def test_mtls_creation():
-    ((ca_tlscert, server_tlscert, client_tlscert), client_kwargs, server_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
+    client_kwargs, server_kwargs = kwargs_tuple = TLSCert.create_mtls_kwargs(
+        ca_kwargs={
+            "common_name": "root_cert",
+        },
+        server_kwargs={
+            "common_name": "server",
+            "sans": ("localhost",),
+        },
+        client_kwargs={
+            "common_name": "client",
+        },
     )
-    ca_tlscert.verify(server_tlscert)
-    ca_tlscert.verify(client_tlscert)
+    kwargs_tuple._ca_tlscert.verify(kwargs_tuple._server_tlscert)
+    kwargs_tuple._ca_tlscert.verify(kwargs_tuple._client_tlscert)
 
 
 def test_client_verify_fails():
@@ -92,16 +88,14 @@ def test_client_verify_fails():
 
 
 def test_tls_flight_server():
-    ((ca_tlscert, server_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_tls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-        )
+    server_kwargs, client_kwargs = TLSCert.create_tls_kwargs(
+        ca_kwargs={
+            "common_name": "root_cert",
+        },
+        server_kwargs={
+            "common_name": "server",
+            "sans": ("localhost",),
+        },
     )
     server = xo.flight.FlightServer(
         verify_client=False,
@@ -122,16 +116,14 @@ def test_tls_flight_server():
 
 
 def test_tls_flight_server_fails():
-    ((ca_tlscert, server_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_tls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-        )
+    server_kwargs, client_kwargs = TLSCert.create_tls_kwargs(
+        ca_kwargs={
+            "common_name": "root_cert",
+        },
+        server_kwargs={
+            "common_name": "server",
+            "sans": ("localhost",),
+        },
     )
     flight_url = xo.flight.FlightUrl(scheme="grpc+tls")
     with pytest.raises(Exception):
@@ -161,19 +153,17 @@ def test_tls_flight_server_fails():
 
 
 def test_mtls_flight_server():
-    ((ca_tlscert, server_tlscert, client_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
+    server_kwargs, client_kwargs = TLSCert.create_mtls_kwargs(
+        ca_kwargs={
+            "common_name": "root_cert",
+        },
+        server_kwargs={
+            "common_name": "server",
+            "sans": ("localhost",),
+        },
+        client_kwargs={
+            "common_name": "client",
+        },
     )
     server = xo.flight.FlightServer(
         verify_client=True,
@@ -186,19 +176,17 @@ def test_mtls_flight_server():
 
 
 def test_mtls_flight_client():
-    ((ca_tlscert, server_tlscert, client_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
+    server_kwargs, client_kwargs = TLSCert.create_mtls_kwargs(
+        ca_kwargs={
+            "common_name": "root_cert",
+        },
+        server_kwargs={
+            "common_name": "server",
+            "sans": ("localhost",),
+        },
+        client_kwargs={
+            "common_name": "client",
+        },
     )
     server = xo.flight.FlightServer(
         verify_client=True,
@@ -215,19 +203,17 @@ def test_mtls_flight_client():
 
 
 def test_mtls_flight_client_failure():
-    ((ca_tlscert, server_tlscert, client_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
+    server_kwargs, client_kwargs = TLSCert.create_mtls_kwargs(
+        ca_kwargs={
+            "common_name": "root_cert",
+        },
+        server_kwargs={
+            "common_name": "server",
+            "sans": ("localhost",),
+        },
+        client_kwargs={
+            "common_name": "client",
+        },
     )
     server = xo.flight.FlightServer(
         verify_client=True,
