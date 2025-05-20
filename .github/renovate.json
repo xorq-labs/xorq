@@ -13,13 +13,12 @@
     "github-actions",
     "pep621",
     "poetry",
-    "cargo",
     "pre-commit"
   ],
   "prBodyTemplate": "{{{table}}}{{{notes}}}{{{warnings}}}{{{controls}}}",
   "packageRules": [
     {
-      "matchManagers": ["github-actions", "cargo", "pre-commit"],
+      "matchManagers": ["github-actions", "pre-commit"],
       "rangeStrategy": "pin",
       "automerge": false
     }
