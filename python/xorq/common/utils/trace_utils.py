@@ -191,6 +191,8 @@ class Span:
                 "duration": self.duration,
                 "name": event.name,
                 "key": attribute.value,
+                "start_datetime": self.start_datetime,
+                "end_datetime": self.end_datetime,
             }
         else:
             return None
@@ -384,6 +386,21 @@ class Trace:
             lineage += (span,)
         return lineage
 
+    @property
+    def attribute_df(self):
+        import pandas as pd
+
+        return pd.DataFrame(
+            {
+                f"attribute.{getattr(attribute, 'name')}": getattr(attribute, "value")
+                for attribute in event.attributes
+            }
+            | {f"event.{k}": getattr(event, k) for k in ("time", "name")}
+            | {k: getattr(span, k) for k in ("trace_id", "span_id", "name")}
+            for span in self.spans
+            for event in span.events
+        )
+
     def get_depth(self, depth):
         return self.get_depths().get(depth, ())
 
@@ -438,6 +455,10 @@ class Trace:
     @property
     def start_datetime(self):
         return self.parent_span.start_datetime
+
+    @property
+    def end_datetime(self):
+        return self.parent_span.end_datetime
 
     def get_spans_named(self, name):
         return tuple(span for span in self.spans if span.name == name)
