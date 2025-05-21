@@ -12,7 +12,6 @@
     "dockerfile",
     "github-actions",
     "pep621",
-    "poetry",
     "pre-commit"
   ],
   "prBodyTemplate": "{{{table}}}{{{notes}}}{{{warnings}}}{{{controls}}}",
@@ -21,6 +20,11 @@
       "matchManagers": ["github-actions", "pre-commit"],
       "rangeStrategy": "pin",
       "automerge": false
+    },
+    {
+      "matchManagers": ["pep621"],
+      "matchPackageNames": "dask",
+      "enabled": false
     }
   ],
   "pre-commit": {
