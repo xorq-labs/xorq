@@ -66,9 +66,9 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.17 ; python_full_version < '4.0'
+boto3==1.38.20 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.17 ; python_full_version < '4.0'
+botocore==1.38.20 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -102,7 +102,7 @@ charset-normalizer==3.4.2
     #   snowflake-connector-python
 cityhash==0.4.8 ; python_full_version < '4.0'
     # via xorq
-click==8.2.0
+click==8.2.1
     # via
     #   black
     #   dask
@@ -126,7 +126,7 @@ comm==0.2.2
     # via ipykernel
 coverage==7.8.0
     # via pytest-cov
-cryptography==44.0.3
+cryptography==45.0.2
     # via
     #   pyopenssl
     #   snowflake-connector-python
@@ -175,7 +175,7 @@ frozenlist==1.6.0 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   aiosignal
-fsspec==2025.3.2
+fsspec==2025.5.0
     # via
     #   dask
     #   gcsfs
@@ -186,7 +186,7 @@ gast==0.6.0 ; sys_platform == 'darwin'
     # via
     #   beniget
     #   pythran
-gcsfs==2025.3.2 ; python_full_version < '4.0'
+gcsfs==2025.5.0 ; python_full_version < '4.0'
     # via pins
 geoarrow-types==0.2.0 ; python_full_version < '4.0'
     # via xorq
@@ -283,7 +283,7 @@ jinja2==3.1.6
     #   jupyterlab-server
     #   nbconvert
     #   pins
-jiter==0.9.0
+jiter==0.10.0
     # via openai
 jmespath==1.0.1 ; python_full_version < '4.0'
     # via
@@ -365,7 +365,7 @@ mmh3==5.1.0
     # via pyiceberg
 more-itertools==10.7.0
     # via blackdoc
-multidict==6.4.3 ; python_full_version < '4.0'
+multidict==6.4.4 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
@@ -389,7 +389,7 @@ notebook-shim==0.2.4
     # via
     #   jupyterlab
     #   notebook
-numpy==2.2.5
+numpy==2.2.6
     # via
     #   pandas
     #   pythran
@@ -400,35 +400,35 @@ nvidia-nccl-cu12==2.26.5 ; platform_machine != 'aarch64' and sys_platform == 'li
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.78.1
+openai==1.79.0
     # via xorq
-opentelemetry-api==1.33.0
+opentelemetry-api==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-exporter-otlp==1.33.0
+opentelemetry-exporter-otlp==1.33.1
     # via xorq
-opentelemetry-exporter-otlp-proto-common==1.33.0
+opentelemetry-exporter-otlp-proto-common==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-grpc==1.33.0
+opentelemetry-exporter-otlp-proto-grpc==1.33.1
     # via opentelemetry-exporter-otlp
-opentelemetry-exporter-otlp-proto-http==1.33.0
+opentelemetry-exporter-otlp-proto-http==1.33.1
     # via opentelemetry-exporter-otlp
-opentelemetry-proto==1.33.0
+opentelemetry-proto==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk==1.33.0
+opentelemetry-sdk==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
     #   xorq
-opentelemetry-semantic-conventions==0.54b0
+opentelemetry-semantic-conventions==0.54b1
     # via opentelemetry-sdk
 overrides==7.7.0
     # via jupyter-server
@@ -479,7 +479,7 @@ plum-dispatch==2.5.7
 ply==3.11 ; sys_platform == 'darwin'
     # via pythran
 pre-commit==4.2.0
-prometheus-client==0.21.1
+prometheus-client==0.22.0
     # via jupyter-server
 prompt-toolkit==3.0.51
     # via ipython
@@ -543,7 +543,7 @@ pyiceberg==0.9.1
     # via xorq
 pyjwt==2.10.1 ; python_full_version < '4.0'
     # via snowflake-connector-python
-pyopenssl==25.0.0
+pyopenssl==25.1.0
     # via snowflake-connector-python
 pyparsing==3.2.3
     # via pyiceberg
@@ -659,7 +659,7 @@ scipy==1.15.3
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==80.7.1
+setuptools==80.8.0
     # via
     #   jupyterlab
     #   pythran
