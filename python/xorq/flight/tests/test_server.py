@@ -120,14 +120,16 @@ def test_register_and_list_tables(connection, port):
         assert isinstance(actual, pd.DataFrame)
 
 
-@pytest.mark.parametrize("temporal", [True, False])
-def test_secure_server(tls_key_pair, temporal):
+@pytest.mark.parametrize("temporal", [False, True])
+@pytest.mark.parametrize("verify_client", [False, True])
+def test_secure_server(tls_key_pair, temporal, verify_client):
     flight_url = make_flight_url(None, scheme="grpc+tls")
     certificate_path, key_path = (None, None) if temporal else tls_key_pair
 
     with FlightServer(
         flight_url=flight_url,
         enable_tls=True,
+        verify_client=verify_client,
         certificate_path=certificate_path,
         key_path=key_path,
         auth=BasicAuth("username", "password"),

@@ -124,7 +124,7 @@ class FlightServer:
         enable_tls=False,
         certificate_path=None,
         key_path=None,
-        root_certificates=None,
+        verify_client=False,
         auth: BasicAuth = None,
         connection=xo.connect,
         exchangers=(),
@@ -133,6 +133,8 @@ class FlightServer:
         self.certificate_path = certificate_path
         self.key_path = key_path
         self.cleanup = False
+        self.verify_client = verify_client
+        self.root_certificates = None
 
         if enable_tls and (certificate_path is None and key_path is None):
             from xorq.common.utils.tls_utils import create_tls_keypair
@@ -143,12 +145,38 @@ class FlightServer:
             self.certificate_path = str(tls_dir / "server.crt")
             self.key_path = str(tls_dir / "server.key")
             create_tls_keypair(self.certificate_path, self.key_path)
+
+        if self.verify_client and not enable_tls:
+            raise ValueError
+        elif self.verify_client:
+            from xorq.common.utils.tls_utils import (
+                create_ca_keypair,
+                create_client_keypair,
+            )
+
+            with tempfile.TemporaryDirectory() as tls_dir:
+                tls_dir = Path(tls_dir).resolve()
+
+            self.ca_certificate_path = str(tls_dir / "server_ca.crt")
+            self.ca_key_path = str(tls_dir / "server_ca.key")
+            create_ca_keypair(self.ca_certificate_path, self.ca_key_path)
+
+            with open(self.ca_certificate_path, "rb") as ca_cert_file:
+                self.root_certificates = ca_cert_file.read()
+
+            self.client_certificate_path = str(tls_dir / "client.crt")
+            self.client_key_path = str(tls_dir / "client.key")
+            create_client_keypair(
+                self.ca_certificate_path,
+                self.ca_key_path,
+                self.client_certificate_path,
+                self.client_key_path,
+            )
+
             self.cleanup = True
 
-        self.root_certificates = root_certificates
         self.auth = auth
         self.connection = connection
-        self.verify_client = False
         self.server = None
         self.exchangers = exchangers
 
@@ -188,6 +216,9 @@ class FlightServer:
         if self.certificate_path is not None:
             kwargs["tls_roots"] = self.certificate_path
 
+        if self.verify_client:
+            kwargs["mlts"] = (self.client_certificate_path, self.client_key_path)
+
         instance = Backend()
         instance.do_connect(**kwargs)
         return instance
@@ -223,6 +254,10 @@ class FlightServer:
         if self.cleanup:
             Path(self.key_path).unlink(missing_ok=True)
             Path(self.certificate_path).unlink(missing_ok=True)
+
+            if self.verify_client:
+                Path(self.client_key_path).unlink(missing_ok=True)
+                Path(self.client_certificate_path).unlink(missing_ok=True)
 
         self.flight_url.bind_socket()
 
