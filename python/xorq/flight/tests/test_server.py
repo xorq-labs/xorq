@@ -11,7 +11,12 @@ import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils import classproperty
 from xorq.common.utils.rbr_utils import instrument_reader
-from xorq.flight import BasicAuth, FlightServer, FlightUrl
+from xorq.flight import (
+    Backend,
+    BasicAuth,
+    FlightServer,
+    FlightUrl,
+)
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
 
@@ -141,6 +146,29 @@ def test_secure_server(tls_key_pair, temporal):
         assert t.schema() is not None
         assert "users" in con.list_tables()
         assert isinstance(actual, pd.DataFrame)
+
+
+def test_secure_server_failed_auth():
+    flight_url = make_flight_url(None, scheme="grpc+tls")
+
+    with FlightServer(
+        flight_url=flight_url,
+        enable_tls=True,
+        auth=BasicAuth("username", "password"),
+    ) as server:
+        kwargs = {
+            "host": server.flight_url.host,
+            "port": server.flight_url.port,
+            "username": server.auth.username,
+            "password": "not_the_password",
+            "tls_roots": server.certificate_path,
+        }
+
+        from pyarrow._flight import FlightUnauthenticatedError
+
+        with pytest.raises(FlightUnauthenticatedError):
+            instance = Backend()
+            instance.do_connect(**kwargs)
 
 
 @pytest.mark.parametrize(
