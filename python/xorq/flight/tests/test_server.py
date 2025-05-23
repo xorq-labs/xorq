@@ -9,6 +9,7 @@ import pytest
 import xorq as xo
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
+from xorq.common.utils import classproperty
 from xorq.common.utils.rbr_utils import instrument_reader
 from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.action import AddExchangeAction
@@ -47,8 +48,7 @@ def test_port_in_use(connection, port):
 
 
 class Answer42Action(A.AbstractAction):
-    @classmethod
-    @property
+    @classproperty
     def name(cls):
         return "answer-42"
 
