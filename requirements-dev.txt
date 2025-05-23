@@ -124,7 +124,7 @@ colorama==0.4.6
     #   tqdm
 comm==0.2.2
     # via ipykernel
-coverage==7.8.0
+coverage==7.8.1
     # via pytest-cov
 cryptography==45.0.2
     # via
