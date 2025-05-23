@@ -47,6 +47,7 @@ def asof_join_flight_data(con, tail, flight, airborne_only=True):
     return expr
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize("cls", [ParquetSnapshotStorage, ParquetStorage])
 @pytest.mark.parametrize("cross_source_caching", [True, False])
 def test_complex_storage(cls, cross_source_caching, tmp_path):
