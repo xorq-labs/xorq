@@ -1,3 +1,5 @@
+import pyarrow as pa
+
 import xorq as xo
 from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
 from xorq.caching import SourceStorage
@@ -35,6 +37,46 @@ def test_caching(iceberg_con, quotes_table):
     assert not storage.exists(uncached_expr)
     assert not expr.execute().empty
     assert storage.exists(uncached_expr)
+
+
+def test_upsert(iceberg_con, quotes_table):
+    arrow_schema = pa.schema(
+        [
+            pa.field("city", pa.string(), nullable=False),
+            pa.field("inhabitants", pa.int32(), nullable=False),
+        ]
+    )
+
+    df = pa.Table.from_pylist(
+        [
+            {"city": "Amsterdam", "inhabitants": 921402},
+            {"city": "San Francisco", "inhabitants": 808988},
+            {"city": "Drachten", "inhabitants": 45019},
+            {"city": "Paris", "inhabitants": 2103000},
+        ],
+        schema=arrow_schema,
+    )
+
+    table = iceberg_con.create_table("cities", df)
+    before = table.execute()
+
+    df = pa.Table.from_pylist(
+        [
+            {"city": "Drachten", "inhabitants": 45505},
+            {"city": "Berlin", "inhabitants": 3432000},
+            {"city": "Paris", "inhabitants": 2103000},
+        ],
+        schema=arrow_schema,
+    )
+
+    table = iceberg_con.upsert("cities", df, join_cols=["city"])
+    after = table.execute()
+
+    assert not before.equals(after)
+    actual = after.set_index("city").to_dict()["inhabitants"]
+
+    assert "Berlin" in actual
+    assert actual["Drachten"] == 45505
 
 
 def test_list_snapshots(iceberg_con):
