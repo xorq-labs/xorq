@@ -32,7 +32,7 @@ DEFAULT_AUTH_MIDDLEWARE = {
     )
 }
 
-allowed_schemes = ("grpc",)
+allowed_schemes = ("grpc", "grpc+tls")
 default_host = "localhost"
 
 
@@ -53,6 +53,18 @@ class FlightUrl:
             self.find_and_bind_socket()
         else:
             self.bind_socket()
+
+    @property
+    def client_kwargs(self):
+        return {
+            k: getattr(self, k)
+            for k in (
+                "host",
+                "port",
+                "username",
+                "password",
+            )
+        }
 
     def find_and_bind_socket(self):
         while True:
@@ -119,17 +131,21 @@ class FlightServer:
     def __init__(
         self,
         flight_url=None,
-        certificate_path=None,
-        key_path=None,
+        tls_certificates=(),  # list of (key, value) pairs
         verify_client=False,
         root_certificates=None,
         auth: BasicAuth = None,
         connection=xo.connect,
         exchangers=(),
     ):
-        self.flight_url = flight_url or FlightUrl()
-        self.certificate_path = certificate_path
-        self.key_path = key_path
+        required_scheme = (
+            "grpc+tls"
+            if tls_certificates or verify_client or root_certificates
+            else "grpc"
+        )
+        self.flight_url = flight_url or FlightUrl(scheme=required_scheme)
+        assert self.flight_url.scheme == required_scheme
+        self.tls_certificates = tls_certificates
         self.root_certificates = root_certificates
         self.auth = auth
         self.connection = connection
@@ -141,21 +157,13 @@ class FlightServer:
     def auth_kwargs(self):
         kwargs = {
             "root_certificates": self.root_certificates,
+            "tls_certificates": list(self.tls_certificates),
         }
-
-        if self.key_path is not None and self.certificate_path is not None:
-            with open(self.certificate_path, "rb") as cert_file:
-                tls_cert_chain = cert_file.read()
-
-            with open(self.key_path, "rb") as key_file:
-                tls_private_key = key_file.read()
-
-            kwargs["tls_certificates"] = [(tls_cert_chain, tls_private_key)]
-
-        if self.auth is not None:
-            kwargs["auth_handler"] = NoOpAuthHandler()
-            kwargs["middleware"] = to_basic_auth_middleware(self.auth)
-
+        if self.auth:
+            kwargs |= {
+                "auth_handler": NoOpAuthHandler(),
+                "middleware": to_basic_auth_middleware(self.auth),
+            }
         return kwargs
 
     @property
@@ -170,8 +178,17 @@ class FlightServer:
             kwargs["username"] = self.auth.username
             kwargs["password"] = self.auth.password
 
-        if self.certificate_path is not None:
-            kwargs["tls_roots"] = self.certificate_path
+        if self.root_certificates:
+            # this mapping is for Backend's FlightClient
+            kwargs["tls_root_certs"] = self.root_certificates
+
+        if self.tls_certificates:
+            ((cert_chain, private_key), *rest) = self.tls_certificates
+            if rest:
+                # FIXME: what to do with multiple certs?
+                raise ValueError
+            kwargs["cert_chain"] = cert_chain
+            kwargs["private_key"] = private_key
 
         instance = Backend()
         instance.do_connect(**kwargs)
@@ -216,13 +233,21 @@ def connect(
     port=8815,
     username=None,
     password=None,
-    tls_roots=None,
+    cert_chain=None,
+    private_key=None,
+    tls_root_certs=None,
 ):
     from xorq.flight.backend import Backend
 
     new_backend = Backend()
     new_backend.do_connect(
-        host=host, port=port, username=username, password=password, tls_roots=tls_roots
+        host=host,
+        port=port,
+        username=username,
+        password=password,
+        cert_chain=cert_chain,
+        private_key=private_key,
+        tls_root_certs=tls_root_certs,
     )
     return new_backend
 
