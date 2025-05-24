@@ -11,15 +11,20 @@ import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils import classproperty
 from xorq.common.utils.rbr_utils import instrument_reader
-from xorq.flight import FlightServer, FlightUrl
+from xorq.flight import (
+    Backend,
+    BasicAuth,
+    FlightServer,
+    FlightUrl,
+)
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
 
 
-def make_flight_url(port):
+def make_flight_url(port, scheme="grpc"):
     if port is not None:
         assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port)
+    flight_url = FlightUrl(port=port, scheme=scheme)
     assert FlightUrl.port_in_use(flight_url.port), (
         f"Port {flight_url.port} should be in use"
     )
@@ -97,7 +102,6 @@ def test_register_and_list_tables(connection, port):
 
     with FlightServer(
         flight_url=flight_url,
-        verify_client=False,
         connection=connection,
     ) as main:
         con = main.con
@@ -116,6 +120,93 @@ def test_register_and_list_tables(connection, port):
         assert isinstance(actual, pd.DataFrame)
 
 
+@pytest.mark.parametrize("temporal", [True, False])
+@pytest.mark.parametrize("auth", [None, BasicAuth("username", "password")])
+@pytest.mark.parametrize("enable_mtls", [False, True])
+def test_tls_encryption(tls_key_pair, temporal, auth, enable_mtls):
+    flight_url = make_flight_url(None, scheme="grpc+tls")
+    certificate_path, key_path = (None, None) if temporal else tls_key_pair
+
+    with FlightServer(
+        flight_url=flight_url,
+        enable_tls=True,
+        enable_mtls=enable_mtls,
+        certificate_path=certificate_path,
+        key_path=key_path,
+        auth=auth,
+    ) as main:
+        con = main.con
+        assert con.version is not None
+
+        data = pa.table(
+            {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
+        ).to_pandas()
+
+        con.register(data, table_name="users")
+        t = con.table("users")
+        actual = xo.execute(t)
+
+        assert t.schema() is not None
+        assert "users" in con.list_tables()
+        assert isinstance(actual, pd.DataFrame)
+
+
+def test_failed_auth():
+    flight_url = make_flight_url(None, scheme="grpc+tls")
+
+    with FlightServer(
+        flight_url=flight_url,
+        enable_tls=True,
+        auth=BasicAuth("username", "password"),
+    ) as server:
+        kwargs = {
+            "host": server.flight_url.host,
+            "port": server.flight_url.port,
+            "username": server.auth.username,
+            "password": "not_the_password",
+            "tls_roots": server.tls_key_pair.cert_file,
+        }
+
+        from pyarrow._flight import FlightUnauthenticatedError
+
+        with pytest.raises(FlightUnauthenticatedError):
+            instance = Backend()
+            instance.do_connect(**kwargs)
+
+
+@pytest.mark.parametrize("certificate", [True, False])
+def test_invalid_tls_key_pair(tls_key_pair, certificate):
+    flight_url = make_flight_url(None, scheme="grpc+tls")
+    certificate_path, key_path = tls_key_pair
+
+    if certificate:
+        certificate_path = None
+    else:
+        key_path = None
+
+    with pytest.raises(TypeError):
+        FlightServer(
+            flight_url=flight_url,
+            enable_tls=True,
+            certificate_path=certificate_path,
+            key_path=key_path,
+        )
+
+
+@pytest.mark.parametrize(
+    "config",
+    [
+        {"enable_tls": False, "enable_mtls": True},
+        {"enable_tls": False, "auth": BasicAuth("username", "password")},
+    ],
+)
+def test_invalid_config(config):
+    flight_url = make_flight_url(None, scheme="grpc+tls")
+
+    with pytest.raises(ValueError):
+        FlightServer(flight_url=flight_url, **config)
+
+
 @pytest.mark.parametrize(
     "connection,port",
     [
@@ -130,7 +221,6 @@ def test_into_backend_flight_server(connection, port, parquet_dir):
 
     with FlightServer(
         flight_url=flight_url,
-        verify_client=False,
         connection=connection,
     ) as main:
         con = main.con
@@ -156,7 +246,6 @@ def test_read_parquet(connection, port, parquet_dir):
     flight_url = make_flight_url(port)
     with FlightServer(
         flight_url=flight_url,
-        verify_client=False,
         connection=connection,
     ) as main:
         con = main.con
@@ -180,7 +269,6 @@ def test_exchange(connection, port):
 
     with FlightServer(
         flight_url=flight_url,
-        verify_client=False,
         connection=connection,
     ) as main:
         client = main.client
@@ -247,7 +335,6 @@ def test_exchange(connection, port):
 def test_reentry(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     with FlightServer(
-        verify_client=False,
         connection=connection,
     ) as server:
         fut, rbr = server.client.do_exchange(
@@ -276,7 +363,6 @@ def test_reentry(connection):
 def test_serve_close(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     server = FlightServer(
-        verify_client=False,
         connection=connection,
     )
 
@@ -334,7 +420,6 @@ def test_execute_query_non_relation_expr(expr):
 
     with FlightServer(
         flight_url=flight_url,
-        verify_client=False,
         connection=xo.duckdb.connect,
     ) as main:
         main.con.register(data, table_name="users")
@@ -348,7 +433,6 @@ def test_server_blocks(block):
     flight_url = make_flight_url(None)
     server = FlightServer(
         flight_url=flight_url,
-        verify_client=False,
         connection=xo.duckdb.connect,
     )
 

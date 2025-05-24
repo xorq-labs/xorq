@@ -69,6 +69,7 @@ class Backend(SQLBackend):
         username=None,
         password=None,
         tls_roots=None,
+        mlts=None,
     ) -> None:
         self.con = FlightClient(
             host=host,
@@ -76,6 +77,7 @@ class Backend(SQLBackend):
             username=username,
             password=password,
             tls_roots=tls_roots,
+            mlts=mlts,
         )
 
     def get_schema(

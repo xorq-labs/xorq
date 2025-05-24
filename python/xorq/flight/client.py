@@ -27,6 +27,7 @@ class FlightClient:
         username=None,
         password=None,
         tls_roots=None,
+        mlts=None,
     ):
         """
         Initialize the Ibis Backend Flight Client
@@ -39,12 +40,29 @@ class FlightClient:
             tls_roots: TLS Root path
         """
         kwargs = {}
-
         if tls_roots:
             with open(tls_roots, "rb") as root_certs:
-                kwargs["tls_root_certs"] = root_certs.read()
+                kwargs = {
+                    "tls_root_certs": root_certs.read(),
+                    "disable_server_verification": False,
+                }
 
-        self._client = pa.flight.FlightClient(f"grpc://{host}:{port}", **kwargs)
+        if mlts and not tls_roots:
+            raise ValueError("TLS must be enabled in order to use MTLS, aborting.")
+        elif mlts:
+            cert_file_path, key_file_path = mlts
+            with open(cert_file_path, "rb") as cert_file:
+                mtls_cert_chain = cert_file.read()
+
+            with open(key_file_path, "rb") as key_file:
+                mtls_private_key = key_file.read()
+
+            kwargs["cert_chain"] = mtls_cert_chain
+            kwargs["private_key"] = mtls_private_key
+
+        scheme = "grpc+tls" if tls_roots else "grpc"
+
+        self._client = pa.flight.FlightClient(f"{scheme}://{host}:{port}", **kwargs)
         self._wait_on_healthcheck()
 
         if username and password:
