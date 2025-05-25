@@ -4,8 +4,10 @@ from concurrent.futures import ThreadPoolExecutor
 from queue import Queue
 
 import pyarrow as pa
-import pyarrow.flight
 from cloudpickle import dumps, loads
+from pyarrow.flight import (
+    FlightClient as _FlightClient,
+)
 
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -18,7 +20,6 @@ executor = ThreadPoolExecutor()
 logger = logging.getLogger(__name__)
 
 
-# fixme: make port dynamic and automagically find an open one
 class FlightClient:
     def __init__(
         self,
@@ -26,7 +27,10 @@ class FlightClient:
         port=8815,
         username=None,
         password=None,
-        tls_roots=None,
+        cert_chain=None,
+        private_key=None,
+        tls_root_certs=None,
+        **kwargs,
     ):
         """
         Initialize the Ibis Backend Flight Client
@@ -38,13 +42,19 @@ class FlightClient:
             password: User password
             tls_roots: TLS Root path
         """
-        kwargs = {}
-
-        if tls_roots:
-            with open(tls_roots, "rb") as root_certs:
-                kwargs["tls_root_certs"] = root_certs.read()
-
-        self._client = pa.flight.FlightClient(f"grpc://{host}:{port}", **kwargs)
+        bytes_kwargs = {
+            k: v
+            for k, v in (
+                ("cert_chain", cert_chain),
+                ("private_key", private_key),
+                ("tls_root_certs", tls_root_certs),
+            )
+            if v
+        }
+        scheme = "grpc+tls" if bytes_kwargs else "grpc"
+        self._client = _FlightClient(
+            f"{scheme}://{host}:{port}", **bytes_kwargs, **kwargs
+        )
         self._wait_on_healthcheck()
 
         if username and password:
@@ -69,10 +79,19 @@ class FlightClient:
                     logger.info("Server is not ready, waiting...")
                 else:
                     raise e
-            except pa.flight.FlightUnavailableError:
-                pass
+            except pa.flight.FlightUnavailableError as e:
+                matches = (
+                    "Ssl handshake failed: SSL_ERROR_SSL: error:0A000086:SSL routines::certificate verify failed",
+                    "Socket closed",
+                )
+                if any(to_match in str(e) for to_match in matches):
+                    raise e
+                else:
+                    pass
             except pa.flight.FlightUnauthenticatedError:
                 break
+            except Exception:
+                pass
             finally:
                 n_seconds = 1
                 logger.info(f"Flight server unavailable, sleeping {n_seconds} seconds")
