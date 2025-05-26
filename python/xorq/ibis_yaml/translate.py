@@ -712,9 +712,71 @@ def _string_concat_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
 
 
 @register_from_yaml_handler("StringContains")
-def _string_contains_from_yaml(yaml_dict: dict, context: TranslationContext) -> dict:
+def _string_contains_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     haystack, needle = (translate_from_yaml(arg, context) for arg in yaml_dict["args"])
     return ops.StringContains(haystack, needle).to_expr()
+
+
+STRING_OPS = {
+    op.__name__: op
+    for op in (
+        ops.StartsWith,
+        ops.EndsWith,
+        ops.RegexSearch,
+        ops.RegexExtract,
+        ops.RegexReplace,
+        ops.StringFind,
+        ops.Translate,
+        ops.LPad,
+        ops.RPad,
+        ops.Lowercase,
+        ops.Uppercase,
+        ops.Reverse,
+        ops.StringAscii,
+        ops.Strip,
+        ops.LStrip,
+        ops.RStrip,
+        ops.Capitalize,
+        ops.StrRight,
+        ops.StringReplace,
+    )
+}
+
+
+@register_from_yaml_handler(
+    *list(STRING_OPS.keys()),
+)
+def _simple_string_func(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    op = STRING_OPS[yaml_dict["op"]]
+    args = (translate_from_yaml(arg, context) for arg in yaml_dict["args"])
+    return op(*args).to_expr()
+
+
+@translate_to_yaml.register(ops.StringSlice)
+def _string_slice_to_yaml(op: ops.StringSlice, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": type(op).__name__,
+            "arg": translate_to_yaml(op.arg, context),
+            "start": translate_to_yaml(op.start, context)
+            if op.start is not None
+            else None,
+            "end": translate_to_yaml(op.end, context) if op.end is not None else None,
+            "type": translate_to_yaml(op.dtype, context),
+        }
+    )
+
+
+@register_from_yaml_handler("StringSlice")
+def _string_slice(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    args = ["arg", "start", "end"]
+    kwargs = {
+        arg: translate_from_yaml(yaml_dict[arg], context)
+        if yaml_dict[arg] is not None
+        else None
+        for arg in args
+    }
+    return ops.StringSlice(**kwargs).to_expr()
 
 
 @translate_to_yaml.register(ops.BinaryOp)
