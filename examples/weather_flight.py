@@ -103,14 +103,7 @@ def run_api_server() -> None:
 
 
 def run_feature_server() -> None:
-    # ensure features table exists (possibly empty)
-    # nothing to initialize: table was created in setup_store
-    pa_schema = do_fetch_current_weather_udxf.calc_schema_out()
-    arrays = [pa.array([], type=pa_schema.field(i).type) for i in range(len(pa_schema))]
-    names = [f.name for f in pa_schema]
-
     duck_con = xo.duckdb.connect()
-    duck_con.create_table(TABLE_ONLINE, pa.Table.from_arrays(arrays, names=names), overwrite=True)
 
     server = FlightServer(
         FlightUrl(port=PORT_FEATURES),
