@@ -37,6 +37,7 @@ dependencies = [
     "opentelemetry-exporter-otlp>=1.32.1",
     "pyiceberg[sql-sqlite,sql-postgres]>=0.9.0",
     "ipdb>=0.13.13",
+    "duckdb>=1.3.0",
 ]
 requires-python = ">=3.10"
 authors = [
