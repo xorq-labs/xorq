@@ -1,0 +1,171 @@
+import argparse
+import time
+import logging
+from pathlib import Path
+from datetime import datetime
+
+import xorq as xo
+import pyarrow as pa
+from xorq.flight import Backend as FlightBackend, FlightServer, FlightUrl
+from xorq.flight.client import FlightClient
+from xorq.common.utils.import_utils import import_python
+from xorq.common.utils.feature_utils import (
+    Entity, Feature, DataSource, FeatureView, FeatureStore
+)
+
+logging_format = '[%(asctime)s] %(levelname)s %(message)s'
+logging.basicConfig(level=logging.INFO, format=logging_format, datefmt='%Y-%m-%d %H:%M:%S')
+
+weather_lib = import_python("examples/libs/weather_lib.py")
+do_fetch_current_weather_udxf = weather_lib.do_fetch_current_weather_udxf
+
+# Ports for two Flight servers
+PORT_API = 8816          # for weather-API fetch UDXF ingestion
+PORT_FEATURES = 8817     # for serving materialized features
+
+# Database files
+DB_BATCH     = "weather_history_batch.db"     # full history batch store
+DB_ONLINE    = "weather_history.db"           # live UDXF ingestion store
+TABLE_BATCH  = "weather_history"
+TABLE_ONLINE = "weather_history"
+FEATURE_VIEW = "city_weather"
+CITIES       = ["London", "Tokyo", "New York", "Lahore"]
+
+
+def setup_store() -> FeatureStore:
+    logging.info("Setting up FeatureStore")
+
+    # 1. Entity
+    city = Entity("city", key_column="city", timestamp_column="timestamp", description="City identifier")
+
+    # 2. Offline source (batch history)
+    offline_con = xo.duckdb.connect(Path(DB_BATCH).absolute(), read_only=True)
+    offline_schema = do_fetch_current_weather_udxf.calc_schema_out()
+    offline_source = DataSource("batch", offline_con, TABLE_BATCH, offline_schema)
+
+
+    fb = FlightBackend()
+    fb.do_connect(host="localhost", port=PORT_FEATURES)
+    online_source = DataSource("online", fb, TABLE_ONLINE, offline_schema)
+
+    # 4. Feature definition (6h rolling mean temp)
+    win6 = xo.window(group_by=[city.key_column], order_by=city.timestamp_column, preceding=5, following=0)
+    feature_temp = Feature(
+        "temp_mean_6h", city,
+        expr=offline_source.table.temp_c.mean().over(win6),
+        dtype="float", description="6h rolling mean temp"
+    )
+
+    # 5. FeatureView & Store
+    view = FeatureView(FEATURE_VIEW, offline_source, online_source, city, [feature_temp])
+    store = FeatureStore()
+    store.registry.register_entity(city)
+    store.register_source(offline_source)
+    store.register_source(online_source)
+    store.register_view(view)
+    return store
+
+
+def run_api_server() -> None:
+    pa_schema = do_fetch_current_weather_udxf.calc_schema_out()
+    arrays = [pa.array([], type=pa_schema.field(i).type) for i in range(len(pa_schema))]
+    names = [f.name for f in pa_schema]
+    duck_con = xo.duckdb.connect(Path(DB_BATCH).absolute())
+    duck_con.create_table(TABLE_ONLINE, pa.Table.from_arrays(arrays, names=names), overwrite=True)
+    logging.info(f"Initialized UDXF-store at {DB_ONLINE}")
+
+    server = FlightServer(
+        FlightUrl(port=PORT_API),
+        connection=lambda: duck_con,
+        exchangers=[do_fetch_current_weather_udxf]
+    )
+    logging.info(f"Serving UDXF ingestion on grpc://localhost:{PORT_API}")
+    try:
+        server.serve()
+        while server.server is not None:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logging.info("UDXF server shutting down")
+        server.close()
+
+
+def run_feature_server() -> None:
+    # ensure features table exists (possibly empty)
+    # nothing to initialize: table was created in setup_store
+
+    server = FlightServer(
+        FlightUrl(port=PORT_FEATURES),
+        connection=xo.duckdb.connect,
+    )
+    logging.info(f"Serving feature store on grpc://localhost:{PORT_FEATURES}")
+    try:
+        server.serve()
+        while server.server is not None:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        logging.info("Feature server shutting down")
+        server.close()
+
+
+def run_writer() -> None:
+    client = FlightClient("localhost", PORT_API)
+    pa_schema = do_fetch_current_weather_udxf.calc_schema_out()
+    arrays = [pa.array([], type=f.type) for f in pa_schema]
+    names = [f.name for f in pa_schema]
+    client.upload_data(TABLE_ONLINE, pa.Table.from_arrays(arrays, names=names), overwrite=False)
+    logging.info("Initialized UDXF-store via FlightClient")
+
+    while True:
+        batches = xo.memtable([{"city": c} for c in CITIES], schema=do_fetch_current_weather_udxf.schema_in_required).to_pyarrow_batches()
+        _, reader = client.do_exchange(do_fetch_current_weather_udxf.command, batches)
+        tbl = reader.read_all()
+        client.upload_data(TABLE_ONLINE, tbl, overwrite=False)
+        logging.info(f"Appended {tbl.num_rows} rows to offline store")
+        time.sleep(1)
+
+
+def run_materialize_online() -> None:
+    store = setup_store()
+    store.materialize_online(FEATURE_VIEW)
+
+
+def run_infer() -> None:
+    store = setup_store()
+    df = store.get_online_features(FEATURE_VIEW, rows=[{"city": "London"}])
+    print(df)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser("Weather Flight Σtore")
+    parser.add_argument(
+        "command",
+        choices=(
+            "write",                 # UDXF ingestion
+            "serve_api",             # start UDXF server
+            "serve_features",        # start feature lookup server
+            "materialize_offline",   # compute batch features
+            "materialize_online",    # push latest to flight feature store
+            "infer"
+        ),
+        help="Action: 'write', 'serve_api', 'serve_features', 'materialize_offline', 'materialize_online', or 'infer'"
+    )
+    args = parser.parse_args()
+
+    if args.command == "write":
+        run_writer()
+    elif args.command == "serve_api":
+        run_api_server()
+    elif args.command == "serve_features":
+        run_feature_server()
+    elif args.command == "materialize_offline":
+        run_materialize_offline()
+    elif args.command == "materialize_online":
+        run_materialize_online()
+    elif args.command == "infer":
+        run_infer()
+    else:
+        logging.error(f"Unknown command: {args.command}")
+
+
+if __name__ == "__main__":
+    main()
