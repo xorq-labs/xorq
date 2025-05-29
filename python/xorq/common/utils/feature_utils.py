@@ -1,9 +1,8 @@
 import pandas as pd
 import pyarrow as pa
 import xorq as xo
-import threading
 from xorq.flight.client import FlightClient
-from typing import List, Mapping, Any, Callable
+from typing import List, Mapping, Any
 
 
 class Entity:
@@ -57,73 +56,55 @@ class FeatureRegistry:
         return [f for f in self.features.values() if f.entity.name == entity_name]
 
 
-class DataSource:
-    """
-    Abstraction for batch or online table.
-    con: supports table(name) for Ibis connections or FlightClient for lookups.
-    """
-    def __init__(self, name: str, con: Any, table_name: str, schema: pa.Schema):
-        self.name = name
-        self.con = con
-        self.table_name = table_name
-        self.schema = schema
-
-    @property
-    def table(self):
-        if hasattr(self.con, 'table'):
-            return self.con.table(self.table_name)
-        raise ValueError("Unsupported connector for table retrieval")
-
-
 class FeatureView:
     """
-    Bundles entity, sources, and features for batch and online.
+    Bundles entity and features with offline/online expressions.
+    Works directly with xorq expressions - no DataSource needed.
     """
     def __init__(
         self,
         name: str,
-        offline_source: DataSource,
-        online_source: DataSource,
         entity: Entity,
-        features: List[Feature]
+        features: List[Feature],
+        offline_expr: Any = None,  # Complete offline expression/table
+        online_expr: Any = None,   # Complete online expression/table
     ):
         self.name = name
-        self.offline_source = offline_source
-        self.online_source = online_source
         self.entity = entity
         self.features = features
+        self._offline_expr = offline_expr
+        self._online_expr = online_expr
 
     def offline_expr(self):
-        base = self.offline_source.table
-        mapping = {f.name: f.expr for f in self.features}
-        cols = [self.entity.key_column, self.entity.timestamp_column] + list(mapping.keys())
-        return base.mutate(**mapping).select(cols)
+        """Return the complete offline expression - already contains all feature computations"""
+        if self._offline_expr is None:
+            raise ValueError(f"No offline expression provided for view {self.name}")
+
+        return self._offline_expr
 
     def online_expr(self):
-        # base = Flight-backed table containing only the precomputed features
-        base = self.online_source.table
+        """Build the complete online expression with feature computations"""
+        if self._online_expr is None:
+            raise ValueError(f"No online expression provided for view {self.name}")
+
+        base = self._online_expr
         mapping = {
-            f.name: f.expr.unbind()  # “unbind” → “bind to this table”
+            f.name: f.expr.unbind()  # "unbind" → "bind to this table"
             for f in self.features
         }
-
-        cols = [self.entity.key_column,
-                self.entity.timestamp_column] + list(mapping.keys())
-
+        cols = [self.entity.key_column, self.entity.timestamp_column] + list(mapping.keys())
         return base.select(cols)
 
 
 class FeatureStore:
     """
-    Main entry: register sources/views, materialize batch, serve & feed online.
+    Main entry: register views, materialize batch, serve & feed online.
+    Works directly with expressions - no DataSource management.
     """
-    def __init__(self):
+    def __init__(self, online_client: FlightClient = None):
         self.registry = FeatureRegistry()
-        self.sources: Mapping[str, DataSource] = {}
         self.views: Mapping[str, FeatureView] = {}
-
-    def register_source(self, src: DataSource):
-        self.sources[src.name] = src
+        self.online_client = online_client  # Direct FlightClient for online operations
 
     def register_view(self, view: FeatureView):
         if view.entity.name not in self.registry.entities:
@@ -133,12 +114,19 @@ class FeatureStore:
         self.views[view.name] = view
 
     def materialize_online(self, view_name: str):
+        """
+        Materialize features from offline expression to online storage.
+
+        Args:
+            view_name: Name of the feature view
+            online_table_name: Name of the table in online storage
+        """
         view = self.views[view_name]
 
-        batch_df = (
-                view.offline_expr().execute()
-        )
+        # Execute the complete offline expression
+        batch_df = view.offline_expr().execute()
 
+        # Get latest values per entity key
         latest = (
             batch_df
               .sort_values(view.entity.timestamp_column)
@@ -146,10 +134,13 @@ class FeatureStore:
               .tail(1)
         )
 
-        client: FlightClient = self.sources["online"].con.con
+        # Upload to online storage
+        if self.online_client is None:
+            raise ValueError("No online client configured")
+
         tbl = pa.Table.from_pandas(latest)
-        client.upload_data(
-            view.online_source.table_name,
+        self.online_client.upload_data(
+            view_name,
             tbl,
             overwrite=True
         )
@@ -159,41 +150,24 @@ class FeatureStore:
         view_name: str,
         rows: List[dict],
     ) -> pd.DataFrame:
+        """
+        Get online features for the given entity keys.
+        Uses the view's online expression.
+        """
         view = self.views[view_name]
         key_col = view.entity.key_column
 
         keys_df = pd.DataFrame(rows)
 
+        # Use the complete online expression and filter by keys
         expr = (
             view
               .online_expr()
               .filter(xo._[key_col].isin(keys_df[key_col].tolist()))
         )
 
-        # run it straight through the FlightClient / duckdb Flight
-        client = self.sources["online"].con.con
-        return client.execute(expr)
+        # Execute through the online client
+        if self.online_client is None:
+            raise ValueError("No online client configured")
 
-#    def get_online_features(self, view_name: str, rows: List[dict]) -> pd.DataFrame:
-#        view = self.views[view_name]
-#        key_col = view.entity.key_column
-#
-#        df_keys = pd.DataFrame(rows)
-#
-#        table_name = view.offline_source.table_name
-#        offline_df = xo.memtable(view.offline_source.con.tables[table_name].execute())
-#
-#        client = self.sources['online'].con
-#        table_expr = client.tables[view.online_source.table_name]
-#        online_df = xo.memtable(table_expr.execute())
-#
-#        mappings = {f.name: f.expr.unbind() for f in view.features}
-#        cols = [view.entity.key_column, view.entity.timestamp_column] + list(mappings.keys())
-#        expr = table_expr.unbind()
-#        expr = expr.mutate(**mappings).filter(xo._[key_col].isin(df_keys[key_col].tolist())).select(cols)
-#
-#        # temporary fix since we cannot do into_backend with a flight backend
-#        con = xo.duckdb.connect()
-#        con.create_table("weather_history", online_df.union(offline_df))
-#
-#        return con.execute(expr)
+        return self.online_client.execute(expr)
