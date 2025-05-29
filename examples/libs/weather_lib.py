@@ -148,12 +148,12 @@ schema_out = xo.schema({
     "city_id": "int64",
     "response_code": "int64"
 }).to_pyarrow()
-# do_fetch_current_weather_udxf = xo.expr.relations.flight_udxf(
-#     process_df=get_current_weather_batch,
-#     maybe_schema_in=schema_in,
-#     maybe_schema_out=schema_out,
-#     name="FetchCurrentWeather",
-# )
+do_fetch_current_weather_flight_udxf = xo.expr.relations.flight_udxf(
+    process_df=get_current_weather_batch,
+    maybe_schema_in=schema_in,
+    maybe_schema_out=schema_out,
+    name="FetchCurrentWeather",
+)
 
 do_fetch_current_weather_udxf = make_udxf(
     get_current_weather_batch,

@@ -18,6 +18,7 @@ logging.basicConfig(level=logging.INFO, format=logging_format, datefmt='%Y-%m-%d
 
 weather_lib = import_python("examples/libs/weather_lib.py")
 do_fetch_current_weather_udxf = weather_lib.do_fetch_current_weather_udxf
+do_fetch_current_weather_flight_udxf = weather_lib.do_fetch_current_weather_flight_udxf
 
 # Ports for two Flight servers
 PORT_API = 8816          # for weather-API fetch UDXF ingestion
@@ -61,6 +62,13 @@ def setup_store() -> FeatureStore:
         "temp_mean_6h", city,
         expr=offline_source.table.temp_c.mean().over(win6),
         dtype="float", description="6h rolling mean temp"
+    )
+    live_expr = xo.memtable([{"city": "London"}]).pipe(do_fetch_current_weather_flight_udxf)
+    win6 = xo.window(group_by=[city.key_column], order_by=city.timestamp_column, preceding=5, following=0)
+    feature_live = Feature(
+        "live_temp", city,
+        expr=live_expr.temp_c.mean().over(win6),
+        dtype=float, description="current temp"
     )
 
     # 5. FeatureView & Store
