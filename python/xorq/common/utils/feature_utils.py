@@ -8,32 +8,44 @@ from typing import List, Mapping, Any
 class Entity:
     """
     Represents an entity for which features are computed (e.g., city, user_id).
+    Acts like a primary key for joins and feature grouping.
     """
-    def __init__(self, name: str, key_column: str, timestamp_column: str, description: str = ""):
+    def __init__(self, name: str, key_column: str, description: str = ""):
         self.name = name
         self.key_column = key_column
-        self.timestamp_column = timestamp_column
         self.description = description
 
 
 class Feature:
     """
-    Wraps an expression with metadata.
-    expr: an ibis/xorq ColumnExpr returning one column.
+    Represents a feature with its expressions and metadata.
+    Each feature is a table with timestamp, entity, and value columns.
     """
     def __init__(
         self,
         name: str,
         entity: Entity,
-        expr: Any,
-        dtype: str,
+        timestamp_column: str,
+        offline_expr: Any,
+        online_expr: Any = None,
+        dtype: str = "float",
         description: str = "",
     ):
         self.name = name
         self.entity = entity
-        self.expr = expr
+        self.timestamp_column = timestamp_column
         self.dtype = dtype
         self.description = description
+        self._offline_expr = offline_expr
+        self._online_expr = online_expr
+
+    def offline_expr(self):
+        """Return the offline expression for this feature"""
+        return self._offline_expr
+
+    def online_expr(self):
+        """Return the online expression for this feature"""
+        return self._online_expr
 
 
 class FeatureRegistry:
@@ -58,53 +70,77 @@ class FeatureRegistry:
 
 class FeatureView:
     """
-    Bundles entity and features with offline/online expressions.
-    Works directly with xorq expressions - no DataSource needed.
+    Groups multiple features for the same entity.
+    Builds combined expressions by joining individual feature expressions.
     """
     def __init__(
         self,
         name: str,
         entity: Entity,
         features: List[Feature],
-        offline_expr: Any = None,  # Complete offline expression/table
-        online_expr: Any = None,   # Complete online expression/table
     ):
         self.name = name
         self.entity = entity
         self.features = features
-        self._offline_expr = offline_expr
-        self._online_expr = online_expr
+
+        # Validate all features belong to the same entity
+        for feature in features:
+            if feature.entity.name != entity.name:
+                raise ValueError(f"Feature {feature.name} belongs to entity {feature.entity.name}, "
+                               f"but view expects entity {entity.name}")
 
     def offline_expr(self):
-        """Return the complete offline expression - already contains all feature computations"""
-        if self._offline_expr is None:
-            raise ValueError(f"No offline expression provided for view {self.name}")
+        """
+        Build a combined offline expression by joining all feature expressions.
+        """
+        if not self.features:
+            raise ValueError(f"No features in view {self.name}")
 
-        return self._offline_expr
+        # Start with the first feature's expression
+        base_expr = self.features[0].offline_expr()
+
+        # Join with remaining features on entity key
+        # Note: Join logic will depend on your specific xorq join syntax
+        for feature in self.features[1:]:
+            feature_expr = feature.offline_expr()
+            base_expr = base_expr.join(
+                feature_expr,
+                self.entity.key_column,
+                how="full_outer"
+            )
+
+        return base_expr
 
     def online_expr(self):
-        """Build the complete online expression with feature computations"""
-        if self._online_expr is None:
-            raise ValueError(f"No online expression provided for view {self.name}")
+        """
+        Build a combined online expression by joining all feature expressions.
+        """
+        if not self.features:
+            raise ValueError(f"No features in view {self.name}")
 
-        base = self._online_expr
-        mapping = {
-            f.name: f.expr.unbind()  # "unbind" → "bind to this table"
-            for f in self.features
-        }
-        cols = [self.entity.key_column, self.entity.timestamp_column] + list(mapping.keys())
-        return base.select(cols)
+        # Start with the first feature's expression
+        base_expr = self.features[0].online_expr()
+
+        # Join with remaining features on entity key
+        for feature in self.features[1:]:
+            feature_expr = feature.online_expr()
+            base_expr = base_expr.join(
+                feature_expr,
+                self.entity.key_column,
+                how="full_outer"
+            )
+
+        return base_expr
 
 
 class FeatureStore:
     """
     Main entry: register views, materialize batch, serve & feed online.
-    Works directly with expressions - no DataSource management.
     """
     def __init__(self, online_client: FlightClient = None):
         self.registry = FeatureRegistry()
         self.views: Mapping[str, FeatureView] = {}
-        self.online_client = online_client  # Direct FlightClient for online operations
+        self.online_client = online_client
 
     def register_view(self, view: FeatureView):
         if view.entity.name not in self.registry.entities:
@@ -116,20 +152,19 @@ class FeatureStore:
     def materialize_online(self, view_name: str):
         """
         Materialize features from offline expression to online storage.
-
-        Args:
-            view_name: Name of the feature view
-            online_table_name: Name of the table in online storage
         """
         view = self.views[view_name]
 
-        # Execute the complete offline expression
+        # Execute the combined offline expression
         batch_df = view.offline_expr().execute()
+
+        # Get the timestamp column from the first feature
+        timestamp_column = view.features[0].timestamp_column
 
         # Get latest values per entity key
         latest = (
             batch_df
-              .sort_values(view.entity.timestamp_column)
+              .sort_values(timestamp_column)
               .groupby(view.entity.key_column)
               .tail(1)
         )
@@ -152,14 +187,13 @@ class FeatureStore:
     ) -> pd.DataFrame:
         """
         Get online features for the given entity keys.
-        Uses the view's online expression.
         """
         view = self.views[view_name]
         key_col = view.entity.key_column
 
         keys_df = pd.DataFrame(rows)
 
-        # Use the complete online expression and filter by keys
+        # Use the combined online expression and filter by keys
         expr = (
             view
               .online_expr()
