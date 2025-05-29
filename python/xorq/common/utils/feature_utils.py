@@ -136,8 +136,7 @@ class FeatureStore:
         view = self.views[view_name]
 
         batch_df = (
-            view.offline_source.con
-                .execute(view.offline_expr())
+                view.offline_expr().execute()
         )
 
         latest = (
