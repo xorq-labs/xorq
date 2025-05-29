@@ -2,7 +2,8 @@ import pandas as pd
 import pyarrow as pa
 import xorq as xo
 from xorq.flight.client import FlightClient
-from typing import List, Mapping, Any
+from typing import List, Mapping, Any, Union
+from datetime import datetime
 
 
 class Entity:
@@ -151,6 +152,133 @@ class FeatureStore:
 
         return online_expr
 
+    def _parse_feature_references(self, features: List[str]) -> List[tuple]:
+        """
+        Parse feature references in the format "view_name:feature_name"
+        Returns list of (view_name, feature_name) tuples
+        """
+        parsed_features = []
+        for feature_ref in features:
+            if ":" not in feature_ref:
+                raise ValueError(f"Feature reference must be in format 'view_name:feature_name', got: {feature_ref}")
+
+            view_name, feature_name = feature_ref.split(":", 1)
+            if view_name not in self.views:
+                raise ValueError(f"View '{view_name}' not found")
+
+            # Validate feature exists in the view
+            view = self.views[view_name]
+            feature_exists = any(f.name == feature_name for f in view.features)
+            if not feature_exists:
+                raise ValueError(f"Feature '{feature_name}' not found in view '{view_name}'")
+
+            parsed_features.append((view_name, feature_name))
+
+        return parsed_features
+
+    def get_historical_features(
+        self,
+        entity_df: pd.DataFrame,
+        features: List[str],
+    ) -> pd.DataFrame:
+        """
+        Get historical features for given entity-timestamp combinations.
+
+        Args:
+            entity_df: DataFrame with entity keys, event_timestamp, and optional label columns
+            features: List of feature references in format "view_name:feature_name"
+
+        Returns:
+            DataFrame with entity data joined with historical features
+        """
+        # Validate entity_df has required columns
+        if "event_timestamp" not in entity_df.columns:
+            raise ValueError("entity_df must contain 'event_timestamp' column")
+
+        # Parse feature references
+        parsed_features = self._parse_feature_references(features)
+
+        # Group features by view to minimize joins
+        features_by_view = {}
+        for view_name, feature_name in parsed_features:
+            if view_name not in features_by_view:
+                features_by_view[view_name] = []
+            features_by_view[view_name].append(feature_name)
+
+        # Start with the entity_df as base
+        result_df = entity_df.copy()
+
+        # For each view, get the historical features and join
+        for view_name, feature_names in features_by_view.items():
+            view = self.views[view_name]
+            entity_key = view.entity.key_column
+
+            # Validate that entity_df contains the required entity key
+            if entity_key not in entity_df.columns:
+                raise ValueError(f"entity_df must contain '{entity_key}' column for view '{view_name}'")
+
+            # Get the offline expression for this view
+            view_expr = view.offline_expr()
+            con = xo.duckdb.connect()
+
+            # Convert entity_df to xorq expression for temporal join
+            entity_expr = xo.memtable(entity_df).into_backend(con=con)
+
+            # Get timestamp column from the feature view
+            timestamp_col = view.features[0].timestamp_column
+
+            # For asof_join to work properly, we need to ensure both tables have compatible timestamp columns
+            # The entity_df has "event_timestamp" and the view has timestamp_col
+            # We need to either rename one to match the other, or specify the mapping
+
+            # Option 1: Rename the feature view timestamp column to match entity_df
+            if timestamp_col != "event_timestamp":
+                view_expr_renamed = view_expr.rename(**{"event_timestamp": timestamp_col}).into_backend(con=con)
+            else:
+                view_expr_renamed = view_expr
+
+            # Perform point-in-time join using asof_join
+            # This finds the most recent record in view_expr where:
+            # 1. feature_timestamp <= event_timestamp (temporal condition)
+            # 2. entity keys match (predicates)
+            historical_expr = entity_expr.asof_join(
+                view_expr_renamed.mutate(event_timestamp=xo._.event_timestamp.cast('timestamp')),
+                on="event_timestamp",  # Join on the timestamp column (now both tables have this name)
+                predicates=entity_key,  # Entity key matching
+            )
+
+            # Select only the requested features from this view
+            feature_columns = [entity_key, "event_timestamp"] + feature_names
+
+            # Handle case where not all requested features exist in the expression
+            available_columns = historical_expr.schema()
+            selected_columns = [col for col in feature_columns if col in available_columns]
+
+            if not selected_columns:
+                raise ValueError(f"No requested features found in view '{view_name}'")
+
+            # Execute the historical query
+            historical_df = historical_expr.select(selected_columns).execute()
+
+            # Join with result_df
+            # For the first view, we replace the result_df entirely
+            # For subsequent views, we join on entity key and event_timestamp
+            if len(features_by_view) == 1:
+                # Only one view, so historical_df is our result
+                result_df = historical_df
+            else:
+                # Join with existing results
+                join_keys = [entity_key, "event_timestamp"]
+                result_df = result_df.merge(
+                    historical_df,
+                    on=join_keys,
+                    how="left",
+                    suffixes=("", f"_{view_name}")
+                )
+
+        return result_df
+
+
     def materialize_online(self, view_name: str):
         """
         Materialize features from offline expression to online storage.
@@ -185,16 +313,32 @@ class FeatureStore:
     def get_online_features(
         self,
         view_name: str,
-        rows: List[dict],
+        rows: List[dict] = None,
+        entity_df: pd.DataFrame = None,
     ) -> pd.DataFrame:
         """
         Get online features for the given entity keys.
         Uses auto-generated online expression.
+
+        Args:
+            view_name: Name of the feature view
+            rows: List of dict with entity keys (legacy format)
+            entity_df: DataFrame with entity keys (new format, compatible with Feast)
         """
         view = self.views[view_name]
         key_col = view.entity.key_column
 
-        keys_df = pd.DataFrame(rows)
+        # Support both old rows format and new entity_df format
+        if entity_df is not None:
+            keys_df = entity_df
+        elif rows is not None:
+            keys_df = pd.DataFrame(rows)
+        else:
+            raise ValueError("Either 'rows' or 'entity_df' must be provided")
+
+        # Validate entity key exists
+        if key_col not in keys_df.columns:
+            raise ValueError(f"Entity key '{key_col}' not found in input data")
 
         # Use the auto-generated online expression and filter by keys
         online_expr = self._build_online_expr(view_name)
@@ -206,4 +350,10 @@ class FeatureStore:
         if self.online_client is None:
             raise ValueError("No online client configured")
 
-        return self.online_client.execute(filtered_expr)
+        # Execute and return results
+        result_df = self.online_client.execute(filtered_expr).to_pandas()
+
+        # Join with input keys to maintain order and include any additional columns
+        result_df = keys_df.merge(result_df, on=key_col, how="left")
+
+        return result_df

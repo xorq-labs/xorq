@@ -5,6 +5,7 @@ from pathlib import Path
 from datetime import datetime
 
 import xorq as xo
+import pandas as pd
 import pyarrow as pa
 from xorq.flight import Backend as FlightBackend, FlightServer, FlightUrl
 from xorq.flight.client import FlightClient
@@ -35,6 +36,7 @@ def setup_store() -> FeatureStore:
     logging.info("Setting up FeatureStore")
 
     # 1. Entity
+            con = xo.duckdb.connect()
     city = Entity("city", key_column="city", description="City identifier")
 
     # 2. Offline source (batch history)
@@ -51,7 +53,7 @@ def setup_store() -> FeatureStore:
     fb.do_connect(host="localhost", port=PORT_FEATURES)
 
     # 4. Build offline expression for features
-    live_expr = xo.memtable([{"city": "London"}]).pipe(do_fetch_current_weather_flight_udxf)
+    live_expr = xo.memtable([{"city": c} for c in ["London", "Tokyo", "New York"]]).pipe(do_fetch_current_weather_flight_udxf)
     win6_online = xo.window(group_by=[city.key_column], order_by="timestamp", preceding=5, following=0)
 
     # Offline expression that computes the feature
@@ -108,6 +110,47 @@ def run_infer() -> None:
     df = store.get_online_features(FEATURE_VIEW, rows=[{"city": "London"}])
     logging.info("Retrieved online features")
     print(df)
+
+def run_historical_features() -> None:
+    """
+    Demonstrate get_historical_features functionality similar to Feast
+    """
+    store = setup_store()
+
+    # Create entity_df similar to Feast example
+    entity_df = pd.DataFrame({
+        # Entity's join key -> entity values
+        "city": ["London", "Tokyo", "New York"],
+        # "event_timestamp" (reserved key) -> timestamps
+        "event_timestamp": [
+            datetime(2025, 5, 29,  23, 59, 42),
+            datetime(2025, 5, 29,  23,12, 10),
+            datetime(2025, 5, 29,  23, 40, 26),
+        ],
+        # Optional label columns (not processed by feature store)
+        "label_weather_satisfaction": [1, 5, 3],
+        # Additional values for potential on-demand transformations
+        "temp_adjustment": [1.0, 2.0, 3.0],
+    })
+
+    # Get historical features using Feast-like API
+    training_df = store.get_historical_features(
+        entity_df=entity_df,
+        features=[
+            f"{FEATURE_VIEW}:temp_mean_6h",
+            # Add more features as needed:
+            # f"{FEATURE_VIEW}:humidity_mean_6h",
+            # f"{FEATURE_VIEW}:pressure_mean_6h",
+        ],
+    )
+
+    logging.info("Retrieved historical features")
+    print("Entity DataFrame:")
+    print(entity_df)
+    print("\nTraining DataFrame with Historical Features:")
+    print(training_df)
+
+    return training_df
 
 
 def main() -> None:
