@@ -36,11 +36,10 @@ CITIES       = ["London", "Tokyo", "New York", "Lahore"]
 def setup_store() -> FeatureStore:
     logging.info("Setting up FeatureStore")
 
-    # 1. Entity
-    city = Entity("city", key_column="city", timestamp_column="timestamp", description="City identifier")
+    # 1. Entity (removed timestamp_column)
+    city = Entity("city", key_column="city", description="City identifier")
 
     # 2. Offline source (batch history)
-    #offline_con = xo.duckdb.connect(Path(DB_BATCH).absolute(), read_only=True)
     offline_con = xo.duckdb.connect()
     offline_con.raw_sql("""
         INSTALL ducklake;
@@ -50,37 +49,47 @@ def setup_store() -> FeatureStore:
         """)
     offline_schema = do_fetch_current_weather_udxf.calc_schema_out()
 
-
+    # 3. Flight backend for online features
     fb = FlightBackend()
     fb.do_connect(host="localhost", port=PORT_FEATURES)
 
-    # 4. Feature definition (6h rolling mean temp)
-    win6 = xo.window(group_by=[city.key_column], order_by=city.timestamp_column, preceding=5, following=0)
+    # 4. Feature definition (6h rolling mean temp) - OFFLINE
+    win6 = xo.window(group_by=[city.key_column], order_by="timestamp", preceding=5, following=0)
     offline_expr = offline_con.tables[TABLE_BATCH].select([
         city.key_column,  # entity
-        city.timestamp_column,  # timestamp
+        "timestamp",  # timestamp
         offline_con.tables[TABLE_BATCH].temp_c.mean().over(win6).name("temp_mean_6h")
     ])
-
-    feature_temp = Feature(
-        "temp_mean_6h", city,
-        expr=offline_expr,
-        dtype="float", description="6h rolling mean temp"
-    )
-
+    # 5. Online expression for live features
     live_expr = xo.memtable([{"city": "London"}]).pipe(do_fetch_current_weather_flight_udxf)
-    win6 = xo.window(group_by=[city.key_column], order_by=city.timestamp_column, preceding=5, following=0)
-    live_expr = live_expr.select([city.key_column, city.timestamp_column, live_expr.temp_c.mean().over(win6).name("temp_mean_6h")])
+    win6_online = xo.window(group_by=[city.key_column], order_by="timestamp", preceding=5, following=0)
+    offline_expr = live_expr.select([
+        city.key_column,
+        "timestamp",
+        live_expr.temp_c.mean().over(win6_online).name("temp_mean_6h")
+    ])
+    try:
+        online_expr = fb.tables[FEATURE_VIEW].select([
+            city.key_column,
+            "timestamp",
+            "temp_mean_6h"
+        ])
+    except:
+        online_expr = offline_expr
 
-    feature_live = Feature(
-        "temp_mean_6h", city,
-        expr=live_expr,
-        dtype=float, description="current temp"
+    # 6. Create Feature with both offline and online expressions
+    feature_temp = Feature(
+        name="temp_mean_6h",
+        entity=city,
+        timestamp_column="timestamp",
+        offline_expr=offline_expr,
+        online_expr=online_expr,
+        dtype="float",
+        description="6h rolling mean temp"
     )
-    online_expr = fb.tables[FEATURE_VIEW]
 
-    # 5. FeatureView & Store
-    view = FeatureView(FEATURE_VIEW, city, [feature_live],live_expr , online_expr)
+    # 7. FeatureView & Store
+    view = FeatureView(FEATURE_VIEW, city, [feature_temp])
     store = FeatureStore(online_client=fb.con)
     store.registry.register_entity(city)
     store.register_view(view)
@@ -93,10 +102,10 @@ def run_api_server() -> None:
     names = [f.name for f in pa_schema]
     duck_con = xo.duckdb.connect()
     duck_con.raw_sql("""
-    INSTALL ducklake;
-    INSTALL sqlite;
-    ATTACH 'ducklake:sqlite:metadata.sqlite' AS my_ducklake (DATA_PATH 'file_path');
-    USE my_ducklake;
+        INSTALL ducklake;
+        INSTALL sqlite;
+        ATTACH 'ducklake:sqlite:metadata.sqlite' AS my_ducklake (DATA_PATH 'file_path');
+        USE my_ducklake;
     """)
     duck_con.create_table(TABLE_ONLINE, pa.Table.from_arrays(arrays, names=names), overwrite=True)
     logging.info(f"Initialized UDXF-store at {DB_ONLINE}")
@@ -150,14 +159,25 @@ def run_writer() -> None:
         time.sleep(1)
 
 
+def run_materialize_offline() -> None:
+    """Compute batch features from historical data"""
+    store = setup_store()
+    # Execute offline computation - this would typically save results somewhere
+    offline_df = store.views[FEATURE_VIEW].offline_expr().execute()
+    logging.info(f"Computed offline features: {offline_df.shape[0]} rows")
+    print(offline_df.head())
+
+
 def run_materialize_online() -> None:
     store = setup_store()
     store.materialize_online(FEATURE_VIEW)
+    logging.info("Materialized features to online store")
 
 
 def run_infer() -> None:
     store = setup_store()
     df = store.get_online_features(FEATURE_VIEW, rows=[{"city": "London"}])
+    logging.info("Retrieved online features")
     print(df)
 
 
