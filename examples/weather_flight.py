@@ -10,7 +10,7 @@ from xorq.flight import Backend as FlightBackend, FlightServer, FlightUrl
 from xorq.flight.client import FlightClient
 from xorq.common.utils.import_utils import import_python
 from xorq.common.utils.feature_utils import (
-    Entity, Feature, DataSource, FeatureView, FeatureStore
+    Entity, Feature, FeatureView, FeatureStore
 )
 
 logging_format = '[%(asctime)s] %(levelname)s %(message)s'
@@ -49,34 +49,40 @@ def setup_store() -> FeatureStore:
         USE my_ducklake;
         """)
     offline_schema = do_fetch_current_weather_udxf.calc_schema_out()
-    offline_source = DataSource("batch", offline_con, TABLE_BATCH, offline_schema)
 
 
     fb = FlightBackend()
     fb.do_connect(host="localhost", port=PORT_FEATURES)
-    online_source = DataSource("online", fb, TABLE_ONLINE, offline_schema)
 
     # 4. Feature definition (6h rolling mean temp)
     win6 = xo.window(group_by=[city.key_column], order_by=city.timestamp_column, preceding=5, following=0)
+    offline_expr = offline_con.tables[TABLE_BATCH].select([
+        city.key_column,  # entity
+        city.timestamp_column,  # timestamp
+        offline_con.tables[TABLE_BATCH].temp_c.mean().over(win6).name("temp_mean_6h")
+    ])
+
     feature_temp = Feature(
         "temp_mean_6h", city,
-        expr=offline_source.table.temp_c.mean().over(win6),
+        expr=offline_expr,
         dtype="float", description="6h rolling mean temp"
     )
+
     live_expr = xo.memtable([{"city": "London"}]).pipe(do_fetch_current_weather_flight_udxf)
     win6 = xo.window(group_by=[city.key_column], order_by=city.timestamp_column, preceding=5, following=0)
+    live_expr = live_expr.select([city.key_column, city.timestamp_column, live_expr.temp_c.mean().over(win6).name("temp_mean_6h")])
+
     feature_live = Feature(
-        "live_temp", city,
-        expr=live_expr.temp_c.mean().over(win6),
+        "temp_mean_6h", city,
+        expr=live_expr,
         dtype=float, description="current temp"
     )
+    online_expr = fb.tables[FEATURE_VIEW]
 
     # 5. FeatureView & Store
-    view = FeatureView(FEATURE_VIEW, offline_source, online_source, city, [feature_temp])
-    store = FeatureStore()
+    view = FeatureView(FEATURE_VIEW, city, [feature_live],live_expr , online_expr)
+    store = FeatureStore(online_client=fb.con)
     store.registry.register_entity(city)
-    store.register_source(offline_source)
-    store.register_source(online_source)
     store.register_view(view)
     return store
 
