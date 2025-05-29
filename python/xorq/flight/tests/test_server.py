@@ -12,7 +12,7 @@ import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils import classproperty
 from xorq.common.utils.rbr_utils import instrument_reader
-from xorq.common.utils.tls_utils import TLSCert
+from xorq.common.utils.tls_utils import TLSKwargs
 from xorq.flight import (
     Backend,
     BasicAuth,
@@ -128,19 +128,13 @@ def test_register_and_list_tables(connection, port):
 def test_tls_encryption(auth, verify_client, tls_kwargs, mtls_kwargs):
     flight_url = make_flight_url(None, scheme="grpc+tls")
 
-    tls_cert = TLSCert.from_common_name()
-
-    server_kwargs, _ = (
-        tls_cert.create_mtls_kwargs(**mtls_kwargs)
-        if verify_client
-        else tls_cert.create_tls_kwargs(**tls_kwargs)
-    )
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=verify_client)
 
     with FlightServer(
         flight_url=flight_url,
         verify_client=verify_client,
         auth=auth,
-        **server_kwargs,
+        **tls_kwargs.server_kwargs,
     ) as main:
         con = main.con
         assert con.version is not None
@@ -161,9 +155,7 @@ def test_tls_encryption(auth, verify_client, tls_kwargs, mtls_kwargs):
 def test_failed_auth(tls_kwargs):
     flight_url = make_flight_url(None, scheme="grpc+tls")
 
-    tls_cert = TLSCert.from_common_name()
-
-    kwargs, _ = tls_cert.create_tls_kwargs(**tls_kwargs)
+    kwargs = TLSKwargs.from_common_name().server_kwargs
 
     with FlightServer(
         flight_url=flight_url,

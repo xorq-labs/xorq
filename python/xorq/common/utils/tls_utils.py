@@ -159,71 +159,64 @@ class TLSCert:
             self = self.signed_with(sign_with)
         return self
 
+
+@frozen
+class TLSKwargs:
+    ca_tlscert = field(validator=instance_of(TLSCert))
+    server_tlscert = field(validator=instance_of(TLSCert))
+    client_tlscert = field(validator=instance_of(TLSCert))
+    verify_client = field(validator=instance_of(bool))
+
+    @property
+    def server_kwargs(self):
+        return {
+            "tls_certificates": self.server_tlscert.tls_certificates,
+            "root_certificates": self.ca_tlscert.cert_bytes,
+        }
+
+    @property
+    def client_kwargs(self):
+        client_kwargs = {
+            "tls_root_certs": self.ca_tlscert.cert_bytes,
+        }
+
+        if self.verify_client:
+            client_kwargs |= {
+                "cert_chain": self.client_tlscert.cert_bytes,
+                "private_key": self.client_tlscert.private_key_bytes,
+            }
+
+        return client_kwargs
+
     @classmethod
-    def create_tls_kwargs(cls, ca_kwargs, server_kwargs):
+    def from_kwargs(cls, ca_kwargs, server_kwargs, client_kwargs, verify_client=True):
         if server_kwargs.get(
             "common_name"
         ) != "localhost" or "localhost" not in server_kwargs.get("sans", ()):
             # FIXME: issue a warning
             pass
-        ca_tlscert = cls.from_common_name(**ca_kwargs)
-        server_tlscert = cls.from_common_name(sign_with=ca_tlscert, **server_kwargs)
-        server_kwargs = {
-            "tls_certificates": server_tlscert.tls_certificates,
-            "root_certificates": ca_tlscert.cert_bytes,
-        }
-        client_kwargs = {
-            "tls_root_certs": ca_tlscert.cert_bytes,
-        }
+        ca_tlscert = TLSCert.from_common_name(**ca_kwargs)
+        server_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **server_kwargs)
+        client_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **client_kwargs)
 
-        # must keep a reference to the tlscert objects else they disappear
-        return TLSKwargsTuple(
-            ca_tlscert,
-            server_tlscert,
-            None,
-            server_kwargs,
-            client_kwargs,
-        )
+        return cls(ca_tlscert, server_tlscert, client_tlscert, verify_client)
 
     @classmethod
-    def create_mtls_kwargs(cls, ca_kwargs, server_kwargs, client_kwargs):
-        kwargs_tuple = cls.create_tls_kwargs(ca_kwargs, server_kwargs)
-        ca_tlscert = kwargs_tuple._ca_tlscert
-        server_tlscert = kwargs_tuple._server_tlscert
-
-        client_tlscert = cls.from_common_name(sign_with=ca_tlscert, **client_kwargs)
+    def from_common_name(cls, verify_client=True, common_name=socket.gethostname()):
+        ca_kwargs = {
+            "common_name": "root_cert",
+        }
         server_kwargs = {
-            "root_certificates": ca_tlscert.cert_bytes,
-            "tls_certificates": server_tlscert.tls_certificates,
+            "common_name": common_name,
+            "sans": ("localhost",),
         }
         client_kwargs = {
-            "tls_root_certs": ca_tlscert.cert_bytes,
-            "cert_chain": client_tlscert.cert_bytes,
-            "private_key": client_tlscert.private_key_bytes,
+            "common_name": "client",
         }
 
-        # must keep a reference to the tlscert objects else they disappear
-        return TLSKwargsTuple(
-            ca_tlscert,
-            server_tlscert,
-            client_tlscert,
-            server_kwargs,
-            client_kwargs,
+        return cls.from_kwargs(
+            ca_kwargs, server_kwargs, client_kwargs, verify_client=verify_client
         )
-
-
-class TLSKwargsTuple:
-    def __init__(
-        self, ca_tlscert, server_tlscert, client_tlscert, server_kwargs, client_kwargs
-    ):
-        self._ca_tlscert = ca_tlscert
-        self._server_tlscert = server_tlscert
-        self._client_tlscert = client_tlscert
-        self.server_kwargs = server_kwargs
-        self.client_kwargs = client_kwargs
-
-    def __iter__(self):
-        return iter([self.server_kwargs, self.client_kwargs])
 
 
 def get_san(cert):
