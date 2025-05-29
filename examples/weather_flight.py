@@ -39,7 +39,14 @@ def setup_store() -> FeatureStore:
     city = Entity("city", key_column="city", timestamp_column="timestamp", description="City identifier")
 
     # 2. Offline source (batch history)
-    offline_con = xo.duckdb.connect(Path(DB_BATCH).absolute(), read_only=True)
+    #offline_con = xo.duckdb.connect(Path(DB_BATCH).absolute(), read_only=True)
+    offline_con = xo.duckdb.connect()
+    offline_con.raw_sql("""
+        INSTALL ducklake;
+        INSTALL sqlite;
+        ATTACH 'ducklake:sqlite:metadata.sqlite' AS my_ducklake (DATA_PATH 'file_path/');
+        USE my_ducklake;
+        """)
     offline_schema = do_fetch_current_weather_udxf.calc_schema_out()
     offline_source = DataSource("batch", offline_con, TABLE_BATCH, offline_schema)
 
@@ -70,7 +77,13 @@ def run_api_server() -> None:
     pa_schema = do_fetch_current_weather_udxf.calc_schema_out()
     arrays = [pa.array([], type=pa_schema.field(i).type) for i in range(len(pa_schema))]
     names = [f.name for f in pa_schema]
-    duck_con = xo.duckdb.connect(Path(DB_BATCH).absolute())
+    duck_con = xo.duckdb.connect()
+    duck_con.raw_sql("""
+    INSTALL ducklake;
+    INSTALL sqlite;
+    ATTACH 'ducklake:sqlite:metadata.sqlite' AS my_ducklake (DATA_PATH 'file_path');
+    USE my_ducklake;
+    """)
     duck_con.create_table(TABLE_ONLINE, pa.Table.from_arrays(arrays, names=names), overwrite=True)
     logging.info(f"Initialized UDXF-store at {DB_ONLINE}")
 
@@ -92,10 +105,16 @@ def run_api_server() -> None:
 def run_feature_server() -> None:
     # ensure features table exists (possibly empty)
     # nothing to initialize: table was created in setup_store
+    pa_schema = do_fetch_current_weather_udxf.calc_schema_out()
+    arrays = [pa.array([], type=pa_schema.field(i).type) for i in range(len(pa_schema))]
+    names = [f.name for f in pa_schema]
+
+    duck_con = xo.duckdb.connect()
+    duck_con.create_table(TABLE_ONLINE, pa.Table.from_arrays(arrays, names=names), overwrite=True)
 
     server = FlightServer(
         FlightUrl(port=PORT_FEATURES),
-        connection=xo.duckdb.connect,
+        connection=lambda: duck_con,
     )
     logging.info(f"Serving feature store on grpc://localhost:{PORT_FEATURES}")
     try:
