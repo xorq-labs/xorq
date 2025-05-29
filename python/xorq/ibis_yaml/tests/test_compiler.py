@@ -2,6 +2,7 @@ import os
 import pathlib
 
 import dask
+import pandas as pd
 import pytest
 import yaml
 
@@ -241,6 +242,28 @@ def test_multi_engine_with_caching_with_parquet(build_dir, tmp_path):
         .into_backend(con3)
         .filter(xo._.G == 1)
     )
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert expr.execute().equals(roundtrip_expr.execute())
+
+
+def test_roundtrip_database_table(build_dir, tmp_path):
+    original = xo.connect()
+
+    users = pd.DataFrame(
+        {
+            "user_id": [1, 2, 3, 4, 5],
+            "age": [25, 32, 28, 45, 31],
+            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+        }
+    )
+
+    t = original.register(users, table_name="users")
+    expr = t.filter(t.age > 30).select(t.user_id, t.name)
+
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)
 
