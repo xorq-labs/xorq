@@ -18,8 +18,8 @@ class Entity:
 
 class Feature:
     """
-    Represents a feature with its expressions and metadata.
-    Each feature is a table with timestamp, entity, and value columns.
+    Represents a feature with its offline expression and metadata.
+    Online expressions are auto-generated from the offline schema.
     """
     def __init__(
         self,
@@ -27,7 +27,6 @@ class Feature:
         entity: Entity,
         timestamp_column: str,
         offline_expr: Any,
-        online_expr: Any = None,
         dtype: str = "float",
         description: str = "",
     ):
@@ -37,15 +36,13 @@ class Feature:
         self.dtype = dtype
         self.description = description
         self._offline_expr = offline_expr
-        self._online_expr = online_expr
 
     def offline_expr(self):
-        """Return the offline expression for this feature"""
         return self._offline_expr
 
-    def online_expr(self):
-        """Return the online expression for this feature"""
-        return self._online_expr
+    def get_schema(self):
+        """Get the schema from the offline expression."""
+        return self._offline_expr.schema()
 
 
 class FeatureRegistry:
@@ -72,6 +69,7 @@ class FeatureView:
     """
     Groups multiple features for the same entity.
     Builds combined expressions by joining individual feature expressions.
+    Online expressions are auto-generated from offline schema.
     """
     def __init__(
         self,
@@ -100,7 +98,6 @@ class FeatureView:
         base_expr = self.features[0].offline_expr()
 
         # Join with remaining features on entity key
-        # Note: Join logic will depend on your specific xorq join syntax
         for feature in self.features[1:]:
             feature_expr = feature.offline_expr()
             base_expr = base_expr.join(
@@ -111,31 +108,16 @@ class FeatureView:
 
         return base_expr
 
-    def online_expr(self):
-        """
-        Build a combined online expression by joining all feature expressions.
-        """
-        if not self.features:
-            raise ValueError(f"No features in view {self.name}")
-
-        # Start with the first feature's expression
-        base_expr = self.features[0].online_expr()
-
-        # Join with remaining features on entity key
-        for feature in self.features[1:]:
-            feature_expr = feature.online_expr()
-            base_expr = base_expr.join(
-                feature_expr,
-                self.entity.key_column,
-                how="full_outer"
-            )
-
-        return base_expr
+    def get_combined_schema(self):
+        """Get the combined schema from all features in this view."""
+        offline_expr = self.offline_expr()
+        return offline_expr.schema()
 
 
 class FeatureStore:
     """
     Main entry: register views, materialize batch, serve & feed online.
+    Auto-generates online expressions from offline schemas.
     """
     def __init__(self, online_client: FlightClient = None):
         self.registry = FeatureRegistry()
@@ -148,6 +130,26 @@ class FeatureStore:
         for f in view.features:
             self.registry.register_feature(f)
         self.views[view.name] = view
+
+    def _build_online_expr(self, view_name: str):
+        """
+        Auto-generate online expression from the offline schema.
+        This creates a simple SELECT statement on the online store table.
+        """
+        view = self.views[view_name]
+
+        if self.online_client is None:
+            raise ValueError("No online client configured")
+
+        # Get schema from offline expression
+        schema = view.get_combined_schema()
+
+        # Extract column names from schema
+        column_names = [field for field in schema]
+
+        online_expr = xo.table(name=view_name, schema=schema).select(column_names)
+
+        return online_expr
 
     def materialize_online(self, view_name: str):
         """
@@ -187,21 +189,21 @@ class FeatureStore:
     ) -> pd.DataFrame:
         """
         Get online features for the given entity keys.
+        Uses auto-generated online expression.
         """
         view = self.views[view_name]
         key_col = view.entity.key_column
 
         keys_df = pd.DataFrame(rows)
 
-        # Use the combined online expression and filter by keys
-        expr = (
-            view
-              .online_expr()
-              .filter(xo._[key_col].isin(keys_df[key_col].tolist()))
+        # Use the auto-generated online expression and filter by keys
+        online_expr = self._build_online_expr(view_name)
+        filtered_expr = online_expr.filter(
+            xo._[key_col].isin(keys_df[key_col].tolist())
         )
 
         # Execute through the online client
         if self.online_client is None:
             raise ValueError("No online client configured")
 
-        return self.online_client.execute(expr)
+        return self.online_client.execute(filtered_expr)
