@@ -53,7 +53,7 @@ def setup_store() -> FeatureStore:
     fb.do_connect(host="localhost", port=PORT_FEATURES)
 
     # 4. Build offline expression for features
-    live_expr = xo.memtable([{"city": c} for c in ["London", "Tokyo", "New York"]}]).pipe(do_fetch_current_weather_flight_udxf)
+    live_expr = xo.memtable([{"city": c} for c in ["London", "Tokyo", "New York"]]).pipe(do_fetch_current_weather_flight_udxf)
     win6_online = xo.window(group_by=[city.key_column], order_by="timestamp", preceding=5, following=0)
 
     # Offline expression that computes the feature
@@ -70,7 +70,6 @@ def setup_store() -> FeatureStore:
         entity=city,
         timestamp_column="timestamp",
         offline_expr=offline_expr,
-        dtype="float",
         description="6h rolling mean temp"
     )
 

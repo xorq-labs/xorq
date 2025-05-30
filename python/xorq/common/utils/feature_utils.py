@@ -4,37 +4,30 @@ import xorq as xo
 from xorq.flight.client import FlightClient
 from typing import List, Mapping, Any, Union
 from datetime import datetime
+import attrs
 
 
+@attrs.define
 class Entity:
     """
-    Represents an entity for which features are computed (e.g., city, user_id).
     Acts like a primary key for joins and feature grouping.
     """
-    def __init__(self, name: str, key_column: str, description: str = ""):
-        self.name = name
-        self.key_column = key_column
-        self.description = description
+    name: str
+    key_column: str
+    description: str = ""
 
 
+@attrs.define
 class Feature:
     """
     Represents a feature with its offline expression and metadata.
     Online expressions are auto-generated from the offline schema.
     """
-    def __init__(
-        self,
-        name: str,
-        entity: Entity,
-        timestamp_column: str,
-        offline_expr: Any,
-        description: str = "",
-    ):
-        self.name = name
-        self.entity = entity
-        self.timestamp_column = timestamp_column
-        self.description = description
-        self._offline_expr = offline_expr
+    name: str
+    entity: Entity
+    timestamp_column: str
+    offline_expr: Any = attrs.field(alias="_offline_expr")
+    description: str = ""
 
     def offline_expr(self):
         return self._offline_expr
@@ -44,13 +37,13 @@ class Feature:
         return self._offline_expr.schema()
 
 
+@attrs.define
 class FeatureRegistry:
     """
     Registry of entities and features.
     """
-    def __init__(self):
-        self.entities: Mapping[str, Entity] = {}
-        self.features: Mapping[str, Feature] = {}
+    entities: Mapping[str, Entity] = attrs.field(factory=dict)
+    features: Mapping[str, Feature] = attrs.field(factory=dict)
 
     def register_entity(self, entity: Entity):
         self.entities[entity.name] = entity
@@ -64,32 +57,27 @@ class FeatureRegistry:
         return [f for f in self.features.values() if f.entity.name == entity_name]
 
 
+@attrs.define
 class FeatureView:
     """
     Groups multiple features for the same entity.
     Builds combined expressions by joining individual feature expressions.
     """
-    def __init__(
-        self,
-        name: str,
-        entity: Entity,
-        features: List[Feature],
-    ):
-        self.name = name
-        self.entity = entity
-        self.features = features
+    name: str
+    entity: Entity
+    features: List[Feature]
 
-        # Validate all features belong to the same entity
-        for feature in features:
-            if feature.entity.name != entity.name:
+    def __attrs_post_init__(self):
+        for feature in self.features:
+            if feature.entity.name != self.entity.name:
                 raise ValueError(f"Feature {feature.name} belongs to entity {feature.entity.name}, "
-                               f"but view expects entity {entity.name}")
+                               f"but view expects entity {self.entity.name}")
 
     def offline_expr(self):
         if not self.features:
             raise ValueError(f"No features in view {self.name}")
 
-        base_expr = self.features[0].offline_expr()
+        base_expr = self.features[0].offline_expr
 
         for feature in self.features[1:]:
             feature_expr = feature.offline_expr()
@@ -106,15 +94,15 @@ class FeatureView:
         return offline_expr.schema()
 
 
+@attrs.define
 class FeatureStore:
     """
     Main entry: register views, materialize batch, serve & feed online.
     Auto-generates online expressions from offline schemas.
     """
-    def __init__(self, online_client: FlightClient = None):
-        self.registry = FeatureRegistry()
-        self.views: Mapping[str, FeatureView] = {}
-        self.online_client = online_client
+    online_client: FlightClient = None
+    registry: FeatureRegistry = attrs.field(factory=FeatureRegistry)
+    views: Mapping[str, FeatureView] = attrs.field(factory=dict)
 
     def register_view(self, view: FeatureView):
         if view.entity.name not in self.registry.entities:
@@ -153,7 +141,6 @@ class FeatureStore:
             if view_name not in self.views:
                 raise ValueError(f"View '{view_name}' not found")
 
-            # Validate feature exists in the view
             view = self.views[view_name]
             feature_exists = any(f.name == feature_name for f in view.features)
             if not feature_exists:
@@ -168,6 +155,7 @@ class FeatureStore:
         entity_df: pd.DataFrame,
         features: List[str],
     ) -> pd.DataFrame:
+        # Could this be done with `xorq run`?
         # Validate entity_df has required columns
         if "event_timestamp" not in entity_df.columns:
             raise ValueError("entity_df must contain 'event_timestamp' column")
@@ -225,7 +213,6 @@ class FeatureStore:
             if not selected_columns:
                 raise ValueError(f"No requested features found in view '{view_name}'")
 
-            # Execute the historical query
             historical_df = historical_expr.select(selected_columns).execute()
 
             if len(features_by_view) == 1:
@@ -241,11 +228,10 @@ class FeatureStore:
 
         return result_df
 
-
     def materialize_online(self, view_name: str):
+        # this could possibly be a run command with a deferred sink
         view = self.views[view_name]
 
-        # Execute the combined offline expression
         batch_df = view.offline_expr().execute()
 
         # Get the timestamp column from the first feature
@@ -279,7 +265,6 @@ class FeatureStore:
         view = self.views[view_name]
         key_col = view.entity.key_column
 
-        # Support both old rows format and new entity_df format
         if entity_df is not None:
             keys_df = entity_df
         elif rows is not None:
@@ -287,24 +272,19 @@ class FeatureStore:
         else:
             raise ValueError("Either 'rows' or 'entity_df' must be provided")
 
-        # Validate entity key exists
         if key_col not in keys_df.columns:
             raise ValueError(f"Entity key '{key_col}' not found in input data")
 
-        # Use the auto-generated online expression and filter by keys
         online_expr = self._build_online_expr(view_name)
         filtered_expr = online_expr.filter(
             xo._[key_col].isin(keys_df[key_col].tolist())
         )
 
-        # Execute through the online client
         if self.online_client is None:
             raise ValueError("No online client configured")
 
-        # Execute and return results
         result_df = self.online_client.execute(filtered_expr).to_pandas()
 
-        # Join with input keys to maintain order and include any additional columns
         result_df = keys_df.merge(result_df, on=key_col, how="left")
 
         return result_df
