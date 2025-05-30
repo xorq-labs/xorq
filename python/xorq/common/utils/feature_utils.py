@@ -15,6 +15,9 @@ from attrs.validators import (
 import xorq as xo
 from xorq.flight import Backend as FlightBackend
 from xorq.flight.client import FlightClient
+from xorq.vendor.ibis.expr.types.core import (
+    Expr,
+)
 
 
 @define
@@ -35,11 +38,11 @@ class Feature:
     Online expressions are auto-generated from the offline schema.
     """
 
-    name: str = field(validator=optional(instance_of(str)), default=None)
-    entity: Entity = field(validator=optional(instance_of(Entity)), default=None)
-    timestamp_column: str = field(validator=optional(instance_of(str)), default=None)
-    offline_expr: Any = field(default=None)
-    description: str = field(validator=optional(instance_of(str)), default="")
+    name: str = field(validator=optional(instance_of(str)))
+    entity: Entity = field(validator=optional(instance_of(Entity)))
+    timestamp_column: str = field(validator=optional(instance_of(str)))
+    offline_expr: Any = field(validator=instance_of(Expr))
+    description: str = field(validator=optional(instance_of(str)))
     ttl: Optional[timedelta] = field(default=None)
 
     def get_schema(self):
