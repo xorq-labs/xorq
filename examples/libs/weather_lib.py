@@ -1,5 +1,4 @@
 # examples/libs/weather_lib.py
-import os
 from datetime import (
     timedelta,
 )
@@ -14,10 +13,15 @@ from hash_cache.hash_cache import (
 
 import xorq as xo
 import xorq.expr.datatypes as dt
+from xorq.common.utils.env_utils import (
+    EnvConfigable,
+)
 from xorq.flight.exchanger import make_udxf
 
 
-OPENWEATHER_KEY = os.environ["OPENWEATHER_API_KEY"]
+env_config = EnvConfigable.subclass_from_kwargs("OPENWEATHER_API_KEY").from_env()
+OPENWEATHER_KEY = env_config.OPENWEATHER_API_KEY
+assert OPENWEATHER_KEY
 API_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
@@ -81,7 +85,7 @@ def fetch_one_city(*, city: str):
 
 
 def get_current_weather_batch(df: pd.DataFrame) -> pd.DataFrame:
-    records = [fetch_one_city(city=row["city"]) for _, row in df.iterrows()]
+    records = [fetch_one_city(city=city) for city in df["city"]]
     return pd.DataFrame(records)
 
 
