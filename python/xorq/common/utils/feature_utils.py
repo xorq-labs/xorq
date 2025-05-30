@@ -9,7 +9,9 @@ from attrs import (
     frozen,
 )
 from attrs.validators import (
+    deep_iterable,
     instance_of,
+    optional,
 )
 
 import xorq as xo
@@ -43,7 +45,9 @@ class Feature:
     timestamp_column: str = field(validator=instance_of(str))
     offline_expr: Any = field(validator=instance_of(Expr))
     description: str = field(validator=instance_of(str))
-    ttl: Optional[timedelta] = field(default=None)
+    ttl: Optional[timedelta] = field(
+        validator=optional(instance_of(timedelta)), default=None
+    )
 
     def get_schema(self):
         """Get the schema from the offline expression."""
@@ -92,10 +96,12 @@ class FeatureView:
     Builds combined expressions by joining individual feature expressions.
     """
 
-    name: str = field()
-    entity: Entity = field()
-    features: List[Feature] = field()
-    ttl: Optional[timedelta] = field(default=None)
+    name: str = field(validator=instance_of(str))
+    entity: Entity = field(validator=instance_of(Entity))
+    features: List[Feature] = field(validator=deep_iterable(instance_of(Feature)))
+    ttl: Optional[timedelta] = field(
+        validator=optional(instance_of(timedelta)), default=None
+    )
 
     def __attrs_post_init__(self):
         for feature in self.features:
@@ -140,8 +146,10 @@ class FeatureStore:
     Auto-generates online expressions from offline schemas.
     """
 
-    online_client: FlightClient = field(default=None)
-    registry: FeatureRegistry = field(factory=FeatureRegistry)
+    online_client: FlightClient = field(validator=instance_of(FlightClient))
+    registry: FeatureRegistry = field(
+        validator=instance_of(FeatureRegistry), factory=FeatureRegistry
+    )
     views: Mapping[str, FeatureView] = field(factory=dict)
 
     def register_view(self, view: FeatureView):
