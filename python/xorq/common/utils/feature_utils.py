@@ -5,6 +5,7 @@ from xorq.flight.client import FlightClient
 from typing import List, Mapping, Any, Union, Optional
 from datetime import datetime, timedelta
 import attrs
+from xorq.flight import Backend as FlightBackend, FlightServer, FlightUrl
 
 
 @attrs.define
@@ -37,15 +38,19 @@ class Feature:
         """Get the schema from the offline expression."""
         return self._offline_expr.schema()
 
-    def is_expired(self, feature_timestamp: datetime, current_time: datetime = None) -> bool:
-        """Check if a feature is expired based on its TTL."""
+    def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
+        """Return an expression that checks if a feature is expired based on its TTL."""
         if self.ttl is None:
-            return False
+            return xo.literal(False)
 
         if current_time is None:
             current_time = datetime.now()
 
-        return (current_time - feature_timestamp) > self.ttl
+        current_time_lit = xo.literal(current_time)
+        time_diff = current_time_lit - feature_timestamp_col
+        ttl_lit = xo.literal(self.ttl.total_seconds()).cast('interval')
+
+        return time_diff > ttl_lit
 
 
 @attrs.define
@@ -144,7 +149,12 @@ class FeatureStore:
         # Extract column names from schema
         column_names = [field for field in schema]
 
-        online_expr = xo.table(name=view_name, schema=schema).select(column_names)
+        # Hack: not sure how best to build bound expr without Backend
+        # we probably need from_connection() implemented in Flight Backend
+        fb = FlightBackend()
+        fb.con = self.online_client
+
+        online_expr = fb.tables[view_name].select(column_names)
 
         return online_expr
 
@@ -171,40 +181,54 @@ class FeatureStore:
 
         return parsed_features
 
-    def _apply_ttl_filter(self, df: pd.DataFrame, view: FeatureView, current_time: datetime = None) -> pd.DataFrame:
-        """Apply TTL filtering to remove expired features."""
+    def _apply_ttl_filter_expr(self, expr, view: FeatureView, current_time: datetime = None):
+        """Apply TTL filtering to an expression to remove expired features."""
         if current_time is None:
             current_time = datetime.now()
 
         # Get the timestamp column from the first feature (assuming all features in view use same timestamp)
         timestamp_column = view.features[0].timestamp_column
 
-        if timestamp_column not in df.columns:
-            return df
+        schema_fields = expr.schema()
+        if timestamp_column not in schema_fields:
+            return expr
 
-        # Convert timestamp column to datetime if it's not already
-        if not pd.api.types.is_datetime64_any_dtype(df[timestamp_column]):
-            df[timestamp_column] = pd.to_datetime(df[timestamp_column])
-
-        # Apply per-feature TTL filtering
-        mask = pd.Series([True] * len(df), index=df.index)
+        # Create TTL filter expressions for each feature
+        ttl_filters = []
 
         for feature in view.features:
             if feature.ttl is not None:
-                feature_mask = (current_time - df[timestamp_column]) <= feature.ttl
+                # Create expression for TTL check
+                current_time_lit = xo.literal(current_time)
+                time_diff = current_time_lit - xo._[timestamp_column]
+                ttl_seconds = xo.literal(feature.ttl.total_seconds())
 
-                feature_columns = [col for col in df.columns if col.startswith(feature.name)]
-                if feature_columns:
-                    mask &= feature_mask
+                # Feature is valid if time_diff <= ttl
+                feature_valid = time_diff <= ttl_seconds
+                ttl_filters.append(feature_valid)
 
-        return df[mask]
+        # If no TTL filters, return original expression
+        if not ttl_filters:
+            return expr
+
+        # Combine all TTL filters with AND
+        combined_filter = ttl_filters[0]
+        for filter_expr in ttl_filters[1:]:
+            combined_filter = combined_filter & filter_expr
+
+        return expr.filter(combined_filter)
 
     def get_historical_features(
         self,
         entity_df: pd.DataFrame,
         features: List[str],
-    ) -> pd.DataFrame:
-        # Could this be done with `xorq run`?
+    ):
+        """
+        Get historical features and return as an expression.
+
+        Returns:
+            xorq expression that can be executed to get the historical features
+        """
         # Validate entity_df has required columns
         if "event_timestamp" not in entity_df.columns:
             raise ValueError("entity_df must contain 'event_timestamp' column")
@@ -219,8 +243,9 @@ class FeatureStore:
                 features_by_view[view_name] = []
             features_by_view[view_name].append(feature_name)
 
-        # Start with the entity_df as base
-        result_df = entity_df.copy()
+        # Create expression from entity_df
+        con = xo.duckdb.connect()
+        result_expr = xo.memtable(entity_df).into_backend(con=con)
 
         # For each view, get the historical features and join
         for view_name, feature_names in features_by_view.items():
@@ -231,55 +256,35 @@ class FeatureStore:
             if entity_key not in entity_df.columns:
                 raise ValueError(f"entity_df must contain '{entity_key}' column for view '{view_name}'")
 
-            view_expr = view.offline_expr()
-            con = xo.duckdb.connect()
-
-            entity_expr = xo.memtable(entity_df).into_backend(con=con)
-
+            view_expr = view.offline_expr().into_backend(con=con)
             timestamp_col = view.features[0].timestamp_column
 
+            # Rename timestamp column if needed
             if timestamp_col != "event_timestamp":
-                view_expr_renamed = view_expr.rename(**{"event_timestamp": timestamp_col}).into_backend(con=con)
-            else:
-                view_expr_renamed = view_expr
+                view_expr = view_expr.rename(**{ "event_timestamp": timestamp_col})
 
             # Perform point-in-time join using asof_join
-            # This finds the most recent record in view_expr where:
-            # 1. feature_timestamp <= event_timestamp (temporal condition)
-            # 2. entity keys match (predicates)
-            historical_expr = entity_expr.asof_join(
-                view_expr_renamed.mutate(event_timestamp=xo._.event_timestamp.cast('timestamp')),
-                on="event_timestamp",  # Join on the timestamp column (now both tables have this name)
-                predicates=entity_key,  # Entity key matching
+            historical_expr = result_expr.asof_join(
+                view_expr.mutate(event_timestamp=xo._.event_timestamp.cast('timestamp')),
+                on="event_timestamp",
+                predicates=entity_key,
             )
 
+            # Select only the requested features plus keys
             feature_columns = [entity_key, "event_timestamp"] + feature_names
-
-            # Handle case where not all requested features exist in the expression
             available_columns = historical_expr.schema()
             selected_columns = [col for col in feature_columns if col in available_columns]
 
             if not selected_columns:
                 raise ValueError(f"No requested features found in view '{view_name}'")
 
-            historical_df = historical_expr.select(selected_columns).execute()
+            result_expr = historical_expr.select(selected_columns)
 
-            if len(features_by_view) == 1:
-                result_df = historical_df
-            else:
-                join_keys = [entity_key, "event_timestamp"]
-                result_df = result_df.merge(
-                    historical_df,
-                    on=join_keys,
-                    how="left",
-                    suffixes=("", f"_{view_name}")
-                )
-
-        return result_df
+        return result_expr
 
     def materialize_online(self, view_name: str, current_time: datetime = None):
         """
-        Materialize features to online store with TTL filtering.
+        Materialize features to online store with TTL filtering using expressions.
 
         Args:
             view_name: Name of the view to materialize
@@ -287,42 +292,52 @@ class FeatureStore:
         """
         view = self.views[view_name]
 
-        # Execute the offline expression to get batch data
-        batch_df = view.offline_expr().execute()
+        # Get the offline expression
+        batch_expr = view.offline_expr()
 
         # Get the timestamp column from the first feature
         timestamp_column = view.features[0].timestamp_column
 
-        # Apply TTL filtering before getting latest values
+        # Apply TTL filtering using expressions
         if current_time is None:
             current_time = datetime.now()
 
-        filtered_df = self._apply_ttl_filter(batch_df, view, current_time)
+        filtered_expr = self._apply_ttl_filter_expr(batch_expr, view, current_time)
 
-        if filtered_df.empty:
+        # Get latest values per entity key using expressions
+        # Sort by timestamp and get the last record for each entity
+        latest_expr = (
+            filtered_expr
+            .order_by([view.entity.key_column, timestamp_column])
+            .mutate(
+                row_number=xo.row_number().over(
+                    group_by=view.entity.key_column,
+                    order_by=xo.desc(timestamp_column)
+                )
+            )
+            .filter(xo._.row_number == 0)
+            .drop('row_number')
+        )
+
+        # Execute to get the materialized data
+        latest_df = latest_expr.execute()
+
+        if latest_df.empty:
             print(f"Warning: All features in view '{view_name}' are expired based on TTL")
             return
-
-        # Get latest values per entity key from non-expired features
-        latest = (
-            filtered_df
-              .sort_values(timestamp_column)
-              .groupby(view.entity.key_column)
-              .tail(1)
-        )
 
         # Upload to online storage
         if self.online_client is None:
             raise ValueError("No online client configured")
 
-        tbl = pa.Table.from_pandas(latest)
+        tbl = pa.Table.from_pandas(latest_df)
         self.online_client.upload_data(
             view_name,
             tbl,
             overwrite=True
         )
 
-        print(f"Materialized {len(latest)} non-expired feature records for view '{view_name}'")
+        print(f"Materialized {len(latest_df)} non-expired feature records for view '{view_name}'")
 
     def get_online_features(
         self,
@@ -331,9 +346,9 @@ class FeatureStore:
         entity_df: pd.DataFrame = None,
         apply_ttl: bool = True,
         current_time: datetime = None,
-    ) -> pd.DataFrame:
+    ):
         """
-        Get online features with optional TTL filtering.
+        Get online features with optional TTL filtering and return as an expression.
 
         Args:
             view_name: Name of the view
@@ -341,6 +356,9 @@ class FeatureStore:
             entity_df: DataFrame with entity keys
             apply_ttl: Whether to filter out expired features
             current_time: Current time for TTL calculations
+
+        Returns:
+            xorq expression that can be executed to get the online features
         """
         view = self.views[view_name]
         key_col = view.entity.key_column
@@ -355,40 +373,50 @@ class FeatureStore:
         if key_col not in keys_df.columns:
             raise ValueError(f"Entity key '{key_col}' not found in input data")
 
+        # Build online expression and filter by entity keys
         online_expr = self._build_online_expr(view_name)
         filtered_expr = online_expr.filter(
             xo._[key_col].isin(keys_df[key_col].tolist())
         )
 
-        if self.online_client is None:
-            raise ValueError("No online client configured")
-
-        result_df = self.online_client.execute(filtered_expr).to_pandas()
-
         # Apply TTL filtering if requested
         if apply_ttl:
-            result_df = self._apply_ttl_filter(result_df, view, current_time)
+            filtered_expr = self._apply_ttl_filter_expr(filtered_expr, view, current_time)
 
-        result_df = keys_df.merge(result_df, on=key_col, how="left")
+        # Join with keys to ensure all requested keys are present
+        con = xo.duckdb.connect()
+        keys_expr = xo.memtable(keys_df).into_backend(con=con)
 
-        return result_df
+        result_expr = keys_expr.join(
+            filtered_expr.into_backend(con=con),
+            key_col,
+            how="left"
+        )
+
+        return result_expr
 
     def cleanup_expired_features(self, view_name: str, current_time: datetime = None):
         """
-        Remove expired features from online storage based on TTL.
+        Remove expired features from online storage based on TTL using expressions.
         This is useful for periodic cleanup jobs.
+
+        Returns:
+            xorq expression representing the cleaned up features
         """
         if current_time is None:
             current_time = datetime.now()
 
         view = self.views[view_name]
 
-        # Get all online features
+        # Get all online features as expression
         online_expr = self._build_online_expr(view_name)
-        all_features_df = self.online_client.execute(online_expr).to_pandas()
 
         # Apply TTL filtering to get non-expired features
-        valid_features_df = self._apply_ttl_filter(all_features_df, view, current_time)
+        valid_features_expr = self._apply_ttl_filter_expr(online_expr, view, current_time)
+
+        # Execute both to get counts for logging
+        all_features_df = online_expr.execute()
+        valid_features_df = valid_features_expr.execute()
 
         expired_count = len(all_features_df) - len(valid_features_df)
 
@@ -403,3 +431,64 @@ class FeatureStore:
             print(f"Cleaned up {expired_count} expired features from view '{view_name}'")
         else:
             print(f"No expired features found in view '{view_name}'")
+
+        return valid_features_expr
+
+    def get_historical_features_expr(
+        self,
+        entity_expr,
+        features: List[str],
+    ):
+        """
+        Get historical features from an entity expression and return as an expression.
+
+        Args:
+            entity_expr: xorq expression containing entity keys and event_timestamp
+            features: List of feature references in format "view_name:feature_name"
+
+        Returns:
+            xorq expression that can be executed to get the historical features
+        """
+        # Parse feature references
+        parsed_features = self._parse_feature_references(features)
+
+        # Group features by view to minimize joins
+        features_by_view = {}
+        for view_name, feature_name in parsed_features:
+            if view_name not in features_by_view:
+                features_by_view[view_name] = []
+            features_by_view[view_name].append(feature_name)
+
+        # Start with the entity expression
+        result_expr = entity_expr
+
+        # For each view, get the historical features and join
+        for view_name, feature_names in features_by_view.items():
+            view = self.views[view_name]
+            entity_key = view.entity.key_column
+
+            view_expr = view.offline_expr()
+            timestamp_col = view.features[0].timestamp_column
+
+            # Rename timestamp column if needed
+            if timestamp_col != "event_timestamp":
+                view_expr = view_expr.rename(**{timestamp_col: "event_timestamp"})
+
+            # Perform point-in-time join using asof_join
+            historical_expr = result_expr.asof_join(
+                view_expr.mutate(event_timestamp=xo._.event_timestamp.cast('timestamp')),
+                on="event_timestamp",
+                predicates=entity_key,
+            )
+
+            # Select only the requested features plus keys
+            feature_columns = [entity_key, "event_timestamp"] + feature_names
+            available_columns = historical_expr.schema()
+            selected_columns = [col for col in feature_columns if col in available_columns]
+
+            if not selected_columns:
+                raise ValueError(f"No requested features found in view '{view_name}'")
+
+            result_expr = historical_expr.select(selected_columns)
+
+        return result_expr
