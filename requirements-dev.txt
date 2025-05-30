@@ -40,13 +40,12 @@ asttokens==3.0.0
     # via stack-data
 async-lru==2.0.5
     # via jupyterlab
-async-timeout==5.0.1 ; python_full_version < '3.11'
-    # via aiohttp
 atpublic==6.0.1
     # via xorq
 attrs==25.3.0
     # via
     #   aiohttp
+    #   hash-cache
     #   jsonschema
     #   referencing
     #   sphobjinv
@@ -113,6 +112,7 @@ click==8.2.1
 cloudpickle==3.1.1
     # via
     #   dask
+    #   hash-cache
     #   xorq
 codespell==2.4.1
 colorama==0.4.6
@@ -130,18 +130,27 @@ cryptography==45.0.4
     # via
     #   pyopenssl
     #   snowflake-connector-python
+<<<<<<< HEAD
     #   xorq
 dask==2025.1.0 ; python_full_version < '4.0'
     # via xorq
 databackend==0.0.3 ; python_full_version < '4.0'
     # via pins
 datafusion==47.0.0
+=======
+dask==2025.1.0
+    # via
+    #   hash-cache
+    #   xorq
+datafusion==45.2.0
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via xorq
 debugpy==1.8.14
     # via ipykernel
 decorator==5.2.1
     # via
     #   gcsfs
+    #   ipdb
     #   ipython
 defusedxml==0.7.1
     # via nbconvert
@@ -153,15 +162,14 @@ duckdb==1.3.0
     # via xorq
 envyaml==1.10.211231
     # via xorq
-exceptiongroup==1.3.0 ; python_full_version < '3.11'
-    # via
-    #   anyio
-    #   ipython
-    #   pytest
 executing==2.2.0
     # via stack-data
+fastavro==1.11.1
+    # via feast
 fastjsonschema==2.21.1
     # via nbformat
+feast==0.1.2.post1
+    # via xorq
 filelock==3.18.0
     # via
     #   snowflake-connector-python
@@ -187,45 +195,85 @@ gcsfs==2025.5.1 ; python_full_version < '4.0'
     # via pins
 geoarrow-types==0.3.0 ; python_full_version < '4.0'
     # via xorq
+<<<<<<< HEAD
 git-cliff==2.9.1
 google-api-core==2.25.1 ; python_full_version < '4.0'
+=======
+git-cliff==2.8.0
+google-api-core==2.24.2
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via
+    #   feast
+    #   google-cloud-bigquery
+    #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   google-cloud-storage
+<<<<<<< HEAD
 google-auth==2.40.3 ; python_full_version < '4.0'
+=======
+google-auth==2.40.2
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via
+    #   feast
     #   gcsfs
     #   google-api-core
     #   google-auth-oauthlib
+    #   google-cloud-bigquery
+    #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   google-cloud-storage
 google-auth-oauthlib==1.2.2 ; python_full_version < '4.0'
     # via gcsfs
-google-cloud-core==2.4.3 ; python_full_version < '4.0'
-    # via google-cloud-storage
-google-cloud-storage==3.1.0 ; python_full_version < '4.0'
-    # via gcsfs
-google-crc32c==1.7.1 ; python_full_version < '4.0'
+google-cloud-bigquery==3.34.0
+    # via feast
+google-cloud-bigquery-storage==2.32.0
+    # via feast
+google-cloud-core==2.4.3
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-storage
+google-cloud-storage==3.1.0
+    # via
+    #   feast
+    #   gcsfs
+google-crc32c==1.7.1
     # via
     #   google-cloud-storage
     #   google-resumable-media
-google-resumable-media==2.7.2 ; python_full_version < '4.0'
-    # via google-cloud-storage
+google-resumable-media==2.7.2
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-storage
 googleapis-common-protos==1.70.0
     # via
+    #   feast
     #   google-api-core
+    #   grpcio-status
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
 greenlet==3.2.3 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
     # via sqlalchemy
 griffe==1.7.3
     # via quartodoc
+<<<<<<< HEAD
 grpcio==1.73.0
     # via opentelemetry-exporter-otlp-proto-grpc
+=======
+grpcio==1.71.0
+    # via
+    #   feast
+    #   google-api-core
+    #   grpcio-status
+    #   opentelemetry-exporter-otlp-proto-grpc
+grpcio-status==1.71.0
+    # via google-api-core
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
+hash-cache @ git+https://github.com/xorq-labs/hash-cache@253f72f49657e9ac58ea477038c958440f4225b1
+    # via xorq
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
@@ -249,7 +297,6 @@ idna==3.10
     #   yarl
 importlib-metadata==8.7.0
     # via
-    #   dask
     #   opentelemetry-api
     #   pins
     #   quartodoc
@@ -261,13 +308,23 @@ importlib-resources==6.5.2
     #   quartodoc
 iniconfig==2.1.0
     # via pytest
+ipdb==0.13.13
+    # via xorq
 ipykernel==6.29.5
     # via jupyterlab
+<<<<<<< HEAD
 ipython==8.37.0 ; python_full_version < '3.11'
     # via ipykernel
 ipython==9.3.0 ; python_full_version >= '3.11'
     # via ipykernel
 ipython-pygments-lexers==1.1.1 ; python_full_version >= '3.11'
+=======
+ipython==9.2.0
+    # via
+    #   ipdb
+    #   ipykernel
+ipython-pygments-lexers==1.1.1
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via ipython
 isoduration==20.11.0
     # via jsonschema
@@ -338,7 +395,7 @@ jupyterlab-server==2.27.3
     # via
     #   jupyterlab
     #   notebook
-locket==1.0.0 ; python_full_version < '4.0'
+locket==1.0.0
     # via partd
 lz4==4.4.4
     # via trino
@@ -440,6 +497,7 @@ packaging==25.0
     # via
     #   black
     #   dask
+    #   google-cloud-bigquery
     #   ipykernel
     #   jupyter-events
     #   jupyter-server
@@ -449,8 +507,14 @@ packaging==25.0
     #   pytest
     #   snowflake-connector-python
     #   vendoring
+<<<<<<< HEAD
 pandas==2.3.0 ; python_full_version < '4.0'
+=======
+pandas==2.2.3
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via
+    #   feast
+    #   hash-cache
     #   pins
     #   xorq
 pandocfilters==1.5.1
@@ -459,7 +523,7 @@ parso==0.8.4
     # via jedi
 parsy==2.1
     # via xorq
-partd==1.4.2 ; python_full_version < '4.0'
+partd==1.4.2
     # via dask
 pathspec==0.12.1
     # via
@@ -493,12 +557,23 @@ propcache==0.3.2 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
+<<<<<<< HEAD
 proto-plus==1.26.1 ; python_full_version < '4.0'
     # via google-api-core
 protobuf==5.29.5
+=======
+proto-plus==1.26.1
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via
     #   google-api-core
+    #   google-cloud-bigquery-storage
+protobuf==5.29.4
+    # via
+    #   feast
+    #   google-api-core
+    #   google-cloud-bigquery-storage
     #   googleapis-common-protos
+    #   grpcio-status
     #   opentelemetry-proto
     #   proto-plus
 psutil==7.0.0
@@ -520,11 +595,11 @@ pyarrow==20.0.0
     #   xorq-datafusion
 pyarrow-hotfix==0.7 ; python_full_version < '4.0'
     # via xorq
-pyasn1==0.6.1 ; python_full_version < '4.0'
+pyasn1==0.6.1
     # via
     #   pyasn1-modules
     #   rsa
-pyasn1-modules==0.4.2 ; python_full_version < '4.0'
+pyasn1-modules==0.4.2
     # via google-auth
 pycparser==2.22
     # via cffi
@@ -556,6 +631,7 @@ pyparsing==3.2.3
     # via pyiceberg
 pytest==8.4.0
     # via
+    #   hash-cache
     #   pytest-codspeed
     #   pytest-cov
     #   pytest-mock
@@ -569,6 +645,7 @@ python-dateutil==2.9.0.post0
     # via
     #   arrow
     #   botocore
+    #   google-cloud-bigquery
     #   jupyter-client
     #   pandas
     #   strictyaml
@@ -599,6 +676,7 @@ pyyaml==6.0.2
     # via
     #   dask
     #   envyaml
+    #   feast
     #   jupyter-events
     #   pins
     #   pre-commit
@@ -621,6 +699,7 @@ requests==2.32.4
     # via
     #   gcsfs
     #   google-api-core
+    #   google-cloud-bigquery
     #   google-cloud-storage
     #   jupyterlab-server
     #   opentelemetry-exporter-otlp-proto-http
@@ -653,7 +732,7 @@ rpds-py==0.25.1
     # via
     #   jsonschema
     #   referencing
-rsa==4.9.1 ; python_full_version < '4.0'
+rsa==4.9.1
     # via google-auth
 ruff==0.11.13
 s3transfer==0.13.0 ; python_full_version < '4.0'
@@ -717,6 +796,7 @@ tinycss2==1.4.0
 toml==0.10.2
     # via vendoring
 tomli==2.2.1
+<<<<<<< HEAD
     # via
     #   black
     #   blackdoc
@@ -725,10 +805,15 @@ tomli==2.2.1
     #   jupyterlab
     #   pytest
 tomlkit==0.13.3 ; python_full_version < '4.0'
+=======
+    # via blackdoc
+tomlkit==0.13.2 ; python_full_version < '4.0'
+>>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via snowflake-connector-python
 toolz==1.0.0
     # via
     #   dask
+    #   hash-cache
     #   partd
     #   xorq
 tornado==6.5.1
@@ -762,14 +847,8 @@ typing-extensions==4.14.0
     # via
     #   adbc-driver-manager
     #   anyio
-    #   async-lru
     #   beautifulsoup4
-    #   black
     #   datafusion
-    #   exceptiongroup
-    #   ipython
-    #   mistune
-    #   multidict
     #   openai
     #   opentelemetry-api
     #   opentelemetry-exporter-otlp-proto-grpc
@@ -783,18 +862,15 @@ typing-extensions==4.14.0
     #   pyopenssl
     #   quartodoc
     #   referencing
-    #   rich
     #   snowflake-connector-python
     #   sqlalchemy
-    #   structlog
     #   typing-inspection
-    #   uvicorn
     #   xorq
 typing-inspection==0.4.1
     # via
     #   pydantic
     #   pydantic-settings
-tzdata==2025.2 ; python_full_version < '4.0' or sys_platform == 'win32'
+tzdata==2025.2
     # via
     #   pandas
     #   tzlocal
@@ -805,6 +881,7 @@ uri-template==1.3.0
 urllib3==2.4.0
     # via
     #   botocore
+    #   hash-cache
     #   requests
 uvicorn==0.34.3 ; sys_platform != 'emscripten'
     # via mcp

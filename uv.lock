@@ -1435,6 +1435,19 @@ wheels = [
 ]
 
 [[package]]
+name = "hash-cache"
+version = "0.1.0"
+source = { git = "https://github.com/xorq-labs/hash-cache?branch=master#0c15468a0fb72bd8fb67a65bc552558708b6d4a8" }
+dependencies = [
+    { name = "attrs" },
+    { name = "cloudpickle" },
+    { name = "dask" },
+    { name = "pandas" },
+    { name = "toolz" },
+    { name = "urllib3" },
+]
+
+[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -4756,6 +4769,7 @@ duckdb = [
 ]
 ducklake = [
     { name = "duckdb" },
+    { name = "hash-cache" },
 ]
 examples = [
     { name = "adbc-driver-postgresql" },
@@ -4837,6 +4851,7 @@ requires-dist = [
     { name = "envyaml", specifier = ">=1.10.211231" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=2024.6.1,<2025.5.2" },
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.2,<1" },
+    { name = "hash-cache", marker = "extra == 'ducklake'", git = "https://github.com/xorq-labs/hash-cache?branch=master" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.32.1" },

@@ -68,6 +68,7 @@ Changelog = "https://github.com/letsql/xorq/blob/main/CHANGELOG.md"
 [project.optional-dependencies]
 ducklake = [
     "duckdb>=1.3.0",
+    "hash-cache",
 ]
 duckdb = [
     "duckdb>=1.1.3",
@@ -277,3 +278,6 @@ filter_commits = true
 tag_pattern = "v[0-9].*"
 topo_order = false
 sort_commits = "oldest"
+
+[tool.uv.sources]
+hash-cache = { git = "https://github.com/xorq-labs/hash-cache", branch = "master" }
