@@ -9,7 +9,6 @@ from attrs import (
 )
 from attrs.validators import (
     instance_of,
-    optional,
 )
 
 import xorq as xo
@@ -38,11 +37,11 @@ class Feature:
     Online expressions are auto-generated from the offline schema.
     """
 
-    name: str = field(validator=optional(instance_of(str)))
-    entity: Entity = field(validator=optional(instance_of(Entity)))
-    timestamp_column: str = field(validator=optional(instance_of(str)))
+    name: str = field(validator=instance_of(str))
+    entity: Entity = field(validator=instance_of(Entity))
+    timestamp_column: str = field(validator=instance_of(str))
     offline_expr: Any = field(validator=instance_of(Expr))
-    description: str = field(validator=optional(instance_of(str)))
+    description: str = field(validator=instance_of(str))
     ttl: Optional[timedelta] = field(default=None)
 
     def get_schema(self):
