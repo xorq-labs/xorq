@@ -23,9 +23,9 @@ class Entity:
     Acts like a primary key for joins and feature grouping.
     """
 
-    name: str = field(validator=optional(instance_of(str)), default=None)
-    key_column: str = field(validator=optional(instance_of(str)), default=None)
-    description: str = field(validator=instance_of(str), default="")
+    name: str = field(validator=instance_of(str))
+    key_column: str = field(validator=instance_of(str))
+    description: str = field(validator=instance_of(str))
 
 
 @define
