@@ -201,7 +201,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 for arg_name in argnames
             ]
             return_type = PyArrowType.from_ibis(dt.dtype(annotations["return"]))
-            udf = df.udf(
+            udf = df.user_defined.udf(
                 func,
                 input_types=input_types,
                 return_type=return_type,
@@ -221,7 +221,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             self.con.register_udf(udf)
 
     def _compile_pyarrow_udf(self, udf_node):
-        return df.udf(
+        return df.user_defined.udf(
             udf_node.__func__,
             input_types=[PyArrowType.from_ibis(arg.dtype) for arg in udf_node.args],
             return_type=PyArrowType.from_ibis(udf_node.dtype),
@@ -232,7 +232,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def _compile_elementwise_udf(self, udf_node):
-        return df.udf(
+        return df.user_defined.udf(
             udf_node.func,
             input_types=list(map(PyArrowType.from_ibis, udf_node.input_type)),
             return_type=PyArrowType.from_ibis(udf_node.return_type),

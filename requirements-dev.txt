@@ -132,7 +132,7 @@ cryptography==45.0.3
     #   snowflake-connector-python
 dask==2025.1.0 ; python_full_version < '4.0'
     # via xorq
-datafusion==45.2.0
+datafusion==47.0.0
     # via xorq
 debugpy==1.8.14
     # via ipykernel
