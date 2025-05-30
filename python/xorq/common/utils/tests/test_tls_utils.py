@@ -1,3 +1,4 @@
+import socket
 from pathlib import Path
 
 import pytest
@@ -61,6 +62,62 @@ def test_mtls_creation():
 
     tls_kwargs.ca_tlscert.verify(tls_kwargs.server_tlscert)
     tls_kwargs.ca_tlscert.verify(tls_kwargs.client_tlscert)
+
+
+@pytest.mark.parametrize(
+    "client_values",
+    [
+        (True, True),
+        (False, True),
+        (False, False),
+    ],
+)
+def test_tls_kwargs_from_constructor(client_values):
+    verify_client, with_client = client_values
+
+    ca_kwargs = {
+        "common_name": "root_cert",
+    }
+    server_kwargs = {
+        "common_name": socket.gethostname(),
+        "sans": ("localhost",),
+    }
+    client_kwargs = {
+        "common_name": "client",
+    }
+
+    ca_tlscert = TLSCert.from_common_name(**ca_kwargs)
+    server_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **server_kwargs)
+    client_tlscert = (
+        TLSCert.from_common_name(sign_with=ca_tlscert, **client_kwargs)
+        if with_client
+        else None
+    )
+    tls_kwargs = TLSKwargs(verify_client, ca_tlscert, server_tlscert, client_tlscert)
+
+    assert tls_kwargs is not None
+    tls_kwargs.ca_tlscert.verify(tls_kwargs.server_tlscert)
+    if tls_kwargs.verify_client:
+        tls_kwargs.ca_tlscert.verify(tls_kwargs.client_tlscert)
+
+
+@pytest.mark.parametrize("use_none", (True, False))
+def test_tls_kwargs_from_constructor_fails(use_none):
+    ca_kwargs = {
+        "common_name": "root_cert",
+    }
+    server_kwargs = {
+        "common_name": socket.gethostname(),
+        "sans": ("localhost",),
+    }
+
+    ca_tlscert = TLSCert.from_common_name(**ca_kwargs)
+    server_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **server_kwargs)
+
+    with pytest.raises(AssertionError):
+        TLSKwargs(True, ca_tlscert, server_tlscert, None) if use_none else TLSKwargs(
+            True, ca_tlscert, server_tlscert
+        )
 
 
 def test_client_verify_fails():
