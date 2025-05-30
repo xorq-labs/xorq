@@ -8,11 +8,11 @@ adbc-driver-postgresql==1.6.0
     # via xorq
 adbc-driver-snowflake==1.6.0
     # via xorq
-aiohappyeyeballs==2.6.1 ; python_full_version < '4'
+aiohappyeyeballs==2.6.1 ; python_full_version < '4.0'
     # via aiohttp
-aiohttp==3.12.13 ; python_full_version < '4'
+aiohttp==3.11.18 ; python_full_version < '4.0'
     # via gcsfs
-aiosignal==1.3.2 ; python_full_version < '4'
+aiosignal==1.3.2 ; python_full_version < '4.0'
     # via aiohttp
 annotated-types==0.7.0
     # via pydantic
@@ -24,31 +24,28 @@ anyio==4.9.0
     #   openai
     #   sse-starlette
     #   starlette
-appdirs==1.4.4 ; python_full_version < '4'
+appdirs==1.4.4 ; python_full_version < '4.0'
     # via pins
 appnope==0.1.4 ; sys_platform == 'darwin'
     # via ipykernel
-argon2-cffi==25.1.0
+argon2-cffi==23.1.0
     # via jupyter-server
 argon2-cffi-bindings==21.2.0
     # via argon2-cffi
 arrow==1.3.0
     # via isoduration
-asn1crypto==1.5.1 ; python_full_version < '4'
+asn1crypto==1.5.1 ; python_full_version < '4.0'
     # via snowflake-connector-python
 asttokens==3.0.0
     # via stack-data
 async-lru==2.0.5
     # via jupyterlab
-async-timeout==5.0.1 ; python_full_version < '3.11'
-    # via aiohttp
 atpublic==6.0.1
-    # via
-    #   ibis-framework
-    #   xorq
+    # via xorq
 attrs==25.3.0
     # via
     #   aiohttp
+    #   hash-cache
     #   jsonschema
     #   referencing
     #   sphobjinv
@@ -65,12 +62,12 @@ black==25.1.0
     # via
     #   blackdoc
     #   quartodoc
-blackdoc==0.4.1
+blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-boto3==1.39.1 ; python_full_version < '4'
+boto3==1.38.22 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.39.1 ; python_full_version < '4'
+botocore==1.38.22 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -79,7 +76,7 @@ cachetools==5.5.2
     # via
     #   google-auth
     #   pyiceberg
-certifi==2025.6.15
+certifi==2025.4.26
     # via
     #   httpcore
     #   httpx
@@ -102,7 +99,7 @@ charset-normalizer==3.4.2
     # via
     #   requests
     #   snowflake-connector-python
-cityhash==0.4.8 ; python_full_version < '4'
+cityhash==0.4.8 ; python_full_version < '4.0'
     # via xorq
 click==8.2.1
     # via
@@ -115,6 +112,7 @@ click==8.2.1
 cloudpickle==3.1.1
     # via
     #   dask
+    #   hash-cache
     #   xorq
 codespell==2.4.1
 colorama==0.4.6
@@ -126,55 +124,60 @@ colorama==0.4.6
     #   tqdm
 comm==0.2.2
     # via ipykernel
-coverage==7.9.1
+coverage==7.8.1
     # via pytest-cov
-cryptography==45.0.4
+cryptography==45.0.2
     # via
     #   pyopenssl
     #   snowflake-connector-python
+dask==2025.1.0
+    # via
+    #   hash-cache
     #   xorq
-dask==2025.1.0 ; python_full_version < '4'
-    # via xorq
-databackend==0.0.3 ; python_full_version < '4'
-    # via pins
-datafusion==47.0.0
+datafusion==45.2.0
     # via xorq
 debugpy==1.8.14
     # via ipykernel
 decorator==5.2.1
     # via
     #   gcsfs
+    #   ipdb
     #   ipython
 defusedxml==0.7.1
     # via nbconvert
+deprecated==1.2.18
+    # via
+    #   opentelemetry-api
+    #   opentelemetry-exporter-otlp-proto-grpc
+    #   opentelemetry-exporter-otlp-proto-http
+    #   opentelemetry-semantic-conventions
 distlib==0.3.9
     # via virtualenv
 distro==1.9.0
     # via openai
-duckdb==1.3.1
+duckdb==1.3.0
     # via xorq
 envyaml==1.10.211231
     # via xorq
-exceptiongroup==1.3.0 ; python_full_version < '3.11'
-    # via
-    #   anyio
-    #   ipython
-    #   pytest
 executing==2.2.0
     # via stack-data
+fastavro==1.11.1
+    # via feast
 fastjsonschema==2.21.1
     # via nbformat
+feast==0.1.2.post1
+    # via xorq
 filelock==3.18.0
     # via
     #   snowflake-connector-python
     #   virtualenv
 fqdn==1.5.1
     # via jsonschema
-frozenlist==1.7.0 ; python_full_version < '4'
+frozenlist==1.6.0 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   aiosignal
-fsspec==2025.5.1
+fsspec==2025.5.0
     # via
     #   dask
     #   gcsfs
@@ -185,49 +188,75 @@ gast==0.6.0 ; sys_platform == 'darwin'
     # via
     #   beniget
     #   pythran
-gcsfs==2025.5.1 ; python_full_version < '4'
+gcsfs==2025.5.0.post1 ; python_full_version < '4.0'
     # via pins
-geoarrow-types==0.3.0 ; python_full_version < '4'
+geoarrow-types==0.2.0 ; python_full_version < '4.0'
     # via xorq
-git-cliff==2.9.1
-google-api-core==2.25.1 ; python_full_version < '4'
+git-cliff==2.8.0
+google-api-core==2.24.2
     # via
+    #   feast
+    #   google-cloud-bigquery
+    #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   google-cloud-storage
-google-auth==2.40.3 ; python_full_version < '4'
+google-auth==2.40.2
     # via
+    #   feast
     #   gcsfs
     #   google-api-core
     #   google-auth-oauthlib
+    #   google-cloud-bigquery
+    #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   google-cloud-storage
-google-auth-oauthlib==1.2.2 ; python_full_version < '4'
+google-auth-oauthlib==1.2.2 ; python_full_version < '4.0'
     # via gcsfs
-google-cloud-core==2.4.3 ; python_full_version < '4'
-    # via google-cloud-storage
-google-cloud-storage==3.1.1 ; python_full_version < '4'
-    # via gcsfs
-google-crc32c==1.7.1 ; python_full_version < '4'
+google-cloud-bigquery==3.34.0
+    # via feast
+google-cloud-bigquery-storage==2.32.0
+    # via feast
+google-cloud-core==2.4.3
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-storage
+google-cloud-storage==3.1.0
+    # via
+    #   feast
+    #   gcsfs
+google-crc32c==1.7.1
     # via
     #   google-cloud-storage
     #   google-resumable-media
-google-resumable-media==2.7.2 ; python_full_version < '4'
-    # via google-cloud-storage
+google-resumable-media==2.7.2
+    # via
+    #   google-cloud-bigquery
+    #   google-cloud-storage
 googleapis-common-protos==1.70.0
     # via
+    #   feast
     #   google-api-core
+    #   grpcio-status
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-greenlet==3.2.3 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
+greenlet==3.2.2 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
     # via sqlalchemy
 griffe==1.7.3
     # via quartodoc
-grpcio==1.73.1
-    # via opentelemetry-exporter-otlp-proto-grpc
+grpcio==1.71.0
+    # via
+    #   feast
+    #   google-api-core
+    #   grpcio-status
+    #   opentelemetry-exporter-otlp-proto-grpc
+grpcio-status==1.71.0
+    # via google-api-core
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
+hash-cache @ git+https://github.com/xorq-labs/hash-cache@253f72f49657e9ac58ea477038c958440f4225b1
+    # via xorq
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
@@ -235,12 +264,11 @@ httpx==0.28.1
     #   jupyterlab
     #   mcp
     #   openai
-httpx-sse==0.4.1
+httpx-sse==0.4.0
     # via mcp
-humanize==4.12.3 ; python_full_version < '4'
+humanize==4.12.3 ; python_full_version < '4.0'
     # via pins
-ibis-framework==10.6.0
-identify==2.6.12
+identify==2.6.10
     # via pre-commit
 idna==3.10
     # via
@@ -250,9 +278,8 @@ idna==3.10
     #   requests
     #   snowflake-connector-python
     #   yarl
-importlib-metadata==8.7.0
+importlib-metadata==8.6.1
     # via
-    #   dask
     #   opentelemetry-api
     #   pins
     #   quartodoc
@@ -264,13 +291,15 @@ importlib-resources==6.5.2
     #   quartodoc
 iniconfig==2.1.0
     # via pytest
+ipdb==0.13.13
+    # via xorq
 ipykernel==6.29.5
     # via jupyterlab
-ipython==8.37.0 ; python_full_version < '3.11'
-    # via ipykernel
-ipython==9.4.0 ; python_full_version >= '3.11'
-    # via ipykernel
-ipython-pygments-lexers==1.1.1 ; python_full_version >= '3.11'
+ipython==9.2.0
+    # via
+    #   ipdb
+    #   ipykernel
+ipython-pygments-lexers==1.1.1
     # via ipython
 isoduration==20.11.0
     # via jsonschema
@@ -285,11 +314,11 @@ jinja2==3.1.6
     #   pins
 jiter==0.10.0
     # via openai
-jmespath==1.0.1 ; python_full_version < '4'
+jmespath==1.0.1 ; python_full_version < '4.0'
     # via
     #   boto3
     #   botocore
-joblib==1.5.1
+joblib==1.5.0
     # via
     #   pins
     #   scikit-learn
@@ -297,11 +326,10 @@ json5==0.12.0
     # via jupyterlab-server
 jsonpointer==3.0.0
     # via jsonschema
-jsonschema==4.24.0
+jsonschema==4.23.0
     # via
     #   jupyter-events
     #   jupyterlab-server
-    #   mcp
     #   nbformat
     #   sphobjinv
     #   vendoring
@@ -312,7 +340,7 @@ jupyter-client==8.6.3
     #   ipykernel
     #   jupyter-server
     #   nbclient
-jupyter-core==5.8.1
+jupyter-core==5.7.2
     # via
     #   ipykernel
     #   jupyter-client
@@ -334,7 +362,7 @@ jupyter-server==2.16.0
     #   notebook-shim
 jupyter-server-terminals==0.5.3
     # via jupyter-server
-jupyterlab==4.4.4
+jupyterlab==4.4.2
     # via notebook
 jupyterlab-pygments==0.3.0
     # via nbconvert
@@ -342,7 +370,7 @@ jupyterlab-server==2.27.3
     # via
     #   jupyterlab
     #   notebook
-locket==1.0.0 ; python_full_version < '4'
+locket==1.0.0
     # via partd
 lz4==4.4.4
     # via trino
@@ -356,7 +384,7 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-mcp==1.10.1
+mcp==1.9.1
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -366,7 +394,7 @@ mmh3==5.1.0
     # via pyiceberg
 more-itertools==10.7.0
     # via blackdoc
-multidict==6.6.3 ; python_full_version < '4'
+multidict==6.4.4 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
@@ -385,62 +413,51 @@ nest-asyncio==1.6.0
     # via ipykernel
 nodeenv==1.9.1
     # via pre-commit
-notebook==7.4.4
+notebook==7.4.2
 notebook-shim==0.2.4
     # via
     #   jupyterlab
     #   notebook
-numpy==2.2.6 ; python_full_version < '3.11'
+numpy==2.2.6
     # via
     #   pandas
     #   pythran
     #   scikit-learn
     #   scipy
     #   xgboost
-numpy==2.3.1 ; python_full_version >= '3.11'
-    # via
-    #   pandas
-    #   pythran
-    #   scikit-learn
-    #   scipy
-    #   xgboost
-nvidia-nccl-cu12==2.27.5 ; platform_machine != 'aarch64' and sys_platform == 'linux'
+nvidia-nccl-cu12==2.26.5 ; platform_machine != 'aarch64' and sys_platform == 'linux'
     # via xgboost
-oauthlib==3.3.1 ; python_full_version < '4'
+oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.93.0
+openai==1.82.0
     # via xorq
-opentelemetry-api==1.34.1
+opentelemetry-api==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-    #   opentelemetry-exporter-prometheus
     #   opentelemetry-sdk
     #   opentelemetry-semantic-conventions
-opentelemetry-exporter-otlp==1.34.1
+opentelemetry-exporter-otlp==1.33.1
     # via xorq
-opentelemetry-exporter-otlp-proto-common==1.34.1
+opentelemetry-exporter-otlp-proto-common==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-exporter-otlp-proto-grpc==1.34.1
+opentelemetry-exporter-otlp-proto-grpc==1.33.1
     # via opentelemetry-exporter-otlp
-opentelemetry-exporter-otlp-proto-http==1.34.1
+opentelemetry-exporter-otlp-proto-http==1.33.1
     # via opentelemetry-exporter-otlp
-opentelemetry-exporter-prometheus==0.55b1
-    # via xorq
-opentelemetry-proto==1.34.1
+opentelemetry-proto==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-common
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-opentelemetry-sdk==1.34.1
+opentelemetry-sdk==1.33.1
     # via
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-    #   opentelemetry-exporter-prometheus
     #   xorq
-opentelemetry-semantic-conventions==0.55b1
+opentelemetry-semantic-conventions==0.54b1
     # via opentelemetry-sdk
 overrides==7.7.0
     # via jupyter-server
@@ -448,6 +465,7 @@ packaging==25.0
     # via
     #   black
     #   dask
+    #   google-cloud-bigquery
     #   ipykernel
     #   jupyter-events
     #   jupyter-server
@@ -457,8 +475,10 @@ packaging==25.0
     #   pytest
     #   snowflake-connector-python
     #   vendoring
-pandas==2.3.0 ; python_full_version < '4'
+pandas==2.2.3
     # via
+    #   feast
+    #   hash-cache
     #   pins
     #   xorq
 pandocfilters==1.5.1
@@ -466,10 +486,8 @@ pandocfilters==1.5.1
 parso==0.8.4
     # via jedi
 parsy==2.1
-    # via
-    #   ibis-framework
-    #   xorq
-partd==1.4.2 ; python_full_version < '4'
+    # via xorq
+partd==1.4.2
     # via dask
 pathspec==0.12.1
     # via
@@ -477,7 +495,7 @@ pathspec==0.12.1
     #   blackdoc
 pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via ipython
-pins==0.9.0 ; python_full_version < '4'
+pins==0.8.7 ; python_full_version < '4.0'
     # via xorq
 pip==25.1.1
 platformdirs==4.3.8
@@ -487,31 +505,31 @@ platformdirs==4.3.8
     #   snowflake-connector-python
     #   virtualenv
 pluggy==1.6.0
-    # via
-    #   pytest
-    #   pytest-cov
+    # via pytest
 plum-dispatch==2.5.7
     # via quartodoc
 ply==3.11 ; sys_platform == 'darwin'
     # via pythran
 pre-commit==4.2.0
-prometheus-client==0.22.1
-    # via
-    #   jupyter-server
-    #   opentelemetry-exporter-prometheus
-    #   xorq
+prometheus-client==0.22.0
+    # via jupyter-server
 prompt-toolkit==3.0.51
     # via ipython
-propcache==0.3.2 ; python_full_version < '4'
+propcache==0.3.1 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
-proto-plus==1.26.1 ; python_full_version < '4'
-    # via google-api-core
-protobuf==5.29.5
+proto-plus==1.26.1
     # via
     #   google-api-core
+    #   google-cloud-bigquery-storage
+protobuf==5.29.4
+    # via
+    #   feast
+    #   google-api-core
+    #   google-cloud-bigquery-storage
     #   googleapis-common-protos
+    #   grpcio-status
     #   opentelemetry-proto
     #   proto-plus
 psutil==7.0.0
@@ -531,17 +549,17 @@ pyarrow==20.0.0
     #   datafusion
     #   xorq
     #   xorq-datafusion
-pyarrow-hotfix==0.7 ; python_full_version < '4'
+pyarrow-hotfix==0.7 ; python_full_version < '4.0'
     # via xorq
-pyasn1==0.6.1 ; python_full_version < '4'
+pyasn1==0.6.1
     # via
     #   pyasn1-modules
     #   rsa
-pyasn1-modules==0.4.2 ; python_full_version < '4'
+pyasn1-modules==0.4.2
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.11.7
+pydantic==2.11.5
     # via
     #   mcp
     #   openai
@@ -550,51 +568,51 @@ pydantic==2.11.7
     #   quartodoc
 pydantic-core==2.33.2
     # via pydantic
-pydantic-settings==2.10.1
+pydantic-settings==2.9.1
     # via mcp
-pygments==2.19.2
+pygments==2.19.1
     # via
     #   ipython
     #   ipython-pygments-lexers
     #   nbconvert
-    #   pytest
     #   rich
 pyiceberg==0.9.1
     # via xorq
-pyjwt==2.10.1 ; python_full_version < '4'
+pyjwt==2.10.1 ; python_full_version < '4.0'
     # via snowflake-connector-python
 pyopenssl==25.1.0
     # via snowflake-connector-python
 pyparsing==3.2.3
     # via pyiceberg
-pytest==8.4.1
+pytest==8.3.5
     # via
+    #   hash-cache
     #   pytest-codspeed
     #   pytest-cov
     #   pytest-mock
     #   pytest-snapshot
 pytest-codspeed==3.2.0
-pytest-cov==6.2.1
-pytest-mock==3.14.1 ; python_full_version < '4'
+pytest-cov==6.1.1
+pytest-mock==3.14.0 ; python_full_version < '4.0'
     # via xorq
 pytest-snapshot==0.9.0
 python-dateutil==2.9.0.post0
     # via
     #   arrow
     #   botocore
-    #   ibis-framework
+    #   google-cloud-bigquery
     #   jupyter-client
     #   pandas
     #   strictyaml
     #   trino
     #   xorq
-python-dotenv==1.1.1
+python-dotenv==1.1.0
     # via pydantic-settings
 python-json-logger==3.3.0
     # via jupyter-events
 python-multipart==0.0.20
     # via mcp
-pythran==0.18.0 ; sys_platform == 'darwin'
+pythran==0.17.0 ; sys_platform == 'darwin'
     # via xorq
 pytz==2025.2
     # via
@@ -613,17 +631,18 @@ pyyaml==6.0.2
     # via
     #   dask
     #   envyaml
+    #   feast
     #   jupyter-events
     #   pins
     #   pre-commit
     #   quartodoc
     #   xorq
-pyzmq==27.0.0
+pyzmq==26.4.0
     # via
     #   ipykernel
     #   jupyter-client
     #   jupyter-server
-quartodoc==0.11.1
+quartodoc==0.9.1
 quickgrove==0.1.4
     # via xorq
 referencing==0.36.2
@@ -631,10 +650,11 @@ referencing==0.36.2
     #   jsonschema
     #   jsonschema-specifications
     #   jupyter-events
-requests==2.32.4
+requests==2.32.3
     # via
     #   gcsfs
     #   google-api-core
+    #   google-cloud-bigquery
     #   google-cloud-storage
     #   jupyterlab-server
     #   opentelemetry-exporter-otlp-proto-http
@@ -646,7 +666,7 @@ requests==2.32.4
     #   trino
     #   vendoring
     #   xorq
-requests-oauthlib==2.0.0 ; python_full_version < '4'
+requests-oauthlib==2.0.0 ; python_full_version < '4.0'
     # via google-auth-oauthlib
 rfc3339-validator==0.1.4
     # via
@@ -663,28 +683,24 @@ rich==13.9.4
     #   pyiceberg
     #   pytest-codspeed
     #   vendoring
-rpds-py==0.26.0
+rpds-py==0.25.1
     # via
     #   jsonschema
     #   referencing
-rsa==4.9.1 ; python_full_version < '4'
+rsa==4.9.1
     # via google-auth
-ruff==0.12.1
-s3transfer==0.13.0 ; python_full_version < '4'
+ruff==0.11.11
+s3transfer==0.13.0 ; python_full_version < '4.0'
     # via boto3
-scikit-learn==1.7.0
+scikit-learn==1.6.1
     # via xorq
-scipy==1.15.3 ; python_full_version < '3.11'
-    # via
-    #   scikit-learn
-    #   xgboost
-scipy==1.16.0 ; python_full_version >= '3.11'
+scipy==1.15.3
     # via
     #   scikit-learn
     #   xgboost
 send2trash==1.8.3
     # via jupyter-server
-setuptools==80.9.0
+setuptools==80.8.0
     # via
     #   jupyterlab
     #   pythran
@@ -696,7 +712,7 @@ sniffio==1.3.1
     # via
     #   anyio
     #   openai
-snowflake-connector-python==3.16.0 ; python_full_version < '4'
+snowflake-connector-python==3.15.0 ; python_full_version < '4.0'
     # via xorq
 sortedcontainers==2.4.0
     # via
@@ -704,23 +720,23 @@ sortedcontainers==2.4.0
     #   snowflake-connector-python
 soupsieve==2.7
     # via beautifulsoup4
-sphobjinv==2.3.1.3
+sphobjinv==2.3.1.2
     # via quartodoc
 sqlalchemy==2.0.41
     # via pyiceberg
 sqlglot==25.20.2
-    # via
-    #   ibis-framework
-    #   xorq
-sse-starlette==2.3.6
+    # via xorq
+sse-starlette==2.3.5
     # via mcp
 stack-data==0.6.3
     # via ipython
-starlette==0.47.1
-    # via mcp
+starlette==0.46.2
+    # via
+    #   mcp
+    #   sse-starlette
 strictyaml==1.7.3
     # via pyiceberg
-structlog==25.4.0 ; python_full_version < '4'
+structlog==25.3.0 ; python_full_version < '4.0'
     # via xorq
 tabulate==0.9.0
     # via quartodoc
@@ -737,19 +753,13 @@ tinycss2==1.4.0
 toml==0.10.2
     # via vendoring
 tomli==2.2.1
-    # via
-    #   black
-    #   blackdoc
-    #   codespell
-    #   coverage
-    #   jupyterlab
-    #   pytest
-tomlkit==0.13.3 ; python_full_version < '4'
+    # via blackdoc
+tomlkit==0.13.2 ; python_full_version < '4.0'
     # via snowflake-connector-python
 toolz==1.0.0
     # via
     #   dask
-    #   ibis-framework
+    #   hash-cache
     #   partd
     #   xorq
 tornado==6.5.1
@@ -776,42 +786,26 @@ traitlets==5.14.3
     #   nbclient
     #   nbconvert
     #   nbformat
-trino==0.335.0
+trino==0.334.0
 types-python-dateutil==2.9.0.20250516
     # via arrow
-typing-extensions==4.14.0
+typing-extensions==4.13.2
     # via
     #   adbc-driver-manager
     #   anyio
-    #   async-lru
     #   beautifulsoup4
-    #   black
     #   datafusion
-    #   exceptiongroup
-    #   ibis-framework
-    #   ipython
-    #   mistune
-    #   multidict
     #   openai
-    #   opentelemetry-api
-    #   opentelemetry-exporter-otlp-proto-grpc
-    #   opentelemetry-exporter-otlp-proto-http
     #   opentelemetry-sdk
-    #   opentelemetry-semantic-conventions
-    #   pins
     #   plum-dispatch
     #   pydantic
     #   pydantic-core
     #   pyopenssl
     #   quartodoc
     #   referencing
-    #   rich
     #   snowflake-connector-python
     #   sqlalchemy
-    #   starlette
-    #   structlog
     #   typing-inspection
-    #   uvicorn
     #   xorq
 typing-inspection==0.4.1
     # via
@@ -819,18 +813,18 @@ typing-inspection==0.4.1
     #   pydantic-settings
 tzdata==2025.2
     # via
-    #   ibis-framework
     #   pandas
     #   tzlocal
 tzlocal==5.3.1
     # via trino
 uri-template==1.3.0
     # via jsonschema
-urllib3==2.5.0
+urllib3==2.4.0
     # via
     #   botocore
+    #   hash-cache
     #   requests
-uvicorn==0.35.0 ; sys_platform != 'emscripten'
+uvicorn==0.34.2 ; sys_platform != 'emscripten'
     # via mcp
 vendoring==1.2.0
 virtualenv==20.31.2
@@ -847,15 +841,17 @@ webencodings==0.5.1
     #   tinycss2
 websocket-client==1.8.0
     # via jupyter-server
-xgboost==3.0.2
+wrapt==1.17.2
+    # via deprecated
+xgboost==3.0.1
     # via xorq
-xorq-datafusion==0.2.3
+xorq-datafusion==0.2.2
     # via xorq
-xxhash==3.5.0 ; python_full_version < '4'
+xxhash==3.5.0 ; python_full_version < '4.0'
     # via pins
-yarl==1.20.1 ; python_full_version < '4'
+yarl==1.20.0 ; python_full_version < '4.0'
     # via aiohttp
-zipp==3.23.0
+zipp==3.21.0
     # via importlib-metadata
 zstandard==0.23.0
     # via trino
