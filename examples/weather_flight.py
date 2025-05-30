@@ -122,9 +122,9 @@ def run_historical_features() -> None:
         "city": ["London", "Tokyo", "New York"],
         # "event_timestamp" (reserved key) -> timestamps
         "event_timestamp": [
-            datetime(2025, 5, 29,  23, 59, 42),
-            datetime(2025, 5, 29,  23,12, 10),
-            datetime(2025, 5, 29,  23, 40, 26),
+            datetime(2025, 6, 29,  23, 59, 42),
+            datetime(2025, 6, 29,  23,12, 10),
+            datetime(2025, 6, 29,  23, 40, 26),
         ],
         # Optional label columns (not processed by feature store)
         "label_weather_satisfaction": [1, 5, 3],

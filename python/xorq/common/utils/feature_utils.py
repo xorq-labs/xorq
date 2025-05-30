@@ -320,6 +320,7 @@ class FeatureStore:
         )
 
         # Execute to get the materialized data
+        # TODO: Do not execute here
         latest_df = latest_expr.execute()
 
         if latest_df.empty:
