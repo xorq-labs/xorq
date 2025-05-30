@@ -132,7 +132,6 @@ def run_historical_features() -> None:
         "temp_adjustment": [1.0, 2.0, 3.0],
     })
 
-    # Get historical features using Feast-like API
     training_df = store.get_historical_features(
         entity_df=entity_df,
         features=[
