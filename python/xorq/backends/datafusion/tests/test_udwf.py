@@ -1,7 +1,7 @@
 import pandas as pd
 import pyarrow as pa
 from datafusion import udwf
-from datafusion.udf import WindowEvaluator
+from datafusion.user_defined import WindowEvaluator
 
 import xorq as xo
 from xorq.expr.relations import into_backend
