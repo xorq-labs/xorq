@@ -6,6 +6,7 @@ import pyarrow as pa
 from attrs import (
     define,
     field,
+    frozen,
 )
 from attrs.validators import (
     instance_of,
@@ -19,7 +20,7 @@ from xorq.vendor.ibis.expr.types.core import (
 )
 
 
-@define
+@frozen
 class Entity:
     """
     Acts like a primary key for joins and feature grouping.
@@ -30,7 +31,7 @@ class Entity:
     description: str = field(validator=instance_of(str))
 
 
-@define
+@frozen
 class Feature:
     """
     Represents a feature with its offline expression and metadata.
