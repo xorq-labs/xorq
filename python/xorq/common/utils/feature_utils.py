@@ -2,8 +2,8 @@ import pandas as pd
 import pyarrow as pa
 import xorq as xo
 from xorq.flight.client import FlightClient
-from typing import List, Mapping, Any, Union
-from datetime import datetime
+from typing import List, Mapping, Any, Union, Optional
+from datetime import datetime, timedelta
 import attrs
 
 
@@ -28,6 +28,7 @@ class Feature:
     timestamp_column: str
     offline_expr: Any = attrs.field(alias="_offline_expr")
     description: str = ""
+    ttl: Optional[timedelta] = None
 
     def offline_expr(self):
         return self._offline_expr
@@ -35,6 +36,16 @@ class Feature:
     def get_schema(self):
         """Get the schema from the offline expression."""
         return self._offline_expr.schema()
+
+    def is_expired(self, feature_timestamp: datetime, current_time: datetime = None) -> bool:
+        """Check if a feature is expired based on its TTL."""
+        if self.ttl is None:
+            return False
+
+        if current_time is None:
+            current_time = datetime.now()
+
+        return (current_time - feature_timestamp) > self.ttl
 
 
 @attrs.define
@@ -66,12 +77,17 @@ class FeatureView:
     name: str
     entity: Entity
     features: List[Feature]
+    ttl: Optional[timedelta] = None  # Default TTL for all features in the view
 
     def __attrs_post_init__(self):
         for feature in self.features:
             if feature.entity.name != self.entity.name:
                 raise ValueError(f"Feature {feature.name} belongs to entity {feature.entity.name}, "
                                f"but view expects entity {self.entity.name}")
+
+            # Set view's TTL as default if feature doesn't have its own TTL
+            if feature.ttl is None and self.ttl is not None:
+                feature.ttl = self.ttl
 
     def offline_expr(self):
         if not self.features:
@@ -92,6 +108,11 @@ class FeatureView:
     def get_schema(self):
         offline_expr = self.offline_expr()
         return offline_expr.schema()
+
+    def get_effective_ttl(self) -> Optional[timedelta]:
+        """Get the minimum TTL among all features in the view."""
+        ttls = [f.ttl for f in self.features if f.ttl is not None]
+        return min(ttls) if ttls else None
 
 
 @attrs.define
@@ -149,6 +170,34 @@ class FeatureStore:
             parsed_features.append((view_name, feature_name))
 
         return parsed_features
+
+    def _apply_ttl_filter(self, df: pd.DataFrame, view: FeatureView, current_time: datetime = None) -> pd.DataFrame:
+        """Apply TTL filtering to remove expired features."""
+        if current_time is None:
+            current_time = datetime.now()
+
+        # Get the timestamp column from the first feature (assuming all features in view use same timestamp)
+        timestamp_column = view.features[0].timestamp_column
+
+        if timestamp_column not in df.columns:
+            return df
+
+        # Convert timestamp column to datetime if it's not already
+        if not pd.api.types.is_datetime64_any_dtype(df[timestamp_column]):
+            df[timestamp_column] = pd.to_datetime(df[timestamp_column])
+
+        # Apply per-feature TTL filtering
+        mask = pd.Series([True] * len(df), index=df.index)
+
+        for feature in view.features:
+            if feature.ttl is not None:
+                feature_mask = (current_time - df[timestamp_column]) <= feature.ttl
+
+                feature_columns = [col for col in df.columns if col.startswith(feature.name)]
+                if feature_columns:
+                    mask &= feature_mask
+
+        return df[mask]
 
     def get_historical_features(
         self,
@@ -228,18 +277,35 @@ class FeatureStore:
 
         return result_df
 
-    def materialize_online(self, view_name: str):
-        # this could possibly be a run command with a deferred sink
+    def materialize_online(self, view_name: str, current_time: datetime = None):
+        """
+        Materialize features to online store with TTL filtering.
+
+        Args:
+            view_name: Name of the view to materialize
+            current_time: Current time for TTL calculations (defaults to now)
+        """
         view = self.views[view_name]
 
+        # Execute the offline expression to get batch data
         batch_df = view.offline_expr().execute()
 
         # Get the timestamp column from the first feature
         timestamp_column = view.features[0].timestamp_column
 
-        # Get latest values per entity key
+        # Apply TTL filtering before getting latest values
+        if current_time is None:
+            current_time = datetime.now()
+
+        filtered_df = self._apply_ttl_filter(batch_df, view, current_time)
+
+        if filtered_df.empty:
+            print(f"Warning: All features in view '{view_name}' are expired based on TTL")
+            return
+
+        # Get latest values per entity key from non-expired features
         latest = (
-            batch_df
+            filtered_df
               .sort_values(timestamp_column)
               .groupby(view.entity.key_column)
               .tail(1)
@@ -256,12 +322,26 @@ class FeatureStore:
             overwrite=True
         )
 
+        print(f"Materialized {len(latest)} non-expired feature records for view '{view_name}'")
+
     def get_online_features(
         self,
         view_name: str,
         rows: List[dict] = None,
         entity_df: pd.DataFrame = None,
+        apply_ttl: bool = True,
+        current_time: datetime = None,
     ) -> pd.DataFrame:
+        """
+        Get online features with optional TTL filtering.
+
+        Args:
+            view_name: Name of the view
+            rows: List of entity key dictionaries
+            entity_df: DataFrame with entity keys
+            apply_ttl: Whether to filter out expired features
+            current_time: Current time for TTL calculations
+        """
         view = self.views[view_name]
         key_col = view.entity.key_column
 
@@ -285,6 +365,41 @@ class FeatureStore:
 
         result_df = self.online_client.execute(filtered_expr).to_pandas()
 
+        # Apply TTL filtering if requested
+        if apply_ttl:
+            result_df = self._apply_ttl_filter(result_df, view, current_time)
+
         result_df = keys_df.merge(result_df, on=key_col, how="left")
 
         return result_df
+
+    def cleanup_expired_features(self, view_name: str, current_time: datetime = None):
+        """
+        Remove expired features from online storage based on TTL.
+        This is useful for periodic cleanup jobs.
+        """
+        if current_time is None:
+            current_time = datetime.now()
+
+        view = self.views[view_name]
+
+        # Get all online features
+        online_expr = self._build_online_expr(view_name)
+        all_features_df = self.online_client.execute(online_expr).to_pandas()
+
+        # Apply TTL filtering to get non-expired features
+        valid_features_df = self._apply_ttl_filter(all_features_df, view, current_time)
+
+        expired_count = len(all_features_df) - len(valid_features_df)
+
+        if expired_count > 0:
+            # Re-upload only the valid features
+            tbl = pa.Table.from_pandas(valid_features_df)
+            self.online_client.upload_data(
+                view_name,
+                tbl,
+                overwrite=True
+            )
+            print(f"Cleaned up {expired_count} expired features from view '{view_name}'")
+        else:
+            print(f"No expired features found in view '{view_name}'")
