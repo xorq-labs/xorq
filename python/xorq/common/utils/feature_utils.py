@@ -1,39 +1,46 @@
 from datetime import datetime, timedelta
 from typing import Any, List, Mapping, Optional
 
-import attrs
 import pandas as pd
 import pyarrow as pa
+from attrs import (
+    define,
+    field,
+)
+from attrs.validators import (
+    instance_of,
+    optional,
+)
 
 import xorq as xo
 from xorq.flight import Backend as FlightBackend
 from xorq.flight.client import FlightClient
 
 
-@attrs.define
+@define
 class Entity:
     """
     Acts like a primary key for joins and feature grouping.
     """
 
-    name: str
-    key_column: str
-    description: str = ""
+    name: str = field(validator=optional(instance_of(str)), default=None)
+    key_column: str = field(validator=optional(instance_of(str)), default=None)
+    description: str = field(validator=instance_of(str), default="")
 
 
-@attrs.define
+@define
 class Feature:
     """
     Represents a feature with its offline expression and metadata.
     Online expressions are auto-generated from the offline schema.
     """
 
-    name: str
-    entity: Entity
-    timestamp_column: str
-    offline_expr: Any
-    description: str = ""
-    ttl: Optional[timedelta] = None
+    name: str = field(validator=optional(instance_of(str)), default=None)
+    entity: Entity = field(validator=optional(instance_of(Entity)), default=None)
+    timestamp_column: str = field(validator=optional(instance_of(str)), default=None)
+    offline_expr: Any = field(default=None)
+    description: str = field(validator=optional(instance_of(str)), default="")
+    ttl: Optional[timedelta] = field(default=None)
 
     def get_schema(self):
         """Get the schema from the offline expression."""
@@ -54,14 +61,14 @@ class Feature:
         return time_diff > ttl_lit
 
 
-@attrs.define
+@define
 class FeatureRegistry:
     """
     Registry of entities and features.
     """
 
-    entities: Mapping[str, Entity] = attrs.field(factory=dict)
-    features: Mapping[str, Feature] = attrs.field(factory=dict)
+    entities: Mapping[str, Entity] = field(factory=dict)
+    features: Mapping[str, Feature] = field(factory=dict)
 
     def register_entity(self, entity: Entity):
         self.entities[entity.name] = entity
@@ -75,17 +82,17 @@ class FeatureRegistry:
         return [f for f in self.features.values() if f.entity.name == entity_name]
 
 
-@attrs.define
+@define
 class FeatureView:
     """
     Groups multiple features for the same entity.
     Builds combined expressions by joining individual feature expressions.
     """
 
-    name: str
-    entity: Entity
-    features: List[Feature]
-    ttl: Optional[timedelta] = None  # Default TTL for all features in the view
+    name: str = field()
+    entity: Entity = field()
+    features: List[Feature] = field()
+    ttl: Optional[timedelta] = field(default=None)
 
     def __attrs_post_init__(self):
         for feature in self.features:
@@ -123,16 +130,16 @@ class FeatureView:
         return min(ttls) if ttls else None
 
 
-@attrs.define
+@define
 class FeatureStore:
     """
     Main entry: register views, materialize batch, serve & feed online.
     Auto-generates online expressions from offline schemas.
     """
 
-    online_client: FlightClient = None
-    registry: FeatureRegistry = attrs.field(factory=FeatureRegistry)
-    views: Mapping[str, FeatureView] = attrs.field(factory=dict)
+    online_client: FlightClient = field(default=None)
+    registry: FeatureRegistry = field(factory=FeatureRegistry)
+    views: Mapping[str, FeatureView] = field(factory=dict)
 
     def register_view(self, view: FeatureView):
         if view.entity.name not in self.registry.entities:
