@@ -28,13 +28,11 @@ class Feature:
         entity: Entity,
         timestamp_column: str,
         offline_expr: Any,
-        dtype: str = "float",
         description: str = "",
     ):
         self.name = name
         self.entity = entity
         self.timestamp_column = timestamp_column
-        self.dtype = dtype
         self.description = description
         self._offline_expr = offline_expr
 
@@ -70,7 +68,6 @@ class FeatureView:
     """
     Groups multiple features for the same entity.
     Builds combined expressions by joining individual feature expressions.
-    Online expressions are auto-generated from offline schema.
     """
     def __init__(
         self,
@@ -89,16 +86,11 @@ class FeatureView:
                                f"but view expects entity {entity.name}")
 
     def offline_expr(self):
-        """
-        Build a combined offline expression by joining all feature expressions.
-        """
         if not self.features:
             raise ValueError(f"No features in view {self.name}")
 
-        # Start with the first feature's expression
         base_expr = self.features[0].offline_expr()
 
-        # Join with remaining features on entity key
         for feature in self.features[1:]:
             feature_expr = feature.offline_expr()
             base_expr = base_expr.join(
@@ -109,8 +101,7 @@ class FeatureView:
 
         return base_expr
 
-    def get_combined_schema(self):
-        """Get the combined schema from all features in this view."""
+    def get_schema(self):
         offline_expr = self.offline_expr()
         return offline_expr.schema()
 
@@ -133,17 +124,13 @@ class FeatureStore:
         self.views[view.name] = view
 
     def _build_online_expr(self, view_name: str):
-        """
-        Auto-generate online expression from the offline schema.
-        This creates a simple SELECT statement on the online store table.
-        """
         view = self.views[view_name]
 
         if self.online_client is None:
             raise ValueError("No online client configured")
 
         # Get schema from offline expression
-        schema = view.get_combined_schema()
+        schema = view.get_schema()
 
         # Extract column names from schema
         column_names = [field for field in schema]
@@ -181,16 +168,6 @@ class FeatureStore:
         entity_df: pd.DataFrame,
         features: List[str],
     ) -> pd.DataFrame:
-        """
-        Get historical features for given entity-timestamp combinations.
-
-        Args:
-            entity_df: DataFrame with entity keys, event_timestamp, and optional label columns
-            features: List of feature references in format "view_name:feature_name"
-
-        Returns:
-            DataFrame with entity data joined with historical features
-        """
         # Validate entity_df has required columns
         if "event_timestamp" not in entity_df.columns:
             raise ValueError("entity_df must contain 'event_timestamp' column")
@@ -217,21 +194,13 @@ class FeatureStore:
             if entity_key not in entity_df.columns:
                 raise ValueError(f"entity_df must contain '{entity_key}' column for view '{view_name}'")
 
-            # Get the offline expression for this view
             view_expr = view.offline_expr()
             con = xo.duckdb.connect()
 
-            # Convert entity_df to xorq expression for temporal join
             entity_expr = xo.memtable(entity_df).into_backend(con=con)
 
-            # Get timestamp column from the feature view
             timestamp_col = view.features[0].timestamp_column
 
-            # For asof_join to work properly, we need to ensure both tables have compatible timestamp columns
-            # The entity_df has "event_timestamp" and the view has timestamp_col
-            # We need to either rename one to match the other, or specify the mapping
-
-            # Option 1: Rename the feature view timestamp column to match entity_df
             if timestamp_col != "event_timestamp":
                 view_expr_renamed = view_expr.rename(**{"event_timestamp": timestamp_col}).into_backend(con=con)
             else:
@@ -247,7 +216,6 @@ class FeatureStore:
                 predicates=entity_key,  # Entity key matching
             )
 
-            # Select only the requested features from this view
             feature_columns = [entity_key, "event_timestamp"] + feature_names
 
             # Handle case where not all requested features exist in the expression
@@ -260,14 +228,9 @@ class FeatureStore:
             # Execute the historical query
             historical_df = historical_expr.select(selected_columns).execute()
 
-            # Join with result_df
-            # For the first view, we replace the result_df entirely
-            # For subsequent views, we join on entity key and event_timestamp
             if len(features_by_view) == 1:
-                # Only one view, so historical_df is our result
                 result_df = historical_df
             else:
-                # Join with existing results
                 join_keys = [entity_key, "event_timestamp"]
                 result_df = result_df.merge(
                     historical_df,
@@ -280,9 +243,6 @@ class FeatureStore:
 
 
     def materialize_online(self, view_name: str):
-        """
-        Materialize features from offline expression to online storage.
-        """
         view = self.views[view_name]
 
         # Execute the combined offline expression
@@ -316,15 +276,6 @@ class FeatureStore:
         rows: List[dict] = None,
         entity_df: pd.DataFrame = None,
     ) -> pd.DataFrame:
-        """
-        Get online features for the given entity keys.
-        Uses auto-generated online expression.
-
-        Args:
-            view_name: Name of the feature view
-            rows: List of dict with entity keys (legacy format)
-            entity_df: DataFrame with entity keys (new format, compatible with Feast)
-        """
         view = self.views[view_name]
         key_col = view.entity.key_column
 
