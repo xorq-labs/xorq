@@ -1,59 +1,32 @@
 # examples/libs/weather_lib.py
-import json
 import os
-import time
-from functools import wraps
+from datetime import (
+    timedelta,
+)
 from pathlib import Path
 
 import pandas as pd
 import requests
+from hash_cache.hash_cache import (
+    Serder,
+    hash_cache,
+)
 
 import xorq as xo
 import xorq.expr.datatypes as dt
-from xorq.common.utils.toolz_utils import curry
 from xorq.flight.exchanger import make_udxf
-
-
-def simple_disk_cache(cache_dir: Path, serde, ttl: int = 3):
-    """
-    Cache calls to `f(**kwargs)` on disk under cache_dir.
-    Expires entries older than `ttl` seconds.
-    """
-    cache_dir = Path(cache_dir)
-    cache_dir.mkdir(parents=True, exist_ok=True)
-
-    def decorator(f):
-        @wraps(f)
-        def wrapped(**kwargs):
-            # stable filename
-            key = "_".join(f"{k}={v}" for k, v in sorted(kwargs.items()))
-            path = cache_dir / key
-
-            if path.exists():
-                age = time.time() - path.stat().st_mtime
-                if age < ttl:
-                    # still fresh
-                    return serde.loads(path.read_text())
-                else:
-                    # expired
-                    path.unlink()
-
-            # compute & cache
-            result = f(**kwargs)
-            path.write_text(serde.dumps(result))
-            return result
-
-        return wrapped
-
-    return decorator
 
 
 OPENWEATHER_KEY = os.environ["OPENWEATHER_API_KEY"]
 API_URL = "https://api.openweathermap.org/data/2.5/weather"
 
 
-@curry
-@simple_disk_cache(cache_dir=Path("./weather-cache"), serde=json, ttl=3)
+@hash_cache(
+    Path("./weather-cache"),
+    serder=Serder.json_serder(),
+    args_kwargs_serder=Serder.args_kwargs_json_serder(),
+    ttl=timedelta(seconds=3),
+)
 def fetch_one_city(*, city: str):
     resp = requests.get(
         API_URL, params={"q": city, "appid": OPENWEATHER_KEY, "units": "metric"}
@@ -107,7 +80,6 @@ def fetch_one_city(*, city: str):
     }
 
 
-@curry
 def get_current_weather_batch(df: pd.DataFrame) -> pd.DataFrame:
     records = [fetch_one_city(city=row["city"]) for _, row in df.iterrows()]
     return pd.DataFrame(records)
