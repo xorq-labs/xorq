@@ -10,6 +10,7 @@ from attr import (
 )
 from attr.validators import (
     instance_of,
+    optional,
 )
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -32,7 +33,6 @@ try:
     utc = datetime.UTC
 except AttributeError:
     utc = datetime.timezone.utc
-
 
 pem_encode_cert = operator.methodcaller("public_bytes", Encoding.PEM)
 pem_decode_cert = x509.load_pem_x509_certificate
@@ -160,12 +160,25 @@ class TLSCert:
         return self
 
 
+def get_client_tlscert(self):
+    return TLSCert.from_common_name(sign_with=self.ca_tlscert, common_name="client")
+
+
 @frozen
 class TLSKwargs:
+    verify_client = field(validator=instance_of(bool))
     ca_tlscert = field(validator=instance_of(TLSCert))
     server_tlscert = field(validator=instance_of(TLSCert))
-    client_tlscert = field(validator=instance_of(TLSCert))
-    verify_client = field(validator=instance_of(bool))
+    client_tlscert = field(
+        validator=optional(instance_of(TLSCert)),
+        default=None,
+    )
+
+    def __attrs_post_init__(self):
+        self.ca_tlscert.verify(self.server_tlscert)
+        if self.verify_client:
+            assert self.client_tlscert is not None
+            self.ca_tlscert.verify(self.client_tlscert)
 
     @property
     def server_kwargs(self):
@@ -199,7 +212,7 @@ class TLSKwargs:
         server_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **server_kwargs)
         client_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **client_kwargs)
 
-        return cls(ca_tlscert, server_tlscert, client_tlscert, verify_client)
+        return cls(verify_client, ca_tlscert, server_tlscert, client_tlscert)
 
     @classmethod
     def from_common_name(cls, verify_client=True, common_name=socket.gethostname()):
