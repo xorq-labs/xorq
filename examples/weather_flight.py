@@ -21,7 +21,8 @@ weather_lib = import_python("examples/libs/weather_lib.py")
 do_fetch_current_weather_udxf = weather_lib.do_fetch_current_weather_udxf
 do_fetch_current_weather_flight_udxf = weather_lib.do_fetch_current_weather_flight_udxf
 
-PORT_FEATURES = 8817  # for serving materialized features
+WEATHER_FEATURES_PORT = weather_lib.WEATHER_FEATURES_PORT
+TIMESTAMP_COLUMN = "timestamp"
 
 # Database files
 DB_BATCH = "weather_history_batch.db"  # full history batch store
@@ -36,7 +37,6 @@ def setup_store() -> FeatureStore:
     logging.info("Setting up FeatureStore")
 
     # 1. Entity
-    # con = xo.duckdb.connect()
     city = Entity("city", key_column="city", description="City identifier")
 
     # 2. Offline source (batch history)
@@ -50,21 +50,21 @@ def setup_store() -> FeatureStore:
 
     # 3. Flight backend for online features
     fb = FlightBackend()
-    fb.do_connect(host="localhost", port=PORT_FEATURES)
+    fb.do_connect(host="localhost", port=WEATHER_FEATURES_PORT)
 
     # 4. Build offline expression for features
     live_expr = xo.memtable(
         [{"city": c} for c in ["London", "Tokyo", "New York"]]
     ).pipe(do_fetch_current_weather_flight_udxf)
     win6_online = xo.window(
-        group_by=[city.key_column], order_by="timestamp", preceding=5, following=0
+        group_by=[city.key_column], order_by=TIMESTAMP_COLUMN, preceding=5, following=0
     )
 
     # Offline expression that computes the feature
     offline_expr = live_expr.select(
         [
             city.key_column,
-            "timestamp",
+            TIMESTAMP_COLUMN,
             live_expr.temp_c.mean().over(win6_online).name("temp_mean_6h"),
         ]
     )
@@ -74,7 +74,7 @@ def setup_store() -> FeatureStore:
     feature_temp = Feature(
         name="temp_mean_6h",
         entity=city,
-        timestamp_column="timestamp",
+        timestamp_column=TIMESTAMP_COLUMN,
         offline_expr=offline_expr,
         description="6h rolling mean temp",
     )
@@ -88,13 +88,11 @@ def setup_store() -> FeatureStore:
 
 
 def run_feature_server() -> None:
-    duck_con = xo.duckdb.connect()
-
     server = FlightServer(
-        FlightUrl(port=PORT_FEATURES),
-        connection=lambda: duck_con,
+        FlightUrl(port=WEATHER_FEATURES_PORT),
+        connection=xo.duckdb.connect,
     )
-    logging.info(f"Serving feature store on grpc://localhost:{PORT_FEATURES}")
+    logging.info(f"Serving feature store on grpc://localhost:{WEATHER_FEATURES_PORT}")
 
     def handle_keyboard_interrupt(_):
         logging.info("Keyboard Interrupt: Feature server shutting down")

@@ -19,10 +19,17 @@ from xorq.common.utils.env_utils import (
 from xorq.flight.exchanger import make_udxf
 
 
-env_config = EnvConfigable.subclass_from_kwargs("OPENWEATHER_API_KEY").from_env()
+env_config = EnvConfigable.subclass_from_kwargs(
+    "OPENWEATHER_API_KEY",
+    "WEATHER_FEATURES_PORT",
+    "WEATHER_API_URL",
+).from_env()
 OPENWEATHER_KEY = env_config.OPENWEATHER_API_KEY
 assert OPENWEATHER_KEY
-API_URL = "https://api.openweathermap.org/data/2.5/weather"
+WEATHER_FEATURES_PORT = int(env_config.WEATHER_FEATURES_PORT)
+assert WEATHER_FEATURES_PORT
+WEATHER_API_URL = env_config.WEATHER_API_URL
+assert WEATHER_API_URL
 
 
 def extract_dct(data):
@@ -69,7 +76,7 @@ def extract_dct(data):
 )
 def fetch_one_city(*, city: str):
     resp = requests.get(
-        API_URL, params={"q": city, "appid": OPENWEATHER_KEY, "units": "metric"}
+        WEATHER_API_URL, params={"q": city, "appid": OPENWEATHER_KEY, "units": "metric"}
     )
     resp.raise_for_status()
     data = resp.json()
