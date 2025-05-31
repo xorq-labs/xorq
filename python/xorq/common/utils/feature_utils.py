@@ -56,16 +56,10 @@ class Feature:
     def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
         """Return an expression that checks if a feature is expired based on its TTL."""
         if self.ttl is None:
-            return xo.literal(False)
+            return False
 
-        if current_time is None:
-            current_time = datetime.now()
-
-        current_time_lit = xo.literal(current_time)
-        time_diff = current_time_lit - feature_timestamp_col
-        ttl_lit = xo.literal(self.ttl.total_seconds()).cast("interval")
-
-        return time_diff > ttl_lit
+        time_diff = (current_time or datetime.now()) - feature_timestamp_col
+        return time_diff > self.ttl.total_seconds()
 
 
 @define
