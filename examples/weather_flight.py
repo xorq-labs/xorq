@@ -1,9 +1,9 @@
 import argparse
 import logging
-import time
 from datetime import datetime
 
 import pandas as pd
+import toolz
 
 import xorq as xo
 from xorq.common.utils.feature_utils import Entity, Feature, FeatureStore, FeatureView
@@ -95,13 +95,15 @@ def run_feature_server() -> None:
         connection=lambda: duck_con,
     )
     logging.info(f"Serving feature store on grpc://localhost:{PORT_FEATURES}")
-    try:
-        server.serve()
-        while server.server is not None:
-            time.sleep(1)
-    except KeyboardInterrupt:
-        logging.info("Feature server shutting down")
+
+    def handle_keyboard_interrupt(_):
+        logging.info("Keyboard Interrupt: Feature server shutting down")
         server.close()
+
+    serve_excepting = toolz.excepts(
+        KeyboardInterrupt, server.serve, handle_keyboard_interrupt
+    )
+    serve_excepting(block=True)
 
 
 def run_materialize_online() -> None:
