@@ -53,12 +53,12 @@ class Feature:
         """Get the schema from the offline expression."""
         return self.offline_expr.schema()
 
-    def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
+    def is_expired_expr(self, feature_timestamp, current_time: datetime = None):
         """Return an expression that checks if a feature is expired based on its TTL."""
         if self.ttl is None:
             return False
 
-        time_diff = (current_time or datetime.now()) - feature_timestamp_col
+        time_diff = (current_time or datetime.now()) - feature_timestamp
         return time_diff > self.ttl.total_seconds()
 
 
