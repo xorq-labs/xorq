@@ -13,7 +13,6 @@ from hash_cache.hash_cache import (
 )
 
 import xorq as xo
-import xorq.expr.datatypes as dt
 from xorq.common.utils.env_utils import (
     EnvConfigable,
 )
@@ -42,7 +41,6 @@ def extract_dct(data):
         ("feels_like_c", ("main", "feels_like")),
         ("temp_min_c", ("main", "temp_min")),
         ("temp_max_c", ("main", "temp_max")),
-        #
         ("pressure_hpa", ("main", "pressure")),
         ("humidity_percent", ("main", "humidity")),
         ("sea_level_pressure_hpa", ("main", "sea_level")),
@@ -60,7 +58,6 @@ def extract_dct(data):
     )
     return {k: toolz.get_in(v, data) for k, v in pairs} | {
         "wind_gust_ms": float(toolz.get_in(("wind", "gust"), data, default=0)),
-        # "wind_gust_ms": 0.0,
     }
 
 
@@ -110,7 +107,7 @@ schema_out = xo.schema(
         "ground_level_pressure_hpa": "int64",
         "wind_speed_ms": "double",
         "wind_direction_deg": "int64",
-        "wind_gust_ms": dt.float64(nullable=True),
+        "wind_gust_ms": "double",
         "clouds_percent": "int64",
         "visibility_m": "int64",
         "data_timestamp": "int64",
