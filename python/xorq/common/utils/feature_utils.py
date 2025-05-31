@@ -159,7 +159,7 @@ class FeatureRegistry:
         return tuple(set(feature.entity for feature in self.features))
 
     def register_feature(self, feature: Feature):
-        self.features_mapping[feature.name] = feature
+        self.feature_mapping[feature.name] = feature
 
     def get_entity_features(self, entity_name: str) -> List[Feature]:
         return [f for f in self.features if f.entity.name == entity_name]
@@ -320,12 +320,6 @@ class FeatureStore:
         """
         view = self.views[view_name]
 
-        # Get the timestamp column
-        (timestamp_column, *rest) = set(
-            feature.timestamp_column for feature in view.features
-        )
-        assert not rest
-
         # Apply TTL filtering using expressions
         filtered_expr = self._apply_ttl_filter_expr(
             view.offline_expr, view, current_time
@@ -333,13 +327,15 @@ class FeatureStore:
 
         # Get latest values per entity key using expressions
         # Sort by timestamp and get the last record for each entity
+        # unclear why we only want one row
         latest_expr = (
             filtered_expr
             # should entity.key_column vary at all?
-            .order_by([view.entity.key_column, timestamp_column])
+            .order_by([view.entity.key_column, view.timestamp_column])
             .mutate(
                 row_number=xo.row_number().over(
-                    group_by=view.entity.key_column, order_by=xo.desc(timestamp_column)
+                    group_by=view.entity.key_column,
+                    order_by=xo.desc(view.timestamp_column),
                 )
             )
             .filter(xo._.row_number == 0)
@@ -388,22 +384,26 @@ class FeatureStore:
         Returns:
             xorq expression that can be executed to get the online features
         """
+
+        def make_keys_df():
+            if (entity_df is not None) ^ (rows is not None):
+                if entity_df is not None:
+                    return entity_df
+                else:
+                    return pd.DataFrame(rows)
+            else:
+                raise ValueError(
+                    "Exactly one of 'rows' or 'entity_df' must be provided"
+                )
+
+        keys_df = make_keys_df()
         view = self.views[view_name]
         key_col = view.entity.key_column
-
-        if entity_df is not None:
-            keys_df = entity_df
-        elif rows is not None:
-            keys_df = pd.DataFrame(rows)
-        else:
-            raise ValueError("Either 'rows' or 'entity_df' must be provided")
-
         if key_col not in keys_df.columns:
             raise ValueError(f"Entity key '{key_col}' not found in input data")
 
         # Build online expression and filter by entity keys
-        online_expr = self._build_online_expr(view_name)
-        filtered_expr = online_expr.filter(
+        filtered_expr = self._build_online_expr(view_name).filter(
             xo._[key_col].isin(keys_df[key_col].tolist())
         )
 
@@ -420,7 +420,6 @@ class FeatureStore:
         result_expr = keys_expr.join(
             filtered_expr.into_backend(con=con), key_col, how="left"
         )
-
         return result_expr
 
     def cleanup_expired_features(self, view_name: str, current_time: datetime = None):
