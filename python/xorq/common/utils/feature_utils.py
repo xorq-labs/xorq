@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta
-from typing import Any, List, Mapping, Optional
+from typing import List, Mapping, Optional, Tuple
 
 import pandas as pd
 import pyarrow as pa
@@ -43,47 +43,32 @@ class Feature:
     name: str = field(validator=instance_of(str))
     entity: Entity = field(validator=instance_of(Entity))
     timestamp_column: str = field(validator=instance_of(str))
-    offline_expr: Any = field(validator=instance_of(Expr))
+    offline_expr: Expr = field(validator=instance_of(Expr))
     description: str = field(validator=instance_of(str))
     ttl: Optional[timedelta] = field(
         validator=optional(instance_of(timedelta)), default=None
     )
 
-    def get_schema(self):
+    @property
+    def schema(self):
         """Get the schema from the offline expression."""
         return self.offline_expr.schema()
 
-    def is_expired_expr(self, feature_timestamp, current_time: datetime = None):
-        """Return an expression that checks if a feature is expired based on its TTL."""
-        if self.ttl is None:
-            return False
+    def clone(self, **kwargs):
+        return type(self)(**self.__getstate__() | kwargs)
 
-        time_diff = (current_time or datetime.now()) - feature_timestamp
-        return time_diff > self.ttl.total_seconds()
+    def with_ttl(self, ttl):
+        return self.clone(ttl=ttl)
 
+    def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
+        timestamp_expr = self.offline_expr[feature_timestamp_col].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
+        cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
 
-@define
-class FeatureRegistry:
-    """
-    Registry of entities and features.
-    """
-
-    entities: Mapping[str, Entity] = field(factory=dict)
-    features: Mapping[str, Feature] = field(factory=dict)
-
-    def register_entity(self, entity: Entity):
-        self.entities[entity.name] = entity
-
-    def register_feature(self, feature: Feature):
-        if feature.entity.name not in self.entities:
-            raise ValueError(f"Entity {feature.entity.name} not registered")
-        self.features[feature.name] = feature
-
-    def list_features(self, entity_name: str) -> List[Feature]:
-        return [f for f in self.features.values() if f.entity.name == entity_name]
+        return timestamp_expr > cutoff_time
 
 
-@define
+
+@frozen
 class FeatureView:
     """
     Groups multiple features for the same entity.
@@ -92,45 +77,91 @@ class FeatureView:
 
     name: str = field(validator=instance_of(str))
     entity: Entity = field(validator=instance_of(Entity))
-    features: List[Feature] = field(validator=deep_iterable(instance_of(Feature)))
+    features: Tuple[Feature] = field(
+        validator=deep_iterable(instance_of(Feature), instance_of(tuple))
+    )
     ttl: Optional[timedelta] = field(
         validator=optional(instance_of(timedelta)), default=None
     )
 
     def __attrs_post_init__(self):
-        for feature in self.features:
-            if feature.entity.name != self.entity.name:
-                raise ValueError(
-                    f"Feature {feature.name} belongs to entity {feature.entity.name}, "
-                    f"but view expects entity {self.entity.name}"
-                )
+        self._validate_features()
+        self._enforce_ttl()
 
-            # Set view's TTL as default if feature doesn't have its own TTL
-            if feature.ttl is None and self.ttl is not None:
-                feature.ttl = self.ttl
+    @property
+    def timestamp_column(self):
+        (timestamp_column, *rest) = set(
+            feature.timestamp_column for feature in self.features
+        )
+        if rest:
+            raise ValueError
+        return timestamp_column
 
+    @property
     def offline_expr(self):
-        if not self.features:
-            raise ValueError(f"No features in view {self.name}")
+        (expr, *others) = (feature.offline_expr for feature in self.features)
+        for other in others:
+            expr = expr.join(other, self.entity.key_column, how="full_outer")
+        return expr
 
-        base_expr = self.features[0].offline_expr
+    @property
+    def schema(self):
+        return self.offline_expr.schema()
 
-        for feature in self.features[1:]:
-            feature_expr = feature.offline_expr()
-            base_expr = base_expr.join(
-                feature_expr, self.entity.key_column, how="full_outer"
-            )
-
-        return base_expr
-
-    def get_schema(self):
-        offline_expr = self.offline_expr()
-        return offline_expr.schema()
-
-    def get_effective_ttl(self) -> Optional[timedelta]:
+    @property
+    def effective_ttl(self) -> Optional[timedelta]:
         """Get the minimum TTL among all features in the view."""
         ttls = [f.ttl for f in self.features if f.ttl is not None]
-        return min(ttls) if ttls else None
+        return min(ttls, default=None)
+
+    def _validate_features(self):
+        # we must have features
+        assert self.features
+        # all features must have the same entity
+        invalid_features = tuple(
+            feature
+            for feature in self.features
+            if feature.entity.name != self.entity.name
+        )
+        if invalid_features:
+            raise ValueError(
+                f"Feature(s) {', '.join(feature.name for feature in invalid_features)} do not belong to {self.entity.name}"
+            )
+        # entities must not have schema conflicts
+        # fixme: enforce this
+
+    def _enforce_ttl(self):
+        if self.ttl is not None and any(
+            feature.ttl is None for feature in self.features
+        ):
+            features = tuple(
+                feature.with_ttl(self.ttl) if feature.ttl is None else feature
+                for feature in self.features
+            )
+            object.__setattr__(self, "features", features)
+
+
+@define
+class FeatureRegistry:
+    """
+    Registry of features
+    """
+
+    feature_mapping: Mapping[str, Feature] = field(factory=dict)
+
+    @property
+    def features(self):
+        return tuple(self.feature_mapping.values())
+
+    @property
+    def entities(self):
+        return tuple(set(feature.entity for feature in self.features))
+
+    def register_feature(self, feature: Feature):
+        self.feature_mapping[feature.name] = feature
+
+    def get_entity_features(self, entity_name: str) -> List[Feature]:
+        return [f for f in self.features if f.entity.name == entity_name]
 
 
 @define
@@ -147,93 +178,80 @@ class FeatureStore:
     views: Mapping[str, FeatureView] = field(factory=dict)
 
     def register_view(self, view: FeatureView):
-        if view.entity.name not in self.registry.entities:
-            raise ValueError("Entity not registered before view")
+        # what if we clobber a view and but retain its features in the registry
         for f in view.features:
             self.registry.register_feature(f)
         self.views[view.name] = view
 
     def _build_online_expr(self, view_name: str):
-        view = self.views[view_name]
-
         if self.online_client is None:
             raise ValueError("No online client configured")
-
-        # Get schema from offline expression
-        schema = view.get_schema()
-
-        # Extract column names from schema
-        column_names = [field for field in schema]
-
         # Hack: not sure how best to build bound expr without Backend
         # we probably need from_connection() implemented in Flight Backend
         fb = FlightBackend()
         fb.con = self.online_client
 
+        # Extract column names from offline expression schema
+        column_names = [field for field in self.views[view_name].schema]
+        # why do we need to do a select if we are coordinating view name?
         online_expr = fb.tables[view_name].select(column_names)
 
         return online_expr
 
-    def _parse_feature_references(self, features: List[str]) -> List[tuple]:
+    def _parse_feature_references(self, references: List[str]) -> List[tuple]:
         """
         Parse feature references in the format "view_name:feature_name"
         Returns list of (view_name, feature_name) tuples
         """
-        parsed_features = []
-        for feature_ref in features:
-            if ":" not in feature_ref:
-                raise ValueError(
-                    f"Feature reference must be in format 'view_name:feature_name', got: {feature_ref}"
-                )
 
-            view_name, feature_name = feature_ref.split(":", 1)
-            if view_name not in self.views:
-                raise ValueError(f"View '{view_name}' not found")
+        def validate_views_features(views_features):
+            bad_references = tuple(
+                reference for (reference, *rest) in views_features if not rest
+            )
+            if bad_references:
+                raise ValueError
+            bad_views = tuple(
+                view for view, _ in views_features if view not in self.views
+            )
+            if bad_views:
+                raise ValueError
+            bad_views_features = tuple(
+                (view, feature)
+                for (view, feature) in views_features
+                if feature not in self.views[view].features
+            )
+            if bad_views_features:
+                raise ValueError
 
-            view = self.views[view_name]
-            feature_exists = any(f.name == feature_name for f in view.features)
-            if not feature_exists:
-                raise ValueError(
-                    f"Feature '{feature_name}' not found in view '{view_name}'"
-                )
-
-            parsed_features.append((view_name, feature_name))
-
-        return parsed_features
+        views_features = tuple(reference.split(":", 1) for reference in references)
+        validate_views_features(views_features)
+        return views_features
 
     def _apply_ttl_filter_expr(
         self, expr, view: FeatureView, current_time: datetime = None
     ):
         """Apply TTL filtering to an expression to remove expired features."""
         if current_time is None:
-            current_time = datetime.now()
+            current_time = datetime.now(timezone.utc)
 
-        # Get the timestamp column from the first feature (assuming all features in view use same timestamp)
         timestamp_column = view.features[0].timestamp_column
 
         schema_fields = expr.schema()
         if timestamp_column not in schema_fields:
             return expr
 
-        # Create TTL filter expressions for each feature
         ttl_filters = []
 
         for feature in view.features:
             if feature.ttl is not None:
-                # Create expression for TTL check
-                current_time_lit = xo.literal(current_time)
-                time_diff = current_time_lit - xo._[timestamp_column]
-                ttl_seconds = xo.literal(feature.ttl.total_seconds())
-
-                # Feature is valid if time_diff <= ttl
-                feature_valid = time_diff <= ttl_seconds
+                timestamp_expr = expr[timestamp_column].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
+                cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
+                feature_valid = timestamp_expr >= cutoff_time
                 ttl_filters.append(feature_valid)
 
-        # If no TTL filters, return original expression
         if not ttl_filters:
             return expr
 
-        # Combine all TTL filters with AND
         combined_filter = ttl_filters[0]
         for filter_expr in ttl_filters[1:]:
             combined_filter = combined_filter & filter_expr
@@ -320,25 +338,22 @@ class FeatureStore:
         """
         view = self.views[view_name]
 
-        # Get the offline expression
-        batch_expr = view.offline_expr()
-
-        # Get the timestamp column from the first feature
-        timestamp_column = view.features[0].timestamp_column
-
         # Apply TTL filtering using expressions
-        if current_time is None:
-            current_time = datetime.now()
-
-        filtered_expr = self._apply_ttl_filter_expr(batch_expr, view, current_time)
+        filtered_expr = self._apply_ttl_filter_expr(
+            view.offline_expr, view, current_time
+        )
 
         # Get latest values per entity key using expressions
         # Sort by timestamp and get the last record for each entity
+        # unclear why we only want one row
         latest_expr = (
-            filtered_expr.order_by([view.entity.key_column, timestamp_column])
+            filtered_expr
+            # should entity.key_column vary at all?
+            .order_by([view.entity.key_column, view.timestamp_column])
             .mutate(
                 row_number=xo.row_number().over(
-                    group_by=view.entity.key_column, order_by=xo.desc(timestamp_column)
+                    group_by=view.entity.key_column,
+                    order_by=xo.desc(view.timestamp_column),
                 )
             )
             .filter(xo._.row_number == 0)
@@ -387,31 +402,33 @@ class FeatureStore:
         Returns:
             xorq expression that can be executed to get the online features
         """
+
+        def make_keys_df():
+            if (entity_df is not None) ^ (rows is not None):
+                if entity_df is not None:
+                    return entity_df
+                else:
+                    return pd.DataFrame(rows)
+            else:
+                raise ValueError(
+                    "Exactly one of 'rows' or 'entity_df' must be provided"
+                )
+
+        keys_df = make_keys_df()
         view = self.views[view_name]
         key_col = view.entity.key_column
-
-        if entity_df is not None:
-            keys_df = entity_df
-        elif rows is not None:
-            keys_df = pd.DataFrame(rows)
-        else:
-            raise ValueError("Either 'rows' or 'entity_df' must be provided")
-
         if key_col not in keys_df.columns:
             raise ValueError(f"Entity key '{key_col}' not found in input data")
 
         # Build online expression and filter by entity keys
         online_expr = self._build_online_expr(view_name)
-        filtered_expr = online_expr.filter(
+        unfiltered_expr = online_expr.filter(
             xo._[key_col].isin(keys_df[key_col].tolist())
         )
 
         # Apply TTL filtering if requested
         if apply_ttl:
-            filtered_expr = self._apply_ttl_filter_expr(
-                filtered_expr, view, current_time
-            )
-
+            filtered_expr = self._apply_ttl_filter_expr(unfiltered_expr, view, current_time)
         # Join with keys to ensure all requested keys are present
         con = xo.duckdb.connect()
         keys_expr = xo.memtable(keys_df).into_backend(con=con)
@@ -420,46 +437,10 @@ class FeatureStore:
             filtered_expr.into_backend(con=con), key_col, how="left"
         )
 
+        print(f"current_time:{datetime.now(timezone.utc)}")
+
         return result_expr
 
-    def cleanup_expired_features(self, view_name: str, current_time: datetime = None):
-        """
-        Remove expired features from online storage based on TTL using expressions.
-        This is useful for periodic cleanup jobs.
-
-        Returns:
-            xorq expression representing the cleaned up features
-        """
-        if current_time is None:
-            current_time = datetime.now()
-
-        view = self.views[view_name]
-
-        # Get all online features as expression
-        online_expr = self._build_online_expr(view_name)
-
-        # Apply TTL filtering to get non-expired features
-        valid_features_expr = self._apply_ttl_filter_expr(
-            online_expr, view, current_time
-        )
-
-        # Execute both to get counts for logging
-        all_features_df = online_expr.execute()
-        valid_features_df = valid_features_expr.execute()
-
-        expired_count = len(all_features_df) - len(valid_features_df)
-
-        if expired_count > 0:
-            # Re-upload only the valid features
-            tbl = pa.Table.from_pandas(valid_features_df)
-            self.online_client.upload_data(view_name, tbl, overwrite=True)
-            print(
-                f"Cleaned up {expired_count} expired features from view '{view_name}'"
-            )
-        else:
-            print(f"No expired features found in view '{view_name}'")
-
-        return valid_features_expr
 
     def get_historical_features_expr(
         self,
