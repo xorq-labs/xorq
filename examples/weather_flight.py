@@ -80,9 +80,8 @@ def setup_store() -> FeatureStore:
     )
 
     # 6. FeatureView & Store
-    view = FeatureView(FEATURE_VIEW, city, [feature_temp])
+    view = FeatureView(FEATURE_VIEW, city, (feature_temp,))
     store = FeatureStore(online_client=fb.con)
-    store.registry.register_entity(city)
     store.register_view(view)
     return store
 
