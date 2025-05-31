@@ -205,13 +205,12 @@ class FeatureStore:
         Returns list of (view_name, feature_name) tuples
         """
 
-        def _validate_references(references):
+        def validate_views_features(views_features):
             bad_references = tuple(
-                reference for reference in references if ":" not in reference
+                reference for (reference, *rest) in views_features if not rest
             )
             if bad_references:
                 raise ValueError
-            views_features = tuple(reference.split(":", 1) for reference in references)
             bad_views = tuple(
                 view for view, _ in views_features if view not in self.views
             )
@@ -226,6 +225,7 @@ class FeatureStore:
                 raise ValueError
 
         views_features = tuple(reference.split(":", 1) for reference in references)
+        validate_views_features(views_features)
         return views_features
 
     def _apply_ttl_filter_expr(
