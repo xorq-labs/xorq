@@ -40,6 +40,7 @@ def setup_store() -> FeatureStore:
     city = Entity("city", key_column="city", description="City identifier")
 
     # 2. Offline source (batch history)
+    # this is not being used
     offline_con = xo.duckdb.connect()
     offline_con.raw_sql("""
         INSTALL ducklake;
@@ -123,22 +124,16 @@ def run_historical_features() -> None:
     store = setup_store()
 
     # Create entity_df similar to Feast example
-    entity_df = pd.DataFrame(
-        {
-            # Entity's join key -> entity values
-            "city": ["London", "Tokyo", "New York"],
-            # "event_timestamp" (reserved key) -> timestamps
-            "event_timestamp": [
-                datetime(2025, 6, 29, 23, 59, 42),
-                datetime(2025, 6, 29, 23, 12, 10),
-                datetime(2025, 6, 29, 23, 40, 26),
-            ],
-            # Optional label columns (not processed by feature store)
-            "label_weather_satisfaction": [1, 5, 3],
-            # Additional values for potential on-demand transformations
-            "temp_adjustment": [1.0, 2.0, 3.0],
-        }
-    )
+    entity_df = pd.DataFrame({
+        # Entity's join key -> entity values
+        "city": ["London", "Tokyo", "New York"],
+        # "event_timestamp" (reserved key) -> timestamps
+        "event_timestamp": [
+            datetime(2025, 6, 29,  23, 59, 42),
+            datetime(2025, 6, 29,  23,12, 10),
+            datetime(2025, 6, 29,  23, 40, 26),
+        ],
+    })
 
     training_df = store.get_historical_features(
         entity_df=entity_df,
@@ -160,7 +155,7 @@ def run_historical_features() -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser("Weather Flight Σtore")
+    parser = argparse.ArgumentParser("Weather Flight Store")
     parser.add_argument(
         "command",
         choices=(
@@ -168,7 +163,7 @@ def main() -> None:
             "materialize_online",  # push latest to flight feature store
             "infer",
         ),
-        help="Action: 'serve_features', 'materialize_offline', 'materialize_online', or 'infer'",
+        help="Action: 'serve_features', 'materialize_online', or 'infer'"
     )
     args = parser.parse_args()
 
