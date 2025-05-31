@@ -422,44 +422,6 @@ class FeatureStore:
         )
         return result_expr
 
-    def cleanup_expired_features(self, view_name: str, current_time: datetime = None):
-        """
-        Remove expired features from online storage based on TTL using expressions.
-        This is useful for periodic cleanup jobs.
-
-        Returns:
-            xorq expression representing the cleaned up features
-        """
-        if current_time is None:
-            current_time = datetime.now()
-
-        view = self.views[view_name]
-
-        # Get all online features as expression
-        online_expr = self._build_online_expr(view_name)
-
-        # Apply TTL filtering to get non-expired features
-        valid_features_expr = self._apply_ttl_filter_expr(
-            online_expr, view, current_time
-        )
-
-        # Execute both to get counts for logging
-        all_features_df = online_expr.execute()
-        valid_features_df = valid_features_expr.execute()
-
-        expired_count = len(all_features_df) - len(valid_features_df)
-
-        if expired_count > 0:
-            # Re-upload only the valid features
-            tbl = pa.Table.from_pandas(valid_features_df)
-            self.online_client.upload_data(view_name, tbl, overwrite=True)
-            print(
-                f"Cleaned up {expired_count} expired features from view '{view_name}'"
-            )
-        else:
-            print(f"No expired features found in view '{view_name}'")
-
-        return valid_features_expr
 
     def get_historical_features_expr(
         self,
