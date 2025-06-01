@@ -33,7 +33,7 @@ assert WEATHER_API_URL
 
 
 def extract_dct(data):
-    pairs = (
+    extraction_pairs = (
         ("longitude", ("coord", "lon")),
         ("latitude", ("coord", "lat")),
         ("country", ("sys", "country")),
@@ -55,6 +55,7 @@ def extract_dct(data):
         #
         ("wind_speed_ms", ("wind", "speed")),
         ("wind_direction_deg", ("wind", "deg")),
+        ("wind_gust_ms", ("wind", "gust")),
         ("clouds_percent", ("clouds", "all")),
         ("visibility_m", ("visibility",)),
         ("data_timestamp", ("dt",)),
@@ -63,9 +64,7 @@ def extract_dct(data):
         ("city_id", ("id",)),
         ("response_code", ("cod",)),
     )
-    return {k: toolz.get_in(v, data) for k, v in pairs} | {
-        "wind_gust_ms": float(toolz.get_in(("wind", "gust"), data, default=0)),
-    }
+    return {k: toolz.get_in(v, data) for k, v in extraction_pairs}
 
 
 @hash_cache(
