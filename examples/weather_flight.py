@@ -1,6 +1,7 @@
+import time
 import argparse
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pandas as pd
 import toolz
@@ -10,6 +11,7 @@ from xorq.common.utils.feature_utils import Entity, Feature, FeatureStore, Featu
 from xorq.common.utils.import_utils import import_python
 from xorq.flight import Backend as FlightBackend
 from xorq.flight import FlightServer, FlightUrl
+from xorq.flight.client import FlightClient
 
 
 logging_format = "[%(asctime)s] %(levelname)s %(message)s"
@@ -72,7 +74,7 @@ def setup_store() -> FeatureStore:
         entity=city,
         timestamp_column=TIMESTAMP_COLUMN,
         offline_expr=offline_expr,
-        ttl=3600,
+        ttl=timedelta(3600),
         description="6s rolling mean temp"
     )
 
@@ -147,7 +149,7 @@ def run_historical_features() -> None:
 def run_push_to_view_source() -> None:
     store = setup_store()
     # there is a bug after running a while: Too many open files (24)
-    client = FlightClient("localhost", PORT_FEATURES)
+    client = FlightClient("localhost", WEATHER_FEATURES_PORT)
     table = (
         xo
         .memtable([{"city": c} for c in CITIES], schema=do_fetch_current_weather_udxf.schema_in_required)
@@ -159,7 +161,7 @@ def run_push_to_view_source() -> None:
     try:
         for view in fv_keys:
            if view == FEATURE_VIEW:
-               backend = store.views[view].offline_expr()._find_backend()
+               backend = store.views[view].offline_expr._find_backend()
                for t in backend.tables:
                    if t == TABLE_BATCH:
                       backend.insert(t,table)
