@@ -61,6 +61,13 @@ class Feature:
     def __attrs_post_init__(self):
         assert all(getattr(self, name) for name in ("name",))
 
+    def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
+        timestamp_expr = self.offline_expr[feature_timestamp_col].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
+        cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
+
+        return timestamp_expr > cutoff_time
+
+
 
 @frozen
 class FeatureView:
