@@ -209,6 +209,19 @@ class FeatureStore:
     def registry(self):
         raise NotImplementedError
 
+    @property
+    def registry(self):
+        return FeatureRegistry(
+            tuple(
+                set(
+                    sorted(
+                        (feature for view in self.views for feature in view.features),
+                        key=operator.attrgetter("name"),
+                    )
+                )
+            )
+        )
+
     def register_view(self, view: FeatureView):
         self.views[view.name] = view
 
