@@ -64,7 +64,7 @@ def setup_store() -> FeatureStore:
     offline_expr = offline_table.select([
         city.key_column,
         "timestamp",
-        offline_table.temp_c.mean().over(win6_offline).name("temp_mean_6h")
+        offline_table.temp_c.mean().over(win6_offline).name("temp_mean_6s")
     ])
 
     # 5. Create Feature with only offline expression
@@ -134,7 +134,7 @@ def run_historical_features() -> None:
     training_df = store.get_historical_features(
         entity_df=entity_df,
         features=[
-            f"{FEATURE_VIEW}:temp_mean_6h",
+            f"{FEATURE_VIEW}:temp_mean_6s",
         ],
     )
 
@@ -142,7 +142,7 @@ def run_historical_features() -> None:
     print("Entity DataFrame:")
     print(entity_df)
     print("\nTraining DataFrame with Historical Features:")
-    print(training_df)
+    print(training_df.execute())
 
     return training_df
 
@@ -179,10 +179,11 @@ def main() -> None:
         choices=(
             "serve_features",        # start feature lookup server
             "materialize_online",    # push latest to flight feature store
+            "historical",
             "infer",
             "push"
         ),
-        help="Action: 'serve_features', 'materialize_online', 'push' or 'infer'"
+        help="Action: 'serve_features', 'materialize_online', 'historical', 'push' or 'infer'"
     )
     args = parser.parse_args()
 
@@ -194,6 +195,8 @@ def main() -> None:
         run_infer()
     elif args.command == "push":
         run_push_to_view_source()
+    elif args.command == "historical":
+        run_historical_features()
     else:
         logging.error(f"Unknown command: {args.command}")
 
