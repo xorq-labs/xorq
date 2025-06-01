@@ -1,5 +1,5 @@
+import time
 import argparse
-
 # import logging
 from datetime import datetime, timedelta
 
@@ -18,6 +18,7 @@ from xorq.common.utils.import_utils import import_python
 from xorq.common.utils.logging_utils import get_logger
 from xorq.flight import Backend as FlightBackend
 from xorq.flight import FlightServer, FlightUrl
+from xorq.flight.client import FlightClient
 
 
 # from xorq.flight.client import FlightClient
@@ -174,7 +175,7 @@ def run_historical_features() -> None:
 def run_push_to_view_source() -> None:
     store = setup_store()
     # there is a bug after running a while: Too many open files (24)
-    client = FlightClient("localhost", PORT_FEATURES)
+    client = FlightClient("localhost", WEATHER_FEATURES_PORT)
     table = (
         xo
         .memtable([{"city": c} for c in CITIES], schema=do_fetch_current_weather_udxf.schema_in_required)
@@ -186,7 +187,7 @@ def run_push_to_view_source() -> None:
     try:
         for view in fv_keys:
            if view == FEATURE_VIEW:
-               backend = store.views[view].offline_expr()._find_backend()
+               backend = store.views[view].offline_expr._find_backend()
                for t in backend.tables:
                    if t == TABLE_BATCH:
                       backend.insert(t,table)
