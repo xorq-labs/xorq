@@ -72,7 +72,7 @@ def setup_store() -> FeatureStore:
         entity=city,
         timestamp_column=TIMESTAMP_COLUMN,
         offline_expr=offline_expr,
-        ttl=6,
+        ttl=3600,
         description="6s rolling mean temp"
     )
 
