@@ -174,17 +174,24 @@ def run_historical_features() -> None:
 def run_push_to_view_source() -> None:
     store = setup_store()
     # there is a bug after running a while: Too many open files (24)
-    live_expr = xo.memtable([{"city": c} for c in CITIES]).pipe(do_fetch_current_weather_flight_udxf)
+    client = FlightClient("localhost", PORT_FEATURES)
+    table = (
+        xo
+        .memtable([{"city": c} for c in CITIES], schema=do_fetch_current_weather_udxf.schema_in_required)
+        .pipe(do_fetch_current_weather_flight_udxf)
+        .to_pandas()
+    )
+    print(f"table: {table}")
     fv_keys = store.views.keys()
     try:
-      while True:
         for view in fv_keys:
            if view == FEATURE_VIEW:
                backend = store.views[view].offline_expr()._find_backend()
                for t in backend.tables:
                    if t == TABLE_BATCH:
-                      backend.insert(t, live_expr.to_pyarrow())
+                      backend.insert(t,table)
                       logging.info(f"Pushed live data to {view}")
+                      logging.info(f"{table['timestamp']}")
         time.sleep(1)
     except KeyboardInterrupt:
         logging.info("Shutting down")
