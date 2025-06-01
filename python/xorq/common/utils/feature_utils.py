@@ -60,12 +60,6 @@ class Feature:
     def with_ttl(self, ttl):
         return self.clone(ttl=ttl)
 
-    def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
-        timestamp_expr = self.offline_expr[feature_timestamp_col].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
-        cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
-
-        return timestamp_expr > cutoff_time
-
 
 
 @frozen
@@ -262,61 +256,63 @@ class FeatureStore:
 
         return expr.filter(combined_filter)
 
+
     def get_historical_features(
-        self,
-        entity_df: pd.DataFrame,
-        features: List[str],
-    ):
-        if "event_timestamp" not in entity_df.columns:
-            raise ValueError("entity_df must contain 'event_timestamp' column")
+            self,
+            entity_df: pd.DataFrame,
+            features: List[str],
+        ):
+            if "event_timestamp" not in entity_df.columns:
+                raise ValueError("entity_df must contain 'event_timestamp' column")
 
-        parsed_features = self._parse_feature_references(features)
+            parsed_features = self._parse_feature_references(features)
+            features_by_view = {}
+            for view_name, feature_name in parsed_features:
+                if view_name not in features_by_view:
+                    features_by_view[view_name] = []
+                features_by_view[view_name].append(feature_name)
 
-        features_by_view = {}
-        for view_name, feature_name in parsed_features:
-            if view_name not in features_by_view:
-                features_by_view[view_name] = []
-            features_by_view[view_name].append(feature_name)
+            con = xo.duckdb.connect()
+            result_expr = xo.memtable(entity_df).into_backend(con=con)
 
-        con = xo.duckdb.connect()
-        result_expr = xo.memtable(entity_df).into_backend(con=con)
+            for view_name, feature_names in features_by_view.items():
+                view = self.views[view_name]
+                entity_key = view.entity.key_column
 
-        for view_name, feature_names in features_by_view.items():
-            view = self.views[view_name]
-            entity_key = view.entity.key_column
+                if entity_key not in entity_df.columns:
+                    raise ValueError(
+                        f"entity_df must contain '{entity_key}' column for view '{view_name}'"
+                    )
 
-            if entity_key not in entity_df.columns:
-                raise ValueError(
-                    f"entity_df must contain '{entity_key}' column for view '{view_name}'"
+                feature_expr = view.offline_expr.into_backend(con=con)
+                feature_timestamp_col = view.features[0].timestamp_column
+
+                feature_expr = feature_expr.mutate(
+                    **{feature_timestamp_col: xo._[feature_timestamp_col].cast("timestamp")},
+                    event_timestamp=xo._[feature_timestamp_col].cast("timestamp")
                 )
 
-            view_expr = view.offline_expr.into_backend(con=con)
-            timestamp_col = view.features[0].timestamp_column
+                # Point-in-time join: get latest feature <= entity timestamp
+                result_expr = result_expr.asof_join(
+                    feature_expr,
+                    on="event_timestamp",
+                    predicates=entity_key,
+                    rname="feature_{name}"
+                )
 
-            if timestamp_col != "event_timestamp":
-                view_expr = view_expr.rename(**{"event_timestamp": timestamp_col})
+                ttl = view.features[0].ttl
+                result_expr = result_expr.filter(
+                    xo._[feature_timestamp_col] <= (xo._["event_timestamp"] - ttl)
+                )
 
-            # Perform point-in-time join using asof_join
-            historical_expr = result_expr.asof_join(
-                view_expr.mutate(
-                    event_timestamp=xo._.event_timestamp.cast("timestamp")
-                ),
-                on="event_timestamp",
-                predicates=entity_key,
-            )
+                feature_columns = [entity_key, "event_timestamp"] + feature_names
+                available_columns = result_expr.schema()
+                selected_columns = [col for col in feature_columns if col in available_columns]
 
-            feature_columns = [entity_key, "event_timestamp"] + feature_names
-            available_columns = historical_expr.schema()
-            selected_columns = [
-                col for col in feature_columns if col in available_columns
-            ]
+                result_expr = result_expr.select(selected_columns)
 
-            if not selected_columns:
-                raise ValueError(f"No requested features found in view '{view_name}'")
+            return result_expr
 
-            result_expr = historical_expr.filter(xo._["event_timestamp"]-view.features[0].ttl < xo._["event_timestamp_right"]).select(selected_columns)
-
-        return result_expr
 
     def materialize_online(self, view_name: str, current_time: datetime = None):
         """

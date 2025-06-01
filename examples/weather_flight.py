@@ -13,11 +13,11 @@ from xorq.flight import Backend as FlightBackend
 from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.client import FlightClient
 
+from xorq.common.utils.logging_utils import get_logger
+
+logging = get_logger()
 
 logging_format = "[%(asctime)s] %(levelname)s %(message)s"
-logging.basicConfig(
-    level=logging.INFO, format=logging_format, datefmt="%Y-%m-%d %H:%M:%S"
-)
 
 weather_lib = import_python("examples/libs/weather_lib.py")
 do_fetch_current_weather_udxf = weather_lib.do_fetch_current_weather_udxf
@@ -74,7 +74,7 @@ def setup_store() -> FeatureStore:
         entity=city,
         timestamp_column=TIMESTAMP_COLUMN,
         offline_expr=offline_expr,
-        ttl=timedelta(3600),
+        ttl=timedelta(seconds=3600),
         description="6s rolling mean temp"
     )
 
@@ -125,9 +125,9 @@ def run_historical_features() -> None:
         "city": ["London", "Tokyo", "New York"],
         # "event_timestamp" (reserved key) -> timestamps
         "event_timestamp": [
-            datetime(2025, 6, 29,  23, 59, 42),
-            datetime(2025, 6, 29,  23,12, 10),
-            datetime(2025, 6, 29,  23, 40, 26),
+            datetime(2025, 7, 1,  12, 59, 42),
+            datetime(2025, 7, 1,  12, 12, 10),
+            datetime(2025, 7, 1,  12, 40, 26),
         ],
     })
 
@@ -148,7 +148,6 @@ def run_historical_features() -> None:
 
 def run_push_to_view_source() -> None:
     store = setup_store()
-    # there is a bug after running a while: Too many open files (24)
     client = FlightClient("localhost", WEATHER_FEATURES_PORT)
     table = (
         xo
