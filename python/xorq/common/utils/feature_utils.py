@@ -222,7 +222,7 @@ class FeatureStore:
             bad_views_features = tuple(
                 (view, feature)
                 for (view, feature) in views_features
-                if feature not in self.views[view].features
+                if feature not in self.views[view].features[0].name
             )
             if bad_views_features:
                 raise ValueError
@@ -267,45 +267,32 @@ class FeatureStore:
         entity_df: pd.DataFrame,
         features: List[str],
     ):
-        """
-        Get historical features and return as an expression.
-
-        Returns:
-            xorq expression that can be executed to get the historical features
-        """
-        # Validate entity_df has required columns
         if "event_timestamp" not in entity_df.columns:
             raise ValueError("entity_df must contain 'event_timestamp' column")
 
-        # Parse feature references
         parsed_features = self._parse_feature_references(features)
 
-        # Group features by view to minimize joins
         features_by_view = {}
         for view_name, feature_name in parsed_features:
             if view_name not in features_by_view:
                 features_by_view[view_name] = []
             features_by_view[view_name].append(feature_name)
 
-        # Create expression from entity_df
         con = xo.duckdb.connect()
         result_expr = xo.memtable(entity_df).into_backend(con=con)
 
-        # For each view, get the historical features and join
         for view_name, feature_names in features_by_view.items():
             view = self.views[view_name]
             entity_key = view.entity.key_column
 
-            # Validate that entity_df contains the required entity key
             if entity_key not in entity_df.columns:
                 raise ValueError(
                     f"entity_df must contain '{entity_key}' column for view '{view_name}'"
                 )
 
-            view_expr = view.offline_expr().into_backend(con=con)
+            view_expr = view.offline_expr.into_backend(con=con)
             timestamp_col = view.features[0].timestamp_column
 
-            # Rename timestamp column if needed
             if timestamp_col != "event_timestamp":
                 view_expr = view_expr.rename(**{"event_timestamp": timestamp_col})
 
@@ -318,7 +305,6 @@ class FeatureStore:
                 predicates=entity_key,
             )
 
-            # Select only the requested features plus keys
             feature_columns = [entity_key, "event_timestamp"] + feature_names
             available_columns = historical_expr.schema()
             selected_columns = [
@@ -328,7 +314,7 @@ class FeatureStore:
             if not selected_columns:
                 raise ValueError(f"No requested features found in view '{view_name}'")
 
-            result_expr = historical_expr.select(selected_columns)
+            result_expr = historical_expr.filter(xo._["event_timestamp"]-view.features[0].ttl < xo._["event_timestamp_right"]).select(selected_columns)
 
         return result_expr
 
