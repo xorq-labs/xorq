@@ -1,70 +1,82 @@
+from typing import Any, Iterable, Optional, Tuple
+
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
+import xorq.vendor.ibis.expr.operations as ops
+from xorq.vendor.ibis.expr.operations.core import Node
 
 
-opaque_ops = (
-    rel.Read,
-    rel.CachedNode,
-    rel.RemoteTable,
-    rel.FlightUDXF,
-    rel.FlightExpr,
-    udf.ExprScalarUDF,
-)
+def _filter_none(values: Iterable[Optional[Node]]) -> Tuple[Node, ...]:
+    return tuple(v for v in values if v is not None)
+
+
+def to_node(maybe_expr: Any) -> Node:
+    while not isinstance(maybe_expr, Node):
+        op_fn = getattr(maybe_expr, "op", None)
+        if op_fn is None:
+            raise TypeError(
+                f"Cannot convert {type(maybe_expr).__name__} into an Ibis Node"
+            )
+        maybe_expr = op_fn()
+    return maybe_expr
+
+
+def children_of(node: Node) -> Tuple[Node, ...]:
+    match node:
+        case ops.Field():
+            rel_node = node.rel
+            if rel_node is None:
+                return ()
+            return _filter_none((to_node(rel_node),))
+
+        case rel.RemoteTable():
+            return _filter_none((to_node(node.remote_expr),))
+
+        case rel.CachedNode():
+            return (to_node(node.parent),)
+
+        case rel.FlightExpr():
+            return (to_node(node.input_expr),)
+
+        case rel.FlightUDXF():
+            return (to_node(node.input_expr),)
+
+        case udf.ExprScalarUDF():
+            exprs = node.computed_kwargs_expr
+            if exprs is not None:
+                single = to_node(exprs)
+                return (single,) if single else ()
+            return ()
+
+        case rel.Read():
+            return ()
+
+        case _:
+            raw_children = getattr(node, "__children__", ())
+            return _filter_none(map(to_node, raw_children))
 
 
 def walk_nodes(node_types, expr):
-    def process_node(op):
-        match op:
-            case rel.RemoteTable():
-                if isinstance(op, node_types):
-                    yield op
-                yield from walk_nodes(
-                    node_types,
-                    op.remote_expr,
-                )
-            case rel.CachedNode():
-                if isinstance(op, node_types):
-                    yield op
-                yield from walk_nodes(
-                    node_types,
-                    op.parent,
-                )
-            case rel.FlightExpr():
-                if isinstance(op, node_types):
-                    yield op
-                yield from walk_nodes(node_types, op.input_expr)
-            case rel.FlightUDXF():
-                if isinstance(op, node_types):
-                    yield op
-                yield from walk_nodes(node_types, op.input_expr)
-            case udf.ExprScalarUDF():
-                if isinstance(op, node_types):
-                    yield op
-                yield from walk_nodes(
-                    node_types,
-                    op.computed_kwargs_expr,
-                )
-            case rel.Read():
-                if isinstance(op, node_types):
-                    yield op
-            case _:
-                if isinstance(op, opaque_ops):
-                    raise ValueError(f"unhandled opaque op {type(op)}")
-                yield from op.find(opaque_ops + tuple(node_types))
+    visited = set()
+    to_visit = [to_node(expr)]
+    result = []
 
-    def inner(rest, seen):
-        if not rest:
-            return seen
-        op = rest.pop()
-        seen.add(op)
-        new = process_node(op)
-        rest.update(set(new).difference(seen))
-        return inner(rest, seen)
+    while to_visit:
+        node = to_visit.pop()
+        node_id = id(node)
 
-    initial_op = expr.op() if hasattr(expr, "op") else expr
-    rest = process_node(initial_op)
-    nodes = inner(set(rest), set())
-    return tuple(node for node in nodes if isinstance(node, node_types))
+        if node_id in visited:
+            continue
+        visited.add(node_id)
+
+        if isinstance(node, node_types):
+            result.append(node)
+
+        for child in children_of(node):
+            if id(child) not in visited:
+                to_visit.append(child)
+
+    return tuple(result)
 
 
 def find_all_sources(expr):
