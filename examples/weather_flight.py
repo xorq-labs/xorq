@@ -20,6 +20,9 @@ from xorq.flight import Backend as FlightBackend
 from xorq.flight import FlightServer, FlightUrl
 from xorq.flight.client import FlightClient
 
+from xorq.common.utils.logging_utils import get_logger
+
+logging = get_logger()
 
 # from xorq.flight.client import FlightClient
 
@@ -174,7 +177,6 @@ def run_historical_features() -> None:
 
 def run_push_to_view_source() -> None:
     store = setup_store()
-    # there is a bug after running a while: Too many open files (24)
     client = FlightClient("localhost", WEATHER_FEATURES_PORT)
     table = (
         xo

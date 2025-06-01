@@ -61,12 +61,6 @@ class Feature:
     def __attrs_post_init__(self):
         assert all(getattr(self, name) for name in ("name",))
 
-    def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
-        timestamp_expr = self.offline_expr[feature_timestamp_col].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
-        cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
-
-        return timestamp_expr > cutoff_time
-
 
 
 @frozen
@@ -290,6 +284,7 @@ class FeatureStore:
         feature_valid = timestamp_expr >= cutoff_time
         return expr.filter(feature_valid)
 
+
     def get_historical_features(
         self,
         entity_df: pd.DataFrame,
@@ -298,8 +293,9 @@ class FeatureStore:
         if EVENT_TIMESTAMP not in entity_df.columns:
             raise ValueError(f"entity_df must contain '{EVENT_TIMESTAMP}' column")
 
-        con = xo.duckdb.connect()
-        result_expr = xo.memtable(entity_df).into_backend(con=con)
+            for view_name, feature_names in features_by_view.items():
+                view = self.views[view_name]
+                entity_key = view.entity.key_column
 
         # should we be checking entities consistency among views and entity_df
         features_by_view = toolz.groupby(
