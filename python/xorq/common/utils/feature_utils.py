@@ -101,7 +101,11 @@ class FeatureView:
     def offline_expr(self):
         (expr, *others) = (feature.offline_expr for feature in self.features)
         for other in others:
-            expr = expr.join(other, self.entity.key_column, how="full_outer")
+            expr = expr.asof_join(
+                other,
+                on=self.timestamp_column,
+                predicates=self.entity.key_column,
+            )
         return expr
 
     @property
