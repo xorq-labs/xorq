@@ -54,19 +54,18 @@ class Feature:
         """Get the schema from the offline expression."""
         return self.offline_expr.schema()
 
-    # def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
-    #     """Return an expression that checks if a feature is expired based on its TTL."""
-    #     if self.ttl is None:
-    #         return xo.literal(False)
-    #     time_diff = xo.literal(current_time or datetime.now()) - feature_timestamp_col
-    #     ttl_lit = xo.literal(self.ttl.total_seconds()).cast("interval")
-    #     return time_diff > ttl_lit
-
     def clone(self, **kwargs):
         return type(self)(**self.__getstate__() | kwargs)
 
     def with_ttl(self, ttl):
         return self.clone(ttl=ttl)
+
+    def is_expired_expr(self, feature_timestamp_col, current_time: datetime = None):
+        timestamp_expr = self.offline_expr[feature_timestamp_col].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
+        cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
+
+        return timestamp_expr > cutoff_time
+
 
 
 @frozen
@@ -232,13 +231,32 @@ class FeatureStore:
         self, expr, view: FeatureView, current_time: datetime = None
     ):
         """Apply TTL filtering to an expression to remove expired features."""
-        (timestamp_column, effective_ttl) = (view.timestamp_column, view.effective_ttl)
-        if timestamp_column not in expr.schema() or effective_ttl is None:
+        if current_time is None:
+            current_time = datetime.now(timezone.utc)
+
+        timestamp_column = view.features[0].timestamp_column
+
+        schema_fields = expr.schema()
+        if timestamp_column not in schema_fields:
             return expr
 
-        time_diff = xo.literal(current_time or datetime.now()) - xo._[timestamp_column]
-        ttl_filter = time_diff > xo.literal(effective_ttl.total_seconds())
-        return expr.filter(ttl_filter)
+        ttl_filters = []
+
+        for feature in view.features:
+            if feature.ttl is not None:
+                timestamp_expr = expr[timestamp_column].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
+                cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
+                feature_valid = timestamp_expr >= cutoff_time
+                ttl_filters.append(feature_valid)
+
+        if not ttl_filters:
+            return expr
+
+        combined_filter = ttl_filters[0]
+        for filter_expr in ttl_filters[1:]:
+            combined_filter = combined_filter & filter_expr
+
+        return expr.filter(combined_filter)
 
     def get_historical_features(
         self,
@@ -403,16 +421,14 @@ class FeatureStore:
             raise ValueError(f"Entity key '{key_col}' not found in input data")
 
         # Build online expression and filter by entity keys
-        filtered_expr = self._build_online_expr(view_name).filter(
+        online_expr = self._build_online_expr(view_name)
+        unfiltered_expr = online_expr.filter(
             xo._[key_col].isin(keys_df[key_col].tolist())
         )
 
         # Apply TTL filtering if requested
         if apply_ttl:
-            filtered_expr = self._apply_ttl_filter_expr(
-                filtered_expr, view, current_time
-            )
-
+            filtered_expr = self._apply_ttl_filter_expr(unfiltered_expr, view, current_time)
         # Join with keys to ensure all requested keys are present
         con = xo.duckdb.connect()
         keys_expr = xo.memtable(keys_df).into_backend(con=con)
@@ -420,6 +436,9 @@ class FeatureStore:
         result_expr = keys_expr.join(
             filtered_expr.into_backend(con=con), key_col, how="left"
         )
+
+        print(f"current_time:{datetime.now(timezone.utc)}")
+
         return result_expr
 
 
