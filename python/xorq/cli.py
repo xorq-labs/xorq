@@ -15,7 +15,7 @@ from xorq.vendor.ibis import Expr
 
 
 @tracer.start_as_current_span("cli.build_command")
-def build_command(script_path, expr_name, builds_dir="builds"):
+def build_command(script_path, expr_name, builds_dir="builds", cache_dir=None):
     """
     Generate artifacts from an expression in a given Python script
 
@@ -24,6 +24,7 @@ def build_command(script_path, expr_name, builds_dir="builds"):
     script_path : Path to the Python script
     expr_name : The name of the expression to build
     builds_dir : Directory where artifacts will be generated
+    cache_dir : Directory where the parquet cache files will be generated
 
     Returns
     -------
@@ -44,7 +45,12 @@ def build_command(script_path, expr_name, builds_dir="builds"):
 
     print(f"Building {expr_name} from {script_path}", file=sys.stderr)
 
-    build_manager = BuildManager(builds_dir)
+    if cache_dir is not None:
+        cache_dir = Path(cache_dir)
+    else:
+        cache_dir = Path("~/.cache/xorq/").expanduser()
+
+    build_manager = BuildManager(builds_dir, cache_dir)
 
     vars_module = import_from_path(script_path, module_name="__main__")
 
@@ -137,6 +143,11 @@ def parse_args(override=None):
     build_parser.add_argument(
         "--builds-dir", default="builds", help="Directory for all generated artifacts"
     )
+    build_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        help="Directory for all generated parquet files cache",
+    )
 
     run_parser = subparsers.add_parser(
         "run", help="Run a build from a builds directory"
@@ -175,7 +186,7 @@ def main():
             case "build":
                 (f, f_args) = (
                     build_command,
-                    (args.script_path, args.expr_name, args.builds_dir),
+                    (args.script_path, args.expr_name, args.builds_dir, args.cache_dir),
                 )
             case "run":
                 (f, f_args) = (
