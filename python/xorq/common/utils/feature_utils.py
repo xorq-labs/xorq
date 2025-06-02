@@ -1,8 +1,11 @@
+import functools
+import operator
 from datetime import datetime, timedelta, timezone
 from typing import List, Mapping, Optional, Tuple
 
 import pandas as pd
 import pyarrow as pa
+import toolz
 from attrs import (
     define,
     field,
@@ -17,9 +20,15 @@ from attrs.validators import (
 import xorq as xo
 from xorq.flight import Backend as FlightBackend
 from xorq.flight.client import FlightClient
+from xorq.vendor.ibis.expr.datatypes import (
+    DataType,
+)
 from xorq.vendor.ibis.expr.types.core import (
     Expr,
 )
+
+
+EVENT_TIMESTAMP = "event_timestamp"
 
 
 @frozen
@@ -30,36 +39,27 @@ class Entity:
 
     name: str = field(validator=instance_of(str))
     key_column: str = field(validator=instance_of(str))
-    description: str = field(validator=instance_of(str))
+    description: str = field(validator=instance_of(str), default="")
+
+    def __attrs_post_init__(self):
+        assert all(getattr(self, name) for name in ("name", "key_column"))
 
 
 @frozen
 class Feature:
     """
-    Represents a feature with its offline expression and metadata.
-    Online expressions are auto-generated from the offline schema.
+    Represents a feature
     """
 
     name: str = field(validator=instance_of(str))
-    entity: Entity = field(validator=instance_of(Entity))
-    timestamp_column: str = field(validator=instance_of(str))
-    offline_expr: Expr = field(validator=instance_of(Expr))
-    description: str = field(validator=instance_of(str))
-    ttl: Optional[timedelta] = field(
-        validator=optional(instance_of(timedelta)), default=None
+    dtype: DataType = field(validator=instance_of(DataType))
+    description: str = field(validator=instance_of(str), default="")
+    tags: tuple = field(
+        validator=deep_iterable(instance_of(tuple), instance_of(tuple)), default=()
     )
 
-    @property
-    def schema(self):
-        """Get the schema from the offline expression."""
-        return self.offline_expr.schema()
-
-    def clone(self, **kwargs):
-        return type(self)(**self.__getstate__() | kwargs)
-
-    def with_ttl(self, ttl):
-        return self.clone(ttl=ttl)
-
+    def __attrs_post_init__(self):
+        assert all(getattr(self, name) for name in ("name",))
 
 
 @frozen
@@ -70,93 +70,124 @@ class FeatureView:
     """
 
     name: str = field(validator=instance_of(str))
-    entity: Entity = field(validator=instance_of(Entity))
     features: Tuple[Feature] = field(
         validator=deep_iterable(instance_of(Feature), instance_of(tuple))
     )
+    offline_expr: Expr = field(validator=instance_of(Expr))
+    entities: Tuple[Entity] = field(
+        validator=deep_iterable(instance_of(Entity), instance_of(tuple)),
+        default=(),
+    )
+    timestamp_column: str = field(
+        validator=optional(instance_of(str)),
+        default=None,
+    )
     ttl: Optional[timedelta] = field(
-        validator=optional(instance_of(timedelta)), default=None
+        validator=optional(instance_of(timedelta)),
+        default=None,
+    )
+    tags: tuple = field(
+        validator=deep_iterable(instance_of(tuple), instance_of(tuple)),
+        default=(),
     )
 
     def __attrs_post_init__(self):
+        assert all(getattr(self, name) for name in ("name",))
+        assert self.timestamp_column is None or self.timestamp_column
+        assert not self.tags or all(map(all, zip(*self.tags)))
         self._validate_features()
-        self._enforce_ttl()
 
     @property
-    def timestamp_column(self):
-        (timestamp_column, *rest) = set(
-            feature.timestamp_column for feature in self.features
-        )
-        if rest:
-            raise ValueError
-        return timestamp_column
+    def key_columns(self):
+        return tuple(entity.key_column for entity in self.entities)
 
     @property
-    def offline_expr(self):
-        (expr, *others) = (feature.offline_expr for feature in self.features)
-        for other in others:
-            expr = expr.asof_join(
-                other,
-                on=self.timestamp_column,
-                predicates=self.entity.key_column,
-            )
-        return expr
+    def entity_names(self):
+        return tuple(entity.name for entity in self.entities)
+
+    @property
+    def feature_names(self):
+        return tuple(feature.name for feature in self.features)
+
+    @property
+    def columns(self):
+        return self.key_columns + self.feature_names
 
     @property
     def schema(self):
         return self.offline_expr.schema()
 
-    @property
-    def effective_ttl(self) -> Optional[timedelta]:
-        """Get the minimum TTL among all features in the view."""
-        ttls = [f.ttl for f in self.features if f.ttl is not None]
-        return min(ttls, default=None)
-
     def _validate_features(self):
         # we must have features
-        assert self.features
-        # all features must have the same entity
-        invalid_features = tuple(
-            feature
-            for feature in self.features
-            if feature.entity.name != self.entity.name
-        )
-        if invalid_features:
-            raise ValueError(
-                f"Feature(s) {', '.join(feature.name for feature in invalid_features)} do not belong to {self.entity.name}"
-            )
-        # entities must not have schema conflicts
-        # fixme: enforce this
-
-    def _enforce_ttl(self):
-        if self.ttl is not None and any(
-            feature.ttl is None for feature in self.features
-        ):
-            features = tuple(
-                feature.with_ttl(self.ttl) if feature.ttl is None else feature
-                for feature in self.features
-            )
-            object.__setattr__(self, "features", features)
+        if not self.features:
+            raise ValueError
+        # everything must have a unique name,key
+        if len(self.key_columns) != len(set(self.key_columns)):
+            raise ValueError
+        if len(self.entity_names) != len(set(self.entity_names)):
+            raise ValueError
+        if len(self.feature_names) != len(set(self.feature_names)):
+            raise ValueError
+        if len(self.columns) != len(set(self.columns)):
+            raise ValueError
+        # we must have all columns in our schema
+        if set(self.columns).difference(self.schema):
+            raise ValueError
 
 
-@define
+@frozen
+class FeatureService:
+    def __attrs_post_init__(self):
+        raise NotImplementedError
+
+
+@frozen
 class FeatureRegistry:
     """
-    Registry of features
+    Registry of FeatureViews, FeatureServices
     """
 
-    feature_mapping: Mapping[str, Feature] = field(factory=dict)
+    views: Tuple[FeatureView] = field(
+        validator=deep_iterable(instance_of(FeatureView), instance_of(tuple)),
+    )
+    services: Tuple[FeatureService] = field(
+        validator=deep_iterable(instance_of(FeatureService), instance_of(tuple)),
+    )
 
     @property
-    def features(self):
-        return tuple(self.feature_mapping.values())
-
-    @property
+    @functools.cache
     def entities(self):
-        return tuple(set(feature.entity for feature in self.features))
+        return tuple(set(entity for view in self.views for entity in view.entities))
 
-    def register_feature(self, feature: Feature):
-        self.feature_mapping[feature.name] = feature
+    @property
+    def entity_names(self):
+        return tuple(entity.name for entity in self.entities)
+
+    @property
+    @functools.cache
+    def features(self):
+        return tuple(set(feature for view in self.views for feature in view.features))
+
+    def feature_names(self):
+        return tuple(feature.name for feature in self.features)
+
+    @property
+    @functools.cache
+    def view_names(self):
+        return tuple(view.name for view in self.views)
+
+    @property
+    @functools.cache
+    def service_names(self):
+        return tuple(service.name for service in self.services)
+
+    def get_feature_view(self, view_name):
+        return next(view for view in self.views if view.name == view_name)
+
+    def get_feature_service(self, service_name):
+        return next(
+            service for service in self.services if service.name == service_name
+        )
 
     def get_entity_features(self, entity_name: str) -> List[Feature]:
         return [f for f in self.features if f.entity.name == entity_name]
@@ -169,16 +200,16 @@ class FeatureStore:
     Auto-generates online expressions from offline schemas.
     """
 
-    online_client: FlightClient = field(validator=instance_of(FlightClient))
-    registry: FeatureRegistry = field(
-        validator=instance_of(FeatureRegistry), factory=FeatureRegistry
-    )
     views: Mapping[str, FeatureView] = field(factory=dict)
+    online_client: FlightClient = field(
+        validator=optional(instance_of(FlightClient)), default=None
+    )
+
+    @property
+    def registry(self):
+        raise NotImplementedError
 
     def register_view(self, view: FeatureView):
-        # what if we clobber a view and but retain its features in the registry
-        for f in view.features:
-            self.registry.register_feature(f)
         self.views[view.name] = view
 
     def _build_online_expr(self, view_name: str):
@@ -216,7 +247,7 @@ class FeatureStore:
             bad_views_features = tuple(
                 (view, feature)
                 for (view, feature) in views_features
-                if feature not in self.views[view].features[0].name
+                if feature not in self.views[view].feature_names
             )
             if bad_views_features:
                 raise ValueError
@@ -229,90 +260,66 @@ class FeatureStore:
         self, expr, view: FeatureView, current_time: datetime = None
     ):
         """Apply TTL filtering to an expression to remove expired features."""
-        if current_time is None:
-            current_time = datetime.now(timezone.utc)
-
-        timestamp_column = view.features[0].timestamp_column
-
-        schema_fields = expr.schema()
-        if timestamp_column not in schema_fields:
+        (timestamp_column, ttl) = (view.timestamp_column, view.ttl)
+        if not timestamp_column or not ttl or timestamp_column not in expr.schema():
             return expr
 
-        ttl_filters = []
-
-        for feature in view.features:
-            if feature.ttl is not None:
-                timestamp_expr = expr[timestamp_column].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
-                cutoff_time = xo.now() - xo.interval(seconds=feature.ttl)
-                feature_valid = timestamp_expr >= cutoff_time
-                ttl_filters.append(feature_valid)
-
-        if not ttl_filters:
-            return expr
-
-        combined_filter = ttl_filters[0]
-        for filter_expr in ttl_filters[1:]:
-            combined_filter = combined_filter & filter_expr
-
-        return expr.filter(combined_filter)
-
+        # timestamp_column is assumed to be a string?
+        timestamp_expr = expr[timestamp_column].as_timestamp("%Y-%m-%dT%H:%M:%S.%f%z")
+        now = xo.literal(current_time) if current_time else xo.now()
+        cutoff_time = now - xo.interval(seconds=ttl.total_seconds())
+        feature_valid = timestamp_expr >= cutoff_time
+        return expr.filter(feature_valid)
 
     def get_historical_features(
-            self,
-            entity_df: pd.DataFrame,
-            features: List[str],
-        ):
-            if "event_timestamp" not in entity_df.columns:
-                raise ValueError("entity_df must contain 'event_timestamp' column")
+        self,
+        entity_df: pd.DataFrame,
+        features: List[str],
+    ):
+        if EVENT_TIMESTAMP not in entity_df.columns:
+            raise ValueError(f"entity_df must contain '{EVENT_TIMESTAMP}' column")
 
-            parsed_features = self._parse_feature_references(features)
-            features_by_view = {}
-            for view_name, feature_name in parsed_features:
-                if view_name not in features_by_view:
-                    features_by_view[view_name] = []
-                features_by_view[view_name].append(feature_name)
+        con = xo.duckdb.connect()
+        result_expr = xo.memtable(entity_df).into_backend(con=con)
 
-            con = xo.duckdb.connect()
-            result_expr = xo.memtable(entity_df).into_backend(con=con)
-
-            for view_name, feature_names in features_by_view.items():
-                view = self.views[view_name]
-                entity_key = view.entity.key_column
-
-                if entity_key not in entity_df.columns:
-                    raise ValueError(
-                        f"entity_df must contain '{entity_key}' column for view '{view_name}'"
-                    )
-
-                feature_expr = view.offline_expr.into_backend(con=con)
-                feature_timestamp_col = view.features[0].timestamp_column
-
-                feature_expr = feature_expr.mutate(
-                    **{feature_timestamp_col: xo._[feature_timestamp_col].cast("timestamp")},
-                    event_timestamp=xo._[feature_timestamp_col].cast("timestamp")
+        # should we be checking entities consistency among views and entity_df
+        features_by_view = toolz.groupby(
+            operator.itemgetter(0),
+            self._parse_feature_references(features),
+        )
+        for view_name, feature_names in features_by_view.items():
+            view = self.views[view_name]
+            # what if the view does not have a timestamp column?
+            feature_timestamp_col = view.timestamp_column
+            assert feature_timestamp_col
+            key_columns = view.key_columns
+            feature_expr = (
+                view.offline_expr.into_backend(con=con)
+                .mutate(
+                    **{
+                        # ensure its a timestamp
+                        feature_timestamp_col: xo._[feature_timestamp_col].cast(
+                            "timestamp"
+                        ),
+                        # propagate to EVENT_TIMESTAMP so we can join on it
+                        EVENT_TIMESTAMP: xo._[feature_timestamp_col].cast("timestamp"),
+                    }
                 )
+                .select([EVENT_TIMESTAMP] + list(key_columns) + list(feature_names))
+            )
 
-                # Point-in-time join: get latest feature <= entity timestamp
-                result_expr = result_expr.asof_join(
-                    feature_expr,
-                    on="event_timestamp",
-                    predicates=entity_key,
-                    rname="feature_{name}"
-                )
-
-                ttl = view.features[0].ttl
-                result_expr = result_expr.filter(
-                    xo._[feature_timestamp_col] <= (xo._["event_timestamp"] - ttl)
-                )
-
-                feature_columns = [entity_key, "event_timestamp"] + feature_names
-                available_columns = result_expr.schema()
-                selected_columns = [col for col in feature_columns if col in available_columns]
-
-                result_expr = result_expr.select(selected_columns)
-
-            return result_expr
-
+            # Point-in-time join: get latest feature <= entity timestamp
+            result_expr = result_expr.asof_join(
+                feature_expr,
+                on=EVENT_TIMESTAMP,
+                predicates=key_columns,
+                # should this be an fstring?
+                rname="feature_{name}",
+            )
+            result_expr = result_expr.filter(
+                xo._[feature_timestamp_col] <= (xo._[EVENT_TIMESTAMP] - view.ttl)
+            )
+        return result_expr
 
     def materialize_online(self, view_name: str, current_time: datetime = None):
         """
@@ -414,7 +421,9 @@ class FeatureStore:
 
         # Apply TTL filtering if requested
         if apply_ttl:
-            filtered_expr = self._apply_ttl_filter_expr(unfiltered_expr, view, current_time)
+            filtered_expr = self._apply_ttl_filter_expr(
+                unfiltered_expr, view, current_time
+            )
         # Join with keys to ensure all requested keys are present
         con = xo.duckdb.connect()
         keys_expr = xo.memtable(keys_df).into_backend(con=con)
@@ -424,69 +433,5 @@ class FeatureStore:
         )
 
         print(f"current_time:{datetime.now(timezone.utc)}")
-
-        return result_expr
-
-
-    def get_historical_features_expr(
-        self,
-        entity_expr,
-        features: List[str],
-    ):
-        """
-        Get historical features from an entity expression and return as an expression.
-
-        Args:
-            entity_expr: xorq expression containing entity keys and event_timestamp
-            features: List of feature references in format "view_name:feature_name"
-
-        Returns:
-            xorq expression that can be executed to get the historical features
-        """
-        # Parse feature references
-        parsed_features = self._parse_feature_references(features)
-
-        # Group features by view to minimize joins
-        features_by_view = {}
-        for view_name, feature_name in parsed_features:
-            if view_name not in features_by_view:
-                features_by_view[view_name] = []
-            features_by_view[view_name].append(feature_name)
-
-        # Start with the entity expression
-        result_expr = entity_expr
-
-        # For each view, get the historical features and join
-        for view_name, feature_names in features_by_view.items():
-            view = self.views[view_name]
-            entity_key = view.entity.key_column
-
-            view_expr = view.offline_expr()
-            timestamp_col = view.features[0].timestamp_column
-
-            # Rename timestamp column if needed
-            if timestamp_col != "event_timestamp":
-                view_expr = view_expr.rename(**{timestamp_col: "event_timestamp"})
-
-            # Perform point-in-time join using asof_join
-            historical_expr = result_expr.asof_join(
-                view_expr.mutate(
-                    event_timestamp=xo._.event_timestamp.cast("timestamp")
-                ),
-                on="event_timestamp",
-                predicates=entity_key,
-            )
-
-            # Select only the requested features plus keys
-            feature_columns = [entity_key, "event_timestamp"] + feature_names
-            available_columns = historical_expr.schema()
-            selected_columns = [
-                col for col in feature_columns if col in available_columns
-            ]
-
-            if not selected_columns:
-                raise ValueError(f"No requested features found in view '{view_name}'")
-
-            result_expr = historical_expr.select(selected_columns)
 
         return result_expr
