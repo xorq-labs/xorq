@@ -2,6 +2,7 @@ import os
 import pathlib
 from typing import Any, Optional, Union
 
+from xorq.common.utils.caching_utils import user_cache_dir
 from xorq.vendor import ibis
 from xorq.vendor.ibis.config import Config
 
@@ -16,9 +17,7 @@ class Cache(Config):
 
     """
 
-    default_path: Union[str, pathlib.Path] = pathlib.Path(
-        "~/.local/share/xorq"
-    ).expanduser()
+    default_path: Union[str, pathlib.Path] = user_cache_dir()
     key_prefix: str = "letsql_cache-"
 
 

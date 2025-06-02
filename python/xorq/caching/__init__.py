@@ -16,9 +16,7 @@ from attr import (
     field,
     frozen,
 )
-from attr.validators import (
-    instance_of,
-)
+from attr.validators import instance_of
 from opentelemetry import trace
 from public import public
 
@@ -228,7 +226,6 @@ class _ParquetStorage(CacheStorage):
     )
     path = field(
         validator=instance_of(Path),
-        converter=abs_path_converter,
         factory=functools.partial(xorq.options.get, "cache.default_path"),
     )
 
@@ -384,7 +381,6 @@ class ParquetStorage:
     )
     path = field(
         validator=instance_of(Path),
-        converter=abs_path_converter,
         factory=functools.partial(xorq.options.get, "cache.default_path"),
     )
     cache = field(validator=instance_of(Cache), init=False)

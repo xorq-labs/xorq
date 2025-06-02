@@ -1,6 +1,7 @@
 import contextlib
 import json
 import operator
+import os
 import pathlib
 from pathlib import Path
 from typing import Any, Dict
@@ -141,14 +142,11 @@ class YamlExpressionTranslator:
     def __init__(self):
         pass
 
-    def to_yaml(
-        self,
-        expr: ir.Expr,
-        profiles=None,
-    ) -> Dict[str, Any]:
+    def to_yaml(self, expr: ir.Expr, profiles=None, cache_dir=None) -> Dict[str, Any]:
         context = TranslationContext(
             schema_registry=SchemaRegistry(),
             profiles=freeze(profiles or {}),
+            cache_dir=cache_dir,
         )
 
         schema_ref = context.schema_registry._register_expr_schema(expr)
@@ -182,9 +180,13 @@ class YamlExpressionTranslator:
 
 
 class BuildManager:
-    def __init__(self, build_dir: pathlib.Path):
+    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path = None):
         self.artifact_store = ArtifactStore(build_dir)
         self.profiles = {}
+        if cache_dir is not None:
+            self.cache_dir = cache_dir
+        else:
+            self.cache_dir = os.getenv("XORQ_CACHE_DIR")
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
         hash_length = config.hash_length
@@ -255,7 +257,7 @@ class BuildManager:
         }
 
         translator = YamlExpressionTranslator()
-        yaml_dict = translator.to_yaml(expr, profiles)
+        yaml_dict = translator.to_yaml(expr, profiles, self.cache_dir)
         self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
