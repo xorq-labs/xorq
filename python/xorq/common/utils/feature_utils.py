@@ -62,7 +62,6 @@ class Feature:
         assert all(getattr(self, name) for name in ("name",))
 
 
-
 @frozen
 class FeatureView:
     """
@@ -283,7 +282,6 @@ class FeatureStore:
         cutoff_time = now - xo.interval(seconds=ttl.total_seconds())
         feature_valid = timestamp_expr >= cutoff_time
         return expr.filter(feature_valid)
-
 
     def get_historical_features(
         self,
