@@ -336,10 +336,6 @@ class FeatureStore:
                 columns
                 + [column for column in feature_expr.columns if column not in columns]
             )
-            if view.ttl:
-                result_expr = result_expr.filter(
-                    xo._[feature_timestamp_col] <= (xo._[EVENT_TIMESTAMP] - view.ttl)
-                )
         return result_expr
 
     def materialize_online(self, current_time: datetime = None):
