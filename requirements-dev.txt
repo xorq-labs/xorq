@@ -10,7 +10,7 @@ adbc-driver-snowflake==1.6.0
     # via xorq
 aiohappyeyeballs==2.6.1 ; python_full_version < '4.0'
     # via aiohttp
-aiohttp==3.12.6 ; python_full_version < '4.0'
+aiohttp==3.12.7 ; python_full_version < '4.0'
     # via gcsfs
 aiosignal==1.3.2 ; python_full_version < '4.0'
     # via aiohttp
@@ -28,7 +28,7 @@ appdirs==1.4.4 ; python_full_version < '4.0'
     # via pins
 appnope==0.1.4 ; sys_platform == 'darwin'
     # via ipykernel
-argon2-cffi==23.1.0
+argon2-cffi==25.1.0
     # via jupyter-server
 argon2-cffi-bindings==21.2.0
     # via argon2-cffi
@@ -66,9 +66,9 @@ black==25.1.0
 blackdoc==0.3.9
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.27 ; python_full_version < '4.0'
+boto3==1.38.28 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.27 ; python_full_version < '4.0'
+botocore==1.38.28 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -191,7 +191,7 @@ gcsfs==2025.5.1 ; python_full_version < '4.0'
 geoarrow-types==0.3.0 ; python_full_version < '4.0'
     # via xorq
 git-cliff==2.8.0
-google-api-core==2.24.2 ; python_full_version < '4.0'
+google-api-core==2.25.0 ; python_full_version < '4.0'
     # via
     #   google-cloud-core
     #   google-cloud-storage
@@ -223,7 +223,7 @@ greenlet==3.2.2 ; (python_full_version < '3.14' and platform_machine == 'AMD64')
     # via sqlalchemy
 griffe==1.7.3
     # via quartodoc
-grpcio==1.71.0
+grpcio==1.72.1
     # via opentelemetry-exporter-otlp-proto-grpc
 h11==0.16.0
     # via
@@ -400,7 +400,7 @@ nvidia-nccl-cu12==2.26.5 ; platform_machine != 'aarch64' and sys_platform == 'li
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.82.1
+openai==1.83.0
     # via xorq
 opentelemetry-api==1.33.1
     # via
@@ -479,7 +479,7 @@ plum-dispatch==2.5.7
 ply==3.11 ; sys_platform == 'darwin'
     # via pythran
 pre-commit==4.2.0
-prometheus-client==0.22.0
+prometheus-client==0.22.1
     # via jupyter-server
 prompt-toolkit==3.0.51
     # via ipython
@@ -538,6 +538,7 @@ pygments==2.19.1
     #   ipython
     #   ipython-pygments-lexers
     #   nbconvert
+    #   pytest
     #   rich
 pyiceberg==0.9.1
     # via xorq
@@ -547,7 +548,7 @@ pyopenssl==25.1.0
     # via snowflake-connector-python
 pyparsing==3.2.3
     # via pyiceberg
-pytest==8.3.5
+pytest==8.4.0
     # via
     #   pytest-codspeed
     #   pytest-cov
@@ -693,7 +694,7 @@ starlette==0.47.0
     # via mcp
 strictyaml==1.7.3
     # via pyiceberg
-structlog==25.3.0 ; python_full_version < '4.0'
+structlog==25.4.0 ; python_full_version < '4.0'
     # via xorq
 tabulate==0.9.0
     # via quartodoc
@@ -751,7 +752,7 @@ traitlets==5.14.3
 trino==0.334.0
 types-python-dateutil==2.9.0.20250516
     # via arrow
-typing-extensions==4.13.2
+typing-extensions==4.14.0
     # via
     #   adbc-driver-manager
     #   anyio
