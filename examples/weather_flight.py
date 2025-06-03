@@ -37,7 +37,6 @@ TIMESTAMP_COLUMN = "timestamp"
 
 # Database files
 TABLE_BATCH = "weather_history"
-FEATURE_VIEW = "city_weather"
 CITIES = ["London", "Tokyo", "New York", "Lahore"]
 
 
@@ -191,18 +190,18 @@ def run_push_to_view_source() -> None:
         .to_pandas()
     )
     print(f"table: {table}")
+
     fv_keys = store.views.keys()
-    try:
-        for view in fv_keys:
-                backend = store.views[view].offline_expr._find_backend()
-                for t in backend.tables:
-                    if t == view:
-                        backend.insert(t, table)
-                        logging.info(f"Pushed live data to {view}")
-                        logging.info(f"{table['timestamp']}")
-        time.sleep(1)
-    except KeyboardInterrupt:
-        logging.info("Shutting down")
+    # I need an easy way to access batch source to push
+    for view in fv_keys:
+        logging.info(f"View: {view}")
+        backend = store.views[view].offline_expr._find_backend()
+        if TABLE_BATCH not in backend.tables:
+            print(f"Creating table {TABLE_BATCH} in backend")
+            backend.create_table(TABLE_BATCH, table)
+        else:
+            print(f"Table {TABLE_BATCH} already exists in backend")
+            backend.insert(TABLE_BATCH, table)
 
 
 def main() -> None:
