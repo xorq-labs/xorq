@@ -17,18 +17,7 @@ from xorq.common.utils.import_utils import import_python
 from xorq.common.utils.logging_utils import get_logger
 from xorq.flight import Backend as FlightBackend
 from xorq.flight import FlightServer, FlightUrl
-from xorq.common.utils.feature_utils import (
-    Entity,
-    Feature,
-    FeatureStore,
-    FeatureView,
-)
 
-
-# from xorq.flight.client import FlightClient
-
-
-logging = get_logger()
 
 # from xorq.flight.client import FlightClient
 
@@ -180,6 +169,19 @@ def run_historical_features() -> None:
     print(training_df.execute())
 
     return training_df
+
+
+def ensure_table(backend, name=TABLE_BATCH):
+    if name not in backend.tables:
+        table = (
+            xo.memtable(
+                [{"city": c} for c in CITIES],
+                schema=do_fetch_current_weather_udxf.schema_in_required,
+            )
+            .pipe(do_fetch_current_weather_flight_udxf)
+            .to_pandas()
+        )
+        backend.create_table(TABLE_BATCH, table)
 
 
 def run_push_to_view_source() -> None:
