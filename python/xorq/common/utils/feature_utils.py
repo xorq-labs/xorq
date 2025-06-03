@@ -298,10 +298,6 @@ class FeatureStore:
                 view.offline_expr.into_backend(con=con)
                 .mutate(
                     **{
-                        # ensure its a timestamp
-                        feature_timestamp_col: xo._[feature_timestamp_col].cast(
-                            "timestamp"
-                        ),
                         # propagate to EVENT_TIMESTAMP so we can join on it
                         EVENT_TIMESTAMP: xo._[feature_timestamp_col].cast("timestamp"),
                     }
