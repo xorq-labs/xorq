@@ -113,7 +113,7 @@ schema_out = xo.schema(
         "ground_level_pressure_hpa": "int64",
         "wind_speed_ms": "double",
         "wind_direction_deg": "int64",
-        "wind_gust_ms": "double",
+        "wind_gust_ms": "null",
         "clouds_percent": "int64",
         "visibility_m": "int64",
         "data_timestamp": "int64",
