@@ -1,7 +1,6 @@
 import argparse
 
 # import logging
-import time
 from datetime import datetime, timedelta
 
 import pandas as pd
@@ -9,16 +8,16 @@ import toolz
 
 import xorq as xo
 import xorq.expr.datatypes as dt
-from xorq.common.utils.import_utils import import_python
-from xorq.common.utils.logging_utils import get_logger
-from xorq.flight import Backend as FlightBackend
-from xorq.flight import FlightServer, FlightUrl
 from xorq.common.utils.feature_utils import (
     Entity,
     Feature,
     FeatureStore,
     FeatureView,
 )
+from xorq.common.utils.import_utils import import_python
+from xorq.common.utils.logging_utils import get_logger
+from xorq.flight import Backend as FlightBackend
+from xorq.flight import FlightServer, FlightUrl
 
 
 # from xorq.flight.client import FlightClient
@@ -55,6 +54,7 @@ def setup_store() -> FeatureStore:
         ATTACH 'ducklake:sqlite:metadata.sqlite' AS my_ducklake (DATA_PATH 'file_path/');
         USE my_ducklake;
         """)
+    ensure_table(offline_con, TABLE_BATCH)
 
     # 3. Flight backend for online features
     fb = FlightBackend()
@@ -78,11 +78,7 @@ def setup_store() -> FeatureStore:
         ]
     )
 
-    city = Entity(
-        name="city",
-        key_column="city",
-        description="City identifier"
-    )
+    city = Entity(name="city", key_column="city", description="City identifier")
     features = [
         Feature(
             name=feature_name,
@@ -103,10 +99,10 @@ def setup_store() -> FeatureStore:
         for feature in features
     ]
 
-    store = FeatureStore(views={fv.name: fv for fv in feature_views}, online_client=fb.con)
-    references = [
-        f"{fv.name}:{fv.features[0].name}" for fv in feature_views
-    ]
+    store = FeatureStore(
+        views={fv.name: fv for fv in feature_views}, online_client=fb.con
+    )
+    references = [f"{fv.name}:{fv.features[0].name}" for fv in feature_views]
     return store, references
 
 
@@ -165,9 +161,7 @@ def run_historical_features() -> None:
         }
     )
 
-    training_df = store.get_historical_features(
-        entity_df, references
-    )
+    training_df = store.get_historical_features(entity_df, references)
 
     logging.info("Retrieved historical features")
     print("Entity DataFrame:")
@@ -176,6 +170,19 @@ def run_historical_features() -> None:
     print(training_df.execute())
 
     return training_df
+
+
+def ensure_table(backend, name=TABLE_BATCH):
+    if name not in backend.tables:
+        table = (
+            xo.memtable(
+                [{"city": c} for c in CITIES],
+                schema=do_fetch_current_weather_udxf.schema_in_required,
+            )
+            .pipe(do_fetch_current_weather_flight_udxf)
+            .to_pandas()
+        )
+        backend.create_table(TABLE_BATCH, table)
 
 
 def run_push_to_view_source() -> None:

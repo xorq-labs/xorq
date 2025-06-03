@@ -1,6 +1,6 @@
 import functools
 import operator
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import List, Mapping, Optional, Tuple
 
 import pandas as pd
@@ -324,7 +324,7 @@ class FeatureStore:
             )
         return result_expr
 
-    def materialize_online(self, current_time: datetime = None):
+    def materialize_online(self, features: List[str], current_time: datetime = None):
         features_by_view = toolz.groupby(
             operator.itemgetter(0),
             self._parse_feature_references(features),
@@ -337,8 +337,7 @@ class FeatureStore:
             )
             key_col = view.entities[0].key_column
             latest_expr = (
-                filtered_expr
-                .order_by([key_col, view.timestamp_column])
+                filtered_expr.order_by([key_col, view.timestamp_column])
                 .mutate(
                     row_number=xo.row_number().over(
                         group_by=key_col,
@@ -401,11 +400,7 @@ class FeatureStore:
 
             columns = result_expr.columns
 
-            result_expr = result_expr.join(
-                feature_expr,
-                key_col,
-                how="left"
-            )
+            result_expr = result_expr.join(feature_expr, key_col, how="left")
 
             result_expr = result_expr.select(
                 columns
