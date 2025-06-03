@@ -287,8 +287,9 @@ class FeatureStore:
             operator.itemgetter(0),
             self._parse_feature_references(features),
         )
-        for view_name, feature_names in features_by_view.items():
+        for view_name, _feature_names in features_by_view.items():
             view = self.views[view_name]
+            feature_names = tuple(feature_name for _, feature_name in _feature_names)
             # what if the view does not have a timestamp column?
             feature_timestamp_col = view.timestamp_column
             assert feature_timestamp_col
@@ -309,16 +310,20 @@ class FeatureStore:
             )
 
             # Point-in-time join: get latest feature <= entity timestamp
+            columns = result_expr.columns
             result_expr = result_expr.asof_join(
                 feature_expr,
                 on=EVENT_TIMESTAMP,
                 predicates=key_columns,
-                # should this be an fstring?
-                rname="feature_{name}",
             )
-            result_expr = result_expr.filter(
-                xo._[feature_timestamp_col] <= (xo._[EVENT_TIMESTAMP] - view.ttl)
+            result_expr = result_expr.select(
+                columns
+                + [column for column in feature_expr.columns if column not in columns]
             )
+            if view.ttl:
+                result_expr = result_expr.filter(
+                    xo._[feature_timestamp_col] <= (xo._[EVENT_TIMESTAMP] - view.ttl)
+                )
         return result_expr
 
     def materialize_online(self, view_name: str, current_time: datetime = None):
