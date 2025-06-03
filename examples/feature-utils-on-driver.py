@@ -89,7 +89,7 @@ feature_views = [
         offline_expr=xo.memtable(dct[feature.name]).into_backend(con),
         entities=(entity,),
         timestamp_column=EVENT_TIMESTAMP,
-        ttl=timedelta(days=10),
+        ttl=timedelta(hours=2, minutes=14),
     )
     for feature in features
 ]
