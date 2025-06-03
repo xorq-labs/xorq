@@ -259,7 +259,6 @@ class FeatureStore:
     def _apply_ttl_filter_expr(
         self, expr, view: FeatureView, current_time: datetime = None
     ):
-        """Apply TTL filtering to an expression to remove expired features."""
         (timestamp_column, ttl) = (view.timestamp_column, view.ttl)
         if not timestamp_column or not ttl or timestamp_column not in expr.schema():
             return expr
@@ -325,117 +324,92 @@ class FeatureStore:
             )
         return result_expr
 
-    def materialize_online(self, view_name: str, current_time: datetime = None):
-        """
-        Materialize features to online store with TTL filtering using expressions.
-
-        Args:
-            view_name: Name of the view to materialize
-            current_time: Current time for TTL calculations (defaults to now)
-        """
-        view = self.views[view_name]
-
-        # Apply TTL filtering using expressions
-        filtered_expr = self._apply_ttl_filter_expr(
-            view.offline_expr, view, current_time
+    def materialize_online(self, current_time: datetime = None):
+        features_by_view = toolz.groupby(
+            operator.itemgetter(0),
+            self._parse_feature_references(features),
         )
 
-        # Get latest values per entity key using expressions
-        # Sort by timestamp and get the last record for each entity
-        # unclear why we only want one row
-        latest_expr = (
-            filtered_expr
-            # should entity.key_column vary at all?
-            .order_by([view.entity.key_column, view.timestamp_column])
-            .mutate(
-                row_number=xo.row_number().over(
-                    group_by=view.entity.key_column,
-                    order_by=xo.desc(view.timestamp_column),
+        for view_name, _feature_names in features_by_view.items():
+            view = self.views[view_name]
+            filtered_expr = self._apply_ttl_filter_expr(
+                view.offline_expr, view, current_time
+            )
+            key_col = view.entities[0].key_column
+            latest_expr = (
+                filtered_expr
+                .order_by([key_col, view.timestamp_column])
+                .mutate(
+                    row_number=xo.row_number().over(
+                        group_by=key_col,
+                        order_by=xo.desc(view.timestamp_column),
+                    )
                 )
+                .filter(xo._.row_number == 0)
+                .drop("row_number")
             )
-            .filter(xo._.row_number == 0)
-            .drop("row_number")
-        )
+            # Execute to get the materialized data
+            # TODO: Do not execute here
+            latest_df = latest_expr.execute()
 
-        # Execute to get the materialized data
-        # TODO: Do not execute here
-        latest_df = latest_expr.execute()
+            if latest_df.empty:
+                print(
+                    f"Warning: All features in view '{view_name}' are expired based on TTL"
+                )
+                return
 
-        if latest_df.empty:
+            if self.online_client is None:
+                raise ValueError("No online client configured")
+
+            tbl = pa.Table.from_pandas(latest_df)
+            self.online_client.upload_data(view_name, tbl, overwrite=True)
+
             print(
-                f"Warning: All features in view '{view_name}' are expired based on TTL"
+                f"Materialized {len(latest_df)} non-expired feature records for view '{view_name}'"
             )
-            return
-
-        # Upload to online storage
-        if self.online_client is None:
-            raise ValueError("No online client configured")
-
-        tbl = pa.Table.from_pandas(latest_df)
-        self.online_client.upload_data(view_name, tbl, overwrite=True)
-
-        print(
-            f"Materialized {len(latest_df)} non-expired feature records for view '{view_name}'"
-        )
 
     def get_online_features(
         self,
-        view_name: str,
-        rows: List[dict] = None,
-        entity_df: pd.DataFrame = None,
+        features: List[str],
+        entity_df: pd.DataFrame,
         apply_ttl: bool = True,
         current_time: datetime = None,
     ):
-        """
-        Get online features with optional TTL filtering and return as an expression.
+        con = xo.duckdb.connect()
+        result_expr = xo.memtable(entity_df).into_backend(con=con)
 
-        Args:
-            view_name: Name of the view
-            rows: List of entity key dictionaries
-            entity_df: DataFrame with entity keys
-            apply_ttl: Whether to filter out expired features
-            current_time: Current time for TTL calculations
+        features_by_view = toolz.groupby(
+            operator.itemgetter(0),
+            self._parse_feature_references(features),
+        )
 
-        Returns:
-            xorq expression that can be executed to get the online features
-        """
+        for view_name, _feature_names in features_by_view.items():
+            view = self.views[view_name]
+            feature_names = tuple(feature_name for _, feature_name in _feature_names)
+            key_col = view.entities[0].key_column
 
-        def make_keys_df():
-            if (entity_df is not None) ^ (rows is not None):
-                if entity_df is not None:
-                    return entity_df
-                else:
-                    return pd.DataFrame(rows)
-            else:
-                raise ValueError(
-                    "Exactly one of 'rows' or 'entity_df' must be provided"
+            online_expr = self._build_online_expr(view_name)
+
+            feature_expr = online_expr.select([key_col] + list(feature_names))
+
+            if apply_ttl:
+                feature_expr = self._apply_ttl_filter_expr(
+                    feature_expr, view, current_time
                 )
 
-        keys_df = make_keys_df()
-        view = self.views[view_name]
-        key_col = view.entity.key_column
-        if key_col not in keys_df.columns:
-            raise ValueError(f"Entity key '{key_col}' not found in input data")
+            feature_expr = feature_expr.into_backend(con=con)
 
-        # Build online expression and filter by entity keys
-        online_expr = self._build_online_expr(view_name)
-        unfiltered_expr = online_expr.filter(
-            xo._[key_col].isin(keys_df[key_col].tolist())
-        )
+            columns = result_expr.columns
 
-        # Apply TTL filtering if requested
-        if apply_ttl:
-            filtered_expr = self._apply_ttl_filter_expr(
-                unfiltered_expr, view, current_time
+            result_expr = result_expr.join(
+                feature_expr,
+                key_col,
+                how="left"
             )
-        # Join with keys to ensure all requested keys are present
-        con = xo.duckdb.connect()
-        keys_expr = xo.memtable(keys_df).into_backend(con=con)
 
-        result_expr = keys_expr.join(
-            filtered_expr.into_backend(con=con), key_col, how="left"
-        )
-
-        print(f"current_time:{datetime.now(timezone.utc)}")
+            result_expr = result_expr.select(
+                columns
+                + [column for column in feature_expr.columns if column not in columns]
+            )
 
         return result_expr
