@@ -106,7 +106,7 @@ dev = [
     "git-cliff<3.0.0,>=2.2.1",
     "ipython<9.4.0,>=8.19.0",
     "pre-commit==4.2.0",
-    "pytest==8.3.5",
+    "pytest==8.4.0",
     "pytest-cov==6.1.1",
     "ruff==0.11.12",
     "trino==0.334.0",
