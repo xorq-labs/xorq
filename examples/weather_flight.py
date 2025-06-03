@@ -17,6 +17,12 @@ from xorq.common.utils.import_utils import import_python
 from xorq.common.utils.logging_utils import get_logger
 from xorq.flight import Backend as FlightBackend
 from xorq.flight import FlightServer, FlightUrl
+from xorq.common.utils.feature_utils import (
+    Entity,
+    Feature,
+    FeatureStore,
+    FeatureView,
+)
 
 
 # from xorq.flight.client import FlightClient
@@ -177,7 +183,7 @@ def run_historical_features() -> None:
 
 
 def run_push_to_view_source() -> None:
-    store = setup_store()
+    store, references = setup_store()
     # client = FlightClient("localhost", WEATHER_FEATURES_PORT)
     table = (
         xo.memtable(
@@ -191,10 +197,9 @@ def run_push_to_view_source() -> None:
     fv_keys = store.views.keys()
     try:
         for view in fv_keys:
-            if view == FEATURE_VIEW:
                 backend = store.views[view].offline_expr._find_backend()
                 for t in backend.tables:
-                    if t == TABLE_BATCH:
+                    if t == view:
                         backend.insert(t, table)
                         logging.info(f"Pushed live data to {view}")
                         logging.info(f"{table['timestamp']}")
