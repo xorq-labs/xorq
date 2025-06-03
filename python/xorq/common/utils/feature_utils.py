@@ -311,19 +311,22 @@ class FeatureStore:
 
             # Point-in-time join: get latest feature <= entity timestamp
             columns = result_expr.columns
+            suffix = "_right"
             result_expr = result_expr.asof_join(
                 feature_expr,
                 on=EVENT_TIMESTAMP,
                 predicates=key_columns,
+                rname="{name}" + suffix,
             )
+            if view.ttl:
+                result_expr = result_expr.filter(
+                    xo._[f"{EVENT_TIMESTAMP}{suffix}"]
+                    >= (xo._[EVENT_TIMESTAMP] - view.ttl)
+                )
             result_expr = result_expr.select(
                 columns
                 + [column for column in feature_expr.columns if column not in columns]
             )
-            if view.ttl:
-                result_expr = result_expr.filter(
-                    xo._[feature_timestamp_col] <= (xo._[EVENT_TIMESTAMP] - view.ttl)
-                )
         return result_expr
 
     def materialize_online(self, view_name: str, current_time: datetime = None):
