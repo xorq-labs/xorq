@@ -48,6 +48,7 @@ let
         );
         duckdb = prev.duckdb.overrideAttrs (addNativeBuildInputs [
           prev.setuptools
+          prev.setuptools-scm
           prev.pybind11
         ]);
         pyarrow = let

@@ -779,6 +779,39 @@ def _string_slice(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return ops.StringSlice(**kwargs).to_expr()
 
 
+@translate_to_yaml.register(ops.Intersection)
+@translate_to_yaml.register(ops.Union)
+@translate_to_yaml.register(ops.Difference)
+def _set_op_to_yaml(op: ops.Set, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": type(op).__name__,
+            "left": translate_to_yaml(op.left, context),
+            "right": translate_to_yaml(op.right, context),
+            "distinct": translate_to_yaml(op.distinct, context),
+            "values": {
+                name: translate_to_yaml(val, context) for name, val in op.values.items()
+            },
+        }
+    )
+
+
+set_ops_map = {
+    "Intersection": ops.Intersection,
+    "Union": ops.Union,
+    "Difference": ops.Difference,
+}
+
+
+@register_from_yaml_handler("Intersection", "Union", "Difference")
+def _set_op(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    left = translate_from_yaml(yaml_dict["left"], context)
+    right = translate_from_yaml(yaml_dict["right"], context)
+    distinct = translate_from_yaml(yaml_dict["distinct"], context)
+    set_op = set_ops_map[yaml_dict["op"]]
+    return set_op(left, right, distinct=distinct).to_expr()
+
+
 @translate_to_yaml.register(ops.BinaryOp)
 def _binary_op_to_yaml(op: ops.BinaryOp, context: TranslationContext) -> dict:
     return freeze(
