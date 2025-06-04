@@ -8,7 +8,7 @@ t = xo.examples.iris.fetch()
 con = t.op().source
 storage = ParquetStorage(source=con, path=Path.cwd())
 
-expr = t.filter([t.species == "Adelie"]).cache(storage=storage)
+expr = t.filter([t.species == "Setosa"]).cache(storage=storage)
 
 
 if __name__ == "__pytest_main__":
