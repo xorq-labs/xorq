@@ -297,13 +297,6 @@ def read_postgres(
     return con.read_postgres(uri, table_name=table_name, **kwargs)
 
 
-def read_sqlite(path: str | Path, *, table_name: str | None = None):
-    from xorq.config import _backend_init
-
-    con = _backend_init()
-    return con.read_sqlite(path, table_name=table_name)
-
-
 @functools.cache
 def _cached_with_op(op, pretty):
     from xorq.config import _backend_init

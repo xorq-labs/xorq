@@ -57,22 +57,6 @@ def test_read_postgres():
     assert res is not None and len(res)
 
 
-@pytest.mark.xfail
-def test_read_sqlite(tmp_path):
-    import sqlite3
-
-    xo.options.interactive = True
-    db_path = tmp_path / "sqlite.db"
-    with sqlite3.connect(db_path) as sq3:
-        sq3.execute("DROP TABLE IF EXISTS t")
-        sq3.execute("CREATE TABLE t (a INT, b TEXT)")
-        sq3.execute("INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')")
-    t = xo.read_sqlite(path=db_path, table_name="t")
-    res = xo.execute(t)
-
-    assert res is not None and len(res)
-
-
 @pytest.mark.parametrize(
     ("with_repartition_file_scans", "keep_partition_by_columns"),
     [(True, True), (True, False), (False, True), (False, False)],
