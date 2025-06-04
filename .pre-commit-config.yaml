@@ -16,7 +16,7 @@ repos:
         args: [--ignore-words=.codespell.ignore-words]
   - repo: https://github.com/astral-sh/ruff-pre-commit
     # Ruff version.
-    rev: v0.11.9
+    rev: v0.11.12
     hooks:
       # Run the linter.
       - id: ruff
@@ -25,7 +25,7 @@ repos:
       - id: ruff-format
   - repo: https://github.com/astral-sh/uv-pre-commit
     # uv version.
-    rev: 0.7.3
+    rev: 0.7.10
     hooks:
       # Update the uv lockfile
       - id: uv-lock

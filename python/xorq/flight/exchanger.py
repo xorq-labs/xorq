@@ -11,6 +11,7 @@ import toolz
 
 import xorq as xo
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils import classproperty
 from xorq.common.utils.func_utils import (
     return_constant,
 )
@@ -76,8 +77,7 @@ def streaming_expr_exchange(
 
 
 class AbstractExchanger(ABC):
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def exchange_f(cls):
         # return a function with the signature (context, reader, writer, **kwargs)
@@ -86,38 +86,32 @@ class AbstractExchanger(ABC):
 
         return f
 
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def schema_in_required(cls):
         pass
 
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def schema_in_condition(cls):
         pass
 
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def calc_schema_out(cls):
         pass
 
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def description(cls):
         pass
 
-    @classmethod
-    @property
+    @classproperty
     @abstractmethod
     def command(cls):
         pass
 
-    @classmethod
-    @property
+    @classproperty
     def query_result(cls):
         return {
             "schema-in-required": cls.schema_in_required,
@@ -129,8 +123,7 @@ class AbstractExchanger(ABC):
 
 
 class EchoExchanger(AbstractExchanger):
-    @classmethod
-    @property
+    @classproperty
     def exchange_f(cls):
         def exchange_echo(context, reader, writer, options=None, **kwargs):
             """Run a simple echo server."""
@@ -150,34 +143,29 @@ class EchoExchanger(AbstractExchanger):
 
         return exchange_echo
 
-    @classmethod
-    @property
+    @classproperty
     def schema_in_required(cls):
         return None
 
-    @classmethod
-    @property
+    @classproperty
     def schema_in_condition(cls):
         def condition(schema_in):
             return True
 
         return condition
 
-    @classmethod
-    @property
+    @classproperty
     def calc_schema_out(cls):
         def f(schema_in):
             return schema_in
 
         return f
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "echo's data back"
 
-    @classmethod
-    @property
+    @classproperty
     def command(cls):
         return "echo"
 
@@ -296,8 +284,7 @@ class UnboundExprExchanger(AbstractExchanger):
     def calc_schema_out(self, schema_in):
         return self._schema_out
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "run the given unbound expr on the rbr"
 

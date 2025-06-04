@@ -10,6 +10,7 @@ from pyiceberg.table import Table as IcebergTable
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.postgres.compiler import compiler as postgres_compiler
 from xorq.backends.pyiceberg.compiler import PyIceberg, translate
+from xorq.backends.pyiceberg.relations import PyIcebergTable
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.expr import schema as sch
@@ -108,13 +109,16 @@ class Backend(SQLBackend):
         name: str,
         schema: str | None = None,
         database: tuple[str, str] | str | None = None,
+        snapshot_id: str | None = None,
     ) -> ir.Table:
         table_schema = self.get_schema(name, catalog=schema, database=database)
-        return ops.DatabaseTable(
-            name,
+
+        return PyIcebergTable(
+            name=name,
             schema=table_schema,
             source=self,
             namespace=ops.Namespace(catalog=schema, database=database),
+            snapshot_id=snapshot_id,
         ).to_expr()
 
     def create_table(
@@ -188,6 +192,36 @@ class Backend(SQLBackend):
                 transaction.append(data)
 
         return True
+
+    def upsert(
+        self,
+        table_name: str,
+        data: Union[pd.DataFrame, pa.Table, ir.Table],
+        database: Optional[str] = None,
+        join_cols=None,
+        when_matched_update_all=True,
+        when_not_matched_insert_all=True,
+        case_sensitive=True,
+    ):
+        """Wrapper around upsert"""
+        database = database or self.namespace
+        full_table_name = f"{database}.{table_name}"
+
+        if isinstance(data, pd.DataFrame):
+            data = pa.Table.from_pandas(data)
+        elif isinstance(data, ir.Table):
+            data = self.to_pyarrow(data)
+
+        iceberg_table = self.catalog.load_table(full_table_name)
+        iceberg_table.upsert(
+            data,
+            join_cols=join_cols,
+            when_matched_update_all=when_matched_update_all,
+            when_not_matched_insert_all=when_not_matched_insert_all,
+            case_sensitive=case_sensitive,
+        )
+
+        return self.table(table_name)
 
     def to_pyarrow(
         self,
@@ -269,3 +303,17 @@ class Backend(SQLBackend):
 
         self.create_table(name=table_name, obj=table, database=self.namespace)
         return self.table(table_name)
+
+    def list_snapshots(self, database=None) -> dict[str, int]:
+        database = database or self.namespace
+        table_names = [t[1] for t in self.catalog.list_tables(database)]
+
+        snapshots = {}
+        for table_name in table_names:
+            ice_table = self.catalog.load_table(f"{database}.{table_name}")
+            ice_table.inspect.snapshots()
+            snapshots[table_name] = (
+                ice_table.inspect.snapshots().column("snapshot_id").to_pylist()
+            )
+
+        return snapshots
