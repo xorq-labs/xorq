@@ -27,6 +27,7 @@ from xorq.common.utils.defer_utils import (
 from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
 )
+from xorq.tests.util import assert_frame_equal
 
 
 @frozen
@@ -330,3 +331,40 @@ def test_deferred_read_csv_multiple_paths():
     expr = deferred_read_csv(con, (path, path), schema=t.schema())
 
     assert not expr.execute().empty
+
+
+@pytest.fixture(scope="function")
+def backend(request, con):
+    lookup = {"duckdb": xo.duckdb.connect(), "postgres": con, "xorq": xo.connect()}
+
+    return lookup.get(request.param, con)
+
+
+@pytest.mark.parametrize(
+    "backend",
+    [
+        pytest.param("duckdb", id="duckdb"),
+        pytest.param("postgres", id="postgres"),
+        pytest.param("xorq", id="xorq"),
+    ],
+    indirect=True,
+)
+def test_register_csv_with_glob_string(data_dir, backend):
+    table_name = f"{backend.name}_astronauts"
+    glob_pattern = str(data_dir / "csv" / "*astronauts.csv")
+    expected = backend.read_csv(
+        glob_pattern, table_name=f"{table_name}_expected"
+    ).execute()
+
+    read = xo.deferred_read_csv(backend, glob_pattern, table_name=table_name)
+    actual = read.execute()  # triggers the table creation
+
+    assert any(table_name in t for t in backend.list_tables())
+    assert_frame_equal(expected, actual)
+
+
+def test_register_empty_glob_pattern_fails(data_dir, con):
+    glob_pattern = str(data_dir / "csv" / "*foo.csv")
+
+    with pytest.raises(ValueError, match="At least one path is required"):
+        xo.deferred_read_csv(con, glob_pattern, table_name="foo")
