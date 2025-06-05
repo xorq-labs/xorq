@@ -131,9 +131,9 @@ class Pins(Config):
         }
         return pins.board(**_kwargs)
 
-    def get_path(self, name, board=None):
+    def get_path(self, name, board=None, **kwargs):
         board = board or self.get_board()
-        (path,) = board.pin_download(name)
+        (path,) = board.pin_download(name, **kwargs)
         return path
 
 
