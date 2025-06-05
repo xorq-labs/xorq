@@ -77,10 +77,8 @@ def test_flight_expr(con, diamonds, baseline):
 def test_flight_udxf(con, diamonds, baseline):
     input_expr = diamonds.pipe(do_agg)
     process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
-    maybe_schema_in = input_expr.schema().to_pyarrow()
-    maybe_schema_out = xo.schema(
-        input_expr.schema() | {field_name: return_type}
-    ).to_pyarrow()
+    maybe_schema_in = input_expr.schema()
+    maybe_schema_out = xo.schema(input_expr.schema() | {field_name: return_type})
     expr = xo.expr.relations.flight_udxf(
         input_expr,
         process_df=process_df,

@@ -206,11 +206,11 @@ class PandasUDFExchanger(AbstractExchanger):
     def calc_schema_out(self):
         def f(schema_in):
             # FIXME: what to send if schema_in does not match schema_in_required?
-            field = pa.field(self.name, self.typ)
+            field_schema = xo.schema({self.name: self.typ})
             if self.append:
-                schema_out = pa.schema(tuple(schema_in) + (field,))
+                schema_out = schema_in | field_schema
             else:
-                schema_out = pa.schema((field,))
+                schema_out = field_schema
             return schema_out
 
         return f
@@ -240,11 +240,9 @@ class UnboundExprExchanger(AbstractExchanger):
             raise ValueError("unbound_expr must be unbound")
         self.unbound_expr = self.set_one_unbound_name(unbound_expr)
         self.make_connection = make_connection
-        self._schema_in_required = self.get_one_unbound(
-            self.unbound_expr
-        ).schema.to_pyarrow()
+        self._schema_in_required = self.get_one_unbound(self.unbound_expr).schema
         self._schema_in_condition = toolz.curried.operator.eq(self._schema_in_required)
-        self._schema_out = self.unbound_expr.schema().to_pyarrow()
+        self._schema_out = self.unbound_expr.schema()
 
     @staticmethod
     def get_one_unbound(expr):
@@ -328,8 +326,10 @@ def make_udxf(
         exchange_f = process_df
 
     if isinstance(maybe_schema_in, pa.Schema):
+        raise ValueError
+    elif isinstance(maybe_schema_in, xo.Schema):
         schema_in_required = maybe_schema_in
-        schema_in_condition = toolz.curried.operator.eq(maybe_schema_in)
+        schema_in_condition = toolz.curried.operator.eq(schema_in_required)
     elif isinstance(maybe_schema_in, Callable):
         schema_in_required = None
         schema_in_condition = maybe_schema_in
@@ -337,6 +337,8 @@ def make_udxf(
         raise ValueError
 
     if isinstance(maybe_schema_out, pa.Schema):
+        raise ValueError
+    elif isinstance(maybe_schema_out, xo.Schema):
         calc_schema_out = return_constant(maybe_schema_out)
     elif isinstance(maybe_schema_out, Callable):
         calc_schema_out = maybe_schema_out

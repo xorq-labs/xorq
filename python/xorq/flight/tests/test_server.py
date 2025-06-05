@@ -7,6 +7,7 @@ import pyarrow as pa
 import pytest
 
 import xorq as xo
+import xorq.expr.datatypes as dt
 import xorq.flight.action as A
 import xorq.flight.exchanger as E
 from xorq.common.utils import classproperty
@@ -186,14 +187,9 @@ def test_exchange(connection, port):
         client = main.client
         udf_exchanger = PandasUDFExchanger(
             my_f,
-            schema_in=pa.schema(
-                (
-                    pa.field("a", pa.int64()),
-                    pa.field("b", pa.int64()),
-                )
-            ),
+            schema_in=xo.schema({"a": int, "b": int}),
             name="x",
-            typ=pa.int64(),
+            typ=dt.int64,
             append=True,
         )
         client.do_action(AddExchangeAction.name, udf_exchanger, options=client._options)
@@ -202,7 +198,7 @@ def test_exchange(connection, port):
         df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
         fut, rbr = client.do_exchange(
             udf_exchanger.command,
-            pa.RecordBatchReader.from_stream(df_in),
+            xo.memtable(df_in),
         )
         df_out = rbr.read_pandas()
         writes_reads = fut.result()
@@ -250,14 +246,14 @@ def test_reentry(connection):
         verify_client=False,
         connection=connection,
     ) as server:
-        fut, rbr = server.client.do_exchange(
+        fut, rbr = server.client.do_exchange_batches(
             EchoExchanger.command,
             pa.RecordBatchReader.from_stream(df_in),
         )
         df_out = rbr.read_pandas()
         assert df_in.equals(df_out)
     with server:
-        fut, rbr = server.client.do_exchange(
+        fut, rbr = server.client.do_exchange_batches(
             EchoExchanger.command,
             pa.RecordBatchReader.from_stream(df_in),
         )
@@ -281,7 +277,7 @@ def test_serve_close(connection):
     )
 
     server.serve()
-    fut, rbr = server.client.do_exchange(
+    fut, rbr = server.client.do_exchange_batches(
         EchoExchanger.command,
         pa.RecordBatchReader.from_stream(df_in),
     )
@@ -290,7 +286,7 @@ def test_serve_close(connection):
     server.close()
 
     server.serve()
-    fut, rbr = server.client.do_exchange(
+    fut, rbr = server.client.do_exchange_batches(
         EchoExchanger.command,
         pa.RecordBatchReader.from_stream(df_in),
     )
@@ -306,8 +302,8 @@ def test_ctor_exchanger_registration():
     schema_in = xo.schema({"dummy": "int64"})
     dummy_udxf = E.make_udxf(
         dummy,
-        schema_in.to_pyarrow(),
-        xo.schema({"row_count": "int64"}).to_pyarrow(),
+        schema_in,
+        xo.schema({"row_count": "int64"}),
     )
     flight_server = FlightServer(exchangers=[dummy_udxf])
     with flight_server:
@@ -316,7 +312,7 @@ def test_ctor_exchanger_registration():
         assert dummy_udxf.command in available
         client.do_exchange(
             dummy_udxf.command,
-            xo.memtable({"dummy": [0]}, schema=schema_in).to_pyarrow_batches(),
+            xo.memtable({"dummy": [0]}, schema=schema_in),
         )
 
 

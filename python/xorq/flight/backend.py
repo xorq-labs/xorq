@@ -106,7 +106,11 @@ class Backend(SQLBackend):
         table_name = table_name or util.gen_name("read_in_memory")
 
         if isinstance(source, pa.Table):
-            self.con.upload_data(table_name, source)
+            self.con.upload_table(table_name, source)
+        elif isinstance(source, pd.DataFrame):
+            self.con.upload_batches(
+                table_name, pa.RecordBatchReader.from_stream(source)
+            )
         elif isinstance(source, pa.RecordBatchReader):
             self.con.upload_batches(table_name, source)
         return self.table(table_name)

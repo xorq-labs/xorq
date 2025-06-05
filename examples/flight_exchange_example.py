@@ -5,6 +5,8 @@ import pandas as pd
 import pyarrow as pa
 
 import xorq as xo
+import xorq.expr.datatypes as dt
+from xorq.common.utils import classproperty
 from xorq.common.utils.rbr_utils import (
     instrument_reader,
     streaming_split_exchange,
@@ -28,8 +30,7 @@ def train_batch_df(df):
 
 
 class IterativeSplitTrainExchanger(AbstractExchanger):
-    @classmethod
-    @property
+    @classproperty
     def exchange_f(cls):
         def train_batch(split_reader):
             df = split_reader.read_pandas()
@@ -46,41 +47,34 @@ class IterativeSplitTrainExchanger(AbstractExchanger):
 
         return functools.partial(streaming_split_exchange, SPLIT_KEY, train_batch)
 
-    @classmethod
-    @property
+    @classproperty
     def schema_in_required(cls):
         return None
 
-    @classmethod
-    @property
+    @classproperty
     def schema_in_condition(cls):
         def condition(schema_in):
-            return any(field.name == SPLIT_KEY for field in schema_in)
+            return any(name == SPLIT_KEY for name in schema_in)
 
         return condition
 
-    @classmethod
-    @property
+    @classproperty
     def calc_schema_out(cls):
         def f(schema_in):
-            split_field = next(field for field in schema_in if field.name == SPLIT_KEY)
-            model_binary_field = pa.field(MODEL_BINARY_KEY, pa.binary())
-            return pa.schema(
-                (
-                    model_binary_field,
-                    split_field,
-                )
+            return xo.schema(
+                {
+                    MODEL_BINARY_KEY: dt.binary,
+                    SPLIT_KEY: schema_in[SPLIT_KEY],
+                }
             )
 
         return f
 
-    @classmethod
-    @property
+    @classproperty
     def description(cls):
         return "iteratively train model on data ordered by `split`"
 
-    @classmethod
-    @property
+    @classproperty
     def command(cls):
         return "iterative-split-train"
 
@@ -113,7 +107,7 @@ if __name__ == "__pytest_main__":
             IterativeSplitTrainExchanger,
             options=client._options,
         )
-        (fut, rbr_out) = client.do_exchange(
+        (fut, rbr_out) = client.do_exchange_batches(
             IterativeSplitTrainExchanger.command, rbr_in
         )
         df_out = instrument_reader(rbr_out, prefix="output ::").read_pandas()

@@ -27,7 +27,7 @@ HACKERNEWS_DATA_NAME = "hn-fetcher-input-small"
 
 # import HackerNews library from pinned path
 hackernews_lib = import_python(
-    xo.options.pins.get_path("hackernews_lib", version="20250319T145842Z-023b8")
+    xo.options.pins.get_path("hackernews_lib", version="20250604T223424Z-2e578")
 )
 
 
@@ -68,7 +68,7 @@ def test_flight_service(do_sentiment, schema_in):
     test_data = xo.memtable(
         {"title": ["This is an amazing HackerNews post"]}, schema=schema_in
     )
-    (_, rbr) = do_sentiment(test_data.to_pyarrow_batches())
+    (_, rbr) = do_sentiment(test_data)
     res = rbr.read_pandas()
     print("Flight service test result:\n", res)
 
@@ -92,7 +92,9 @@ pipeline = (
 
 # Create the UDXF for Flight server
 sentiment_udxf = make_udxf(
-    sentiment_analysis, schema_in.to_pyarrow(), schema_out.to_pyarrow()
+    sentiment_analysis,
+    schema_in,
+    schema_out,
 )
 
 

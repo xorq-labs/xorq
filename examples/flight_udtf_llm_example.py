@@ -1,5 +1,4 @@
 import functools
-import operator
 import os
 from urllib.parse import unquote_plus
 
@@ -68,12 +67,8 @@ input_col = "text"
 append_col = "sentiment"
 schema_requirement = xo.schema({input_col: "!str"})
 schema_append = xo.schema({append_col: "!str"})
-maybe_schema_in = toolz.compose(schema_contains(schema_requirement), xo.schema)
-maybe_schema_out = toolz.compose(
-    operator.methodcaller("to_pyarrow"),
-    schema_concat(to_concat=schema_append),
-    xo.Schema.from_pyarrow,
-)
+maybe_schema_in = schema_contains(schema_requirement)
+maybe_schema_out = schema_concat(to_concat=schema_append)
 
 
 do_hackernews_sentiment_udxf = xo.expr.relations.flight_udxf(

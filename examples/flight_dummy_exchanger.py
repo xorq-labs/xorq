@@ -12,7 +12,7 @@ def dummy(df: pd.DataFrame):
 
 schema_in = xo.schema({"dummy": "int64"})
 schema_out = xo.schema({"row_count": "int64"})
-dummy_udxf = make_udxf(dummy, schema_in.to_pyarrow(), schema_out.to_pyarrow())
+dummy_udxf = make_udxf(dummy, schema_in, schema_out)
 flight_server = FlightServer(exchangers=[dummy_udxf])
 
 
@@ -20,5 +20,5 @@ if __name__ == "__pytest_main__":
     flight_server.serve()
     client = flight_server.client
     do_exchange = toolz.curry(client.do_exchange, dummy_udxf.command)
-    do_exchange(xo.memtable({"dummy": [0]}, schema=schema_in).to_pyarrow_batches())
+    do_exchange(xo.memtable({"dummy": [0]}, schema=schema_in))
     pytest_examples_passed = True
