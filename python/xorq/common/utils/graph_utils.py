@@ -11,13 +11,10 @@ def _filter_none(values: Iterable[Optional[Node]]) -> Tuple[Node, ...]:
 
 
 def to_node(maybe_expr: Any) -> Node:
-    while not isinstance(maybe_expr, Node):
-        op_fn = getattr(maybe_expr, "op", None)
-        if op_fn is None:
-            raise TypeError(
-                f"Cannot convert {type(maybe_expr).__name__} into an Ibis Node"
-            )
-        maybe_expr = op_fn()
+    op_fn = getattr(maybe_expr, "op", None)
+    if op_fn is None:
+        return maybe_expr
+    maybe_expr = op_fn()
     return maybe_expr
 
 
