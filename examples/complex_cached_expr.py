@@ -34,10 +34,10 @@ expected_predict_command = "execute-unbound-expr-2f54734d557f2914929e8f0fc8784c4
 
 
 do_hackernews_fetcher_udxf = import_python(
-    xo.options.pins.get_path("hackernews_lib")
+    xo.options.pins.get_path("hackernews_lib", version="20250319T145842Z-023b8")
 ).do_hackernews_fetcher_udxf
 do_hackernews_sentiment_udxf = import_python(
-    xo.options.pins.get_path("openai_lib")
+    xo.options.pins.get_path("openai_lib", version="20250326T142712Z-b8509")
 ).do_hackernews_sentiment_udxf
 
 
