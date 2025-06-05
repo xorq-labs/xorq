@@ -9,6 +9,7 @@ from pyarrow.flight import (
     FlightClient as _FlightClient,
 )
 
+import xorq as xo
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
 )
@@ -97,6 +98,7 @@ class FlightClient:
                 logger.info(f"Flight server unavailable, sleeping {n_seconds} seconds")
                 time.sleep(n_seconds)
 
+    # FIXME: rename to execute_table, add execute that return pd.DataFrame
     def execute(self, expr, **kwargs):
         """
         Execute Expr and return results as Arrow table
@@ -133,7 +135,12 @@ class FlightClient:
 
         return reader
 
-    def upload_data(self, table_name, data, **kwargs):
+    def upload(self, table_name, expr, **kwargs):
+        return self.upload_batches(
+            self, table_name, expr.to_pyarrow_batches(), **kwargs
+        )
+
+    def upload_table(self, table_name, data, **kwargs):
         """
         Upload data to create or replace a table
 
@@ -233,8 +240,10 @@ class FlightClient:
 
         def get_output_schema(command, reader):
             (dct,) = self.do_action("query-exchange", command, options=self._options)
-            assert dct["schema-in-condition"](reader.schema)
-            output_schema = dct["calc-schema-out"](reader.schema)
+            assert dct["schema-in-condition"](xo.schema(reader.schema))
+            output_schema = dct["calc-schema-out"](
+                xo.schema(reader.schema)
+            ).to_pyarrow()
             return output_schema
 
         queue = Queue()
@@ -243,4 +252,5 @@ class FlightClient:
         rbr = queue_to_rbr(output_schema, queue)
         return fut, rbr
 
-    do_exchange = do_exchange_batches
+    def do_exchange(self, command, expr):
+        return self.do_exchange_batches(command, expr.to_pyarrow_batches())

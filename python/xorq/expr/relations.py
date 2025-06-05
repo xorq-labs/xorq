@@ -216,7 +216,7 @@ class FlightExpr(ops.DatabaseTable):
                     unbound_expr_exchanger,
                     options=client._options,
                 )
-                (fut, rbr_out) = client.do_exchange(
+                (fut, rbr_out) = client.do_exchange_batches(
                     unbound_expr_exchanger.command, rbr_in
                 )
                 if do_instrument_reader:
@@ -247,8 +247,7 @@ def flight_serve(
 
     @toolz.curry
     def do_exchange(server, command, expr):
-        rbr_in = expr.to_pyarrow_batches()
-        (fut, rbr_out) = server.client.do_exchange(command, rbr_in)
+        (fut, rbr_out) = server.client.do_exchange(command, expr)
         return rbr_out
 
     server = (make_server or FlightServer)(**kwargs)
@@ -300,9 +299,9 @@ class FlightUDXF(ops.DatabaseTable):
 
     @classmethod
     def validate_schema(cls, input_expr, udxf):
-        if not udxf.schema_in_condition(input_expr.schema().to_pyarrow()):
+        if not udxf.schema_in_condition(input_expr.schema()):
             raise ValueError
-        schema_out = udxf.calc_schema_out(input_expr.schema().to_pyarrow())
+        schema_out = udxf.calc_schema_out(input_expr.schema())
         return schema_out
 
     @classmethod
@@ -346,7 +345,7 @@ class FlightUDXF(ops.DatabaseTable):
                     self.udxf,
                     options=client._options,
                 )
-                (fut, rbr_out) = client.do_exchange(self.udxf.command, rbr_in)
+                (fut, rbr_out) = client.do_exchange_batches(self.udxf.command, rbr_in)
                 if do_instrument_reader:
                     rbr_out = instrument_reader(rbr_out, "output: ")
                 # HAK: account for https://github.com/apache/arrow-rs/issues/6471
