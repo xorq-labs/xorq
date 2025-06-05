@@ -10,6 +10,7 @@ from attr import (
 )
 from attr.validators import (
     instance_of,
+    optional,
 )
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
@@ -32,7 +33,6 @@ try:
     utc = datetime.UTC
 except AttributeError:
     utc = datetime.timezone.utc
-
 
 pem_encode_cert = operator.methodcaller("public_bytes", Encoding.PEM)
 pem_decode_cert = x509.load_pem_x509_certificate
@@ -159,49 +159,72 @@ class TLSCert:
             self = self.signed_with(sign_with)
         return self
 
+
+@frozen
+class TLSKwargs:
+    verify_client = field(validator=instance_of(bool))
+    ca_tlscert = field(validator=instance_of(TLSCert))
+    server_tlscert = field(validator=instance_of(TLSCert))
+    client_tlscert = field(
+        validator=optional(instance_of(TLSCert)),
+        default=None,
+    )
+
+    def __attrs_post_init__(self):
+        self.ca_tlscert.verify(self.server_tlscert)
+        if self.verify_client:
+            assert self.client_tlscert is not None
+            self.ca_tlscert.verify(self.client_tlscert)
+
+    @property
+    def server_kwargs(self):
+        return {
+            "tls_certificates": self.server_tlscert.tls_certificates,
+            "root_certificates": self.ca_tlscert.cert_bytes,
+        }
+
+    @property
+    def client_kwargs(self):
+        client_kwargs = {
+            "tls_root_certs": self.ca_tlscert.cert_bytes,
+        }
+
+        if self.verify_client:
+            client_kwargs |= {
+                "cert_chain": self.client_tlscert.cert_bytes,
+                "private_key": self.client_tlscert.private_key_bytes,
+            }
+
+        return client_kwargs
+
     @classmethod
-    def create_tls_kwargs(cls, ca_kwargs, server_kwargs):
+    def from_kwargs(cls, ca_kwargs, server_kwargs, client_kwargs, verify_client=True):
         if server_kwargs.get(
             "common_name"
         ) != "localhost" or "localhost" not in server_kwargs.get("sans", ()):
             # FIXME: issue a warning
             pass
-        ca_tlscert = cls.from_common_name(**ca_kwargs)
-        server_tlscert = cls.from_common_name(sign_with=ca_tlscert, **server_kwargs)
-        server_kwargs = {
-            "tls_certificates": server_tlscert.tls_certificates,
-            "root_certificates": ca_tlscert.cert_bytes,
-        }
-        client_kwargs = {
-            "tls_root_certs": ca_tlscert.cert_bytes,
-        }
-        return (
-            # must keep a reference to the tlscert objects else they disappear
-            (ca_tlscert, server_tlscert),
-            server_kwargs,
-            client_kwargs,
-        )
+        ca_tlscert = TLSCert.from_common_name(**ca_kwargs)
+        server_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **server_kwargs)
+        client_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **client_kwargs)
+
+        return cls(verify_client, ca_tlscert, server_tlscert, client_tlscert)
 
     @classmethod
-    def create_mtls_kwargs(cls, ca_kwargs, server_kwargs, client_kwargs):
-        ((ca_tlscert, server_tlscert), *_) = cls.create_tls_kwargs(
-            ca_kwargs, server_kwargs
-        )
-        client_tlscert = cls.from_common_name(sign_with=ca_tlscert, **client_kwargs)
+    def from_common_name(cls, verify_client=True, common_name=socket.gethostname()):
+        ca_kwargs = {
+            "common_name": "root_cert",
+        }
         server_kwargs = {
-            "root_certificates": ca_tlscert.cert_bytes,
-            "tls_certificates": server_tlscert.tls_certificates,
+            "common_name": common_name,
+            "sans": ("localhost",),
         }
         client_kwargs = {
-            "tls_root_certs": ca_tlscert.cert_bytes,
-            "cert_chain": client_tlscert.cert_bytes,
-            "private_key": client_tlscert.private_key_bytes,
+            "common_name": "client",
         }
-        return (
-            # must keep a reference to the tlscert objects else they disappear
-            (ca_tlscert, server_tlscert, client_tlscert),
-            server_kwargs,
-            client_kwargs,
+
+        return cls.from_kwargs(
+            ca_kwargs, server_kwargs, client_kwargs, verify_client=verify_client
         )
 
 

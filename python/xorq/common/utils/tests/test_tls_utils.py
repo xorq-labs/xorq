@@ -1,3 +1,4 @@
+import socket
 from pathlib import Path
 
 import pytest
@@ -8,6 +9,7 @@ from cryptography.exceptions import (
 import xorq as xo
 from xorq.common.utils.tls_utils import (
     TLSCert,
+    TLSKwargs,
     pem_decode_cert,
     pem_decode_private_key,
     pem_encode_cert,
@@ -51,37 +53,71 @@ def test_tlscert_roundtrip(password, tmpdir):
 
 
 def test_tls_creation():
-    (tlscerts, *_) = ((ca_tlscert, server_tlscert), client_kwargs, server_kwargs) = (
-        TLSCert.create_tls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-        )
-    )
-    ca_tlscert.verify(server_tlscert)
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=False)
+    tls_kwargs.ca_tlscert.verify(tls_kwargs.server_tlscert)
 
 
 def test_mtls_creation():
-    ((ca_tlscert, server_tlscert, client_tlscert), client_kwargs, server_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=True)
+
+    tls_kwargs.ca_tlscert.verify(tls_kwargs.server_tlscert)
+    tls_kwargs.ca_tlscert.verify(tls_kwargs.client_tlscert)
+
+
+@pytest.mark.parametrize(
+    "client_values",
+    [
+        (True, True),
+        (False, True),
+        (False, False),
+    ],
+)
+def test_tls_kwargs_from_constructor(client_values):
+    verify_client, with_client = client_values
+
+    ca_kwargs = {
+        "common_name": "root_cert",
+    }
+    server_kwargs = {
+        "common_name": socket.gethostname(),
+        "sans": ("localhost",),
+    }
+    client_kwargs = {
+        "common_name": "client",
+    }
+
+    ca_tlscert = TLSCert.from_common_name(**ca_kwargs)
+    server_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **server_kwargs)
+    client_tlscert = (
+        TLSCert.from_common_name(sign_with=ca_tlscert, **client_kwargs)
+        if with_client
+        else None
     )
-    ca_tlscert.verify(server_tlscert)
-    ca_tlscert.verify(client_tlscert)
+    tls_kwargs = TLSKwargs(verify_client, ca_tlscert, server_tlscert, client_tlscert)
+
+    assert tls_kwargs is not None
+    tls_kwargs.ca_tlscert.verify(tls_kwargs.server_tlscert)
+    if tls_kwargs.verify_client:
+        tls_kwargs.ca_tlscert.verify(tls_kwargs.client_tlscert)
+
+
+@pytest.mark.parametrize("use_none", (True, False))
+def test_tls_kwargs_from_constructor_fails(use_none):
+    ca_kwargs = {
+        "common_name": "root_cert",
+    }
+    server_kwargs = {
+        "common_name": socket.gethostname(),
+        "sans": ("localhost",),
+    }
+
+    ca_tlscert = TLSCert.from_common_name(**ca_kwargs)
+    server_tlscert = TLSCert.from_common_name(sign_with=ca_tlscert, **server_kwargs)
+
+    with pytest.raises(AssertionError):
+        TLSKwargs(True, ca_tlscert, server_tlscert, None) if use_none else TLSKwargs(
+            True, ca_tlscert, server_tlscert
+        )
 
 
 def test_client_verify_fails():
@@ -92,20 +128,10 @@ def test_client_verify_fails():
 
 
 def test_tls_flight_server():
-    ((ca_tlscert, server_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_tls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-        )
-    )
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=False)
     server = xo.flight.FlightServer(
-        verify_client=False,
-        **server_kwargs,
+        verify_client=tls_kwargs.verify_client,
+        **tls_kwargs.server_kwargs,
     )
     server.serve()
 
@@ -116,35 +142,25 @@ def test_tls_flight_server():
     # test that an independent client can talk to it
     client = xo.flight.client.FlightClient(
         **server.flight_url.client_kwargs,
-        **client_kwargs,
+        **tls_kwargs.client_kwargs,
     )
     client.do_action_one(xo.flight.action.ListActionsAction.name)
 
 
 def test_tls_flight_server_fails():
-    ((ca_tlscert, server_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_tls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-        )
-    )
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=False)
     flight_url = xo.flight.FlightUrl(scheme="grpc+tls")
     with pytest.raises(Exception):
         # grpc+tls but no ca cert
         server = xo.flight.FlightServer(
             flight_url=flight_url,
-            verify_client=False,
+            verify_client=tls_kwargs.verify_client,
         )
 
     server = xo.flight.FlightServer(
         flight_url=flight_url,
-        verify_client=False,
-        **server_kwargs,
+        verify_client=tls_kwargs.verify_client,
+        **tls_kwargs.server_kwargs,
     )
     server.serve()
     # server can talk to itself
@@ -161,23 +177,10 @@ def test_tls_flight_server_fails():
 
 
 def test_mtls_flight_server():
-    ((ca_tlscert, server_tlscert, client_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
-    )
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=True)
     server = xo.flight.FlightServer(
-        verify_client=True,
-        **server_kwargs,
+        verify_client=tls_kwargs.verify_client,
+        **tls_kwargs.server_kwargs,
     )
     server.serve()
     # test that its own client can talk to it
@@ -186,57 +189,33 @@ def test_mtls_flight_server():
 
 
 def test_mtls_flight_client():
-    ((ca_tlscert, server_tlscert, client_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
-    )
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=True)
+
     server = xo.flight.FlightServer(
-        verify_client=True,
-        **server_kwargs,
+        verify_client=tls_kwargs.verify_client,
+        **tls_kwargs.server_kwargs,
     )
     server.serve()
 
     # test that an independent client can talk to it
     client = xo.flight.client.FlightClient(
         **server.flight_url.client_kwargs,
-        **client_kwargs,
+        **tls_kwargs.client_kwargs,
     )
     client.do_action_one(xo.flight.action.ListActionsAction.name)
 
 
 def test_mtls_flight_client_failure():
-    ((ca_tlscert, server_tlscert, client_tlscert), server_kwargs, client_kwargs) = (
-        TLSCert.create_mtls_kwargs(
-            ca_kwargs={
-                "common_name": "root_cert",
-            },
-            server_kwargs={
-                "common_name": "server",
-                "sans": ("localhost",),
-            },
-            client_kwargs={
-                "common_name": "client",
-            },
-        )
-    )
+    tls_kwargs = TLSKwargs.from_common_name(verify_client=True)
+
     server = xo.flight.FlightServer(
-        verify_client=True,
-        **server_kwargs,
+        verify_client=tls_kwargs.verify_client,
+        **tls_kwargs.server_kwargs,
     )
     server.serve()
 
     tlscert = TLSCert.from_common_name()
-    bad_client_kwargs = client_kwargs | {
+    bad_client_kwargs = tls_kwargs.client_kwargs | {
         "tls_root_certs": tlscert.cert_bytes,
     }
     with pytest.raises(Exception):
@@ -246,7 +225,7 @@ def test_mtls_flight_client_failure():
         )
 
     tlscert = TLSCert.from_common_name()
-    bad_client_kwargs = client_kwargs | {
+    bad_client_kwargs = tls_kwargs.client_kwargs | {
         "cert_chain": tlscert.cert_bytes,
         "private_key": tlscert.private_key_bytes,
     }
