@@ -26,7 +26,9 @@ XGB_MODEL_PATH = pathlib.Path(xo.options.pins.get_path("hn_sentiment_reg"))
 HACKERNEWS_DATA_NAME = "hn-fetcher-input-small"
 
 # import HackerNews library from pinned path
-hackernews_lib = import_python(xo.options.pins.get_path("hackernews_lib"))
+hackernews_lib = import_python(
+    xo.options.pins.get_path("hackernews_lib", version="20250319T145842Z-023b8")
+)
 
 
 def load_models():
