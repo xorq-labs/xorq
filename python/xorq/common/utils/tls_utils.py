@@ -160,10 +160,6 @@ class TLSCert:
         return self
 
 
-def get_client_tlscert(self):
-    return TLSCert.from_common_name(sign_with=self.ca_tlscert, common_name="client")
-
-
 @frozen
 class TLSKwargs:
     verify_client = field(validator=instance_of(bool))
