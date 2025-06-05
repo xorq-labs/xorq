@@ -92,7 +92,7 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
         filter=lambda t: t.type.eq("story") & t.title.notnull()
     ),
     # process_df=get_hackernews_stories_batch,
-    maybe_schema_in=schema_in.to_pyarrow(),
-    maybe_schema_out=schema_out.to_pyarrow(),
+    maybe_schema_in=schema_in,
+    maybe_schema_out=schema_out,
     name="HackerNewsFetcher",
 )
