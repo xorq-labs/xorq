@@ -9,7 +9,6 @@ from attrs import evolve, field, frozen
 from attrs.validators import instance_of
 from rich import print as rprint
 from rich.tree import Tree
-from toolz import curry
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
@@ -45,8 +44,6 @@ class GenericNode:
         return evolve(self, **changes)
 
 
-@curry
-@curry
 def build_lineage_tree(node: Node) -> GenericNode:
     match node:
         case ops.Field(ops.Project(), _):
