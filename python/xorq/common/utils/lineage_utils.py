@@ -104,7 +104,7 @@ def _category(node: Node) -> str:
     if isinstance(node, rel.FlightUDXF):
         return "udxf"
     if isinstance(node, udf.ExprScalarUDF):
-        return "udxf"
+        return "udf"
     if isinstance(node, rel.CachedNode):
         return "cached_table"
     if isinstance(node, rel.Read):
