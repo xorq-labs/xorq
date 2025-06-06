@@ -48,24 +48,19 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
 def walk_nodes(node_types, expr):
     visited = set()
     to_visit = [to_node(expr)]
-    result = []
+    result = ()
 
     while to_visit:
         node = to_visit.pop()
-        node_id = id(node)
-
-        if node_id in visited:
+        if node in visited:
             continue
-        visited.add(node_id)
-
+        visited.add(node)
         if isinstance(node, node_types):
-            result.append(node)
+            result += (node,)
 
-        for child in gen_children_of(node):
-            if id(child) not in visited:
-                to_visit.append(child)
+        to_visit += set(gen_children_of(node)).difference(visited)
 
-    return tuple(result)
+    return result
 
 
 def find_all_sources(expr):
