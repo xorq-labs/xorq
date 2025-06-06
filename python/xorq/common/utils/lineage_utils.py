@@ -14,7 +14,10 @@ from toolz import curry, pipe
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.graph_utils import children_of, to_node
+from xorq.common.utils.graph_utils import (
+    gen_children_of,
+    to_node,
+)
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
@@ -71,7 +74,7 @@ def build_lineage_tree(node: Node) -> GenericNode:
     return GenericNode(
         op=node,
         children=tuple(
-            build_lineage_tree(to_node(child)) for child in children_of(node)
+            build_lineage_tree(to_node(child)) for child in gen_children_of(node)
         ),
     )
 
