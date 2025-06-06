@@ -9,7 +9,7 @@ from attrs import evolve, field, frozen
 from attrs.validators import instance_of
 from rich import print as rprint
 from rich.tree import Tree
-from toolz import curry, pipe
+from toolz import curry
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
@@ -58,15 +58,12 @@ def maybe_get_project_expr(field_node: ops.Field) -> Optional[Any]:
 def build_lineage_tree(node: Node) -> GenericNode:
     match node:
         case ops.Field():
-            children = pipe(
-                node,
-                maybe_get_project_expr(),
-                lambda expr: build_lineage_tree(to_node(expr)) if expr else None,
-                lambda child_node: tuple(
-                    (child_node,)
-                    if child_node
-                    else ((build_lineage_tree(to_node(node.rel)),) if node.rel else ())
-                ),
+            x = maybe_get_project_expr(node)
+            y = build_lineage_tree(to_node(x)) if x else None
+            children = tuple(
+                (y,)
+                if y
+                else ((build_lineage_tree(to_node(node.rel)),) if node.rel else ())
             )
         case _:
             children = tuple(
