@@ -62,7 +62,7 @@ def build_lineage_tree(node: Node) -> GenericNode:
 
 def build_column_trees(expr: Any) -> Dict[str, GenericNode]:
     op = to_node(expr)
-    cols: Dict[str, Any] = getattr(op, "values", getattr(op, "fields", {}))
+    cols = getattr(op, "values", None) or getattr(op, "fields", {})
     return {k: build_lineage_tree(to_node(v)) for k, v in cols.items()}
 
 
