@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache, singledispatch
 from itertools import count
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 import dask.base
 from attrs import evolve, field, frozen
@@ -46,28 +46,16 @@ class GenericNode:
 
 
 @curry
-def maybe_get_project_expr(field_node: ops.Field) -> Optional[Any]:
-    rel_node = field_node.rel
-    if isinstance(rel_node, ops.Project):
-        _, mapping = rel_node.args
-        return mapping.get(field_node.name)
-    return None
-
-
 @curry
 def build_lineage_tree(node: Node) -> GenericNode:
     match node:
+        case ops.Field(ops.Project(), _):
+            children = (build_lineage_tree(node.rel.values[node.name]),)
         case ops.Field():
-            x = maybe_get_project_expr(node)
-            y = build_lineage_tree(to_node(x)) if x else None
-            children = tuple(
-                (y,)
-                if y
-                else ((build_lineage_tree(to_node(node.rel)),) if node.rel else ())
-            )
+            children = (build_lineage_tree(node.rel),)
         case _:
             children = tuple(
-                build_lineage_tree(to_node(child)) for child in gen_children_of(node)
+                build_lineage_tree(child) for child in gen_children_of(node)
             )
     return GenericNode(
         op=node,
