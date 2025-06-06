@@ -13,8 +13,13 @@ import xorq as xo
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
-from xorq.common.utils.graph_utils import find_all_sources
-from xorq.expr.relations import Read, RemoteTable
+from xorq.common.utils.graph_utils import (
+    find_all_sources,
+    opaque_ops,
+    replace_nodes,
+    walk_nodes,
+)
+from xorq.expr.relations import Read
 from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import SchemaRegistry, TranslationContext
 from xorq.ibis_yaml.config import config
@@ -346,10 +351,10 @@ def replace_memtables(build_dir, expr):
         return op
 
     op = expr.op()
-    mts = expr.op().find(InMemoryTable)
+    mts = walk_nodes((InMemoryTable,), expr)
     for mt in mts:
         dr_op = memtable_to_read_op(build_dir, mt)
-        op = op.replace(replace_from_to(mt, dr_op))
+        op = replace_nodes(replace_from_to(mt, dr_op), expr)
     new_expr = op.to_expr()
     return new_expr
 
@@ -371,15 +376,17 @@ def replace_database_tables(build_dir, expr):
         return op
 
     op = expr.op()
-    tables = expr.op().find(DatabaseTable)
+
+    table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
+    tables = walk_nodes((DatabaseTable,), expr)
     for table in tables:
-        if not isinstance(table, (RemoteTable, Read)) and table.source.name in (
+        if not isinstance(table, table_like_ops) and table.source.name in (
             "pandas",
             "duckdb",
             "datafusion",
             "let",
         ):
             dr_op = database_table_to_read_op(build_dir, table)
-            op = op.replace(replace_from_to(table, dr_op))
+            op = replace_nodes(replace_from_to(table, dr_op), expr)
     new_expr = op.to_expr()
     return new_expr
