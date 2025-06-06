@@ -384,7 +384,6 @@ class ParquetStorage:
     )
     path = field(
         validator=instance_of(Path),
-        converter=abs_path_converter,
         factory=functools.partial(xorq.options.get, "cache.default_path"),
     )
     cache = field(validator=instance_of(Cache), init=False)

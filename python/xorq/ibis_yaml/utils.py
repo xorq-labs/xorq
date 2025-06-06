@@ -117,17 +117,23 @@ def diff_ibis_exprs(expr1, expr2):
     return diffs
 
 
-def translate_storage(storage, compiler: Any) -> Dict:
+def translate_storage(storage, translation_context: Any) -> Dict:
     if isinstance(storage, SourceStorage):
         return {
             "type": "SourceStorage",
             "source": storage.source._profile.hash_name,
         }
     elif isinstance(storage, ParquetStorage):
+        path = (
+            translation_context.cache_dir.joinpath(storage.path)
+            if translation_context.cache_dir is not None
+            else storage.path
+        )
+
         return {
             "type": "ParquetStorage",
             "source": storage.source._profile.hash_name,
-            "path": str(storage.path.resolve()),
+            "path": str(path.resolve()),
         }
     else:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
