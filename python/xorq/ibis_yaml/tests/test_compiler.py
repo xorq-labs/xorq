@@ -2,6 +2,7 @@ import os
 import pathlib
 
 import dask
+import pandas as pd
 import pytest
 import yaml
 
@@ -12,6 +13,7 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import find_relations
+from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -20,6 +22,17 @@ def test_build_manager_expr_hash(t, build_dir, snapshot):
     build_manager = ArtifactStore(build_dir)
     actual = build_manager.get_expr_hash(t)
     snapshot.assert_match(actual, "build_manager_expr_hash.txt")
+
+
+@pytest.fixture(scope="session")
+def users_df():
+    return pd.DataFrame(
+        {
+            "user_id": [1, 2, 3, 4, 5],
+            "age": [25, 32, 28, 45, 31],
+            "name": ["Alice", "Bob", "Charlie", "Diana", "Eve"],
+        }
+    )
 
 
 def test_build_manager_roundtrip(t, build_dir):
@@ -247,3 +260,53 @@ def test_multi_engine_with_caching_with_parquet(build_dir, tmp_path):
     roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert expr.execute().equals(roundtrip_expr.execute())
+
+
+@pytest.mark.parametrize(
+    "table_from_df",
+    (
+        pytest.param(lambda _, df: xo.memtable(df, name="users"), id="memtable"),
+        pytest.param(
+            lambda con, df: con.register(df, table_name="users"), id="database_table"
+        ),
+    ),
+)
+def test_roundtrip_database_table(build_dir, users_df, table_from_df):
+    original = xo.connect()
+
+    t = table_from_df(original, users_df)
+    expr = t.filter(t.age > 30).select(t.user_id, t.name)
+
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
+
+
+@pytest.mark.parametrize(
+    "table_from_df",
+    (
+        pytest.param(lambda _, df: xo.memtable(df, name="users"), id="memtable"),
+        pytest.param(
+            lambda con, df: con.register(df, table_name="users"), id="database_table"
+        ),
+    ),
+)
+def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_from_df):
+    original = xo.connect()
+    ddb = xo.duckdb.connect()
+
+    storage = ParquetStorage(source=ddb, path=tmp_path)
+
+    t = table_from_df(original, users_df)
+    expr = (
+        t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(storage=storage)
+    )
+
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
