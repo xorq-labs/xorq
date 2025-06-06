@@ -56,26 +56,25 @@ def maybe_get_project_expr(field_node: ops.Field) -> Optional[Any]:
 
 @curry
 def build_lineage_tree(node: Node) -> GenericNode:
-    if isinstance(node, ops.Field):
-        return pipe(
-            node,
-            maybe_get_project_expr(),
-            lambda expr: build_lineage_tree(to_node(expr)) if expr else None,
-            lambda child_node: GenericNode(
-                op=node,
-                children=(
+    match node:
+        case ops.Field():
+            children = pipe(
+                node,
+                maybe_get_project_expr(),
+                lambda expr: build_lineage_tree(to_node(expr)) if expr else None,
+                lambda child_node: tuple(
                     (child_node,)
                     if child_node
                     else ((build_lineage_tree(to_node(node.rel)),) if node.rel else ())
                 ),
-            ),
-        )
-
+            )
+        case _:
+            children = tuple(
+                build_lineage_tree(to_node(child)) for child in gen_children_of(node)
+            )
     return GenericNode(
         op=node,
-        children=tuple(
-            build_lineage_tree(to_node(child)) for child in gen_children_of(node)
-        ),
+        children=children,
     )
 
 
