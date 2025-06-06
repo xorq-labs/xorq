@@ -94,9 +94,21 @@ default_palette = ColorScheme()
 
 
 def _category(node: Node) -> str:
+    name_typs = (
+        ops.Field,
+        ops.Literal,
+        ops.Project,
+        ops.Filter,
+        ops.Aggregate,
+        ops.Sort,
+        ops.Limit,
+        ops.BinaryOp,
+        ops.ValueOp,
+    )
+    if isinstance(node, name_typs):
+        return node.__class__.__name__.lower()
     if isinstance(node, (ops.InMemoryTable, ops.UnboundTable, ops.DatabaseTable)):
         return "table"
-
     if isinstance(node, rel.RemoteTable):
         return "remote_table"
     if isinstance(node, rel.FlightExpr):
@@ -109,31 +121,10 @@ def _category(node: Node) -> str:
         return "cached_table"
     if isinstance(node, rel.Read):
         return "table"
-
-    if isinstance(node, ops.Field):
-        return "field"
-    if isinstance(node, ops.Literal):
-        return "literal"
-    if isinstance(node, ops.Project):
-        return "project"
-    if isinstance(node, ops.Filter):
-        return "filter"
     if isinstance(node, ops.JoinChain):
         return "join"
-
-    if isinstance(node, ops.Aggregate):
-        return "aggregate"
-    if isinstance(node, ops.Sort):
-        return "sort"
-    if isinstance(node, ops.Limit):
-        return "limit"
-    if isinstance(node, (ops.BinaryOp)):
-        return "binary"
     if isinstance(node, ops.WindowFunction):
         return "window"
-
-    if isinstance(node, ops.ValueOp):
-        return "value"
     return "default"
 
 
