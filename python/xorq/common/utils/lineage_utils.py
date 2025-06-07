@@ -156,7 +156,7 @@ def _(node: rel.CachedNode, cfg: Dict[str, Any] | None = None) -> str:
     palette: ColorScheme = (cfg or {}).get("palette", default_palette)
     col = palette.get("cached_table")
     store = getattr(node.storage, "kind", "cache")
-    return f"{col}Cache[{store}] {node.name or ''}[/]"
+    return f"{col}Cache[{store}] {getattr(node, 'name', '')}[/]"
 
 
 @format_node.register
