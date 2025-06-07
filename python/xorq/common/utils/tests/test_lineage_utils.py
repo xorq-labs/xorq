@@ -91,15 +91,12 @@ def test_complete_lineage_for_total_discount_column(sample_expression):
     column_trees = build_column_trees(sample_expression)
     total_discount_tree = column_trees["total_discount"]
 
-    def collect_lineage_nodes(node: GenericNode, collected=None):
-        if collected is None:
-            collected = []
-        collected.append(node.op)
+    def gen_lineage_nodes(node):
+        yield node.op
         for child in node.children:
-            collect_lineage_nodes(child, collected)
-        return collected
+            yield from gen_lineage_nodes(child)
 
-    lineage_nodes = collect_lineage_nodes(total_discount_tree)
+    lineage_nodes = list(gen_lineage_nodes(total_discount_tree))
 
     # Expected lineage based on actual structure:
     # Sum -> Field(discount_value) -> UDF(calculate_discount_value) -> Field(price/discount) -> InMemoryTable

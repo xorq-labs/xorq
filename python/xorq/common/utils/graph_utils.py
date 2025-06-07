@@ -1,79 +1,66 @@
-from typing import Any, Iterable, Optional, Tuple
+from typing import Any, Tuple
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
+from xorq import Expr
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
-def _filter_none(values: Iterable[Optional[Node]]) -> Tuple[Node, ...]:
-    return tuple(v for v in values if v is not None)
-
-
 def to_node(maybe_expr: Any) -> Node:
-    op_fn = getattr(maybe_expr, "op", None)
-    if op_fn is None:
-        return maybe_expr
-    maybe_expr = op_fn()
-    return maybe_expr
+    match maybe_expr:
+        case Node():
+            return maybe_expr
+        case Expr():
+            return maybe_expr.op()
+        case _:
+            raise ValueError
 
 
-def children_of(node: Node) -> Tuple[Node, ...]:
+def gen_children_of(node: Node) -> Tuple[Node, ...]:
     match node:
         case ops.Field():
             rel_node = node.rel
-            if rel_node is None:
-                return ()
-            return _filter_none((to_node(rel_node),))
+            gen = () if rel_node is None else (to_node(rel_node),)
 
         case rel.RemoteTable():
-            return _filter_none((to_node(node.remote_expr),))
+            gen = (to_node(node.remote_expr),)
 
         case rel.CachedNode():
-            return (to_node(node.parent),)
+            gen = (to_node(node.parent),)
 
-        case rel.FlightExpr():
-            return (to_node(node.input_expr),)
-
-        case rel.FlightUDXF():
-            return (to_node(node.input_expr),)
+        case rel.FlightExpr() | rel.FlightUDXF():
+            gen = (to_node(node.input_expr),)
 
         case udf.ExprScalarUDF():
-            exprs = node.computed_kwargs_expr
-            if exprs is not None:
-                single = to_node(exprs)
-                return (single,) if single else ()
-            return ()
+            gen = (to_node(node.computed_kwargs_expr),)
 
         case rel.Read():
-            return ()
+            gen = ()
 
         case _:
             raw_children = getattr(node, "__children__", ())
-            return _filter_none(map(to_node, raw_children))
+            # return _filter_none(map(to_node, raw_children))
+            gen = map(to_node, raw_children)
+    yield from filter(None, gen)
 
 
 def walk_nodes(node_types, expr):
     visited = set()
     to_visit = [to_node(expr)]
-    result = []
+    result = ()
 
     while to_visit:
         node = to_visit.pop()
-        node_id = id(node)
-
-        if node_id in visited:
+        if node in visited:
             continue
-        visited.add(node_id)
-
+        visited.add(node)
         if isinstance(node, node_types):
-            result.append(node)
+            result += (node,)
 
-        for child in children_of(node):
-            if id(child) not in visited:
-                to_visit.append(child)
+        to_visit += set(gen_children_of(node)).difference(visited)
 
-    return tuple(result)
+    return result
 
 
 def find_all_sources(expr):

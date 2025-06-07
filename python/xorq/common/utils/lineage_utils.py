@@ -2,19 +2,21 @@ from __future__ import annotations
 
 from functools import lru_cache, singledispatch
 from itertools import count
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, Tuple
 
 import dask.base
 from attrs import evolve, field, frozen
 from attrs.validators import instance_of
 from rich import print as rprint
 from rich.tree import Tree
-from toolz import curry, pipe
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.graph_utils import children_of, to_node
+from xorq.common.utils.graph_utils import (
+    gen_children_of,
+    to_node,
+)
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
@@ -42,43 +44,25 @@ class GenericNode:
         return evolve(self, **changes)
 
 
-@curry
-def maybe_get_project_expr(field_node: ops.Field) -> Optional[Any]:
-    rel_node = field_node.rel
-    if isinstance(rel_node, ops.Project):
-        _, mapping = rel_node.args
-        return mapping.get(field_node.name)
-    return None
-
-
-@curry
 def build_lineage_tree(node: Node) -> GenericNode:
-    if isinstance(node, ops.Field):
-        return pipe(
-            node,
-            maybe_get_project_expr(),
-            lambda expr: build_lineage_tree(to_node(expr)) if expr else None,
-            lambda child_node: GenericNode(
-                op=node,
-                children=(
-                    (child_node,)
-                    if child_node
-                    else ((build_lineage_tree(to_node(node.rel)),) if node.rel else ())
-                ),
-            ),
-        )
-
+    match node:
+        case ops.Field(ops.Project(), _):
+            children = (build_lineage_tree(node.rel.values[node.name]),)
+        case ops.Field():
+            children = (build_lineage_tree(node.rel),)
+        case _:
+            children = tuple(
+                build_lineage_tree(child) for child in gen_children_of(node)
+            )
     return GenericNode(
         op=node,
-        children=tuple(
-            build_lineage_tree(to_node(child)) for child in children_of(node)
-        ),
+        children=children,
     )
 
 
 def build_column_trees(expr: Any) -> Dict[str, GenericNode]:
     op = to_node(expr)
-    cols: Dict[str, Any] = getattr(op, "values", getattr(op, "fields", {}))
+    cols = getattr(op, "values", None) or getattr(op, "fields", {})
     return {k: build_lineage_tree(to_node(v)) for k, v in cols.items()}
 
 
@@ -110,9 +94,21 @@ default_palette = ColorScheme()
 
 
 def _category(node: Node) -> str:
+    name_typs = (
+        ops.Field,
+        ops.Literal,
+        ops.Project,
+        ops.Filter,
+        ops.Aggregate,
+        ops.Sort,
+        ops.Limit,
+        ops.BinaryOp,
+        ops.ValueOp,
+    )
+    if isinstance(node, name_typs):
+        return node.__class__.__name__.lower()
     if isinstance(node, (ops.InMemoryTable, ops.UnboundTable, ops.DatabaseTable)):
         return "table"
-
     if isinstance(node, rel.RemoteTable):
         return "remote_table"
     if isinstance(node, rel.FlightExpr):
@@ -120,36 +116,15 @@ def _category(node: Node) -> str:
     if isinstance(node, rel.FlightUDXF):
         return "udxf"
     if isinstance(node, udf.ExprScalarUDF):
-        return "udxf"
+        return "udf"
     if isinstance(node, rel.CachedNode):
         return "cached_table"
     if isinstance(node, rel.Read):
         return "table"
-
-    if isinstance(node, ops.Field):
-        return "field"
-    if isinstance(node, ops.Literal):
-        return "literal"
-    if isinstance(node, ops.Project):
-        return "project"
-    if isinstance(node, ops.Filter):
-        return "filter"
     if isinstance(node, ops.JoinChain):
         return "join"
-
-    if isinstance(node, ops.Aggregate):
-        return "aggregate"
-    if isinstance(node, ops.Sort):
-        return "sort"
-    if isinstance(node, ops.Limit):
-        return "limit"
-    if isinstance(node, (ops.BinaryOp)):
-        return "binary"
     if isinstance(node, ops.WindowFunction):
         return "window"
-
-    if isinstance(node, ops.ValueOp):
-        return "value"
     return "default"
 
 
@@ -181,7 +156,7 @@ def _(node: rel.CachedNode, cfg: Dict[str, Any] | None = None) -> str:
     palette: ColorScheme = (cfg or {}).get("palette", default_palette)
     col = palette.get("cached_table")
     store = getattr(node.storage, "kind", "cache")
-    return f"{col}Cache[{store}] {node.name or ''}[/]"
+    return f"{col}Cache[{store}] {getattr(node, 'name', '')}[/]"
 
 
 @format_node.register
