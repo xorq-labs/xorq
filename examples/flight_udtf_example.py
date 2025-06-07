@@ -94,10 +94,16 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
     maybe_schema_out=schema_out,
     name="HackerNewsFetcher",
 )
-t = xo.memtable(
-    data=({"maxitem": 43182839, "n": 1000},),
-    name="t",
-)
+# write input parameters to a parquet file on disk
+parquet_path = pathlib.Path("t.parquet")
+if parquet_path.exists():
+    parquet_path.unlink()
+# create the input DataFrame and write to parquet
+input_df = pd.DataFrame([{"maxitem": 43182839, "n": 1000}])
+input_df.to_parquet(parquet_path)
+# create a pandas connection and deferred read parquet
+con = xo.connect()
+t = xo.deferred_read_parquet(con=con, path=parquet_path, table_name="t")
 expr = do_hackernews_fetcher_udxf(t)
 
 

@@ -115,7 +115,7 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
 
 
 @tracer.start_as_current_span("cli.serve_command")
-def serve_command(build_path, host=None, port=None, cache_db_path=None):
+def serve_command(build_path, host=None, port=None, duckdb_path=None):
     """
     Serve a built expression via Flight Server
 
@@ -127,7 +127,7 @@ def serve_command(build_path, host=None, port=None, cache_db_path=None):
         Host to bind Flight Server
     port : int or None
         Port to bind Flight Server (None for random)
-    cache_db_path : str or None
+    duckdb_path : str or None
         Path to duckdb cache DB file
     """
     import sys
@@ -143,7 +143,7 @@ def serve_command(build_path, host=None, port=None, cache_db_path=None):
             "build_path": build_path,
             "host": host,
             "port": port,
-            "cache_db_path": cache_db_path,
+            "duckdb_path": duckdb_path,
         },
     )
 
@@ -154,7 +154,6 @@ def serve_command(build_path, host=None, port=None, cache_db_path=None):
         raise ValueError(f"Error: Build path must be a directory, got {build_path}")
     expr_hash = expr_path.stem
 
-    # Load expression
     print(f"Loading expression '{expr_hash}' from {expr_path}", file=sys.stderr)
     build_manager = BuildManager(expr_path.parent)
     # verify build artifacts
@@ -162,19 +161,16 @@ def serve_command(build_path, host=None, port=None, cache_db_path=None):
         raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
     expr = build_manager.load_expr(expr_hash)
 
-    # Determine cache DB path
-    if cache_db_path:
-        db_path = Path(cache_db_path)
+    if duckdb_path:
+        db_path = Path(duckdb_path)
     else:
-        db_path = expr_path / "flight_cache.db"
+        db_path = expr_path / "xorq_serve.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Using duckdb cache at {db_path}", file=sys.stderr)
+    print(f"Using duckdb at {db_path}", file=sys.stderr)
 
-    # Set up Flight server with duckdb backend
     def _make_con():
         return xo.duckdb.connect(str(db_path))
 
-    # Inspect expression graph for any FlightUDXF exchangers and collect their classes
     from xorq.common.utils.graph_utils import walk_nodes
     from xorq.expr.relations import FlightUDXF
 
@@ -194,14 +190,11 @@ def serve_command(build_path, host=None, port=None, cache_db_path=None):
         connection=_make_con,
         exchangers=exchangers,
     )
-    # Inform about registered exchangers
     if exchangers:
         for udxf_cls in exchangers:
-            # command property is unique identifier for the exchanger
             print(f"Registering exchanger: {udxf_cls.command}", file=sys.stderr)
     location = flight_url.to_location()
     print(f"Serving expression '{expr_hash}' on {location}", file=sys.stderr)
-    # Block and serve
     server.serve(block=True)
 
 
@@ -267,9 +260,9 @@ def parse_args(override=None):
         help="Port to bind Flight Server (default: random)",
     )
     serve_parser.add_argument(
-        "--cache-db-path",
+        "--duckdb-path",
         default=None,
-        help="Path to duckdb cache DB (default: <build_path>/flight_cache.db)",
+        help="Path to duckdb  DB (default: <build_path>/xorq_serve.db)",
     )
 
     args = parser.parse_args(override)
@@ -301,7 +294,7 @@ def main():
             case "serve":
                 f, f_args = (
                     serve_command,
-                    (args.build_path, args.host, args.port, args.cache_db_path),
+                    (args.build_path, args.host, args.port, args.duckdb_path),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
