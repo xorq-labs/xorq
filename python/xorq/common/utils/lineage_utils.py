@@ -21,7 +21,6 @@ from xorq.vendor.ibis.expr.operations.core import Node
 
 
 __all__ = [
-    "build_lineage_tree",
     "build_column_trees",
     "build_tree",
     "print_tree",
@@ -44,26 +43,36 @@ class GenericNode:
         return evolve(self, **changes)
 
 
-def build_lineage_tree(node: Node) -> GenericNode:
+def _build_column_tree(node: Node) -> GenericNode:
     match node:
-        case ops.Field(ops.Project(), _):
-            children = (build_lineage_tree(node.rel.values[node.name]),)
-        case ops.Field():
-            children = (build_lineage_tree(node.rel),)
+        case ops.Field(rel=ops.Project(values=values)) as field_node:
+            # include the field and recurse into its mapped expression
+            mapped = values[field_node.name]
+            child = _build_column_tree(to_node(mapped))
+            return GenericNode(op=field_node, children=(child,))
+
+        case ops.Field() as field_node:
+            children = tuple(
+                _build_column_tree(to_node(child))
+                for child in gen_children_of(field_node)
+            )
+            return GenericNode(op=field_node, children=children)
+
+        case ops.Project() as proj:
+            return _build_column_tree(to_node(proj.parent))
+
         case _:
             children = tuple(
-                build_lineage_tree(child) for child in gen_children_of(node)
+                _build_column_tree(to_node(child)) for child in gen_children_of(node)
             )
-    return GenericNode(
-        op=node,
-        children=children,
-    )
+            return GenericNode(op=node, children=children)
 
 
 def build_column_trees(expr: Any) -> Dict[str, GenericNode]:
+    """Builds a lineage tree for each column in the expression."""
     op = to_node(expr)
     cols = getattr(op, "values", None) or getattr(op, "fields", {})
-    return {k: build_lineage_tree(to_node(v)) for k, v in cols.items()}
+    return {k: _build_column_tree(to_node(v)) for k, v in cols.items()}
 
 
 @frozen

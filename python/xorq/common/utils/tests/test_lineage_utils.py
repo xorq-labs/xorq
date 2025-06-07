@@ -6,8 +6,8 @@ from xorq.common.utils.graph_utils import to_node
 from xorq.common.utils.lineage_utils import (
     ColorScheme,
     GenericNode,
+    _build_column_tree,
     build_column_trees,
-    build_lineage_tree,
     build_tree,
 )
 
@@ -44,10 +44,10 @@ def sample_expression():
     return expr
 
 
-def test_build_lineage_tree_basic(sample_expression):
+def test__build_column_tree_basic(sample_expression):
     node = to_node(sample_expression)
 
-    lineage_tree = build_lineage_tree(node)
+    lineage_tree = _build_column_tree(node)
 
     assert isinstance(lineage_tree, GenericNode)
     assert lineage_tree.op is not None
