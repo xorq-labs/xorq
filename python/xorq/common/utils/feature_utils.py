@@ -209,19 +209,6 @@ class FeatureStore:
     def registry(self):
         raise NotImplementedError
 
-    @property
-    def registry(self):
-        return FeatureRegistry(
-            tuple(
-                set(
-                    sorted(
-                        (feature for view in self.views for feature in view.features),
-                        key=operator.attrgetter("name"),
-                    )
-                )
-            )
-        )
-
     def register_view(self, view: FeatureView):
         self.views[view.name] = view
 
@@ -338,10 +325,10 @@ class FeatureStore:
             )
         return result_expr
 
-    def materialize_online(self, references, current_time: datetime = None):
+    def materialize_online(self, features: List[str], current_time: datetime = None):
         features_by_view = toolz.groupby(
             operator.itemgetter(0),
-            self._parse_feature_references(references),
+            self._parse_feature_references(features),
         )
 
         for view_name, _feature_names in features_by_view.items():

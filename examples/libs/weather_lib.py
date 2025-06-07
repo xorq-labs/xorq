@@ -5,6 +5,7 @@ from datetime import (
 from pathlib import Path
 
 import pandas as pd
+import pyarrow as pa
 import requests
 import toolz
 from hash_cache.hash_cache import (
@@ -87,7 +88,19 @@ def fetch_one_city(*, city: str):
 
 def get_current_weather_batch(df: pd.DataFrame) -> pd.DataFrame:
     records = [fetch_one_city(city=city) for city in df["city"].values]
-    return pd.DataFrame(records).reindex(schema_out.names, axis=1)
+    # build DataFrame and ensure nullable Int64 dtypes for wind columns so Arrow always emits a values buffer
+    tbl = pd.DataFrame(records).reindex(schema_out.names, axis=1)
+    # convert any object-type columns that are numeric in schema_out to proper numeric dtypes
+    # why do we need this? Arrows Int64 is supposed to be nullable?
+    object_cols = tbl.select_dtypes(include=["object"]).columns
+    for col in object_cols:
+        arrow_type = schema_out.field_by_name(col).type
+        if pa.types.is_integer(arrow_type):
+            tbl[col] = pd.to_numeric(tbl[col], errors="coerce").astype("Int64")
+        elif pa.types.is_floating(arrow_type):
+            tbl[col] = pd.to_numeric(tbl[col], errors="coerce")
+
+    return tbl
 
 
 schema_in = xo.schema({"city": "string"}).to_pyarrow()
@@ -111,9 +124,10 @@ schema_out = xo.schema(
         "humidity_percent": "int64",
         "sea_level_pressure_hpa": "int64",
         "ground_level_pressure_hpa": "int64",
-        "wind_speed_ms": "double",
+        # wind fields: speed and gust as floats, direction as nullable integer
+        "wind_speed_ms": "int64",
         "wind_direction_deg": "int64",
-        "wind_gust_ms": "double",
+        "wind_gust_ms": "int64",
         "clouds_percent": "int64",
         "visibility_m": "int64",
         "data_timestamp": "int64",
