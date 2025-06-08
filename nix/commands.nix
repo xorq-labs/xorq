@@ -128,15 +128,19 @@ let
     set -eux
 
     image_name=otel/opentelemetry-collector-contrib:latest
-    yaml_host_path=${../docker/otel/otel-collector-config.yaml}
-    yaml_container_path=/etc/otel-collector-config.yaml
+    repo_root=$(git rev-parse --show-toplevel)
 
+    # Use the file from repo, not the Nix store path
+    yaml_host_file="$repo_root/docker/otel/otel-collector-config.yaml"
+    yaml_container_path=/etc/otel-collector-config/otel-collector-config.yaml
+
+    # Set up log directory paths
     logs_host_path=''${OTEL_HOST_LOG_DIR:-~/.local/share/xorq/logs/otel-logs}
     logs_container_path=''${OTEL_COLLECTOR_CONTAINER_LOG_DIR:-/otel-logs}
 
     mkdir --mode=777 --parents "$logs_host_path"
 
-    ${pkgs.docker}/bin/docker run \
+    docker run \
       --publish "$OTEL_COLLECTOR_PORT_GRPC:$OTEL_COLLECTOR_PORT_GRPC" \
       --publish "$OTEL_COLLECTOR_PORT_HTTP:$OTEL_COLLECTOR_PORT_HTTP" \
       --env "GRAFANA_CLOUD_INSTANCE_ID=$GRAFANA_CLOUD_INSTANCE_ID" \
@@ -145,9 +149,8 @@ let
       --env "OTEL_COLLECTOR_PORT_GRPC=$OTEL_COLLECTOR_PORT_GRPC" \
       --env "OTEL_COLLECTOR_PORT_HTTP=$OTEL_COLLECTOR_PORT_HTTP" \
       --env "OTEL_LOG_FILE_NAME=$OTEL_LOG_FILE_NAME" \
-      --env "OTEL_COLLECTOR_CONTAINER_LOG_DIR=$OTEL_COLLECTOR_CONTAINER_LOG_DIR" \
-      --env "logs_container_path=$logs_container_path" \
-      --volume "$yaml_host_path:$yaml_container_path" \
+      --env "OTEL_COLLECTOR_CONTAINER_LOG_DIR=$logs_container_path" \
+      --volume "$yaml_host_file:$yaml_container_path" \
       --volume "$logs_host_path:$logs_container_path" \
       "$image_name" \
       --config="$yaml_container_path"
@@ -157,7 +160,7 @@ let
     set -eux
 
     container=$1
-    yaml_container_path=/etc/otel-collector-config.yaml
+    yaml_container_path=/otel-collector-config.yaml
     ${pkgs.docker}/bin/docker exec \
       --interactive --tty \
       "$container" \
