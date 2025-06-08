@@ -2,24 +2,19 @@ import functools
 import inspect
 import operator
 import os
-import pickle
 import types
 import warnings
 from pathlib import Path
 from random import Random
 from typing import TYPE_CHECKING, Callable, Iterable, Iterator, List, Tuple, Union
 
-import dask
 import pandas as pd
-import pyarrow as pa
 import toolz
 
 import xorq as xo
 import xorq.expr.datatypes as dt
-import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
-from xorq.expr.udf import make_pandas_expr_udf
 from xorq.vendor.ibis import literal
 from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.common.collections import FrozenDict
@@ -400,7 +395,7 @@ def _create_udf_node(
         "__func__": property(lambda self: fn_from_arrays),
         "__config__": FrozenDict(volatility="immutable"),
         "__udf_namespace__": p,
-        "__module__": "xorq.expr.ml",
+        "__module__": "xorq.expr.ml.quickgrove_lib",
         "__func_name__": udf_name,
         "__fields__": fields,
         "model": model,
@@ -662,186 +657,7 @@ def rewrite_quickgrove_expr(expr: ir.Table) -> ir.Table:
     return new_op.to_expr()
 
 
-@toolz.curry
-def deferred_fit_predict(
-    expr,
-    target,
-    features,
-    fit,
-    predict,
-    return_type,
-    name="predicted",
-    storage=None,
-):
-    def inner_fit(fit_df):
-        obj = fit(fit_df[features], fit_df[target])
-        return obj
-
-    @toolz.curry
-    def inner_predict(model, df):
-        return pa.array(
-            predict(model, df[features]),
-            type=return_type.to_pyarrow(),
-        )
-
-    features = features or list(expr.schema())
-    predict_schema = xo.schema({col: expr[col].type() for col in features})
-    fit_schema = predict_schema | xo.schema({target: expr[target].type()})
-    model_udaf = udf.agg.pandas_df(
-        fn=toolz.compose(pickle.dumps, inner_fit),
-        schema=fit_schema,
-        return_type=dt.binary,
-        name="_" + dask.base.tokenize(fit).lower(),
-    )
-    deferred_model = model_udaf.on_expr(expr)
-    if storage:
-        deferred_model = deferred_model.as_table().cache(storage=storage)
-
-    deferred_predict = make_pandas_expr_udf(
-        computed_kwargs_expr=deferred_model,
-        fn=inner_predict,
-        schema=predict_schema,
-        return_type=return_type,
-        name=name,
-    )
-
-    return deferred_model, model_udaf, deferred_predict
-
-
-@toolz.curry
-def deferred_fit_transform(
-    expr,
-    features,
-    fit,
-    transform,
-    return_type,
-    name="transformed",
-    storage=None,
-):
-    def inner_fit(fit_df):
-        obj = fit(fit_df[features])
-        return obj
-
-    @toolz.curry
-    def inner_transform(model, df):
-        return pa.array(
-            transform(model, df[features]),
-            type=return_type.to_pyarrow(),
-        )
-
-    features = features or list(expr.schema())
-    fit_schema = xo.schema({col: expr[col].type() for col in features})
-    model_udaf = udf.agg.pandas_df(
-        fn=toolz.compose(pickle.dumps, inner_fit),
-        schema=fit_schema,
-        return_type=dt.binary,
-        name="_" + dask.base.tokenize(fit).lower(),
-    )
-    deferred_model = model_udaf.on_expr(expr)
-    if storage:
-        deferred_model = deferred_model.as_table().cache(storage=storage)
-
-    deferred_transform = make_pandas_expr_udf(
-        computed_kwargs_expr=deferred_model,
-        fn=inner_transform,
-        schema=fit_schema,
-        return_type=return_type,
-        name=name,
-    )
-
-    return deferred_model, model_udaf, deferred_transform
-
-
-@toolz.curry
-def deferred_fit_predict_sklearn(
-    expr,
-    target,
-    features,
-    cls,
-    return_type,
-    name="predicted",
-    storage=None,
-):
-    def fit(fit_df):
-        obj = cls()
-        obj.fit(fit_df[features], fit_df[target])
-        return obj
-
-    @toolz.curry
-    def predict(model, df):
-        return pa.array(
-            model.predict(df[features]),
-            type=return_type.to_pyarrow(),
-        )
-
-    features = features or list(expr.schema())
-    predict_schema = xo.schema({col: expr[col].type() for col in features})
-    fit_schema = predict_schema | xo.schema({target: expr[target].type()})
-    model_udaf = udf.agg.pandas_df(
-        fn=toolz.compose(pickle.dumps, fit),
-        schema=fit_schema,
-        return_type=dt.binary,
-        name="_" + dask.base.tokenize(fit).lower(),
-    )
-    deferred_model = model_udaf.on_expr(expr)
-    if storage:
-        deferred_model = deferred_model.as_table().cache(storage=storage)
-
-    deferred_predict = make_pandas_expr_udf(
-        computed_kwargs_expr=deferred_model,
-        fn=predict,
-        schema=predict_schema,
-        return_type=return_type,
-        name=name,
-    )
-
-    return deferred_model, model_udaf, deferred_predict
-
-
-@toolz.curry
-def deferred_fit_transform_series_sklearn(
-    expr, col, cls, return_type, name="predicted", storage=None
-):
-    def fit(fit_df, cls=cls):
-        model = cls()
-        model.fit(fit_df[col])
-        return model
-
-    @toolz.curry
-    def transform(model, df):
-        return pa.array(
-            model.transform(df[col]).toarray().tolist(),
-            type=return_type.to_pyarrow(),
-        )
-
-    schema = xo.schema({col: expr.schema()[col]})
-    model_udaf = udf.agg.pandas_df(
-        fn=toolz.compose(pickle.dumps, fit),
-        schema=schema,
-        return_type=dt.binary,
-        name="_" + dask.base.tokenize(fit).lower(),
-    )
-    deferred_model = model_udaf.on_expr(expr)
-    if storage:
-        deferred_model = deferred_model.as_table().cache(storage=storage)
-
-    deferred_transform = make_pandas_expr_udf(
-        computed_kwargs_expr=deferred_model,
-        fn=transform,
-        schema=schema,
-        return_type=return_type,
-        name=name,
-    )
-
-    return deferred_model, model_udaf, deferred_transform
-
-
 __all__ = [
-    "train_test_splits",
-    "deferred_fit_predict",
-    "deferred_fit_predict_sklearn",
-    "deferred_fit_transform",
-    "deferred_fit_transform_series_sklearn",
     "make_quickgrove_udf",
     "rewrite_quickgrove_expr",
 ]

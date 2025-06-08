@@ -9,6 +9,11 @@ import dask
 import toolz
 
 
+def normalize_attrs(attrs):
+    assert hasattr(attrs, "__attrs_attrs__")
+    return tuple(sorted(attrs.__getstate__().items()))
+
+
 @contextmanager
 def patch_normalize_token(*typs, f=toolz.functoolz.return_none):
     with patch.dict(
