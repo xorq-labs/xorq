@@ -12,6 +12,9 @@ import xorq.common.utils.dask_normalize  # noqa: F401
 from xorq.caching import (
     SourceSnapshotStorage,
 )
+from xorq.common.utils.dask_normalize import (
+    get_normalize_token_subset,
+)
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
     walk_normalized,
@@ -140,3 +143,7 @@ def test_walk_normalized(target, expected):
     f = toolz.curry(operator.eq, target)
     actual = sum(walk_normalized(f, normalized))
     assert actual == expected
+
+
+def test_normalize_token_lookup():
+    assert not get_normalize_token_subset()

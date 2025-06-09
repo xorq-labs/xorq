@@ -11,3 +11,13 @@ dask.config.set({"tokenize.ensure-deterministic": True})
 @dask.base.normalize_token.register(object)
 def raise_generic_object(o):
     raise ValueError(f"Object {o!r} cannot be deterministically hashed")
+
+
+def get_normalize_token_subset(value=dask.tokenize.normalize_object):
+    return {k: v for k, v in dask.base.normalize_token._lookup.items() if v == value}
+
+
+# we have to clear out any classes that might have already been registered to dask's default normalize_object
+bad_keys = tuple(get_normalize_token_subset(dask.tokenize.normalize_object))
+for bad_key in bad_keys:
+    dask.base.normalize_token._lookup.pop(bad_key)
