@@ -404,7 +404,7 @@ wheels = [
 
 [[package]]
 name = "blackdoc"
-version = "0.3.9"
+version = "0.3.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "black" },
@@ -413,9 +413,9 @@ dependencies = [
     { name = "rich" },
     { name = "tomli" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2e/3c/7d47d200211adc793789ae9363096ed693a7ec1e7fd9afad49e0684070cc/blackdoc-0.3.9.tar.gz", hash = "sha256:b1da5ca93550081fc3f1b34bfdc731431ee74c378ea63abb31771a222ef5d053", size = 38973, upload-time = "2023-11-04T17:15:52.015Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/32/a2/37fd92aab99ace655e9adfb9e6cb25a9223e057931697207d0aaa9ad3a5f/blackdoc-0.3.10.tar.gz", hash = "sha256:3c240d96f919581c6b771d512c8c543e1eb07fa84bca10179ffa8f1dba8dea09", size = 39959, upload-time = "2025-06-09T19:33:02.231Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/aa/c2/d9e0cbc72dbf90d23514954d69db12b3b4e547038fbcdcf7a4e50799f530/blackdoc-0.3.9-py3-none-any.whl", hash = "sha256:2de4ad14993705e6b1fd89b0aa117566ac0c6980f218d6012f22d7cf6f5b2f34", size = 35906, upload-time = "2023-11-04T17:15:50.47Z" },
+    { url = "https://files.pythonhosted.org/packages/43/b8/cc1f7a2ab6bd739b289b9f96197e9d333ac4b4b9df2241f14d822123a079/blackdoc-0.3.10-py3-none-any.whl", hash = "sha256:39d38d30078afc1ed55f78dd90aa154a4ac207ed5c83245c1e7a4e858d7a9a86", size = 38214, upload-time = "2025-06-09T19:33:00.835Z" },
 ]
 
 [[package]]
@@ -4872,7 +4872,7 @@ provides-extras = ["duckdb", "datafusion", "snowflake", "quickgrove", "examples"
 [package.metadata.requires-dev]
 dev = [
     { name = "black", specifier = "==25.1.0" },
-    { name = "blackdoc", specifier = "==0.3.9" },
+    { name = "blackdoc", specifier = "==0.3.10" },
     { name = "codespell", extras = ["hard-encoding-detection", "toml"], specifier = "==2.4.1" },
     { name = "coverage", extras = ["toml"], specifier = "==7.8.2" },
     { name = "git-cliff", specifier = ">=2.2.1,<3.0.0" },
