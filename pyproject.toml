@@ -129,7 +129,7 @@ test = [
     "quickgrove>=0.1.2",
 ]
 docs = [
-    "quartodoc<0.10.1,>=0.7.2",
+    "quartodoc<0.11.1,>=0.7.2",
     "nbformat<6.0.0,>=5.10.4",
     "nbclient<1.0.0,>=0.10.0",
     "ipykernel<7.0.0,>=6.29.4",
