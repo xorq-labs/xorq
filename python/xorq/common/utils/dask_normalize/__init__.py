@@ -10,6 +10,9 @@ dask.config.set({"tokenize.ensure-deterministic": True})
 
 @dask.base.normalize_token.register(object)
 def raise_generic_object(o):
+    method = getattr(o, "__dask_tokenize__", None)
+    if method is not None and not isinstance(o, type):
+        return method()
     raise ValueError(f"Object {o!r} cannot be deterministically hashed")
 
 

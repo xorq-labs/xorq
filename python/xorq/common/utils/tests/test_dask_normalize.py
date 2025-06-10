@@ -147,3 +147,18 @@ def test_walk_normalized(target, expected):
 
 def test_normalize_token_lookup():
     assert not get_normalize_token_subset()
+
+
+def test_dask_tokenize_object():
+    class MissingDaskTokenize:
+        pass
+
+    tokenize_value = 1
+
+    class HasDaskTokenize:
+        def __dask_tokenize__(self):
+            return tokenize_value
+
+    assert dask.base.normalize_token(HasDaskTokenize()) == tokenize_value
+    with pytest.raises(ValueError):
+        dask.base.tokenize(MissingDaskTokenize())
