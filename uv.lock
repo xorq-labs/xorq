@@ -983,7 +983,7 @@ name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz", hash = "sha256:b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88", size = 29749, upload-time = "2025-05-10T17:42:51.123Z" }
 wheels = [
@@ -3731,7 +3731,7 @@ wheels = [
 
 [[package]]
 name = "quartodoc"
-version = "0.11.0"
+version = "0.11.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "black" },
@@ -3748,9 +3748,9 @@ dependencies = [
     { name = "typing-extensions" },
     { name = "watchdog" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0a/98/5f4127fcc71426dbf9affe6dc8a186766618377bb7f423f4543d2542d44b/quartodoc-0.11.0.tar.gz", hash = "sha256:1a840ec13e9ffd6e5c29686c147d47d69f9f65c97380d2feb936aba5af8b01ed", size = 778507, upload-time = "2025-06-09T17:12:49.413Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ff/b9/0bb44cc62a5d63728d04fd6b1e14bcb64945fabad4aa8c03b9d70315fb06/quartodoc-0.11.1.tar.gz", hash = "sha256:c121626e1a36392d168631f33c4d3e7fd48d185de178859f8eafbda14fbfe92f", size = 778611, upload-time = "2025-06-10T14:50:08.185Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/87/28/776c7c6274de4d5fb6dfedeb7a782b11e8f99a39b2dd3b6f4002882e0eed/quartodoc-0.11.0-py3-none-any.whl", hash = "sha256:04ab7526ce4d3b974ab6057d8c04d1092a851867bc23bd1e238b2b0183612ee0", size = 88052, upload-time = "2025-06-09T17:12:47.677Z" },
+    { url = "https://files.pythonhosted.org/packages/75/d9/0b48d4184f9ca6a996c4fac46897a968698c9d1e0f0e43a6906746201323/quartodoc-0.11.1-py3-none-any.whl", hash = "sha256:0776eb8e53d89385e2c9a8ae0ec08e8c307c1410dd1bd78bb28e8b1823dbb6ad", size = 88053, upload-time = "2025-06-10T14:50:06.443Z" },
 ]
 
 [[package]]
@@ -4892,7 +4892,7 @@ docs = [
     { name = "nbclient", specifier = ">=0.10.0,<1.0.0" },
     { name = "nbformat", specifier = ">=5.10.4,<6.0.0" },
     { name = "notebook", specifier = ">=7.3.2" },
-    { name = "quartodoc", specifier = ">=0.7.2,<0.11.1" },
+    { name = "quartodoc", specifier = ">=0.7.2,<0.11.2" },
 ]
 test = [
     { name = "datafusion", specifier = ">=43.1.0" },
