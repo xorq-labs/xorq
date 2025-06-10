@@ -57,6 +57,18 @@ def _callable_from_yaml(yaml_dict: dict, compiler: any) -> Callable:
     return deserialize_callable(yaml_dict["pickled_fn"])
 
 
+@translate_to_yaml.register(tuple)
+def _tuple_to_yaml(tpl: tuple, context: TranslationContext) -> dict:
+    return freeze(
+        {"op": "tuple", "values": [translate_to_yaml(value, context) for value in tpl]}
+    )
+
+
+@register_from_yaml_handler("tuple")
+def _tuple_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    return tuple(translate_from_yaml(value, context) for value in yaml_dict["values"])
+
+
 @translate_to_yaml.register(tm.IntervalUnit)
 def _interval_unit_to_yaml(
     interval_unit: tm.IntervalUnit, context: TranslationContext
@@ -79,13 +91,23 @@ def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> an
 
 
 @translate_to_yaml.register(int)
-def _dict_to_yaml(dct: int, context: TranslationContext) -> dict:
+def _int_to_yaml(dct: int, context: TranslationContext) -> dict:
     return freeze({"op": "int", "value": str(dct)})
 
 
 @register_from_yaml_handler("int")
-def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+def _int_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return int(yaml_dict["value"])
+
+
+@translate_to_yaml.register(float)
+def _float_to_yaml(dct: float, context: TranslationContext) -> dict:
+    return freeze({"op": "float", "value": str(dct)})
+
+
+@register_from_yaml_handler("float")
+def _float_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    return float(yaml_dict["value"])
 
 
 @_translate_type.register(dt.Timestamp)

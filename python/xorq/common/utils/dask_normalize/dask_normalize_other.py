@@ -1,6 +1,7 @@
 import dask
 import numpy as np
 import pandas as pd
+import pyarrow as pa
 
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_seq_with_caller,
@@ -37,3 +38,23 @@ def normalize_random_state(random_state):
 @dask.base.normalize_token.register(type)
 def normalize_type(typ):
     return normalize_seq_with_caller(typ.__name__, typ.__module__)
+
+
+@dask.base.normalize_token.register(pa.Table)
+def normalize_pyarrow_table(table: pa.Table):
+    return normalize_seq_with_caller(
+        tuple(
+            dask.base.tokenize(el.serialize().to_pybytes()) for el in table.to_batches()
+        ),
+        caller="normalize_pyarrow_table",
+    )
+
+
+@dask.base.normalize_token.register(pa.Schema)
+def normalize_pyarrow_schema(schema: pa.Schema):
+    from xorq import Schema
+
+    return normalize_seq_with_caller(
+        Schema.from_pyarrow(schema).to_pandas(),
+        caller="normalize_pyarrow_schema",
+    )

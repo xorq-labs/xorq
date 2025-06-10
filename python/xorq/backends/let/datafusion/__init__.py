@@ -101,7 +101,14 @@ def _compile_pyarrow_udwf(udwf_node):
         )
         return my_udwf
 
-    my_udwf = make_datafusion_udwf(**udwf_node.__config__)
+    config = udwf_node.__config__ | {
+        "input_types": tuple(
+            dt.to_pyarrow() for dt in udwf_node.__config__["input_types"]
+        ),
+        "return_type": udwf_node.__config__["return_type"].to_pyarrow(),
+    }
+
+    my_udwf = make_datafusion_udwf(**config)
     return my_udwf
 
 
