@@ -66,9 +66,9 @@ black==25.1.0
 blackdoc==0.3.10
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.33 ; python_full_version < '4.0'
+boto3==1.38.35 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.33 ; python_full_version < '4.0'
+botocore==1.38.35 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -351,7 +351,7 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-mcp==1.9.3
+mcp==1.9.4
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -403,7 +403,7 @@ nvidia-nccl-cu12==2.27.3 ; platform_machine != 'aarch64' and sys_platform == 'li
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.85.0
+openai==1.86.0
     # via xorq
 opentelemetry-api==1.34.1
     # via
@@ -606,7 +606,7 @@ pyzmq==26.4.0
     #   ipykernel
     #   jupyter-client
     #   jupyter-server
-quartodoc==0.11.0
+quartodoc==0.11.1
 quickgrove==0.1.4
     # via xorq
 referencing==0.36.2
