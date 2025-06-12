@@ -314,7 +314,12 @@ class FlightUDXF(ops.DatabaseTable):
         name=None,
         **kwargs,
     ):
+        from xorq.common.utils.tls_utils import TLSKwargs
         from xorq.flight import FlightServer
+
+        def make_mtls_server():
+            tls_kwargs = TLSKwargs.from_common_name(verify_client=True)
+            return FlightServer(verify_client=True, **tls_kwargs.server_kwargs)
 
         schema = cls.validate_schema(input_expr, udxf)
         return cls(
@@ -323,7 +328,7 @@ class FlightUDXF(ops.DatabaseTable):
             source=input_expr._find_backend(),
             input_expr=input_expr,
             udxf=udxf,
-            make_server=make_server or FlightServer,
+            make_server=make_server or make_mtls_server,
             make_connection=make_connection or xo.connect,
             **kwargs,
         )
