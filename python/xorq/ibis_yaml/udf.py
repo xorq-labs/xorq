@@ -291,11 +291,18 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     #
     class_name = yaml_dict["class_name"]
     bases = (ops.udf.AggUDF,)
-    kwds = (
-        fields
-        | meta
-        | {"__func__": udf.make_dunder_func(meta["__config__"]["fn"], kwargs)}
-    )
+    kwds = fields | meta
+
+    config = meta["__config__"]
+    if "fn" in config:
+        kwds["__func__"] = udf.make_dunder_func(config["fn"], kwargs)
+    elif {
+        "evaluate",
+        "evaluate_all",
+        "evaluate_all_with_rank",
+    } & config.keys():
+        kwds["__func__"] = property(fget=toolz.functoolz.return_none)
+
     node = type(
         class_name,
         bases,
