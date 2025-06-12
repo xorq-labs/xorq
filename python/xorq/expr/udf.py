@@ -1,7 +1,7 @@
 import functools
-import pickle
 from typing import Any
 
+import cloudpickle
 import pandas as pd
 import pyarrow as pa
 import toolz
@@ -68,10 +68,10 @@ def make_expr_scalar_udf_dunder_func(fn, schema, return_type):
 
 @toolz.curry
 def wrap_model(value, model_key="model"):
-    return pickle.dumps({model_key: value})
+    return cloudpickle.dumps({model_key: value})
 
 
-unwrap_model = pickle.loads
+unwrap_model = cloudpickle.loads
 
 
 class ExprScalarUDF(ScalarUDF):
