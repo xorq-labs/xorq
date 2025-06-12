@@ -120,8 +120,94 @@ def run_command(
             raise ValueError(f"Unknown output_format: {output_format}")
 
 
+@tracer.start_as_current_span("cli.serve_command")
+def serve_command(build_path, host=None, port=None, duckdb_path=None):
+    """
+    Serve a built expression via Flight Server
+
+    Parameters
+    ----------
+    build_path : str
+        Path to the build directory (output of xorq build)
+    host : str
+        Host to bind Flight Server
+    port : int or None
+        Port to bind Flight Server (None for random)
+    duckdb_path : str or None
+        Path to duckdb cache DB file
+    """
+    import sys
+    from pathlib import Path
+
+    import xorq as xo
+    from xorq.flight import FlightServer, FlightUrl
+
+    span = trace.get_current_span()
+    span.add_event(
+        "serve.params",
+        {
+            "build_path": build_path,
+            "host": host,
+            "port": port,
+            "duckdb_path": duckdb_path,
+        },
+    )
+
+    expr_path = Path(build_path)
+    if not expr_path.exists():
+        raise ValueError(f"Error: Build path not found at {build_path}")
+    if not expr_path.is_dir():
+        raise ValueError(f"Error: Build path must be a directory, got {build_path}")
+    expr_hash = expr_path.stem
+
+    print(f"Loading expression '{expr_hash}' from {expr_path}", file=sys.stderr)
+    build_manager = BuildManager(expr_path.parent)
+    # verify build artifacts
+    if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
+        raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
+    expr = build_manager.load_expr(expr_hash)
+
+    if duckdb_path:
+        db_path = Path(duckdb_path)
+    else:
+        db_path = expr_path / "xorq_serve.db"
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    print(f"Using duckdb at {db_path}", file=sys.stderr)
+
+    def _make_con():
+        return xo.duckdb.connect(str(db_path))
+
+    from xorq.common.utils.graph_utils import walk_nodes
+    from xorq.expr.relations import FlightUDXF
+
+    exchangers = []
+    seen = set()
+    # Find all FlightUDXF nodes in the expression
+    udxf_nodes = walk_nodes((FlightUDXF,), expr)
+    for node in udxf_nodes:
+        udxf_cls = getattr(node, "udxf", None)
+        if udxf_cls and udxf_cls not in seen:
+            exchangers.append(udxf_cls)
+            seen.add(udxf_cls)
+    # Initialize flight URL and server, registering any UDXF exchangers
+    flight_url = FlightUrl(host=host or None, port=port)
+    server = FlightServer(
+        flight_url,
+        connection=_make_con,
+        exchangers=exchangers,
+    )
+    if exchangers:
+        for udxf_cls in exchangers:
+            print(f"Registering exchanger: {udxf_cls.command}", file=sys.stderr)
+    location = flight_url.to_location()
+    print(f"Serving expression '{expr_hash}' on {location}", file=sys.stderr)
+    server.serve(block=True)
+
+
 def parse_args(override=None):
-    parser = argparse.ArgumentParser(description="xorq - build and run expressions")
+    parser = argparse.ArgumentParser(
+        description="xorq - build, run, and serve expressions"
+    )
     parser.add_argument("--pdb", action="store_true", help="Drop into pdb on failure")
     parser.add_argument(
         "--pdb-runcall", action="store_true", help="Invoke with pdb.runcall"
@@ -173,6 +259,28 @@ def parse_args(override=None):
         default="parquet",
         help="Output format (default: parquet)",
     )
+    serve_parser = subparsers.add_parser(
+        "serve", help="Serve a build via Flight Server"
+    )
+    serve_parser.add_argument(
+        "build_path", help="Path to the build directory (output of xorq build)"
+    )
+    serve_parser.add_argument(
+        "--host",
+        default="localhost",
+        help="Host to bind Flight Server (default: localhost)",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind Flight Server (default: random)",
+    )
+    serve_parser.add_argument(
+        "--duckdb-path",
+        default=None,
+        help="Path to duckdb  DB (default: <build_path>/xorq_serve.db)",
+    )
 
     args = parser.parse_args(override)
     if getattr(args, "output_path", None) == "-":
@@ -191,14 +299,19 @@ def main():
     try:
         match args.command:
             case "build":
-                (f, f_args) = (
+                f, f_args = (
                     build_command,
                     (args.script_path, args.expr_name, args.builds_dir, args.cache_dir),
                 )
             case "run":
-                (f, f_args) = (
+                f, f_args = (
                     run_command,
                     (args.build_path, args.output_path, args.format, args.cache_dir),
+                )
+            case "serve":
+                f, f_args = (
+                    serve_command,
+                    (args.build_path, args.host, args.port, args.duckdb_path),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
