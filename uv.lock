@@ -589,6 +589,7 @@ css = [
 name = "boto3"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "1.38.22"
 =======
 version = "1.38.28"
@@ -596,12 +597,16 @@ version = "1.38.28"
 =======
 version = "1.38.29"
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+version = "1.38.35"
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "botocore" },
     { name = "jmespath" },
     { name = "s3transfer" },
 ]
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 sdist = { url = "https://files.pythonhosted.org/packages/d0/e5/4623171284e125ebfef850a21c2af22b0515b08f5cd05e77a79a1085f663/boto3-1.38.22.tar.gz", hash = "sha256:008f6a7c2f9f306984f9bd00c331d70341124aaa7dfebcb0466ecbda6619884a", size = 111818, upload-time = "2025-05-22T19:25:04.625Z" }
@@ -616,10 +621,16 @@ sdist = { url = "https://files.pythonhosted.org/packages/15/d2/e7286b4ffd3138eb1
 wheels = [
     { url = "https://files.pythonhosted.org/packages/1b/2e/b96b9fbed3007e67bc624c42103b47e7bd10380ed46bbbd25a1755227f7c/boto3-1.38.29-py3-none-any.whl", hash = "sha256:90a9b1a08122b840216b0e33b7b0dbe4ef50f12d00a573bf7b030cddeda9c507", size = 139939, upload_time = "2025-06-03T19:22:57.33Z" },
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+sdist = { url = "https://files.pythonhosted.org/packages/f1/ca/e7c1b5f7118fa3520f70ca11082472b64e2ffc4d81e7a4373339e4770f3a/boto3-1.38.35.tar.gz", hash = "sha256:38a407e467b24914ce24e5816f53305288ea44072778f88d2b4b6a2cffbcb220", size = 111841, upload-time = "2025-06-11T19:29:54.515Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c9/56/b0043430a38b45cc20ae942524fa9e370a4ff3e33b408c8ff6341266ffca/boto3-1.38.35-py3-none-any.whl", hash = "sha256:97606fe56e33b2548c4110dd7cdc49487266d503ba09eaff9abf98b028baee9e", size = 139937, upload-time = "2025-06-11T19:29:53.352Z" },
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 ]
 
 [[package]]
 name = "botocore"
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 version = "1.38.22"
@@ -629,12 +640,16 @@ version = "1.38.28"
 =======
 version = "1.38.29"
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+version = "1.38.35"
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "jmespath" },
     { name = "python-dateutil" },
     { name = "urllib3" },
 ]
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 sdist = { url = "https://files.pythonhosted.org/packages/02/ed/b75b99f64c8ce365213abc2e3124e7712ab7c691170718d1c3086c44aaea/botocore-1.38.22.tar.gz", hash = "sha256:3b464984674f97367ca1dfa29bdbce499327571208aaec2f9743f66e54d9ba05", size = 13908621, upload-time = "2025-05-22T19:24:45.588Z" }
@@ -650,6 +665,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/32/9a/8c3ec27698910c1b9
 wheels = [
     { url = "https://files.pythonhosted.org/packages/14/7a/03482cd3c00008d9be646c8e1520611d6202ce447db725ac40b07f9b088a/botocore-1.38.29-py3-none-any.whl", hash = "sha256:4d623f54326eb66d1a633f0c1780992c80f3db317a91c9afe31d5c700290621e", size = 13588258, upload_time = "2025-06-03T19:22:45.14Z" },
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+sdist = { url = "https://files.pythonhosted.org/packages/cd/2e/763918cd2b5af0345a38181bc5f16d1f6c32aad2a03b7738274cf068d864/botocore-1.38.35.tar.gz", hash = "sha256:3c7032948e066eed5f91d64cd51ee9664d1db9beaf3279ac27da608176bb3d54", size = 13962912, upload-time = "2025-06-11T19:29:45.29Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/89/b993928d3d4385b3698fd7a1fb251c117c76bc6cf8d5f3a587067f1298e3/botocore-1.38.35-py3-none-any.whl", hash = "sha256:bbfae3f13a5d75ad73bf71b5ba5ff3ccd055d947d63593e8a0e84acc95a8bfa4", size = 13623012, upload-time = "2025-06-11T19:29:40.142Z" },
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 ]
 
 [[package]]
@@ -2887,7 +2907,11 @@ wheels = [
 
 [[package]]
 name = "mcp"
+<<<<<<< HEAD
 version = "1.9.1"
+=======
+version = "1.9.4"
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -2901,6 +2925,7 @@ dependencies = [
     { name = "uvicorn", marker = "sys_platform != 'emscripten'" },
 ]
 <<<<<<< HEAD
+<<<<<<< HEAD
 sdist = { url = "https://files.pythonhosted.org/packages/e7/bc/54aec2c334698cc575ca3b3481eed627125fb66544152fa1af927b1a495c/mcp-1.9.1.tar.gz", hash = "sha256:19879cd6dde3d763297617242888c2f695a95dfa854386a6a68676a646ce75e4", size = 316247, upload-time = "2025-05-22T15:52:21.26Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a6/c0/4ac795585a22a0a2d09cd2b1187b0252d2afcdebd01e10a68bbac4d34890/mcp-1.9.1-py3-none-any.whl", hash = "sha256:2900ded8ffafc3c8a7bfcfe8bc5204037e988e753ec398f371663e6a06ecd9a9", size = 130261, upload-time = "2025-05-22T15:52:19.702Z" },
@@ -2909,6 +2934,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/ea/03/77c49cce3ace96e67
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5d/a6/8f5ee9da9f67c0fd8933f63d6105f02eabdac8a8c0926728368ffbb6744d/mcp-1.9.2-py3-none-any.whl", hash = "sha256:bc29f7fd67d157fef378f89a4210384f5fecf1168d0feb12d22929818723f978", size = 131083, upload_time = "2025-05-29T14:42:16.211Z" },
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+sdist = { url = "https://files.pythonhosted.org/packages/06/f2/dc2450e566eeccf92d89a00c3e813234ad58e2ba1e31d11467a09ac4f3b9/mcp-1.9.4.tar.gz", hash = "sha256:cfb0bcd1a9535b42edaef89947b9e18a8feb49362e1cc059d6e7fc636f2cb09f", size = 333294, upload-time = "2025-06-12T08:20:30.158Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/fc/80e655c955137393c443842ffcc4feccab5b12fa7cb8de9ced90f90e6998/mcp-1.9.4-py3-none-any.whl", hash = "sha256:7fcf36b62936adb8e63f89346bccca1268eeca9bf6dfb562ee10b1dfbda9dac0", size = 130232, upload-time = "2025-06-12T08:20:28.551Z" },
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 ]
 
 [[package]]
@@ -3439,6 +3469,7 @@ wheels = [
 name = "openai"
 <<<<<<< HEAD
 <<<<<<< HEAD
+<<<<<<< HEAD
 version = "1.82.0"
 =======
 version = "1.83.0"
@@ -3446,6 +3477,9 @@ version = "1.83.0"
 =======
 version = "1.84.0"
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+version = "1.86.0"
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "anyio" },
@@ -3457,6 +3491,7 @@ dependencies = [
     { name = "tqdm" },
     { name = "typing-extensions" },
 ]
+<<<<<<< HEAD
 <<<<<<< HEAD
 <<<<<<< HEAD
 sdist = { url = "https://files.pythonhosted.org/packages/3f/19/6b09bb3132f7e1a7a2291fd46fb33659bbccca041f863abd682e14ba86d7/openai-1.82.0.tar.gz", hash = "sha256:b0a009b9a58662d598d07e91e4219ab4b1e3d8ba2db3f173896a92b9b874d1a7", size = 461092, upload-time = "2025-05-22T20:08:07.282Z" }
@@ -3472,6 +3507,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/91/a3/128caf24e116f48fa
 wheels = [
     { url = "https://files.pythonhosted.org/packages/2a/10/f245db006a860dbc1f2e2c8382e0a1762c7753e7971ba43a1dc3f3ec1404/openai-1.84.0-py3-none-any.whl", hash = "sha256:7ec4436c3c933d68dc0f5a0cef0cb3dbc0864a54d62bddaf2ed5f3d521844711", size = 725512, upload_time = "2025-06-03T17:10:51.195Z" },
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+sdist = { url = "https://files.pythonhosted.org/packages/ec/7a/9ad4a61f1502f0e59d8c27fb629e28a63259a44d8d31cd2314e1534a2d9f/openai-1.86.0.tar.gz", hash = "sha256:c64d5b788359a8fdf69bd605ae804ce41c1ce2e78b8dd93e2542e0ee267f1e4b", size = 468272, upload-time = "2025-06-10T16:50:32.962Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/58/c1/dfb16b3432810fc9758564f9d1a4dbce6b93b7fb763ba57530c7fc48316d/openai-1.86.0-py3-none-any.whl", hash = "sha256:c8889c39410621fe955c230cc4c21bfe36ec887f4e60a957de05f507d7e1f349", size = 730296, upload-time = "2025-06-10T16:50:30.495Z" },
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 ]
 
 [[package]]
@@ -4897,7 +4937,11 @@ wheels = [
 
 [[package]]
 name = "quartodoc"
+<<<<<<< HEAD
 version = "0.9.1"
+=======
+version = "0.11.1"
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "black" },
@@ -4915,6 +4959,7 @@ dependencies = [
     { name = "watchdog" },
 ]
 <<<<<<< HEAD
+<<<<<<< HEAD
 sdist = { url = "https://files.pythonhosted.org/packages/f4/ad/1bdc6745d0d0527da0a2f30a235850873e98442a2c1afdd67ac7e164e0c4/quartodoc-0.9.1.tar.gz", hash = "sha256:418d9ff0f2d4481a87e926e3a3e5bc31efbe556c7f36912aa0a3f716c0eafa9c", size = 772465, upload-time = "2024-11-08T22:21:36.646Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/0e/47/de4c28e2002653226de3e34c9a3e989619796e5f0fe771284c570a016cec/quartodoc-0.9.1-py3-none-any.whl", hash = "sha256:78345002f75f086be6e1b1ccf3b4e3ada2fa3affb8a8fc0dbdb37890a5da03fa", size = 84275, upload-time = "2024-11-08T22:21:33.794Z" },
@@ -4923,6 +4968,11 @@ sdist = { url = "https://files.pythonhosted.org/packages/0e/5c/60a4e0980018df16b
 wheels = [
     { url = "https://files.pythonhosted.org/packages/df/89/1588ec0a293b63889a60070959b7268ce138835388ce440175ff0c5f190a/quartodoc-0.10.0-py3-none-any.whl", hash = "sha256:52d6378530a52949005a162b6f12bf29bcc0648392b4d1e7383fd2224f906828", size = 86781, upload_time = "2025-05-28T20:22:59.374Z" },
 >>>>>>> c25d14b3 (feat: make normalize_filenames accepts glob pattern (#934))
+=======
+sdist = { url = "https://files.pythonhosted.org/packages/ff/b9/0bb44cc62a5d63728d04fd6b1e14bcb64945fabad4aa8c03b9d70315fb06/quartodoc-0.11.1.tar.gz", hash = "sha256:c121626e1a36392d168631f33c4d3e7fd48d185de178859f8eafbda14fbfe92f", size = 778611, upload-time = "2025-06-10T14:50:08.185Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/75/d9/0b48d4184f9ca6a996c4fac46897a968698c9d1e0f0e43a6906746201323/quartodoc-0.11.1-py3-none-any.whl", hash = "sha256:0776eb8e53d89385e2c9a8ae0ec08e8c307c1410dd1bd78bb28e8b1823dbb6ad", size = 88053, upload-time = "2025-06-10T14:50:06.443Z" },
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 ]
 
 [[package]]
@@ -6368,7 +6418,11 @@ docs = [
     { name = "nbclient", specifier = ">=0.10.0,<1.0.0" },
     { name = "nbformat", specifier = ">=5.10.4,<6.0.0" },
     { name = "notebook", specifier = ">=7.3.2" },
+<<<<<<< HEAD
     { name = "quartodoc", specifier = ">=0.7.2,<0.10.0" },
+=======
+    { name = "quartodoc", specifier = ">=0.7.2,<0.11.2" },
+>>>>>>> d1b1687f (chore(deps): update dependency quartodoc to <0.11.2,>=0.7.2 (#1006))
 ]
 test = [
     { name = "datafusion", specifier = ">=43.1.0" },
