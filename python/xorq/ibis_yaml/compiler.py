@@ -241,8 +241,9 @@ class BuildManager:
 
     def compile_expr(self, expr: ir.Expr) -> str:
         expr_hash = self.artifact_store.get_expr_hash(expr)
-        expr = replace_memtables(self.artifact_store.root_path, expr)
-        expr = replace_database_tables(self.artifact_store.root_path, expr)
+        expr_build_dir = self.artifact_store.root_path / expr_hash
+        expr = replace_memtables(expr_build_dir, expr)
+        expr = replace_database_tables(expr_build_dir, expr)
 
         backends = find_all_sources(expr)
         profiles = {
