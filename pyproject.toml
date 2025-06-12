@@ -95,6 +95,7 @@ examples = [
     "psycopg2-binary>=2.9.10",
     "mcp>=1.5.0",
     "requests>=2.32.3",
+    "cryptography>=45.0.3",
 ]
 postgres = [
     "adbc-driver-postgresql>=1.4.0",
