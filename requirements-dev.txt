@@ -130,6 +130,7 @@ cryptography==45.0.4
     # via
     #   pyopenssl
     #   snowflake-connector-python
+    #   xorq
 dask==2025.1.0 ; python_full_version < '4.0'
     # via xorq
 databackend==0.0.3 ; python_full_version < '4.0'
