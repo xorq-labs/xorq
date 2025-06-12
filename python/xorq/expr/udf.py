@@ -316,8 +316,8 @@ def pyarrow_udwf(
         "__input_type__": InputType.PYARROW,
         "__func__": property(fget=toolz.functoolz.return_none),
         "__config__": FrozenDict(
-            input_types=tuple(el.type for el in schema.to_pyarrow()),
-            return_type=return_type.to_pyarrow(),
+            input_types=tuple(datatype for datatype in schema.fields.values()),
+            return_type=return_type,
             name=name,
             **config_kwargs,
             # assert which_evaluate in ("evaluate", "evaluate_all", "evaluate_all_with_rank")

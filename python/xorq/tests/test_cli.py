@@ -24,6 +24,7 @@ build_run_examples_expr_names = (
     ("bank_marketing.py", "encoded_test"),
     ("flight_udtf_llm_example.py", "expr"),
     ("pyiceberg_backend_simple.py", "expr"),
+    ("python_udwf.py", "expr"),
 )
 
 

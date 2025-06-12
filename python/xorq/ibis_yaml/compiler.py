@@ -361,13 +361,15 @@ def replace_memtables(build_dir, expr):
 
 def replace_database_tables(build_dir, expr):
     def database_table_to_read_op(builds_dir, mt, con=xo.config._backend_init()):
+        import pyarrow.parquet as pq
+
         database_tables_dir = Path(builds_dir).joinpath("database_tables")
         database_tables_dir.mkdir(parents=True, exist_ok=True)
-        df = mt.to_expr().execute()
+        df = mt.to_expr().to_pyarrow()
         parquet_path = database_tables_dir.joinpath(dask.base.tokenize(df)).with_suffix(
             ".parquet"
         )
-        df.to_parquet(parquet_path)
+        pq.write_table(df, parquet_path)
         dr = xo.deferred_read_parquet(con, parquet_path, table_name=mt.name)
         op = dr.op()
         args = dict(zip(op.__argnames__, op.__args__))
