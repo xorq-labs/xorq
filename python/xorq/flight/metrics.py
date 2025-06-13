@@ -1,5 +1,4 @@
 import time
-from collections import defaultdict
 from datetime import datetime
 
 import pyarrow as pa
@@ -22,6 +21,13 @@ __all__ = [
 ]
 
 logger = get_print_logger()
+# placeholders for instruments; initialized in setup_console_metrics()
+_request_counter = None
+_duration_hist = None
+_streams_counter = None
+_bytes_counter = None
+_rows_counter = None
+_throughput_hist = None
 
 
 class SimpleConsoleMetricExporter(MetricExporter):
@@ -66,39 +72,39 @@ def setup_console_metrics(
 ):
     exporter = SimpleConsoleMetricExporter()
     reader = PeriodicExportingMetricReader(exporter, export_interval_millis=interval_ms)
-    provider = MeterProvider(metric_readers=[reader])
+    # include resource attributes for backend grouping
+    from opentelemetry.sdk.resources import Resource
+    import socket
+    resource = Resource.create({
+        "service.name": "xorq-flight",
+        "service.instance.id": socket.gethostname(),
+    })
+    provider = MeterProvider(resource=resource, metric_readers=[reader])
     metrics.set_meter_provider(provider)
     meter = metrics.get_meter(meter_name)
+    # initialize instruments after provider is set
+    global _request_counter, _duration_hist, _streams_counter, _bytes_counter, _rows_counter, _throughput_hist
+    _request_counter = meter.create_counter(
+        "flight_server.requests_total", description="Total Flight RPC requests"
+    )
+    _duration_hist = meter.create_histogram(
+        "flight_server.request_duration_seconds", unit="s"
+    )
+    _streams_counter = meter.create_up_down_counter(
+        "flight_server.active_streams"
+    )
+    _bytes_counter = meter.create_counter(
+        "flight_server.bytes_total", unit="By"
+    )
+    _rows_counter = meter.create_counter("flight_server.rows_total")
+    _throughput_hist = meter.create_histogram(
+        "flight_server.throughput_rows_per_sec", unit="1/s"
+    )
     logger.info(f"console metrics enabled, interval={interval_ms} ms")
     return meter
 
 
-_meter_instrument = metrics.get_meter("xorq.flight_server")
 
-_request_counter = _meter_instrument.create_counter(
-    "flight_server.requests_total", description="Total Flight RPC requests"
-)
-_duration_hist = _meter_instrument.create_histogram(
-    "flight_server.request_duration_seconds", unit="s"
-)
-_streams_counter = _meter_instrument.create_up_down_counter(
-    "flight_server.active_streams"
-)
-_bytes_counter = _meter_instrument.create_counter(
-    "flight_server.bytes_total", unit="By"
-)
-_rows_counter = _meter_instrument.create_counter("flight_server.rows_total")
-_throughput_hist = _meter_instrument.create_histogram(
-    "flight_server.throughput_rows_per_sec", unit="1/s"
-)
-
-_stats = {
-    "requests": defaultdict(int),
-    "bytes_served": 0,
-    "rows_served": 0,
-    "active_streams": 0,
-    "throughput": {},
-}
 
 
 class _Recorder:
@@ -107,8 +113,6 @@ class _Recorder:
     def __init__(self, method: str):
         self.method = method
         self.started = time.time()
-        _stats["requests"][method] += 1
-        _stats["active_streams"] += 1
         _request_counter.add(1, {"method": method})
         _streams_counter.add(1)
         self._bytes = 0
@@ -124,9 +128,6 @@ class _Recorder:
         labels = {"method": self.method, "dir": direction}
         _bytes_counter.add(size, labels)
         _rows_counter.add(rows, labels)
-        if direction == "out":
-            _stats["bytes_served"] += size
-            _stats["rows_served"] += rows
         self._bytes += size
         self._rows += rows
 
@@ -136,9 +137,7 @@ class _Recorder:
         if dur > 0 and self._rows:
             thr = self._rows / dur
             _throughput_hist.record(thr, {"method": self.method})
-            _stats["throughput"][self.method] = thr
         _streams_counter.add(-1)
-        _stats["active_streams"] -= 1
 
 
 def instrument_reader(reader: pa.RecordBatchReader, rec: _Recorder, *, direction="out"):
