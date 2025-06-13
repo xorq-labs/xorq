@@ -87,6 +87,29 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
     assert builds_dir.exists()
 
 
+def test_build_command_with_cache_dir(tmp_path, fixture_dir):
+    builds_dir = tmp_path / "builds"
+    cache_dir = tmp_path / "cache"
+    script_path = fixture_dir / "pipeline.py"
+
+    test_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(builds_dir),
+        "--cache-dir",
+        str(cache_dir),
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+
+    assert "Building expr" in stderr.decode("ascii")
+    assert returncode == 0
+    assert builds_dir.exists()
+
+
 def test_run_command_default(tmp_path, fixture_dir):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "pipeline.py"
