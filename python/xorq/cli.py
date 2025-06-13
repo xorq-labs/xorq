@@ -125,7 +125,9 @@ def run_command(
 
 
 @tracer.start_as_current_span("cli.serve_command")
-def serve_command(build_path, host=None, port=None, duckdb_path=None):
+def serve_command(
+    build_path, host=None, port=None, duckdb_path=None, prometheus_port=None
+):
     """
     Serve a built expression via Flight Server
 
@@ -180,7 +182,7 @@ def serve_command(build_path, host=None, port=None, duckdb_path=None):
     try:
         from xorq.flight.metrics import setup_console_metrics
 
-        setup_console_metrics(duckdb_path=str(db_path))
+        setup_console_metrics(duckdb_path=str(db_path), prometheus_port=prometheus_port)
     except ImportError:
         logger.warning(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
@@ -291,7 +293,13 @@ def parse_args(override=None):
     serve_parser.add_argument(
         "--duckdb-path",
         default=None,
-        help="Path to duckdb  DB (default: <build_path>/xorq_serve.db)",
+        help="Path to duckdb DB (default: <build_path>/xorq_serve.db)",
+    )
+    serve_parser.add_argument(
+        "--prometheus-port",
+        type=int,
+        default=None,
+        help="Port to expose Prometheus metrics (default: disabled)",
     )
 
     args = parser.parse_args(override)
@@ -328,6 +336,7 @@ def main():
                         args.host,
                         args.port,
                         args.duckdb_path,
+                        args.prometheus_port,
                     ),
                 )
             case _:
