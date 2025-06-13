@@ -8,10 +8,11 @@ import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
-from xorq.common.utils.toolz_utils import curry
+from xorq.expr.ml.pipeline_lib import (
+    FittedPipeline,
+    Step,
+)
 from xorq.ml import (
-    deferred_fit_predict,
-    deferred_fit_transform_series_sklearn,
     train_test_splits,
 )
 
@@ -21,7 +22,6 @@ m = import_python(
 )
 
 
-@curry
 def fit_xgboost_model(feature_df, target_series, seed=0):
     xgb_r = xgb.XGBRegressor(
         objective="reg:squarederror",
@@ -36,91 +36,82 @@ def fit_xgboost_model(feature_df, target_series, seed=0):
     return xgb_r
 
 
-@curry
 def predict_xgboost_model(model, df):
     return model.predict(df.squeeze().tolist())
 
 
-transform_col = "title"
-features = (transformed_col,) = (f"{transform_col}_transformed",)
-target = "descendants"
-target_predicted = f"{target}_predicted"
-deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
-    col=transform_col,
-    cls=TfidfVectorizer,
-    return_type=dt.Array(dt.float64),
-)
-deferred_fit_predict_xgb = deferred_fit_predict(
-    target=target,
-    features=list(features),
-    fit=fit_xgboost_model,
-    predict=predict_xgboost_model,
-    return_type=dt.float32,
-)
-
-
-con = xo.connect()
-storage = ParquetStorage(source=con)
-# storage = None
-
-
-train_expr, test_expr = (
-    deferred_read_parquet(
-        con,
-        xo.options.pins.get_path("hn-fetcher-input-small.parquet"),
-        "fetcher-input",
+def make_splits(con):
+    train_expr, test_expr = (
+        deferred_read_parquet(
+            con,
+            xo.options.pins.get_path("hn-fetcher-input-small.parquet"),
+            "fetcher-input",
+        )
+        # we still need to set inner_name, else we get unstable hash
+        .pipe(m.do_hackernews_fetcher_udxf, inner_name="inner-named-flight-udxf")
+        .pipe(
+            train_test_splits,
+            unique_key="id",
+            test_sizes=(0.9, 0.1),
+            random_seed=0,
+        )
     )
-    # we still need to set inner_name, else we get unstable hash
-    .pipe(m.do_hackernews_fetcher_udxf, inner_name="inner-named-flight-udxf")
-    .pipe(
-        train_test_splits,
-        unique_key="id",
-        test_sizes=(0.9, 0.1),
-        random_seed=0,
+    return train_expr, test_expr
+
+
+def make_pipeline(
+    train_expr, test_expr, transform_col, target, target_predicted, storage=None
+):
+    predict_features = (transformed_col,) = (f"{transform_col}_transformed",)
+    transform_step = Step(TfidfVectorizer)
+    predict_step = Step.from_fit_predict(
+        fit=fit_xgboost_model,
+        predict=predict_xgboost_model,
+        return_type=dt.float64,
     )
-)
-
-
-# fit-transform
-(deferred_tfidf_model, tfidf_udaf, deferred_tfidf_transform) = (
-    deferred_fit_transform_tfidf(
+    fitted_transform = transform_step.fit(
         train_expr,
+        features=(transform_col,),
+        dest_col=transformed_col,
         storage=storage,
     )
-)
-train_tfidf_transformed = train_expr.mutate(
-    **{transformed_col: deferred_tfidf_transform.on_expr}
-)
-# fit-predict
-(deferred_xgb_model, xgb_udaf, deferred_xgb_predict) = deferred_fit_predict_xgb(
-    train_tfidf_transformed,
-    storage=storage,
-)
-train_xgb_predicted = (
-    train_tfidf_transformed
-    # if i add into backend here, i don't get ArrowNotImplementedError: Unsupported cast
-    .into_backend(xo.connect()).mutate(
-        **{target_predicted: deferred_xgb_predict.on_expr}
+    fitted_predict = predict_step.fit(
+        fitted_transform.transformed,
+        features=predict_features,
+        target=target,
+        dest_col=target_predicted,
+        storage=storage,
     )
-)
+    fitted_pipeline = FittedPipeline((fitted_transform, fitted_predict), train_expr)
+    test_predicted = fitted_pipeline.predict(test_expr)
+    return fitted_pipeline, test_predicted
 
 
-# now we can define test pathway
-test_xgb_predicted = (
-    test_expr.mutate(**{transformed_col: deferred_tfidf_transform.on_expr})
-    # if i add into backend here, i don't get ArrowNotImplementedError: Unsupported cast
-    .into_backend(xo.connect())
-    .mutate(**{target_predicted: deferred_xgb_predict.on_expr})
+transform_col = "title"
+target = "descendants"
+target_predicted = f"{target}_predicted"
+con = xo.connect()
+storage = ParquetStorage(source=con)
+(train_expr, test_expr) = make_splits(con)
+fitted_pipeline, test_predicted = make_pipeline(
+    train_expr, test_expr, transform_col, target, target_predicted, storage
 )
 
 
 if __name__ == "__pytest_main__":
-    print(deferred_tfidf_model.ls.get_key(), deferred_tfidf_model.ls.exists())
-    print(deferred_xgb_model.ls.get_key(), deferred_xgb_model.ls.exists())
+    fitted_transform, fitted_predict = fitted_pipeline.fitted_steps
+    print(
+        fitted_transform.deferred_model.ls.get_key(),
+        fitted_transform.deferred_model.ls.exists(),
+    )
+    print(
+        fitted_predict.deferred_model.ls.get_key(),
+        fitted_predict.deferred_model.ls.exists(),
+    )
 
     # EXECUTION
-    df = train_xgb_predicted.execute()
-    df2 = test_xgb_predicted.execute()
+    df = fitted_pipeline.predict(train_expr).execute()
+    df2 = fitted_pipeline.predict(test_expr).execute()
     print(df[[target, target_predicted]].corr())
     print(df2[[target, target_predicted]].corr())
     pytest_examples_passed = True

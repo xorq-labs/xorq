@@ -154,7 +154,6 @@ let
               pkgs.lib.listToAttrs (map (name: pkgs.lib.nameValuePair name [ ]) names)
             );
         });
-      toolchain = pkgs.rust-bin.fromRustupToolchainFile (append src "rust-toolchain.toml");
       workspace = uv2nix.lib.workspace.loadWorkspace { workspaceRoot = src; };
       wheelOverlay = workspace.mkPyprojectOverlay { sourcePreference = "wheel"; };
       editableOverlay = workspace.mkEditablePyprojectOverlay {
@@ -221,7 +220,6 @@ let
         ;
       toolsPackages = [
         pkgs.uv
-        toolchain
         letsql-commands-star
         pkgs.gh
       ];
@@ -267,7 +265,6 @@ let
         virtualenv-all
         virtualenv-editable
         editableShellHook
-        toolchain
         letsql-commands-star
         toolsPackages
         defaultShell
