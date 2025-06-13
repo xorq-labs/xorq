@@ -216,7 +216,7 @@ Another option is to use `ibis._` directly.
 
 Examples
 --------
->>> from xorq.vendor.ibis import _
+>>> from ibis import _
 >>> t = ibis.table(dict(key="int", value="float"), name="t")
 >>> expr = t.group_by(key=_.key - 1).agg(total=_.value.sum())
 >>> expr.schema()
@@ -1127,7 +1127,7 @@ def case() -> bl.SearchedCaseBuilder:
     Examples
     --------
     >>> import ibis
-    >>> from xorq.vendor.ibis import _
+    >>> from ibis import _
     >>> ibis.options.interactive = True
     >>> t = ibis.memtable(
     ...     {

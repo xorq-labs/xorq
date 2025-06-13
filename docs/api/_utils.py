@@ -17,7 +17,7 @@ def get_renderer(level: int) -> MdRenderer:
 
 @cache
 def get_backend():
-    return get_object("letsql", "Backend")
+    return get_object("xorq", "Backend")
 
 
 def get_callable(obj, name):

@@ -1481,6 +1481,24 @@ wheels = [
 ]
 
 [[package]]
+name = "ibis-framework"
+version = "10.5.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "atpublic" },
+    { name = "parsy" },
+    { name = "python-dateutil" },
+    { name = "sqlglot" },
+    { name = "toolz" },
+    { name = "typing-extensions" },
+    { name = "tzdata" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/92/e6/cdd11a0bb157fee9c7927926d4ab340e0ddf071db22b095903f26a387d1c/ibis_framework-10.5.0.tar.gz", hash = "sha256:b266c905bff220821e580b14504644e688379af6880ec11882e7176d9d89f096", size = 1224584, upload-time = "2025-04-18T20:10:15.449Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/2d/2c/7f32ba15302847f0cd0d01101470b2f427ec5b3a07756f41c823c01c0242/ibis_framework-10.5.0-py3-none-any.whl", hash = "sha256:71715839e655c37c12e4ff3cd6fe1e8ba82350faab074b1a5324084734a8fe15", size = 1927259, upload-time = "2025-04-18T20:10:12.603Z" },
+]
+
+[[package]]
 name = "identify"
 version = "2.6.12"
 source = { registry = "https://pypi.org/simple" }
@@ -4801,6 +4819,7 @@ dev = [
     { name = "vendoring" },
 ]
 docs = [
+    { name = "ibis-framework" },
     { name = "ipykernel" },
     { name = "nbclient" },
     { name = "nbformat" },
@@ -4884,6 +4903,7 @@ dev = [
     { name = "vendoring", specifier = ">=1.2.0" },
 ]
 docs = [
+    { name = "ibis-framework", specifier = ">=10.5.0" },
     { name = "ipykernel", specifier = ">=6.29.4,<7.0.0" },
     { name = "nbclient", specifier = ">=0.10.0,<1.0.0" },
     { name = "nbformat", specifier = ">=5.10.4,<6.0.0" },

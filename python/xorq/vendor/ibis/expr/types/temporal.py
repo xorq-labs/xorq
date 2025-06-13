@@ -623,7 +623,7 @@ class TimestampValue(_DateComponentMixin, _TimeComponentMixin, Value):
         Examples
         --------
         >>> import ibis
-        >>> from xorq.vendor.ibis import _
+        >>> from ibis import _
         >>> ibis.options.interactive = True
         >>> t = ibis.memtable(
         ...     [

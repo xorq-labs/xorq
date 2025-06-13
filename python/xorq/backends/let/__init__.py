@@ -186,8 +186,8 @@ class Backend(DataFusionBackend):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> con = ls.connect()
+        >>> import xorq as xo
+        >>> con = xo.connect()
 
         """
         super().do_connect(config=config)
