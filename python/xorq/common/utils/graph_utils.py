@@ -7,6 +7,16 @@ from xorq import Expr
 from xorq.vendor.ibis.expr.operations.core import Node
 
 
+opaque_ops = (
+    rel.Read,
+    rel.CachedNode,
+    rel.RemoteTable,
+    rel.FlightUDXF,
+    rel.FlightExpr,
+    udf.ExprScalarUDF,
+)
+
+
 def to_node(maybe_expr: Any) -> Node:
     match maybe_expr:
         case Node():
