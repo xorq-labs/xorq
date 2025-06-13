@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from typing import Optional  # noqa: F401
 
 import pyarrow as pa
 from opentelemetry import metrics
@@ -32,7 +32,6 @@ _throughput_hist = None
 
 class SimpleConsoleMetricExporter(MetricExporter):
     def export(self, metrics_data, timeout_millis: int = 0):
-        ts = datetime.now().isoformat()
         for rm in getattr(metrics_data, "resource_metrics", []):
             for scope in getattr(rm, "scope_metrics", []):
                 for metric in getattr(scope, "metrics", []):
@@ -68,43 +67,63 @@ class SimpleConsoleMetricExporter(MetricExporter):
 def setup_console_metrics(
     interval_ms: int = 2000,
     meter_name: str = "xorq.flight_server",
-    duckdb_path: str = None,
+    duckdb_path: Optional[str] = None,
+    prometheus_port: Optional[int] = None,
 ):
     exporter = SimpleConsoleMetricExporter()
-    reader = PeriodicExportingMetricReader(exporter, export_interval_millis=interval_ms)
+    readers = [
+        PeriodicExportingMetricReader(exporter, export_interval_millis=interval_ms)
+    ]
+    # optional Prometheus endpoint
+    if prometheus_port is not None:
+        try:
+            import prometheus_client
+            from opentelemetry.exporter.prometheus import PrometheusMetricReader
+        except ImportError:
+            logger.warning(
+                "Prometheus support requires 'opentelemetry-exporter-prometheus' and 'prometheus-client'"
+            )
+        else:
+            prom_reader = PrometheusMetricReader()
+            readers.append(prom_reader)
+            prometheus_client.start_http_server(prometheus_port)
+            logger.info(f"Prometheus metrics available at :{prometheus_port}")
     # include resource attributes for backend grouping
-    from opentelemetry.sdk.resources import Resource
     import socket
-    resource = Resource.create({
-        "service.name": "xorq-flight",
-        "service.instance.id": socket.gethostname(),
-    })
-    provider = MeterProvider(resource=resource, metric_readers=[reader])
+
+    from opentelemetry.sdk.resources import Resource
+
+    resource = Resource.create(
+        {
+            "service.name": "xorq-flight",
+            "service.instance.id": socket.gethostname(),
+        }
+    )
+    provider = MeterProvider(resource=resource, metric_readers=readers)
     metrics.set_meter_provider(provider)
     meter = metrics.get_meter(meter_name)
+    logger.info(f"console metrics enabled, interval={interval_ms} ms")
     # initialize instruments after provider is set
-    global _request_counter, _duration_hist, _streams_counter, _bytes_counter, _rows_counter, _throughput_hist
+    global \
+        _request_counter, \
+        _duration_hist, \
+        _streams_counter, \
+        _bytes_counter, \
+        _rows_counter, \
+        _throughput_hist
     _request_counter = meter.create_counter(
         "flight_server.requests_total", description="Total Flight RPC requests"
     )
     _duration_hist = meter.create_histogram(
         "flight_server.request_duration_seconds", unit="s"
     )
-    _streams_counter = meter.create_up_down_counter(
-        "flight_server.active_streams"
-    )
-    _bytes_counter = meter.create_counter(
-        "flight_server.bytes_total", unit="By"
-    )
+    _streams_counter = meter.create_up_down_counter("flight_server.active_streams")
+    _bytes_counter = meter.create_counter("flight_server.bytes_total", unit="By")
     _rows_counter = meter.create_counter("flight_server.rows_total")
     _throughput_hist = meter.create_histogram(
         "flight_server.throughput_rows_per_sec", unit="1/s"
     )
-    logger.info(f"console metrics enabled, interval={interval_ms} ms")
     return meter
-
-
-
 
 
 class _Recorder:
