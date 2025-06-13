@@ -10,9 +10,13 @@ from opentelemetry import trace
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
+from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
+
+
+logger = get_print_logger()
 
 
 @tracer.start_as_current_span("cli.build_command")
@@ -136,22 +140,21 @@ def serve_command(build_path, host=None, port=None, duckdb_path=None):
     duckdb_path : str or None
         Path to duckdb cache DB file
     """
-    import sys
     from pathlib import Path
 
     import xorq as xo
     from xorq.flight import FlightServer, FlightUrl
 
+    # Record serve parameters as a span event (omit None values)
     span = trace.get_current_span()
-    span.add_event(
-        "serve.params",
-        {
-            "build_path": build_path,
-            "host": host,
-            "port": port,
-            "duckdb_path": duckdb_path,
-        },
-    )
+    params = {
+        "build_path": build_path,
+        "host": host,
+        "port": port,
+    }
+    if duckdb_path is not None:
+        params["duckdb_path"] = duckdb_path
+    span.add_event("serve.params", params)
 
     expr_path = Path(build_path)
     if not expr_path.exists():
@@ -160,7 +163,7 @@ def serve_command(build_path, host=None, port=None, duckdb_path=None):
         raise ValueError(f"Error: Build path must be a directory, got {build_path}")
     expr_hash = expr_path.stem
 
-    print(f"Loading expression '{expr_hash}' from {expr_path}", file=sys.stderr)
+    logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
     build_manager = BuildManager(expr_path.parent)
     # verify build artifacts
     if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
@@ -172,7 +175,16 @@ def serve_command(build_path, host=None, port=None, duckdb_path=None):
     else:
         db_path = expr_path / "xorq_serve.db"
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"Using duckdb at {db_path}", file=sys.stderr)
+    logger.info(f"Using duckdb at {db_path}")
+
+    try:
+        from xorq.flight.metrics import setup_console_metrics
+
+        setup_console_metrics(duckdb_path=str(db_path))
+    except ImportError:
+        logger.warning(
+            "Metrics support requires 'opentelemetry-sdk' and console exporter"
+        )
 
     def _make_con():
         return xo.duckdb.connect(str(db_path))
@@ -198,9 +210,9 @@ def serve_command(build_path, host=None, port=None, duckdb_path=None):
     )
     if exchangers:
         for udxf_cls in exchangers:
-            print(f"Registering exchanger: {udxf_cls.command}", file=sys.stderr)
+            logger.info(f"Registering exchanger: {udxf_cls.command}")
     location = flight_url.to_location()
-    print(f"Serving expression '{expr_hash}' on {location}", file=sys.stderr)
+    logger.info(f"Serving expression '{expr_hash}' on {location}")
     server.serve(block=True)
 
 
@@ -311,7 +323,12 @@ def main():
             case "serve":
                 f, f_args = (
                     serve_command,
-                    (args.build_path, args.host, args.port, args.duckdb_path),
+                    (
+                        args.build_path,
+                        args.host,
+                        args.port,
+                        args.duckdb_path,
+                    ),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
