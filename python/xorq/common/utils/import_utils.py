@@ -83,9 +83,8 @@ def import_from_path(path, module_name="__main__"):
         )
 
 
-def import_from_gist(user, gist):
-    path = f"https://gist.githubusercontent.com/{user}/{gist}/raw/"
-    req = urllib.request.Request(path, method="GET")
+def import_from_url(url):
+    req = urllib.request.Request(url, method="GET")
     resp = urllib.request.urlopen(req)
     if resp.code != 200:
         raise ValueError
@@ -94,3 +93,22 @@ def import_from_gist(user, gist):
         path.write_text(resp.read().decode("ascii"))
         module = import_python(path)
         return module
+
+
+def import_from_gist(user, gist):
+    url = f"https://gist.githubusercontent.com/{user}/{gist}/raw/"
+    return import_from_url(url)
+
+
+def import_from_github(user, repo, path, *, tag=None, branch=None, commit=None):
+    if tag:
+        infix = f"refs/tags/{tag}"
+    elif branch:
+        infix = f"refs/heads/{branch}"
+    elif commit:
+        infix = commit
+    else:
+        raise ValueError("one of tag, branch, commit must be non None")
+
+    url = f"https://raw.githubusercontent.com/{user}/{repo}/{infix}/{path}"
+    return import_from_url(url)
