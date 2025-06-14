@@ -21,10 +21,6 @@
         nixpkgs.follows = "nixpkgs";
       };
     };
-    rust-overlay.url = "github:oxalica/rust-overlay";
-    crane = {
-      url = "github:ipetkov/crane";
-    };
     nix-utils = {
       url = "github:letsql/nix-utils";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -39,8 +35,6 @@
       pyproject-nix,
       uv2nix,
       pyproject-build-systems,
-      rust-overlay,
-      crane,
       nix-utils,
     }:
     flake-utils.lib.eachDefaultSystem (
@@ -60,7 +54,6 @@
         pkgs = import nixpkgs {
           inherit system;
           overlays = [
-            (import rust-overlay)
             (_final: prev: {
               python310 = prev.python310.overrideAttrs pythonDarwinHotfix;
               python311 = prev.python311.overrideAttrs pythonDarwinHotfix;
@@ -77,7 +70,6 @@
             pyproject-nix
             uv2nix
             pyproject-build-systems
-            crane
             src
             ;
         };
