@@ -1,5 +1,5 @@
 import time
-from typing import Optional  # noqa: F401
+from typing import Optional
 
 import pyarrow as pa
 from opentelemetry import metrics
@@ -103,7 +103,6 @@ def setup_console_metrics(
     metrics.set_meter_provider(provider)
     meter = metrics.get_meter(meter_name)
     logger.info(f"console metrics enabled, interval={interval_ms} ms")
-    # initialize instruments after provider is set
     global \
         _request_counter, \
         _duration_hist, \
@@ -160,8 +159,6 @@ class _Recorder:
 
 
 def instrument_reader(reader: pa.RecordBatchReader, rec: _Recorder, *, direction="out"):
-    """Wrap a RecordBatchReader so that every batch updates the recorder."""
-
     def gen():
         for batch in reader:
             if not hasattr(batch, "get_total_buffer_size") and hasattr(batch, "data"):
@@ -175,8 +172,6 @@ def instrument_reader(reader: pa.RecordBatchReader, rec: _Recorder, *, direction
 
 
 class InstrumentedWriter:
-    """pyarrow.flight.Writer drop-in that updates recorder for every batch."""
-
     def __init__(self, raw_writer, rec: _Recorder, *, direction="out"):
         self._w = raw_writer
         self._rec = rec
@@ -199,8 +194,6 @@ class InstrumentedWriter:
 
 
 def instrument_rpc(method_name):
-    """Decorator to instrument a Flight RPC method end-to-end."""
-
     def decorator(func):
         def wrapper(self, context, *args, **kwargs):
             rec = _Recorder(method_name)
