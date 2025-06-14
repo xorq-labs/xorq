@@ -130,7 +130,7 @@ let
     image_name=otel/opentelemetry-collector-contrib:latest
     repo_root=$(git rev-parse --show-toplevel)
 
-    # Use the file from repo, not the Nix store path
+    # I had to do this for macos: not sure why I can't read it from the store path
     yaml_host_file="$repo_root/docker/otel/otel-collector-config.yaml"
     yaml_container_path=/etc/otel-collector-config/otel-collector-config.yaml
 
@@ -140,11 +140,13 @@ let
 
     mkdir --mode=777 --parents "$logs_host_path"
 
-    docker run \
+    ${pkgs.docker}/bin/docker run \
       --publish "$OTEL_COLLECTOR_PORT_GRPC:$OTEL_COLLECTOR_PORT_GRPC" \
       --publish "$OTEL_COLLECTOR_PORT_HTTP:$OTEL_COLLECTOR_PORT_HTTP" \
       --env "GRAFANA_CLOUD_INSTANCE_ID=$GRAFANA_CLOUD_INSTANCE_ID" \
       --env "PROMETHEUS_GRAFANA_USERNAME=$PROMETHEUS_GRAFANA_USERNAME" \
+      --env "PROMETHEUS_GRAFANA_ENDPOINT=$PROMETHEUS_GRAFANA_ENDPOINT" \
+      --env "PROMETHEUS_SCRAPE_URL=$PROMETHEUS_SCRAPE_URL" \
       --env "GRAFANA_CLOUD_API_KEY=$GRAFANA_CLOUD_API_KEY" \
       --env "GRAFANA_CLOUD_OTLP_ENDPOINT=$GRAFANA_CLOUD_OTLP_ENDPOINT" \
       --env "OTEL_COLLECTOR_PORT_GRPC=$OTEL_COLLECTOR_PORT_GRPC" \
@@ -161,7 +163,7 @@ let
     set -eux
 
     container=$1
-    yaml_container_path=/otel-collector-config.yaml
+    yaml_container_path=/etc/otel-collector-config.yaml
     ${pkgs.docker}/bin/docker exec \
       --interactive --tty \
       "$container" \

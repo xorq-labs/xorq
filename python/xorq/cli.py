@@ -7,11 +7,15 @@ from pathlib import Path
 
 from opentelemetry import trace
 
+import xorq as xo
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
+from xorq.expr.relations import FlightUDXF
+from xorq.flight import FlightServer, FlightUrl
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
 
@@ -142,12 +146,7 @@ def serve_command(
     duckdb_path : str or None
         Path to duckdb cache DB file
     """
-    from pathlib import Path
 
-    import xorq as xo
-    from xorq.flight import FlightServer, FlightUrl
-
-    # Record serve parameters as a span event (omit None values)
     span = trace.get_current_span()
     params = {
         "build_path": build_path,
@@ -159,23 +158,20 @@ def serve_command(
     span.add_event("serve.params", params)
 
     expr_path = Path(build_path)
-    if not expr_path.exists():
-        raise ValueError(f"Error: Build path not found at {build_path}")
-    if not expr_path.is_dir():
-        raise ValueError(f"Error: Build path must be a directory, got {build_path}")
     expr_hash = expr_path.stem
 
     logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
     build_manager = BuildManager(expr_path.parent)
-    # verify build artifacts
     if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
         raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
+
     expr = build_manager.load_expr(expr_hash)
 
     if duckdb_path:
         db_path = Path(duckdb_path)
     else:
-        db_path = expr_path / "xorq_serve.db"
+        db_path = "xorq_serve.db"  # what should be the default?
+
     db_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Using duckdb at {db_path}")
 
@@ -191,9 +187,6 @@ def serve_command(
     def _make_con():
         return xo.duckdb.connect(str(db_path))
 
-    from xorq.common.utils.graph_utils import walk_nodes
-    from xorq.expr.relations import FlightUDXF
-
     exchangers = []
     seen = set()
     # Find all FlightUDXF nodes in the expression
@@ -203,7 +196,6 @@ def serve_command(
         if udxf_cls and udxf_cls not in seen:
             exchangers.append(udxf_cls)
             seen.add(udxf_cls)
-    # Initialize flight URL and server, registering any UDXF exchangers
     flight_url = FlightUrl(host=host or None, port=port)
     server = FlightServer(
         flight_url,
