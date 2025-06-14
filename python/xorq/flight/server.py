@@ -155,7 +155,6 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
     @instrument_rpc("do_get")
     @maybe_log_excepts
     def do_get(self, context, rec, ticket):
-        """Handle a Flight do_get stream"""
         kwargs = loads(ticket.ticket)
         expr = kwargs.pop("expr")
         with self.lock:
@@ -166,7 +165,6 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
     @instrument_rpc("do_put")
     @maybe_log_excepts
     def do_put(self, context, rec, descriptor, reader, writer):
-        """Handle a Flight do_put (table upload)"""
         reader = instrument_reader(reader, rec, direction="in")
 
         cmd = loads(descriptor.command)
@@ -197,9 +195,6 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
     @instrument_rpc("do_exchange")
     @maybe_log_excepts
     def do_exchange(self, context, rec, descriptor, reader, writer):
-        """Handle a Flight exchange (e.g., UDXF) stream"""
-        if descriptor.descriptor_type != pa.flight.DescriptorType.CMD:
-            raise pa.ArrowInvalid("Exchange must use command descriptor")
         cmd = descriptor.command.decode()
         handler = self.exchangers.get(cmd)
         if handler is None:
