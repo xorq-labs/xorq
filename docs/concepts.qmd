@@ -32,19 +32,18 @@ pandas DataFrame.
 #| code-summary: multi-engine example
 import pathlib
 
-import ibis
 import pandas as pd
 
-import letsql as ls
+import xorq as xo
 
-ibis.options.interactive = True
+xo.options.interactive = True
 
-# create the letsql connection
-con = ls.connect()
+# create the xorq connection
+con = xo.connect()
 
 
 # create the Ibis Postgres connection
-pg = ibis.postgres.connect(
+pg = xo.postgres.connect(
     host="localhost",
     port=5432,
     user="postgres",

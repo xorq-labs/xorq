@@ -4,13 +4,13 @@ First, obtain at least Python 3.10 and make sure you have [created and activated
 Using a virtual environment is strongly recommended, since it will help you to avoid clutter in your system-wide libraries. Once the requirements are met, you can use pip:
 
 ```bash
-pip install letsql
+pip install xorq
 ```
 
 If the installation worked correctly, you should see the following after executing:
 
 ```{python}
-import letsql
-letsql.__version__
+import xorq
+xorq.__version__
 ```
 

@@ -314,7 +314,6 @@ quartodoc:
             - read_parquet
             - register
             - read_postgres
-            - read_sqlite
             - union
             - intersect
             - difference

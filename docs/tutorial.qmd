@@ -22,9 +22,9 @@ It contains measurements of four features (sepal length, sepal width, petal leng
 #| code-summary: loading the iris dataset
 import pandas as pd
 
-import letsql as ls
+import xorq as xo
 
-con = ls.connect()
+con = xo.connect()
 
 # Load the dataset
 url = "https://raw.githubusercontent.com/mwaskom/seaborn-data/master/iris.csv"
@@ -60,9 +60,9 @@ iris.head().execute()
 For the rest of this intro, we'll turn on interactive mode, which partially executes queries to give users a preview of the results. There is a small difference in the way the output is formatted, but otherwise this is the same as calling `to_pandas` on the table expression with a limit of 10 result rows returned.
 
 ```{python}
-import ibis
+import xorq
 
-ibis.options.interactive = True
+xorq.options.interactive = True
 iris.head()
 ```
 
@@ -88,7 +88,7 @@ Typing out ALL of the column names _except_ one is a little annoying. Instead of
 ```{python}
 #| code-summary: using selectors
 
-import ibis.selectors as s
+import xorq.selectors as s
 
 iris.select(
     ~s.matches("sepal_length")

@@ -2,10 +2,10 @@
 
 Tables are one of the core data structures in Ibis.
 
-# Table { #letsql.vendor.ibis.expr.types.relations.Table }
+# Table { #xorq.vendor.ibis.expr.types.relations.Table }
 
 ```python
-Table(self, arg)
+Table(arg)
 ```
 
 An immutable and lazy dataframe.
@@ -13,7 +13,7 @@ An immutable and lazy dataframe.
 Analogous to a SQL table or a pandas DataFrame. A table expression contains
 an [ordered set of named columns](./schemas.qmd#ibis.expr.schema.Schema),
 each with a single known type. Unless explicitly ordered with an
-[`.order_by()`](./expression-tables.qmd#letsql.expr.types.relations.Table.order_by),
+[`.order_by()`](./expression-tables.qmd#xorq.expr.types.relations.Table.order_by),
 the order of rows is undefined.
 
 Table immutability means that the data underlying an Ibis `Table` cannot be modified: every
@@ -28,11 +28,11 @@ into python as a pandas/pyarrow/python DataFrame/Column/scalar.
 You will not create Table objects directly. Instead, you will create one
 
 - from a pandas DataFrame, pyarrow table, Polars table, or raw python dicts/lists
-  with [`letsql.memtable(df)`](./expression-tables.qmd#letsql.memtable)
+  with [`xorq.memtable(df)`](./expression-tables.qmd#xorq.memtable)
 - from an existing table in a data platform with
-  [`connection.table("name")`](./expression-tables.qmd#letsql.backends.duckdb.Backend.table)
+  [`connection.table("name")`](./expression-tables.qmd#xorq.backends.duckdb.Backend.table)
 - from a file or URL, into a specific backend with
-  [`connection.read_csv/parquet/json("path/to/file")`](../backends/duckdb.qmd#letsql.backends.duckdb.Backend.read_csv)
+  [`connection.read_csv/parquet/json("path/to/file")`](../backends/duckdb.qmd#xorq.backends.duckdb.Backend.read_csv)
   (only some backends, typically local ones, support this)
 - from a file or URL, into the default backend with
    [`ibis.read_csv/read_json/read_parquet("path/to/file")`](./expression-tables.qmd#ibis.read_csv)
@@ -41,26 +41,24 @@ You will not create Table objects directly. Instead, you will create one
 
 | Name | Description |
 | --- | --- |
-| [alias](#letsql.vendor.ibis.expr.types.relations.Table.alias) | Create a table expression with a specific name `alias`. |
-| [as_scalar](#letsql.vendor.ibis.expr.types.relations.Table.as_scalar) | Inform ibis that the table expression should be treated as a scalar. |
-| [count](#letsql.vendor.ibis.expr.types.relations.Table.count) | Compute the number of rows in the table. |
-| [difference](#letsql.vendor.ibis.expr.types.relations.Table.difference) | Compute the set difference of multiple table expressions. |
-| [distinct](#letsql.vendor.ibis.expr.types.relations.Table.distinct) | Return a Table with duplicate rows removed. |
-| [dropna](#letsql.vendor.ibis.expr.types.relations.Table.dropna) | Deprecated - use `drop_null` instead. |
-| [fillna](#letsql.vendor.ibis.expr.types.relations.Table.fillna) | Deprecated - use `fill_null` instead. |
-| [filter](#letsql.vendor.ibis.expr.types.relations.Table.filter) | Select rows from `table` based on `predicates`. |
-| [intersect](#letsql.vendor.ibis.expr.types.relations.Table.intersect) | Compute the set intersection of multiple table expressions. |
-| [limit](#letsql.vendor.ibis.expr.types.relations.Table.limit) | Select `n` rows from `self` starting at `offset`. |
-| [order_by](#letsql.vendor.ibis.expr.types.relations.Table.order_by) | Sort a table by one or more expressions. |
-| [sample](#letsql.vendor.ibis.expr.types.relations.Table.sample) | Sample a fraction of rows from a table. |
-| [select](#letsql.vendor.ibis.expr.types.relations.Table.select) | Compute a new table expression using `exprs` and `named_exprs`. |
-| [sql](#letsql.vendor.ibis.expr.types.relations.Table.sql) | Run a SQL query against a table expression. |
-| [union](#letsql.vendor.ibis.expr.types.relations.Table.union) | Compute the set union of multiple table expressions. |
-| [view](#letsql.vendor.ibis.expr.types.relations.Table.view) | Create a new table expression distinct from the current one. |
-| [cache](#letsql.vendor.ibis.expr.types.relations.Table.cache) | Cache the results of a computation to improve performance on subsequent executions. |
-| [into_backend](#letsql.vendor.ibis.expr.types.relations.Table.into_backend) | Converts the Expr to a table in the given backend `con` with an optional table name `name`. |
+| [alias](#xorq.vendor.ibis.expr.types.relations.Table.alias) | Create a table expression with a specific name `alias`. |
+| [as_scalar](#xorq.vendor.ibis.expr.types.relations.Table.as_scalar) | Inform ibis that the table expression should be treated as a scalar. |
+| [count](#xorq.vendor.ibis.expr.types.relations.Table.count) | Compute the number of rows in the table. |
+| [difference](#xorq.vendor.ibis.expr.types.relations.Table.difference) | Compute the set difference of multiple table expressions. |
+| [distinct](#xorq.vendor.ibis.expr.types.relations.Table.distinct) | Return a Table with duplicate rows removed. |
+| [dropna](#xorq.vendor.ibis.expr.types.relations.Table.dropna) | Deprecated - use `drop_null` instead. |
+| [fillna](#xorq.vendor.ibis.expr.types.relations.Table.fillna) | Deprecated - use `fill_null` instead. |
+| [filter](#xorq.vendor.ibis.expr.types.relations.Table.filter) | Select rows from `table` based on `predicates`. |
+| [intersect](#xorq.vendor.ibis.expr.types.relations.Table.intersect) | Compute the set intersection of multiple table expressions. |
+| [limit](#xorq.vendor.ibis.expr.types.relations.Table.limit) | Select `n` rows from `self` starting at `offset`. |
+| [order_by](#xorq.vendor.ibis.expr.types.relations.Table.order_by) | Sort a table by one or more expressions. |
+| [sample](#xorq.vendor.ibis.expr.types.relations.Table.sample) | Sample a fraction of rows from a table. |
+| [select](#xorq.vendor.ibis.expr.types.relations.Table.select) | Compute a new table expression using `exprs` and `named_exprs`. |
+| [sql](#xorq.vendor.ibis.expr.types.relations.Table.sql) | Run a SQL query against a table expression. |
+| [union](#xorq.vendor.ibis.expr.types.relations.Table.union) | Compute the set union of multiple table expressions. |
+| [view](#xorq.vendor.ibis.expr.types.relations.Table.view) | Create a new table expression distinct from the current one. |
 
-### alias { #letsql.vendor.ibis.expr.types.relations.Table.alias }
+### alias { #xorq.vendor.ibis.expr.types.relations.Table.alias }
 
 ```python
 alias(alias)
@@ -89,32 +87,36 @@ not part of the public API**.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description         |
-|--------|----------------------------------------------------------|---------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | An table expression |
+| Name   | Type                                                   | Description         |
+|--------|--------------------------------------------------------|---------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | An table expression |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.examples.penguins.fetch()
 >>> expr = t.alias("pingüinos").sql('SELECT * FROM "pingüinos" LIMIT 5')
 >>> expr
-┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
-┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
-┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━┩
-│ string  │ string    │ float64        │ float64       │ float64           │ … │
-├─────────┼───────────┼────────────────┼───────────────┼───────────────────┼───┤
-│ Adelie  │ Torgersen │           39.1 │          18.7 │             181.0 │ … │
-│ Adelie  │ Torgersen │           39.5 │          17.4 │             186.0 │ … │
-│ Adelie  │ Torgersen │           40.3 │          18.0 │             195.0 │ … │
-│ Adelie  │ Torgersen │           NULL │          NULL │              NULL │ … │
-│ Adelie  │ Torgersen │           36.7 │          19.3 │             193.0 │ … │
-└─────────┴───────────┴────────────────┴───────────────┴───────────────────┴───┘
 ```
 
-### as_scalar { #letsql.vendor.ibis.expr.types.relations.Table.as_scalar }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### as_scalar { #xorq.vendor.ibis.expr.types.relations.Table.as_scalar }
 
 ```python
 as_scalar()
@@ -129,30 +131,37 @@ error will be raised by the backend when the expression is executed.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                  | Description       |
-|--------|-------------------------------------------------------|-------------------|
-|        | [Scalar](`letsql.vendor.ibis.expr.types.uuid.Scalar`) | A scalar subquery |
+| Name   | Type                                                | Description       |
+|--------|-----------------------------------------------------|-------------------|
+|        | [Scalar](`xorq.vendor.ibis.expr.types.uuid.Scalar`) | A scalar subquery |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.examples.penguins.fetch()
 >>> heavy_gentoo = t.filter(t.species == "Gentoo", t.body_mass_g > 6200)
 >>> from_that_island = t.filter(t.island == heavy_gentoo.select("island").as_scalar())
 >>> from_that_island.species.value_counts().order_by("species")
-┏━━━━━━━━━┳━━━━━━━━━━━━━━━┓
-┃ species ┃ species_count ┃
-┡━━━━━━━━━╇━━━━━━━━━━━━━━━┩
-│ string  │ int64         │
-├─────────┼───────────────┤
-│ Adelie  │            44 │
-│ Gentoo  │           124 │
-└─────────┴───────────────┘
 ```
 
-### count { #letsql.vendor.ibis.expr.types.relations.Table.count }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### count { #xorq.vendor.ibis.expr.types.relations.Table.count }
 
 ```python
 count(where=None)
@@ -162,45 +171,95 @@ Compute the number of rows in the table.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                                                                                       | Description                                               | Default   |
-|--------|------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|-----------|
-| where  | [ir](`letsql.vendor.ibis.expr.types`).[BooleanValue](`letsql.vendor.ibis.expr.types.BooleanValue`) \| None | Optional boolean expression to filter rows when counting. | `None`    |
+| Name   | Type                                                                                                   | Description                                               | Default   |
+|--------|--------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|-----------|
+| where  | [ir](`xorq.vendor.ibis.expr.types`).[BooleanValue](`xorq.vendor.ibis.expr.types.BooleanValue`) \| None | Optional boolean expression to filter rows when counting. | `None`    |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                                   | Description                 |
-|--------|------------------------------------------------------------------------|-----------------------------|
-|        | [IntegerScalar](`letsql.vendor.ibis.expr.types.numeric.IntegerScalar`) | Number of rows in the table |
+| Name   | Type                                                                 | Description                 |
+|--------|----------------------------------------------------------------------|-----------------------------|
+|        | [IntegerScalar](`xorq.vendor.ibis.expr.types.numeric.IntegerScalar`) | Number of rows in the table |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.memtable({"a": ["foo", "bar", "baz"]})
 >>> t
-┏━━━━━━━━┓
-┃ a      ┃
-┡━━━━━━━━┩
-│ string │
-├────────┤
-│ foo    │
-│ bar    │
-│ baz    │
-└────────┘
->>> t.count()
-┌───┐
-│ 3 │
-└───┘
->>> t.count(t.a != "foo")
-┌───┐
-│ 2 │
-└───┘
->>> type(t.count())
-<class 'letsql.vendor.ibis.expr.types.numeric.IntegerScalar'>
 ```
 
-### difference { #letsql.vendor.ibis.expr.types.relations.Table.difference }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t.count()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t.count(t.a != "foo")
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> type(t.count())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### difference { #xorq.vendor.ibis.expr.types.relations.Table.difference }
 
 ```python
 difference(table, *rest, distinct=True)
@@ -212,11 +271,11 @@ The input tables must have identical schemas.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name     | Type                                                     | Description                                                | Default    |
-|----------|----------------------------------------------------------|------------------------------------------------------------|------------|
-| table    | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | A table expression                                         | _required_ |
-| *rest    | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | Additional table expressions                               | `()`       |
-| distinct | [bool](`bool`)                                           | Only diff distinct rows not occurring in the calling table | `True`     |
+| Name     | Type                                                   | Description                                                | Default    |
+|----------|--------------------------------------------------------|------------------------------------------------------------|------------|
+| table    | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | A table expression                                         | _required_ |
+| *rest    | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | Additional table expressions                               | `()`       |
+| distinct | [bool](`bool`)                                         | Only diff distinct rows not occurring in the calling table | `True`     |
 
 #### See Also {.doc-section .doc-section-see-also}
 
@@ -224,46 +283,72 @@ The input tables must have identical schemas.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description                                                  |
-|--------|----------------------------------------------------------|--------------------------------------------------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | The rows present in `self` that are not present in `tables`. |
+| Name   | Type                                                   | Description                                                  |
+|--------|--------------------------------------------------------|--------------------------------------------------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | The rows present in `self` that are not present in `tables`. |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t1 = ls.memtable({"a": [1, 2]})
 >>> t1
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     1 │
-│     2 │
-└───────┘
->>> t2 = ls.memtable({"a": [2, 3]})
->>> t2
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     2 │
-│     3 │
-└───────┘
->>> t1.difference(t2)
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     1 │
-└───────┘
 ```
 
-### distinct { #letsql.vendor.ibis.expr.types.relations.Table.distinct }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t2 = ls.memtable({"a": [2, 3]})
+>>> t2
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t1.difference(t2)
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### distinct { #xorq.vendor.ibis.expr.types.relations.Table.distinct }
 
 ```python
 distinct(on=None, keep='first')
@@ -279,137 +364,184 @@ Similar to `pandas.DataFrame.drop_duplicates()`.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                                                                                                                                                      | Description                                                                                                                                                                                   | Default   |
-|--------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
-| on     | [str](`str`) \| [Iterable](`collections.abc.Iterable`)\[[str](`str`)\] \| [s](`letsql.vendor.ibis.selectors`).[Selector](`letsql.vendor.ibis.selectors.Selector`) \| None | Only consider certain columns for identifying duplicates. By default, deduplicate all of the columns.                                                                                         | `None`    |
-| keep   | [Literal](`typing.Literal`)\[\'first\', \'last\'\] \| None                                                                                                                | Determines which duplicates to keep.  - `"first"`: Drop duplicates except for the first occurrence. - `"last"`: Drop duplicates except for the last occurrence. - `None`: Drop all duplicates | `'first'` |
+| Name   | Type                                                                                                                                                                  | Description                                                                                                                                                                                   | Default   |
+|--------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
+| on     | [str](`str`) \| [Iterable](`collections.abc.Iterable`)\[[str](`str`)\] \| [s](`xorq.vendor.ibis.selectors`).[Selector](`xorq.vendor.ibis.selectors.Selector`) \| None | Only consider certain columns for identifying duplicates. By default, deduplicate all of the columns.                                                                                         | `None`    |
+| keep   | [Literal](`typing.Literal`)\[\'first\', \'last\'\] \| None                                                                                                            | Determines which duplicates to keep.  - `"first"`: Drop duplicates except for the first occurrence. - `"last"`: Drop duplicates except for the last occurrence. - `None`: Drop all duplicates | `'first'` |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
->>> import letsql.examples as ex
->>> import letsql.selectors as s
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
+>>> import xorq.examples as ex
+>>> import xorq.selectors as s
 >>> ls.options.interactive = True
 >>> t = ex.penguins.fetch()
 >>> t
-┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
-┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
-┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━┩
-│ string  │ string    │ float64        │ float64       │ float64           │ … │
-├─────────┼───────────┼────────────────┼───────────────┼───────────────────┼───┤
-│ Adelie  │ Torgersen │           39.1 │          18.7 │             181.0 │ … │
-│ Adelie  │ Torgersen │           39.5 │          17.4 │             186.0 │ … │
-│ Adelie  │ Torgersen │           40.3 │          18.0 │             195.0 │ … │
-│ Adelie  │ Torgersen │           NULL │          NULL │              NULL │ … │
-│ Adelie  │ Torgersen │           36.7 │          19.3 │             193.0 │ … │
-│ Adelie  │ Torgersen │           39.3 │          20.6 │             190.0 │ … │
-│ Adelie  │ Torgersen │           38.9 │          17.8 │             181.0 │ … │
-│ Adelie  │ Torgersen │           39.2 │          19.6 │             195.0 │ … │
-│ Adelie  │ Torgersen │           34.1 │          18.1 │             193.0 │ … │
-│ Adelie  │ Torgersen │           42.0 │          20.2 │             190.0 │ … │
-│ …       │ …         │              … │             … │                 … │ … │
-└─────────┴───────────┴────────────────┴───────────────┴───────────────────┴───┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Compute the distinct rows of a subset of columns
 
-```python
->>> t[["species", "island"]].distinct().order_by(s.all())
-┏━━━━━━━━━━━┳━━━━━━━━━━━┓
-┃ species   ┃ island    ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━┩
-│ string    │ string    │
-├───────────┼───────────┤
-│ Adelie    │ Biscoe    │
-│ Adelie    │ Dream     │
-│ Adelie    │ Torgersen │
-│ Chinstrap │ Dream     │
-│ Gentoo    │ Biscoe    │
-└───────────┴───────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t[["species", "island"]].distinct().order_by(s.all())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Drop all duplicate rows except the first
 
-```python
->>> t.distinct(on=["species", "island"], keep="first").order_by(s.all())
-┏━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━┓
-┃ species   ┃ island    ┃ bill_length_mm ┃ bill_depth_… ┃ flipper_length_mm ┃  ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━┩
-│ string    │ string    │ float64        │ float64      │ float64           │  │
-├───────────┼───────────┼────────────────┼──────────────┼───────────────────┼──┤
-│ Adelie    │ Biscoe    │           37.8 │         18.3 │             174.0 │  │
-│ Adelie    │ Dream     │           39.5 │         16.7 │             178.0 │  │
-│ Adelie    │ Torgersen │           39.1 │         18.7 │             181.0 │  │
-│ Chinstrap │ Dream     │           46.5 │         17.9 │             192.0 │  │
-│ Gentoo    │ Biscoe    │           46.1 │         13.2 │             211.0 │  │
-└───────────┴───────────┴────────────────┴──────────────┴───────────────────┴──┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.distinct(on=["species", "island"], keep="first").order_by(s.all())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Drop all duplicate rows except the last
 
-```python
->>> t.distinct(on=["species", "island"], keep="last").order_by(s.all())
-┏━━━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━┓
-┃ species   ┃ island    ┃ bill_length_mm ┃ bill_depth_… ┃ flipper_length_mm ┃  ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━┩
-│ string    │ string    │ float64        │ float64      │ float64           │  │
-├───────────┼───────────┼────────────────┼──────────────┼───────────────────┼──┤
-│ Adelie    │ Biscoe    │           42.7 │         18.3 │             196.0 │  │
-│ Adelie    │ Dream     │           41.5 │         18.5 │             201.0 │  │
-│ Adelie    │ Torgersen │           43.1 │         19.2 │             197.0 │  │
-│ Chinstrap │ Dream     │           50.2 │         18.7 │             198.0 │  │
-│ Gentoo    │ Biscoe    │           49.9 │         16.1 │             213.0 │  │
-└───────────┴───────────┴────────────────┴──────────────┴───────────────────┴──┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.distinct(on=["species", "island"], keep="last").order_by(s.all())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Drop all duplicated rows
 
-```python
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
 >>> expr = t.distinct(on=["species", "island", "year", "bill_length_mm"], keep=None)
 >>> expr.count()
-┌─────┐
-│ 273 │
-└─────┘
->>> t.count()
-┌─────┐
-│ 344 │
-└─────┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t.count()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 You can pass [`selectors`](./selectors.qmd) to `on`
 
-```python
->>> t.distinct(on=~s.numeric())
-┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
-┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
-┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━┩
-│ string  │ string    │ float64        │ float64       │ int64             │ … │
-├─────────┼───────────┼────────────────┼───────────────┼───────────────────┼───┤
-│ Adelie  │ Torgersen │           39.1 │          18.7 │               181 │ … │
-│ Adelie  │ Torgersen │           39.5 │          17.4 │               186 │ … │
-│ Adelie  │ Torgersen │           NULL │          NULL │              NULL │ … │
-│ Adelie  │ Biscoe    │           37.8 │          18.3 │               174 │ … │
-│ Adelie  │ Biscoe    │           37.7 │          18.7 │               180 │ … │
-│ Adelie  │ Dream     │           39.5 │          16.7 │               178 │ … │
-│ Adelie  │ Dream     │           37.2 │          18.1 │               178 │ … │
-│ Adelie  │ Dream     │           37.5 │          18.9 │               179 │ … │
-│ Gentoo  │ Biscoe    │           46.1 │          13.2 │               211 │ … │
-│ Gentoo  │ Biscoe    │           50.0 │          16.3 │               230 │ … │
-│ …       │ …         │              … │             … │                 … │ … │
-└─────────┴───────────┴────────────────┴───────────────┴───────────────────┴───┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.distinct(on=~s.numeric())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 The only valid values of `keep` are `"first"`, `"last"` and [](`None`).
 
-```python
->>> t.distinct(on="species", keep="second")  # quartodoc: +EXPECTED_FAILURE
-Traceback (most recent call last):
-  ...
-letsql.vendor.ibis.common.exceptions.LetSQLError: Invalid value for `keep`: 'second', must be 'first', 'last' or None
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
 
-### dropna { #letsql.vendor.ibis.expr.types.relations.Table.dropna }
+```{python}
+#| error: true
+>>> t.distinct(on="species", keep="second")  
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### dropna { #xorq.vendor.ibis.expr.types.relations.Table.dropna }
 
 ```python
 dropna(subset=None, how='any')
@@ -417,7 +549,7 @@ dropna(subset=None, how='any')
 
 Deprecated - use `drop_null` instead.
 
-### fillna { #letsql.vendor.ibis.expr.types.relations.Table.fillna }
+### fillna { #xorq.vendor.ibis.expr.types.relations.Table.fillna }
 
 ```python
 fillna(replacements)
@@ -425,7 +557,7 @@ fillna(replacements)
 
 Deprecated - use `fill_null` instead.
 
-### filter { #letsql.vendor.ibis.expr.types.relations.Table.filter }
+### filter { #xorq.vendor.ibis.expr.types.relations.Table.filter }
 
 ```python
 filter(*predicates)
@@ -435,54 +567,61 @@ Select rows from `table` based on `predicates`.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name       | Type                                                                                                                                                                                                                                                                                                      | Description                                               | Default   |
-|------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|-----------|
-| predicates | [ir](`letsql.vendor.ibis.expr.types`).[BooleanValue](`letsql.vendor.ibis.expr.types.BooleanValue`) \| [Sequence](`collections.abc.Sequence`)\[[ir](`letsql.vendor.ibis.expr.types`).[BooleanValue](`letsql.vendor.ibis.expr.types.BooleanValue`)\] \| [IfAnyAll](`letsql.vendor.ibis.selectors.IfAnyAll`) | Boolean value expressions used to select rows in `table`. | `()`      |
+| Name       | Type                                                                                                                                                                                                                                                                                            | Description                                               | Default   |
+|------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------|-----------|
+| predicates | [ir](`xorq.vendor.ibis.expr.types`).[BooleanValue](`xorq.vendor.ibis.expr.types.BooleanValue`) \| [Sequence](`collections.abc.Sequence`)\[[ir](`xorq.vendor.ibis.expr.types`).[BooleanValue](`xorq.vendor.ibis.expr.types.BooleanValue`)\] \| [IfAnyAll](`xorq.vendor.ibis.selectors.IfAnyAll`) | Boolean value expressions used to select rows in `table`. | `()`      |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description               |
-|--------|----------------------------------------------------------|---------------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | Filtered table expression |
+| Name   | Type                                                   | Description               |
+|--------|--------------------------------------------------------|---------------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | Filtered table expression |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.examples.penguins.fetch()
 >>> t
-┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
-┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
-┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━┩
-│ string  │ string    │ float64        │ float64       │ float64           │ … │
-├─────────┼───────────┼────────────────┼───────────────┼───────────────────┼───┤
-│ Adelie  │ Torgersen │           39.1 │          18.7 │             181.0 │ … │
-│ Adelie  │ Torgersen │           39.5 │          17.4 │             186.0 │ … │
-│ Adelie  │ Torgersen │           40.3 │          18.0 │             195.0 │ … │
-│ Adelie  │ Torgersen │           NULL │          NULL │              NULL │ … │
-│ Adelie  │ Torgersen │           36.7 │          19.3 │             193.0 │ … │
-│ Adelie  │ Torgersen │           39.3 │          20.6 │             190.0 │ … │
-│ Adelie  │ Torgersen │           38.9 │          17.8 │             181.0 │ … │
-│ Adelie  │ Torgersen │           39.2 │          19.6 │             195.0 │ … │
-│ Adelie  │ Torgersen │           34.1 │          18.1 │             193.0 │ … │
-│ Adelie  │ Torgersen │           42.0 │          20.2 │             190.0 │ … │
-│ …       │ …         │              … │             … │                 … │ … │
-└─────────┴───────────┴────────────────┴───────────────┴───────────────────┴───┘
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
 >>> t.filter([t.species == "Adelie", t.body_mass_g > 3500]).sex.value_counts().drop_null(
 ...     "sex"
 ... ).order_by("sex")
-┏━━━━━━━━┳━━━━━━━━━━━┓
-┃ sex    ┃ sex_count ┃
-┡━━━━━━━━╇━━━━━━━━━━━┩
-│ string │ int64     │
-├────────┼───────────┤
-│ female │        22 │
-│ male   │        68 │
-└────────┴───────────┘
 ```
 
-### intersect { #letsql.vendor.ibis.expr.types.relations.Table.intersect }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### intersect { #xorq.vendor.ibis.expr.types.relations.Table.intersect }
 
 ```python
 intersect(table, *rest, distinct=True)
@@ -494,17 +633,17 @@ The input tables must have identical schemas.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name     | Type                                                     | Description                  | Default    |
-|----------|----------------------------------------------------------|------------------------------|------------|
-| table    | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | A table expression           | _required_ |
-| *rest    | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | Additional table expressions | `()`       |
-| distinct | [bool](`bool`)                                           | Only return distinct rows    | `True`     |
+| Name     | Type                                                   | Description                  | Default    |
+|----------|--------------------------------------------------------|------------------------------|------------|
+| table    | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | A table expression           | _required_ |
+| *rest    | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | Additional table expressions | `()`       |
+| distinct | [bool](`bool`)                                         | Only return distinct rows    | `True`     |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description                                                  |
-|--------|----------------------------------------------------------|--------------------------------------------------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | A new table containing the intersection of all input tables. |
+| Name   | Type                                                   | Description                                                  |
+|--------|--------------------------------------------------------|--------------------------------------------------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | A new table containing the intersection of all input tables. |
 
 #### See Also {.doc-section .doc-section-see-also}
 
@@ -512,40 +651,66 @@ The input tables must have identical schemas.
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t1 = ls.memtable({"a": [1, 2]})
 >>> t1
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     1 │
-│     2 │
-└───────┘
->>> t2 = ls.memtable({"a": [2, 3]})
->>> t2
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     2 │
-│     3 │
-└───────┘
->>> t1.intersect(t2)
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     2 │
-└───────┘
 ```
 
-### limit { #letsql.vendor.ibis.expr.types.relations.Table.limit }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t2 = ls.memtable({"a": [2, 3]})
+>>> t2
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t1.intersect(t2)
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### limit { #xorq.vendor.ibis.expr.types.relations.Table.limit }
 
 ```python
 limit(n, offset=0)
@@ -566,56 +731,78 @@ Select `n` rows from `self` starting at `offset`.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description                                       |
-|--------|----------------------------------------------------------|---------------------------------------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | The first `n` rows of `self` starting at `offset` |
+| Name   | Type                                                   | Description                                       |
+|--------|--------------------------------------------------------|---------------------------------------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | The first `n` rows of `self` starting at `offset` |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
 >>> t
-┏━━━━━━━┳━━━━━━━━┓
-┃ a     ┃ b      ┃
-┡━━━━━━━╇━━━━━━━━┩
-│ int64 │ string │
-├───────┼────────┤
-│     1 │ c      │
-│     1 │ a      │
-│     2 │ a      │
-└───────┴────────┘
->>> t.limit(2)
-┏━━━━━━━┳━━━━━━━━┓
-┃ a     ┃ b      ┃
-┡━━━━━━━╇━━━━━━━━┩
-│ int64 │ string │
-├───────┼────────┤
-│     1 │ c      │
-│     1 │ a      │
-└───────┴────────┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t.limit(2)
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 You can use `None` with `offset` to slice starting from a particular row
 
-```python
->>> t.limit(None, offset=1)
-┏━━━━━━━┳━━━━━━━━┓
-┃ a     ┃ b      ┃
-┡━━━━━━━╇━━━━━━━━┩
-│ int64 │ string │
-├───────┼────────┤
-│     1 │ a      │
-│     2 │ a      │
-└───────┴────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.limit(None, offset=1)
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 #### See Also {.doc-section .doc-section-see-also}
 
 [`Table.order_by`](#ibis.expr.types.relations.Table.order_by)
 
-### order_by { #letsql.vendor.ibis.expr.types.relations.Table.order_by }
+### order_by { #xorq.vendor.ibis.expr.types.relations.Table.order_by }
 
 ```python
 order_by(*by)
@@ -627,20 +814,28 @@ Similar to `pandas.DataFrame.sort_values()`.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name   | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Description                       | Default   |
-|--------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------|-----------|
-| by     | [str](`str`) \| [ir](`letsql.vendor.ibis.expr.types`).[Column](`letsql.vendor.ibis.expr.types.Column`) \| [s](`letsql.vendor.ibis.selectors`).[Selector](`letsql.vendor.ibis.selectors.Selector`) \| [Sequence](`collections.abc.Sequence`)\[[str](`str`)\] \| [Sequence](`collections.abc.Sequence`)\[[ir](`letsql.vendor.ibis.expr.types`).[Column](`letsql.vendor.ibis.expr.types.Column`)\] \| [Sequence](`collections.abc.Sequence`)\[[s](`letsql.vendor.ibis.selectors`).[Selector](`letsql.vendor.ibis.selectors.Selector`)\] \| None | Expressions to sort the table by. | `()`      |
+| Name   | Type                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         | Description                       | Default   |
+|--------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------|-----------|
+| by     | [str](`str`) \| [ir](`xorq.vendor.ibis.expr.types`).[Column](`xorq.vendor.ibis.expr.types.Column`) \| [s](`xorq.vendor.ibis.selectors`).[Selector](`xorq.vendor.ibis.selectors.Selector`) \| [Sequence](`collections.abc.Sequence`)\[[str](`str`)\] \| [Sequence](`collections.abc.Sequence`)\[[ir](`xorq.vendor.ibis.expr.types`).[Column](`xorq.vendor.ibis.expr.types.Column`)\] \| [Sequence](`collections.abc.Sequence`)\[[s](`xorq.vendor.ibis.selectors`).[Selector](`xorq.vendor.ibis.selectors.Selector`)\] \| None | Expressions to sort the table by. | `()`      |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description   |
-|--------|----------------------------------------------------------|---------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | Sorted table  |
+| Name   | Type                                                   | Description   |
+|--------|--------------------------------------------------------|---------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | Sorted table  |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.memtable(
 ...     {
@@ -650,165 +845,192 @@ Similar to `pandas.DataFrame.sort_values()`.
 ...     }
 ... )
 >>> t
-┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ a     ┃ b      ┃ c     ┃
-┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ int64 │ string │ int64 │
-├───────┼────────┼───────┤
-│     3 │ a      │     4 │
-│     2 │ B      │     6 │
-│     1 │ c      │     5 │
-│     3 │ D      │     7 │
-└───────┴────────┴───────┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Sort by b. Default is ascending. Note how capital letters come before lowercase
 
-```python
->>> t.order_by("b")
-┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ a     ┃ b      ┃ c     ┃
-┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ int64 │ string │ int64 │
-├───────┼────────┼───────┤
-│     2 │ B      │     6 │
-│     3 │ D      │     7 │
-│     3 │ a      │     4 │
-│     1 │ c      │     5 │
-└───────┴────────┴───────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.order_by("b")
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Sort in descending order
 
-```python
->>> t.order_by(ls.desc("b"))
-┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ a     ┃ b      ┃ c     ┃
-┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ int64 │ string │ int64 │
-├───────┼────────┼───────┤
-│     1 │ c      │     5 │
-│     3 │ a      │     4 │
-│     3 │ D      │     7 │
-│     2 │ B      │     6 │
-└───────┴────────┴───────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.order_by(ls.desc("b"))
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 You can also use the deferred API to get the same result
 
-```python
->>> from letsql import _
->>> t.order_by(_.b.desc())
-┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ a     ┃ b      ┃ c     ┃
-┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ int64 │ string │ int64 │
-├───────┼────────┼───────┤
-│     1 │ c      │     5 │
-│     3 │ a      │     4 │
-│     3 │ D      │     7 │
-│     2 │ B      │     6 │
-└───────┴────────┴───────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> from xorq import _
+>>> t.order_by(_.b.desc())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Sort by multiple columns/expressions
 
-```python
->>> t.order_by(["a", _.c.desc()])
-┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ a     ┃ b      ┃ c     ┃
-┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ int64 │ string │ int64 │
-├───────┼────────┼───────┤
-│     1 │ c      │     5 │
-│     2 │ B      │     6 │
-│     3 │ D      │     7 │
-│     3 │ a      │     4 │
-└───────┴────────┴───────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.order_by(["a", _.c.desc()])
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 You can actually pass arbitrary expressions to use as sort keys.
 For example, to ignore the case of the strings in column `b`
 
-```python
->>> t.order_by(_.b.lower())
-┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ a     ┃ b      ┃ c     ┃
-┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ int64 │ string │ int64 │
-├───────┼────────┼───────┤
-│     3 │ a      │     4 │
-│     2 │ B      │     6 │
-│     1 │ c      │     5 │
-│     3 │ D      │     7 │
-└───────┴────────┴───────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.order_by(_.b.lower())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 This means that shuffling a Table is super simple
 
-```python
->>> t.order_by(ls.random())
-┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
-┃ a     ┃ b      ┃ c     ┃
-┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
-│ int64 │ string │ int64 │
-├───────┼────────┼───────┤
-│     1 │ c      │     5 │
-│     3 │ D      │     7 │
-│     3 │ a      │     4 │
-│     2 │ B      │     6 │
-└───────┴────────┴───────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.order_by(ls.random())
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 [Selectors](./selectors.qmd) are allowed as sort keys and are a concise way to sort by
 multiple columns matching some criteria
 
-```python
->>> import letsql.selectors as s
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq.selectors as s
 >>> penguins = ls.examples.penguins.fetch()
 >>> penguins[["year", "island"]].value_counts().order_by(s.startswith("year"))
-┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
-┃ year  ┃ island    ┃ year_island_count ┃
-┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━┩
-│ int64 │ string    │ int64             │
-├───────┼───────────┼───────────────────┤
-│  2007 │ Torgersen │                20 │
-│  2007 │ Biscoe    │                44 │
-│  2007 │ Dream     │                46 │
-│  2008 │ Torgersen │                16 │
-│  2008 │ Dream     │                34 │
-│  2008 │ Biscoe    │                64 │
-│  2009 │ Torgersen │                16 │
-│  2009 │ Dream     │                44 │
-│  2009 │ Biscoe    │                60 │
-└───────┴───────────┴───────────────────┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Use the [`across`](./selectors.qmd#ibis.selectors.across) selector to
 apply a specific order to multiple columns
 
-```python
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
 >>> penguins[["year", "island"]].value_counts().order_by(
 ...     s.across(s.startswith("year"), _.desc())
 ... )
-┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
-┃ year  ┃ island    ┃ year_island_count ┃
-┡━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━┩
-│ int64 │ string    │ int64             │
-├───────┼───────────┼───────────────────┤
-│  2009 │ Biscoe    │                60 │
-│  2009 │ Dream     │                44 │
-│  2009 │ Torgersen │                16 │
-│  2008 │ Biscoe    │                64 │
-│  2008 │ Dream     │                34 │
-│  2008 │ Torgersen │                16 │
-│  2007 │ Dream     │                46 │
-│  2007 │ Biscoe    │                44 │
-│  2007 │ Torgersen │                20 │
-└───────┴───────────┴───────────────────┘
 ```
 
-### sample { #letsql.vendor.ibis.expr.types.relations.Table.sample }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### sample { #xorq.vendor.ibis.expr.types.relations.Table.sample }
 
 ```python
 sample(fraction, *, method='row', seed=None)
@@ -840,45 +1062,57 @@ different backend, even with the same `seed` set.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description                                        |
-|--------|----------------------------------------------------------|----------------------------------------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | The input table, with `fraction` of rows selected. |
+| Name   | Type                                                   | Description                                        |
+|--------|--------------------------------------------------------|----------------------------------------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | The input table, with `fraction` of rows selected. |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.memtable({"x": [1, 2, 3, 4], "y": ["a", "b", "c", "d"]})
 >>> t
-┏━━━━━━━┳━━━━━━━━┓
-┃ x     ┃ y      ┃
-┡━━━━━━━╇━━━━━━━━┩
-│ int64 │ string │
-├───────┼────────┤
-│     1 │ a      │
-│     2 │ b      │
-│     3 │ c      │
-│     4 │ d      │
-└───────┴────────┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Sample approximately half the rows, with a seed specified for
 reproducibility.
 
-```python
->>> t.sample(0.5, seed=1234)
-┏━━━━━━━┳━━━━━━━━┓
-┃ x     ┃ y      ┃
-┡━━━━━━━╇━━━━━━━━┩
-│ int64 │ string │
-├───────┼────────┤
-│     2 │ b      │
-│     3 │ c      │
-└───────┴────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
 
-### select { #letsql.vendor.ibis.expr.types.relations.Table.select }
+```{python}
+>>> t.sample(0.5, seed=1234)
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### select { #xorq.vendor.ibis.expr.types.relations.Table.select }
 
 ```python
 select(*exprs, **named_exprs)
@@ -897,184 +1131,214 @@ in v4.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name        | Type                                                                                                                                                                                                                                                   | Description                                                           | Default   |
-|-------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|-----------|
-| exprs       | [ir](`letsql.vendor.ibis.expr.types`).[Value](`letsql.vendor.ibis.expr.types.Value`) \| [str](`str`) \| [Iterable](`collections.abc.Iterable`)\[[ir](`letsql.vendor.ibis.expr.types`).[Value](`letsql.vendor.ibis.expr.types.Value`) \| [str](`str`)\] | Column expression, string, or list of column expressions and strings. | `()`      |
-| named_exprs | [ir](`letsql.vendor.ibis.expr.types`).[Value](`letsql.vendor.ibis.expr.types.Value`) \| [str](`str`)                                                                                                                                                   | Column expressions                                                    | `{}`      |
+| Name        | Type                                                                                                                                                                                                                                           | Description                                                           | Default   |
+|-------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------------------------------------------------------------|-----------|
+| exprs       | [ir](`xorq.vendor.ibis.expr.types`).[Value](`xorq.vendor.ibis.expr.types.Value`) \| [str](`str`) \| [Iterable](`collections.abc.Iterable`)\[[ir](`xorq.vendor.ibis.expr.types`).[Value](`xorq.vendor.ibis.expr.types.Value`) \| [str](`str`)\] | Column expression, string, or list of column expressions and strings. | `()`      |
+| named_exprs | [ir](`xorq.vendor.ibis.expr.types`).[Value](`xorq.vendor.ibis.expr.types.Value`) \| [str](`str`)                                                                                                                                               | Column expressions                                                    | `{}`      |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description      |
-|--------|----------------------------------------------------------|------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | Table expression |
+| Name   | Type                                                   | Description      |
+|--------|--------------------------------------------------------|------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | Table expression |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t = ls.examples.penguins.fetch()
 >>> t
-┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
-┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
-┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━┩
-│ string  │ string    │ float64        │ float64       │ float64           │ … │
-├─────────┼───────────┼────────────────┼───────────────┼───────────────────┼───┤
-│ Adelie  │ Torgersen │           39.1 │          18.7 │             181.0 │ … │
-│ Adelie  │ Torgersen │           39.5 │          17.4 │             186.0 │ … │
-│ Adelie  │ Torgersen │           40.3 │          18.0 │             195.0 │ … │
-│ Adelie  │ Torgersen │           NULL │          NULL │              NULL │ … │
-│ Adelie  │ Torgersen │           36.7 │          19.3 │             193.0 │ … │
-│ Adelie  │ Torgersen │           39.3 │          20.6 │             190.0 │ … │
-│ Adelie  │ Torgersen │           38.9 │          17.8 │             181.0 │ … │
-│ Adelie  │ Torgersen │           39.2 │          19.6 │             195.0 │ … │
-│ Adelie  │ Torgersen │           34.1 │          18.1 │             193.0 │ … │
-│ Adelie  │ Torgersen │           42.0 │          20.2 │             190.0 │ … │
-│ …       │ …         │              … │             … │                 … │ … │
-└─────────┴───────────┴────────────────┴───────────────┴───────────────────┴───┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Simple projection
 
-```python
->>> t.select("island", "bill_length_mm").head()
-┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
-┃ island    ┃ bill_length_mm ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
-│ string    │ float64        │
-├───────────┼────────────────┤
-│ Torgersen │           39.1 │
-│ Torgersen │           39.5 │
-│ Torgersen │           40.3 │
-│ Torgersen │           NULL │
-│ Torgersen │           36.7 │
-└───────────┴────────────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.select("island", "bill_length_mm").head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 In that simple case, you could also just use python's indexing syntax
 
-```python
->>> t[["island", "bill_length_mm"]].head()
-┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┓
-┃ island    ┃ bill_length_mm ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━┩
-│ string    │ float64        │
-├───────────┼────────────────┤
-│ Torgersen │           39.1 │
-│ Torgersen │           39.5 │
-│ Torgersen │           40.3 │
-│ Torgersen │           NULL │
-│ Torgersen │           36.7 │
-└───────────┴────────────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t[["island", "bill_length_mm"]].head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Projection by zero-indexed column position
 
-```python
->>> t.select(t[0], t[4]).head()
-┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
-┃ species ┃ flipper_length_mm ┃
-┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━┩
-│ string  │ float64           │
-├─────────┼───────────────────┤
-│ Adelie  │             181.0 │
-│ Adelie  │             186.0 │
-│ Adelie  │             195.0 │
-│ Adelie  │              NULL │
-│ Adelie  │             193.0 │
-└─────────┴───────────────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.select(t[0], t[4]).head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Projection with renaming and compute in one call
 
-```python
->>> t.select(next_year=t.year + 1).head()
-┏━━━━━━━━━━━┓
-┃ next_year ┃
-┡━━━━━━━━━━━┩
-│ int64     │
-├───────────┤
-│      2008 │
-│      2008 │
-│      2008 │
-│      2008 │
-│      2008 │
-└───────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.select(next_year=t.year + 1).head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 You can do the same thing with a named expression, and using the
 deferred API
 
-```python
->>> from letsql import _
->>> t.select((_.year + 1).name("next_year")).head()
-┏━━━━━━━━━━━┓
-┃ next_year ┃
-┡━━━━━━━━━━━┩
-│ int64     │
-├───────────┤
-│      2008 │
-│      2008 │
-│      2008 │
-│      2008 │
-│      2008 │
-└───────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> from xorq import _
+>>> t.select((_.year + 1).name("next_year")).head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Projection with aggregation expressions
 
-```python
->>> t.select("island", bill_mean=t.bill_length_mm.mean()).head()
-┏━━━━━━━━━━━┳━━━━━━━━━━━┓
-┃ island    ┃ bill_mean ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━┩
-│ string    │ float64   │
-├───────────┼───────────┤
-│ Torgersen │  43.92193 │
-│ Torgersen │  43.92193 │
-│ Torgersen │  43.92193 │
-│ Torgersen │  43.92193 │
-│ Torgersen │  43.92193 │
-└───────────┴───────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> t.select("island", bill_mean=t.bill_length_mm.mean()).head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Projection with a selector
 
-```python
->>> import letsql.selectors as s
->>> t.select(s.numeric() & ~s.cols("year")).head()
-┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
-┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ body_mass_g ┃
-┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
-│ float64        │ float64       │ float64           │ float64     │
-├────────────────┼───────────────┼───────────────────┼─────────────┤
-│           39.1 │          18.7 │             181.0 │      3750.0 │
-│           39.5 │          17.4 │             186.0 │      3800.0 │
-│           40.3 │          18.0 │             195.0 │      3250.0 │
-│           NULL │          NULL │              NULL │        NULL │
-│           36.7 │          19.3 │             193.0 │      3450.0 │
-└────────────────┴───────────────┴───────────────────┴─────────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> import xorq.selectors as s
+>>> t.select(s.numeric() & ~s.cols("year")).head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Projection + aggregation across multiple columns
 
-```python
->>> from letsql import _
->>> t.select(s.across(s.numeric() & ~s.cols("year"), _.mean())).head()
-┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
-┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ body_mass_g ┃
-┡━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━┩
-│ float64        │ float64       │ float64           │ float64     │
-├────────────────┼───────────────┼───────────────────┼─────────────┤
-│       43.92193 │      17.15117 │        200.915205 │ 4201.754386 │
-│       43.92193 │      17.15117 │        200.915205 │ 4201.754386 │
-│       43.92193 │      17.15117 │        200.915205 │ 4201.754386 │
-│       43.92193 │      17.15117 │        200.915205 │ 4201.754386 │
-│       43.92193 │      17.15117 │        200.915205 │ 4201.754386 │
-└────────────────┴───────────────┴───────────────────┴─────────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
 
-### sql { #letsql.vendor.ibis.expr.types.relations.Table.sql }
+```{python}
+>>> from xorq import _
+>>> t.select(s.across(s.numeric() & ~s.cols("year"), _.mean())).head()
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### sql { #xorq.vendor.ibis.expr.types.relations.Table.sql }
 
 ```python
 sql(query, dialect=None)
@@ -1091,15 +1355,23 @@ Run a SQL query against a table expression.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description                |
-|--------|----------------------------------------------------------|----------------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | An opaque table expression |
+| Name   | Type                                                   | Description                |
+|--------|--------------------------------------------------------|----------------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | An opaque table expression |
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
->>> from letsql import _
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
+>>> from xorq import _
 >>> ls.options.interactive = True
 >>> t = ls.examples.penguins.fetch(table_name="penguins")
 >>> expr = t.sql(
@@ -1111,20 +1383,26 @@ Run a SQL query against a table expression.
 ...     """
 ... )
 >>> expr
-┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
-┃ island    ┃ avg_bill_length ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
-│ string    │ float64         │
-├───────────┼─────────────────┤
-│ Biscoe    │       45.257485 │
-│ Dream     │       44.167742 │
-│ Torgersen │       38.950980 │
-└───────────┴─────────────────┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Mix and match ibis expressions with SQL queries
 
-```python
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
 >>> t = ls.examples.penguins.fetch(table_name="penguins")
 >>> expr = t.sql(
 ...     """
@@ -1139,38 +1417,43 @@ Mix and match ibis expressions with SQL queries
 ...     avg_bill_length=_.avg_bill_length.round(1),
 ... )
 >>> expr
-┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
-┃ island    ┃ avg_bill_length ┃
-┡━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
-│ string    │ float64         │
-├───────────┼─────────────────┤
-│ biscoe    │            45.3 │
-│ torgersen │            39.0 │
-│ dream     │            44.2 │
-└───────────┴─────────────────┘
 ```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 Because ibis expressions aren't named, they aren't visible to
 subsequent `.sql` calls. Use the [`alias`](#ibis.expr.types.relations.Table.alias) method
 to assign a name to an expression.
 
-```python
->>> expr.alias("b").sql("SELECT * FROM b WHERE avg_bill_length > 40")
-┏━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
-┃ island ┃ avg_bill_length ┃
-┡━━━━━━━━╇━━━━━━━━━━━━━━━━━┩
-│ string │ float64         │
-├────────┼─────────────────┤
-│ biscoe │            45.3 │
-│ dream  │            44.2 │
-└────────┴─────────────────┘
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
 ```
+
+```{python}
+>>> expr.alias("b").sql("SELECT * FROM b WHERE avg_bill_length > 40")
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
 
 #### See Also {.doc-section .doc-section-see-also}
 
 [`Table.alias`](#ibis.expr.types.relations.Table.alias)
 
-### union { #letsql.vendor.ibis.expr.types.relations.Table.union }
+### union { #xorq.vendor.ibis.expr.types.relations.Table.union }
 
 ```python
 union(table, *rest, distinct=False)
@@ -1182,17 +1465,17 @@ The input tables must have identical schemas.
 
 #### Parameters {.doc-section .doc-section-parameters}
 
-| Name     | Type                                                     | Description                  | Default    |
-|----------|----------------------------------------------------------|------------------------------|------------|
-| table    | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | A table expression           | _required_ |
-| *rest    | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | Additional table expressions | `()`       |
-| distinct | [bool](`bool`)                                           | Only return distinct rows    | `False`    |
+| Name     | Type                                                   | Description                  | Default    |
+|----------|--------------------------------------------------------|------------------------------|------------|
+| table    | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | A table expression           | _required_ |
+| *rest    | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | Additional table expressions | `()`       |
+| distinct | [bool](`bool`)                                         | Only return distinct rows    | `False`    |
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description                                           |
-|--------|----------------------------------------------------------|-------------------------------------------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | A new table containing the union of all input tables. |
+| Name   | Type                                                   | Description                                           |
+|--------|--------------------------------------------------------|-------------------------------------------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | A new table containing the union of all input tables. |
 
 #### See Also {.doc-section .doc-section-see-also}
 
@@ -1200,53 +1483,70 @@ The input tables must have identical schemas.
 
 #### Examples {.doc-section .doc-section-examples}
 
-```python
->>> import letsql as ls
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> import xorq as ls
 >>> ls.options.interactive = True
 >>> t1 = ls.memtable({"a": [1, 2]})
 >>> t1
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     1 │
-│     2 │
-└───────┘
->>> t2 = ls.memtable({"a": [2, 3]})
->>> t2
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     2 │
-│     3 │
-└───────┘
->>> t1.union(t2)  # union all by default doctest: +SKIP
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     2 │
-│     3 │
-│     1 │
-│     2 │
-└───────┘
->>> t1.union(t2, distinct=True).order_by("a")
-┏━━━━━━━┓
-┃ a     ┃
-┡━━━━━━━┩
-│ int64 │
-├───────┤
-│     1 │
-│     2 │
-│     3 │
-└───────┘
 ```
 
-### view { #letsql.vendor.ibis.expr.types.relations.Table.view }
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t2 = ls.memtable({"a": [2, 3]})
+>>> t2
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+```python
+>>> t1.union(t2)  # union all by default doctest: +SKIP
+```
+
+
+```{python}
+#| echo: false
+
+import xorq as xo
+xo.options.interactive = True
+```
+
+```{python}
+>>> t1.union(t2, distinct=True).order_by("a")
+```
+
+
+```{python}
+#| echo: false
+xo.options.interactive = False
+```
+
+
+### view { #xorq.vendor.ibis.expr.types.relations.Table.view }
 
 ```python
 view()
@@ -1258,149 +1558,6 @@ Use this API for any self-referencing operations like a self-join.
 
 #### Returns {.doc-section .doc-section-returns}
 
-| Name   | Type                                                     | Description      |
-|--------|----------------------------------------------------------|------------------|
-|        | [Table](`letsql.vendor.ibis.expr.types.relations.Table`) | Table expression |
-
-### cache { #letsql.vendor.ibis.expr.types.relations.Table.cache }
-
-```python
-cache(storage=None)
-```
-
-Cache the results of a computation to improve performance on subsequent executions.
-This method allows you to cache the results of a computation either in memory, on disk
-using Parquet files, or in a database table. The caching strategy and storage location
-are determined by the storage parameter.
-
-#### Parameters {.doc-section .doc-section-parameters}
-
-| Name    | Type                           | Description                                                                                                                                                                                                                                                                                                                                                 | Default   |
-|---------|--------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------|
-| storage | [CacheStorage](`CacheStorage`) | The storage strategy to use for caching. Can be one of: - ParquetStorage: Caches results as Parquet files on disk - SourceStorage: Caches results in the source database - ParquetSnapshot: Creates a snapshot of data in Parquet format - SnapshotStorage: Creates a snapshot in the source database If None, uses the default storage configuration. | `None`    |
-
-#### Returns {.doc-section .doc-section-returns}
-
-| Name   | Type                                              | Description                                              |
-|--------|---------------------------------------------------|----------------------------------------------------------|
-|        | [Expr](`letsql.vendor.ibis.expr.types.core.Expr`) | A new expression that represents the cached computation. |
-
-#### Notes {.doc-section .doc-section-notes}
-
-The cache method supports two main strategies:
-1. ModificationTimeStrategy: Tracks changes based on modification time
-2. SnapshotStrategy: Creates point-in-time snapshots of the data
-
-Each strategy can be combined with either Parquet or database storage.
-
-#### Examples {.doc-section .doc-section-examples}
-
-Using ParquetStorage:
-
-```python
->>> import letsql as ls
->>> from letsql.caching import ParquetStorage
->>> from pathlib import Path
->>> pg = ls.postgres.connect_examples()
->>> con = ls.connect()
->>> storage = ParquetStorage(source=con, path=Path.cwd())
->>> alltypes = pg.table("functional_alltypes")
->>> cached = (alltypes
-...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
-...     .cache(storage=storage))
-```
-
-Using SourceStorage with PostgreSQL:
-
-```python
->>> from letsql.caching import SourceStorage
->>> from letsql import _
->>> ddb = ls.duckdb.connect()
->>> path = ls.config.options.pins.get_path("batting")
->>> right = (ddb.read_parquet(path, table_name="batting")
-...          .filter(_.yearID == 2014)
-...          .pipe(con.register, table_name="ddb-batting"))
->>> left = (pg.table("batting")
-...         .filter(_.yearID == 2015)
-...         .pipe(con.register, table_name="pg-batting"))
->>> # Cache the joined result
->>> expr = left.join(right, "playerID").cache(SourceStorage(source=pg))
-```
-
-Using cache with filtering:
-
-```python
->>> cached = alltypes.cache(storage=storage)
->>> expr = cached.filter([
-...     cached.float_col > 0,
-...     cached.smallint_col > 4,
-...     cached.int_col < cached.float_col * 2
-... ])
-```
-
-#### See Also {.doc-section .doc-section-see-also}
-
-ParquetStorage : Storage implementation for Parquet files
-SourceStorage : Storage implementation for database tables
-ModificationTimeStrategy : Strategy for tracking changes by modification time
-SnapshotStrategy : Strategy for creating data snapshots
-
-#### Notes {.doc-section .doc-section-notes}
-
-- The cache is identified by a unique key based on the computation and strategy
-- Cache invalidation is handled automatically based on the chosen strategy
-- Cross-source caching (e.g., from PostgreSQL to DuckDB) is supported
-- Cache locations can be configured globally through letsql.config.options
-
-### into_backend { #letsql.vendor.ibis.expr.types.relations.Table.into_backend }
-
-```python
-into_backend(con, name=None)
-```
-
-Converts the Expr to a table in the given backend `con` with an optional table name `name`.
-
-The table is backed by a PyArrow RecordBatchReader, the RecordBatchReader is teed
-so it can safely be reaused without spilling to disk.
-
-#### Parameters {.doc-section .doc-section-parameters}
-
-| Name   | Type   | Description                                   | Default    |
-|--------|--------|-----------------------------------------------|------------|
-| con    |        | The backend where the table should be created | _required_ |
-| name   |        | The name of the table                         | `None`     |
-
-#### Examples {.doc-section .doc-section-examples}
-
-```python
->>> import letsql as ls
->>> from letsql import _
->>> ls.options.interactive = True
->>> ls_con = ls.connect()
->>> pg_con = ls.postgres.connect_examples()
->>> t = pg_con.table("batting").into_backend(ls_con, "ls_batting")
->>> expr = (
-...     t.join(t, "playerID")
-...     .order_by("playerID", "yearID")
-...     .limit(15)
-...     .select(player_id="playerID", year_id="yearID_right")
-... )
->>> expr
-┏━━━━━━━━━━━┳━━━━━━━━━┓
-┃ player_id ┃ year_id ┃
-┡━━━━━━━━━━━╇━━━━━━━━━┩
-│ string    │ int64   │
-├───────────┼─────────┤
-│ aardsda01 │    2015 │
-│ aardsda01 │    2007 │
-│ aardsda01 │    2006 │
-│ aardsda01 │    2009 │
-│ aardsda01 │    2008 │
-│ aardsda01 │    2010 │
-│ aardsda01 │    2004 │
-│ aardsda01 │    2013 │
-│ aardsda01 │    2012 │
-│ aardsda01 │    2006 │
-│ …         │       … │
-└───────────┴─────────┘
-```
+| Name   | Type                                                   | Description      |
+|--------|--------------------------------------------------------|------------------|
+|        | [Table](`xorq.vendor.ibis.expr.types.relations.Table`) | Table expression |

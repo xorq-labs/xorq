@@ -3,9 +3,9 @@
 Create a connection object:
 
 ```{.python}
-import letsql as ls
+import xorq as xo
 
-con = ls.connect()  # <1>
+con = xo.connect()  # <1>
 ```
 
 1. Adjust connection parameters as needed.

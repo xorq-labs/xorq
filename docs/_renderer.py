@@ -51,9 +51,8 @@ class Renderer(qd.MdRenderer):
                             ```{python}
                             #| echo: false
                             
-                            import letsql
-                            import ibis
-                            ibis.options.interactive = True
+                            import xorq as xo
+                            xo.options.interactive = True
                             ```
                             """
                         )
@@ -87,7 +86,7 @@ class Renderer(qd.MdRenderer):
                             """
                             ```{python}
                             #| echo: false
-                            ibis.options.interactive = False
+                            xo.options.interactive = False
                             ```
                             """
                         )
