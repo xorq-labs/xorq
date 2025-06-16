@@ -1,5 +1,5 @@
-import pytest
 import pyarrow as pa
+import pytest
 
 import xorq as xo
 from xorq.flight import FlightServer
@@ -64,7 +64,9 @@ def test_create_table_invalid_inputs(flight_server, obj):
     # Creating a table from an empty iterable should raise ValueError
     # Creating from unsupported type should raise TypeError
     if isinstance(obj, list):
-        with pytest.raises(ValueError, match="Cannot create table from empty batch list"):
+        with pytest.raises(
+            ValueError, match="Cannot create table from empty batch list"
+        ):
             backend.create_table("empty_tbl", obj)
     else:
         with pytest.raises(TypeError, match="Unsupported type for create_table"):
