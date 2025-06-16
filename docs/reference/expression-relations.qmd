@@ -102,9 +102,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.examples.penguins.fetch()
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.examples.penguins.fetch(deferred=False)
 >>> expr = t.alias("pingüinos").sql('SELECT * FROM "pingüinos" LIMIT 5')
 >>> expr
 ```
@@ -146,9 +146,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.examples.penguins.fetch()
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.examples.penguins.fetch(deferred=False)
 >>> heavy_gentoo = t.filter(t.species == "Gentoo", t.body_mass_g > 6200)
 >>> from_that_island = t.filter(t.island == heavy_gentoo.select("island").as_scalar())
 >>> from_that_island.species.value_counts().order_by("species")
@@ -192,9 +192,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.memtable({"a": ["foo", "bar", "baz"]})
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.memtable({"a": ["foo", "bar", "baz"]})
 >>> t
 ```
 
@@ -298,9 +298,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t1 = ls.memtable({"a": [1, 2]})
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t1 = xo.memtable({"a": [1, 2]})
 >>> t1
 ```
 
@@ -319,7 +319,7 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> t2 = ls.memtable({"a": [2, 3]})
+>>> t2 = xo.memtable({"a": [2, 3]})
 >>> t2
 ```
 
@@ -380,10 +380,10 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
+>>> import xorq as xo
 >>> import xorq.examples as ex
 >>> import xorq.selectors as s
->>> ls.options.interactive = True
+>>> xo.options.interactive = True
 >>> t = ex.penguins.fetch()
 >>> t
 ```
@@ -588,9 +588,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.examples.penguins.fetch()
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.examples.penguins.fetch(deferred=False)
 >>> t
 ```
 
@@ -660,9 +660,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t1 = ls.memtable({"a": [1, 2]})
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t1 = xo.memtable({"a": [1, 2]})
 >>> t1
 ```
 
@@ -681,7 +681,7 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> t2 = ls.memtable({"a": [2, 3]})
+>>> t2 = xo.memtable({"a": [2, 3]})
 >>> t2
 ```
 
@@ -746,9 +746,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
 >>> t
 ```
 
@@ -835,9 +835,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.memtable(
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.memtable(
 ...     {
 ...         "a": [3, 2, 1, 3],
 ...         "b": ["a", "B", "c", "D"],
@@ -886,7 +886,7 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> t.order_by(ls.desc("b"))
+>>> t.order_by(xo.desc("b"))
 ```
 
 
@@ -972,7 +972,7 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> t.order_by(ls.random())
+>>> t.order_by(xo.random())
 ```
 
 
@@ -995,7 +995,7 @@ xo.options.interactive = True
 
 ```{python}
 >>> import xorq.selectors as s
->>> penguins = ls.examples.penguins.fetch()
+>>> penguins = xo.examples.penguins.fetch(deferred=False)
 >>> penguins[["year", "island"]].value_counts().order_by(s.startswith("year"))
 ```
 
@@ -1077,9 +1077,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.memtable({"x": [1, 2, 3, 4], "y": ["a", "b", "c", "d"]})
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.memtable({"x": [1, 2, 3, 4], "y": ["a", "b", "c", "d"]})
 >>> t
 ```
 
@@ -1153,9 +1153,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t = ls.examples.penguins.fetch()
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t = xo.examples.penguins.fetch(deferred=False)
 >>> t
 ```
 
@@ -1370,10 +1370,10 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
+>>> import xorq as xo
 >>> from xorq import _
->>> ls.options.interactive = True
->>> t = ls.examples.penguins.fetch(table_name="penguins")
+>>> xo.options.interactive = True
+>>> t = xo.examples.penguins.fetch(table_name="penguins", deferred=False)
 >>> expr = t.sql(
 ...     """
 ...     SELECT island, mean(bill_length_mm) AS avg_bill_length
@@ -1403,7 +1403,7 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> t = ls.examples.penguins.fetch(table_name="penguins")
+>>> t = xo.examples.penguins.fetch(table_name="penguins", deferred=False)
 >>> expr = t.sql(
 ...     """
 ...     SELECT island, mean(bill_length_mm) AS avg_bill_length
@@ -1492,9 +1492,9 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> import xorq as ls
->>> ls.options.interactive = True
->>> t1 = ls.memtable({"a": [1, 2]})
+>>> import xorq as xo
+>>> xo.options.interactive = True
+>>> t1 = xo.memtable({"a": [1, 2]})
 >>> t1
 ```
 
@@ -1513,7 +1513,7 @@ xo.options.interactive = True
 ```
 
 ```{python}
->>> t2 = ls.memtable({"a": [2, 3]})
+>>> t2 = xo.memtable({"a": [2, 3]})
 >>> t2
 ```
 

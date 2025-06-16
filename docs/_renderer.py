@@ -12,9 +12,7 @@ class Renderer(qd.MdRenderer):
 
     @dispatch
     def render(self, el: qd.ast.ExampleCode) -> str:
-        doc = el.value.replace("ibis.examples", "letsql.examples").replace(
-            'x.cast("uint16")', 'x.cast("int8")'
-        )
+        doc = el.value.replace('x.cast("uint16")', 'x.cast("int8")')
         lines = doc.splitlines()
 
         result = []

@@ -157,12 +157,12 @@ class Expr(Immutable, Coercible):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> t1 = ls.table(dict(a="int"), name="t")
-        >>> t2 = ls.table(dict(a="int"), name="t")
+        >>> import xorq as xo
+        >>> t1 = xo.table(dict(a="int"), name="t")
+        >>> t2 = xo.table(dict(a="int"), name="t")
         >>> t1.equals(t2)
         True
-        >>> v = ls.table(dict(a="string"), name="v")
+        >>> v = xo.table(dict(a="string"), name="v")
         >>> t1.equals(v)
         False
         """
@@ -242,7 +242,7 @@ class Expr(Immutable, Coercible):
         --------
         Open the visualization of an expression in default browser:
 
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.vendor.ibis.expr.operations as ops
         >>> left = ibis.table(dict(a="int64", b="string"), name="left")
         >>> right = ibis.table(dict(b="string", c="int64", d="string"), name="right")
@@ -294,8 +294,8 @@ class Expr(Immutable, Coercible):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> t = ls.table([("a", "int64"), ("b", "string")], name="t")
+        >>> import xorq as xo
+        >>> t = xo.table([("a", "int64"), ("b", "string")], name="t")
         >>> f = lambda a: (a + 1).name("a")
         >>> g = lambda a: (a * 2).name("a")
         >>> result1 = t.a.pipe(f).pipe(g)
@@ -422,11 +422,11 @@ class Expr(Immutable, Coercible):
 
         Examples
         -------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> ls_con = ls.connect()
-        >>> pg_con = ls.postgres.connect_examples()
+        >>> xo.options.interactive = True
+        >>> ls_con = xo.connect()
+        >>> pg_con = xo.postgres.connect_examples()
         >>> t = pg_con.table("batting").into_backend(ls_con, "ls_batting")
         >>> expr = (
         ...     t.join(t, "playerID")
@@ -724,7 +724,7 @@ def _binop(op_class: type[ops.Binary], left: ir.Value, right: ir.Value) -> ir.Va
 
     Examples
     --------
-    >>> import xorq as ls
+    >>> import xorq as xo
     >>> import xorq.vendor.ibis.expr.operations as ops
     >>> expr = _binop(ops.TimeAdd, ibis.time("01:00"), ibis.interval(hours=1))
     >>> expr

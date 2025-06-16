@@ -20,7 +20,7 @@ class Backend(IbisPandasBackend):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> ls.pandas.connect({"t": pd.DataFrame({"a": [1, 2, 3]})})  # doctest: +ELLIPSIS
         <ibis.backends.pandas.Backend object at 0x...>
         """
