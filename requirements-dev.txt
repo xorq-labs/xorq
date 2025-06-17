@@ -42,7 +42,7 @@ async-lru==2.0.5
     # via jupyterlab
 async-timeout==5.0.1 ; python_full_version < '3.11'
     # via aiohttp
-atpublic==6.0.1
+atpublic==3.0
     # via xorq
 attrs==25.3.0
     # via
