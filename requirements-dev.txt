@@ -24,6 +24,7 @@ anyio==4.9.0
     #   openai
     #   sse-starlette
     #   starlette
+    #   watchfiles
 appdirs==1.4.4 ; python_full_version < '4.0'
     # via pins
 appnope==0.1.4 ; sys_platform == 'darwin'
@@ -40,6 +41,8 @@ asttokens==3.0.0
     # via stack-data
 async-lru==2.0.5
     # via jupyterlab
+async-timeout==5.0.1 ; python_full_version < '3.11'
+    # via aiohttp
 atpublic==6.0.1
     # via xorq
 attrs==25.3.0
@@ -58,6 +61,8 @@ beautifulsoup4==4.13.4
     # via nbconvert
 beniget==0.4.2.post1 ; sys_platform == 'darwin'
     # via pythran
+bigtree==0.29.2
+    # via feast
 black==25.1.0
     # via
     #   blackdoc
@@ -65,9 +70,9 @@ black==25.1.0
 blackdoc==0.4.0
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.36 ; python_full_version < '4.0'
+boto3==1.38.38 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.36 ; python_full_version < '4.0'
+botocore==1.38.38 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -105,6 +110,7 @@ click==8.2.1
     # via
     #   black
     #   dask
+    #   feast
     #   pyiceberg
     #   quartodoc
     #   uvicorn
@@ -118,10 +124,12 @@ codespell==2.4.1
 colorama==0.4.6
     # via
     #   click
+    #   feast
     #   griffe
     #   ipython
     #   pytest
     #   tqdm
+    #   uvicorn
 comm==0.2.2
     # via ipykernel
 coverage==7.9.1
@@ -130,45 +138,46 @@ cryptography==45.0.4
     # via
     #   pyopenssl
     #   snowflake-connector-python
-<<<<<<< HEAD
     #   xorq
-dask==2025.1.0 ; python_full_version < '4.0'
-    # via xorq
+dask==2025.1.0
+    # via
+    #   feast
+    #   hash-cache
+    #   xorq
 databackend==0.0.3 ; python_full_version < '4.0'
     # via pins
 datafusion==47.0.0
-=======
-dask==2025.1.0
-    # via
-    #   hash-cache
-    #   xorq
-datafusion==45.2.0
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via xorq
 debugpy==1.8.14
     # via ipykernel
 decorator==5.2.1
     # via
     #   gcsfs
-    #   ipdb
     #   ipython
 defusedxml==0.7.1
     # via nbconvert
+dill==0.3.9
+    # via feast
 distlib==0.3.9
     # via virtualenv
 distro==1.9.0
     # via openai
-duckdb==1.3.0
+duckdb==1.3.1
     # via xorq
 envyaml==1.10.211231
     # via xorq
+exceptiongroup==1.3.0 ; python_full_version < '3.11'
+    # via
+    #   anyio
+    #   ipython
+    #   pytest
 executing==2.2.0
     # via stack-data
-fastavro==1.11.1
+fastapi==0.115.13
     # via feast
 fastjsonschema==2.21.1
     # via nbformat
-feast==0.1.2.post1
+feast @ git+https://github.com/xorq-labs/feast@7266c17a222f8a9d92b83a3752cfbb79976ee6ae
     # via xorq
 filelock==3.18.0
     # via
@@ -195,87 +204,55 @@ gcsfs==2025.5.1 ; python_full_version < '4.0'
     # via pins
 geoarrow-types==0.3.0 ; python_full_version < '4.0'
     # via xorq
-<<<<<<< HEAD
 git-cliff==2.9.1
 google-api-core==2.25.1 ; python_full_version < '4.0'
-=======
-git-cliff==2.8.0
-google-api-core==2.24.2
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via
-    #   feast
-    #   google-cloud-bigquery
-    #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   google-cloud-storage
-<<<<<<< HEAD
 google-auth==2.40.3 ; python_full_version < '4.0'
-=======
-google-auth==2.40.2
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via
-    #   feast
     #   gcsfs
     #   google-api-core
     #   google-auth-oauthlib
-    #   google-cloud-bigquery
-    #   google-cloud-bigquery-storage
     #   google-cloud-core
     #   google-cloud-storage
 google-auth-oauthlib==1.2.2 ; python_full_version < '4.0'
     # via gcsfs
-google-cloud-bigquery==3.34.0
-    # via feast
-google-cloud-bigquery-storage==2.32.0
-    # via feast
-google-cloud-core==2.4.3
-    # via
-    #   google-cloud-bigquery
-    #   google-cloud-storage
-google-cloud-storage==3.1.0
-    # via
-    #   feast
-    #   gcsfs
-google-crc32c==1.7.1
+google-cloud-core==2.4.3 ; python_full_version < '4.0'
+    # via google-cloud-storage
+google-cloud-storage==3.1.0 ; python_full_version < '4.0'
+    # via gcsfs
+google-crc32c==1.7.1 ; python_full_version < '4.0'
     # via
     #   google-cloud-storage
     #   google-resumable-media
-google-resumable-media==2.7.2
-    # via
-    #   google-cloud-bigquery
-    #   google-cloud-storage
+google-resumable-media==2.7.2 ; python_full_version < '4.0'
+    # via google-cloud-storage
 googleapis-common-protos==1.70.0
     # via
-    #   feast
     #   google-api-core
-    #   grpcio-status
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
 greenlet==3.2.3 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
     # via sqlalchemy
 griffe==1.7.3
     # via quartodoc
-<<<<<<< HEAD
 grpcio==1.73.0
     # via opentelemetry-exporter-otlp-proto-grpc
-=======
-grpcio==1.71.0
+gunicorn==23.0.0
     # via
     #   feast
-    #   google-api-core
-    #   grpcio-status
-    #   opentelemetry-exporter-otlp-proto-grpc
-grpcio-status==1.71.0
-    # via google-api-core
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
+    #   uvicorn-worker
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
-hash-cache @ git+https://github.com/xorq-labs/hash-cache@253f72f49657e9ac58ea477038c958440f4225b1
+hash-cache @ git+https://github.com/xorq-labs/hash-cache@0c15468a0fb72bd8fb67a65bc552558708b6d4a8
     # via xorq
 httpcore==1.0.9
     # via httpx
+httptools==0.6.4
+    # via uvicorn
 httpx==0.28.1
     # via
     #   jupyterlab
@@ -297,6 +274,7 @@ idna==3.10
     #   yarl
 importlib-metadata==8.7.0
     # via
+    #   dask
     #   opentelemetry-api
     #   pins
     #   quartodoc
@@ -308,23 +286,13 @@ importlib-resources==6.5.2
     #   quartodoc
 iniconfig==2.1.0
     # via pytest
-ipdb==0.13.13
-    # via xorq
 ipykernel==6.29.5
     # via jupyterlab
-<<<<<<< HEAD
 ipython==8.37.0 ; python_full_version < '3.11'
     # via ipykernel
 ipython==9.3.0 ; python_full_version >= '3.11'
     # via ipykernel
 ipython-pygments-lexers==1.1.1 ; python_full_version >= '3.11'
-=======
-ipython==9.2.0
-    # via
-    #   ipdb
-    #   ipykernel
-ipython-pygments-lexers==1.1.1
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via ipython
 isoduration==20.11.0
     # via jsonschema
@@ -332,6 +300,7 @@ jedi==0.19.2
     # via ipython
 jinja2==3.1.6
     # via
+    #   feast
     #   jupyter-server
     #   jupyterlab
     #   jupyterlab-server
@@ -353,6 +322,7 @@ jsonpointer==3.0.0
     # via jsonschema
 jsonschema==4.24.0
     # via
+    #   feast
     #   jupyter-events
     #   jupyterlab-server
     #   nbformat
@@ -416,15 +386,21 @@ mdurl==0.1.2
 mistune==3.1.3
     # via nbconvert
 mmh3==5.1.0
-    # via pyiceberg
+    # via
+    #   feast
+    #   pyiceberg
 more-itertools==10.7.0
     # via blackdoc
-multidict==6.4.4 ; python_full_version < '4.0'
+multidict==6.5.0 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
+mypy==1.16.1
+    # via sqlalchemy
 mypy-extensions==1.1.0
-    # via black
+    # via
+    #   black
+    #   mypy
 nbclient==0.10.2
     # via nbconvert
 nbconvert==7.16.6
@@ -445,6 +421,8 @@ notebook-shim==0.2.4
     #   notebook
 numpy==2.2.6 ; python_full_version < '3.11'
     # via
+    #   dask
+    #   feast
     #   pandas
     #   pythran
     #   scikit-learn
@@ -452,6 +430,8 @@ numpy==2.2.6 ; python_full_version < '3.11'
     #   xgboost
 numpy==2.3.0 ; python_full_version >= '3.11'
     # via
+    #   dask
+    #   feast
     #   pandas
     #   pythran
     #   scikit-learn
@@ -461,7 +441,7 @@ nvidia-nccl-cu12==2.27.3 ; platform_machine != 'aarch64' and sys_platform == 'li
     # via xgboost
 oauthlib==3.2.2 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.86.0
+openai==1.88.0
     # via xorq
 opentelemetry-api==1.34.1
     # via
@@ -497,7 +477,7 @@ packaging==25.0
     # via
     #   black
     #   dask
-    #   google-cloud-bigquery
+    #   gunicorn
     #   ipykernel
     #   jupyter-events
     #   jupyter-server
@@ -507,12 +487,9 @@ packaging==25.0
     #   pytest
     #   snowflake-connector-python
     #   vendoring
-<<<<<<< HEAD
-pandas==2.3.0 ; python_full_version < '4.0'
-=======
-pandas==2.2.3
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
+pandas==2.3.0
     # via
+    #   dask
     #   feast
     #   hash-cache
     #   pins
@@ -529,6 +506,7 @@ pathspec==0.12.1
     # via
     #   black
     #   blackdoc
+    #   mypy
 pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via ipython
 pins==0.9.0 ; python_full_version < '4.0'
@@ -550,34 +528,28 @@ ply==3.11 ; sys_platform == 'darwin'
     # via pythran
 pre-commit==4.2.0
 prometheus-client==0.22.1
-    # via jupyter-server
+    # via
+    #   feast
+    #   jupyter-server
 prompt-toolkit==3.0.51
     # via ipython
 propcache==0.3.2 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
-<<<<<<< HEAD
 proto-plus==1.26.1 ; python_full_version < '4.0'
     # via google-api-core
 protobuf==5.29.5
-=======
-proto-plus==1.26.1
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
-    # via
-    #   google-api-core
-    #   google-cloud-bigquery-storage
-protobuf==5.29.4
     # via
     #   feast
     #   google-api-core
-    #   google-cloud-bigquery-storage
     #   googleapis-common-protos
-    #   grpcio-status
     #   opentelemetry-proto
     #   proto-plus
 psutil==7.0.0
-    # via ipykernel
+    # via
+    #   feast
+    #   ipykernel
 psycopg2-binary==2.9.10
     # via
     #   pyiceberg
@@ -590,32 +562,37 @@ pure-eval==0.2.3
     # via stack-data
 pyarrow==20.0.0
     # via
+    #   dask
     #   datafusion
+    #   feast
     #   xorq
     #   xorq-datafusion
 pyarrow-hotfix==0.7 ; python_full_version < '4.0'
     # via xorq
-pyasn1==0.6.1
+pyasn1==0.6.1 ; python_full_version < '4.0'
     # via
     #   pyasn1-modules
     #   rsa
-pyasn1-modules==0.4.2
+pyasn1-modules==0.4.2 ; python_full_version < '4.0'
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.11.7
+pydantic==2.10.6
     # via
+    #   fastapi
+    #   feast
     #   mcp
     #   openai
     #   pydantic-settings
     #   pyiceberg
     #   quartodoc
-pydantic-core==2.33.2
+pydantic-core==2.27.2
     # via pydantic
 pydantic-settings==2.9.1
     # via mcp
 pygments==2.19.1
     # via
+    #   feast
     #   ipython
     #   ipython-pygments-lexers
     #   nbconvert
@@ -623,15 +600,16 @@ pygments==2.19.1
     #   rich
 pyiceberg==0.9.1
     # via xorq
-pyjwt==2.10.1 ; python_full_version < '4.0'
-    # via snowflake-connector-python
+pyjwt==2.10.1
+    # via
+    #   feast
+    #   snowflake-connector-python
 pyopenssl==25.1.0
     # via snowflake-connector-python
 pyparsing==3.2.3
     # via pyiceberg
 pytest==8.4.0
     # via
-    #   hash-cache
     #   pytest-codspeed
     #   pytest-cov
     #   pytest-mock
@@ -645,14 +623,15 @@ python-dateutil==2.9.0.post0
     # via
     #   arrow
     #   botocore
-    #   google-cloud-bigquery
     #   jupyter-client
     #   pandas
     #   strictyaml
     #   trino
     #   xorq
 python-dotenv==1.1.0
-    # via pydantic-settings
+    # via
+    #   pydantic-settings
+    #   uvicorn
 python-json-logger==3.3.0
     # via jupyter-events
 python-multipart==0.0.20
@@ -681,6 +660,7 @@ pyyaml==6.0.2
     #   pins
     #   pre-commit
     #   quartodoc
+    #   uvicorn
     #   xorq
 pyzmq==27.0.0
     # via
@@ -697,9 +677,9 @@ referencing==0.36.2
     #   jupyter-events
 requests==2.32.4
     # via
+    #   feast
     #   gcsfs
     #   google-api-core
-    #   google-cloud-bigquery
     #   google-cloud-storage
     #   jupyterlab-server
     #   opentelemetry-exporter-otlp-proto-http
@@ -732,7 +712,7 @@ rpds-py==0.25.1
     # via
     #   jsonschema
     #   referencing
-rsa==4.9.1
+rsa==4.9.1 ; python_full_version < '4.0'
     # via google-auth
 ruff==0.11.13
 s3transfer==0.13.0 ; python_full_version < '4.0'
@@ -768,23 +748,31 @@ soupsieve==2.7
 sphobjinv==2.3.1.3
     # via quartodoc
 sqlalchemy==2.0.41
-    # via pyiceberg
-sqlglot==25.20.2
+    # via
+    #   feast
+    #   pyiceberg
+sqlglot==26.28.1
     # via xorq
 sse-starlette==2.3.6
     # via mcp
 stack-data==0.6.3
     # via ipython
-starlette==0.47.0
-    # via mcp
+starlette==0.46.2
+    # via
+    #   fastapi
+    #   mcp
 strictyaml==1.7.3
     # via pyiceberg
 structlog==25.4.0 ; python_full_version < '4.0'
     # via xorq
 tabulate==0.9.0
-    # via quartodoc
-tenacity==9.1.2
-    # via pyiceberg
+    # via
+    #   feast
+    #   quartodoc
+tenacity==8.5.0
+    # via
+    #   feast
+    #   pyiceberg
 terminado==0.18.1
     # via
     #   jupyter-server
@@ -794,21 +782,19 @@ threadpoolctl==3.6.0
 tinycss2==1.4.0
     # via bleach
 toml==0.10.2
-    # via vendoring
+    # via
+    #   feast
+    #   vendoring
 tomli==2.2.1
-<<<<<<< HEAD
     # via
     #   black
     #   blackdoc
     #   codespell
     #   coverage
     #   jupyterlab
+    #   mypy
     #   pytest
 tomlkit==0.13.3 ; python_full_version < '4.0'
-=======
-    # via blackdoc
-tomlkit==0.13.2 ; python_full_version < '4.0'
->>>>>>> b8a6212d7 (chore(uv): add hash-cache)
     # via snowflake-connector-python
 toolz==1.0.0
     # via
@@ -825,7 +811,9 @@ tornado==6.5.1
     #   notebook
     #   terminado
 tqdm==4.67.1
-    # via openai
+    # via
+    #   feast
+    #   openai
 traitlets==5.14.3
     # via
     #   comm
@@ -841,14 +829,24 @@ traitlets==5.14.3
     #   nbconvert
     #   nbformat
 trino==0.334.0
+typeguard==4.4.3
+    # via feast
 types-python-dateutil==2.9.0.20250516
     # via arrow
 typing-extensions==4.14.0
     # via
     #   adbc-driver-manager
     #   anyio
+    #   async-lru
     #   beautifulsoup4
+    #   black
     #   datafusion
+    #   exceptiongroup
+    #   fastapi
+    #   ipython
+    #   mistune
+    #   multidict
+    #   mypy
     #   openai
     #   opentelemetry-api
     #   opentelemetry-exporter-otlp-proto-grpc
@@ -862,14 +860,16 @@ typing-extensions==4.14.0
     #   pyopenssl
     #   quartodoc
     #   referencing
+    #   rich
     #   snowflake-connector-python
     #   sqlalchemy
+    #   structlog
+    #   typeguard
     #   typing-inspection
+    #   uvicorn
     #   xorq
 typing-inspection==0.4.1
-    # via
-    #   pydantic
-    #   pydantic-settings
+    # via pydantic-settings
 tzdata==2025.2
     # via
     #   pandas
@@ -883,13 +883,22 @@ urllib3==2.4.0
     #   botocore
     #   hash-cache
     #   requests
-uvicorn==0.34.3 ; sys_platform != 'emscripten'
-    # via mcp
+uvicorn==0.34.0
+    # via
+    #   feast
+    #   mcp
+    #   uvicorn-worker
+uvicorn-worker==0.3.0
+    # via feast
+uvloop==0.21.0 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
+    # via uvicorn
 vendoring==1.2.0
 virtualenv==20.31.2
     # via pre-commit
 watchdog==6.0.0
     # via quartodoc
+watchfiles==1.1.0
+    # via uvicorn
 wcwidth==0.2.13
     # via prompt-toolkit
 webcolors==24.11.1
@@ -900,6 +909,8 @@ webencodings==0.5.1
     #   tinycss2
 websocket-client==1.8.0
     # via jupyter-server
+websockets==15.0.1
+    # via uvicorn
 xgboost==3.0.2
     # via xorq
 xorq-datafusion @ git+https://github.com/xorq-labs/xorq-datafusion@685a5d187c9b472b063cab5730ed99a608b03d59
