@@ -46,12 +46,13 @@ class Backend(SQLBackend):
     ) -> ir.Table:
         if isinstance(obj, pd.DataFrame):
             obj = pa.Table.from_pandas(obj)
-
         if isinstance(obj, pa.Table):
-            obj = obj.to_batches()
-
-        if isinstance(obj, ir.Table):
-            obj = obj.to_pyarrow_batches()
+            self.con.upload_table(name, obj)
+            return self.table(name)
+        if isinstance(obj, pa.RecordBatchReader):
+            self.con.upload_batches(name, obj)
+            return self.table(name)
+        raise TypeError(f"Unsupported type for create_table: {type(obj)}")
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         return self.con.do_action_one(
