@@ -52,14 +52,6 @@ class Backend(SQLBackend):
         if isinstance(obj, pa.RecordBatchReader):
             self.con.upload_batches(name, obj)
             return self.table(name)
-        if isinstance(obj, Iterable):
-            batches_list = list(obj)
-            if not batches_list:
-                raise ValueError("Cannot create table from empty batch list")
-            schema = batches_list[0].schema
-            reader = pa.RecordBatchReader.from_batches(schema, batches_list)
-            self.con.upload_batches(name, reader)
-            return self.table(name)
         raise TypeError(f"Unsupported type for create_table: {type(obj)}")
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
