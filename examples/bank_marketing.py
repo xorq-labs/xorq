@@ -127,7 +127,7 @@ def make_pipeline_exprs(dataset_name, target_column, predicted_col):
         features=numeric_features + [ENCODED],
         cls=functools.partial(XGBoostModelExplodeEncoded, encoded_col=ENCODED),
         return_type=dt.float64,
-        name="xgb_prediction",
+        name_infix="xgb_prediction",
     )
     predictions = encoded_test.mutate(
         **{predicted_col: deferred_predict.on_expr(encoded_test)}
