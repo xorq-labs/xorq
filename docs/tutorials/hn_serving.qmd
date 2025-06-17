@@ -12,20 +12,19 @@ In this tutorial (Part 4 of our series), you'll learn how to:
 - Use these services to make predictions on new data
 - Build an end-to-end inference pipeline
 
-Previously,
+Previously:
+
 - Part 1: [Data Ingestion and Model-Assisted Labeling](hn_data_prep)
 - Part 2: [Feature Engineering with TF-IDF](hn_transform_tfidf)
 - Part 3: [XGBoost Model Training](hn_training_xgb)
 
 ### Prerequisites
 
-<Accordion title="Prerequisites">
 - Completed Part 1 (Data Ingestion and Model-Assisted Labeling)
 - Completed Part 2 (Feature Engineering with TF-IDF)
 - Completed Part 3 (Training XGBoost Models)
 - Python 3.8+ installed on your system
 - Basic understanding of client-server architecture
-</Accordion>
 
 ### Installation and Imports
 
@@ -207,7 +206,7 @@ print(y.groupby("sentiment_int").sentiment_int_predicted.describe().T)
 Before diving into the implementation, let's understand what Flight is and how
 it works in xorq.
 
-<Info>
+::: {.callout-note}
 Apache Arrow Flight is a high-performance client-server framework for moving
 large datasets over the network. In xorq, Flight serves as the foundation for
 deploying models as microservices.
@@ -216,7 +215,7 @@ Key components of Flight in xorq:
 1. **FlightServer**: Hosts your models and transformations as services
 2. **FlightUrl**: Specifies the endpoint where your service is available
 3. **flight_serve**: Function to create a Flight server from an xorq expression
-</Info>
+:::
 
 ## Setting Up Flight Servers
 
@@ -251,14 +250,14 @@ Now, let's set up Flight servers for our TF-IDF transformation and XGBoost predi
 )
 ```
 
-<Note>
+::: {.callout-note}
 The `flight_serve` function creates a Flight server from an xorq expression. It returns:
 1. The server instance, which you can start and stop
 2. A command that clients can use to interact with the server
 
 The `make_server` parameter allows you to customize the server configuration,
 such as specifying the port.
-</Note>
+::: 
 
 ### Extracting Server Commands
 
@@ -301,23 +300,23 @@ use the model directly in xorq:
 out = predict_do_exchange(xo.register(transform_do_exchange(z), "t")).read_pandas()
 ```
 
-<Warning>
+::: {.callout-warning}
 When using `do_exchange` directly in the server script, it receives an xorq
 expression, which is different from client-side usage where it would receive a
 PyArrow RecordBatchReader. This is an important distinction to be aware of.
-</Warning>
+:::
 
 ## Best Practices for Flight Services
 
 When deploying models using Flight, consider these best practices:
 
-<Info>
+::: {.callout-note}
 1. **Monitoring**: Add logging to track service health and performance
 2. **Error Handling**: Implement robust error handling for client-server communication
 3. **Scaling**: Deploy multiple instances behind a load balancer for high-traffic scenarios
 4. **Security**: Configure authentication and authorization for production deployments
 5. **Versioning**: Implement versioning for your model endpoints to handle model updates
-</Info>
+:::
 
 ## Summary and Next Steps
 
@@ -344,7 +343,6 @@ This completes our end-to-end tutorial series on sentiment analysis with xorq, c
 
 ## Appendix
 
-<Accordion title="Complete Code Example">
 ```python
 import functools
 
@@ -553,4 +551,3 @@ assert (predict_server.flight_url.port, predict_command) == (
 ), (predict_command, expected_predict_commnd)
 
 ```
-</Accordion>

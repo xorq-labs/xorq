@@ -15,18 +15,16 @@ In this tutorial, you'll learn how to:
 
 ## Prerequisites
 
-<Accordion title="Prerequisites">
 - Python 3.8+ installed on your system
 - An OpenAI API key for the sentiment labeling
 - Basic understanding of Python and data processing pipelines
-</Accordion>
 
-<Warning>
+::: {.callout-warning}
 Make sure to set your OpenAI API key in your environment:
 ```bash
 export OPENAI_API_KEY=your_api_key
 ```
-</Warning>
+:::
 
 ## Installation and Imports
 
@@ -46,11 +44,11 @@ import xorq.expr.datatypes as dt
 from xorq.caching import ParquetStorage
 from xorq.common.utils.import_utils import import_python
 
-m = import_python(xo.options.pins.get_path("hackernews_lib"))
-o = import_python(xo.options.pins.get_path("openai_lib"))
+m = import_python(xo.options.pins.get_path("hackernews_lib", version="20250604T223424Z-2e578"))
+o = import_python(xo.options.pins.get_path("openai_lib", version="20250604T223419Z-0ce44"))
 ```
 
-<Info>
+::: {.callout-note}
 The imported modules `m` (hackernews_lib) and `o` (openai_lib) contain utility
 functions for:
 - Connecting to the HackerNews Firebase API
@@ -60,7 +58,7 @@ functions for:
 
 You'll need to ensure these files are accessible in your environment or create
 them based on the code snippets in the Appendix.
-</Info>
+:::
 
 ## Defining the HackerNews Fetcher
 
@@ -79,14 +77,14 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
 
 Let's initialize the xorq backend and storage:
 
-<Warning>
+::: {.callout-warning}
 The below code will attempt to download ~100k items from HackerNew API that can
 take a long time. If you want to just run the tutorial with a smaller data,
 change the variable `name` of the code below to `"hn-fetcher-input-small"`
-</Warning>
+:::
 
 ```python
-name = "hn-fetcher-input-large" # or use hn-fercher-input-small to avoid downloading all data
+name = "hn-fetcher-input-small" # or use hn-fetcher-input-large 
 con = xo.connect()
 storage = ParquetStorage(source=con)
 ```
@@ -139,7 +137,8 @@ labeled_df = t.execute()
 print(labeled_df[["id", "title", "sentiment", "sentiment_int"]].head())
 ```
 This will output something like:
-```
+
+```bash
          id                                              title sentiment  sentiment_int
 0  43083439  Show HN: Xenoeye – high performance network tr...  POSITIVE              2
 1  43083558                   Toronto 'Plane Crash Submissions  NEGATIVE              0
@@ -175,7 +174,8 @@ With this labeled dataset, you can now proceed to:
 
 ### Helper Modules Structure
 
-<Accordion title="hackernews_lib.py">
+#### hackernews_lib.py
+
 ```python
 import functools
 import json
@@ -269,9 +269,9 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
     name="HackerNewsFetcher",
 )
 ```
-</Accordion>
 
-<Accordion title="openai_lib.py">
+#### openai_lib.py
+
 ```python
 import functools
 import operator
@@ -366,13 +366,11 @@ do_hackernews_sentiment_udxf = xo.expr.relations.flight_udxf(
     name="HackerNewsSentimentAnalyzer",
 )
 ```
-</Accordion>
+
 
 ### Troubleshooting
 
-<Accordion title="Common Issues">
 - **API Rate Limiting**: If you encounter rate limiting from OpenAI or HackerNews, adjust the `wait_random_exponential` parameters in the helper functions.
 - **Missing Files**: Ensure the helper modules are in the correct locations or create them using the provided code snippets.
 - **OpenAI API Key Issues**: Verify your API key is correctly set and has sufficient credits.
 - **Data Quality**: Check for missing values or unexpected content in the fetched data before processing.
-</Accordion>

@@ -3,7 +3,7 @@ project:
 
 website:
   page-navigation: true
-  title: "LETSQL"
+  title: "Xorq"
   description: "A modern data processing library focused on composability, portability and performance in critical path of ML."
 
   page-footer:
@@ -20,30 +20,45 @@ website:
 
     right:
       - icon: github
-        href: https://github.com/letsql/letsql
+        href: https://github.com/xorq-labs/xorq
 
     left:
-      - text: "Overview"
-        href: concepts.qmd
       - text: "User Guide"
-        href: installation.qmd
+        href: getting_started/quickstart.qmd
       - text: "API Reference"
         href: api-reference.qmd
+      - text: "Examples"
+        href: examples/mortgage.qmd
 
   sidebar:
-    - id: overview
-      title: "Overview"
-      style: "floating"
-      collapse-level: 2
-      align: left
-      contents:
-        - href: concepts.qmd
     - id: user-guide
       title: "User Guide"
       contents:
-        - href: installation.qmd
-        - href: quick-start.qmd
-        - href: tutorial.qmd
+        - id: user-guide-section
+          section: "User Guide"
+          contents:
+            - href: getting_started/quickstart.qmd
+        - id: core-concepts-section
+          section: "Core Concepts"
+          contents:
+            - href: core_concepts/caching.qmd
+            - href: core_concepts/multi_engine.qmd
+            - href: core_concepts/udxf.qmd
+            - href: core_concepts/build.qmd
+            - href: core_concepts/profiles_guide.qmd
+        - id: vignettes-section
+          section: "Vignettes"
+          contents:
+            - href: vignettes/duckdb_concurrent.qmd
+            - href: vignettes/mcp_flight_server.qmd
+        - id: tutorials-section
+          section: "Tutorials"
+          contents:
+            - href: tutorials/hn_data_prep.qmd
+            - href: tutorials/hn_transform_tfidf.qmd
+            - href: tutorials/hn_training_xgb.qmd
+            - href: tutorials/hn_serving.qmd
+
     - id: api-reference
       title: "API Reference"
       contents:
@@ -64,14 +79,10 @@ website:
 
 format:
   html:
-    theme:
-      - cosmo
-      - style/letsql.scss
+    theme: [flatly, "style/dark.scss"]
     toc: true
     code-copy: true
     code-overflow: wrap
-    mainfont: "Atkinson Hyperlegible"
-    include-in-header: "style/fontawesome.html"
 
 quartodoc:
   package: xorq

@@ -15,12 +15,10 @@ In this tutorial (Part 3 of our series), you'll learn how to:
 
 ### Prerequisites
 
-<Accordion title="Prerequisites">
 - Completed Part 1 (Data Ingestion and Model-Assisted Labeling)
 - Completed Part 2 (Feature Engineering with TF-IDF)
 - Python 3.8+ installed on your system
 - Basic understanding of machine learning concepts
-</Accordion>
 
 ### Installation and Imports
 
@@ -77,14 +75,14 @@ def predict_xgboost_model(model, df):
     return model.predict(df.squeeze().tolist())
 ```
 
-<Info>
+::: {.callout-note}
 The `fit_xgboost_model` function trains an XGBoost model on the provided
 features and target. The `predict_xgboost_model` function applies the trained
 model to new data to generate predictions.
 
 Note that we're using `multi:softmax` as the objective function since we have
 three sentiment classes (POSITIVE=2, NEUTRAL=1, NEGATIVE=0).
-</Info>
+:::
 
 
 Now, let's set up our deferred operations for both the TF-IDF transformation
@@ -114,7 +112,7 @@ deferred_fit_predict_xgb = deferred_fit_predict(
 )
 ```
 
-<Note>
+::: {.callout-note}
 The `deferred_fit_predict` function creates a deferred operation that will:
 1. Fit a model using the specified `fit` function on the training data
 2. Create a prediction operation that can be applied to any dataset
@@ -123,7 +121,7 @@ Unlike the TF-IDF transformation (which we covered in detail in Part 2), model
 training is implemented as an aggregate function rather than a UDXF function.
 This is because training involves aggregating across the entire dataset to
 learn patterns, while transformation is applied row by row.
-</Note>
+:::
 
 ## Loading and Preparing the Data
 
@@ -175,7 +173,7 @@ Before training our model, we'll split the data into training and testing sets:
 )
 ```
 
-<Info>
+::: {.callout-note}
 The `train_test_splits` function in xorq ensures a proper and deterministic
 split of your data. It works by using a hashing function to convert the unique
 key (`id` in our case) into an integer, then applies a modulo operation to
@@ -187,7 +185,7 @@ approach ensures that:
 1. The same record will always end up in the same split when using the same random seed
 2. The splitting is distributed evenly across the dataset
 3. Records are not duplicated across splits
-</Info>
+:::
 
 ### Applying TF-IDF Transformation
 
@@ -208,13 +206,12 @@ train_tfidf_transformed = train_expr.mutate(
 )
 ```
 
-<Note>
-We're using the same TF-IDF approach we explored in [Part
-2](/tutorials/hn_transform_tfidf), fitting on the
+::: {.callout-note}
+We're using the same TF-IDF approach we explored in [Part 2](/tutorials/hn_transform_tfidf), fitting on the
 training data to create a vocabulary and then transforming the documents into
 numerical feature vectors. This step is necessary to convert the text into a
 format that our XGBoost model can process.
-</Note>
+:::
 
 ## Training the XGBoost Model
 
@@ -233,7 +230,8 @@ train_xgb_predicted = (
     .mutate(**{target_predicted: deferred_xgb_predict.on_expr})
 )
 ```
-<Info>
+
+::: {.callout-note}
 Unlike the transformation step, model training is implemented as an aggregate
 function (`xgb_udaf`). This is an important distinction:
 
@@ -247,7 +245,7 @@ The `deferred_fit_predict_xgb` function returns three key components:
 - `xgb_udaf`: The User-Defined Aggregate Function that performs the training
 - `deferred_xgb_predict`: The scalar UDF that takes Expr as an input i.e.
   `ExprScalarUDF`
-</Info>
+:::
 
 ### Making Predictions on Test Data
 
@@ -262,11 +260,12 @@ train_xgb_predicted = (
     .mutate(**{target_predicted: deferred_xgb_predict.on_expr})
 )
 ```
-<Warning>
+
+::: {.callout-warning}
 Note the use of superfluous `.into_backend(xo.connect())`. This is necessary to ensure
 proper handling of the data types during the prediction process and should be
 fixed. See the GitHub issue for more information.
-</Warning>
+:::
 
 ## Evaluating Model Performance
 
@@ -316,7 +315,6 @@ for real-time predictions using xorq's Flight serving capabilities.
 
 ### Complete Example Code
 
-<Accordion title="Complete Code">
 ```python
 import pandas as pd
 import toolz
@@ -458,4 +456,4 @@ test_accuracy = (test_results[target_predicted] == test_results[target]).mean()
 print(f"Training Accuracy: {train_accuracy:.4f}")
 print(f"Test Accuracy: {test_accuracy:.4f}")
 ```
-</Accordion>
+

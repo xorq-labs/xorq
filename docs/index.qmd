@@ -1,12 +1,50 @@
-LETSQL
+---
+title: Welcome to xorq!
+listing:
+  - id: getting-started
+    contents: 
+      - "getting_started/quickstart.qmd"
+      - "tutorials/10_minutes_xorq_tour.qmd"
+    type: grid
+    grid-columns: 2
+    fields: [image, title]
+  - id: dive-deeper   
+    contents: 
+      - "tutorials/hn_data_prep.qmd"
+      - "tutorials/hn_transform_tfidf.qmd"
+      - "tutorials/hn_training_xgb.qmd"
+      - "tutorials/hn_serving.qmd"
+    type: grid
+    grid-columns: 2
+    fields: [image, title]
+---
 
-Data processing library built on top of **Ibis** and **DataFusion** to write multi-engine data workflows.
+xorq is a deferred computational framework for building, running, and serving
+pandas groupby-apply style pipelines common in ML workflows. xorq is built on
+top of [Ibis](https://ibis-project.org/) and
+[Apache DataFusion](https://datafusion.apache.org/).
 
-Key Features:
+## Getting Started
 
-- Simplicity: LETSQL leverages the Ibis expression system to offer a familiar dataframe experience
-- Versatile: Use it for interactive rapid exploration, or to maintain complex ELT/ETL jobs, via DataFrame or SQL
-- Speed: Provided by the usage of DataFusion a fast, embeddable, and extensible query engine written in Rust
-- In-situ analysis: Natively query data in Postgres, Snowflake, BigQuery, or in any of the 20+ Ibis backends
-- Query Federation: Access data from multiple systems within a single expression on a DataFrame.
-- Open: Built on top of Ibis and DataFusion two independently governed open-source projects
+:::{#getting-started}
+:::
+
+## Dive Deeper
+
+Multipart series on how to build an end-to-end ML pipeline using live data from the [HackerNews API](https://github.com/HackerNews/API).
+
+:::{#dive-deeper}
+:::
+
+## Why xorq?
+
+xorq was developed to give Python developers a more ergonomic way to build,
+cache, and serve pipelines—without getting locked into a single engine. The
+xorq computational framework provides a quantum leap in ML development by:
+
+- **Simplifying development** - no more juggling separate SQL jobs, pandas
+  scripts, and ML framework specific transformations.
+- **Accelerating iteration** - intelligent caching means no more having to wait
+  for full pipeline re-runs after every little change.
+- **Making deployment seamless** - moving a working pipeline from local dev to
+  production no longer requires rewriting.

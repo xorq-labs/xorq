@@ -15,11 +15,9 @@ In this tutorial (Part 2 of our series), you'll learn how to:
 
 ## Prerequisites
 
-<Accordion title="Prerequisites">
 - Completed Part 1 of this tutorial series (Data Ingestion and Model-Assisted Labeling)
 - Python 3.8+ installed on your system
 - Basic understanding of feature engineering concepts
-</Accordion>
 
 ## Installation and Imports
 
@@ -67,11 +65,11 @@ deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
 )
 ```
 
-<Info>
+::: {.callout-note}
 The `deferred_fit_transform_series_sklearn` function creates a deferred
 operation that will be applied to our data pipeline. We're using scikit-learn's
 TfidfVectorizer to transform our text data into numerical features.
-</Info>
+:::
 
 ## Loading the Labeled Data
 
@@ -124,11 +122,11 @@ Before applying our TF-IDF transformation, we'll split the data into training an
 )
 ```
 
-<Info>
+::: {.callout-note}
 The `train_test_splits` function in xorq ensures a proper split of your data.
 We're using the 'id' field as a unique key to ensure that each record is
 assigned to either train or test set. The random seed ensures reproducibility.
-</Info>
+:::
 
 ## Building the Deferred TF-IDF Pipeline
 
@@ -149,7 +147,6 @@ train_tfidf_transformed = train_expr.mutate(
 )
 ```
 
-<Accordion title="Understanding Deferred Operations">
 When we call `deferred_fit_transform_tfidf(train_expr, storage=storage)`, we
 get back three important objects:
 
@@ -170,7 +167,6 @@ model is fit only on the training data, avoiding any information leakage.
 When we execute the pipeline, xorq efficiently manages the computation,
 ensuring that the model is fit only once, cached resources are reused for all
 transformations.
-</Accordion>
 
 ## Applying the Transformation to Test Data
 
@@ -183,11 +179,11 @@ test_tfidf_transformed = test_expr.mutate(
 )
 ```
 
-<Info>
+::: {.callout-note}
 Notice that we're using the same `deferred_tfidf_transform` UDF that uses
 fitted transform on training data. This ensures that our test data is
 transformed in exactly the same way, without information leakage.
-</Info>
+:::
 
 ## Executing and Examining the Transformed Data
 
@@ -238,7 +234,6 @@ pipeline pattern to create an end-to-end machine learning workflow.
 
 ### Deferred 
 
-<Accordion title="Deferred TF-IDF Model">
 ```sh
 r0 := FlightUDXF: ibis_rbr-placeholder_ywruclahnbafvb
   by          string
@@ -316,7 +311,7 @@ CachedNode[r6, strategy=modification_time, parquet=True, source=let-126580202190
   _c9160aa7a9f22006e1547fa8f80d1b91(title) binary
 
 ```
-</Accordion>
+
 
 ### Complete Example Code
 
@@ -402,4 +397,3 @@ print(f"Vector dimensions: {len(train_transformed[transformed_col].iloc[0])}")
 # You can also examine specific feature values if needed
 print(f"First 5 feature values: {train_transformed[transformed_col].iloc[0][:5]}")
 ```
-</Accordion>
