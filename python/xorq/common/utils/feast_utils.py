@@ -1,6 +1,7 @@
 from datetime import timedelta
 from pathlib import Path
 
+import toolz
 from attrs import (
     field,
     frozen,
@@ -9,6 +10,15 @@ from attrs.validators import (
     deep_iterable,
     instance_of,
     optional,
+)
+from feast import (
+    Entity,
+    FeatureService,
+    FeatureView,
+    Field,
+    FileSource,
+    Project,
+    RequestSource,
 )
 
 # this is the only "leakage" from feast classes
@@ -28,17 +38,30 @@ def dct_converter(maybe_dct):
     return tuple(sorted(dict(maybe_dct).items()))
 
 
+@toolz.curry
+def _to_feast(feast_cls, xorq_obj):
+    return feast_cls(
+        **{attr.name: getattr(xorq_obj, attr.name) for attr in xorq_obj.__attrs_attrs__}
+    )
+
+
+def _from_feast(xorq_cls, feast_obj):
+    return xorq_cls(
+        **{
+            attr.name: getattr(feast_obj, attr.name)
+            for attr in xorq_cls.__attrs_attrs__
+        }
+    )
+
+
 @frozen
 class FeastProject:
     name = field(validator=instance_of(str))
     description = field(validator=optional(instance_of(str)))
 
-    @classmethod
-    def from_feast(cls, instance):
-        pass
+    to_feast = _to_feast(Project)
 
-    def to_feast(self):
-        pass
+    from_feast = classmethod(_from_feast)
 
 
 @frozen
@@ -54,12 +77,9 @@ class FeastField:
     def __attrs_post_init__(self):
         pass
 
-    @classmethod
-    def from_feast(cls, instance):
-        pass
+    to_feast = _to_feast(Field)
 
-    def to_feast(self):
-        pass
+    from_feast = classmethod(_from_feast)
 
 
 @frozen
@@ -67,12 +87,9 @@ class FeastEntity:
     name = field(validator=instance_of(str))
     join_keys = field(validator=deep_iterable(instance_of(str), instance_of(tuple)))
 
-    @classmethod
-    def from_feast(cls, instance):
-        pass
+    to_feast = _to_feast(Entity)
 
-    def to_feast(self):
-        pass
+    from_feast = classmethod(_from_feast)
 
 
 @frozen
@@ -106,6 +123,10 @@ class FeastFileSource:
                     f"don't know how to deal with suffix {self.path.suffix}"
                 )
 
+    to_feast = _to_feast(FileSource)
+
+    from_feast = classmethod(_from_feast)
+
 
 @frozen
 class FeastDataSource:
@@ -130,6 +151,10 @@ class FeastFeatureView:
         )
     )
 
+    to_feast = _to_feast(FeatureView)
+
+    from_feast = classmethod(_from_feast)
+
 
 @frozen
 class FeastRequestSource:
@@ -144,8 +169,16 @@ class FeastRequestSource:
     )
     owner = field(validator=instance_of(str))
 
+    to_feast = _to_feast(RequestSource)
+
+    from_feast = classmethod(_from_feast)
+
 
 @frozen
 class FeastFeatureService:
     owner = field(validator=instance_of(str))
     features = field()
+
+    to_feast = _to_feast(FeatureService)
+
+    from_feast = classmethod(_from_feast)
