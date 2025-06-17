@@ -168,6 +168,22 @@ let
             prev.poetry-core
           ];
         });
+        xorq-datafusion = prev.xorq-datafusion.overrideAttrs (compose [
+          (old: with pkgs.rustPlatform; {
+            cargoDeps = importCargoLock {
+              lockFile = "${old.src}/Cargo.lock";
+            };
+            nativeBuildInputs = (old.nativeBuildInputs or []) ++ [
+              cargoSetupHook
+              maturinBuildHook
+            ];
+          })
+        ]);
+        feast = prev.feast.overrideAttrs (compose [
+          (addResolved final [
+            "setuptools"
+          ])
+        ]);
       };
       pyprojectOverrides-editable = final: prev: {
         hash-cache = prev.hash-cache.overrideAttrs (addResolved final [ "hatchling" ]);

@@ -902,7 +902,7 @@ websocket-client==1.8.0
     # via jupyter-server
 xgboost==3.0.2
     # via xorq
-xorq-datafusion==0.2.2
+xorq-datafusion @ git+https://github.com/xorq-labs/xorq-datafusion@685a5d187c9b472b063cab5730ed99a608b03d59
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4.0'
     # via pins
