@@ -43,8 +43,8 @@ def score_sentiment(df: pd.DataFrame) -> pd.DataFrame:
 
 sentiment_udxf = make_udxf(
     score_sentiment,
-    schema_in.to_pyarrow(),
-    schema_out.to_pyarrow(),
+    schema_in,
+    schema_out,
     name="sentiment_scorer",
 )
 
