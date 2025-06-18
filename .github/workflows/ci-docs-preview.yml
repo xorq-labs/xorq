@@ -58,10 +58,6 @@ jobs:
         with:
           version: 1.4.515
 
-      - name: maturin develop
-        run: uv run maturin develop
-        working-directory: ${{ github.workspace }}
-
       - name: start services
         run: docker compose up --build --wait
 
