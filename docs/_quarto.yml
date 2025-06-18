@@ -79,7 +79,9 @@ website:
 
 format:
   html:
-    theme: [flatly, "style/dark.scss"]
+    theme:
+      light: "style/light.scss"
+      dark: "style/dark.scss"
     toc: true
     code-copy: true
     code-overflow: wrap

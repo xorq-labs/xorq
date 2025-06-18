@@ -1,7 +1,7 @@
 /*-- scss:defaults --*/
 $enable-rounded: false;
-$white: #F0FBFF;
-$black: #05181A;
+$white: #05181A;
+$black: #F0FBFF;
 $blue: #C1F0FF;
 $cyan: #79E2FF;
 $red: #FF798F;
@@ -19,27 +19,44 @@ $body-bg: $black;
 $body-color: $white;
 $input-btn-padding-y: 1rem;
 $input-btn-padding-x: 1.5rem;
-$input-disabled-bg: $gray-300;
+$input-disabled-bg: rgba($gray-300, .3);
 $success: $cyan;
-$input-focus-border-color: lighten($white, 100%);
-$input-btn-focus-color: rgba($white, .4);
-$breadcrumb-active-color: $white;
-$nav-tabs-link-active-color: $blue;
+$input-focus-border-color: $gray-300;
+$input-btn-focus-color: rgba($black, .4);
+$nav-tabs-link-active-color: $gray-300;
 $pagination-color: $black;
-$pagination-active-color: $black;
+$pagination-active-color: $white;
 $breadcrumb-bg: null;
 $breadcrumb-divider-color: $gray-300;
-$jumbotron-color: $black;
-$nav-pills-link-active-color: $black;
-$list-group-color: $black;
-$list-group-active-color: $black;
+$jumbotron-color: $white;
+$nav-pills-link-active-color: $white;
+$list-group-active-color: $white;
 $modal-content-color: $black;
 $popover-border-color: rgba($white, .2);
 $toast-border-color: $gray-300;
 $info: $gray-300;
+$hr-border-color: rgba($white, .1);
+$card-border-color: rgba($white, .125);
+$input-color: $white;
+$input-bg: $black;
+$list-group-color: $black;
+$table-bg-level: 11;
+$emphasized-link-hover-darken-percentage: 25%;
+//$link-hover-color: darken($link-color, 25%);
+$navbar-dark-disabled-color: rgba($black, .25);
+$navbar-light-color: rgba($white, .5);
+$navbar-light-hover-color: rgba($white, .7);
+$navbar-light-active-color: rgba($white, .9);
+$navbar-light-disabled-color: rgba($white, .3);
+$navbar-light-toggler-border-color: rgba($white, .1);
+$dropdown-bg: $black;
+$dropdown-border-color: $gray-300;
+$btn-link-disabled-color: rgba($gray-300, .3);
+$nav-link-disabled-color: $btn-link-disabled-color;
+$pagination-disabled-color: $btn-link-disabled-color;
+$pagination-disabled-bg: $btn-link-disabled-color;
 $font-family-sans-serif: "ALT Riviera", "Helvetica Neue", Arial, sans-serif;
 $font-family-monospace: "FK Grotesk Mono Trial", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
-$table-bg-level: -2;
 $btn-font-family: $font-family-monospace;
 
 /*-- scss:rules --*/
@@ -89,6 +106,10 @@ input {
     letter-spacing: -0.00875rem;
     text-transform: uppercase;
     font-family: $font-family-monospace;
+}
+
+.btn-secondary {
+  color: $black;
 }
 
 /* ALT Riviera - Regular */
