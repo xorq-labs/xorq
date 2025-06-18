@@ -38,9 +38,6 @@ jobs:
       - name: download test data
         run: just download-data
 
-      - name: Rust latest
-        run: rustup update
-
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
