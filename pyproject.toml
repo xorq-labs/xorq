@@ -35,7 +35,6 @@ dependencies = [
     "xorq-datafusion==0.2.2",
     "opentelemetry-sdk>=1.32.1",
     "opentelemetry-exporter-otlp>=1.32.1",
-    "pyiceberg[sql-sqlite,sql-postgres]>=0.9.0",
 ]
 requires-python = ">=3.10"
 authors = [
@@ -66,6 +65,9 @@ Issues = "https://github.com/letsql/xorq/issues"
 Changelog = "https://github.com/letsql/xorq/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
+pyiceberg = [
+    "pyiceberg[sql-sqlite,sql-postgres]>=0.9.0",
+]
 duckdb = [
     "duckdb>=1.1.3",
 ]
