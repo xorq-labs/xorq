@@ -26,7 +26,7 @@ let
     ${pkgs.gh}/bin/gh config set browser false
   '';
 
-  letsql-fmt = pkgs.writeShellScriptBin "letsql-fmt" ''
+  xorq-fmt = pkgs.writeShellScriptBin "xorq-fmt" ''
     set -eux
 
     ${python}/bin/python -m black .
@@ -34,14 +34,14 @@ let
     ${python}/bin/python -m ruff --fix .
   '';
 
-  letsql-lint = pkgs.writeShellScriptBin "letsql-lint" ''
+  xorq-lint = pkgs.writeShellScriptBin "xorq-lint" ''
     set -eux
 
     ${python}/bin/python -m black --quiet --check .
     ${python}/bin/python -m ruff .
   '';
 
-  letsql-download-data = pkgs.writeShellScriptBin "letsql-download-data" ''
+  xorq-download-data = pkgs.writeShellScriptBin "xorq-download-data" ''
     set -eux
 
     owner=''${1:-ibis-project}
@@ -67,28 +67,28 @@ let
     fi
   '';
 
-  letsql-ensure-download-data = pkgs.writeShellScriptBin "letsql-ensure-download-data" ''
+  xorq-ensure-download-data = pkgs.writeShellScriptBin "xorq-ensure-download-data" ''
     git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit
     repo_dir=$(realpath "$git_dir/..")
     if [ "$(dirname "$repo_dir")" = "xorq" ] && [ ! -d "$repo_dir/ci/ibis-testing-data" ]; then
-      ${letsql-download-data}/bin/letsql-download-data
+      ${xorq-download-data}/bin/xorq-download-data
     fi
   '';
 
-  letsql-docker-compose-up = pkgs.writeShellScriptBin "letsql-docker-compose-up" ''
+  xorq-docker-compose-up = pkgs.writeShellScriptBin "xorq-docker-compose-up" ''
     set -eux
 
     backends=''${@}
     ${pkgs.docker-compose}/bin/docker-compose up --build --wait ''${backends[@]}
   '';
 
-  letsql-newgrp-docker-compose-up = pkgs.writeShellScriptBin "letsql-newgrp-docker-compose-up" ''
+  xorq-newgrp-docker-compose-up = pkgs.writeShellScriptBin "xorq-newgrp-docker-compose-up" ''
     set -eux
 
-    newgrp docker <<<"${letsql-docker-compose-up}/bin/letsql-docker-compose-up ''${@}"
+    newgrp docker <<<"${xorq-docker-compose-up}/bin/xorq-docker-compose-up ''${@}"
   '';
 
-  letsql-git-config-blame-ignore-revs = pkgs.writeShellScriptBin "letsql-git-config-blame-ignore-revs" ''
+  xorq-git-config-blame-ignore-revs = pkgs.writeShellScriptBin "xorq-git-config-blame-ignore-revs" ''
     set -eux
 
     # https://black.readthedocs.io/en/stable/guides/introducing_black_to_your_project.html#avoiding-ruining-git-blame
@@ -138,26 +138,26 @@ let
       --feature-gates otelcol.printInitialConfig
   '';
 
-  letsql-commands = {
+  xorq-commands = {
     inherit
       xorq-kill-lsof-grep-port
-      letsql-fmt
-      letsql-lint
-      letsql-ensure-download-data
-      letsql-docker-compose-up
-      letsql-newgrp-docker-compose-up
-      letsql-git-config-blame-ignore-revs
+      xorq-fmt
+      xorq-lint
+      xorq-ensure-download-data
+      xorq-docker-compose-up
+      xorq-newgrp-docker-compose-up
+      xorq-git-config-blame-ignore-revs
       xorq-gh-config-set-browser-false
       xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
       xorq-cachix-use xorq-cachix-push
       ;
   };
 
-  letsql-commands-star = pkgs.buildEnv {
-    name = "letsql-commands-star";
-    paths = builtins.attrValues letsql-commands;
+  xorq-commands-star = pkgs.buildEnv {
+    name = "xorq-commands-star";
+    paths = builtins.attrValues xorq-commands;
   };
 in
 {
-  inherit letsql-commands letsql-commands-star;
+  inherit xorq-commands xorq-commands-star;
 }
