@@ -78,7 +78,7 @@ let
   xorq-ensure-download-data = pkgs.writeShellScriptBin "xorq-ensure-download-data" ''
     git_dir=$(git rev-parse --git-dir 2>/dev/null) || exit
     repo_dir=$(realpath "$git_dir/..")
-    if [ "$(dirname "$repo_dir")" = "xorq" ] && [ ! -d "$repo_dir/ci/ibis-testing-data" ]; then
+    if [ "$(basename "$repo_dir")" = "xorq" ] && [ ! -d "$repo_dir/ci/ibis-testing-data" ]; then
       ${xorq-download-data}/bin/xorq-download-data
     fi
   '';
