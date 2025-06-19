@@ -26,20 +26,6 @@ let
     ${pkgs.gh}/bin/gh config set browser false
   '';
 
-  letsql-pytest = pkgs.writeShellScriptBin "letsql-pytest" ''
-    set -eux
-
-    # see https://docs.pytest.org/en/latest/explanation/pythonpath.html#import-mode-importlib
-    required_dir="$(git rev-parse --show-toplevel)/python/xorq"
-
-    case $PWD/ in
-      "$required_dir"*) true;;
-      *) echo "must run from inside $required_dir"; exit 1
-    esac
-
-    ${python}/bin/python -m pytest --import-mode=importlib "''${@}"
-  '';
-
   letsql-fmt = pkgs.writeShellScriptBin "letsql-fmt" ''
     set -eux
 
@@ -102,27 +88,12 @@ let
     newgrp docker <<<"${letsql-docker-compose-up}/bin/letsql-docker-compose-up ''${@}"
   '';
 
-  letsql-git-fetch-origin-pull = pkgs.writeShellScriptBin "letsql-git-fetch-origin-pull" ''
-    set -eux
-
-    PR=$1
-    branchname="origin-pr-$PR"
-    git fetch origin pull/$PR/head:$branchname
-  '';
-
   letsql-git-config-blame-ignore-revs = pkgs.writeShellScriptBin "letsql-git-config-blame-ignore-revs" ''
     set -eux
 
     # https://black.readthedocs.io/en/stable/guides/introducing_black_to_your_project.html#avoiding-ruining-git-blame
     ignore_revs_file=''${1:-.git-blame-ignore-revs}
     ${pkgs.git}/bin/git config blame.ignoreRevsFile "$ignore_revs_file"
-  '';
-
-  letsql-maturin-build = pkgs.writeShellScriptBin "letsql-maturin-build" ''
-    set -eux
-    repo_dir=$(git rev-parse --show-toplevel)
-    cd "$repo_dir"
-    ${python}/bin/maturin build --release
   '';
 
   xorq-docker-run-otel-collector = pkgs.writeShellScriptBin "xorq-docker-run-otel-collector" ''
@@ -170,15 +141,12 @@ let
   letsql-commands = {
     inherit
       xorq-kill-lsof-grep-port
-      letsql-pytest
       letsql-fmt
       letsql-lint
       letsql-ensure-download-data
       letsql-docker-compose-up
       letsql-newgrp-docker-compose-up
-      letsql-git-fetch-origin-pull
       letsql-git-config-blame-ignore-revs
-      letsql-maturin-build
       xorq-gh-config-set-browser-false
       xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
       xorq-cachix-use xorq-cachix-push
