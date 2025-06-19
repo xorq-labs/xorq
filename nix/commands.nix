@@ -12,6 +12,21 @@ let
       ${pkgs.cachix}/bin/cachix push ${cachix-cache}
   '';
 
+  xorq-fmt = pkgs.writeShellScriptBin "xorq-fmt" ''
+    set -eux
+
+    ${python}/bin/python -m black .
+    ${python}/bin/python -m blackdoc .
+    ${python}/bin/python -m ruff --fix .
+  '';
+
+  xorq-lint = pkgs.writeShellScriptBin "xorq-lint" ''
+    set -eux
+
+    ${python}/bin/python -m black --quiet --check .
+    ${python}/bin/python -m ruff .
+  '';
+
   xorq-kill-lsof-grep-port = pkgs.writeShellScriptBin "xorq-kill-lsof-grep-port" ''
     set -eux
 
@@ -26,19 +41,12 @@ let
     ${pkgs.gh}/bin/gh config set browser false
   '';
 
-  xorq-fmt = pkgs.writeShellScriptBin "xorq-fmt" ''
+  xorq-git-config-blame-ignore-revs = pkgs.writeShellScriptBin "xorq-git-config-blame-ignore-revs" ''
     set -eux
 
-    ${python}/bin/python -m black .
-    ${python}/bin/python -m blackdoc .
-    ${python}/bin/python -m ruff --fix .
-  '';
-
-  xorq-lint = pkgs.writeShellScriptBin "xorq-lint" ''
-    set -eux
-
-    ${python}/bin/python -m black --quiet --check .
-    ${python}/bin/python -m ruff .
+    # https://black.readthedocs.io/en/stable/guides/introducing_black_to_your_project.html#avoiding-ruining-git-blame
+    ignore_revs_file=''${1:-.git-blame-ignore-revs}
+    ${pkgs.git}/bin/git config blame.ignoreRevsFile "$ignore_revs_file"
   '';
 
   xorq-download-data = pkgs.writeShellScriptBin "xorq-download-data" ''
@@ -109,14 +117,6 @@ let
     newgrp docker <<<"${xorq-docker-compose-up}/bin/xorq-docker-compose-up ''${@}"
   '';
 
-  xorq-git-config-blame-ignore-revs = pkgs.writeShellScriptBin "xorq-git-config-blame-ignore-revs" ''
-    set -eux
-
-    # https://black.readthedocs.io/en/stable/guides/introducing_black_to_your_project.html#avoiding-ruining-git-blame
-    ignore_revs_file=''${1:-.git-blame-ignore-revs}
-    ${pkgs.git}/bin/git config blame.ignoreRevsFile "$ignore_revs_file"
-  '';
-
   xorq-docker-run-otel-collector = pkgs.writeShellScriptBin "xorq-docker-run-otel-collector" ''
     set -eux
 
@@ -161,17 +161,15 @@ let
 
   xorq-commands = {
     inherit
-      xorq-kill-lsof-grep-port
+      xorq-cachix-use xorq-cachix-push
       xorq-fmt
       xorq-lint
-      xorq-ensure-download-data
-      xorq-docker-compose-up
-      xorq-newgrp-docker-compose-up
-      xorq-git-config-blame-ignore-revs
+      xorq-kill-lsof-grep-port
       xorq-gh-config-set-browser-false
-      xorq-install-docker
+      xorq-git-config-blame-ignore-revs
+      xorq-ensure-download-data
+      xorq-install-docker xorq-docker-compose-up xorq-newgrp-docker-compose-up
       xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
-      xorq-cachix-use xorq-cachix-push
       ;
   };
 
