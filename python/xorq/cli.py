@@ -182,16 +182,16 @@ def serve_command(
             (getattr(node, "udxf", None) for node in walk_nodes((FlightUDXF,), expr)),
         )
     )
-    flight_url = FlightUrl(host=host or None, port=port)
     server = FlightServer(
-        flight_url,
+        FlightUrl(host=host or None, port=port),
         connection=partial(xo.duckdb.connect, str(db_path)),
         exchangers=list(udxf_clss),
     )
     for udxf_cls in udxf_clss:
         logger.info(f"Registering exchanger: {udxf_cls.command}")
-    location = flight_url.to_location()
-    logger.info(f"Serving expression '{expr_hash}' on {location}")
+    logger.info(
+        f"Serving expression '{expr_hash}' on {server.flight_url.to_location()}"
+    )
     server.serve(block=True)
 
 
