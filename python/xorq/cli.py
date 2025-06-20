@@ -3,6 +3,7 @@ import os
 import pdb
 import sys
 import traceback
+from functools import partial
 from pathlib import Path
 
 from opentelemetry import trace
@@ -174,9 +175,6 @@ def serve_command(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
 
-    def _make_con():
-        return xo.duckdb.connect(str(db_path))
-
     exchangers = []
     seen = set()
     # Find all FlightUDXF nodes in the expression
@@ -189,7 +187,7 @@ def serve_command(
     flight_url = FlightUrl(host=host or None, port=port)
     server = FlightServer(
         flight_url,
-        connection=_make_con,
+        connection=partial(xo.duckdb.connect, str(db_path)),
         exchangers=exchangers,
     )
     if exchangers:
