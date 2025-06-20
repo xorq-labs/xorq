@@ -1,6 +1,5 @@
 import functools
 import json
-import operator
 import os
 from pathlib import Path
 from urllib.parse import unquote_plus
@@ -109,9 +108,7 @@ schema_requirement = xo.schema({input_col: "str"})
 schema_append = xo.schema({append_col: "str"})
 maybe_schema_in = toolz.compose(schema_contains(schema_requirement), xo.schema)
 maybe_schema_out = toolz.compose(
-    operator.methodcaller("to_pyarrow"),
     schema_concat(to_concat=schema_append),
-    xo.Schema.from_pyarrow,
 )
 
 
