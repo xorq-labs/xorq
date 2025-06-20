@@ -9,10 +9,8 @@ website:
 
   page-footer:
     center: "This page is built with [Quarto](https://quarto.org/)."
-    background: "#A7D5E8"
 
   navbar:
-    background: "#A7D5E8"
     logo: "images/xorq-light-mode-logo.png"
     align: center
     title: false
@@ -63,11 +61,6 @@ website:
     - id: api-reference
       title: "API Reference"
       contents:
-        - href: api-reference.qmd
-        - id: backend-api
-          section: "Backend API"
-          contents:
-            - href: api/let.qmd
         - id: expression-api
           section: "Expression API"
           contents:
@@ -81,8 +74,8 @@ website:
 format:
   html:
     theme:
-      light: "style/light.scss"
-      dark: "style/dark.scss"
+      dark:  "style/dark.scss"
+      light: ["flatly", "style/light.scss"]
     toc: true
     code-copy: true
     code-overflow: wrap

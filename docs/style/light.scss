@@ -2,6 +2,7 @@
 $navbar-bg: #F0FBFF !default;
 $enable-rounded: false;
 $white: #05181A;
+$navbar-fg: $white;
 $black: #F0FBFF;
 $blue: #C1F0FF;
 $cyan: #79E2FF;
@@ -116,6 +117,15 @@ input {
 .sourceCode {
     border: 1px solid $gray-300 !important;
 }
+
+//.navbar {
+//    --bs-navbar-color: $white;
+//    --bs-navbar-hover-color: rgba($white, 0.8);
+//    --bs-navbar-disabled-color: rgba($white, 0.75);
+//    --bs-navbar-active-color: $gray-300;
+//    --bs-navbar-brand-color: $white;
+//    --bs-navbar-brand-hover-color: $gray-300;
+//}
 
 /* ALT Riviera - Regular */
 @font-face {

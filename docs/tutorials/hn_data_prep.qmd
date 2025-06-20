@@ -37,6 +37,8 @@ pip install xorq pandas
 Then import the necessary modules:
 
 ```{python}
+#| eval: false
+
 import pandas as pd
 import xorq as xo
 import xorq.expr.datatypes as dt
@@ -45,7 +47,7 @@ from xorq.caching import ParquetStorage
 from xorq.common.utils.import_utils import import_python
 
 m = import_python(xo.options.pins.get_path("hackernews_lib", version="20250604T223424Z-2e578"))
-o = import_python("/home/daniel/PycharmProjects/public-letsql/examples/libs/openai_lib.py")
+o = import_python(xo.options.pins.get_path("openai_lib", version="20250604T223419Z-0ce44"))
 ```
 
 ::: {.callout-note}
@@ -65,6 +67,8 @@ them based on the code snippets in the Appendix.
 We'll define a User-Defined Exchanger Function (UDXF) that fetches HackerNews stories:
 
 ```{python}
+#| eval: false
+
 do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
     process_df=m.get_hackernews_stories_batch,
     maybe_schema_in=m.schema_in.to_pyarrow(),
@@ -84,6 +88,8 @@ change the variable `name` of the code below to `"hn-fetcher-input-small"`
 :::
 
 ```{python}
+#| eval: false
+
 name = "hn-fetcher-input-small" # or use hn-fetcher-input-large 
 con = xo.connect()
 storage = ParquetStorage(source=con)
@@ -94,6 +100,8 @@ storage = ParquetStorage(source=con)
 Now, let's set up our complete data pipeline:
 
 ```{python}
+#| eval: false
+
 # Start by reading the input for the show HN
 raw_expr = (
     xo.deferred_read_parquet(
@@ -130,6 +138,8 @@ t = (
 Now let's execute the pipeline to get our labeled DataFrame:
 
 ```{python}
+#| eval: false
+
 # Execute the pipeline and get the final DataFrame
 labeled_df = t.execute()
 
