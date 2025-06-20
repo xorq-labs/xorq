@@ -106,7 +106,7 @@ class NumericValue(Value):
         │             2 │
         │             3 │
         └───────────────┘
-        >>> t.values.round(digits=1)
+        >>> t.values.round(1)
         ┏━━━━━━━━━━━━━━━━━━┓
         ┃ Round(values, 1) ┃
         ┡━━━━━━━━━━━━━━━━━━┩
@@ -154,7 +154,7 @@ class NumericValue(Value):
         >>> import ibis
         >>> ibis.options.interactive = True
         >>> t = ibis.memtable({"values": [10, 100, 1000]})
-        >>> t.values.log(base=10)
+        >>> t.values.log(10)
         ┏━━━━━━━━━━━━━━━━━┓
         ┃ Log(values, 10) ┃
         ┡━━━━━━━━━━━━━━━━━┩

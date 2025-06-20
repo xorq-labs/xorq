@@ -150,7 +150,7 @@ class Table(Expr, _FixedTextJupyterMixin):
     Analogous to a SQL table or a pandas DataFrame. A table expression contains
     an [ordered set of named columns](./schemas.qmd#ibis.expr.schema.Schema),
     each with a single known type. Unless explicitly ordered with an
-    [`.order_by()`](./expression-tables.qmd#letsql.expr.types.relations.Table.order_by),
+    [`.order_by()`](./expression-tables.qmd#xorq.expr.types.relations.Table.order_by),
     the order of rows is undefined.
 
     Table immutability means that the data underlying an Ibis `Table` cannot be modified: every
@@ -165,11 +165,11 @@ class Table(Expr, _FixedTextJupyterMixin):
     You will not create Table objects directly. Instead, you will create one
 
     - from a pandas DataFrame, pyarrow table, Polars table, or raw python dicts/lists
-      with [`letsql.memtable(df)`](./expression-tables.qmd#letsql.memtable)
+      with [`xorq.memtable(df)`](./expression-tables.qmd#xorq.memtable)
     - from an existing table in a data platform with
-      [`connection.table("name")`](./expression-tables.qmd#letsql.backends.duckdb.Backend.table)
+      [`connection.table("name")`](./expression-tables.qmd#xorq.backends.duckdb.Backend.table)
     - from a file or URL, into a specific backend with
-      [`connection.read_csv/parquet/json("path/to/file")`](../backends/duckdb.qmd#letsql.backends.duckdb.Backend.read_csv)
+      [`connection.read_csv/parquet/json("path/to/file")`](../backends/duckdb.qmd#xorq.backends.duckdb.Backend.read_csv)
       (only some backends, typically local ones, support this)
     - from a file or URL, into the default backend with
        [`ibis.read_csv/read_json/read_parquet("path/to/file")`](./expression-tables.qmd#ibis.read_csv)
@@ -302,9 +302,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> heavy_gentoo = t.filter(t.species == "Gentoo", t.body_mass_g > 6200)
         >>> from_that_island = t.filter(t.island == heavy_gentoo.select("island").as_scalar())
         >>> from_that_island.species.value_counts().order_by("species")
@@ -331,8 +331,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> t = ls.table(dict(a="int"), name="t")
+        >>> import xorq as xo
+        >>> t = xo.table(dict(a="int"), name="t")
         >>> s = t.as_table()
         >>> t is s
         True
@@ -354,8 +354,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> t = ls.table(dict(a="string", b="float"), name="t")
+        >>> import xorq as xo
+        >>> t = xo.table(dict(a="string", b="float"), name="t")
         >>> "a" in t
         True
         >>> "c" in t
@@ -384,10 +384,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.selectors as s
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.schema()
         ibis.Schema {
           species            string
@@ -515,8 +515,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> t = xo.examples.penguins.fetch(deferred=False)
 
         Because the console_width is too small, only 2 columns are shown even though
         we specified up to 3.
@@ -569,9 +569,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch().head()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False).head()
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
         ┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
@@ -703,9 +703,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.island
         ┏━━━━━━━━━━━┓
         ┃ island    ┃
@@ -760,9 +760,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.columns
         ['species', 'island', 'bill_length_mm', 'bill_depth_mm', 'flipper_length_mm', 'body_mass_g', 'sex', 'year']
         """
@@ -778,9 +778,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.schema()
         ibis.Schema {
           species            string
@@ -818,10 +818,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable(
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable(
         ...     {
         ...         "fruit": ["apple", "apple", "banana", "orange"],
         ...         "price": [0.5, 0.5, 0.25, 0.33],
@@ -931,10 +931,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable(
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable(
         ...     {
         ...         "fruit": ["apple", "apple", "banana", "orange"],
         ...         "price": [0.5, 0.5, 0.25, 0.33],
@@ -1032,10 +1032,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.examples as ex
         >>> import xorq.selectors as s
-        >>> ls.options.interactive = True
+        >>> xo.options.interactive = True
         >>> t = ex.penguins.fetch()
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
@@ -1225,9 +1225,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable({"x": [1, 2, 3, 4], "y": ["a", "b", "c", "d"]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable({"x": [1, 2, 3, 4], "y": ["a", "b", "c", "d"]})
         >>> t
         ┏━━━━━━━┳━━━━━━━━┓
         ┃ x     ┃ y      ┃
@@ -1284,9 +1284,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
         >>> t
         ┏━━━━━━━┳━━━━━━━━┓
         ┃ a     ┃ b      ┃
@@ -1344,9 +1344,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
         >>> t
         ┏━━━━━━━┳━━━━━━━━┓
         ┃ a     ┃ b      ┃
@@ -1400,9 +1400,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable(
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable(
         ...     {
         ...         "a": [3, 2, 1, 3],
         ...         "b": ["a", "B", "c", "D"],
@@ -1437,7 +1437,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Sort in descending order
 
-        >>> t.order_by(ls.desc("b"))
+        >>> t.order_by(xo.desc("b"))
         ┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
         ┃ a     ┃ b      ┃ c     ┃
         ┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
@@ -1495,7 +1495,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         This means that shuffling a Table is super simple
 
-        >>> t.order_by(ls.random())  # doctest: +SKIP
+        >>> t.order_by(xo.random())  # doctest: +SKIP
         ┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
         ┃ a     ┃ b      ┃ c     ┃
         ┡━━━━━━━╇━━━━━━━━╇━━━━━━━┩
@@ -1511,7 +1511,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         multiple columns matching some criteria
 
         >>> import xorq.selectors as s
-        >>> penguins = ls.examples.penguins.fetch()
+        >>> penguins = xo.examples.penguins.fetch(deferred=False)
         >>> penguins[["year", "island"]].value_counts().order_by(s.startswith("year"))
         ┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
         ┃ year  ┃ island    ┃ year_island_count ┃
@@ -1609,9 +1609,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t1 = ls.memtable({"a": [1, 2]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t1 = xo.memtable({"a": [1, 2]})
         >>> t1
         ┏━━━━━━━┓
         ┃ a     ┃
@@ -1621,7 +1621,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         │     1 │
         │     2 │
         └───────┘
-        >>> t2 = ls.memtable({"a": [2, 3]})
+        >>> t2 = xo.memtable({"a": [2, 3]})
         >>> t2
         ┏━━━━━━━┓
         ┃ a     ┃
@@ -1680,9 +1680,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t1 = ls.memtable({"a": [1, 2]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t1 = xo.memtable({"a": [1, 2]})
         >>> t1
         ┏━━━━━━━┓
         ┃ a     ┃
@@ -1692,7 +1692,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         │     1 │
         │     2 │
         └───────┘
-        >>> t2 = ls.memtable({"a": [2, 3]})
+        >>> t2 = xo.memtable({"a": [2, 3]})
         >>> t2
         ┏━━━━━━━┓
         ┃ a     ┃
@@ -1738,9 +1738,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t1 = ls.memtable({"a": [1, 2]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t1 = xo.memtable({"a": [1, 2]})
         >>> t1
         ┏━━━━━━━┓
         ┃ a     ┃
@@ -1750,7 +1750,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         │     1 │
         │     2 │
         └───────┘
-        >>> t2 = ls.memtable({"a": [2, 3]})
+        >>> t2 = xo.memtable({"a": [2, 3]})
         >>> t2
         ┏━━━━━━━┓
         ┃ a     ┃
@@ -1807,11 +1807,11 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.selectors as s
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch().select("species", "year", "bill_length_mm")
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False).select("species", "year", "bill_length_mm")
         >>> t
         ┏━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━━━━┓
         ┃ species ┃ year  ┃ bill_length_mm ┃
@@ -1916,9 +1916,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
         ┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
@@ -2218,9 +2218,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
         ┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
@@ -2308,9 +2308,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
         ┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
@@ -2382,9 +2382,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable({"a": ["foo", "bar", "bar"]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable({"a": ["foo", "bar", "bar"]})
         >>> t
         ┏━━━━━━━━┓
         ┃ a      ┃
@@ -2423,9 +2423,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.memtable({"a": ["foo", "bar", "baz"]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable({"a": ["foo", "bar", "baz"]})
         >>> t
         ┏━━━━━━━━┓
         ┃ a      ┃
@@ -2475,9 +2475,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
         ┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
@@ -2540,9 +2540,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.sex
         ┏━━━━━━━━┓
         ┃ sex    ┃
@@ -2671,9 +2671,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.info()
         ┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━┳━━━┓
         ┃ name              ┃ type    ┃ nullable ┃ nulls ┃ non_nulls ┃ null_frac ┃ … ┃
@@ -2735,10 +2735,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.selectors as s
-        >>> ls.options.interactive = True
-        >>> p = ls.examples.penguins.fetch()
+        >>> xo.options.interactive = True
+        >>> p = xo.examples.penguins.fetch(deferred=False)
         >>> p.describe() # doctest: +SKIP
         ┏━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━┓
         ┃ name              ┃ pos   ┃ type    ┃ count ┃ nulls ┃ unique ┃ mode   ┃ … ┃
@@ -2889,10 +2889,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> movies = ls.examples.ml_latest_small_movies.fetch()
+        >>> xo.options.interactive = True
+        >>> movies = xo.examples.ml_latest_small_movies.fetch()
         >>> movies.head()
         ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
         ┃ movieId ┃ title                            ┃ genres                          ┃
@@ -2905,7 +2905,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         │       4 │ Waiting to Exhale (1995)         │ Comedy|Drama|Romance            │
         │       5 │ Father of the Bride Part II (19… │ Comedy                          │
         └─────────┴──────────────────────────────────┴─────────────────────────────────┘
-        >>> ratings = ls.examples.ml_latest_small_ratings.fetch().drop("timestamp")
+        >>> ratings = xo.examples.ml_latest_small_ratings.fetch().drop("timestamp")
         >>> ratings.head()
         ┏━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┓
         ┃ userId ┃ movieId ┃ rating  ┃
@@ -2955,7 +2955,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         │      1 │      50 │     5.0 │ Usual Suspects, The (… │ Crime|Mystery|Thriller │
         └────────┴─────────┴─────────┴────────────────────────┴────────────────────────┘
 
-        >>> tags = ls.examples.ml_latest_small_tags.fetch()
+        >>> tags = xo.examples.ml_latest_small_tags.fetch()
         >>> tags.head()
         ┏━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━┓
         ┃ userId ┃ movieId ┃ tag             ┃ timestamp  ┃
@@ -3104,11 +3104,11 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.selectors as s
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.count()
         ┌─────┐
         │ 344 │
@@ -3181,9 +3181,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch()
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> expr = t.alias("pingüinos").sql('SELECT * FROM "pingüinos" LIMIT 5')
         >>> expr
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
@@ -3218,10 +3218,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> t = ls.examples.penguins.fetch(table_name="penguins")
+        >>> xo.options.interactive = True
+        >>> t = xo.examples.penguins.fetch(table_name="penguins", deferred=False)
         >>> expr = t.sql(
         ...     """
         ...     SELECT island, mean(bill_length_mm) AS avg_bill_length
@@ -3243,7 +3243,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Mix and match ibis expressions with SQL queries
 
-        >>> t = ls.examples.penguins.fetch(table_name="penguins")
+        >>> t = xo.examples.penguins.fetch(table_name="penguins", deferred=False)
         >>> expr = t.sql(
         ...     """
         ...     SELECT island, mean(bill_length_mm) AS avg_bill_length
@@ -3460,11 +3460,11 @@ class Table(Expr, _FixedTextJupyterMixin):
         --------
         Basic usage
 
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.selectors as s
         >>> from xorq import _
-        >>> ls.options.interactive = True
-        >>> relig_income = ls.examples.relig_income_raw.fetch()
+        >>> xo.options.interactive = True
+        >>> relig_income = xo.examples.relig_income_raw.fetch()
         >>> relig_income
         ┏━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┳━━━┓
         ┃ religion                ┃ <$10k ┃ $10-20k ┃ $20-30k ┃ $30-40k ┃ $40-50k ┃ … ┃
@@ -3509,7 +3509,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         Similarly for a different example dataset, we convert names to values
         but using a different selector and the default `values_to` value.
 
-        >>> world_bank_pop = ls.examples.world_bank_pop_raw.fetch()
+        >>> world_bank_pop = xo.examples.world_bank_pop_raw.fetch()
         >>> world_bank_pop.head()
         ┏━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━┓
         ┃ country ┃ indicator   ┃ 2000         ┃ 2001         ┃ 2002         ┃ … ┃
@@ -3538,7 +3538,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         `pivot_longer` has some preprocessing capabilities like stripping a prefix and applying
         a function to column names
 
-        >>> billboard = ls.examples.billboard.fetch()
+        >>> billboard = xo.examples.billboard.fetch()
         >>> billboard
         ┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━┓
         ┃ artist         ┃ track                   ┃ date_entered ┃ wk1   ┃ wk2   ┃ … ┃
@@ -3586,7 +3586,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         You can use regular expression capture groups to extract multiple
         variables stored in column names
 
-        >>> who = ls.examples.who.fetch()
+        >>> who = xo.examples.who.fetch()
         >>> who
         ┏━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━━━━━━━┳━━━┓
         ┃ country     ┃ iso2   ┃ iso3   ┃ year  ┃ new_sp_m014 ┃ new_sp_m1524 ┃ … ┃
@@ -3805,10 +3805,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> import xorq.selectors as s
         >>> from xorq import _
-        >>> ls.options.interactive = True
+        >>> xo.options.interactive = True
 
         Basic usage
 
@@ -3852,7 +3852,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         You can do simple transpose-like operations using `pivot_wider`
 
-        >>> t = ls.memtable(dict(outcome=["yes", "no"], counted=[3, 4]))
+        >>> t = xo.memtable(dict(outcome=["yes", "no"], counted=[3, 4]))
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━┓
         ┃ outcome ┃ counted ┃
@@ -3896,7 +3896,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Compute multiple values columns
 
-        >>> us_rent_income = ls.examples.us_rent_income.fetch()
+        >>> us_rent_income = xo.examples.us_rent_income.fetch()
         >>> us_rent_income
         ┏━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┓
         ┃ geoid  ┃ name       ┃ variable ┃ estimate ┃ moe   ┃
@@ -3963,7 +3963,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Supply an alternative function to summarize values
 
-        >>> warpbreaks = ls.examples.warpbreaks.fetch().select("wool", "tension", "breaks")
+        >>> warpbreaks = xo.examples.warpbreaks.fetch().select("wool", "tension", "breaks")
         >>> warpbreaks
         ┏━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┓
         ┃ wool   ┃ tension ┃ breaks ┃
@@ -4032,7 +4032,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         >>> import random
         >>> random.seed(0)
-        >>> raw = ls.memtable(
+        >>> raw = xo.memtable(
         ...     [
         ...         dict(
         ...             product=product,
@@ -4244,10 +4244,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
-        >>> ls.options.interactive = True
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
         >>> import xorq.selectors as s
-        >>> t = ls.memtable(dict(a=[1], b=[1], c=[1], d=["a"], e=["a"], f=["a"]))
+        >>> t = xo.memtable(dict(a=[1], b=[1], c=[1], d=["a"], e=["a"], f=["a"]))
         >>> t
         ┏━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓
         ┃ a     ┃ b     ┃ c     ┃ d      ┃ e      ┃ f      ┃
@@ -4323,7 +4323,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         When multiple columns are selected with `before` or `after`, those
         selected columns are moved before and after the `selectors` input
 
-        >>> t = ls.memtable(dict(a=[1], b=["a"], c=[1], d=["a"]))
+        >>> t = xo.memtable(dict(a=[1], b=["a"], c=[1], d=["a"]))
         >>> t.relocate(s.numeric(), after=s.of_type("string"))
         ┏━━━━━━━━┳━━━━━━━━┳━━━━━━━┳━━━━━━━┓
         ┃ b      ┃ d      ┃ a     ┃ c     ┃
@@ -4465,9 +4465,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as ls
+        >>> import xorq as xo
         >>> from xorq import examples
-        >>> ls.options.interactive = True
+        >>> xo.options.interactive = True
         >>> t = examples.penguins.fetch()
         >>> t.head()
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
