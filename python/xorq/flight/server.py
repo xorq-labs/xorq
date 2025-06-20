@@ -175,6 +175,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             table = cmd["table_name"]
             kwargs = cmd.get("kwargs", {})
 
+        # should we do a streaming operation instead of a read_all?
         data = copy_rbr_batches(reader).read_all()
         with self.lock:
             if table in self._conn.tables:
