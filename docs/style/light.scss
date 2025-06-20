@@ -1,4 +1,5 @@
 /*-- scss:defaults --*/
+$navbar-bg: #F0FBFF !default;
 $enable-rounded: false;
 $white: #05181A;
 $black: #F0FBFF;
@@ -42,7 +43,7 @@ $input-bg: $black;
 $list-group-color: $black;
 $table-bg-level: 11;
 $emphasized-link-hover-darken-percentage: 25%;
-//$link-hover-color: darken($link-color, 25%);
+$link-color: $white;
 $navbar-dark-disabled-color: rgba($black, .25);
 $navbar-light-color: rgba($white, .5);
 $navbar-light-hover-color: rgba($white, .7);
@@ -64,9 +65,9 @@ h1, h2, h3, h4, h5 {
     font-weight: 400;
 }
 
-//body {
-//    font-weight: $font-weight-normal;
-//}
+body {
+    font-weight: $font-weight-normal;
+}
 
 h1 {
     font-size: 4.5rem;
@@ -110,6 +111,10 @@ input {
 
 .btn-secondary {
   color: $black;
+}
+
+.sourceCode {
+    border: 1px solid $gray-300 !important;
 }
 
 /* ALT Riviera - Regular */

@@ -5,6 +5,7 @@ website:
   page-navigation: true
   title: "Xorq"
   description: "A modern data processing library focused on composability, portability and performance in critical path of ML."
+  favicon: "style/favicon.ico"
 
   page-footer:
     center: "This page is built with [Quarto](https://quarto.org/)."
@@ -12,7 +13,7 @@ website:
 
   navbar:
     background: "#A7D5E8"
-    logo: "images/logo.png"
+    logo: "images/xorq-light-mode-logo.png"
     align: center
     title: false
     collapse-below: lg

@@ -36,7 +36,9 @@ pip install xorq pandas scikit-learn xgboost
 
 Then import the necessary modules:
 
-```python
+```{python}
+#| eval: false
+
 import functools
 
 import pandas as pd
@@ -65,7 +67,7 @@ from xorq.flight import (
 
 # Import the helper modules we used in previous parts
 m = import_python(xo.options.pins.get_path("hackernews_lib"))
-o = import_python(xo.options.pins.get_path("openai_lib"))
+o = import_python("/home/daniel/PycharmProjects/public-letsql/examples/libs/openai_lib.py")
 ```
 
 ## Model Training Recap
@@ -74,7 +76,9 @@ First, let's quickly recap our model training process from Part 3. Assume we've 
 
 1. Defined our XGBoost model functions:
 
-```python
+```{python}
+#| eval: false
+
 @toolz.curry
 def fit_xgboost_model(feature_df, target_series, seed=0):
     xgb_r = xgb.XGBRegressor(
@@ -96,7 +100,9 @@ def predict_xgboost_model(model, df):
 
 2. Set up our column names and deferred operations:
 
-```python
+```{python}
+#| eval: false
+
 transform_col = "title"
 features = (transformed_col,) = (f"{transform_col}_transformed",)
 target = "sentiment_int"
@@ -119,10 +125,13 @@ deferred_fit_predict_xgb = deferred_fit_predict(
 
 3. Processed our data and split it into training and testing sets:
 
-```python
-name = "hn-fetcher-input-large"
+```{python}
+#| eval: false
+
+name = "hn-fetcher-input-small"
 con = xo.connect()
 storage = ParquetStorage(source=con)
+# xo.postgres.connect_env().create_catalog("caching")
 pg = xo.postgres.connect_env(database="caching")
 
 # Load and process the data
@@ -161,7 +170,9 @@ t = (
 
 4. Trained our TF-IDF and XGBoost models:
 
-```python
+```{python}
+#| eval: false
+
 # Fit and transform with TF-IDF
 (deferred_tfidf_model, tfidf_udaf, deferred_tfidf_transform) = (
     deferred_fit_transform_tfidf(
@@ -225,7 +236,7 @@ Now that we have our trained models, let's serve them using Flight.
 
 First, let's define the ports where our services will be available:
 
-```python
+```{python}
 # Define ports for our servers
 transform_port = 8915
 predict_port = 8916
@@ -235,7 +246,9 @@ predict_port = 8916
 
 Now, let's set up Flight servers for our TF-IDF transformation and XGBoost prediction services:
 
-```python
+```{python}
+#| eval: false
+
 # Create Flight servers for our models
 (transform_server, transform_do_exchange) = xo.expr.relations.flight_serve(
     test_expr.into_backend(xo.connect()).mutate(
@@ -263,7 +276,9 @@ such as specifying the port.
 
 Each Flight server provides a unique command that clients use to invoke the service:
 
-```python
+```{python}
+#| eval: false
+
 # Extract the commands for each server
 (transform_command, predict_command) = (
     do_exchange.args[1] for do_exchange in (transform_do_exchange, predict_do_exchange)
@@ -274,7 +289,9 @@ Each Flight server provides a unique command that clients use to invoke the serv
 
 Let's prepare some new data to make predictions on:
 
-```python
+```{python}
+#| eval: false
+
 # Create a dataset of new HackerNews stories
 z = (
     xo.memtable([{"maxitem": 43346282, "n": 1000}])
@@ -294,7 +311,9 @@ z = (
 Now that we have our Flight servers set up and new data to predict on, we can
 use the model directly in xorq:
 
-```python
+```{python}
+#| eval: false
+
 # Use the servers directly in xorq to make predictions
 # Note: do_exchange here takes expr (not RecordBatchReader like in a client)
 out = predict_do_exchange(xo.register(transform_do_exchange(z), "t")).read_pandas()
@@ -343,7 +362,11 @@ This completes our end-to-end tutorial series on sentiment analysis with xorq, c
 
 ## Appendix
 
-```python
+```{python}
+#| eval: false
+#| code-fold: true
+#| code-summary: HackerNews Serving Appendix
+
 import functools
 
 import pandas as pd
@@ -372,7 +395,7 @@ from xorq.flight import (
 
 
 m = import_python(xo.options.pins.get_path("hackernews_lib"))
-o = import_python(xo.options.pins.get_path("openai_lib"))
+o = import_python("/home/daniel/PycharmProjects/public-letsql/examples/libs/openai_lib.py")
 
 
 @toolz.curry
@@ -423,10 +446,10 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
 )
 
 
-name = "hn-fetcher-input-large"
+name = "hn-fetcher-input-small"
 con = xo.connect()
 storage = ParquetStorage(source=con)
-# pg.postgres.connect_env().create_catalog("caching")
+xo.postgres.connect_env().create_catalog("caching")
 pg = xo.postgres.connect_env(database="caching")
 raw_expr = (
     deferred_read_parquet(
