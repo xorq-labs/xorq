@@ -2,6 +2,7 @@ import time
 from typing import Optional
 
 import pyarrow as pa
+import toolz
 from opentelemetry import metrics
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.metrics.export import (
@@ -32,29 +33,24 @@ _throughput_hist = None
 
 class SimpleConsoleMetricExporter(MetricExporter):
     def export(self, metrics_data, timeout_millis: int = 0):
-        for rm in getattr(metrics_data, "resource_metrics", []):
-            for scope in getattr(rm, "scope_metrics", []):
-                for metric in getattr(scope, "metrics", []):
-                    name = metric.name
-                    data = metric.data
-                    for pt in data.data_points:
-                        if hasattr(pt, "value"):
-                            val = pt.value
-                            attrs = pt.attributes or {}
-                            suffix = (
-                                "{"
-                                + ",".join(f"{k}={v}" for k, v in attrs.items())
-                                + "}"
-                                if attrs
-                                else ""
-                            )
-                            logger.info(f"{name}{suffix} {val}")
-                        else:
-                            try:
-                                for q, v in pt.value.quantiles:
-                                    logger.info(f"{name}{{quantile={q}}} {v}")
-                            except Exception:
-                                pass
+        for metric in toolz.get_in(
+            ("resource_metrics", "scope_metrics", "metrics"), metrics_data, ()
+        ):
+            for pt in metric.data.data_points:
+                if hasattr(pt, "value"):
+                    attrs = pt.attributes or {}
+                    suffix = (
+                        "{" + ",".join(f"{k}={v}" for k, v in attrs.items()) + "}"
+                        if attrs
+                        else ""
+                    )
+                    logger.info(f"{metric.name}{suffix} {pt.val}")
+                else:
+                    try:
+                        for q, v in pt.value.quantiles:
+                            logger.info(f"{metric.name}{{quantile={q}}} {v}")
+                    except Exception:
+                        pass
         return MetricExportResult.SUCCESS
 
     def shutdown(self, *args, **kwargs) -> None:
