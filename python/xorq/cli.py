@@ -175,24 +175,21 @@ def serve_command(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
 
-    exchangers = []
-    seen = set()
     # Find all FlightUDXF nodes in the expression
-    udxf_nodes = walk_nodes((FlightUDXF,), expr)
-    for node in udxf_nodes:
-        udxf_cls = getattr(node, "udxf", None)
-        if udxf_cls and udxf_cls not in seen:
-            exchangers.append(udxf_cls)
-            seen.add(udxf_cls)
+    udxf_clss = set(
+        filter(
+            None,
+            (getattr(node, "udxf", None) for node in walk_nodes((FlightUDXF,), expr)),
+        )
+    )
     flight_url = FlightUrl(host=host or None, port=port)
     server = FlightServer(
         flight_url,
         connection=partial(xo.duckdb.connect, str(db_path)),
-        exchangers=exchangers,
+        exchangers=list(udxf_clss),
     )
-    if exchangers:
-        for udxf_cls in exchangers:
-            logger.info(f"Registering exchanger: {udxf_cls.command}")
+    for udxf_cls in udxf_clss:
+        logger.info(f"Registering exchanger: {udxf_cls.command}")
     location = flight_url.to_location()
     logger.info(f"Serving expression '{expr_hash}' on {location}")
     server.serve(block=True)
