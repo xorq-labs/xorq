@@ -751,7 +751,7 @@ sqlalchemy==2.0.41
     # via
     #   feast
     #   pyiceberg
-sqlglot==26.28.1
+sqlglot==25.20.2
     # via
     #   feast
     #   xorq

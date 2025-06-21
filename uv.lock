@@ -4438,11 +4438,11 @@ mypy = [
 
 [[package]]
 name = "sqlglot"
-version = "26.28.1"
+version = "25.20.2"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/05/93/cc69485de3f33f78c99abb499eb1bdb1e6be2b9306ff7dfd4c83c232d8fc/sqlglot-26.28.1.tar.gz", hash = "sha256:0ec81847b2828563964074f39de57a3cd4751476718a6f4c443fb8ae4a5d62cd", size = 5331324, upload_time = "2025-06-13T15:53:53.556Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d2/2d/41cb9c42858a33166354791fef092edc5ce72f0c6f3abf7402c63567ec5e/sqlglot-25.20.2.tar.gz", hash = "sha256:169fe8308dd70d7bd40117b2221b62bdc7c4e2ea8eb07394b2a6146cdedf05ab", size = 19429583, upload_time = "2024-09-24T17:03:37.543Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/fc/1c/8c12a753150c508087302f116de3ce7bfdb81a58801c2a65bdf9675c5fdc/sqlglot-26.28.1-py3-none-any.whl", hash = "sha256:94e1b536c869d28b620d8b00a15d6fa2db3562de3d0d9b9233ff48ad656bd041", size = 468075, upload_time = "2025-06-13T15:53:50.48Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/ae/d66e99b458fd0a453b5f2103f44cdcab67a9f1fbe47339be1c86b5e4e21e/sqlglot-25.20.2-py3-none-any.whl", hash = "sha256:cdbfd7ce3f2f39f32bd7b4c23fd9e0fd261636a6b14285b914e8def25fd0a567", size = 411245, upload_time = "2024-09-24T17:03:34.957Z" },
 ]
 
 [[package]]
@@ -5260,7 +5260,7 @@ requires-dist = [
     { name = "requests", marker = "extra == 'examples'", specifier = ">=2.32.3" },
     { name = "scikit-learn", marker = "extra == 'examples'", specifier = ">=1.4.0,<2.0.0" },
     { name = "snowflake-connector-python", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'snowflake'", specifier = ">=3.10.1,<4" },
-    { name = "sqlglot", specifier = ">=25.20.2" },
+    { name = "sqlglot", specifier = "==25.20.2" },
     { name = "structlog", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=24.2.0,<26" },
     { name = "toolz", specifier = ">=0.11" },
     { name = "typing-extensions", specifier = ">=4.3.0" },
