@@ -177,7 +177,7 @@ fastapi==0.115.13
     # via feast
 fastjsonschema==2.21.1
     # via nbformat
-feast @ git+https://github.com/xorq-labs/feast@7266c17a222f8a9d92b83a3752cfbb79976ee6ae
+feast @ git+https://github.com/xorq-labs/feast@97f1c3a0de0bc44912d0f549be68e9413ba9b63d
     # via xorq
 filelock==3.18.0
     # via
@@ -752,7 +752,9 @@ sqlalchemy==2.0.41
     #   feast
     #   pyiceberg
 sqlglot==26.28.1
-    # via xorq
+    # via
+    #   feast
+    #   xorq
 sse-starlette==2.3.6
     # via mcp
 stack-data==0.6.3
