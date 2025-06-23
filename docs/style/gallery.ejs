@@ -1,0 +1,21 @@
+```{=html}
+
+<div class="quarto-listing quarto-listing-container-grid">
+  <div class="list grid quarto-listing-cols-2">
+    <% for (const item of items) { %>
+      <div class="quarto-grid-item card h-100 card-left">
+        <small class="card-text">
+          <a href="<%- item.path %>" class="quarto-grid-link">
+            <span class="icon-title-row">
+              <i class="bi bi-<%- item.icon %>" aria-hidden="true"></i>
+              <span class="listing-title-text"><%= item.title %></span>
+            </span>
+          </a>
+        </small>
+      </div>
+    <% } %>
+  </div>
+</div>
+
+
+```

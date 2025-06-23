@@ -1,5 +1,6 @@
 ---
 title: "XGBoost Training"
+icon: "diagram-3"
 description: "Part 3: Learn how to train XGBoost models, make predictions, and
 evaluate model performance using xorq's deferred pipelines"
 ---

@@ -2,13 +2,15 @@
 title: Welcome to xorq!
 listing:
   - id: getting-started
+    template: "style/gallery.ejs"
     contents: 
       - "getting_started/quickstart.qmd"
       - "tutorials/10_minutes_xorq_tour.qmd"
     type: grid
     grid-columns: 2
     fields: [title]
-  - id: dive-deeper   
+  - id: dive-deeper
+    template: "style/gallery.ejs"
     contents: 
       - "tutorials/hn_data_prep.qmd"
       - "tutorials/hn_transform_tfidf.qmd"

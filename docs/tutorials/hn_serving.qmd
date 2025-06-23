@@ -1,5 +1,6 @@
 ---
 title: "XGBoost Model Serving"
+"icon": "hdd-rack"
 description: "Part 4: Learn how to deploy your trained XGBoost models using
 xorq's Flight serving capabilities for real-time predictions"
 ---

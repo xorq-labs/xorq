@@ -134,6 +134,23 @@ pre code {
     color: $white;
 }
 
+.icon-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* Center horizontally in the card */
+  padding: 1rem;
+}
+
+.icon-title-row i {
+  font-size: 1.875rem; /* Adjust icon size as needed */
+  margin-right: 0.5rem; /* Space between icon and text */
+}
+
+.listing-title-text {
+  font-size: 1.5rem; /* Adjust text size as needed */
+}
+
+
 /* ALT Riviera - Regular */
 @font-face {
   font-family: 'ALT Riviera';

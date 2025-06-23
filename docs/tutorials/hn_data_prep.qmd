@@ -1,5 +1,6 @@
 ---
 title: "Data Labeling w/ LLMs"
+icon: "database"
 description: "Learn how to fetch HackerNews data and automatically label data with sentiment using OpenAI GPT models"
 ---
 
