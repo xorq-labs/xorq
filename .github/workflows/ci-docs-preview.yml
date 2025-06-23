@@ -63,6 +63,12 @@ jobs:
 
       - name: build docs
         run: just docs-build-all
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing
 
       - name: install netlify cli
         run: npm install -g netlify-cli
