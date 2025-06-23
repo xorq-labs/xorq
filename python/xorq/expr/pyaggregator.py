@@ -61,7 +61,7 @@ class PyAggregator(Accumulator, ABC):
 
     @classproperty
     def state_type(cls):
-        return pa.list_(pa.binary())
+        return pa.list_(pa.large_binary())
 
     @classproperty
     def names(cls):
