@@ -71,19 +71,6 @@ def apply_conversions(conversions, kwargs):
     return converted
 
 
-# def cls_from_instance(cls, instance, gotattrs, conversions, post_process):
-#     kwargs = apply_conversions(conversions, dict(gotattrs))
-#     if post_process:
-#         obj = post_process(instance, cls, kwargs)
-#     else:
-#         obj = cls(**kwargs)
-#     return obj
-
-
-# _to_feast and _from_feast differ in
-# # what they get the attr names from
-# # if we have a default
-# # order of cls,obj in post_process
 @toolz.curry
 def _to_feast(feast_cls, xorq_obj, conversions=(), post_process=None):
     kwargs = apply_conversions(
@@ -111,27 +98,17 @@ def _from_feast(xorq_cls, feast_obj, conversions=(), post_process=None):
 
 
 def from_feast(obj):
-    match obj:
-        case None:
-            return None
-        case tuple() | list():
-            return tuple(from_feast(el) for el in obj)
-        case Field():
-            return FeastField.from_feast(obj)
-        case FeatureView():
-            return FeastFeatureView.from_feast(obj)
-        case OnDemandFeatureView():
-            return FeastOnDemandFeatureView.from_feast(obj)
-        case RequestSource():
-            return FeastRequestSource.from_feast(obj)
-        case PushSource():
-            return FeastPushSource.from_feast(obj)
-        case FileSource():
-            return FeastFileSource.from_feast(obj)
-        case FeatureService():
-            return FeastFeatureService.from_feast(obj)
-        case _:
-            raise NotImplementedError(f"don't know how to convert type {type(obj)}")
+    typ = next((typ for typ in typs if isinstance(obj, typ.feast_cls)), None)
+    if typ:
+        return typ.from_feast(obj)
+    else:
+        match obj:
+            case None:
+                return None
+            case tuple() | list():
+                return tuple(from_feast(el) for el in obj)
+            case _:
+                raise NotImplementedError(f"don't know how to convert type {type(obj)}")
 
 
 list_map_to_feast = toolz.compose(list, toolz.partial(map, methodcaller("to_feast")))
@@ -171,8 +148,10 @@ class FeastProject:
     last_updated_timestamp = field(
         validator=optional(instance_of(datetime)), default=None
     )
+    #
+    feast_cls = Project
 
-    to_feast = _to_feast(Project, conversions=(("tags", dict),))
+    to_feast = _to_feast(feast_cls, conversions=(("tags", dict),))
 
     from_feast = classmethod(_from_feast)
 
@@ -190,6 +169,8 @@ class FeastField:
     vector_index = field(validator=instance_of(bool), default=False)
     vector_length = field(validator=instance_of(int), default=0)
     vector_search_metric = field(validator=optional(instance_of(str)), default=None)
+    #
+    feast_cls = Field
 
     def __attrs_post_init__(self):
         if (self.vector_index, self.vector_length, self.vector_search_metric) != (
@@ -199,7 +180,7 @@ class FeastField:
         ):
             raise ValueError
 
-    to_feast = _to_feast(Field, conversions=(("tags", dict),))
+    to_feast = _to_feast(feast_cls, conversions=(("tags", dict),))
 
     from_feast = classmethod(_from_feast)
 
@@ -220,6 +201,8 @@ class FeastEntity:
     last_updated_timestamp = field(
         validator=optional(instance_of(datetime)), default=None
     )
+    #
+    feast_cls = Entity
 
     def __attrs_post_init__(self):
         assert len(self.join_keys) == 1
@@ -243,7 +226,7 @@ class FeastEntity:
         return xorq_obj
 
     to_feast = _to_feast(
-        Entity,
+        feast_cls,
         conversions=(
             ("tags", dict),
             ("join_keys", list),
@@ -256,12 +239,16 @@ class FeastEntity:
 
 @frozen
 class FeastFeatureViewProjection:
+    # feast_cls = FeatureViewProjection
+
     def __attrs_post_init__(self):
         raise NotImplementedError
 
 
 @frozen
 class FeastDataSource:
+    # feast_cls = DataSource
+
     def __attrs_post_init__(self):
         raise NotImplementedError("we only have FeastFileSource for now")
 
@@ -284,6 +271,8 @@ class FeastFileSource:
     )
     owner = field(validator=instance_of(str), default="")
     timestamp_field = field(validator=instance_of(str), default="")
+    #
+    feast_cls = FileSource
 
     def __attrs_post_init__(self):
         def validate_timestamp_field(field):
@@ -310,7 +299,7 @@ class FeastFileSource:
                 )
 
     to_feast = _to_feast(
-        FileSource,
+        feast_cls,
         conversions=(
             ("batch_source", methodcaller("to_feast")),
             ("tags", dict),
@@ -334,9 +323,11 @@ class FeastPushSource:
         default=(),
     )
     owner = field(validator=instance_of(str), default="")
+    #
+    feast_cls = PushSource
 
     to_feast = _to_feast(
-        PushSource,
+        feast_cls,
         conversions=(
             ("batch_source", methodcaller("to_feast")),
             ("tags", dict),
@@ -391,6 +382,8 @@ class FeastFeatureView:
         validator=deep_iterable(instance_of(FeastField), instance_of(tuple)),
         default=(),
     )
+    #
+    feast_cls = FeatureView
 
     def __getitem__(self, item):
         return from_feast(self.instance[item])
@@ -426,7 +419,7 @@ class FeastFeatureView:
         return feast_obj
 
     to_feast = _to_feast(
-        FeatureView,
+        feast_cls,
         conversions=(
             ("schema", list_map_to_feast),
             ("tags", dict),
@@ -460,9 +453,11 @@ class FeastRequestSource:
         default=(),
     )
     owner = field(validator=instance_of(str), default="")
+    #
+    feast_cls = RequestSource
 
     to_feast = _to_feast(
-        RequestSource, conversions=(("schema", list_map_to_feast), ("tags", dict))
+        feast_cls, conversions=(("schema", list_map_to_feast), ("tags", dict))
     )
 
     from_feast = classmethod(_from_feast)
@@ -510,6 +505,8 @@ class FeastOnDemandFeatureView:
     owner = field(validator=instance_of(str), default="")
     write_to_online_store = field(validator=instance_of(bool), default=False)
     singleton = field(validator=instance_of(bool), default=False)
+    #
+    feast_cls = OnDemandFeatureView
 
     @classmethod
     def on_demand_feature_view(cls, name=None, **kwargs):
@@ -530,7 +527,7 @@ class FeastOnDemandFeatureView:
         return decorator
 
     to_feast = _to_feast(
-        OnDemandFeatureView,
+        feast_cls,
         conversions=(
             ("schema", list_map_to_feast),
             ("tags", dict),
@@ -562,6 +559,8 @@ class FeastFeatureService:
     description = field(validator=instance_of(str), default="")
     owner = field(validator=instance_of(str), default="")
     logging_config = field(validator=optional(instance_of(LoggingConfig)), default=None)
+    #
+    feast_cls = FeatureService
 
     @staticmethod
     def from_feast_post_process(cls, feast_obj, kwargs):
@@ -569,7 +568,7 @@ class FeastFeatureService:
         return xorq_obj
 
     to_feast = _to_feast(
-        FeatureService,
+        feast_cls,
         conversions=(
             ("features", list_map_to_feast),
             ("tags", dict),
@@ -578,3 +577,18 @@ class FeastFeatureService:
 
     # from_feast = classmethod(_from_feast(conversions=(("features", from_feast),)))
     from_feast = classmethod(_from_feast(post_process=from_feast_post_process))
+
+
+typs = (
+    FeastProject,
+    FeastField,
+    FeastEntity,
+    FeastFeatureView,
+    # FeastFeatureViewProjection,
+    FeastFileSource,
+    # FeastDataSource,
+    FeastPushSource,
+    FeastRequestSource,
+    FeastOnDemandFeatureView,
+    FeastFeatureService,
+)
