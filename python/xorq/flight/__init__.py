@@ -261,6 +261,10 @@ class FlightServer:
         self.close(*args)
 
 
+# FIXME take the only two objects (FlightURL and TLSKwargs)
+# FIXME Add a method for getting the udxf out of the server
+
+
 def connect(
     host="localhost",
     port=8815,

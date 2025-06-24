@@ -438,29 +438,24 @@ def test_server_blocks(block):
     assert not server_thread.is_alive()
 
 
-def test_server_from_udxf(con, diamonds, baseline):
+def test_exchange_server_from_udxf(con, diamonds, baseline):
     input_expr = diamonds.pipe(do_agg)
     process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
     maybe_schema_in = input_expr.schema()
     maybe_schema_out = xo.schema(input_expr.schema() | {field_name: return_type})
+    command = "diamonds_exchange_command"
     expr = xo.expr.relations.flight_udxf(
         input_expr,
         process_df=process_df,
         maybe_schema_in=maybe_schema_in,
         maybe_schema_out=maybe_schema_out,
         con=con,
-        make_udxf_kwargs={"name": my_udf.__name__},
+        make_udxf_kwargs={"name": my_udf.__name__, "command": command},
     ).order_by("cut")
 
     with FlightServer.from_udxf(expr) as server:
         client = server.client
         assert client is not None
-        command = next(
-            name
-            for name in client.do_action_one(A.ListExchangesAction.name)
-            if name != "echo"
-        )
-        assert command is not None
 
         _, rbr = client.do_exchange(
             command,

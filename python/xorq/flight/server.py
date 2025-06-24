@@ -129,8 +129,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         )
         self._conn = con_callable()
         self._location = location
-        # FIXME: copy instead of mutate
-        self.exchangers = E.exchangers
+        self.exchangers = dict(E.exchangers)
         self.actions = A.actions
         self.lock = threading.Lock()
 
@@ -200,12 +199,13 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
     @instrument_rpc("do_exchange")
     @maybe_log_excepts
     def do_exchange(self, context, rec, descriptor, reader, writer):
-        cmd = descriptor.command.decode()
-        handler = self.exchangers.get(cmd)
-        if handler is None:
-            raise pa.ArrowInvalid(f"Unknown exchange: {cmd}")
-
-        reader = InstrumentedReader(reader, rec, direction="in")
-        iw = InstrumentedWriter(writer, rec, direction="out")
         with self.lock:
+            cmd = descriptor.command.decode()
+            handler = self.exchangers.get(cmd)
+            if handler is None:
+                raise pa.ArrowInvalid(f"Unknown exchange: {cmd}")
+
+            reader = InstrumentedReader(reader, rec, direction="in")
+            iw = InstrumentedWriter(writer, rec, direction="out")
+
             return handler.exchange_f(context, reader, iw)
