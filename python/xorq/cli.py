@@ -14,7 +14,7 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
-from xorq.flight import server_from_udxf
+from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
 
@@ -183,26 +183,7 @@ def serve_command(
     def _make_con():
         return xo.duckdb.connect(str(db_path))
 
-    # exchangers = []
-    # seen = set()
-    # # Find all FlightUDXF nodes in the expression
-    # udxf_nodes = walk_nodes((FlightUDXF,), expr)
-    # for node in udxf_nodes:
-    #     udxf_cls = getattr(node, "udxf", None)
-    #     if udxf_cls and udxf_cls not in seen:
-    #         exchangers.append(udxf_cls)
-    #         seen.add(udxf_cls)
-    # flight_url = FlightUrl(host=host or None, port=port)
-    # server = FlightServer(
-    #     flight_url,
-    #     connection=_make_con,
-    #     exchangers=exchangers,
-    # )
-    # if exchangers:
-    #     for udxf_cls in exchangers:
-    #         logger.info(f"Registering exchanger: {udxf_cls.command}")
-
-    server = server_from_udxf(expr, _make_con)
+    server = FlightServer.from_udxf(expr, _make_con)
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_hash}' on {location}")
     server.serve(block=True)

@@ -3,7 +3,6 @@ import traceback
 
 import pyarrow as pa
 import pyarrow.compute as pc
-import pyarrow.flight as paf
 import toolz
 from opentelemetry import trace
 
@@ -60,17 +59,8 @@ def copy_rbr_batches(reader):
 
 
 def make_filtered_reader(reader):
-    # note this will handle FlightStreamReader and RecordBatchReader
-    def batches():
-        for chunk in reader:
-            if chunk:
-                if isinstance(chunk, pa.RecordBatch):
-                    yield chunk
-                elif isinstance(chunk, paf.FlightStreamChunk):
-                    if chunk.data:
-                        yield chunk.data
-
-    return pa.RecordBatchReader.from_batches(reader.schema, batches())
+    gen = (chunk.data for chunk in reader if chunk.data)
+    return pa.RecordBatchReader.from_batches(reader.schema, gen)
 
 
 def instrument_reader(reader, prefix=""):
