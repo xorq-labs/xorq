@@ -1,4 +1,4 @@
-![Xorq Logo](docs/images/Xorq_PrimaryLogo_RGB_Midnight.png){style="height: 50%;"}
+![Xorq Logo](docs/images/Xorq_PrimaryLogo_RGB_Midnight.png | height=50%)
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
 ![PyPI - Status](https://img.shields.io/pypi/status/xorq)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
