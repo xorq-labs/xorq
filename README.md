@@ -22,16 +22,19 @@ quickly becomes fragile.
 
 That's exactly why we built **Xorq**.
 
+Xorq lets you:
+
+* **Write expressive, pandas-style transformations** without memory constraints.
+* **Move between SQL engines and Python** within a single declarative pipeline.
+* **Build portable UDFs** that run consistently across engines
+* **Serve cached intermediate results**, so no computation is wasted.
+* **Save diff-able YAML artifacts** for reproducibility and CI/CD.
+* **Get compile-time validation** through declarative expressions.
+
 ## How Xorq works
 
 ![Xorq Architecture](docs/images/how-xorq-works.png)
 
-Xorq lets you:
-
-* **Write expressive, pandas-style transformations** without memory constraints.
-* **Seamlessly move between SQL engines and Python** within a single declarative pipeline.
-* **Automatically cache intermediate results**, so no computation is wasted.
-* **Serialize entire pipelines** for reproducibility and CI/CD.
 
 Xorq uses Apache Arrow for zero-copy data transfer and leverages Ibis and
 DataFusion under the hood for efficient computation.
@@ -40,11 +43,11 @@ DataFusion under the hood for efficient computation.
 
 We built Xorq because existing tools fall short:
 
-* **Ibis** is great for SQL but struggles with Python UDFs and caching.
+* **Ibis** is great for SQL but is single-engine/single-session.
 * **PySpark** is complex and heavyweight for many use cases, especially when you just need a simple pipeline.
-* **Airflow** is powerful but overkill for many ML workflows, and it lacks native support for multiple engines.
-* **Feast** provides feature management and serving but lacks batch transformations.
+* **Airflow** is powerful but overkill for many ML workflows with state management and task-level retries.
 * **dbt** lets you compose SQL models but not Python functions.
+* **Feast** provides feature management and serving but lacks batch transformations.
 
 Xorq’s key differentiators are:
 
@@ -109,7 +112,7 @@ Ship these anywhere—CI systems, teammates, or other engines—and results rema
 We're upfront about what’s not quite there yet:
 
 * **API Stability**: Xorq is rapidly evolving, and breaking changes are common until v1.0.
-* **Single-Machine Only**: We don't have distributed scheduling yet—so Xorq currently scales vertically.
+* **Single-Machine**: We don't have distributed support for `xorq-datafusion` engine.
 * **Documentation Gaps**: Docs are improving but still thin in areas.
 
 ### Out of Scope (for now)
@@ -118,24 +121,9 @@ We're upfront about what’s not quite there yet:
 * Rust-based UDFs
 * R, Javascript, or other language support
 
-
-## What’s Next?
-
-We're genuinely excited about the upcoming features:
-
-* **Engine plugins** for BigQuery and Polars.
-* **Native lineage** tracking with OpenLineage.
-* **Enhanced Jupyter integration**.
-
 We'd love your feedback! Your ⭐, issues, and contributions help us shape Xorq's future.
 
-## Getting Involved
 
-Interested? Dive deeper:
-
-* Read the [full article](https://docs.xorq.dev/blog/intro).
-* Join the discussion on Slack: [#xorq](link).
-* Contribute via [GitHub](https://github.com/xorq-labs/xorq).
 
 ## Installation Requirements
 
@@ -144,6 +132,37 @@ pip install xorq  # or pip install "xorq[examples]"
 ```
 * Python 3.9+
 * Apache Arrow 10.0+
+
+## FAQ
+
+### **What exactly does Xorq replace in my existing data stack?**
+
+Xorq simplifies your pipeline by combining SQL engine efficiency, pandas-style
+Python workflows, caching, and reproducibility into a single tool. It can
+replace or complement parts of Airflow, PySpark, dbt, Feast, or manual
+pandas-based ETL pipelines, streamlining your workflow significantly.
+
+### **Can I use my existing Python UDFs in Xorq?**
+
+Yes! Xorq makes it easy to adapt existing pandas-style UDFs into portable UDxFs
+that run consistently across multiple SQL engines and Python contexts. Simply
+wrap your logic with Xorq’s decorators, and your UDFs become multi-engine
+compatible automatically.
+
+### **Is Xorq ready for production workloads?**
+
+Xorq is rapidly evolving and still pre-1.0, meaning breaking changes are
+expected as the API stabilizes. While many teams use Xorq successfully in their
+workflows today, we recommend caution in production environments and encourage
+active involvement to help shape the stable release.
+
+## Getting Involved
+
+Interested? Dive deeper:
+
+* Read the [full article](https://www.xorq.dev/posts/introducing-xorq).
+* Join the discussion on Discord: [#xorq](https://discord.gg/8Kma9DhcJG).
+* Contribute via [GitHub](https://github.com/xorq-labs/xorq).
 
 ## License & Acknowledgements
 
