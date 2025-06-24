@@ -19,11 +19,11 @@ from xorq.flight import (
     BasicAuth,
     FlightServer,
     FlightUrl,
-    server_from_udxf,
 )
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
 from xorq.flight.tests.conftest import do_agg, field_name, my_udf, return_type
+from xorq.tests.util import assert_frame_equal
 
 
 def make_flight_url(port, scheme="grpc"):
@@ -438,7 +438,7 @@ def test_server_blocks(block):
     assert not server_thread.is_alive()
 
 
-def test_server_from_udxf(con, diamonds):
+def test_server_from_udxf(con, diamonds, baseline):
     input_expr = diamonds.pipe(do_agg)
     process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
     maybe_schema_in = input_expr.schema()
@@ -452,6 +452,25 @@ def test_server_from_udxf(con, diamonds):
         make_udxf_kwargs={"name": my_udf.__name__},
     ).order_by("cut")
 
-    with server_from_udxf(expr) as server:
+    with FlightServer.from_udxf(expr) as server:
         client = server.client
         assert client is not None
+        command = next(
+            name
+            for name in client.do_action_one(A.ListExchangesAction.name)
+            if name != "echo"
+        )
+        assert command is not None
+
+        _, rbr = client.do_exchange(
+            command,
+            input_expr,
+        )
+
+        actual = rbr.read_pandas().sort_values("cut", ignore_index=True)
+        expected = baseline.sort_values("cut", ignore_index=True)
+        assert_frame_equal(
+            actual,
+            expected,
+            check_exact=False,
+        )
