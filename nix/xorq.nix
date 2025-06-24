@@ -7,7 +7,7 @@
   src,
 }:
 let
-  mkLETSQL =
+  mkXorq =
     python:
     let
       inherit (pkgs.lib) nameValuePair;
@@ -215,11 +215,11 @@ let
           inherit pkgs;
           python = virtualenv-editable;
         })
-        letsql-commands-star
+        xorq-commands-star
         ;
       toolsPackages = [
         pkgs.uv
-        letsql-commands-star
+        xorq-commands-star
         pkgs.gh
       ];
       defaultShell = pkgs.mkShell {
@@ -264,7 +264,7 @@ let
         virtualenv-all
         virtualenv-editable
         editableShellHook
-        letsql-commands-star
+        xorq-commands-star
         toolsPackages
         defaultShell
         shell
@@ -272,4 +272,4 @@ let
         ;
     };
 in
-mkLETSQL
+mkXorq
