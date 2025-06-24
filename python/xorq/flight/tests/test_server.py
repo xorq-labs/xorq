@@ -1,4 +1,5 @@
 import datetime
+import operator
 import threading
 import time
 
@@ -18,9 +19,11 @@ from xorq.flight import (
     BasicAuth,
     FlightServer,
     FlightUrl,
+    server_from_udxf,
 )
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
+from xorq.flight.tests.conftest import do_agg, field_name, my_udf, return_type
 
 
 def make_flight_url(port, scheme="grpc"):
@@ -433,3 +436,22 @@ def test_server_blocks(block):
 
     assert is_blocking == block
     assert not server_thread.is_alive()
+
+
+def test_server_from_udxf(con, diamonds):
+    input_expr = diamonds.pipe(do_agg)
+    process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
+    maybe_schema_in = input_expr.schema()
+    maybe_schema_out = xo.schema(input_expr.schema() | {field_name: return_type})
+    expr = xo.expr.relations.flight_udxf(
+        input_expr,
+        process_df=process_df,
+        maybe_schema_in=maybe_schema_in,
+        maybe_schema_out=maybe_schema_out,
+        con=con,
+        # operator.methodcaller doesn't have name, so must explicitly pass
+        make_udxf_kwargs={"name": my_udf.__name__},
+    ).order_by("cut")
+
+    server = server_from_udxf(expr)
+    assert server is not None

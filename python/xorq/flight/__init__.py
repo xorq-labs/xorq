@@ -228,6 +228,39 @@ class FlightServer:
         self.close(*args)
 
 
+def server_from_udxf(expr, host=None, port=None, connection=None):
+    from xorq.common.utils.graph_utils import walk_nodes
+    from xorq.expr.relations import FlightUDXF
+
+    exchangers = []
+    seen = set()
+
+    # Find all FlightUDXF nodes in the expression
+    udxf_nodes = walk_nodes((FlightUDXF,), expr)
+    for node in udxf_nodes:
+        udxf_cls = getattr(node, "udxf", None)
+        if udxf_cls and udxf_cls not in seen:
+            exchangers.append(udxf_cls)
+            seen.add(udxf_cls)
+
+    flight_url_kwargs = {
+        key: value for key, value in (("host", host), ("port", port)) if value
+    }
+    flight_url = FlightUrl(**flight_url_kwargs)
+
+    server_kwargs = {
+        "exchangers": exchangers,
+    }
+
+    if connection:
+        server_kwargs["connection"] = connection
+
+    return FlightServer(
+        flight_url,
+        **server_kwargs,
+    )
+
+
 def connect(
     host="localhost",
     port=8815,

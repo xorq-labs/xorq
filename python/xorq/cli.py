@@ -14,8 +14,7 @@ from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
-from xorq.expr.relations import FlightUDXF
-from xorq.flight import FlightServer, FlightUrl
+from xorq.flight import server_from_udxf
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
 
@@ -130,15 +129,15 @@ def run_command(
 
 @tracer.start_as_current_span("cli.serve_command")
 def serve_command(
-    build_path, host=None, port=None, duckdb_path=None, prometheus_port=None
+    expr_path, host=None, port=None, duckdb_path=None, prometheus_port=None
 ):
     """
     Serve a built expression via Flight Server
 
     Parameters
     ----------
-    build_path : str
-        Path to the build directory (output of xorq build)
+    expr_path : str
+        Path to the expression directory (output of xorq build)
     host : str
         Host to bind Flight Server
     port : int or None
@@ -149,7 +148,7 @@ def serve_command(
 
     span = trace.get_current_span()
     params = {
-        "build_path": build_path,
+        "build_path": expr_path,
         "host": host,
         "port": port,
     }
@@ -157,7 +156,7 @@ def serve_command(
         params["duckdb_path"] = duckdb_path
     span.add_event("serve.params", params)
 
-    expr_path = Path(build_path)
+    expr_path = Path(expr_path)
     expr_hash = expr_path.stem
 
     logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
@@ -184,25 +183,27 @@ def serve_command(
     def _make_con():
         return xo.duckdb.connect(str(db_path))
 
-    exchangers = []
-    seen = set()
-    # Find all FlightUDXF nodes in the expression
-    udxf_nodes = walk_nodes((FlightUDXF,), expr)
-    for node in udxf_nodes:
-        udxf_cls = getattr(node, "udxf", None)
-        if udxf_cls and udxf_cls not in seen:
-            exchangers.append(udxf_cls)
-            seen.add(udxf_cls)
-    flight_url = FlightUrl(host=host or None, port=port)
-    server = FlightServer(
-        flight_url,
-        connection=_make_con,
-        exchangers=exchangers,
-    )
-    if exchangers:
-        for udxf_cls in exchangers:
-            logger.info(f"Registering exchanger: {udxf_cls.command}")
-    location = flight_url.to_location()
+    # exchangers = []
+    # seen = set()
+    # # Find all FlightUDXF nodes in the expression
+    # udxf_nodes = walk_nodes((FlightUDXF,), expr)
+    # for node in udxf_nodes:
+    #     udxf_cls = getattr(node, "udxf", None)
+    #     if udxf_cls and udxf_cls not in seen:
+    #         exchangers.append(udxf_cls)
+    #         seen.add(udxf_cls)
+    # flight_url = FlightUrl(host=host or None, port=port)
+    # server = FlightServer(
+    #     flight_url,
+    #     connection=_make_con,
+    #     exchangers=exchangers,
+    # )
+    # if exchangers:
+    #     for udxf_cls in exchangers:
+    #         logger.info(f"Registering exchanger: {udxf_cls.command}")
+
+    server = server_from_udxf(expr, _make_con)
+    location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_hash}' on {location}")
     server.serve(block=True)
 
