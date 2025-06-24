@@ -31,7 +31,7 @@ _throughput_hist = None
 
 
 class SimpleConsoleMetricExporter(MetricExporter):
-    def export(self, metrics_data, timeout_millis: int = 0):
+    def export(self, metrics_data, timeout_millis: int = 0, **kwargs):
         for rm in getattr(metrics_data, "resource_metrics", []):
             for scope in getattr(rm, "scope_metrics", []):
                 for metric in getattr(scope, "metrics", []):
@@ -131,8 +131,10 @@ class _Recorder:
     def __init__(self, method: str):
         self.method = method
         self.started = time.time()
-        _request_counter.add(1, {"method": method})
-        _streams_counter.add(1)
+
+        if _request_counter is not None and _streams_counter is not None:
+            _request_counter.add(1, {"method": method})
+            _streams_counter.add(1)
         self._bytes = 0
         self._rows = 0
 
@@ -144,18 +146,26 @@ class _Recorder:
         size = rb.get_total_buffer_size()
         rows = rb.num_rows
         labels = {"method": self.method, "dir": direction}
-        _bytes_counter.add(size, labels)
-        _rows_counter.add(rows, labels)
+
+        if _bytes_counter is not None and _streams_counter is not None:
+            _bytes_counter.add(size, labels)
+            _rows_counter.add(rows, labels)
         self._bytes += size
         self._rows += rows
 
     def finish(self):
         dur = time.time() - self.started
-        _duration_hist.record(dur, {"method": self.method})
-        if dur > 0 and self._rows:
-            thr = self._rows / dur
-            _throughput_hist.record(thr, {"method": self.method})
-        _streams_counter.add(-1)
+
+        if (
+            _duration_hist is not None
+            and _throughput_hist is not None
+            and _streams_counter is not None
+        ):
+            _duration_hist.record(dur, {"method": self.method})
+            if dur > 0 and self._rows:
+                thr = self._rows / dur
+                _throughput_hist.record(thr, {"method": self.method})
+            _streams_counter.add(-1)
 
 
 def instrument_reader(reader: pa.RecordBatchReader, rec: _Recorder, *, direction="out"):
