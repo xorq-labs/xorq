@@ -1,5 +1,4 @@
-<img src="https://raw.githubusercontent.com/xorq-labs/xorq/4dc0fa751c28364ef00cdb514b876daf5ff0342d/docs/images/Xorq_PrimaryLogo_RGB_Midnight.png" alt="Xorq Logo" style="height: 25%;">
-
+![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png)
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
 ![PyPI - Status](https://img.shields.io/pypi/status/xorq)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
