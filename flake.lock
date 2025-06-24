@@ -46,13 +46,13 @@
       "locked": {
         "lastModified": 1727618726,
         "narHash": "sha256-ZKz9SXNOly0KLTN5fHCfCJbarRxdrv6sRMXavrKNK5U=",
-        "owner": "letsql",
+        "owner": "xorq-labs",
         "repo": "nix-utils",
         "rev": "7ca9ed7da529edf8a4a094fbd25f6ffb8523e1a8",
         "type": "github"
       },
       "original": {
-        "owner": "letsql",
+        "owner": "xorq-labs",
         "repo": "nix-utils",
         "type": "github"
       }

@@ -1,1 +1,1 @@
-use flake .#virtualenv-editable-310
+use flake .#virtualenv-editable-312

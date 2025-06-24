@@ -22,7 +22,7 @@
       };
     };
     nix-utils = {
-      url = "github:letsql/nix-utils";
+      url = "github:xorq-labs/nix-utils";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -63,7 +63,7 @@
         inherit (nix-utils.lib.${system}.utils) drvToApp;
 
         src = ./.;
-        mkLETSQL = import ./nix/letsql.nix {
+        mkXorq = import ./nix/xorq.nix {
           inherit
             system
             pkgs
@@ -73,28 +73,28 @@
             src
             ;
         };
-        letsql-310 = mkLETSQL pkgs.python310;
-        letsql-311 = mkLETSQL pkgs.python311;
-        letsql-312 = mkLETSQL pkgs.python312;
-        letsql-313 = mkLETSQL pkgs.python313;
+        xorq-310 = mkXorq pkgs.python310;
+        xorq-311 = mkXorq pkgs.python311;
+        xorq-312 = mkXorq pkgs.python312;
+        xorq-313 = mkXorq pkgs.python313;
       in
       {
         formatter = pkgs.nixfmt-rfc-style;
         apps = {
           ipython-310 = drvToApp {
-            drv = letsql-310.virtualenv;
+            drv = xorq-310.virtualenv;
             name = "ipython";
           };
           ipython-311 = drvToApp {
-            drv = letsql-311.virtualenv;
+            drv = xorq-311.virtualenv;
             name = "ipython";
           };
           ipython-312 = drvToApp {
-            drv = letsql-312.virtualenv;
+            drv = xorq-312.virtualenv;
             name = "ipython";
           };
           ipython-313 = drvToApp {
-            drv = letsql-313.virtualenv;
+            drv = xorq-313.virtualenv;
             name = "ipython";
           };
           default = self.apps.${system}.ipython-312;
@@ -103,17 +103,16 @@
           inherit
             pkgs
             src
-            mkLETSQL
-            letsql-310
-            letsql-311
-            letsql-312
+            mkXorq
+            xorq-310
+            xorq-311
+            xorq-312
             ;
         };
         devShells = {
           impure = pkgs.mkShell {
             packages = [
               pkgs.python310
-              letsql-310.toolchain
               pkgs.uv
               pkgs.gh
             ];
@@ -137,21 +136,20 @@
             packages = [
               pkgs.python310
               pkgs.uv
-              letsql-310.toolchain
             ];
             shellHook = ''
               unset PYTHONPATH
             '';
           };
-          virtualenv-310 = letsql-310.shell;
-          virtualenv-default-313 = letsql-313.defaultShell;
-          virtualenv-editable-310 = letsql-310.editableShell;
-          virtualenv-311 = letsql-311.shell;
-          virtualenv-editable-311 = letsql-311.editableShell;
-          virtualenv-312 = letsql-312.shell;
-          virtualenv-editable-312 = letsql-312.editableShell;
-          virtualenv-313 = letsql-313.shell;
-          virtualenv-editable-313 = letsql-313.editableShell;
+          virtualenv-310 = xorq-310.shell;
+          virtualenv-default-313 = xorq-313.defaultShell;
+          virtualenv-editable-310 = xorq-310.editableShell;
+          virtualenv-311 = xorq-311.shell;
+          virtualenv-editable-311 = xorq-311.editableShell;
+          virtualenv-312 = xorq-312.shell;
+          virtualenv-editable-312 = xorq-312.editableShell;
+          virtualenv-313 = xorq-313.shell;
+          virtualenv-editable-313 = xorq-313.editableShell;
           default = self.devShells.${system}.virtualenv-310;
         };
       }
