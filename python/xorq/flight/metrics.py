@@ -168,6 +168,26 @@ class _Recorder:
             _streams_counter.add(-1)
 
 
+class InstrumentedReader:
+    def __init__(self, reader, rec: _Recorder, direction: str = "out"):
+        self.reader = reader
+        self.rec = rec
+        self.direction = direction
+
+    @property
+    def schema(self):
+        return self.reader.schema
+
+    def __iter__(self):
+        for batch in self.reader:
+            if not hasattr(batch, "get_total_buffer_size") and hasattr(batch, "data"):
+                rb = batch.data
+            else:
+                rb = batch
+            self.rec.record_batch(rb, self.direction)
+            yield batch
+
+
 def instrument_reader(reader: pa.RecordBatchReader, rec: _Recorder, *, direction="out"):
     def gen():
         for batch in reader:
