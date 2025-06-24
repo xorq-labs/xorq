@@ -1,4 +1,4 @@
-![Xorq Logo](https://raw.githubusercontent.com/xorq-labs/xorq/main/docs/images/Xorq_PrimaryLogo_RGB_Midnight.png)
+![Xorq Logo](docs/images/Xorq_PrimaryLogo_RGB_Midnight.png)
 
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
 ![PyPI - Status](https://img.shields.io/pypi/status/xorq)
@@ -25,7 +25,7 @@ That's exactly why we built **Xorq**.
 
 ## How Xorq works
 
-[Xorq Architecture](https://raw.githubusercontent.com/xorq-labs/xorq/main/docs/images/how-xorq-works.png)
+[Xorq Architecture](docs/images/how-xorq-works.png)
 
 Xorq lets you:
 
