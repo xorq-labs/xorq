@@ -15,7 +15,12 @@ from xorq.common.utils.func_utils import (
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
 )
-from xorq.flight.metrics import instrument_reader, instrument_rpc
+from xorq.flight.metrics import (
+    InstrumentedReader,
+    InstrumentedWriter,
+    instrument_reader,
+    instrument_rpc,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -192,14 +197,15 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             else:
                 raise KeyError("Unknown action {!r}".format(action.type))
 
+    @instrument_rpc("do_exchange")
     @maybe_log_excepts
-    def do_exchange(self, context, descriptor, reader, writer):
+    def do_exchange(self, context, rec, descriptor, reader, writer):
+        cmd = descriptor.command.decode()
+        handler = self.exchangers.get(cmd)
+        if handler is None:
+            raise pa.ArrowInvalid(f"Unknown exchange: {cmd}")
+
+        reader = InstrumentedReader(reader, rec, direction="in")
+        iw = InstrumentedWriter(writer, rec, direction="out")
         with self.lock:
-            if descriptor.descriptor_type != pyarrow.flight.DescriptorType.CMD:
-                raise pa.ArrowInvalid("Must provide a command descriptor")
-            command = descriptor.command.decode("ascii")
-            if command in self.exchangers:
-                logger.info(f"Doing exchange: {command}")
-                return self.exchangers[command].exchange_f(context, reader, writer)
-            else:
-                raise pa.ArrowInvalid("Unknown command: {}".format(descriptor.command))
+            return handler.exchange_f(context, reader, iw)

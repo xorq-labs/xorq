@@ -449,9 +449,9 @@ def test_server_from_udxf(con, diamonds):
         maybe_schema_in=maybe_schema_in,
         maybe_schema_out=maybe_schema_out,
         con=con,
-        # operator.methodcaller doesn't have name, so must explicitly pass
         make_udxf_kwargs={"name": my_udf.__name__},
     ).order_by("cut")
 
-    server = server_from_udxf(expr)
-    assert server is not None
+    with server_from_udxf(expr) as server:
+        client = server.client
+        assert client is not None

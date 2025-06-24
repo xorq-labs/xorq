@@ -228,7 +228,7 @@ class FlightServer:
         self.close(*args)
 
 
-def server_from_udxf(expr, host=None, port=None, connection=None):
+def server_from_udxf(expr, host=None, port=None, connection=None) -> FlightServer:
     from xorq.common.utils.graph_utils import walk_nodes
     from xorq.expr.relations import FlightUDXF
 
