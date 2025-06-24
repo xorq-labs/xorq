@@ -167,10 +167,7 @@ def serve_command(
 
     expr = build_manager.load_expr(expr_hash)
 
-    if duckdb_path:
-        db_path = Path(duckdb_path)
-    else:
-        db_path = "xorq_serve.db"  # what should be the default?
+    db_path = Path(duckdb_path or "xorq_serve.db")  # what should be the default?
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Using duckdb at {db_path}")
