@@ -105,9 +105,9 @@ def memtable(
 
     Examples
     --------
-    >>> import xorq as ls
-    >>> ls.options.interactive = False
-    >>> t = ls.memtable([{"a": 1}, {"a": 2}])
+    >>> import xorq as xo
+    >>> xo.options.interactive = False
+    >>> t = xo.memtable([{"a": 1}, {"a": 2}])
     >>> t
     InMemoryTable
       data:
@@ -116,7 +116,7 @@ def memtable(
           0  1
           1  2
 
-    >>> t = ls.memtable([{"a": 1, "b": "foo"}, {"a": 2, "b": "baz"}])
+    >>> t = xo.memtable([{"a": 1, "b": "foo"}, {"a": 2, "b": "baz"}])
     >>> t
     InMemoryTable
       data:
@@ -128,7 +128,7 @@ def memtable(
     Create a table literal without column names embedded in the data and pass
     `columns`
 
-    >>> t = ls.memtable([(1, "foo"), (2, "baz")], columns=["a", "b"])
+    >>> t = xo.memtable([(1, "foo"), (2, "baz")], columns=["a", "b"])
     >>> t
     InMemoryTable
       data:
@@ -140,7 +140,7 @@ def memtable(
     Create a table literal without column names embedded in the data. Ibis
     generates column names if none are provided.
 
-    >>> t = ls.memtable([(1, "foo"), (2, "baz")])
+    >>> t = xo.memtable([(1, "foo"), (2, "baz")])
     >>> t
     InMemoryTable
       data:

@@ -1,0 +1,75 @@
+---
+title: 'Multi-Engine'
+description: 'The core concepts to understand multi-engine system'
+---
+
+## Multi-Engine
+
+xorq's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
+
+### The `into_backend` Operator
+
+The core of xorq's multi-engine capability is the `into_backend` operator, which enables:
+
+- Transparent data movement between engines
+- Zero-copy data transfer using Apache Arrow
+- Automatic optimization of data placement
+
+```{python}
+import xorq as xo
+from xorq.expr.relations import into_backend
+
+# Connect to different engines
+pg = xo.postgres.connect_env()
+db = xo.duckdb.connect()
+
+# Get tables from different sources
+batting = pg.table("batting")
+
+# Load awards_players into DuckDB
+awards_players = xo.examples.awards_players.fetch(backend=db)
+
+# Filter data in respective engines
+left = batting.filter(batting.yearID == 2015)
+right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
+
+# Move right table into postgres for efficient join
+expr = left.join(
+    into_backend(right, pg),
+    ["playerID"],
+    how="semi"
+)[["yearID", "stint"]]
+
+# Execute the multi-engine query
+result = expr.execute()
+```
+
+### Supported Engines
+
+xorq currently supports:
+
+1. **In-Process Engines**
+    - DuckDB
+    - DataFusion
+    - Pandas
+2. **Distributed Engines**
+    - Trino
+    - Snowflake
+    - BigQuery
+
+### Engine Selection Guidelines
+
+Choose engines based on their strengths:
+
+1. **DuckDB**: Local processing, AsOf joins, efficient file formats
+2. **DataFusion**: Custom UDFs, streaming processing
+3. **Trino**: Distributed queries, federation, security
+4. **Snowflake/BigQuery**: Managed infrastructure, scalability
+
+### Data Transfer
+
+Data movement between engines is handled through:
+
+1. **Arrow Flight**: Zero-copy data transfer protocol
+2. **Memory Management**: Automatic spilling to disk
+3. **Batching**: Efficient chunk-based processing

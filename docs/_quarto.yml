@@ -3,16 +3,15 @@ project:
 
 website:
   page-navigation: true
-  title: "LETSQL"
+  title: "Xorq"
   description: "A modern data processing library focused on composability, portability and performance in critical path of ML."
+  favicon: "style/favicon.ico"
 
   page-footer:
     center: "This page is built with [Quarto](https://quarto.org/)."
-    background: "#A7D5E8"
 
   navbar:
-    background: "#A7D5E8"
-    logo: "images/logo.png"
+    logo: "images/xorq-light-mode-logo.png"
     align: center
     title: false
     collapse-below: lg
@@ -20,64 +19,70 @@ website:
 
     right:
       - icon: github
-        href: https://github.com/letsql/letsql
+        href: https://github.com/xorq-labs/xorq
 
     left:
-      - text: "Overview"
-        href: concepts.qmd
-      - text: "User Guide"
-        href: installation.qmd
-      - text: "API Reference"
-        href: api-reference.qmd
+      - sidebar:user-guide
+      - sidebar:api-reference
+      - text: "Examples"
+        href: examples/mortgage.qmd
 
   sidebar:
-    - id: overview
-      title: "Overview"
-      style: "floating"
-      collapse-level: 2
-      align: left
-      contents:
-        - href: concepts.qmd
     - id: user-guide
       title: "User Guide"
+      collapse-level: 2
       contents:
-        - href: installation.qmd
-        - href: quick-start.qmd
-        - href: tutorial.qmd
+        - id: user-guide-section
+          section: "User Guide"
+          contents:
+            - href: getting_started/quickstart.qmd
+        - id: core-concepts-section
+          section: "Core Concepts"
+          contents:
+            - href: core_concepts/caching.qmd
+            - href: core_concepts/multi_engine.qmd
+            - href: core_concepts/udxf.qmd
+            - href: core_concepts/build.qmd
+            - href: core_concepts/profiles_guide.qmd
+        - id: vignettes-section
+          section: "Vignettes"
+          contents:
+            - href: vignettes/duckdb_concurrent.qmd
+            - href: vignettes/mcp_flight_server.qmd
+        - id: tutorials-section
+          section: "Tutorials"
+          contents:
+            - href: tutorials/hn_data_prep.qmd
+            - href: tutorials/hn_transform_tfidf.qmd
+            - href: tutorials/hn_training_xgb.qmd
+            - href: tutorials/hn_serving.qmd
+
     - id: api-reference
-      title: "API Reference"
+      title: "Expression API"
       contents:
-        - href: api-reference.qmd
-        - id: backend-api
-          section: "Backend API"
-          contents:
-            - href: api/let.qmd
-        - id: expression-api
-          section: "Expression API"
-          contents:
-            - href: reference/expression-relations.qmd
-            - href: reference/expression-generic.qmd
-            - href: reference/expression-numeric.qmd
-            - href: reference/expression-strings.qmd
-            - href: reference/expression-temporal.qmd
+        - href: reference/expression-relations.qmd
+        - href: reference/expression-generic.qmd
+        - href: reference/expression-numeric.qmd
+        - href: reference/expression-strings.qmd
+        - href: reference/expression-temporal.qmd
 
 
 format:
   html:
     theme:
-      - cosmo
-      - style/letsql.scss
+      dark:  ["darkly", "style/dark.scss"]
+      light: ["flatly", "style/light.scss"]
     toc: true
     code-copy: true
     code-overflow: wrap
-    mainfont: "Atkinson Hyperlegible"
     include-in-header: "style/fontawesome.html"
 
 quartodoc:
-  package: letsql
+  package: xorq
   title: Reference
   sidebar: reference/_sidebar.yml
   render_interlinks: true
+  renderer: _renderer.py
   options:
     signature_name: short
   sections:
@@ -89,7 +94,7 @@ quartodoc:
           summary:
             name: Table expressions
             desc: Tables are one of the core data structures in Ibis.
-          package: letsql.vendor.ibis.expr.types.relations
+          package: xorq.vendor.ibis.expr.types.relations
           contents:
             - name: Table
               members:
@@ -109,12 +114,10 @@ quartodoc:
                 - sql
                 - union
                 - view
-                - cache
-                - into_backend
 
         - kind: page
           path: expression-generic
-          package: letsql.vendor.ibis.expr.types.generic
+          package: xorq.vendor.ibis.expr.types.generic
           summary:
             name: Generic expressions
             desc: Scalars and columns of any element type.
@@ -153,7 +156,7 @@ quartodoc:
 
         - kind: page
           path: expression-numeric
-          package: letsql.vendor.ibis.expr.types.numeric
+          package: xorq.vendor.ibis.expr.types.numeric
           summary:
             name: Numeric and Boolean expressions
             desc: Integer, floating point, decimal, and boolean expressions.
@@ -202,7 +205,7 @@ quartodoc:
 
         - kind: page
           path: expression-strings
-          package: letsql.vendor.ibis.expr.types.strings
+          package: xorq.vendor.ibis.expr.types.strings
           summary:
             name: String expressions
             desc: All string operations are valid for both scalars and columns.
@@ -248,7 +251,7 @@ quartodoc:
 
         - kind: page
           path: expression-temporal
-          package: letsql.vendor.ibis.expr.types.temporal
+          package: xorq.vendor.ibis.expr.types.temporal
           summary:
             name: Temporal expressions
             desc: Dates, times, timestamps and intervals.
@@ -286,7 +289,7 @@ quartodoc:
 
         - kind: page
           path: toplevel-api
-          package: letsql.expr.api
+          package: xorq.expr.api
           summary:
             name: Top Level API functions
           contents:
@@ -315,7 +318,6 @@ quartodoc:
             - read_parquet
             - register
             - read_postgres
-            - read_sqlite
             - union
             - intersect
             - difference
@@ -337,7 +339,7 @@ quartodoc:
 
         - kind: page
           path: ml-api
-          package: letsql.expr.ml
+          package: xorq.expr.ml
           summary:
             name: ML API functions
           contents:

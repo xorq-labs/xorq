@@ -692,7 +692,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         Import Ibis
 
         >>> import ibis
-        >>> from xorq.vendor.ibis import _
+        >>> from ibis import _
         >>> ibis.options.interactive = True
         >>> con = ibis.duckdb.connect()
 
