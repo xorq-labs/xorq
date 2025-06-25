@@ -11,7 +11,7 @@ Stitching these elements together into a modular, reusable components? It's
 still painful. Each step often speaks a different language, needs constant
 babysitting, and quickly becomes fragile.
 
-That's exactly why we built **Xorq**. [More here](# Why Xorq?).
+That's exactly why we built **Xorq**. [More here](#why-xorq).
 
 Xorq lets you:
 
