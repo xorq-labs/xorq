@@ -99,16 +99,16 @@ def _from_feast(xorq_cls, feast_obj, conversions=(), post_process=None):
 
 
 def from_feast(obj):
-    typ = next((typ for typ in typs if isinstance(obj, typ.feast_cls)), None)
-    if typ:
-        return typ.from_feast(obj)
-    else:
-        match obj:
-            case None:
-                return None
-            case tuple() | list():
-                return tuple(from_feast(el) for el in obj)
-            case _:
+    match obj:
+        case None:
+            return None
+        case tuple() | list():
+            return tuple(from_feast(el) for el in obj)
+        case _:
+            typ = next((typ for typ in typs if isinstance(obj, typ.feast_cls)), None)
+            if typ:
+                return typ.from_feast(obj)
+            else:
                 raise NotImplementedError(f"don't know how to convert type {type(obj)}")
 
 
