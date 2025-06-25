@@ -1,7 +1,13 @@
+<div style="text-align: center">
+
 ![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png)
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
 ![PyPI - Status](https://img.shields.io/pypi/status/xorq)
+![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
+
+</div>
+
 
 Popular Python tools like pandas and Ibis make data exploration enjoyable—but
 when it's time to build reliable ML pipelines across multiple engines, things
