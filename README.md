@@ -2,7 +2,6 @@
 
 ![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png)
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
-![PyPI - Status](https://img.shields.io/pypi/status/xorq)
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
