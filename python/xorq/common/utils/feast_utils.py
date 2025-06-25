@@ -58,6 +58,7 @@ def dct_converter(maybe_dct):
 
 def gen_attr_names(has_attrs_attrs):
     # toolz.compose(partial(map, operator.attrgetter("name")), operator.attrgetter("__attrs_attrs__"))
+    # operator.methodcaller("__getstate__")
     yield from (attr.name for attr in has_attrs_attrs.__attrs_attrs__)
 
 
