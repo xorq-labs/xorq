@@ -24,6 +24,8 @@ website:
     left:
       - sidebar:user-guide
       - sidebar:api-reference
+      - text: "Examples"
+        href: examples/mortgage.qmd
 
   sidebar:
     - id: user-guide

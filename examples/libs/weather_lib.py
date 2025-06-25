@@ -54,7 +54,6 @@ def extract_dct(data):
         ("sea_level_pressure_hpa", ("main", "sea_level")),
         ("ground_level_pressure_hpa", ("main", "grnd_level")),
         #
-        ("wind_speed_ms", ("wind", "speed")),
         ("wind_direction_deg", ("wind", "deg")),
         ("wind_gust_ms", ("wind", "gust")),
         ("clouds_percent", ("clouds", "all")),
@@ -89,12 +88,13 @@ def fetch_one_city(*, city: str):
 def get_current_weather_batch(df: pd.DataFrame) -> pd.DataFrame:
     records = [fetch_one_city(city=city) for city in df["city"].values]
     # build DataFrame and ensure nullable Int64 dtypes for wind columns so Arrow always emits a values buffer
-    tbl = pd.DataFrame(records).reindex(schema_out.names, axis=1)
+    tbl = pd.DataFrame(records).reindex(schema_out.to_pyarrow().names, axis=1)
+
     # convert any object-type columns that are numeric in schema_out to proper numeric dtypes
     # why do we need this? Arrows Int64 is supposed to be nullable?
     object_cols = tbl.select_dtypes(include=["object"]).columns
     for col in object_cols:
-        arrow_type = schema_out.field_by_name(col).type
+        arrow_type = schema_out.to_pyarrow().field_by_name(col).type
         if pa.types.is_integer(arrow_type):
             tbl[col] = pd.to_numeric(tbl[col], errors="coerce").astype("Int64")
         elif pa.types.is_floating(arrow_type):
@@ -103,7 +103,7 @@ def get_current_weather_batch(df: pd.DataFrame) -> pd.DataFrame:
     return tbl
 
 
-schema_in = xo.schema({"city": "string"}).to_pyarrow()
+schema_in = xo.schema({"city": "string"})
 schema_out = xo.schema(
     {
         "city": "string",
@@ -125,7 +125,6 @@ schema_out = xo.schema(
         "sea_level_pressure_hpa": "int64",
         "ground_level_pressure_hpa": "int64",
         # wind fields: speed and gust as floats, direction as nullable integer
-        "wind_speed_ms": "int64",
         "wind_direction_deg": "int64",
         "wind_gust_ms": "int64",
         "clouds_percent": "int64",
@@ -136,7 +135,8 @@ schema_out = xo.schema(
         "city_id": "int64",
         "response_code": "int64",
     }
-).to_pyarrow()
+)
+
 do_fetch_current_weather_flight_udxf = xo.expr.relations.flight_udxf(
     process_df=get_current_weather_batch,
     maybe_schema_in=schema_in,

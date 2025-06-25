@@ -3,7 +3,6 @@ $navbar-bg: #F0FBFF !default;
 $enable-rounded: false;
 $white: #05181A;
 $navbar-fg: $white;
-$footer-fg: $white;
 $black: #F0FBFF;
 $blue: #C1F0FF;
 $cyan: #79E2FF;
@@ -114,11 +113,6 @@ input {
 
 .btn-secondary {
   color: $black;
-}
-
-pre code {
-    background: $black !important;
-    color: $white !important;
 }
 
 pre.sourceCode {

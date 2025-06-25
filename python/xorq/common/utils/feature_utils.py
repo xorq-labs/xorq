@@ -275,18 +275,18 @@ class FeatureStore:
         entity_df: pd.DataFrame,
         features: List[str],
     ):
+        features_by_view = toolz.groupby(
+            operator.itemgetter(0),
+            self._parse_feature_references(features),
+        )
         if EVENT_TIMESTAMP not in entity_df.columns:
             raise ValueError(f"entity_df must contain '{EVENT_TIMESTAMP}' column")
 
             for view_name, feature_names in features_by_view.items():
                 view = self.views[view_name]
-                entity_key = view.entity.key_column
 
         # should we be checking entities consistency among views and entity_df
-        features_by_view = toolz.groupby(
-            operator.itemgetter(0),
-            self._parse_feature_references(features),
-        )
+        con = xo.duckdb.connect()
         for view_name, _feature_names in features_by_view.items():
             view = self.views[view_name]
             feature_names = tuple(feature_name for _, feature_name in _feature_names)
@@ -304,8 +304,8 @@ class FeatureStore:
                 )
                 .select([EVENT_TIMESTAMP] + list(key_columns) + list(feature_names))
             )
-
             # Point-in-time join: get latest feature <= entity timestamp
+            result_expr = xo.memtable(entity_df).into_backend(con=con)
             columns = result_expr.columns
             suffix = "_right"
             result_expr = result_expr.asof_join(
@@ -362,7 +362,7 @@ class FeatureStore:
                 raise ValueError("No online client configured")
 
             tbl = pa.Table.from_pandas(latest_df)
-            self.online_client.upload_data(view_name, tbl, overwrite=True)
+            self.online_client.upload_table(view_name, tbl, overwrite=True)
 
             print(
                 f"Materialized {len(latest_df)} non-expired feature records for view '{view_name}'"

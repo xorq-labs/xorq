@@ -1,4 +1,5 @@
 import argparse
+
 # import logging
 from datetime import datetime, timedelta
 
@@ -169,45 +170,6 @@ def run_historical_features() -> None:
     print(training_df.execute())
 
     return training_df
-
-
-def ensure_table(backend, name=TABLE_BATCH):
-    if name not in backend.tables:
-        table = (
-            xo.memtable(
-                [{"city": c} for c in CITIES],
-                schema=do_fetch_current_weather_udxf.schema_in_required,
-            )
-            .pipe(do_fetch_current_weather_flight_udxf)
-            .to_pandas()
-        )
-        backend.create_table(TABLE_BATCH, table)
-
-
-def run_push_to_view_source() -> None:
-    store, references = setup_store()
-    # client = FlightClient("localhost", WEATHER_FEATURES_PORT)
-    table = (
-        xo.memtable(
-            [{"city": c} for c in CITIES],
-            schema=do_fetch_current_weather_udxf.schema_in_required,
-        )
-        .pipe(do_fetch_current_weather_flight_udxf)
-        .to_pandas()
-    )
-    print(f"table: {table}")
-
-    fv_keys = store.views.keys()
-    # I need an easy way to access batch source to push
-    for view in fv_keys:
-        logging.info(f"View: {view}")
-        backend = store.views[view].offline_expr._find_backend()
-        if TABLE_BATCH not in backend.tables:
-            print(f"Creating table {TABLE_BATCH} in backend")
-            backend.create_table(TABLE_BATCH, table)
-        else:
-            print(f"Table {TABLE_BATCH} already exists in backend")
-            backend.insert(TABLE_BATCH, table)
 
 
 def ensure_table(backend, name=TABLE_BATCH):

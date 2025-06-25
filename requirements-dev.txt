@@ -40,13 +40,14 @@ asttokens==3.0.0
     # via stack-data
 async-lru==2.0.5
     # via jupyterlab
-async-timeout==5.0.1 ; python_full_version < '3.11'
-    # via aiohttp
 atpublic==6.0.1
-    # via xorq
+    # via
+    #   ibis-framework
+    #   xorq
 attrs==25.3.0
     # via
     #   aiohttp
+    #   hash-cache
     #   jsonschema
     #   referencing
     #   sphobjinv
@@ -66,9 +67,9 @@ black==25.1.0
 blackdoc==0.4.0
 bleach==6.2.0
     # via nbconvert
-boto3==1.38.41 ; python_full_version < '4.0'
+boto3==1.39.1 ; python_full_version < '4.0'
     # via snowflake-connector-python
-botocore==1.38.41 ; python_full_version < '4.0'
+botocore==1.39.1 ; python_full_version < '4.0'
     # via
     #   boto3
     #   s3transfer
@@ -113,6 +114,7 @@ click==8.2.1
 cloudpickle==3.1.1
     # via
     #   dask
+    #   hash-cache
     #   xorq
 codespell==2.4.1
 colorama==0.4.6
@@ -131,8 +133,10 @@ cryptography==45.0.4
     #   pyopenssl
     #   snowflake-connector-python
     #   xorq
-dask==2025.1.0 ; python_full_version < '4.0'
-    # via xorq
+dask==2025.1.0
+    # via
+    #   hash-cache
+    #   xorq
 databackend==0.0.3 ; python_full_version < '4.0'
     # via pins
 datafusion==47.0.0
@@ -142,6 +146,7 @@ debugpy==1.8.14
 decorator==5.2.1
     # via
     #   gcsfs
+    #   ipdb
     #   ipython
 defusedxml==0.7.1
     # via nbconvert
@@ -153,11 +158,6 @@ duckdb==1.3.1
     # via xorq
 envyaml==1.10.211231
     # via xorq
-exceptiongroup==1.3.0 ; python_full_version < '3.11'
-    # via
-    #   anyio
-    #   ipython
-    #   pytest
 executing==2.2.0
     # via stack-data
 fastjsonschema==2.21.1
@@ -220,12 +220,14 @@ greenlet==3.2.3 ; (python_full_version < '3.14' and platform_machine == 'AMD64')
     # via sqlalchemy
 griffe==1.7.3
     # via quartodoc
-grpcio==1.73.0
+grpcio==1.73.1
     # via opentelemetry-exporter-otlp-proto-grpc
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
+hash-cache @ git+https://github.com/xorq-labs/hash-cache@253f72f49657e9ac58ea477038c958440f4225b1
+    # via xorq
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
@@ -233,10 +235,11 @@ httpx==0.28.1
     #   jupyterlab
     #   mcp
     #   openai
-httpx-sse==0.4.0
+httpx-sse==0.4.1
     # via mcp
 humanize==4.12.3 ; python_full_version < '4.0'
     # via pins
+ibis-framework==10.6.0
 identify==2.6.12
     # via pre-commit
 idna==3.10
@@ -249,7 +252,6 @@ idna==3.10
     #   yarl
 importlib-metadata==8.7.0
     # via
-    #   dask
     #   opentelemetry-api
     #   pins
     #   quartodoc
@@ -261,13 +263,15 @@ importlib-resources==6.5.2
     #   quartodoc
 iniconfig==2.1.0
     # via pytest
+ipdb==0.13.13
+    # via xorq
 ipykernel==6.29.5
     # via jupyterlab
-ipython==8.37.0 ; python_full_version < '3.11'
-    # via ipykernel
-ipython==9.3.0 ; python_full_version >= '3.11'
-    # via ipykernel
-ipython-pygments-lexers==1.1.1 ; python_full_version >= '3.11'
+ipython==9.3.0
+    # via
+    #   ipdb
+    #   ipykernel
+ipython-pygments-lexers==1.1.1
     # via ipython
 isoduration==20.11.0
     # via jsonschema
@@ -298,6 +302,7 @@ jsonschema==4.24.0
     # via
     #   jupyter-events
     #   jupyterlab-server
+    #   mcp
     #   nbformat
     #   sphobjinv
     #   vendoring
@@ -330,7 +335,7 @@ jupyter-server==2.16.0
     #   notebook-shim
 jupyter-server-terminals==0.5.3
     # via jupyter-server
-jupyterlab==4.4.3
+jupyterlab==4.4.4
     # via notebook
 jupyterlab-pygments==0.3.0
     # via nbconvert
@@ -338,7 +343,7 @@ jupyterlab-server==2.27.3
     # via
     #   jupyterlab
     #   notebook
-locket==1.0.0 ; python_full_version < '4.0'
+locket==1.0.0
     # via partd
 lz4==4.4.4
     # via trino
@@ -352,7 +357,7 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-mcp==1.9.4
+mcp==1.10.1
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -362,7 +367,7 @@ mmh3==5.1.0
     # via pyiceberg
 more-itertools==10.7.0
     # via blackdoc
-multidict==6.5.0 ; python_full_version < '4.0'
+multidict==6.6.3 ; python_full_version < '4.0'
     # via
     #   aiohttp
     #   yarl
@@ -381,30 +386,23 @@ nest-asyncio==1.6.0
     # via ipykernel
 nodeenv==1.9.1
     # via pre-commit
-notebook==7.4.3
+notebook==7.4.4
 notebook-shim==0.2.4
     # via
     #   jupyterlab
     #   notebook
-numpy==2.2.6 ; python_full_version < '3.11'
+numpy==2.3.1
     # via
     #   pandas
     #   pythran
     #   scikit-learn
     #   scipy
     #   xgboost
-numpy==2.3.1 ; python_full_version >= '3.11'
-    # via
-    #   pandas
-    #   pythran
-    #   scikit-learn
-    #   scipy
-    #   xgboost
-nvidia-nccl-cu12==2.27.3 ; platform_machine != 'aarch64' and sys_platform == 'linux'
+nvidia-nccl-cu12==2.27.5 ; platform_machine != 'aarch64' and sys_platform == 'linux'
     # via xgboost
 oauthlib==3.3.1 ; python_full_version < '4.0'
     # via requests-oauthlib
-openai==1.90.0
+openai==1.93.0
     # via xorq
 opentelemetry-api==1.34.1
     # via
@@ -449,8 +447,9 @@ packaging==25.0
     #   pytest
     #   snowflake-connector-python
     #   vendoring
-pandas==2.3.0 ; python_full_version < '4.0'
+pandas==2.3.0
     # via
+    #   hash-cache
     #   pins
     #   xorq
 pandocfilters==1.5.1
@@ -458,8 +457,10 @@ pandocfilters==1.5.1
 parso==0.8.4
     # via jedi
 parsy==2.1
-    # via xorq
-partd==1.4.2 ; python_full_version < '4.0'
+    # via
+    #   ibis-framework
+    #   xorq
+partd==1.4.2
     # via dask
 pathspec==0.12.1
     # via
@@ -537,7 +538,7 @@ pydantic==2.11.7
     #   quartodoc
 pydantic-core==2.33.2
     # via pydantic
-pydantic-settings==2.10.0
+pydantic-settings==2.10.1
     # via mcp
 pygments==2.19.2
     # via
@@ -556,6 +557,7 @@ pyparsing==3.2.3
     # via pyiceberg
 pytest==8.4.1
     # via
+    #   hash-cache
     #   pytest-codspeed
     #   pytest-cov
     #   pytest-mock
@@ -569,12 +571,13 @@ python-dateutil==2.9.0.post0
     # via
     #   arrow
     #   botocore
+    #   ibis-framework
     #   jupyter-client
     #   pandas
     #   strictyaml
     #   trino
     #   xorq
-python-dotenv==1.1.0
+python-dotenv==1.1.1
     # via pydantic-settings
 python-json-logger==3.3.0
     # via jupyter-events
@@ -649,7 +652,7 @@ rich==13.9.4
     #   pyiceberg
     #   pytest-codspeed
     #   vendoring
-rpds-py==0.25.1
+rpds-py==0.26.0
     # via
     #   jsonschema
     #   referencing
@@ -660,7 +663,7 @@ s3transfer==0.13.0 ; python_full_version < '4.0'
     # via boto3
 scikit-learn==1.7.0
     # via xorq
-scipy==1.15.3
+scipy==1.16.0
     # via
     #   scikit-learn
     #   xgboost
@@ -678,7 +681,7 @@ sniffio==1.3.1
     # via
     #   anyio
     #   openai
-snowflake-connector-python==3.15.0 ; python_full_version < '4.0'
+snowflake-connector-python==3.16.0 ; python_full_version < '4.0'
     # via xorq
 sortedcontainers==2.4.0
     # via
@@ -691,7 +694,9 @@ sphobjinv==2.3.1.3
 sqlalchemy==2.0.41
     # via pyiceberg
 sqlglot==25.20.2
-    # via xorq
+    # via
+    #   ibis-framework
+    #   xorq
 sse-starlette==2.3.6
     # via mcp
 stack-data==0.6.3
@@ -717,18 +722,14 @@ tinycss2==1.4.0
 toml==0.10.2
     # via vendoring
 tomli==2.2.1
-    # via
-    #   black
-    #   blackdoc
-    #   codespell
-    #   coverage
-    #   jupyterlab
-    #   pytest
+    # via blackdoc
 tomlkit==0.13.3 ; python_full_version < '4.0'
     # via snowflake-connector-python
 toolz==1.0.0
     # via
     #   dask
+    #   hash-cache
+    #   ibis-framework
     #   partd
     #   xorq
 tornado==6.5.1
@@ -762,14 +763,9 @@ typing-extensions==4.14.0
     # via
     #   adbc-driver-manager
     #   anyio
-    #   async-lru
     #   beautifulsoup4
-    #   black
     #   datafusion
-    #   exceptiongroup
-    #   ipython
-    #   mistune
-    #   multidict
+    #   ibis-framework
     #   openai
     #   opentelemetry-api
     #   opentelemetry-exporter-otlp-proto-grpc
@@ -783,20 +779,18 @@ typing-extensions==4.14.0
     #   pyopenssl
     #   quartodoc
     #   referencing
-    #   rich
     #   snowflake-connector-python
     #   sqlalchemy
     #   starlette
-    #   structlog
     #   typing-inspection
-    #   uvicorn
     #   xorq
 typing-inspection==0.4.1
     # via
     #   pydantic
     #   pydantic-settings
-tzdata==2025.2 ; python_full_version < '4.0' or sys_platform == 'win32'
+tzdata==2025.2
     # via
+    #   ibis-framework
     #   pandas
     #   tzlocal
 tzlocal==5.3.1
@@ -806,8 +800,9 @@ uri-template==1.3.0
 urllib3==2.5.0
     # via
     #   botocore
+    #   hash-cache
     #   requests
-uvicorn==0.34.3 ; sys_platform != 'emscripten'
+uvicorn==0.35.0 ; sys_platform != 'emscripten'
     # via mcp
 vendoring==1.2.0
 virtualenv==20.31.2
