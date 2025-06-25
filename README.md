@@ -11,7 +11,7 @@ Stitching these elements together into a modular, reusable components? It's
 still painful. Each step often speaks a different language, needs constant
 babysitting, and quickly becomes fragile.
 
-That's exactly why we built **Xorq**. [More here](# Why Xorq?).
+That's exactly why we built **Xorq**. [More here](#why-xorq).
 
 Xorq lets you:
 
@@ -26,57 +26,156 @@ Xorq lets you:
 
 Let's see Xorq in action.
 
-### Step 1: Install Xorq
-
-```bash
-pip install xorq  # Note: xorq is still pre-1.0!
-```
-
-### Step 2: Create a pipeline
+### 1. Load and Prepare Data
 
 ```python
 import xorq as xo
-import xorq.expr.datatypes as dt
+from xorq.expr.ml.pipeline_lib import Step
+from sklearn.neighbors import KNeighborsClassifier
 
-@xo.udf.make_pandas_udf(
-    schema=xo.schema({"title": str, "url": str}),
-    return_type=dt.bool,
-    name="url_in_title",
+# Fetch penguins dataset from pandas backend
+pandas_con = xo.pandas.connect()
+expr = xo.examples.penguins.fetch(backend=pandas_con)
+
+# Filter out rows with missing values
+expr = expr.filter(
+    expr.bill_length_mm.isnull() == False,
+    expr.bill_depth_mm.isnull() == False,
+    expr.flipper_length_mm.isnull() == False,
+    expr.body_mass_g.isnull() == False,
 )
-def url_in_title(df):
-    return df.apply(lambda s: (s.url or "") in (s.title or ""), axis=1)
+```
 
+### 2. Define Features and Move to Xorq Backend
+
+```python
+features = ['bill_length_mm', 'bill_depth_mm', 'flipper_length_mm', 'body_mass_g']
+target = 'species'
+
+# Move to Xorq's embedded backend for deferred execution
 con = xo.connect()
-expr = (
-    xo.deferred_read_parquet(con, "hn-data.parquet", "hn")
-    .mutate(url_in_title=url_in_title.on_expr)
+expr = expr.into_backend(con)
+```
+
+### 3. Build and Fit ML Pipeline
+
+```python
+# Create a KNN classifier step
+step = Step(KNeighborsClassifier)
+
+# Fit the model - this creates a deferred pipeline
+fitted = step.fit(expr, features=features, target=target)
+print(fitted)
+```
+
+This creates a `FittedStep` object that contains both the trained model and the computational graph needed to reproduce predictions.
+
+> **Output:**
+> ```
+> FittedStep(step=Step(typ=<class 'sklearn.neighbors._classification.KNeighborsClassifier'>,
+> name='kneighborsclassifier_5353694976', params_tuple=()),
+> expr=r0 := Read[name=penguins, method_name=read_csv, source=pandas-4354090912]
+>   species           string
+>   island            string
+>   bill_length_mm    float64
+>   bill_depth_mm     float64
+>   flipper_length_mm int64
+>   body_mass_g       int64
+>   sex               string
+>   year              int64
+>
+> r1 := Filter[r0]
+>   IsNull(r0.bill_length_mm) == False
+>   IsNull(r0.bill_depth_mm) == False
+>   IsNull(r0.flipper_length_mm) == False
+>   IsNull(r0.body_mass_g) == False
+>
+> RemoteTable[r1, name=ibis_rbr-placeholder_pz63nqkmljeujh]
+>   features=('bill_length_mm', 'bill_depth_mm', 'flipper_length_mm', 'body_mass_g'),
+>   target='species', storage=None, dest_col=None)
+> ```
+
+### 4. Make Predictions with Deferred Execution
+
+```python
+# Create a new expression that includes predictions
+y_expr = expr.mutate(
+    predicted=fitted.deferred_predict.on_expr  # Features and target are automatically inferred
 )
 
-print(expr.execute().head())
+# Execute only when needed
+y_pred = y_expr.predicted.execute()
+y_actual = expr[target].execute()
+
+# Calculate accuracy
+accuracy = (y_actual == y_pred).mean()
+print(f'Deferred pipeline accuracy: {accuracy:.2%}')
 ```
 
-### Step 3: Serialize your pipeline
+> **Output:**
+> ```
+> Deferred pipeline accuracy: 97%
+> ```
 
-```bash
-xorq build pipeline.py -e expr --target-dir builds/
-```
-The CLI creates reproducible build artifacts:
+### 5. Explore Pipeline Lineage
 
-```
-builds/
-└── fce90c2d4bb8/
-    ├── expr.yaml
-    ├── deferred_reads.yaml
-    ├── *.sql
-    └── metadata.json
+One of Xorq's most powerful features is its ability to track the complete lineage of your computations:
+
+```python
+from xorq.common.utils.lineage_utils import build_column_trees, print_tree
+
+# Visualize the computational graph for predictions
+print_tree(build_column_trees(y_expr)['predicted'])
 ```
 
-Ship these anywhere—CI systems, teammates, or other engines—and results remain consistent.
+> **Lineage Tree Output:**
+> ```
+> ExprScalarUDF #1
+> └── _fit_predicted_e1d43fe620d0175d7 #2
+>     ├── Field:bill_length_mm #3
+>     │   └── Filter #4
+>     │       ├── RemoteTable:ibis_rbr-placeholder_rx26s3k3fvdldn #5
+>     │       │   └── Read #6
+>     │       ├── Equals #7
+>     │       │   ├── IsNull #8
+>     │       │   │   └── Field:bill_length_mm #9
+>     │       │   │       └── ↻ see #5
+>     │       │   └── Literal: False #10
+>     │       ├── Equals #11
+>     │       │   ├── IsNull #12
+>     │       │   │   └── Field:bill_depth_mm #13
+>     │       │   │       └── ↻ see #5
+>     │       │   └── ↻ see #10
+>     │       ├── Equals #14
+>     │       │   ├── IsNull #15
+>     │       │   │   └── Field:flipper_length_mm #16
+>     │       │   │       └── ↻ see #5
+>     │       │   └── ↻ see #10
+>     │       └── Equals #17
+>     │           ├── IsNull #18
+>     │           │   └── Field:body_mass_g #19
+>     │           │       └── ↻ see #5
+>     │           └── ↻ see #10
+>     ├── Field:bill_depth_mm #20
+>     │   └── ↻ see #4
+>     ├── Field:flipper_length_mm #21
+>     │   └── ↻ see #4
+>     ├── Field:body_mass_g #22
+>     │   └── ↻ see #4
+>     └── Field:species #23
+>         └── ↻ see #4
+> ```
+
+### Next:
+Explore [Profiles](https://docs.xorq.dev/core_concepts/profiles_guide) to
+connect to Remote backends, explore the [Caching
+system](https://docs.xorq.dev/core_concepts/caching) that automatically names
+and stores up-to date entries, and how to serve(coming soon!) the prediction
+UDF.
 
 ## How Xorq works
 
 ![Xorq Architecture](docs/images/how-xorq-works.png)
-
 
 Xorq uses Apache Arrow for zero-copy data transfer and leverages Ibis and
 DataFusion under the hood for efficient computation.
