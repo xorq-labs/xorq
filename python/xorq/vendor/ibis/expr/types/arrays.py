@@ -399,7 +399,7 @@ class ArrayValue(Value):
         Examples
         --------
         >>> import ibis
-        >>> from xorq.vendor.ibis import _
+        >>> from ibis import _
         >>> ibis.options.interactive = True
         >>> t = ibis.memtable({"a": [[1, None, 2], [4], []]})
         >>> t
@@ -503,7 +503,7 @@ class ArrayValue(Value):
         Examples
         --------
         >>> import ibis
-        >>> from xorq.vendor.ibis import _
+        >>> from ibis import _
         >>> ibis.options.interactive = True
         >>> t = ibis.memtable({"a": [[1, None, 2], [4], []]})
         >>> t
@@ -975,7 +975,7 @@ class ArrayValue(Value):
         --------
         >>> import ibis
         >>> import ibis.selectors as s
-        >>> from xorq.vendor.ibis import _
+        >>> from ibis import _
         >>> ibis.options.interactive = True
         >>> schema = {
         ...     "empty": "array<array<int>>",

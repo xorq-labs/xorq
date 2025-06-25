@@ -246,7 +246,7 @@ class Value(Expr):
         Examples
         --------
         >>> import ibis
-        >>> from xorq.vendor.ibis import _
+        >>> from ibis import _
         >>> ibis.options.interactive = True
         >>> t = ibis.memtable({"numbers": [1, 2, 3, 4], "strings": ["1.0", "2", "hello", "world"]})
         >>> t
@@ -2589,7 +2589,7 @@ def literal(value: Any, type: dt.DataType | str | None = None) -> Scalar:
     Here's an example of constructing a table of a column's type repeated for
     every row:
 
-    >>> from xorq.vendor.ibis import _, selectors as s
+    >>> from ibis import _, selectors as s
     >>> ibis.options.interactive = True
     >>> t = ibis.examples.penguins.fetch()
     >>> t.select(s.across(s.all(), ibis.literal(_.type(), type=str).name(_.get_name()))).head(1)

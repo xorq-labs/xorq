@@ -487,7 +487,7 @@ def across(
     --------
     >>> import ibis
     >>> ibis.options.interactive = True
-    >>> from xorq.vendor.ibis import _, selectors as s
+    >>> from ibis import _, selectors as s
     >>> t = ibis.examples.penguins.fetch()
     >>> t.select(s.startswith("bill")).mutate(
     ...     s.across(s.numeric(), dict(centered=_ - _.mean()), names="{fn}_{col}")

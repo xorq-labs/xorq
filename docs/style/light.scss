@@ -1,0 +1,164 @@
+/*-- scss:defaults --*/
+$navbar-bg: #F0FBFF !default;
+$enable-rounded: false;
+$white: #05181A;
+$navbar-fg: $white;
+$black: #F0FBFF;
+$blue: #C1F0FF;
+$cyan: #79E2FF;
+$red: #FF798F;
+$yellow: #FFD279;
+$gray-300: #19696C;
+$gray-200: #F0FBFF;
+$gray-100: #F0FBFF;
+$gray-900: #05181A;
+$gray-800: #05181A;
+$gray-700: #05181A;
+$gray-600: #05181A;
+$gray-500: #05181A;
+$gray-400: #05181A;
+$body-bg: $black;
+$body-color: $white;
+$input-btn-padding-y: 1rem;
+$input-btn-padding-x: 1.5rem;
+$input-disabled-bg: rgba($gray-300, .3);
+$success: $cyan;
+$input-focus-border-color: $gray-300;
+$input-btn-focus-color: rgba($black, .4);
+$nav-tabs-link-active-color: $gray-300;
+$pagination-color: $black;
+$pagination-active-color: $white;
+$breadcrumb-bg: null;
+$breadcrumb-divider-color: $gray-300;
+$jumbotron-color: $white;
+$nav-pills-link-active-color: $white;
+$list-group-active-color: $white;
+$modal-content-color: $black;
+$popover-border-color: rgba($white, .2);
+$toast-border-color: $gray-300;
+$info: $gray-300;
+$hr-border-color: rgba($white, .1);
+$card-border-color: rgba($white, .125);
+$input-color: $white;
+$input-bg: $black;
+$list-group-color: $black;
+$table-bg-level: 11;
+$emphasized-link-hover-darken-percentage: 25%;
+$link-color: $white;
+$navbar-dark-disabled-color: rgba($black, .25);
+$navbar-light-color: rgba($white, .5);
+$navbar-light-hover-color: rgba($white, .7);
+$navbar-light-active-color: rgba($white, .9);
+$navbar-light-disabled-color: rgba($white, .3);
+$navbar-light-toggler-border-color: rgba($white, .1);
+$dropdown-bg: $black;
+$dropdown-border-color: $gray-300;
+$btn-link-disabled-color: rgba($gray-300, .3);
+$nav-link-disabled-color: $btn-link-disabled-color;
+$pagination-disabled-color: $btn-link-disabled-color;
+$pagination-disabled-bg: $btn-link-disabled-color;
+$font-family-sans-serif: "ALT Riviera", "Helvetica Neue", Arial, sans-serif;
+$font-family-monospace: "FK Grotesk Mono Trial", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+$btn-font-family: $font-family-monospace;
+
+/*-- scss:rules --*/
+h1, h2, h3, h4, h5 {
+    font-weight: 400;
+}
+
+body {
+    font-weight: $font-weight-normal;
+}
+
+h1 {
+    font-size: 4.5rem;
+}
+
+h2 {
+    font-size: 3rem;
+    border-bottom: 1px solid $gray-300 !important;
+}
+
+h3 {
+    font-size: 2.5rem;
+}
+
+h4 {
+    font-size: 2rem;
+}
+
+h5 {
+    font-size: 1.5rem;
+}
+
+h6 {
+    font-size: 1.25rem;
+    font-family: $font-family-monospace;
+    letter-spacing: -0.00875rem;
+    text-transform: uppercase;
+}
+
+button {
+    font-weight: 500;
+    line-height: 150%;
+    letter-spacing: -0.00875rem;
+    text-transform: uppercase;
+}
+
+input {
+    letter-spacing: -0.00875rem;
+    text-transform: uppercase;
+    font-family: $font-family-monospace;
+}
+
+.btn-secondary {
+  color: $black;
+}
+
+pre.sourceCode {
+    border: 1px solid $gray-300 !important;
+}
+
+pre>code.sourceCode {
+    border: none !important;
+}
+
+.sidebar-navigation a {
+    color: $white;
+}
+
+.sidebar-navigation a:hover {
+    color: $gray-300;
+}
+
+.nav-item a {
+  color: $white;
+}
+
+.nav-item a:hover {
+   color: $gray-300;
+}
+
+.quarto-navigation-tool {
+    color: $white;
+}
+
+/* ALT Riviera - Regular */
+@font-face {
+  font-family: 'ALT Riviera';
+  src: url('/style/fonts/ALTRiviera-Regular.ttf') format('ttf'),
+       url('/style/fonts/ALTRiviera-Regular.otf') format('otf');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* FK Grotesk Mono - Medium */
+@font-face {
+  font-family: 'FK Grotesk Mono';
+  src: url('/style/fonts/FKGroteskMono-Regular.woff2') format('woff2'),
+       url('/style/fonts/FKGroteskMono-Regular.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}

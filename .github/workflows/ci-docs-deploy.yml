@@ -1,0 +1,72 @@
+name: ci-docs-deploy
+
+on:
+  push:
+    branches:
+      - main
+  merge_group:
+
+# only a single docs job that pushes to `main` can run at any given time
+concurrency: docs-${{ github.repository }}
+
+permissions:
+  # increase the rate limit for GitHub operations, but limit token permissions
+  # to read-only
+  contents: read
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: extractions/setup-just@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: download test data
+        run: just download-data
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+
+      - name: Install the project
+        run: uv sync --all-extras --all-groups
+        working-directory: ${{ github.workspace }}
+
+      - uses: quarto-dev/quarto-actions/setup@v2
+        with:
+          version: 1.4.515
+
+      - name: start services
+        run: docker compose up --build --wait
+
+      - name: build api docs
+        run: just docs-apigen --verbose
+
+      - name: build docs
+        run: just docs-render
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing
+
+      - name: check that all frozen computations were done before push
+        run: git diff --exit-code --stat ':!uv.lock'
+
+      - name: deploy docs
+        run: just docs-deploy
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
