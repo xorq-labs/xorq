@@ -115,16 +115,6 @@ def from_feast(obj):
 list_map_to_feast = toolz.compose(list, toolz.partial(map, methodcaller("to_feast")))
 
 
-def maybe_convert_feast_fields(obj):
-    if isinstance(obj, (list, tuple)) and all(isinstance(el, Field) for el in obj):
-        # toolz.compose(tuple, toolz.partial(map, FeastField.from_feast))
-        return tuple(FeastField.from_feast(el) for el in obj)
-    elif isinstance(obj, list):
-        return tuple(obj)
-    else:
-        return obj
-
-
 @frozen
 class FeastProject:
     name = field(validator=instance_of(str))
@@ -341,7 +331,6 @@ class FeastFeatureView:
     )
     schema = field(
         validator=deep_iterable(instance_of(FeastField), instance_of(tuple)),
-        converter=maybe_convert_feast_fields,
         default=(),
     )
     # we only get strings, but would like to have the join keys
@@ -421,7 +410,10 @@ class FeastFeatureView:
 
     from_feast = classmethod(
         _from_feast(
-            conversions=(("source", from_feast),),
+            conversions=(
+                ("source", from_feast),
+                ("schema", from_feast),
+            ),
             post_process=from_feast_post_process,
         )
     )
@@ -432,7 +424,6 @@ class FeastRequestSource:
     name = field()
     schema = field(
         validator=deep_iterable(instance_of(FeastField), instance_of(tuple)),
-        converter=maybe_convert_feast_fields,
     )
     description = field(validator=instance_of(str), default="")
     tags = field(
@@ -450,7 +441,11 @@ class FeastRequestSource:
         feast_cls, conversions=(("schema", list_map_to_feast), ("tags", dict))
     )
 
-    from_feast = classmethod(_from_feast)
+    from_feast = classmethod(
+        _from_feast(
+            conversions=(("schema", from_feast),),
+        )
+    )
 
 
 @frozen
@@ -465,7 +460,6 @@ class FeastOnDemandFeatureView:
     )
     schema = field(
         validator=deep_iterable(instance_of(FeastField), instance_of(tuple)),
-        converter=maybe_convert_feast_fields,
         default=(),
     )
     sources = field(
@@ -527,7 +521,14 @@ class FeastOnDemandFeatureView:
         ),
     )
 
-    from_feast = classmethod(_from_feast(conversions=(("sources", from_feast),)))
+    from_feast = classmethod(
+        _from_feast(
+            conversions=(
+                ("sources", from_feast),
+                ("schema", from_feast),
+            ),
+        )
+    )
 
 
 @frozen
