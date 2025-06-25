@@ -183,7 +183,7 @@ def serve_command(
     def _make_con():
         return xo.duckdb.connect(str(db_path))
 
-    server = FlightServer.from_udxf(expr, _make_con)
+    server = FlightServer.from_udxf(expr, connection=_make_con)
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_hash}' on {location}")
     server.serve(block=True)
