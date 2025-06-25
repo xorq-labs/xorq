@@ -1,4 +1,4 @@
-<div style="text-align: center">
+<div align="center">
 
 ![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png)
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
