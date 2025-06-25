@@ -1,55 +1,40 @@
-# xorq: Multi-engine ML pipelines made simple
-
-[![PyPI Downloads](https://static.pepy.tech/badge/xorq)](https://pepy.tech/projects/xorq)
-![PyPI - Version](https://img.shields.io/pypi/v/xorq)
+![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png)
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
 ![PyPI - Status](https://img.shields.io/pypi/status/xorq)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
-![Codecov](https://img.shields.io/codecov/c/github/xorq-labs/xorq)
 
-xorq is a deferred computational framework that brings the replicability and
-performance of declarative pipelines to the Python ML ecosystem. It enables us
-to write pandas-style transformations that never run out of memory,
-automatically cache intermediate results, and seamlessly move between SQL
-engines and Python UDFs—all while maintaining replicability. xorq is built on
-top of Ibis and DataFusion.
+Popular Python tools like pandas and Ibis make data exploration enjoyable—but
+when it's time to build reliable ML pipelines across multiple engines, things
+quickly become complex.
 
-| Feature                                                                       | Description |
-|-------------------------------------------------------------------------------|-------------|
-| **Declarative expressions**                                                   | Express and execute complex data processing logic via declarative functions. Define transformations as Ibis expressions so that you are not tied to a specific execution engine. |
-| **[Multi-engine](https://docs.xorq.dev/core_concepts#multi-engine-system)**   | Create unified ML workflows that leverage the strengths of different data engines in a single pipeline. xorq orchestrates data movement between engines (e.g., Snowflake for initial extraction, DuckDB for transformations, and Python for ML model training). |
-| **[Built-in caching](https://docs.xorq.dev/core_concepts#caching-system)**    | xorq automatically caches intermediate pipeline results, minimizing repeated work. |
-| **Serializable pipelines**                                                    | All pipeline definitions, including UDFs, are serialized to YAML, enabling version control, reproducibility, and CI/CD integration. Ensures consistent results across environments and makes it easy to track changes over time. |
-| **[Portable UDFs](https://docs.xorq.dev/core_concepts#custom-ud-x-f-system)** | Build pipelines as  UDxFs- aggregates, windows, and transformations. The DataFusion-based xorq engine provides a portable runtime for UDF execution. |
-| **Arrow-native architecture**                                                 | Built on the Apache Arrow columnar memory format and Arrow Flight transport layer, xorq achieves high-performance data transfer without cumbersome serialization overhead. |
+Stitching these elements together into a modular, reusable components? It's
+still painful. Each step often speaks a different language, needs constant
+babysitting, and quickly becomes fragile.
 
+That's exactly why we built **Xorq**. [More here](# Why Xorq?).
 
-## Getting Started
-xorq functions as both an interactive library for building expressions and a
-command-line interface. This dual nature enables seamless transition
-from exploratory research to production-ready artifacts. The steps below will
-guide through using both the CLI and library components to get started.
+Xorq lets you:
 
-> [!CAUTION] 
-> This library does not currently have a stable release. Both the
-> API and implementation are subject to change, and future updates may not be
-> backward compatible.
+* **Write expressive, pandas-style transformations** without memory constraints.
+* **Move between SQL engines and Python** within a single declarative pipeline.
+* **Build portable UDFs** that run consistently across engines and effortlessly composed.
+* **Serve cached intermediate results**, so no computation is wasted.
+* **Save diff-able YAML artifacts** for reproducibility and CI/CD.
+* **Get compile-time validation** through declarative expressions.
 
-### Installation
+## Demo Time!
 
-xorq is available as [`xorq`](https://pypi.org/project/xorq/) on PyPI:
+Let's see Xorq in action.
 
-```shell
-pip install xorq
+### Step 1: Install Xorq
+
+```bash
+pip install xorq  # Note: xorq is still pre-1.0!
 ```
 
-> [!NOTE]
-> We are changing the name from LETSQL to xorq.
-
-### Usage
+### Step 2: Create a pipeline
 
 ```python
-# your_pipeline.py
 import xorq as xo
 import xorq.expr.datatypes as dt
 
@@ -59,65 +44,125 @@ import xorq.expr.datatypes as dt
     name="url_in_title",
 )
 def url_in_title(df):
-    return df.apply(
-        lambda s: (s.url or "") in (s.title or ""),
-        axis=1,
-    )
+    return df.apply(lambda s: (s.url or "") in (s.title or ""), axis=1)
 
-# Connect to xorq's embedded engine
 con = xo.connect()
+expr = (
+    xo.deferred_read_parquet(con, "hn-data.parquet", "hn")
+    .mutate(url_in_title=url_in_title.on_expr)
+)
 
-# Reference to the parquet file
-name = "hn-data-small.parquet"
-
-expr = xo.deferred_read_parquet(
-    con,
-    xo.options.pins.get_path(name),
-    name,
-).mutate(**{"url_in_title": url_in_title.on_expr})
-
-expr.execute().head()
+print(expr.execute().head())
 ```
 
-xorq provides a CLI that enables you to build serialized artifacts from expressions, making your pipelines reproducible and deployable:
+### Step 3: Serialize your pipeline
 
-```shell
-# Build an expression from a Python script
-xorq build your_pipeline.py -e "expr" --target-dir builds
+```bash
+xorq build pipeline.py -e expr --target-dir builds/
 ```
-This will create a build artifact directory named by its expression hash:
+The CLI creates reproducible build artifacts:
+
 ```
-builds
-└── fce90c2d4bb8
-   ├── abe2c934f4fe.sql
-   ├── cec2eb9706bc.sql
-   ├── deferred_reads.yaml
-   ├── expr.yaml
-   ├── metadata.json
-   ├── profiles.yaml
-   └── sql.yaml
+builds/
+└── fce90c2d4bb8/
+    ├── expr.yaml
+    ├── deferred_reads.yaml
+    ├── *.sql
+    └── metadata.json
 ```
 
-The CLI converts Ibis expressions into serialized artifacts that capture the complete execution graph, ensuring consistent results across environments.
-More info can be found in the tutorial [Building with xorq](https://docs.xorq.dev/core_concepts/build).
+Ship these anywhere—CI systems, teammates, or other engines—and results remain consistent.
 
-For more examples on how to use xorq, check the
-[examples](https://github.com/xorq-labs/xorq/tree/main/examples) directory, note
-that in order to run some of the scripts in there, you need to install the
-library with `examples` extra:
+## How Xorq works
 
-```shell
-pip install 'xorq[examples]'
+![Xorq Architecture](docs/images/how-xorq-works.png)
+
+
+Xorq uses Apache Arrow for zero-copy data transfer and leverages Ibis and
+DataFusion under the hood for efficient computation.
+
+## Why Xorq?
+
+Here's the challenge we faced:
+
+* **SQL engines** like Snowflake or DuckDB excel at heavy computation but often feel disconnected from Python workflows.
+* **Python libraries** like pandas and scikit-learn are fantastic for complex transformations but struggle with scale.
+* **Python UDFs** handle custom logic beautifully, yet orchestrating them across engines can get cumbersome.
+* **Caching intermediate results** should save precious compute resources but isn't always automatic.
+* **Automated column-level lineage** is crucial for reproducibility but usually an afterthought.
+* **Fail-fast pipelines** should give feedback at compile time, not runtime—but current solutions rarely achieve this.
+
+We built Xorq because existing tools fall short:
+
+* **Ibis** is great for SQL but is single-engine/single-session.
+* **PySpark** is complex and heavyweight for many use cases, especially when you just need a simple pipeline.
+* **Airflow** is powerful but overkill for many ML workflows with state management and task-level retries.
+* **dbt** lets you compose SQL models but not Python functions.
+* **Feast** provides feature management and serving but lacks batch transformations.
+
+Xorq’s key differentiators are:
+
+* **Multi-engine workflows**: Combine Snowflake, DuckDB, and Python effortlessly.
+* **Built-in caching**: No repeated expensive joins or wasted resources.
+* **Serializable pipelines**: YAML and SQL artifacts for reproducibility and easy deployment.
+* **Portable UDxFs**: Write your logic once and run it anywhere supported by DataFusion.
+
+
+## Current Limitations
+
+We're upfront about what’s not quite there yet:
+
+* **API Stability**: Xorq is rapidly evolving, and breaking changes are common until v1.0.
+* **Single-Machine**: We don't have distributed support for `xorq-datafusion` engine.
+* **Documentation Gaps**: Docs are improving but still thin in areas.
+
+### Out of Scope (for now)
+
+* Real-time sources (Kafka, Pulsar, etc.)
+* Rust-based UDFs
+* R, Javascript, or other language support
+
+We'd love your feedback! Your ⭐, issues, and contributions help us shape Xorq's future.
+
+
+
+## Installation Requirements
+
+```bash
+pip install xorq  # or pip install "xorq[examples]"
 ```
+* Python 3.9+
+* Apache Arrow 10.0+
 
-## Contributing
+## FAQ
 
-Contributions are welcome and highly appreciated. To get started, check out the [contributing guidelines](https://github.com/xorq-labs/xorq/blob/main/CONTRIBUTING.md).
+### **What exactly does Xorq replace in my existing data stack?**
 
-## Acknowledgements
 
-This project heavily relies on [Ibis](https://github.com/ibis-project/ibis) and [DataFusion](https://github.com/apache/datafusion).   
+### **Can I use my existing Python UDFs in Xorq?**
 
-## License
+Yes! Xorq makes it easy to adapt existing pandas-style UDFs into portable UDxFs
+that run consistently across multiple SQL engines and Python contexts. Simply
+wrap your logic with Xorq’s decorators, and your UDFs become multi-engine
+compatible automatically.
 
-This repository is licensed under the [Apache License](https://github.com/xorq-labs/xorq/blob/main/LICENSE)
+### **Is Xorq ready for production workloads?**
+
+Xorq is rapidly evolving and still pre-1.0, meaning breaking changes are
+expected as the API stabilizes. While many teams use Xorq successfully in their
+workflows today, we recommend caution in production environments and encourage
+active involvement to help shape the stable release.
+
+## Getting Involved
+
+Interested? Dive deeper:
+
+* Read the [full article](https://www.xorq.dev/posts/introducing-xorq).
+* Join the discussion on Discord: [#xorq](https://discord.gg/8Kma9DhcJG).
+* Contribute via [GitHub](https://github.com/xorq-labs/xorq).
+
+## License & Acknowledgements
+
+Xorq is licensed under [Apache 2.0](https://github.com/xorq-labs/xorq/blob/main/LICENSE).
+
+This project heavily relies on [Ibis](https://github.com/ibis-project/ibis) and [DataFusion](https://github.com/apache/datafusion).
