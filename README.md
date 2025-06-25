@@ -31,6 +31,7 @@ Xorq lets you:
 ## Demo Time!
 
 Let's see Xorq in action.
+## Machine Learning Pipeline Example
 
 ### 1. Load and Prepare Data
 
@@ -101,7 +102,36 @@ This creates a `FittedStep` object that contains both the trained model and the 
 >   target='species', storage=None, dest_col=None)
 > ```
 
-### 4. Make Predictions with Deferred Execution
+Save this as file as `expr.py`.
+### 4. Build and Deploy the Pipeline
+
+Once you have your fitted pipeline, you can build and deploy it using Xorq's CLI:
+
+```bash
+# Build the pipeline for deployment
+xorq build expr.py -e y_expr
+```
+
+> **Build Output:**
+> ```
+> Building y_expr from scripts/expr.py
+> Written 'y_expr' to builds/ca3da8b86a86
+> builds/ca3da8b86a86
+> ```
+
+Now you can run the built pipeline:
+
+```bash
+xorq run builds/ca3da8b86a86
+```
+> **Run Output:**
+
+```bash
+# Coming soon
+xorq run builds/ca3da8b86a86
+```
+
+### 5. Make Predictions with Deferred Execution
 
 ```python
 # Create a new expression that includes predictions
@@ -123,7 +153,7 @@ print(f'Deferred pipeline accuracy: {accuracy:.2%}')
 > Deferred pipeline accuracy: 97%
 > ```
 
-### 5. Explore Pipeline Lineage
+### 6. Explore Pipeline Lineage
 
 One of Xorq's most powerful features is its ability to track the complete lineage of your computations:
 
