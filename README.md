@@ -7,17 +7,17 @@ Popular Python tools like pandas and Ibis make data exploration enjoyable—but
 when it's time to build reliable ML pipelines across multiple engines, things
 quickly become complex.
 
-Stitching these elements together into a reliable pipeline? It's still painful.
-Each step often speaks a different language, needs constant babysitting, and
-quickly becomes fragile.
+Stitching these elements together into a modular, reusable components? It's
+still painful. Each step often speaks a different language, needs constant
+babysitting, and quickly becomes fragile.
 
-That's exactly why we built **Xorq**. [More here](## Why Xorq?).
+That's exactly why we built **Xorq**. [More here](# Why Xorq?).
 
 Xorq lets you:
 
 * **Write expressive, pandas-style transformations** without memory constraints.
 * **Move between SQL engines and Python** within a single declarative pipeline.
-* **Build portable UDFs** that run consistently across engines
+* **Build portable UDFs** that run consistently across engines and effortlessly composed.
 * **Serve cached intermediate results**, so no computation is wasted.
 * **Save diff-able YAML artifacts** for reproducibility and CI/CD.
 * **Get compile-time validation** through declarative expressions.
@@ -138,10 +138,6 @@ pip install xorq  # or pip install "xorq[examples]"
 
 ### **What exactly does Xorq replace in my existing data stack?**
 
-Xorq simplifies your pipeline by combining SQL engine efficiency, pandas-style
-Python workflows, caching, and reproducibility into a single tool. It can
-replace or complement parts of Airflow, PySpark, dbt, Feast, or manual
-pandas-based ETL pipelines, streamlining your workflow significantly.
 
 ### **Can I use my existing Python UDFs in Xorq?**
 
