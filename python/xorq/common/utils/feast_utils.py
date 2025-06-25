@@ -115,16 +115,6 @@ def from_feast(obj):
 list_map_to_feast = toolz.compose(list, toolz.partial(map, methodcaller("to_feast")))
 
 
-def maybe_convert_data_source(obj):
-    import feast
-
-    match obj:
-        case feast.FileSource():
-            return FeastFileSource.from_feast(obj)
-        case _:
-            return obj
-
-
 def maybe_convert_feast_fields(obj):
     if isinstance(obj, (list, tuple)) and all(isinstance(el, Field) for el in obj):
         # toolz.compose(tuple, toolz.partial(map, FeastField.from_feast))
@@ -348,7 +338,6 @@ class FeastFeatureView:
     name = field(validator=instance_of(str))
     source = field(
         validator=instance_of((FeastFileSource, FeastDataSource, FeastPushSource)),
-        converter=maybe_convert_data_source,
     )
     schema = field(
         validator=deep_iterable(instance_of(FeastField), instance_of(tuple)),
