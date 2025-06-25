@@ -7,20 +7,11 @@ Popular Python tools like pandas and Ibis make data exploration enjoyable—but
 when it's time to build reliable ML pipelines across multiple engines, things
 quickly become complex.
 
-Here's the challenge we faced:
-
-* **SQL engines** like Snowflake or DuckDB excel at heavy computation but often feel disconnected from Python workflows.
-* **Python libraries** like pandas and scikit-learn are fantastic for complex transformations but struggle with scale.
-* **Python UDFs** handle custom logic beautifully, yet orchestrating them across engines can get cumbersome.
-* **Caching intermediate results** should save precious compute resources but isn't always automatic.
-* **Automated column-level lineage** is crucial for reproducibility but usually an afterthought.
-* **Fail-fast pipelines** should give feedback at compile time, not runtime—but current solutions rarely achieve this.
-
 Stitching these elements together into a reliable pipeline? It's still painful.
 Each step often speaks a different language, needs constant babysitting, and
 quickly becomes fragile.
 
-That's exactly why we built **Xorq**.
+That's exactly why we built **Xorq**. [More here](## Why Xorq?).
 
 Xorq lets you:
 
@@ -30,31 +21,6 @@ Xorq lets you:
 * **Serve cached intermediate results**, so no computation is wasted.
 * **Save diff-able YAML artifacts** for reproducibility and CI/CD.
 * **Get compile-time validation** through declarative expressions.
-
-## How Xorq works
-
-![Xorq Architecture](docs/images/how-xorq-works.png)
-
-
-Xorq uses Apache Arrow for zero-copy data transfer and leverages Ibis and
-DataFusion under the hood for efficient computation.
-
-## Why Xorq?
-
-We built Xorq because existing tools fall short:
-
-* **Ibis** is great for SQL but is single-engine/single-session.
-* **PySpark** is complex and heavyweight for many use cases, especially when you just need a simple pipeline.
-* **Airflow** is powerful but overkill for many ML workflows with state management and task-level retries.
-* **dbt** lets you compose SQL models but not Python functions.
-* **Feast** provides feature management and serving but lacks batch transformations.
-
-Xorq’s key differentiators are:
-
-* **Multi-engine workflows**: Combine Snowflake, DuckDB, and Python effortlessly.
-* **Built-in caching**: No repeated expensive joins or wasted resources.
-* **Serializable pipelines**: YAML and SQL artifacts for reproducibility and easy deployment.
-* **Portable UDxFs**: Write your logic once and run it anywhere supported by DataFusion.
 
 ## Demo Time!
 
@@ -106,6 +72,41 @@ builds/
 ```
 
 Ship these anywhere—CI systems, teammates, or other engines—and results remain consistent.
+
+## How Xorq works
+
+![Xorq Architecture](docs/images/how-xorq-works.png)
+
+
+Xorq uses Apache Arrow for zero-copy data transfer and leverages Ibis and
+DataFusion under the hood for efficient computation.
+
+## Why Xorq?
+
+Here's the challenge we faced:
+
+* **SQL engines** like Snowflake or DuckDB excel at heavy computation but often feel disconnected from Python workflows.
+* **Python libraries** like pandas and scikit-learn are fantastic for complex transformations but struggle with scale.
+* **Python UDFs** handle custom logic beautifully, yet orchestrating them across engines can get cumbersome.
+* **Caching intermediate results** should save precious compute resources but isn't always automatic.
+* **Automated column-level lineage** is crucial for reproducibility but usually an afterthought.
+* **Fail-fast pipelines** should give feedback at compile time, not runtime—but current solutions rarely achieve this.
+
+We built Xorq because existing tools fall short:
+
+* **Ibis** is great for SQL but is single-engine/single-session.
+* **PySpark** is complex and heavyweight for many use cases, especially when you just need a simple pipeline.
+* **Airflow** is powerful but overkill for many ML workflows with state management and task-level retries.
+* **dbt** lets you compose SQL models but not Python functions.
+* **Feast** provides feature management and serving but lacks batch transformations.
+
+Xorq’s key differentiators are:
+
+* **Multi-engine workflows**: Combine Snowflake, DuckDB, and Python effortlessly.
+* **Built-in caching**: No repeated expensive joins or wasted resources.
+* **Serializable pipelines**: YAML and SQL artifacts for reproducibility and easy deployment.
+* **Portable UDxFs**: Write your logic once and run it anywhere supported by DataFusion.
+
 
 ## Current Limitations
 
