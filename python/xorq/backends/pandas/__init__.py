@@ -1,6 +1,7 @@
 from typing import MutableMapping
 
 import pandas as pd
+import pyarrow as pa
 
 import xorq.common.exceptions as com
 from xorq.vendor.ibis.backends.pandas import Backend as IbisPandasBackend
@@ -34,3 +35,11 @@ class Backend(IbisPandasBackend):
             )
         del self.dictionary[name]
         del self.schemas[name]
+
+    def read_record_batches(
+        self,
+        record_batches: pa.RecordBatchReader,
+        table_name: str | None = None,
+    ):
+        self.dictionary[table_name] = record_batches.read_pandas()
+        return self.table(table_name)

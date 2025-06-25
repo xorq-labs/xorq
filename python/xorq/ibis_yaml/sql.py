@@ -1,8 +1,10 @@
+import warnings
 from typing import Any, Dict, List, Tuple, TypedDict
 
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.expr.relations import Read, RemoteTable
 
@@ -19,6 +21,20 @@ class SQLPlans(TypedDict):
 
 class DeferredReadsPlan(TypedDict):
     reads: Dict[str, QueryInfo]
+
+
+def to_sql(expr: ir.Expr) -> str:
+    try:
+        compiler_provider = expr._find_backend(use_default=True)
+        if getattr(compiler_provider, "compiler", None) is None:
+            warnings.warn(
+                f"{compiler_provider} is not a SQL backend, so no SQL string will be generated"
+            )
+            return ""
+    except XorqError:
+        pass
+
+    return ibis.to_sql(expr)
 
 
 def find_relations(expr: ir.Expr) -> List[str]:
@@ -61,7 +77,7 @@ def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInf
                     "engine": engine_name,
                     "profile_name": profile_name,
                     "relations": find_relations(remote_expr),
-                    "sql": ibis.to_sql(remote_expr).strip(),
+                    "sql": to_sql(remote_expr).strip(),
                     "options": {},
                 }
         elif isinstance(node, Read):
@@ -73,7 +89,7 @@ def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInf
                     "engine": backend.name,
                     "profile_name": backend._profile.hash_name,
                     "relations": [dt.name],
-                    "sql": ibis.to_sql(dt.to_expr()).strip(),
+                    "sql": to_sql(dt.to_expr()).strip(),
                     "options": get_read_options(node),
                 }
     return remote_tables, deferred_reads
@@ -90,7 +106,7 @@ def get_read_options(read_instance) -> Dict[str, Any]:
 
 def generate_sql_plans(expr: ir.Expr) -> Tuple[SQLPlans, DeferredReadsPlan]:
     remote_tables, deferred_reads = find_tables(expr)
-    main_sql = ibis.to_sql(expr.ls.uncached)
+    main_sql = to_sql(expr.ls.uncached)
     backend = expr._find_backend()
 
     queries: Dict[str, QueryInfo] = {

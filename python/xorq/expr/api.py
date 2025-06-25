@@ -420,7 +420,7 @@ def to_pyarrow_batches(
     def clean_up():
         for table_name, conn in created.items():
             try:
-                conn.drop_table(table_name)
+                conn.drop_table(table_name, force=True)
             except Exception:
                 conn.drop_view(table_name)
 

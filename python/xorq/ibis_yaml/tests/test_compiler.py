@@ -310,3 +310,21 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
     roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
+
+
+def test_build_pandas_backend(build_dir, users_df):
+    xo_con = xo.connect()
+    pandas_con = xo.pandas.connect()
+    t = xo_con.register(users_df, table_name="users")
+
+    expected = (
+        t.filter(t.age > 30)
+        .select(t.user_id, t.name, t.age * 2)
+        .into_backend(pandas_con, name="pandas_users")
+    )
+
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expected)
+    actual = compiler.load_expr(expr_hash)
+
+    assert_frame_equal(xo.execute(expected), actual.execute())
