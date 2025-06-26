@@ -1,7 +1,6 @@
 import contextlib
 import json
 import operator
-import os
 import pathlib
 from pathlib import Path
 from typing import Any, Dict
@@ -14,6 +13,7 @@ import xorq as xo
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.caching_utils import xorq_cache_dir
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
@@ -180,13 +180,10 @@ class YamlExpressionTranslator:
 
 
 class BuildManager:
-    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path = None):
+    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path | str = None):
         self.artifact_store = ArtifactStore(build_dir)
         self.profiles = {}
-        if cache_dir is not None:
-            self.cache_dir = cache_dir
-        else:
-            self.cache_dir = os.getenv("XORQ_CACHE_DIR")
+        self.cache_dir = Path(cache_dir or xorq_cache_dir())
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
         hash_length = config.hash_length

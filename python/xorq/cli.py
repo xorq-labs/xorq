@@ -45,12 +45,7 @@ def build_command(script_path, expr_name, builds_dir="builds", cache_dir=None):
 
     print(f"Building {expr_name} from {script_path}", file=sys.stderr)
 
-    if cache_dir is not None:
-        cache_dir = Path(cache_dir)
-    else:
-        cache_dir = Path("~/.cache/xorq/").expanduser()
-
-    build_manager = BuildManager(builds_dir, cache_dir)
+    build_manager = BuildManager(builds_dir, cache_dir=cache_dir)
 
     vars_module = import_from_path(script_path, module_name="__main__")
 

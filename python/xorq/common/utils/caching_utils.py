@@ -8,15 +8,17 @@ from xorq.vendor.ibis import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
 
 
-def user_cache_dir() -> pathlib.Path:
+def xorq_cache_dir() -> pathlib.Path:
+    if path := os.getenv("XORQ_CACHE_DIR"):
+        return Path(path)
+
     name = "xorq"
     if sys.platform == "win32":
-        path = os.path.normpath(os.environ["LOCALAPPDATA"])
-        path = os.path.join(path, name, "cache")
+        return Path(os.path.normpath(os.environ["LOCALAPPDATA"])).joinpath(
+            name, "cache"
+        )
     else:
-        path = os.getenv("XDG_CACHE_HOME", os.path.expanduser("~/.cache/"))
-        path = os.path.join(path, name)
-    return Path(path)
+        return Path(os.getenv("XDG_CACHE_HOME", f"~/.cache/{name}")).expanduser()
 
 
 def find_backend(op: ops.Node, use_default=False) -> tuple[BaseBackend, bool]:
