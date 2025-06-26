@@ -145,6 +145,7 @@ def serve_command(
         Port to bind Flight Server (None for random)
     duckdb_path : str or None
         Path to duckdb cache DB file
+    prometheus_port : int or None
     """
 
     span = trace.get_current_span()
