@@ -1,3 +1,4 @@
+import functools
 import time
 from typing import Optional
 
@@ -64,13 +65,14 @@ class SimpleConsoleMetricExporter(MetricExporter):
         return True
 
 
+@functools.lru_cache(1)
 def setup_console_metrics(
     interval_ms: int = 2000,
     meter_name: str = "xorq.flight_server",
-    duckdb_path: Optional[str] = None,
     prometheus_port: Optional[int] = None,
 ):
     exporter = SimpleConsoleMetricExporter()
+
     readers = [
         PeriodicExportingMetricReader(exporter, export_interval_millis=interval_ms)
     ]

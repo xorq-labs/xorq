@@ -167,7 +167,7 @@ def serve_command(
 
     expr = build_manager.load_expr(expr_hash)
 
-    db_path = Path(duckdb_path or "xorq_serve.db")  # what should be the default?
+    db_path = Path(duckdb_path or "xorq_serve.db")  # FIXME what should be the default?
 
     db_path.parent.mkdir(parents=True, exist_ok=True)
     logger.info(f"Using duckdb at {db_path}")
@@ -175,7 +175,7 @@ def serve_command(
     try:
         from xorq.flight.metrics import setup_console_metrics
 
-        setup_console_metrics(duckdb_path=str(db_path), prometheus_port=prometheus_port)
+        setup_console_metrics(prometheus_port=prometheus_port)
     except ImportError:
         logger.warning(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
