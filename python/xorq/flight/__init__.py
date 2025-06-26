@@ -154,7 +154,7 @@ class FlightServer:
         self.exchangers = exchangers
 
     @classmethod
-    def from_udxf(cls, expr, host=None, port=None, make_connection=None):
+    def from_udxf(cls, expr, host=None, port=None, make_connection=None, **kwargs):
         from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import FlightUDXF
 
@@ -177,7 +177,7 @@ class FlightServer:
 
         return cls(
             flight_url,
-            **server_kwargs,
+            **kwargs | server_kwargs,
         )
 
     @property
