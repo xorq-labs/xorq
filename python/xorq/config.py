@@ -2,7 +2,6 @@ import os
 import pathlib
 from typing import Any, Optional, Union
 
-from xorq.common.utils.caching_utils import xorq_cache_dir
 from xorq.vendor import ibis
 from xorq.vendor.ibis.config import Config
 
@@ -17,7 +16,7 @@ class Cache(Config):
 
     """
 
-    default_path: Union[str, pathlib.Path] = xorq_cache_dir()
+    default_path: Union[str, pathlib.Path] = pathlib.Path("parquet")
     key_prefix: str = "letsql_cache-"
 
 
