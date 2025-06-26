@@ -2,22 +2,27 @@
 
 ![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png)
 ![GitHub License](https://img.shields.io/github/license/xorq-labs/xorq)
-![PyPI - Status](https://img.shields.io/pypi/status/xorq)
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
 </div>
 
+> **✨ Build reproducible, multi‑engine ML pipelines with the ergonomics of
+> pandas and the power of modern SQL. ✨**
 
 Popular Python tools like pandas and Ibis make data exploration enjoyable—but
 when it's time to build reliable ML pipelines across multiple engines, things
 quickly become complex.
 
-Stitching these elements together into a modular, reusable components? It's
-still painful. Each step often speaks a different language, needs constant
-babysitting, and quickly becomes fragile.
+As data scientists, we found that building ML pipelines, especially multi-stage
+and multi-source pipelines, is frustrating work. SQL-pandas impedence
+mismatches. Wasteful recomputation time and costs. Pipelines that work
+perfectly in notebooks, but take forever to re-engineer for deployment--and
+then deliver different results or fail in production. We built Xorq to
+eliminate these problems - a library with a simple declarative syntax for
+defining ML pipelines as portable, reusable components.
 
-That's exactly why we built **Xorq**. [More here](#why-xorq).
+[More on why we built Xorq](#why-xorq).
 
 Xorq lets you:
 
@@ -208,6 +213,9 @@ connect to Remote backends, explore the [Caching
 system](https://docs.xorq.dev/core_concepts/caching) that automatically names
 and stores up-to date entries, and how to serve(coming soon!) the prediction
 UDF.
+
+### Scikit-learn `Pipeline` Example:
+For more examples using `scikit-learn`, check out the [scikit-learn examples](examples/pipelines_example.py).
 
 ## How Xorq works
 
