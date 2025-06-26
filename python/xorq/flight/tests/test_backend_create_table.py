@@ -12,7 +12,7 @@ def flight_server():
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     ) as server:
         yield server
 

@@ -9,7 +9,7 @@ def test_connect():
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     ) as _:
         con = xo.flight.connect(host=flight_url.host, port=flight_url.port)
         assert con is not None

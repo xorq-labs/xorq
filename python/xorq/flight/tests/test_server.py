@@ -50,7 +50,7 @@ def test_port_in_use(connection, port):
     with pytest.raises(OSError, match="Address already in use"):
         with FlightServer(
             flight_url=flight_url,
-            connection=connection,
+            make_connection=connection,
         ) as _:
             # entering the above context releases the port
             # so we won't raise until we enter the second context and try to use it
@@ -108,7 +108,7 @@ def test_register_and_list_tables(connection, port):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         con = main.con
         assert con.version is not None
@@ -195,7 +195,7 @@ def test_into_backend_flight_server(connection, port, parquet_dir):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         con = main.con
         t = batting.filter(batting.yearID == 2015).into_backend(con, "xo_batting")
@@ -221,7 +221,7 @@ def test_read_parquet(connection, port, parquet_dir):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         con = main.con
         batting = con.read_parquet(parquet_dir / "batting.parquet")
@@ -245,7 +245,7 @@ def test_exchange(connection, port):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         client = main.client
         udf_exchanger = PandasUDFExchanger(
@@ -307,7 +307,7 @@ def test_reentry(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     with FlightServer(
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as server:
         fut, rbr = server.client.do_exchange_batches(
             EchoExchanger.command,
@@ -336,7 +336,7 @@ def test_serve_close(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     server = FlightServer(
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     )
 
     server.serve()
@@ -394,7 +394,7 @@ def test_execute_query_non_relation_expr(expr):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     ) as main:
         main.con.register(data, table_name="users")
         actual = main.client.execute(expr)
@@ -408,7 +408,7 @@ def test_server_blocks(block):
     server = FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     )
 
     def serve():
