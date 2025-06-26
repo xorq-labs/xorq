@@ -3,6 +3,7 @@ import os
 import pdb
 import sys
 import traceback
+from functools import partial
 from pathlib import Path
 
 from opentelemetry import trace
@@ -180,10 +181,9 @@ def serve_command(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
 
-    def _make_con():
-        return xo.duckdb.connect(str(db_path))
-
-    server = FlightServer.from_udxf(expr, connection=_make_con)
+    server = FlightServer.from_udxf(
+        expr, make_connection=partial(xo.duckdb.connect, str(db_path))
+    )
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_hash}' on {location}")
     server.serve(block=True)

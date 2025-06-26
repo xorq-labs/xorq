@@ -135,7 +135,7 @@ class FlightServer:
         verify_client=False,
         root_certificates=None,
         auth: BasicAuth = None,
-        connection=xo.connect,
+        make_connection=xo.connect,
         exchangers=(),
     ):
         required_scheme = (
@@ -148,26 +148,23 @@ class FlightServer:
         self.tls_certificates = tls_certificates
         self.root_certificates = root_certificates
         self.auth = auth
-        self.connection = connection
+        self.connection = make_connection
         self.verify_client = verify_client
         self.server = None
         self.exchangers = exchangers
 
     @classmethod
-    def from_udxf(cls, expr, host=None, port=None, connection=None):
+    def from_udxf(cls, expr, host=None, port=None, make_connection=None):
         from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import FlightUDXF
 
-        exchangers = []
-        seen = set()
+        exchangers = set()
 
         # Find all FlightUDXF nodes in the expression
         udxf_nodes = walk_nodes((FlightUDXF,), expr)
         for node in udxf_nodes:
-            udxf_cls = getattr(node, "udxf", None)
-            if udxf_cls and udxf_cls not in seen:
-                exchangers.append(udxf_cls)
-                seen.add(udxf_cls)
+            udxf_cls = node.udxf
+            exchangers.add(udxf_cls)
 
         flight_url_kwargs = {
             key: value for key, value in (("host", host), ("port", port)) if value
@@ -175,11 +172,11 @@ class FlightServer:
         flight_url = FlightUrl(**flight_url_kwargs)
 
         server_kwargs = {
-            "exchangers": exchangers,
+            "exchangers": list(exchangers),
         }
 
-        if connection:
-            server_kwargs["connection"] = connection
+        if make_connection:
+            server_kwargs["connection"] = make_connection
 
         return cls(
             flight_url,
