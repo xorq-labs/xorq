@@ -8,6 +8,7 @@ from pathlib import Path
 from opentelemetry import trace
 
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.common.utils.caching_utils import xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.otel_utils import tracer
 from xorq.ibis_yaml.compiler import BuildManager
@@ -15,7 +16,9 @@ from xorq.vendor.ibis import Expr
 
 
 @tracer.start_as_current_span("cli.build_command")
-def build_command(script_path, expr_name, builds_dir="builds", cache_dir=None):
+def build_command(
+    script_path, expr_name, builds_dir="builds", cache_dir=xorq_cache_dir()
+):
     """
     Generate artifacts from an expression in a given Python script
 
@@ -45,7 +48,7 @@ def build_command(script_path, expr_name, builds_dir="builds", cache_dir=None):
 
     print(f"Building {expr_name} from {script_path}", file=sys.stderr)
 
-    build_manager = BuildManager(builds_dir, cache_dir=cache_dir)
+    build_manager = BuildManager(builds_dir, cache_dir=Path(cache_dir))
 
     vars_module = import_from_path(script_path, module_name="__main__")
 
