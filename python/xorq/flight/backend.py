@@ -220,11 +220,8 @@ class Backend(SQLBackend):
         ):
             @contextmanager
             def make_server():
-                o = SimpleNamespace()
-                o.client = self.con
-
                 try:
-                    yield o
+                    yield SimpleNamespace(client=self.con)
                 finally:
                     pass
 
@@ -233,7 +230,6 @@ class Backend(SQLBackend):
                     input_expr=expr,
                     udxf=udxf,
                     make_server=make_server,
-                    ephemeral=False,
                     **kwargs,
                 )
                 .to_expr()

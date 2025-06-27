@@ -1,4 +1,5 @@
 import datetime
+import functools
 import operator
 import threading
 import time
@@ -417,11 +418,9 @@ def test_server_blocks(block):
         make_connection=xo.duckdb.connect,
     )
 
-    def serve():
-        server.serve(block=block)
-
-    server_thread = threading.Thread(target=serve)
-    server_thread.daemon = True
+    server_thread = threading.Thread(
+        target=functools.partial(server.serve, block=block), daemon=True
+    )
 
     is_blocking = True
 

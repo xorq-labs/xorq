@@ -255,14 +255,14 @@ class FlightServer:
         self.close(*args)
 
 
-def connect(url, tls_kwargs):
+def connect(url, tls_kwargs=None):
     new_backend = Backend()
     new_backend.do_connect(
         host=url.host,
         port=url.port,
         username=url.username,
         password=url.password,
-        **tls_kwargs.client_kwargs,
+        **(tls_kwargs.client_kwargs if tls_kwargs else {}),
     )
 
     return new_backend

@@ -31,7 +31,6 @@ def test_setup_console_metrics_simple(capsys):
             "flight_server.requests_total{method=dummy_do_get} 1"
             in capsys.readouterr().out
         ):
-            assert True
             return
 
     assert False
