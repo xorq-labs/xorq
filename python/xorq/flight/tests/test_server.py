@@ -26,10 +26,16 @@ from xorq.flight.tests.conftest import do_agg, field_name, my_udf, return_type
 from xorq.tests.util import assert_frame_equal
 
 
-def make_flight_url(port, scheme="grpc"):
+def make_flight_url(port, scheme="grpc", auth=None):
     if port is not None:
         assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port, scheme=scheme)
+    flight_url = (
+        FlightUrl(port=port, scheme=scheme)
+        if auth is None
+        else FlightUrl(
+            port=port, scheme=scheme, username=auth.username, password=auth.password
+        )
+    )
     assert FlightUrl.port_in_use(flight_url.port), (
         f"Port {flight_url.port} should be in use"
     )
