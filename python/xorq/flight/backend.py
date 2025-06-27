@@ -1,15 +1,20 @@
+from contextlib import contextmanager
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Iterable, Mapping
 
 import pandas as pd
 import pyarrow as pa
+import toolz
 
 from xorq.common.utils.rbr_utils import (
     make_filtered_reader,
 )
+from xorq.expr.relations import FlightUDXF
 from xorq.flight.action import (
     DropTableAction,
     DropViewAction,
+    GetExchangeAction,
     GetSchemaQueryAction,
     ListTablesAction,
     ReadParquetAction,
@@ -200,3 +205,31 @@ class Backend(SQLBackend):
         )
         batches = make_filtered_reader(batches)
         return batches
+
+    def get_flight_udxf(self, command):
+        udxf = self.con.do_action_one(GetExchangeAction.name, action_body=command)
+
+        def flight_udxf(
+            expr,
+            con,
+            name,
+            **kwargs,
+        ):
+            @contextmanager
+            def make_server():
+                o = SimpleNamespace()
+                o.client = self.con
+                return o
+
+            return (
+                FlightUDXF.from_expr(
+                    input_expr=expr,
+                    udxf=udxf,
+                    make_server=make_server,
+                    **kwargs,
+                )
+                .to_expr()
+                .into_backend(con=con or expr._find_backend(), name=name)
+            )
+
+        return toolz.curry(flight_udxf)

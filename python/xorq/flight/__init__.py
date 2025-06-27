@@ -255,32 +255,17 @@ class FlightServer:
         self.close(*args)
 
 
-# FIXME take the only two objects (FlightURL and TLSKwargs)
-# FIXME Add a method for getting the udxf out of the server
-
-
-def connect(
-    host="localhost",
-    port=8815,
-    username=None,
-    password=None,
-    cert_chain=None,
-    private_key=None,
-    tls_root_certs=None,
-):
-    from xorq.flight.backend import Backend
-
+def connect(url, tls_kwargs):
     new_backend = Backend()
     new_backend.do_connect(
-        host=host,
-        port=port,
-        username=username,
-        password=password,
-        cert_chain=cert_chain,
-        private_key=private_key,
-        tls_root_certs=tls_root_certs,
+        host=url.host,
+        port=url.port,
+        username=url.username,
+        password=url.password,
+        **tls_kwargs.client_kwargs,
     )
+
     return new_backend
 
 
-__all__ = ["FlightServer", "BasicAuth", "connect"]
+__all__ = ["FlightServer", "FlightUrl", "BasicAuth", "connect"]
