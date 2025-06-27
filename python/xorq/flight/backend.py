@@ -209,27 +209,34 @@ class Backend(SQLBackend):
     def get_flight_udxf(self, command):
         udxf = self.con.do_action_one(GetExchangeAction.name, action_body=command)
 
+        @toolz.curry
         def flight_udxf(
             expr,
-            con,
-            name,
+            con=None,
+            name=None,
+            inner_name=None,
             **kwargs,
         ):
             @contextmanager
             def make_server():
                 o = SimpleNamespace()
                 o.client = self.con
-                return o
+
+                try:
+                    yield o
+                finally:
+                    pass
 
             return (
                 FlightUDXF.from_expr(
                     input_expr=expr,
                     udxf=udxf,
                     make_server=make_server,
+                    ephemeral=False,
                     **kwargs,
                 )
                 .to_expr()
                 .into_backend(con=con or expr._find_backend(), name=name)
             )
 
-        return toolz.curry(flight_udxf)
+        return flight_udxf
