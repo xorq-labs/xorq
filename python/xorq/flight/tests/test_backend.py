@@ -1,5 +1,5 @@
+import functools
 import threading
-import time
 
 import pandas as pd
 import pyarrow as pa
@@ -80,14 +80,11 @@ def test_backend_get_flight_udxf():
         **tls_kwargs.server_kwargs,
     )
 
-    def serve():
-        server.serve(block=True)
-
-    server_thread = threading.Thread(target=serve)
-    server_thread.daemon = True
-
+    server_thread = threading.Thread(
+        target=functools.partial(server.serve, block=True), daemon=True
+    )
     server_thread.start()
-    time.sleep(1)
+    server.client
 
     con = xo.connect()
     backend = xo.flight.connect(flight_url, tls_kwargs)
