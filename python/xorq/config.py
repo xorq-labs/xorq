@@ -12,11 +12,11 @@ class Cache(Config):
     Attributes
     ----------
 
-    default_path : str
+    default_relative_path : str
 
     """
 
-    default_path: Union[str, pathlib.Path] = pathlib.Path("parquet")
+    default_relative_path: Union[str, pathlib.Path] = pathlib.Path("parquet")
     key_prefix: str = "letsql_cache-"
 
 

@@ -8,7 +8,7 @@ from xorq.vendor.ibis import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
 
 
-def xorq_cache_dir() -> pathlib.Path:
+def get_xorq_cache_dir() -> pathlib.Path:
     if path := os.getenv("XORQ_CACHE_DIR"):
         return Path(path)
 

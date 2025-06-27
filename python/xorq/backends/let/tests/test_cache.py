@@ -650,7 +650,7 @@ def test_register_with_different_name_and_cache(csv_dir, get_expr):
 
 
 def test_cache_default_path_set(pg, ls_con, tmp_path):
-    xo.options.cache.default_path = tmp_path
+    xo.options.cache.default_relative_path = tmp_path
 
     storage = ParquetStorage(
         source=ls_con,
