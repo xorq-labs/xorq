@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from xorq.cli import build_command
 from xorq.common.utils.process_utils import (
     subprocess_run,
 )
@@ -26,6 +27,14 @@ build_run_examples_expr_names = (
     ("pyiceberg_backend_simple.py", "expr"),
     ("python_udwf.py", "expr"),
 )
+
+
+def test_build_command_function(tmp_path, fixture_dir):
+    builds_dir = tmp_path / "builds"
+    script_path = fixture_dir / "pipeline.py"
+
+    build_command(script_path, "expr", str(builds_dir))
+    assert builds_dir.exists()
 
 
 def test_build_command(tmp_path, fixture_dir):
