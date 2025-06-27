@@ -16,6 +16,7 @@ from xorq.flight.action import (
     DropViewAction,
     GetExchangeAction,
     GetSchemaQueryAction,
+    ListExchangesAction,
     ListTablesAction,
     ReadParquetAction,
     TableInfoAction,
@@ -240,3 +241,6 @@ class Backend(SQLBackend):
             )
 
         return flight_udxf
+
+    def list_udxf(self):
+        return self.con.do_action_one(ListExchangesAction.name)

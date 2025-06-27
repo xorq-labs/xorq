@@ -86,39 +86,22 @@ def test_backend_get_flight_udxf():
     server_thread = threading.Thread(target=serve)
     server_thread.daemon = True
 
-    is_running = False
-
-    def check_is_running_with_udxf():
-        nonlocal is_running
-        time.sleep(1)
-
-        con = xo.connect()
-        backend = xo.flight.connect(flight_url, tls_kwargs)
-
-        f = backend.get_flight_udxf(dummy_udxf.command)
-        dummy_table = con.register(
-            pd.DataFrame({"dummy": [21, 0, 21]}), table_name="dummy"
-        )
-        expr = (
-            dummy_table.filter(dummy_table.dummy >= 0).pipe(f).filter(_.row_count == 42)
-        )
-
-        assert not expr.execute().empty
-        with pytest.raises(ValueError):
-            foo_table = con.register(pd.DataFrame({"foo": ["value"]}), table_name="foo")
-            foo_table.pipe(f).execute()
-
-        is_running = server_thread.is_alive()
-
     server_thread.start()
+    time.sleep(1)
 
-    checker_thread = threading.Thread(target=check_is_running_with_udxf)
-    checker_thread.start()
-    checker_thread.join()
+    con = xo.connect()
+    backend = xo.flight.connect(flight_url, tls_kwargs)
 
-    # Try to stop the inner server
+    f = backend.get_flight_udxf(dummy_udxf.command)
+    dummy_table = con.register(pd.DataFrame({"dummy": [21, 0, 21]}), table_name="dummy")
+    expr = dummy_table.filter(dummy_table.dummy >= 0).pipe(f).filter(_.row_count == 42)
+
+    assert not expr.execute().empty
+    with pytest.raises(ValueError):
+        foo_table = con.register(pd.DataFrame({"foo": ["value"]}), table_name="foo")
+        foo_table.pipe(f).execute()
+
     server.server.shutdown()
     server_thread.join(timeout=2.0)
 
-    assert is_running
     assert not server_thread.is_alive()
