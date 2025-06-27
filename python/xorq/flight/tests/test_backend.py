@@ -1,8 +1,11 @@
+import pandas as pd
 import pyarrow as pa
 import pytest
 
 import xorq as xo
+from xorq import _
 from xorq.flight import FlightServer
+from xorq.flight.exchanger import make_udxf
 from xorq.flight.tests.test_server import make_flight_url
 
 
@@ -51,3 +54,29 @@ def test_create_table_invalid_inputs(flight_server, obj):
     # Creating from unsupported type should raise TypeError
     with pytest.raises(TypeError, match="Unsupported type for create_table"):
         backend.create_table("bad_tbl", obj)
+
+
+def test_backend_get_flight_udxf():
+    def dummy(df: pd.DataFrame):
+        return pd.DataFrame({"row_count": [42]})
+
+    dummy_udxf = make_udxf(
+        dummy,
+        xo.schema({"dummy": "int64"}),
+        xo.schema({"row_count": "int64"}),
+    )
+    con = xo.connect()
+    with FlightServer(exchangers=[dummy_udxf]) as server:
+        backend = server.con
+        f = backend.get_flight_udxf(dummy_udxf.command)
+        dummy_table = con.register(
+            pd.DataFrame({"dummy": [21, 0, 21]}), table_name="dummy"
+        )
+        expr = (
+            dummy_table.filter(dummy_table.dummy >= 0).pipe(f).filter(_.row_count == 42)
+        )
+
+        assert not expr.execute().empty
+        with pytest.raises(ValueError):
+            foo_table = con.register(pd.DataFrame({"foo": ["value"]}), table_name="foo")
+            foo_table.pipe(f).execute()
