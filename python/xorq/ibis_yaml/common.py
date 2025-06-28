@@ -6,6 +6,7 @@ from typing import Any
 
 import attr
 import cloudpickle
+import toolz
 from attr import (
     field,
     frozen,
@@ -80,7 +81,7 @@ class TranslationContext:
     )
     cache_dir: Path = field(
         default=None,
-        converter=lambda p: Path(p) if p else None,
+        converter=toolz.excepts(TypeError, Path),
         validator=_is_absolute_path,
     )
 
