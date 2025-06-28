@@ -252,6 +252,7 @@ class BuildManager:
             }
             for backend in backends
         }
+        profiles = dict(sorted(profiles.items()))
 
         translator = YamlExpressionTranslator()
         yaml_dict = translator.to_yaml(expr, profiles, self.cache_dir)
