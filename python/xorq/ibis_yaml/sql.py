@@ -1,6 +1,8 @@
 import warnings
 from typing import Any, Dict, List, Tuple, TypedDict
 
+import toolz
+
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
@@ -55,43 +57,43 @@ def find_relations(expr: ir.Expr) -> List[str]:
 
 
 def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInfo]]:
-    remote_tables: Dict[str, QueryInfo] = {}
-    deferred_reads: Dict[str, QueryInfo] = {}
-
-    node_types = (RemoteTable, Read)
-    nodes = walk_nodes(node_types, expr)
-
-    for node in nodes:
-        if isinstance(node, RemoteTable):
-            remote_expr = node.remote_expr
-            backends = find_all_sources(node)
-            if len(backends) > 1:
-                backends = tuple(
-                    x for x in backends if x != node.to_expr()._find_backend()
+    def get_remote_table_backend(node):
+        backends = set(find_all_sources(node))
+        if backends:
+            (backend, *rest) = backends
+            if rest:
+                (backend,) = backends.difference(
+                    (node.to_expr()._find_backend(),)
                 )
-            for backend in backends:
-                engine_name = backend.name
-                profile_name = backend._profile.hash_name
-                key = f"{node.name}"
-                remote_tables[key] = {
-                    "engine": engine_name,
-                    "profile_name": profile_name,
-                    "relations": find_relations(remote_expr),
-                    "sql": to_sql(remote_expr).strip(),
-                    "options": {},
-                }
-        elif isinstance(node, Read):
-            backend = node.source
-            if backend is not None:
-                dt = node.make_unbound_dt()
-                key = dt.name
-                deferred_reads[key] = {
-                    "engine": backend.name,
-                    "profile_name": backend._profile.hash_name,
-                    "relations": [dt.name],
-                    "sql": to_sql(dt.to_expr()).strip(),
-                    "options": get_read_options(node),
-                }
+            return backend
+        else:
+            return None
+
+    grouped = toolz.groupby(type, walk_nodes((RemoteTable, Read), expr))
+    remote_tables: Dict[str, QueryInfo] = {
+        node.name: {
+            "engine": backend.name,
+            "profile_name": backend._profile.hash_name,
+            "relations": find_relations(node.remote_expr),
+            "sql": to_sql(node.remote_expr).strip(),
+            "options": {},
+        }
+        for node in grouped.get(RemoteTable, ())
+        if (backend := get_remote_table_backend(node))
+    }
+    deferred_reads: Dict[str, QueryInfo] = {
+        dt.name: {
+            "engine": backend.name,
+            "profile_name": backend._profile.hash_name,
+            "relations": [dt.name],
+            "sql": to_sql(dt.to_expr()).strip(),
+            "options": get_read_options(node),
+        }
+        for node in grouped.get(Read, ())
+        if (backend := node.source) and (dt := node.make_unbound_dt())
+    }
+    remote_tables = dict(sorted(remote_tables.items()))
+    deferred_reads = dict(sorted(deferred_reads.items()))
     return remote_tables, deferred_reads
 
 
@@ -106,7 +108,6 @@ def get_read_options(read_instance) -> Dict[str, Any]:
 
 def generate_sql_plans(expr: ir.Expr) -> Tuple[SQLPlans, DeferredReadsPlan]:
     remote_tables, deferred_reads = find_tables(expr)
-    main_sql = to_sql(expr.ls.uncached)
     backend = expr._find_backend()
 
     queries: Dict[str, QueryInfo] = {
@@ -114,13 +115,10 @@ def generate_sql_plans(expr: ir.Expr) -> Tuple[SQLPlans, DeferredReadsPlan]:
             "engine": backend.name,
             "profile_name": backend._profile.hash_name,
             "relations": find_relations(expr),
-            "sql": main_sql.strip(),
+            "sql": to_sql(expr.ls.uncached).strip(),
             "options": {},
         }
-    }
-
-    for table_name, info in remote_tables.items():
-        queries[table_name] = info
+    } | remote_tables
 
     sql_plans: SQLPlans = {"queries": queries}
     deferred_reads_plans: DeferredReadsPlan = {"reads": deferred_reads}
