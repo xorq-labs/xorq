@@ -1,3 +1,4 @@
+import hashlib
 import os
 import pathlib
 
@@ -358,3 +359,46 @@ def test_build_pandas_backend(build_dir, users_df):
     actual = compiler.load_expr(expr_hash)
 
     assert_frame_equal(xo.execute(expected), actual.execute())
+
+
+def test_build_file_stability(build_dir):
+    con0 = xo.connect()
+    con1 = xo.connect()
+    con2 = xo.duckdb.connect()
+    con3 = xo.connect()
+
+    awards_players = xo.examples.awards_players.fetch(
+        con0, "awards_players"
+    ).into_backend(con1, "awards_players_into")
+    batting = xo.examples.batting.fetch(con2, "batting").into_backend(
+        con1, "batting_into"
+    )
+    expr = (
+        awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
+        .into_backend(con3, "joined_into")
+        .filter(xo._.G == 1)
+    )
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    expected = {
+        "6c96e9dd3dae.sql": "64898e4816b436c2c6c5d534e2005d8f",
+        "profiles.yaml": "f26f93df40c84b8c5700c6e2a9e845cd",
+        "deferred_reads.yaml": "7770f7ce949f0081c7b7eea95a370425",
+        "f5b135d95dc0.sql": "afd43082cc3cfc4c63b39666520519c0",
+        "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
+        "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
+        "expr.yaml": "94c1bf6cf52206624c20e88577f9bf7d",
+        "sql.yaml": "352307c8bdea5e89fff5c3c556a5011f",
+    }
+    actual = {
+        p.name: hashlib.md5(p.read_bytes()).hexdigest()
+        for p in build_dir.joinpath(expr_hash).iterdir()
+        if p.name in expected
+    }
+    if diff := set(actual.items()).difference(expected.items()):
+        raise ValueError(diff)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert expr.execute().equals(roundtrip_expr.execute())
