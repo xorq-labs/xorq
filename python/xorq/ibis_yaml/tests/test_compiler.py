@@ -1,3 +1,4 @@
+import hashlib
 import os
 import pathlib
 
@@ -358,3 +359,58 @@ def test_build_pandas_backend(build_dir, users_df):
     actual = compiler.load_expr(expr_hash)
 
     assert_frame_equal(xo.execute(expected), actual.execute())
+
+
+def test_build_file_stability(build_dir):
+    def with_profile_idx(con, idx):
+        profile = con._profile
+        con._profile = profile.clone(idx=idx)
+        return con
+
+    con0 = with_profile_idx(xo.connect(), 0)
+    con1 = with_profile_idx(xo.connect(), 1)
+    con2 = with_profile_idx(xo.duckdb.connect(), 2)
+    con3 = with_profile_idx(xo.connect(), 3)
+
+    awards_players_path = "https://storage.googleapis.com/letsql-pins/awards_players/20240711T171119Z-886c4/awards_players.parquet"
+    batting_path = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
+
+    awards_players = xo.deferred_read_parquet(
+        con0,
+        awards_players_path,
+        "awards_players",
+    ).into_backend(con1, "awards_players_into")
+    batting = xo.deferred_read_parquet(
+        con2,
+        batting_path,
+        "batting",
+    ).into_backend(con1, "batting_into")
+    expr = (
+        awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
+        .into_backend(con3, "joined_into")
+        .filter(xo._.G == 1)
+    )
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    expected = {
+        "6c96e9dd3dae.sql": "64898e4816b436c2c6c5d534e2005d8f",
+        "f5b135d95dc0.sql": "afd43082cc3cfc4c63b39666520519c0",
+        "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
+        "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
+        "profiles.yaml": "7cbd1ea3f1c556b4abf9d8bbd67b60c1",
+        "deferred_reads.yaml": "77c67b9a3ebeec1701c9fadc3f3dd4b7",
+        "expr.yaml": "6bcb57ff1a0118353c4a86e3416028a2",
+        "sql.yaml": "711aba56b7714b3d43833584342cd93b",
+    }
+    actual = {
+        p.name: hashlib.md5(p.read_bytes()).hexdigest()
+        for p in build_dir.joinpath(expr_hash).iterdir()
+        if p.name in expected
+    }
+    if diff := sorted(set(actual.items()).difference(expected.items())):
+        raise ValueError(diff)
+
+    # test that it also runs
+    roundtrip_expr = compiler.load_expr(expr_hash)
+    assert expr.execute().equals(roundtrip_expr.execute())
