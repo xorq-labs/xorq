@@ -3,14 +3,15 @@ import pathlib
 import sys
 from pathlib import Path
 
+from xorq.config import env_config
 from xorq.expr.relations import CachedNode, Read
 from xorq.vendor.ibis import BaseBackend
 from xorq.vendor.ibis.expr import operations as ops
 
 
 def get_xorq_cache_dir() -> pathlib.Path:
-    if path := os.getenv("XORQ_CACHE_DIR"):
-        return Path(path)
+    if path := env_config.XORQ_CACHE_DIR:
+        return Path(path).expanduser()
 
     name = "xorq"
     if sys.platform == "win32":
