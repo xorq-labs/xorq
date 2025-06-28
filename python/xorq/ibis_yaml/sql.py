@@ -52,7 +52,7 @@ def find_relations(expr: ir.Expr) -> List[str]:
 
     node_types = (RemoteTable, Read, ops.DatabaseTable)
     nodes = walk_nodes(node_types, expr)
-    relations = list(set(filter(None, map(get_name, nodes))))
+    relations = sorted(set(filter(None, map(get_name, nodes))))
     return relations
 
 
