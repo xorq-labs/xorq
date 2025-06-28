@@ -8,7 +8,7 @@ pg = xo.postgres.connect_examples()
 con = xo.connect()
 storage = ParquetStorage(
     source=con,
-    relative_path=Path.cwd(),
+    relative_path=Path("./parquet-cache"),
 )
 
 

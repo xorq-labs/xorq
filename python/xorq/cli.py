@@ -72,7 +72,9 @@ def build_command(
 
 
 @tracer.start_as_current_span("cli.run_command")
-def run_command(expr_path, output_path=None, output_format="parquet"):
+def run_command(
+    expr_path, output_path=None, output_format="parquet", cache_dir=get_xorq_cache_dir()
+):
     """
     Execute an artifact
 
@@ -104,7 +106,7 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
         output_path = os.devnull
 
     expr_path = Path(expr_path)
-    build_manager = BuildManager(expr_path.parent)
+    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
     expr = build_manager.load_expr(expr_path.stem)
 
     match output_format:
@@ -153,6 +155,12 @@ def parse_args(override=None):
     )
     run_parser.add_argument("build_path", help="Path to the build script")
     run_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+    run_parser.add_argument(
         "-o",
         "--output-path",
         default=None,
@@ -190,7 +198,7 @@ def main():
             case "run":
                 (f, f_args) = (
                     run_command,
-                    (args.build_path, args.output_path, args.format),
+                    (args.build_path, args.output_path, args.format, args.cache_dir),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")

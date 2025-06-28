@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import contextlib
 import functools
-import operator
 from abc import (
     abstractmethod,
 )
@@ -11,7 +10,6 @@ from pathlib import (
 )
 
 import dask
-import toolz
 from attr import (
     field,
     frozen,
@@ -44,11 +42,6 @@ from xorq.expr.relations import (
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr import types as ir
-
-
-abs_path_converter = toolz.compose(
-    operator.methodcaller("expanduser"), operator.methodcaller("absolute"), Path
-)
 
 
 @frozen

@@ -50,7 +50,7 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
 
     def represent_posix_path(self, data):
-        return self.represent_scalar("tag:yaml.org,2002:str", str(data.resolve()))
+        return self.represent_scalar("tag:yaml.org,2002:str", str(data))
 
 
 CleanDictYAMLDumper.add_representer(
@@ -293,6 +293,8 @@ class BuildManager:
         yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
         expr = translator.from_yaml(yaml_dict, profiles=profiles)
         expr = replace_deferred_reads(expr)
+        if self.cache_dir:
+            expr = replace_base_path(expr, base_path=self.cache_dir)
         return expr
 
     # TODO: maybe change name
@@ -315,6 +317,31 @@ def replace_from_to(from_, to_, node, kwargs):
         return node.__recreate__(kwargs)
     else:
         return node
+
+
+def replace_base_path(expr, base_path):
+    from attr import evolve
+
+    from xorq.caching import (
+        ParquetSnapshotStorage,
+        ParquetStorage,
+    )
+    from xorq.expr.relations import CachedNode
+
+    def replace(node, kwargs):
+        if isinstance(node, CachedNode) and isinstance(
+            node.storage, (ParquetStorage, ParquetSnapshotStorage)
+        ):
+            return node.__recreate__(
+                dict(zip(node.argnames, node.args))
+                | {"storage": evolve(node.storage, base_path=base_path)}
+            )
+        elif kwargs:
+            return node.__recreate__(kwargs)
+        else:
+            return node
+
+    return expr.op().replace(replace).to_expr()
 
 
 def replace_deferred_reads(loaded):
