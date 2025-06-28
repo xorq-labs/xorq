@@ -124,16 +124,10 @@ def translate_storage(storage, translation_context: Any) -> Dict:
             "source": storage.source._profile.hash_name,
         }
     elif isinstance(storage, ParquetStorage):
-        path = (
-            translation_context.cache_dir.joinpath(storage.path)
-            if translation_context.cache_dir is not None
-            else storage.path
-        )
-
         return {
             "type": "ParquetStorage",
             "source": storage.source._profile.hash_name,
-            "path": str(path.resolve()),
+            "relative_path": str(storage.relative_path),
         }
     else:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
@@ -147,6 +141,8 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
     elif storage_yaml["type"] == "ParquetStorage":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetStorage(source=source, path=pathlib.Path(storage_yaml["path"]))
+        return ParquetStorage(
+            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+        )
     else:
         raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")

@@ -44,7 +44,7 @@ KEY_PREFIX = xo.config.options.cache.key_prefix
 
 @pytest.fixture
 def cached_two(ls_con, batting, tmp_path):
-    parquet_storage = ParquetStorage(source=ls_con, path=tmp_path)
+    parquet_storage = ParquetStorage(source=ls_con, relative_path=tmp_path)
     return (
         batting[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
@@ -264,7 +264,7 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     source = expr._find_backend()
     storage = ParquetStorage(
         source=source,
-        path=tmp_path.joinpath("parquet-cache-storage"),
+        relative_path=tmp_path.joinpath("parquet-cache-storage"),
     )
     cached = expr.cache(storage=storage)
     actual = cached.execute()
@@ -302,7 +302,7 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
     )
     storage = ParquetStorage(
         source=con,
-        path=tmp_path.joinpath("parquet-cache-storage"),
+        relative_path=tmp_path.joinpath("parquet-cache-storage"),
     )
     cached = expr.cache(storage=storage)
     expected = expr.execute()
@@ -448,7 +448,9 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
     if to_name in pg.tables:
         pg.drop_table(to_name)
     pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))
-    storage = ParquetSnapshotStorage(path=tmp_path.joinpath("parquet-snapshot-storage"))
+    storage = ParquetSnapshotStorage(
+        relative_path=tmp_path.joinpath("parquet-snapshot-storage")
+    )
     expr = pg_t.group_by("playerID").size().order_by("playerID")
     expr_cached = expr.cache(storage=storage)
     dt = pg_t.op()
@@ -490,7 +492,7 @@ def test_duckdb_cache_parquet(con, pg, tmp_path):
     expr = (
         xo.duckdb.connect()
         .read_parquet(parquet_path)[lambda t: t.yearID > 2000]
-        .cache(storage=ParquetStorage(source=con, path=tmp_path))
+        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -502,7 +504,7 @@ def test_duckdb_cache_csv(con, pg, tmp_path):
     expr = (
         xo.duckdb.connect()
         .read_csv(csv_path)[lambda t: t.yearID > 2000]
-        .cache(storage=ParquetStorage(source=con, path=tmp_path))
+        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -512,7 +514,7 @@ def test_duckdb_cache_arrow(con, pg, tmp_path):
     expr = (
         xo.duckdb.connect()
         .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
-        .cache(storage=ParquetStorage(source=con, path=tmp_path))
+        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -536,7 +538,9 @@ def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
     ]
     expected = expr.execute()
 
-    result = expr.cache(storage=ParquetStorage(source=con, path=tmp_path)).execute()
+    result = expr.cache(
+        storage=ParquetStorage(source=con, relative_path=tmp_path)
+    ).execute()
 
     assert result is not None
     assert_frame_equal(result, expected, check_like=True)
@@ -545,14 +549,14 @@ def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
 def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=con, path=tmp_path))
+    expr = t.cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     assert expr.execute() is not None
 
 
 def test_read_parquet_and_cache_xorq(ls_con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = ls_con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=ls_con, path=tmp_path))
+    expr = t.cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
     assert expr.execute() is not None
 
 
@@ -561,7 +565,7 @@ def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
     expr = (
         t[t.yearID == 2015]
-        .cache(storage=ParquetStorage(source=con, path=tmp_path))
+        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
         .cache()
     )
     assert expr.execute() is not None
@@ -570,7 +574,7 @@ def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
 def test_read_csv_and_cache(ls_con, csv_dir, tmp_path):
     batting_path = csv_dir / "batting.csv"
     t = ls_con.read_csv(batting_path, table_name=f"csv_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=ls_con, path=tmp_path))
+    expr = t.cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
     assert expr.execute() is not None
 
 
@@ -583,7 +587,7 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
     )
     expr = (
         t[t.yearID == 2015]
-        .cache(storage=ParquetStorage(source=ls_con, path=tmp_path))
+        .cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
         .cache()
     )
     assert expr.execute() is not None
@@ -603,7 +607,7 @@ def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
     ).cache(
         storage=ParquetStorage(
             source=ls_con,
-            path=tmp_path,
+            relative_path=tmp_path,
         )
     )
 
@@ -613,7 +617,7 @@ def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
 def test_repeated_cache(pg, ls_con, tmp_path):
     storage = ParquetStorage(
         source=ls_con,
-        path=tmp_path,
+        relative_path=tmp_path,
     )
     t = (
         pg.table("batting")[lambda t: t.yearID > 2014]

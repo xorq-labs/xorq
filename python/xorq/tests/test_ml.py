@@ -417,7 +417,7 @@ def test_deferred_fit_predict_linear_regression(tmp_path):
     predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
 
     # cached run
-    storage = ParquetStorage(path=tmp_path, source=con)
+    storage = ParquetStorage(relative_path=tmp_path, source=con)
     (computed_kwargs_expr, _, predict_expr_udf) = deferred_linear_regression(
         t, target, features, storage=storage
     )

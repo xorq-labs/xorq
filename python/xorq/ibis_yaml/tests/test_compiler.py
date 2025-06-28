@@ -265,7 +265,7 @@ def test_multi_engine_with_caching_with_parquet(
     con2 = xo.duckdb.connect()
     con3 = xo.connect()
 
-    storage = ParquetStorage(source=con1, path=tmp_path)
+    storage = ParquetStorage(source=con1, relative_path=tmp_path)
 
     awards_players = (
         xo.examples.awards_players.fetch(con0).into_backend(con1).cache(storage=storage)
@@ -327,7 +327,7 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetStorage(source=ddb, path=tmp_path)
+    storage = ParquetStorage(source=ddb, relative_path=tmp_path)
 
     t = table_from_df(original, users_df)
     expr = (

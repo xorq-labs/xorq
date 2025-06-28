@@ -168,7 +168,7 @@ def test_into_backend_cache(pg, tmp_path):
         .cache(SourceStorage(source=con))
         .into_backend(ddb_con)
         .select(player_id="playerID", year_id="yearID_right")
-        .cache(ParquetStorage(source=ddb_con, path=tmp_path))
+        .cache(ParquetStorage(source=ddb_con, relative_path=tmp_path))
     )
 
     res = expr.execute()
@@ -250,7 +250,7 @@ def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
         trino_table.head(10_000)
         .into_backend(db_con)
         .pipe(make_merged)
-        .cache(ParquetStorage(path=tmp_path))
+        .cache(ParquetStorage(relative_path=tmp_path))
     )
     df = expr.execute()
     assert isinstance(df, pd.DataFrame)

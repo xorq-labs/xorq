@@ -16,13 +16,19 @@ from attr import (
     field,
     frozen,
 )
-from attr.validators import instance_of
+from attr.validators import (
+    instance_of,
+    optional,
+)
 from opentelemetry import trace
 from public import public
 
 import xorq as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.common.utils.caching_utils import (
+    get_xorq_cache_dir,
+)
 from xorq.common.utils.dask_normalize.dask_normalize_expr import (
     normalize_backend,
     normalize_read,
@@ -224,10 +230,18 @@ class _ParquetStorage(CacheStorage):
         validator=instance_of(ibis.backends.BaseBackend),
         factory=xorq.config._backend_init,
     )
-    path = field(
+    relative_path = field(
         validator=instance_of(Path),
         factory=functools.partial(xorq.options.get, "cache.default_relative_path"),
     )
+    base_path = field(
+        validator=optional(instance_of(Path)),
+        default=None,
+    )
+
+    @property
+    def path(self):
+        return (self.base_path or get_xorq_cache_dir()).joinpath(self.relative_path)
 
     def __attrs_post_init__(self):
         self.path.mkdir(exist_ok=True, parents=True)
@@ -321,10 +335,13 @@ class ParquetSnapshotStorage:
         validator=instance_of(ibis.backends.BaseBackend),
         factory=xorq.config._backend_init,
     )
-    path = field(
+    relative_path = field(
         validator=instance_of(Path),
-        converter=abs_path_converter,
         factory=functools.partial(xorq.options.get, "cache.default_relative_path"),
+    )
+    base_path = field(
+        validator=optional(instance_of(Path)),
+        default=None,
     )
     cache = field(validator=instance_of(Cache), init=False)
 
@@ -332,8 +349,9 @@ class ParquetSnapshotStorage:
         cache = Cache(
             strategy=SnapshotStrategy(),
             storage=_ParquetStorage(
-                self.source,
-                self.path,
+                source=self.source,
+                relative_path=self.relative_path,
+                base_path=self.base_path,
             ),
         )
         object.__setattr__(self, "cache", cache)
@@ -379,9 +397,13 @@ class ParquetStorage:
         validator=instance_of(ibis.backends.BaseBackend),
         factory=xorq.config._backend_init,
     )
-    path = field(
+    relative_path = field(
         validator=instance_of(Path),
         factory=functools.partial(xorq.options.get, "cache.default_relative_path"),
+    )
+    base_path = field(
+        validator=optional(instance_of(Path)),
+        default=None,
     )
     cache = field(validator=instance_of(Cache), init=False)
 
@@ -389,8 +411,9 @@ class ParquetStorage:
         cache = Cache(
             strategy=ModificationTimeStrategy(),
             storage=_ParquetStorage(
-                self.source,
-                self.path,
+                source=self.source,
+                relative_path=self.relative_path,
+                base_path=self.base_path,
             ),
         )
         object.__setattr__(self, "cache", cache)
