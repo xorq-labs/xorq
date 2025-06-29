@@ -1,4 +1,5 @@
 import xorq as xo
+from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import into_backend
 
@@ -11,6 +12,7 @@ batting = pg.table("batting")
 integer = 1
 
 backend = xo.duckdb.connect()
+storage = ParquetStorage(source=backend)
 awards_players = deferred_read_parquet(
     backend,
     xo.config.options.pins.get_path("awards_players"),
@@ -20,4 +22,4 @@ left = batting.filter(batting.yearID == 2015)
 right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 expr = left.join(
     into_backend(right, pg, "pg-filtered-table"), ["playerID"], how="semi"
-)[["yearID", "stint"]]
+)[["yearID", "stint"]].cache(storage=storage)
