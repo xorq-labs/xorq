@@ -15,7 +15,7 @@ when it's time to build reliable ML pipelines across multiple engines, things
 quickly become complex.
 
 As data scientists, we found that building ML pipelines, especially multi-stage
-and multi-source pipelines, is frustrating work. SQL-pandas impedence
+and multi-source pipelines, is frustrating work. SQL-pandas impedance
 mismatches. Wasteful recomputation time and costs. Pipelines that work
 perfectly in notebooks, but take forever to re-engineer for deployment--and
 then deliver different results or fail in production. We built Xorq to

@@ -170,7 +170,9 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
     path = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet"
     expr = (
         xo.deferred_read_parquet(con, path)
-        .cache(storage=ParquetStorage(source=xo.duckdb.connect(), path=tmp_path))
+        .cache(
+            storage=ParquetStorage(source=xo.duckdb.connect(), relative_path=tmp_path)
+        )
         .limit(10)
     )
 
@@ -207,7 +209,7 @@ def test_read_csv_from_s3_and_cache(tmp_path):
     )
 
     expr = t.cache(
-        storage=ParquetStorage(source=xo.duckdb.connect(), path=tmp_path)
+        storage=ParquetStorage(source=xo.duckdb.connect(), relative_path=tmp_path)
     ).limit(10)
 
     assert not expr.execute().empty

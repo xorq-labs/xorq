@@ -117,7 +117,7 @@ def diff_ibis_exprs(expr1, expr2):
     return diffs
 
 
-def translate_storage(storage, compiler: Any) -> Dict:
+def translate_storage(storage, translation_context: Any) -> Dict:
     if isinstance(storage, SourceStorage):
         return {
             "type": "SourceStorage",
@@ -127,7 +127,7 @@ def translate_storage(storage, compiler: Any) -> Dict:
         return {
             "type": "ParquetStorage",
             "source": storage.source._profile.hash_name,
-            "path": str(storage.path.resolve()),
+            "relative_path": str(storage.relative_path),
         }
     else:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
@@ -141,6 +141,8 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
     elif storage_yaml["type"] == "ParquetStorage":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetStorage(source=source, path=pathlib.Path(storage_yaml["path"]))
+        return ParquetStorage(
+            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+        )
     else:
         raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")

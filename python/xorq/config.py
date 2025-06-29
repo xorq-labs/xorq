@@ -1,9 +1,18 @@
-import os
+import ast
 import pathlib
 from typing import Any, Optional, Union
 
+from xorq.common.utils.env_utils import (
+    EnvConfigable,
+    env_templates_dir,
+)
 from xorq.vendor import ibis
 from xorq.vendor.ibis.config import Config
+
+
+env_config = EnvConfigable.subclass_from_env_file(
+    env_templates_dir.joinpath(".env.xorq.template")
+).from_env()
 
 
 class Cache(Config):
@@ -12,14 +21,14 @@ class Cache(Config):
     Attributes
     ----------
 
-    default_path : str
+    default_relative_path : str
 
     """
 
-    default_path: Union[str, pathlib.Path] = pathlib.Path(
-        "~/.local/share/xorq"
-    ).expanduser()
-    key_prefix: str = "letsql_cache-"
+    default_relative_path: Union[str, pathlib.Path] = pathlib.Path(
+        env_config.XORQ_DEFAULT_RELATIVE_PATH
+    )
+    key_prefix: str = env_config.XORQ_CACHE_KEY_PREFIX
 
 
 class Interactive(Config):
@@ -138,7 +147,7 @@ class Pins(Config):
 
 
 class Profiles(Config):
-    profile_dir: pathlib.Path = pathlib.Path("~/.config/xorq/profiles").expanduser()
+    profile_dir: pathlib.Path = pathlib.Path(env_config.XORQ_PROFILE_DIR).expanduser()
 
 
 class Options(Config):
@@ -160,7 +169,7 @@ class Options(Config):
     sql: SQL = SQL()
     pins: Pins = Pins()
     profiles: Profiles = Profiles()
-    debug: bool = bool(os.environ.get("XORQ_DEBUG", False))
+    debug: bool = bool(ast.literal_eval(env_config.XORQ_DEBUG or 0))
 
     @property
     def interactive(self) -> bool:

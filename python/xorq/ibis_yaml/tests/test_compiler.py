@@ -237,13 +237,35 @@ def test_multi_engine_with_caching(build_dir):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_multi_engine_with_caching_with_parquet(build_dir, tmp_path):
+@pytest.mark.parametrize(
+    "environment_factory",
+    (
+        pytest.param(None, id="no_env"),
+        pytest.param(lambda p: p / "env_cache", id="with_env"),
+    ),
+)
+@pytest.mark.parametrize(
+    "cli_factory",
+    (
+        pytest.param(None, id="no_cli"),
+        pytest.param(lambda p: p / "cli_cache", id="with_cli"),
+    ),
+)
+def test_multi_engine_with_caching_with_parquet(
+    build_dir, tmp_path, environment_factory, cli_factory, monkeypatch
+):
+    expected_cache_dir = tmp_path
+    if environment_factory is not None:
+        cache_dir = environment_factory(tmp_path)
+        monkeypatch.setenv("XORQ_CACHE_DIR", str(cache_dir))
+        expected_cache_dir = cache_dir.joinpath(tmp_path)
+
     con0 = xo.connect()
     con1 = xo.connect()
     con2 = xo.duckdb.connect()
     con3 = xo.connect()
 
-    storage = ParquetStorage(source=con1, path=tmp_path)
+    storage = ParquetStorage(source=con1, relative_path=tmp_path)
 
     awards_players = (
         xo.examples.awards_players.fetch(con0).into_backend(con1).cache(storage=storage)
@@ -254,12 +276,20 @@ def test_multi_engine_with_caching_with_parquet(build_dir, tmp_path):
         .into_backend(con3)
         .filter(xo._.G == 1)
     )
-    compiler = BuildManager(build_dir)
+
+    if cli_factory is not None:
+        cli_cache_dir = cli_factory(tmp_path)
+        compiler = BuildManager(build_dir, cache_dir=cli_cache_dir)
+        expected_cache_dir = cli_cache_dir.joinpath(tmp_path)
+    else:
+        compiler = BuildManager(build_dir)
+
     expr_hash = compiler.compile_expr(expr)
 
     roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert expr.execute().equals(roundtrip_expr.execute())
+    assert expected_cache_dir.exists()
 
 
 @pytest.mark.parametrize(
@@ -297,7 +327,7 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetStorage(source=ddb, path=tmp_path)
+    storage = ParquetStorage(source=ddb, relative_path=tmp_path)
 
     t = table_from_df(original, users_df)
     expr = (

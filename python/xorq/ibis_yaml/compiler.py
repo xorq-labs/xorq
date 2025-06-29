@@ -13,6 +13,7 @@ import xorq as xo
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
@@ -49,7 +50,7 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
 
     def represent_posix_path(self, data):
-        return self.represent_scalar("tag:yaml.org,2002:str", str(data.resolve()))
+        return self.represent_scalar("tag:yaml.org,2002:str", str(data))
 
 
 CleanDictYAMLDumper.add_representer(
@@ -141,14 +142,11 @@ class YamlExpressionTranslator:
     def __init__(self):
         pass
 
-    def to_yaml(
-        self,
-        expr: ir.Expr,
-        profiles=None,
-    ) -> Dict[str, Any]:
+    def to_yaml(self, expr: ir.Expr, profiles=None, cache_dir=None) -> Dict[str, Any]:
         context = TranslationContext(
             schema_registry=SchemaRegistry(),
             profiles=freeze(profiles or {}),
+            cache_dir=cache_dir,
         )
 
         schema_ref = context.schema_registry._register_expr_schema(expr)
@@ -182,9 +180,10 @@ class YamlExpressionTranslator:
 
 
 class BuildManager:
-    def __init__(self, build_dir: pathlib.Path):
+    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path | str = None):
         self.artifact_store = ArtifactStore(build_dir)
         self.profiles = {}
+        self.cache_dir = Path(cache_dir or get_xorq_cache_dir())
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
         hash_length = config.hash_length
@@ -255,7 +254,7 @@ class BuildManager:
         }
 
         translator = YamlExpressionTranslator()
-        yaml_dict = translator.to_yaml(expr, profiles)
+        yaml_dict = translator.to_yaml(expr, profiles, self.cache_dir)
         self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
@@ -294,6 +293,8 @@ class BuildManager:
         yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
         expr = translator.from_yaml(yaml_dict, profiles=profiles)
         expr = replace_deferred_reads(expr)
+        if self.cache_dir:
+            expr = replace_base_path(expr, base_path=self.cache_dir)
         return expr
 
     # TODO: maybe change name
@@ -316,6 +317,31 @@ def replace_from_to(from_, to_, node, kwargs):
         return node.__recreate__(kwargs)
     else:
         return node
+
+
+def replace_base_path(expr, base_path):
+    from attr import evolve
+
+    from xorq.caching import (
+        ParquetSnapshotStorage,
+        ParquetStorage,
+    )
+    from xorq.expr.relations import CachedNode
+
+    def replace(node, kwargs):
+        if isinstance(node, CachedNode) and isinstance(
+            node.storage, (ParquetStorage, ParquetSnapshotStorage)
+        ):
+            return node.__recreate__(
+                dict(zip(node.argnames, node.args))
+                | {"storage": evolve(node.storage, base_path=base_path)}
+            )
+        elif kwargs:
+            return node.__recreate__(kwargs)
+        else:
+            return node
+
+    return expr.op().replace(replace).to_expr()
 
 
 def replace_deferred_reads(loaded):

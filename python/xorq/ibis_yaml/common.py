@@ -1,10 +1,15 @@
 import base64
 import functools
 import itertools
+from pathlib import Path
 from typing import Any
 
 import attr
 import cloudpickle
+from attr import (
+    field,
+    frozen,
+)
 from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
@@ -61,12 +66,22 @@ class SchemaRegistry:
         return node_hash
 
 
-@attr.s(frozen=True)
+def _is_absolute_path(instance, attribute, value):
+    if value and not Path(value).is_absolute():
+        raise ValueError("cache_dir must be absolute")
+
+
+@frozen
 class TranslationContext:
-    schema_registry: SchemaRegistry = attr.ib(factory=SchemaRegistry)
-    profiles: FrozenOrderedDict = attr.ib(factory=FrozenOrderedDict)
-    definitions: FrozenOrderedDict = attr.ib(
+    schema_registry: SchemaRegistry = field(factory=SchemaRegistry)
+    profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
+    definitions: FrozenOrderedDict = field(
         factory=lambda: freeze({"schemas": {}, "nodes": {}})
+    )
+    cache_dir: Path = field(
+        default=None,
+        converter=lambda p: Path(p) if p else None,
+        validator=_is_absolute_path,
     )
 
     def update_definitions(self, new_definitions: FrozenOrderedDict):

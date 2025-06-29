@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from xorq.cli import build_command
 from xorq.common.utils.process_utils import (
     subprocess_run,
 )
@@ -26,6 +27,14 @@ build_run_examples_expr_names = (
     ("pyiceberg_backend_simple.py", "expr"),
     ("python_udwf.py", "expr"),
 )
+
+
+def test_build_command_function(tmp_path, fixture_dir):
+    builds_dir = tmp_path / "builds"
+    script_path = fixture_dir / "pipeline.py"
+
+    build_command(script_path, "expr", str(builds_dir))
+    assert builds_dir.exists()
 
 
 def test_build_command(tmp_path, fixture_dir):
@@ -79,6 +88,29 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
         "expr",
         "--builds-dir",
         str(builds_dir),
+    ]
+    (returncode, _, stderr) = subprocess_run(test_args)
+
+    assert "Building expr" in stderr.decode("ascii")
+    assert returncode == 0
+    assert builds_dir.exists()
+
+
+def test_build_command_with_cache_dir(tmp_path, fixture_dir):
+    builds_dir = tmp_path / "builds"
+    cache_dir = tmp_path / "cache"
+    script_path = fixture_dir / "pipeline.py"
+
+    test_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(builds_dir),
+        "--cache-dir",
+        str(cache_dir),
     ]
     (returncode, _, stderr) = subprocess_run(test_args)
 

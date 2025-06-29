@@ -3350,7 +3350,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         >>> from pathlib import Path
         >>> pg = xo.postgres.connect_examples()
         >>> con = xo.connect()
-        >>> storage = ParquetStorage(source=con, path=Path.cwd())
+        >>> storage = ParquetStorage(source=con, relative_path=Path.cwd())
         >>> alltypes = pg.table("functional_alltypes")
         >>> cached = (alltypes
         ...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)

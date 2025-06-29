@@ -8,6 +8,7 @@ from pathlib import Path
 from opentelemetry import trace
 
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.otel_utils import tracer
 from xorq.ibis_yaml.compiler import BuildManager
@@ -15,7 +16,9 @@ from xorq.vendor.ibis import Expr
 
 
 @tracer.start_as_current_span("cli.build_command")
-def build_command(script_path, expr_name, builds_dir="builds"):
+def build_command(
+    script_path, expr_name, builds_dir="builds", cache_dir=get_xorq_cache_dir()
+):
     """
     Generate artifacts from an expression in a given Python script
 
@@ -24,6 +27,7 @@ def build_command(script_path, expr_name, builds_dir="builds"):
     script_path : Path to the Python script
     expr_name : The name of the expression to build
     builds_dir : Directory where artifacts will be generated
+    cache_dir : Directory where the parquet cache files will be generated
 
     Returns
     -------
@@ -44,7 +48,7 @@ def build_command(script_path, expr_name, builds_dir="builds"):
 
     print(f"Building {expr_name} from {script_path}", file=sys.stderr)
 
-    build_manager = BuildManager(builds_dir)
+    build_manager = BuildManager(builds_dir, cache_dir=Path(cache_dir))
 
     vars_module = import_from_path(script_path, module_name="__main__")
 
@@ -68,7 +72,9 @@ def build_command(script_path, expr_name, builds_dir="builds"):
 
 
 @tracer.start_as_current_span("cli.run_command")
-def run_command(expr_path, output_path=None, output_format="parquet"):
+def run_command(
+    expr_path, output_path=None, output_format="parquet", cache_dir=get_xorq_cache_dir()
+):
     """
     Execute an artifact
 
@@ -100,7 +106,7 @@ def run_command(expr_path, output_path=None, output_format="parquet"):
         output_path = os.devnull
 
     expr_path = Path(expr_path)
-    build_manager = BuildManager(expr_path.parent)
+    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
     expr = build_manager.load_expr(expr_path.stem)
 
     match output_format:
@@ -137,11 +143,23 @@ def parse_args(override=None):
     build_parser.add_argument(
         "--builds-dir", default="builds", help="Directory for all generated artifacts"
     )
+    build_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
 
     run_parser = subparsers.add_parser(
         "run", help="Run a build from a builds directory"
     )
     run_parser.add_argument("build_path", help="Path to the build script")
+    run_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
     run_parser.add_argument(
         "-o",
         "--output-path",
@@ -175,12 +193,12 @@ def main():
             case "build":
                 (f, f_args) = (
                     build_command,
-                    (args.script_path, args.expr_name, args.builds_dir),
+                    (args.script_path, args.expr_name, args.builds_dir, args.cache_dir),
                 )
             case "run":
                 (f, f_args) = (
                     run_command,
-                    (args.build_path, args.output_path, args.format),
+                    (args.build_path, args.output_path, args.format, args.cache_dir),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
