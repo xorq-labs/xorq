@@ -391,10 +391,10 @@ def test_build_file_stability(build_dir):
         "f5b135d95dc0.sql": "afd43082cc3cfc4c63b39666520519c0",
         "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
         "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
-        "deferred_reads.yaml": "ec0e9040991be5702e55e0f279268ca8",
-        "expr.yaml": "45203057f0754b76fae261897706ce11",
+        "deferred_reads.yaml": "dd74c24f040b5f79e89eff75eda8fd89",
+        "expr.yaml": "de6f73e10fb586a9126c8e886c707b3b",
         "profiles.yaml": "7cbd1ea3f1c556b4abf9d8bbd67b60c1",
-        "sql.yaml": "47d6ad7d57f946ec3338b78b5ac9aae3",
+        "sql.yaml": "cf58d984b9af065f64af71f105d21cb3",
     }
     actual = {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
