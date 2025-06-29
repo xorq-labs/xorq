@@ -16,7 +16,9 @@ from xorq.common.utils.dask_normalize import (
     get_normalize_token_subset,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    gen_batches,
     patch_normalize_token,
+    streaming_md5,
     walk_normalized,
 )
 
@@ -162,3 +164,18 @@ def test_dask_tokenize_object():
     assert dask.base.normalize_token(HasDaskTokenize()) == tokenize_value
     with pytest.raises(ValueError):
         dask.base.tokenize(MissingDaskTokenize())
+
+
+def test_partitioning():
+    path = pathlib.Path(xo.config.options.pins.get_path("batting"))
+    assert len(tuple(gen_batches(path))) > 1
+    content = b"".join(gen_batches(path))
+    assert content == path.read_bytes()
+
+
+def test_streaming_md5sum():
+    path = pathlib.Path(xo.config.options.pins.get_path("batting"))
+    assert len(tuple(gen_batches(path))) > 1
+    batched = hashlib.md5(path.read_bytes()).hexdigest()
+    streaming = streaming_md5(path)
+    assert batched == streaming
