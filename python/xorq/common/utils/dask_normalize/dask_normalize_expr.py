@@ -1,3 +1,4 @@
+import hashlib
 import itertools
 import pathlib
 import re
@@ -272,6 +273,30 @@ def normalize_ibis_datatype(datatype):
     return normalize_seq_with_caller(datatype.name.lower(), *datatype.args)
 
 
+def normalize_read_path_stat(path):
+    stat = path.stat()
+    tpls = tuple(
+        (attrname, getattr(stat, attrname))
+        for attrname in (
+            "st_mtime",
+            "st_size",
+            # mtime, size <?-?> md5sum
+            "st_ino",
+        )
+    )
+    return tpls
+
+
+def normalize_read_path_md5sum(path):
+    from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+        streaming_md5,
+    )
+    tpls = (
+        ("content-md5sum", streaming_md5(path)),
+    )
+    return tpls
+
+
 @dask.base.normalize_token.register(Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
@@ -312,16 +337,7 @@ def normalize_read(read):
                 for k in ("location", "last_modified", "size", "e_tag", "version")
             )
         elif (path := pathlib.Path(path)).exists():
-            stat = path.stat()
-            tpls = tuple(
-                (attrname, getattr(stat, attrname))
-                for attrname in (
-                    "st_mtime",
-                    "st_size",
-                    # mtime, size <?-?> md5sum
-                    "st_ino",
-                )
-            )
+            tpls = read.normalize_method(path)
         else:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):

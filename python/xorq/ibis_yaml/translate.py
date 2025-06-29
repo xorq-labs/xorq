@@ -488,6 +488,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             "schema_ref": schema_id,
             "profile": profile_hash_name,
             "read_kwargs": freeze(op.read_kwargs if op.read_kwargs else {}),
+            "normalize_method": serialize_callable(op.normalize_method),
         }
     )
 
@@ -512,6 +513,7 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
         schema=schema,
         source=source,
         read_kwargs=read_kwargs,
+        normalize_method=deserialize_callable(yaml_dict["normalize_method"]),
     )
 
     return read_op.to_expr()

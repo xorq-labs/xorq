@@ -392,7 +392,7 @@ def test_build_file_stability(build_dir):
         "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
         "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
         "deferred_reads.yaml": "ec0e9040991be5702e55e0f279268ca8",
-        "expr.yaml": "a1c879885b23324228da4938bbe92a14",
+        "expr.yaml": "45203057f0754b76fae261897706ce11",
         "profiles.yaml": "7cbd1ea3f1c556b4abf9d8bbd67b60c1",
         "sql.yaml": "47d6ad7d57f946ec3338b78b5ac9aae3",
     }
