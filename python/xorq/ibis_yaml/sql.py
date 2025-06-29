@@ -1,3 +1,4 @@
+import operator
 import warnings
 from typing import Any, Dict, List, Tuple, TypedDict
 
@@ -58,16 +59,7 @@ def find_relations(expr: ir.Expr) -> List[str]:
 
 def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInfo]]:
     def get_remote_table_backend(node):
-        backends = set(find_all_sources(node))
-        if backends:
-            (backend, *rest) = backends
-            if rest:
-                (backend,) = backends.difference(
-                    (node.to_expr()._find_backend(),)
-                )
-            return backend
-        else:
-            return None
+        return node.remote_expr._find_backend()
 
     grouped = toolz.groupby(type, walk_nodes((RemoteTable, Read), expr))
     remote_tables: Dict[str, QueryInfo] = {

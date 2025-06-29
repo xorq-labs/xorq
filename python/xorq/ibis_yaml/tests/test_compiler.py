@@ -389,7 +389,7 @@ def test_build_file_stability(build_dir):
         "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
         "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
         "expr.yaml": "94c1bf6cf52206624c20e88577f9bf7d",
-        "sql.yaml": "352307c8bdea5e89fff5c3c556a5011f",
+        "sql.yaml": "2dd659510331b478709e791ab3bd683b",
     }
     actual = {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
@@ -398,7 +398,11 @@ def test_build_file_stability(build_dir):
     }
     if diff := set(actual.items()).difference(expected.items()):
         raise ValueError(diff)
+    # from xorq.common.utils.inspect_utils import get_python_version_no_dot
+    # py_version = f"py{get_python_version_no_dot()}"
+    # snapshot.assert_match(json.dumps(actual), f"{python_version}_file_stability_hashes.json")
+    # snapshot.assert_match(expr.ls.get_key(), f"{py_version}_udf_caching.txt")
 
+    # test that it also runs
     roundtrip_expr = compiler.load_expr(expr_hash)
-
     assert expr.execute().equals(roundtrip_expr.execute())

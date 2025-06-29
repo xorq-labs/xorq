@@ -13,7 +13,7 @@ def test_find_tables_simple():
     assert len(remote_tables) == 1
     table_name = next(iter(remote_tables))
     assert table_name.startswith("ibis_" + gen_name_namespace)
-    assert remote_tables[table_name]["engine"] == "duckdb"
+    assert remote_tables[table_name]["engine"] == "let"
 
 
 def test_find_tables_nested():
