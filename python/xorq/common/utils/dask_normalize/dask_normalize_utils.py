@@ -81,3 +81,22 @@ def streaming_md5(path):
         obj.update(batch)
     hexdigest = obj.hexdigest()
     return hexdigest
+
+
+def normalize_read_path_stat(path):
+    stat = path.stat()
+    tpls = tuple(
+        (attrname, getattr(stat, attrname))
+        for attrname in (
+            "st_mtime",
+            "st_size",
+            # mtime, size <?-?> md5sum
+            "st_ino",
+        )
+    )
+    return tpls
+
+
+def normalize_read_path_md5sum(path):
+    tpls = (("content-md5sum", streaming_md5(path)),)
+    return tpls

@@ -1,4 +1,3 @@
-import hashlib
 import itertools
 import pathlib
 import re
@@ -11,18 +10,10 @@ import sqlglot as sg
 
 import xorq as xo
 import xorq.expr.datatypes as dat
+import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations.relations as ir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_seq_with_caller,
-)
-from xorq.common.utils.defer_utils import (
-    Read,
-)
-from xorq.expr.relations import (
-    FlightExpr,
-    FlightUDXF,
-    RemoteTable,
-    make_native_op,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.operations.udf import (
@@ -228,11 +219,9 @@ def rename_unbound_static(op, prefix="static-name"):
 
 
 def normalize_letsql_databasetable(dt):
-    from xorq.expr.relations import FlightExpr, FlightUDXF
-
     if dt.source.name != "let":
         raise ValueError
-    if isinstance(dt, FlightExpr):
+    if isinstance(dt, rel.FlightExpr):
         return dask.base.normalize_token(
             (
                 "normalize_letsql_databasetable",
@@ -242,7 +231,7 @@ def normalize_letsql_databasetable(dt):
                 dt.make_connection,
             )
         )
-    elif isinstance(dt, FlightUDXF):
+    elif isinstance(dt, rel.FlightUDXF):
         return dask.base.normalize_token(
             (
                 "normalize_letsql_databasetable",
@@ -255,7 +244,7 @@ def normalize_letsql_databasetable(dt):
 
     if native_source.name == "let":
         return normalize_datafusion_databasetable(dt)
-    new_dt = make_native_op(dt)
+    new_dt = rel.make_native_op(dt)
     return dask.base.normalize_token(new_dt)
 
 
@@ -273,31 +262,7 @@ def normalize_ibis_datatype(datatype):
     return normalize_seq_with_caller(datatype.name.lower(), *datatype.args)
 
 
-def normalize_read_path_stat(path):
-    stat = path.stat()
-    tpls = tuple(
-        (attrname, getattr(stat, attrname))
-        for attrname in (
-            "st_mtime",
-            "st_size",
-            # mtime, size <?-?> md5sum
-            "st_ino",
-        )
-    )
-    return tpls
-
-
-def normalize_read_path_md5sum(path):
-    from xorq.common.utils.dask_normalize.dask_normalize_utils import (
-        streaming_md5,
-    )
-    tpls = (
-        ("content-md5sum", streaming_md5(path)),
-    )
-    return tpls
-
-
-@dask.base.normalize_token.register(Read)
+@dask.base.normalize_token.register(rel.Read)
 def normalize_read(read):
     read_kwargs = dict(read.read_kwargs)
     path = next(
@@ -378,9 +343,9 @@ def normalize_databasetable(dt):
     return f(dt)
 
 
-@dask.base.normalize_token.register(RemoteTable)
+@dask.base.normalize_token.register(rel.RemoteTable)
 def normalize_remote_table(dt):
-    if not isinstance(dt, RemoteTable):
+    if not isinstance(dt, rel.RemoteTable):
         raise ValueError
 
     return normalize_seq_with_caller(
@@ -485,8 +450,6 @@ def normalize_agg_udf(udf):
 
 
 def opaque_node_replacer(node, kwargs):
-    import xorq.expr.relations as rel
-
     opaque_ops = (
         rel.Read,
         rel.CachedNode,
@@ -540,8 +503,8 @@ def normalize_expr(expr):
     sql = unbound_expr_to_default_sql(
         op.replace(opaque_node_replacer).to_expr().unbind()
     )
-    reads = op.find(Read)
-    dts = op.find((ir.DatabaseTable, FlightExpr, FlightUDXF))
+    reads = op.find(rel.Read)
+    dts = op.find((ir.DatabaseTable, rel.FlightExpr, rel.FlightUDXF))
     udfs = op.find((AggUDF, ScalarUDF))
     mems = op.find(ir.InMemoryTable)
     token = normalize_seq_with_caller(

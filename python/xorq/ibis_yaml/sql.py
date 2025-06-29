@@ -1,4 +1,3 @@
-import operator
 import warnings
 from typing import Any, Dict, List, Tuple, TypedDict
 
@@ -8,7 +7,7 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.exceptions import XorqError
-from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import Read, RemoteTable
 
 

@@ -9,14 +9,14 @@ import toolz
 import xorq as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.let import Backend
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_read_path_stat,
+)
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
 from xorq.expr.relations import (
     Read,
-)
-from xorq.common.utils.dask_normalize.dask_normalize_expr import (
-    normalize_read_path_stat,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Schema
@@ -160,9 +160,11 @@ def deferred_read_csv(
 
 
 def deferred_read_parquet(
-    con: Backend, path: str | Path, table_name: str | None = None,
+    con: Backend,
+    path: str | Path,
+    table_name: str | None = None,
     normalize_method: Callable = normalize_read_path_stat,
-    **kwargs
+    **kwargs,
 ) -> ir.Table:
     """
      Create a deferred read operation for Parquet files that will execute only when needed.
