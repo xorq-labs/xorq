@@ -362,10 +362,15 @@ def test_build_pandas_backend(build_dir, users_df):
 
 
 def test_build_file_stability(build_dir):
-    con0 = xo.connect()
-    con1 = xo.connect()
-    con2 = xo.duckdb.connect()
-    con3 = xo.connect()
+    def with_profile_idx(con, idx):
+        profile = con._profile
+        con._profile = profile.clone(idx=idx)
+        return con
+
+    con0 = with_profile_idx(xo.connect(), 0)
+    con1 = with_profile_idx(xo.connect(), 1)
+    con2 = with_profile_idx(xo.duckdb.connect(), 2)
+    con3 = with_profile_idx(xo.connect(), 3)
 
     awards_players = xo.examples.awards_players.fetch(
         con0, "awards_players"
@@ -383,25 +388,21 @@ def test_build_file_stability(build_dir):
 
     expected = {
         "6c96e9dd3dae.sql": "64898e4816b436c2c6c5d534e2005d8f",
-        "profiles.yaml": "f26f93df40c84b8c5700c6e2a9e845cd",
-        "deferred_reads.yaml": "7770f7ce949f0081c7b7eea95a370425",
         "f5b135d95dc0.sql": "afd43082cc3cfc4c63b39666520519c0",
         "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
         "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
-        "expr.yaml": "94c1bf6cf52206624c20e88577f9bf7d",
-        "sql.yaml": "2dd659510331b478709e791ab3bd683b",
+        "deferred_reads.yaml": "ec0e9040991be5702e55e0f279268ca8",
+        "expr.yaml": "a1c879885b23324228da4938bbe92a14",
+        "profiles.yaml": "7cbd1ea3f1c556b4abf9d8bbd67b60c1",
+        "sql.yaml": "47d6ad7d57f946ec3338b78b5ac9aae3",
     }
     actual = {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
         for p in build_dir.joinpath(expr_hash).iterdir()
         if p.name in expected
     }
-    if diff := set(actual.items()).difference(expected.items()):
+    if diff := sorted(set(actual.items()).difference(expected.items())):
         raise ValueError(diff)
-    # from xorq.common.utils.inspect_utils import get_python_version_no_dot
-    # py_version = f"py{get_python_version_no_dot()}"
-    # snapshot.assert_match(json.dumps(actual), f"{python_version}_file_stability_hashes.json")
-    # snapshot.assert_match(expr.ls.get_key(), f"{py_version}_udf_caching.txt")
 
     # test that it also runs
     roundtrip_expr = compiler.load_expr(expr_hash)
