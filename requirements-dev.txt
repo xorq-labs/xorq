@@ -837,7 +837,7 @@ websocket-client==1.8.0
     # via jupyter-server
 xgboost==3.0.2
     # via xorq
-xorq-datafusion==0.2.2
+xorq-datafusion==0.2.3
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4.0'
     # via pins
