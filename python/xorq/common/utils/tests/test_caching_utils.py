@@ -9,6 +9,7 @@ def test_default_caching_dir():
     assert actual_dir is not None
     assert isinstance(actual_dir, Path)
 
+    print(sys.platform)
     expected_match = (
         "/AppData/Local/xorq/cache/" if sys.platform == "win32" else "/.cache/xorq/"
     )
