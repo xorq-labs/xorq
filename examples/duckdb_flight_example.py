@@ -51,7 +51,7 @@ def run_server(db_path, table_name, port):
     db_path.unlink(missing_ok=True)
     flight_server = FlightServer(
         FlightUrl(port=port),
-        connection=partial(xo.duckdb.connect, db_path),
+        make_connection=partial(xo.duckdb.connect, db_path),
     )
     flight_server.serve()
     flight_server.server._conn.create_table(

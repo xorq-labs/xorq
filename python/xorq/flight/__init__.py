@@ -135,7 +135,7 @@ class FlightServer:
         verify_client=False,
         root_certificates=None,
         auth: BasicAuth = None,
-        connection=xo.connect,
+        make_connection=xo.connect,
         exchangers=(),
     ):
         required_scheme = (
@@ -148,10 +148,37 @@ class FlightServer:
         self.tls_certificates = tls_certificates
         self.root_certificates = root_certificates
         self.auth = auth
-        self.connection = connection
+        self.make_connection = make_connection
         self.verify_client = verify_client
         self.server = None
         self.exchangers = exchangers
+
+    @classmethod
+    def from_udxf(cls, expr, host=None, port=None, make_connection=None, **kwargs):
+        from xorq.common.utils.graph_utils import walk_nodes
+        from xorq.expr.relations import FlightUDXF
+
+        # Find all FlightUDXF nodes in the expression
+        exchangers = tuple(set(node.udxf for node in walk_nodes((FlightUDXF,), expr)))
+
+        flight_url_kwargs = {
+            key: value for key, value in (("host", host), ("port", port)) if value
+        }
+        flight_url = FlightUrl(**flight_url_kwargs)
+
+        server_kwargs = {
+            key: value
+            for key, value in (
+                ("exchangers", exchangers),
+                ("make_connection", make_connection),
+            )
+            if value
+        }
+
+        return cls(
+            flight_url,
+            **kwargs | server_kwargs,
+        )
 
     @property
     def auth_kwargs(self):
@@ -205,7 +232,7 @@ class FlightServer:
     def serve(self, block=False):
         self.flight_url.unbind_socket()
         self.server = FlightServerDelegate(
-            self.connection,
+            self.make_connection,
             self.flight_url.to_location(),
             verify_client=self.verify_client,
             **self.auth_kwargs,
@@ -228,28 +255,17 @@ class FlightServer:
         self.close(*args)
 
 
-def connect(
-    host="localhost",
-    port=8815,
-    username=None,
-    password=None,
-    cert_chain=None,
-    private_key=None,
-    tls_root_certs=None,
-):
-    from xorq.flight.backend import Backend
-
+def connect(url, tls_kwargs=None):
     new_backend = Backend()
     new_backend.do_connect(
-        host=host,
-        port=port,
-        username=username,
-        password=password,
-        cert_chain=cert_chain,
-        private_key=private_key,
-        tls_root_certs=tls_root_certs,
+        host=url.host,
+        port=url.port,
+        username=url.username,
+        password=url.password,
+        **(tls_kwargs.client_kwargs if tls_kwargs else {}),
     )
+
     return new_backend
 
 
-__all__ = ["FlightServer", "BasicAuth", "connect"]
+__all__ = ["FlightServer", "FlightUrl", "BasicAuth", "connect"]

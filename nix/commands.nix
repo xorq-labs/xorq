@@ -111,6 +111,17 @@ let
     sudo usermod --append --groups docker "$user"
   '';
 
+  xorq-colima-start = pkgs.writeShellScriptBin "xorq-colima-start" ''
+    # ${pkgs.docker}
+    ${pkgs.colima}/bin/colima start
+  '';
+
+  xorq-docker = pkgs.writeShellScriptBin "xorq-docker" ''
+    set -eux
+
+    ${pkgs.docker}/bin/docker "''${@}"
+  '';
+
   xorq-docker-compose-up = pkgs.writeShellScriptBin "xorq-docker-compose-up" ''
     set -eux
 
@@ -128,9 +139,20 @@ let
     set -eux
 
     image_name=otel/opentelemetry-collector-contrib:latest
-    yaml_host_path=${../docker/otel/otel-collector-config.yaml}
-    yaml_container_path=/etc/otel-collector-config.yaml
 
+    yaml_file=otel-collector-config.yaml
+    #
+    yaml_container_path=/etc/otel-collector-config
+    yaml_container_file=$yaml_container_path/$yaml_file
+    # macos can't use the permissions on files in the nix store or its own default tmp dirs
+    yaml_host_path=$(mktemp --directory -p $HOME)
+    yaml_host_file=$yaml_host_path/$yaml_file
+
+    cp ${../docker/otel/otel-collector-config.yaml} "$yaml_host_file"
+    chmod 644 "$yaml_host_file"
+    chmod 755 "$yaml_host_path"
+
+    # Set up log directory paths
     logs_host_path=''${OTEL_HOST_LOG_DIR:-~/.local/share/xorq/logs/otel-logs}
     logs_container_path=''${OTEL_COLLECTOR_CONTAINER_LOG_DIR:-/otel-logs}
 
@@ -140,17 +162,19 @@ let
       --publish "$OTEL_COLLECTOR_PORT_GRPC:$OTEL_COLLECTOR_PORT_GRPC" \
       --publish "$OTEL_COLLECTOR_PORT_HTTP:$OTEL_COLLECTOR_PORT_HTTP" \
       --env "GRAFANA_CLOUD_INSTANCE_ID=$GRAFANA_CLOUD_INSTANCE_ID" \
+      --env "PROMETHEUS_GRAFANA_USERNAME=$PROMETHEUS_GRAFANA_USERNAME" \
+      --env "PROMETHEUS_GRAFANA_ENDPOINT=$PROMETHEUS_GRAFANA_ENDPOINT" \
+      --env "PROMETHEUS_SCRAPE_URL=$PROMETHEUS_SCRAPE_URL" \
       --env "GRAFANA_CLOUD_API_KEY=$GRAFANA_CLOUD_API_KEY" \
       --env "GRAFANA_CLOUD_OTLP_ENDPOINT=$GRAFANA_CLOUD_OTLP_ENDPOINT" \
       --env "OTEL_COLLECTOR_PORT_GRPC=$OTEL_COLLECTOR_PORT_GRPC" \
       --env "OTEL_COLLECTOR_PORT_HTTP=$OTEL_COLLECTOR_PORT_HTTP" \
       --env "OTEL_LOG_FILE_NAME=$OTEL_LOG_FILE_NAME" \
-      --env "OTEL_COLLECTOR_CONTAINER_LOG_DIR=$OTEL_COLLECTOR_CONTAINER_LOG_DIR" \
-      --env "logs_container_path=$logs_container_path" \
+      --env "OTEL_COLLECTOR_CONTAINER_LOG_DIR=$logs_container_path" \
       --volume "$yaml_host_path:$yaml_container_path" \
       --volume "$logs_host_path:$logs_container_path" \
       "$image_name" \
-      --config="$yaml_container_path"
+      --config="$yaml_container_file"
   '';
 
   xorq-docker-exec-otel-print-initial-config = pkgs.writeShellScriptBin "xorq-docker-exec-otel-print-initial-config" ''
@@ -176,7 +200,8 @@ let
       xorq-git-config-blame-ignore-revs
       xorq-ensure-download-data
       xorq-install-docker xorq-sudo-usermod-aG-docker xorq-docker-compose-up xorq-newgrp-docker-compose-up
-      xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
+      xorq-colima-start
+      xorq-docker xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
       ;
   };
 

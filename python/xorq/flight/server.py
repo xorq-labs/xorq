@@ -14,7 +14,12 @@ from xorq.common.utils.func_utils import (
 )
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
-    make_filtered_reader,
+)
+from xorq.flight.metrics import (
+    InstrumentedReader,
+    InstrumentedWriter,
+    instrument_reader,
+    instrument_rpc,
 )
 
 
@@ -124,8 +129,7 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         )
         self._conn = con_callable()
         self._location = location
-        # FIXME: copy instead of mutate
-        self.exchangers = E.exchangers
+        self.exchangers = dict(E.exchangers)
         self.actions = A.actions
         self.lock = threading.Lock()
 
@@ -152,47 +156,35 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
         query = descriptor.command
         return self._make_flight_info(query)
 
+    @instrument_rpc("do_get")
     @maybe_log_excepts
-    def do_get(self, context, ticket):
-        """
-        Execute SQL query and return results
-        """
+    def do_get(self, context, rec, ticket):
+        kwargs = loads(ticket.ticket)
+        expr = kwargs.pop("expr")
         with self.lock:
-            kwargs = loads(ticket.ticket)
-            expr = kwargs.pop("expr")
-            try:
-                # Execute query and convert to Arrow table
-                rbr = self._conn.to_pyarrow_batches(expr)
-                return pyarrow.flight.RecordBatchStream(rbr)
-            except Exception as e:
-                raise pyarrow.flight.FlightServerError(
-                    f"Error executing query: {str(e)}"
-                )
+            rbr = self._conn.to_pyarrow_batches(expr)
+        rbr = instrument_reader(rbr, rec, direction="out")
+        return pyarrow.flight.RecordBatchStream(rbr)
 
+    @instrument_rpc("do_put")
     @maybe_log_excepts
-    def do_put(self, context, descriptor, reader, writer):
-        with self.lock:
-            command_payload = loads(descriptor.command)
+    def do_put(self, context, rec, descriptor, reader, writer):
+        reader = instrument_reader(reader, rec, direction="in")
 
-            if isinstance(command_payload, bytes):
-                table_name = command_payload.decode("utf-8")
-                kwargs = {}
+        cmd = loads(descriptor.command)
+        if isinstance(cmd, bytes):
+            table = cmd.decode("utf-8")
+            kwargs = {}
+        else:
+            table = cmd["table_name"]
+            kwargs = cmd.get("kwargs", {})
+
+        data = copy_rbr_batches(reader).read_all()
+        with self.lock:
+            if table in self._conn.tables:
+                self._conn.insert(table, data, **kwargs)
             else:
-                table_name = command_payload["table_name"]
-                kwargs = command_payload.get("kwargs", {})
-
-            # FIXME: pass record batch reader to con when possible
-            data = copy_rbr_batches(make_filtered_reader(reader)).read_all()
-            try:
-                if table_name in self._conn.tables:
-                    self._conn.insert(table_name, data, **kwargs)
-                else:
-                    self._conn.create_table(table_name, data, **kwargs)
-
-            except Exception as e:
-                raise pyarrow.flight.FlightServerError(
-                    f"Error handling table '{table_name}': {str(e)}"
-                )
+                self._conn.create_table(table, data, **kwargs)
 
     @maybe_log_excepts
     def do_action(self, context, action):
@@ -204,14 +196,16 @@ class FlightServerDelegate(pyarrow.flight.FlightServerBase):
             else:
                 raise KeyError("Unknown action {!r}".format(action.type))
 
+    @instrument_rpc("do_exchange")
     @maybe_log_excepts
-    def do_exchange(self, context, descriptor, reader, writer):
+    def do_exchange(self, context, rec, descriptor, reader, writer):
         with self.lock:
-            if descriptor.descriptor_type != pyarrow.flight.DescriptorType.CMD:
-                raise pa.ArrowInvalid("Must provide a command descriptor")
-            command = descriptor.command.decode("ascii")
-            if command in self.exchangers:
-                logger.info(f"Doing exchange: {command}")
-                return self.exchangers[command].exchange_f(context, reader, writer)
-            else:
-                raise pa.ArrowInvalid("Unknown command: {}".format(descriptor.command))
+            cmd = descriptor.command.decode()
+            handler = self.exchangers.get(cmd)
+            if handler is None:
+                raise pa.ArrowInvalid(f"Unknown exchange: {cmd}")
+
+            reader = InstrumentedReader(reader, rec, direction="in")
+            iw = InstrumentedWriter(writer, rec, direction="out")
+
+            return handler.exchange_f(context, reader, iw)

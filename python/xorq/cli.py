@@ -3,16 +3,23 @@ import os
 import pdb
 import sys
 import traceback
+from functools import partial
 from pathlib import Path
 
 from opentelemetry import trace
 
+import xorq as xo
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
+from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
+from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
+
+
+logger = get_print_logger()
 
 
 @tracer.start_as_current_span("cli.build_command")
@@ -120,8 +127,72 @@ def run_command(
             raise ValueError(f"Unknown output_format: {output_format}")
 
 
+@tracer.start_as_current_span("cli.serve_command")
+def serve_command(
+    expr_path, host=None, port=None, duckdb_path=None, prometheus_port=None
+):
+    """
+    Serve a built expression via Flight Server
+
+    Parameters
+    ----------
+    expr_path : str
+        Path to the expression directory (output of xorq build)
+    host : str
+        Host to bind Flight Server
+    port : int or None
+        Port to bind Flight Server (None for random)
+    duckdb_path : str or None
+        Path to duckdb cache DB file
+    prometheus_port : int or None
+    """
+
+    span = trace.get_current_span()
+    params = {
+        "build_path": expr_path,
+        "host": host,
+        "port": port,
+    }
+    if duckdb_path is not None:
+        params["duckdb_path"] = duckdb_path
+    span.add_event("serve.params", params)
+
+    expr_path = Path(expr_path)
+    expr_hash = expr_path.stem
+
+    logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
+    build_manager = BuildManager(expr_path.parent)
+    if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
+        raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
+
+    expr = build_manager.load_expr(expr_hash)
+
+    db_path = Path(duckdb_path or "xorq_serve.db")  # FIXME what should be the default?
+
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+    logger.info(f"Using duckdb at {db_path}")
+
+    try:
+        from xorq.flight.metrics import setup_console_metrics
+
+        setup_console_metrics(prometheus_port=prometheus_port)
+    except ImportError:
+        logger.warning(
+            "Metrics support requires 'opentelemetry-sdk' and console exporter"
+        )
+
+    server = FlightServer.from_udxf(
+        expr, make_connection=partial(xo.duckdb.connect, str(db_path))
+    )
+    location = server.flight_url.to_location()
+    logger.info(f"Serving expression '{expr_hash}' on {location}")
+    server.serve(block=True)
+
+
 def parse_args(override=None):
-    parser = argparse.ArgumentParser(description="xorq - build and run expressions")
+    parser = argparse.ArgumentParser(
+        description="xorq - build, run, and serve expressions"
+    )
     parser.add_argument("--pdb", action="store_true", help="Drop into pdb on failure")
     parser.add_argument(
         "--pdb-runcall", action="store_true", help="Invoke with pdb.runcall"
@@ -173,6 +244,34 @@ def parse_args(override=None):
         default="parquet",
         help="Output format (default: parquet)",
     )
+    serve_parser = subparsers.add_parser(
+        "serve", help="Serve a build via Flight Server"
+    )
+    serve_parser.add_argument(
+        "build_path", help="Path to the build directory (output of xorq build)"
+    )
+    serve_parser.add_argument(
+        "--host",
+        default="localhost",
+        help="Host to bind Flight Server (default: localhost)",
+    )
+    serve_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind Flight Server (default: random)",
+    )
+    serve_parser.add_argument(
+        "--duckdb-path",
+        default=None,
+        help="Path to duckdb DB (default: <build_path>/xorq_serve.db)",
+    )
+    serve_parser.add_argument(
+        "--prometheus-port",
+        type=int,
+        default=None,
+        help="Port to expose Prometheus metrics (default: disabled)",
+    )
 
     args = parser.parse_args(override)
     if getattr(args, "output_path", None) == "-":
@@ -191,14 +290,25 @@ def main():
     try:
         match args.command:
             case "build":
-                (f, f_args) = (
+                f, f_args = (
                     build_command,
                     (args.script_path, args.expr_name, args.builds_dir, args.cache_dir),
                 )
             case "run":
-                (f, f_args) = (
+                f, f_args = (
                     run_command,
                     (args.build_path, args.output_path, args.format, args.cache_dir),
+                )
+            case "serve":
+                f, f_args = (
+                    serve_command,
+                    (
+                        args.build_path,
+                        args.host,
+                        args.port,
+                        args.duckdb_path,
+                        args.prometheus_port,
+                    ),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
