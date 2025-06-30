@@ -139,11 +139,18 @@ let
     set -eux
 
     image_name=otel/opentelemetry-collector-contrib:latest
-    repo_root=$(git rev-parse --show-toplevel)
 
-    # I had to do this for macos: not sure why I can't read it from the store path
-    yaml_host_file="$repo_root/docker/otel/otel-collector-config.yaml"
-    yaml_container_path=/etc/otel-collector-config/otel-collector-config.yaml
+    yaml_file=otel-collector-config.yaml
+    #
+    yaml_container_path=/etc/otel-collector-config
+    yaml_container_file=$yaml_container_path/$yaml_file
+    # macos can't use the permissions on files in the nix store or its own default tmp dirs
+    yaml_host_path=$(mktemp --directory -p $HOME)
+    yaml_host_file=$yaml_host_path/$yaml_file
+
+    cp ${../docker/otel/otel-collector-config.yaml} "$yaml_host_file"
+    chmod 644 "$yaml_host_file"
+    chmod 755 "$yaml_host_path"
 
     # Set up log directory paths
     logs_host_path=''${OTEL_HOST_LOG_DIR:-~/.local/share/xorq/logs/otel-logs}
@@ -164,10 +171,10 @@ let
       --env "OTEL_COLLECTOR_PORT_HTTP=$OTEL_COLLECTOR_PORT_HTTP" \
       --env "OTEL_LOG_FILE_NAME=$OTEL_LOG_FILE_NAME" \
       --env "OTEL_COLLECTOR_CONTAINER_LOG_DIR=$logs_container_path" \
-      --volume "$yaml_host_file:$yaml_container_path" \
+      --volume "$yaml_host_path:$yaml_container_path" \
       --volume "$logs_host_path:$logs_container_path" \
       "$image_name" \
-      --config="$yaml_container_path"
+      --config="$yaml_container_file"
   '';
 
   xorq-docker-exec-otel-print-initial-config = pkgs.writeShellScriptBin "xorq-docker-exec-otel-print-initial-config" ''
