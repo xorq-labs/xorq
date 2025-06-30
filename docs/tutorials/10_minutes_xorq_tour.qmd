@@ -142,7 +142,7 @@ from pathlib import Path
 from xorq.caching import ParquetStorage
 
 # Create a storage for cached data
-cache_storage = ParquetStorage(source=con, path=Path.cwd())
+cache_storage = ParquetStorage(source=con, base_path=Path.cwd())
 
 # Cache the results
 cached_awards = player_awards.cache(storage=cache_storage)
