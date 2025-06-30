@@ -1,4 +1,6 @@
 import datetime
+import functools
+import operator
 import threading
 import time
 
@@ -21,12 +23,20 @@ from xorq.flight import (
 )
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
+from xorq.flight.tests.conftest import do_agg, field_name, my_udf, return_type
+from xorq.tests.util import assert_frame_equal
 
 
-def make_flight_url(port, scheme="grpc"):
+def make_flight_url(port, scheme="grpc", auth=None):
     if port is not None:
         assert not FlightUrl.port_in_use(port), f"Port {port} already in use"
-    flight_url = FlightUrl(port=port, scheme=scheme)
+    flight_url = (
+        FlightUrl(port=port, scheme=scheme)
+        if auth is None
+        else FlightUrl(
+            port=port, scheme=scheme, username=auth.username, password=auth.password
+        )
+    )
     assert FlightUrl.port_in_use(flight_url.port), (
         f"Port {flight_url.port} should be in use"
     )
@@ -47,7 +57,7 @@ def test_port_in_use(connection, port):
     with pytest.raises(OSError, match="Address already in use"):
         with FlightServer(
             flight_url=flight_url,
-            connection=connection,
+            make_connection=connection,
         ) as _:
             # entering the above context releases the port
             # so we won't raise until we enter the second context and try to use it
@@ -105,7 +115,7 @@ def test_register_and_list_tables(connection, port):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         con = main.con
         assert con.version is not None
@@ -192,7 +202,7 @@ def test_into_backend_flight_server(connection, port, parquet_dir):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         con = main.con
         t = batting.filter(batting.yearID == 2015).into_backend(con, "xo_batting")
@@ -218,7 +228,7 @@ def test_read_parquet(connection, port, parquet_dir):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         con = main.con
         batting = con.read_parquet(parquet_dir / "batting.parquet")
@@ -242,7 +252,7 @@ def test_exchange(connection, port):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as main:
         client = main.client
         udf_exchanger = PandasUDFExchanger(
@@ -304,7 +314,7 @@ def test_reentry(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     with FlightServer(
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     ) as server:
         fut, rbr = server.client.do_exchange_batches(
             EchoExchanger.command,
@@ -333,7 +343,7 @@ def test_serve_close(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     server = FlightServer(
         verify_client=False,
-        connection=connection,
+        make_connection=connection,
     )
 
     server.serve()
@@ -391,7 +401,7 @@ def test_execute_query_non_relation_expr(expr):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     ) as main:
         main.con.register(data, table_name="users")
         actual = main.client.execute(expr)
@@ -405,14 +415,12 @@ def test_server_blocks(block):
     server = FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     )
 
-    def serve():
-        server.serve(block=block)
-
-    server_thread = threading.Thread(target=serve)
-    server_thread.daemon = True
+    server_thread = threading.Thread(
+        target=functools.partial(server.serve, block=block), daemon=True
+    )
 
     is_blocking = True
 
@@ -433,3 +441,36 @@ def test_server_blocks(block):
 
     assert is_blocking == block
     assert not server_thread.is_alive()
+
+
+def test_exchange_server_from_udxf(con, diamonds, baseline):
+    input_expr = diamonds.pipe(do_agg)
+    process_df = operator.methodcaller("assign", **{field_name: my_udf.fn})
+    maybe_schema_in = input_expr.schema()
+    maybe_schema_out = xo.schema(input_expr.schema() | {field_name: return_type})
+    command = "diamonds_exchange_command"
+    expr = xo.expr.relations.flight_udxf(
+        input_expr,
+        process_df=process_df,
+        maybe_schema_in=maybe_schema_in,
+        maybe_schema_out=maybe_schema_out,
+        con=con,
+        make_udxf_kwargs={"name": my_udf.__name__, "command": command},
+    ).order_by("cut")
+
+    with FlightServer.from_udxf(expr) as server:
+        client = server.client
+        assert client is not None
+
+        _, rbr = client.do_exchange(
+            command,
+            input_expr,
+        )
+
+        actual = rbr.read_pandas().sort_values("cut", ignore_index=True)
+        expected = baseline.sort_values("cut", ignore_index=True)
+        assert_frame_equal(
+            actual,
+            expected,
+            check_exact=False,
+        )

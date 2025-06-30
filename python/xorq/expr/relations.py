@@ -321,6 +321,8 @@ class FlightUDXF(ops.DatabaseTable):
             tls_kwargs = TLSKwargs.from_common_name(verify_client=True)
             return FlightServer(verify_client=True, **tls_kwargs.server_kwargs)
 
+        # FIXME do we need make_connection
+
         schema = cls.validate_schema(input_expr, udxf)
         return cls(
             name=name or gen_name(),

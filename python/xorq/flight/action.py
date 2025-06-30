@@ -130,6 +130,22 @@ class QueryExchangeAction(AbstractAction):
         yield make_flight_result(query_result)
 
 
+class GetExchangeAction(AbstractAction):
+    @classproperty
+    def name(cls):
+        return "get-exchange"
+
+    @classproperty
+    def description(cls):
+        return "Get a particular exchange available on this server."
+
+    @classmethod
+    def do_action(cls, server, context, action):
+        exchange_name = loads(action.body)
+        exchanger = server.exchangers.get(exchange_name)
+        yield make_flight_result(exchanger)
+
+
 class ListTablesAction(AbstractAction):
     @classproperty
     def name(cls):
@@ -263,5 +279,6 @@ actions = {
         ReadParquetAction,
         VersionAction,
         GetSchemaQueryAction,
+        GetExchangeAction,
     )
 }

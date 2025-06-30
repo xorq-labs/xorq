@@ -1,14 +1,21 @@
+import pandas as pd
 import pyarrow as pa
 
 import xorq as xo
+import xorq.flight.exchanger as E
 from xorq.flight import FlightServer
-from xorq.flight.action import DropTableAction, GetSchemaQueryAction, ListTablesAction
+from xorq.flight.action import (
+    DropTableAction,
+    GetExchangeAction,
+    GetSchemaQueryAction,
+    ListTablesAction,
+)
 
 
 def test_list_tables_kwargs():
     with FlightServer(
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     ) as main:
         # GIVEN
         data = pa.table(
@@ -27,7 +34,7 @@ def test_list_tables_kwargs():
 def test_drop_table():
     with FlightServer(
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     ) as main:
         # GIVEN
         data = pa.table(
@@ -46,7 +53,7 @@ def test_drop_table():
 def test_get_schema_query():
     with FlightServer(
         verify_client=False,
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
     ) as main:
         # GIVEN
         data = pa.table(
@@ -65,3 +72,21 @@ def test_get_schema_query():
         )
         # THEN
         assert actual == expected
+
+
+def test_get_exchange():
+    def dummy(df: pd.DataFrame):
+        return pd.DataFrame({"row_count": [42]})
+
+    schema_in = xo.schema({"dummy": "int64"})
+    dummy_udxf = E.make_udxf(
+        dummy,
+        schema_in,
+        xo.schema({"row_count": "int64"}),
+    )
+    with FlightServer(exchangers=[dummy_udxf]) as flight_server:
+        client = flight_server.client
+        exchange = client.do_action_one(
+            GetExchangeAction.name, action_body=dummy_udxf.command
+        )
+        assert exchange is not None
