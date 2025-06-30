@@ -7,8 +7,8 @@
 
 </div>
 
-> **✨ Build reproducible, multi‑engine ML pipelines with the ergonomics of
-> pandas and the power of modern SQL. ✨**
+> **✨ Xorq is an opinionated framework for cataloging composable compute
+> expressions for your data in flight. ✨**
 
 Popular Python tools like pandas and Ibis make data exploration enjoyable—but
 when it's time to build reliable ML pipelines across multiple engines, things
@@ -20,7 +20,8 @@ mismatches. Wasteful recomputation time and costs. Pipelines that work
 perfectly in notebooks, but take forever to re-engineer for deployment--and
 then deliver different results or fail in production. We built Xorq to
 eliminate these problems - a library with a simple declarative syntax for
-defining ML pipelines as portable, reusable components.
+defining ML pipelines as portable, reusable components that can be cataloged
+and governed like code.
 
 [More on why we built Xorq](#why-xorq).
 
@@ -36,7 +37,18 @@ Xorq lets you:
 ## Demo Time!
 
 Let's see Xorq in action.
-## Machine Learning Pipeline Example
+
+[TBD: This section will be updated with a video demo soon!]
+
+## Getting Started with Xorq
+
+###  Installation and Requirements
+
+```bash
+pip install xorq  # or pip install "xorq[examples]"
+```
+* Python 3.9+
+* Apache Arrow 19.0+
 
 ### 1. Load and Prepare Data
 
@@ -56,7 +68,24 @@ expr = expr.filter(
     expr.flipper_length_mm.isnull() == False,
     expr.body_mass_g.isnull() == False,
 )
+print(expr.schema())
+print(expr.ls.backend)
 ```
+> ```sh
+> Out[2]:
+> ibis.Schema {
+>   species            string
+>   island             string
+>   bill_length_mm     float64
+>   bill_depth_mm      float64
+>   flipper_length_mm  int64
+>   body_mass_g        int64
+>   sex                string
+>   year               int64
+> }
+> Out[3]:
+> (<xorq.backends.pandas.Backend at 0x107767f70>,) #<-- just a pandas backend
+> ```
 
 ### 2. Define Features and Move to Xorq Backend
 
@@ -65,9 +94,15 @@ features = ['bill_length_mm', 'bill_depth_mm', 'flipper_length_mm', 'body_mass_g
 target = 'species'
 
 # Move to Xorq's embedded backend for deferred execution
+# Xorq ships with a modified DataFusion based engine that is especially
+# designed for Arrow UDF and UDAF execution.
 con = xo.connect()
 expr = expr.into_backend(con)
+print(expr.ls.backends)
 ```
+> ```sh
+> (<xorq.backends.pandas.Backend object at 0x107767f70>, <xorq.backends.let.Backend object at 0x17fcbeb00>)
+> ```
 
 ### 3. Build and Fit ML Pipeline
 
@@ -107,6 +142,34 @@ This creates a `FittedStep` object that contains both the trained model and the 
 >   target='species', storage=None, dest_col=None)
 > ```
 
+> Aside:
+> What does deferred execution mean? Deferred execution means that the actual
+> computation is not executed immediately. Instead, it builds a computational
+> graph that can be executed later, allowing for optimizations and better
+> resource management.
+
+### 5. Make Predictions with Deferred Execution
+
+```python
+# Create a new expression that includes predictions
+y_expr = expr.mutate(
+    predicted=fitted.deferred_predict.on_expr  # Features and target are automatically inferred
+)
+
+# Execute only when needed
+y_pred = y_expr.predicted.execute()
+y_actual = expr[target].execute()
+
+# Calculate accuracy
+accuracy = (y_actual == y_pred).mean()
+print(f'Deferred pipeline accuracy: {accuracy:.2%}')
+```
+
+> **Output:**
+> ```
+> Deferred pipeline accuracy: 97%
+> ```
+
 Save this as file as `expr.py`.
 ### 4. Build and Deploy the Pipeline
 
@@ -130,33 +193,89 @@ Now you can run the built pipeline:
 xorq run builds/ca3da8b86a86
 ```
 > **Run Output:**
-
-```bash
-# Coming soon
-xorq run builds/ca3da8b86a86
-```
-
-### 5. Make Predictions with Deferred Execution
-
-```python
-# Create a new expression that includes predictions
-y_expr = expr.mutate(
-    predicted=fitted.deferred_predict.on_expr  # Features and target are automatically inferred
-)
-
-# Execute only when needed
-y_pred = y_expr.predicted.execute()
-y_actual = expr[target].execute()
-
-# Calculate accuracy
-accuracy = (y_actual == y_pred).mean()
-print(f'Deferred pipeline accuracy: {accuracy:.2%}')
-```
-
-> **Output:**
+>
 > ```
-> Deferred pipeline accuracy: 97%
+> ❯ lt builds/ca3da8b86a86
+> .
+> ├── 8b5f90115b97.sql
+> ├── 8d14b1afefa2.sql
+> ├── 984aa14b8fde.sql
+> ├── 6130850ff0a4.sql
+> ├── deferred_reads.yaml
+> ├── expr.yaml
+> ├── metadata.json
+> ├── profiles.yaml
+> └── sql.yaml
 > ```
+Notice that we have an expr.yaml file with complete schemas and lineage
+information as well as debug outputs for SQL. The expr can rountrip back and
+forth from Ibis expressions.
+
+>```yaml
+>❯ cat deferred_reads.yaml
+>reads:
+>  penguins-36877e5b81573dffe4e988965ce3950b:
+>    engine: pandas
+>    profile_name: 08f39a9ca2742d208a09d0ee9c7756c0_1
+>    relations:
+>    - penguins-36877e5b81573dffe4e988965ce3950b
+>    options:
+>      method_name: read_csv
+>      name: penguins
+>      read_kwargs:
+>      - source: /Users/hussainsultan/Library/Caches/pins-py/gs_d3037fb8920d01eb3b262ab08d52335c89ba62aa41299e5236f01807aa8b726d/penguins/20250206T212843Z-8f28a/penguins.csv
+>      - table_name: penguins
+>    sql_file: 8b5f90115b97.sql
+>
+>```
+and similarly expr.yaml (just a snippet):
+
+> ```yaml
+> predicted:
+>   op: ExprScalarUDF
+>   class_name: _predicted_e1d43fe620d0175d76276
+>   kwargs:
+>     op: dict
+>     bill_length_mm:
+>       node_ref: ecb7ceed7bab79d4e96ed0ce037f4dbd
+>     bill_depth_mm:
+>       node_ref: 26ca5f78d58daed6adf20dd2eba92d41
+>     flipper_length_mm:
+>       node_ref: 916dc998f8de70812099b2191256f4c1
+>     body_mass_g:
+>       node_ref: e094d235b0c1b297da5c194a5c4c331f
+>   meta:
+>     op: dict
+>     dtype:
+>       op: DataType
+>       type: String
+>       nullable:
+>         op: bool
+>         value: true
+>     __input_type__:
+>       op: InputType
+>       name: PYARROW
+>     __config__:
+>       op: dict
+>       computed_kwargs_expr:
+>         op: AggUDF
+>         class_name: _fit_predicted_e1d43fe620d0175d7
+>         kwargs:
+>           op: dict
+>           bill_length_mm:
+>             node_ref: ecb7ceed7bab79d4e96ed0ce037f4dbd
+>           bill_depth_mm:
+>             node_ref: 26ca5f78d58daed6adf20dd2eba92d41
+>           flipper_length_mm:
+>             node_ref: 916dc998f8de70812099b2191256f4c1
+>           body_mass_g:
+>             node_ref: e094d235b0c1b297da5c194a5c4c331f
+>           species:
+>             node_ref: a9fa43a2d8772c7eca4a7e2067107bfc
+> ```
+
+Please note that this is still in beta and the spec is subject to change.
+
 
 ### 6. Explore Pipeline Lineage
 
@@ -269,13 +388,6 @@ We'd love your feedback! Your ⭐, issues, and contributions help us shape Xorq'
 
 
 
-## Installation Requirements
-
-```bash
-pip install xorq  # or pip install "xorq[examples]"
-```
-* Python 3.9+
-* Apache Arrow 10.0+
 
 ## FAQ
 
