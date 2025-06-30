@@ -238,5 +238,5 @@ class Backend(SQLBackend):
 
         return flight_udxf
 
-    def list_udxf(self):
+    def list_udxfs(self):
         return self.con.do_action_one(ListExchangesAction.name)
