@@ -11,7 +11,6 @@ from opentelemetry import trace
 import xorq as xo
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
-from xorq.common.utils.graph_utils import walk_nodes
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer

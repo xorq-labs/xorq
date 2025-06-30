@@ -6,8 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from xorq.cli import build_command
-from xorq.cli import serve_command
+from xorq.cli import build_command, serve_command
 from xorq.common.utils.process_utils import (
     subprocess_run,
 )
