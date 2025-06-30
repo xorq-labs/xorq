@@ -352,7 +352,6 @@ class FlightUDXF(ops.DatabaseTable):
                     self.udxf,
                     options=client._options,
                 )
-
                 (fut, rbr_out) = client.do_exchange_batches(self.udxf.command, rbr_in)
                 if do_instrument_reader:
                     rbr_out = instrument_reader(rbr_out, "output: ")

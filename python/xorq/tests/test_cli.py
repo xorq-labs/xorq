@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pytest
 
-from xorq.cli import build_command, serve_command
+from xorq.cli import build_command
 from xorq.common.utils.process_utils import (
+    non_blocking_subprocess_run,
     subprocess_run,
 )
 
@@ -207,25 +208,24 @@ def test_serve_command(tmp_path, fixture_dir):
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
 
-        def run_serve():
-            serve_command(expression_path)
+        serve_args = [
+            "xorq",
+            "serve",
+            str(expression_path),
+        ]
 
-        import multiprocessing
-
-        proc = multiprocessing.Process(target=run_serve)
-        proc.start()
-
+        process = non_blocking_subprocess_run(serve_args)
         is_running = False
 
         def check_if_still_running():
             time.sleep(1)
             nonlocal is_running
-            is_running = proc.is_alive()
+            is_running = process.poll() is None
 
         checker_thread = threading.Thread(target=check_if_still_running)
         checker_thread.start()
         checker_thread.join()
-        proc.terminate()
+        process.terminate()
 
         assert is_running
     else:
