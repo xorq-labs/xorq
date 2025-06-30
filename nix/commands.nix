@@ -111,6 +111,17 @@ let
     sudo usermod --append --groups docker "$user"
   '';
 
+  xorq-colima-start = pkgs.writeShellScriptBin "xorq-colima-start" ''
+    # ${pkgs.docker}
+    ${pkgs.colima}/bin/colima start
+  '';
+
+  xorq-docker = pkgs.writeShellScriptBin "xorq-docker" ''
+    set -eux
+
+    ${pkgs.docker}/bin/docker "''${@}"
+  '';
+
   xorq-docker-compose-up = pkgs.writeShellScriptBin "xorq-docker-compose-up" ''
     set -eux
 
@@ -182,7 +193,8 @@ let
       xorq-git-config-blame-ignore-revs
       xorq-ensure-download-data
       xorq-install-docker xorq-sudo-usermod-aG-docker xorq-docker-compose-up xorq-newgrp-docker-compose-up
-      xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
+      xorq-colima-start
+      xorq-docker xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
       ;
   };
 
