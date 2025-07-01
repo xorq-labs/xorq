@@ -1,5 +1,6 @@
 from itertools import chain
 from pathlib import Path
+from typing import Callable
 
 import pandas as pd
 import pyarrow as pa
@@ -8,6 +9,9 @@ import toolz
 import xorq as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.let import Backend
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_read_path_stat,
+)
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -87,6 +91,7 @@ def deferred_read_csv(
     path: str | Path,
     table_name: str | None = None,
     schema: Schema | None = None,
+    normalize_method: Callable = normalize_read_path_stat,
     **kwargs,
 ) -> ir.Table:
     """
@@ -150,11 +155,16 @@ def deferred_read_csv(
         schema=schema,
         source=con,
         read_kwargs=read_kwargs,
+        normalize_method=normalize_method,
     ).to_expr()
 
 
 def deferred_read_parquet(
-    con: Backend, path: str | Path, table_name: str | None = None, **kwargs
+    con: Backend,
+    path: str | Path,
+    table_name: str | None = None,
+    normalize_method: Callable = normalize_read_path_stat,
+    **kwargs,
 ) -> ir.Table:
     """
      Create a deferred read operation for Parquet files that will execute only when needed.
@@ -196,6 +206,7 @@ def deferred_read_parquet(
         schema=schema,
         source=con,
         read_kwargs=read_kwargs,
+        normalize_method=normalize_method,
     ).to_expr()
 
 
