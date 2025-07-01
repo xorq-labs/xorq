@@ -268,7 +268,7 @@ ipykernel==6.29.5
     # via jupyterlab
 ipython==8.37.0 ; python_full_version < '3.11'
     # via ipykernel
-ipython==9.3.0 ; python_full_version >= '3.11'
+ipython==9.4.0 ; python_full_version >= '3.11'
     # via ipykernel
 ipython-pygments-lexers==1.1.1 ; python_full_version >= '3.11'
     # via ipython
