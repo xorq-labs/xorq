@@ -234,3 +234,49 @@ def test_mtls_flight_client_failure():
             **server.flight_url.client_kwargs,
             **bad_client_kwargs,
         )
+
+
+@pytest.mark.parametrize("verify_client", (True, False))
+@pytest.mark.parametrize("password", (None, b"password"))
+def test_tls_kwargs_from_disk_roundtrip(verify_client, password, tmpdir):
+    """Test that TLSKwargs can be saved to disk and loaded back correctly."""
+    original_kwargs = TLSKwargs.from_common_name(verify_client=verify_client)
+    tmpdir = Path(str(tmpdir))
+
+    ca_cert_path = tmpdir / "ca_cert"
+    ca_key_path = tmpdir / "ca_key"
+    server_cert_path = tmpdir / "server_cert"
+    server_key_path = tmpdir / "server_key"
+    client_cert_path = tmpdir / "client_cert"
+    client_key_path = tmpdir / "client_key"
+
+    original_kwargs.to_disk(
+        ca_cert_path=ca_cert_path,
+        ca_private_key_path=ca_key_path,
+        server_cert_path=server_cert_path,
+        server_private_key_path=server_key_path,
+        client_cert_path=client_cert_path,
+        client_private_key_path=client_key_path,
+        ca_password=password,
+        server_password=password,
+        client_password=password,
+    )
+
+    loaded_kwargs = TLSKwargs.from_disk(
+        ca_cert_path=ca_cert_path,
+        ca_private_key_path=ca_key_path,
+        server_cert_path=server_cert_path,
+        server_private_key_path=server_key_path,
+        client_cert_path=client_cert_path,
+        client_private_key_path=client_key_path,
+        verify_client=verify_client,
+        ca_password=password,
+        server_password=password,
+        client_password=password,
+    )
+
+    # Verify the loaded kwargs match the original
+    assert loaded_kwargs.verify_client == original_kwargs.verify_client
+    assert loaded_kwargs.ca_tlscert == original_kwargs.ca_tlscert
+    assert loaded_kwargs.server_tlscert == original_kwargs.server_tlscert
+    assert loaded_kwargs.client_tlscert == original_kwargs.client_tlscert
