@@ -404,7 +404,7 @@ wheels = [
 
 [[package]]
 name = "blackdoc"
-version = "0.4.0"
+version = "0.4.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "black" },
@@ -413,9 +413,9 @@ dependencies = [
     { name = "rich" },
     { name = "tomli" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/62/53/01b4bf9a4fd816adbdfd7786825e94f78aaa5d318630b57e006a11550246/blackdoc-0.4.0.tar.gz", hash = "sha256:b5e536f298b4a1197f23e26d06aeb37c1ec587a8749073b68d5474f3ce0f44b0", size = 40786, upload-time = "2025-06-14T12:43:00.082Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/47/6e/08e9a12d95ef9dc607b5213424a96030db0a9a293bfaa36a86e715396978/blackdoc-0.4.1.tar.gz", hash = "sha256:18a4ed8cfd2c5cdc2709583a5401f01e5d729e6d0624aeb27fd35fe879007348", size = 40905, upload-time = "2025-06-26T13:02:20.244Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/73/7a/6778c1fe4be8fbbb49cc171ea9fed1ac0c2c0a3053675e4a713e78c0c6e2/blackdoc-0.4.0-py3-none-any.whl", hash = "sha256:5b3a7ce110ce6dd5831f4c304c188d4a25ce160444666029dbeb49a7681ef729", size = 39062, upload-time = "2025-06-14T12:42:58.897Z" },
+    { url = "https://files.pythonhosted.org/packages/ea/d4/64d542960e9756966d272d996fe18466d452b18218d60dd8828bb7bd2e7c/blackdoc-0.4.1-py3-none-any.whl", hash = "sha256:a8452f05613d9a696d5d1e2f43872864127ed3c84e93f22c09a5e7643f445891", size = 39076, upload-time = "2025-06-26T13:02:19.049Z" },
 ]
 
 [[package]]
@@ -983,7 +983,7 @@ name = "exceptiongroup"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "typing-extensions", marker = "python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/0b/9f/a65090624ecf468cdca03533906e7c69ed7588582240cfe7cc9e770b50eb/exceptiongroup-1.3.0.tar.gz", hash = "sha256:b241f5885f560bc56a59ee63ca4c6a8bfa46ae4ad651af316d4e81817bb9fd88", size = 29749, upload-time = "2025-05-10T17:42:51.123Z" }
 wheels = [
@@ -4962,7 +4962,7 @@ provides-extras = ["duckdb", "datafusion", "snowflake", "quickgrove", "examples"
 [package.metadata.requires-dev]
 dev = [
     { name = "black", specifier = "==25.1.0" },
-    { name = "blackdoc", specifier = "==0.4.0" },
+    { name = "blackdoc", specifier = "==0.4.1" },
     { name = "codespell", extras = ["hard-encoding-detection", "toml"], specifier = "==2.4.1" },
     { name = "coverage", extras = ["toml"], specifier = "==7.9.1" },
     { name = "git-cliff", specifier = ">=2.2.1,<3.0.0" },
