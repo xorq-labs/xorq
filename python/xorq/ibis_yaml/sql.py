@@ -7,7 +7,7 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.exceptions import XorqError
-from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
+from xorq.common.utils.graph_utils import walk_nodes
 from xorq.expr.relations import Read, RemoteTable
 
 
@@ -58,16 +58,7 @@ def find_relations(expr: ir.Expr) -> List[str]:
 
 def find_tables(expr: ir.Expr) -> Tuple[Dict[str, QueryInfo], Dict[str, QueryInfo]]:
     def get_remote_table_backend(node):
-        backends = set(find_all_sources(node))
-        if backends:
-            (backend, *rest) = backends
-            if rest:
-                (backend,) = backends.difference(
-                    (node.to_expr()._find_backend(),)
-                )
-            return backend
-        else:
-            return None
+        return node.remote_expr._find_backend()
 
     grouped = toolz.groupby(type, walk_nodes((RemoteTable, Read), expr))
     remote_tables: Dict[str, QueryInfo] = {
