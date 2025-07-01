@@ -1,3 +1,6 @@
+import hashlib
+import itertools
+import pathlib
 import pdb
 from contextlib import contextmanager
 from unittest.mock import (
@@ -63,3 +66,47 @@ def walk_normalized(f, normalized):
 def set_trace_on_condition(condition, obj):
     if condition(obj):
         pdb.set_trace()
+
+
+def gen_batches(path, size=2**20):
+    with pathlib.Path(path).open("rb") as fh:
+        gen = (fh.read(size) for fh in itertools.repeat(fh))
+        gen = itertools.takewhile(bool, gen)
+        yield from gen
+
+
+def normalize_read_path_stat(path):
+    stat = path.stat()
+    tpls = tuple(
+        (attrname, getattr(stat, attrname))
+        for attrname in (
+            "st_mtime",
+            "st_size",
+            # mtime, size <?-?> md5sum
+            "st_ino",
+        )
+    )
+    return tpls
+
+
+def manual_file_digest(path, digest=hashlib.md5, size=2**20):
+    with pathlib.Path(path).open("rb") as fh:
+        obj = digest()
+        for chunk in itertools.takewhile(
+            bool, (fh.read(size) for fh in itertools.repeat(fh))
+        ):
+            obj.update(chunk)
+        return obj.hexdigest()
+
+
+def file_digest(path, digest=hashlib.md5, size=2**20):
+    try:
+        with pathlib.Path(path).open("rb") as fh:
+            return hashlib.file_digest(fh, digest).hexdigest()
+    except AttributeError:
+        return manual_file_digest(path, digest, size=size)
+
+
+def normalize_read_path_md5sum(path):
+    tpls = (("content-md5sum", file_digest(path)),)
+    return tpls
