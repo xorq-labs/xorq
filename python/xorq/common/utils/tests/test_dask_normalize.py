@@ -16,7 +16,9 @@ from xorq.common.utils.dask_normalize import (
     get_normalize_token_subset,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    file_digest,
     gen_batches,
+    manual_file_digest,
     patch_normalize_token,
     walk_normalized,
 )
@@ -170,3 +172,10 @@ def test_partitioning():
     assert len(tuple(gen_batches(path))) > 1
     content = b"".join(gen_batches(path))
     assert content == path.read_bytes()
+
+
+def test_file_digest():
+    path = pathlib.Path(xo.config.options.pins.get_path("batting"))
+    actual = manual_file_digest(path)
+    expected = file_digest(path)
+    assert actual == expected

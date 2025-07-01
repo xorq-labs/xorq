@@ -89,9 +89,22 @@ def normalize_read_path_stat(path):
     return tpls
 
 
-def file_digest(path, digest="md5"):
+def manual_file_digest(path, digest=hashlib.md5, size=2**20):
     with pathlib.Path(path).open("rb") as fh:
-        return hashlib.file_digest(fh, digest).hexdigest()
+        obj = digest()
+        for chunk in itertools.takewhile(
+            bool, (fh.read(size) for fh in itertools.repeat(fh))
+        ):
+            obj.update(chunk)
+        return obj.hexdigest()
+
+
+def file_digest(path, digest=hashlib.md5, size=2**20):
+    try:
+        with pathlib.Path(path).open("rb") as fh:
+            return hashlib.file_digest(fh, digest).hexdigest()
+    except AttributeError:
+        return manual_file_digest(path, digest, size=size)
 
 
 def normalize_read_path_md5sum(path):
