@@ -10,6 +10,9 @@ import yaml
 import xorq as xo
 import xorq.vendor.ibis as ibis
 from xorq.caching import ParquetStorage
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_read_path_md5sum,
+)
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
 from xorq.ibis_yaml.config import config
@@ -361,7 +364,7 @@ def test_build_pandas_backend(build_dir, users_df):
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
-def test_build_file_stability(build_dir):
+def test_build_file_stability_https(build_dir):
     def with_profile_idx(con, idx):
         profile = con._profile
         con._profile = profile.clone(idx=idx)
@@ -402,6 +405,73 @@ def test_build_file_stability(build_dir):
         "deferred_reads.yaml": "77c67b9a3ebeec1701c9fadc3f3dd4b7",
         "expr.yaml": "6bcb57ff1a0118353c4a86e3416028a2",
         "sql.yaml": "711aba56b7714b3d43833584342cd93b",
+    }
+    actual = {
+        p.name: hashlib.md5(p.read_bytes()).hexdigest()
+        for p in build_dir.joinpath(expr_hash).iterdir()
+        if p.name in expected
+    }
+    if diff := sorted(set(actual.items()).difference(expected.items())):
+        raise ValueError(diff)
+
+    # test that it also runs
+    roundtrip_expr = compiler.load_expr(expr_hash)
+    assert expr.execute().equals(roundtrip_expr.execute())
+
+
+def test_build_file_stability_local(build_dir, tmpdir, monkeypatch):
+    monkeypatch.chdir(tmpdir)
+
+    def get_local_path(name):
+        pins_path = pathlib.Path(xo.options.pins.get_path(name))
+        local_path = pathlib.Path(pins_path.name)
+        local_path.write_bytes(pins_path.read_bytes())
+        return local_path
+
+    def with_profile_idx(con, idx):
+        profile = con._profile
+        con._profile = profile.clone(idx=idx)
+        return con
+
+    batting_path = get_local_path("batting")
+    awards_players_path = get_local_path("awards_players")
+
+    con0 = with_profile_idx(xo.connect(), 0)
+    con1 = with_profile_idx(xo.connect(), 1)
+    con2 = with_profile_idx(xo.duckdb.connect(), 2)
+    con3 = with_profile_idx(xo.connect(), 3)
+
+    awards_players = xo.deferred_read_parquet(
+        con0,
+        awards_players_path,
+        "awards_players",
+        # we must hash based on content: inode stat is constantly updating
+        normalize_method=normalize_read_path_md5sum,
+    ).into_backend(con1, "awards_players_into")
+    batting = xo.deferred_read_parquet(
+        con2,
+        batting_path,
+        "batting",
+        # we must hash based on content: inode stat is constantly updating
+        normalize_method=normalize_read_path_md5sum,
+    ).into_backend(con1, "batting_into")
+    expr = (
+        awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
+        .into_backend(con3, "joined_into")
+        .filter(xo._.G == 1)
+    )
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    expected = {
+        "6c96e9dd3dae.sql": "64898e4816b436c2c6c5d534e2005d8f",
+        "f5b135d95dc0.sql": "afd43082cc3cfc4c63b39666520519c0",
+        "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
+        "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
+        "profiles.yaml": "7cbd1ea3f1c556b4abf9d8bbd67b60c1",
+        "deferred_reads.yaml": "b2cb085e310e1daee3ac15706b252edb",
+        "expr.yaml": "8d7052831fe30520823c39e0fb2f7e3f",
+        "sql.yaml": "a192634f50c33372fa34a8b78a3db204",
     }
     actual = {
         p.name: hashlib.md5(p.read_bytes()).hexdigest()
