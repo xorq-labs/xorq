@@ -14,6 +14,9 @@ import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    normalize_read_path_md5sum,
+)
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
@@ -398,7 +401,13 @@ def replace_database_tables(build_dir, expr):
             ".parquet"
         )
         pq.write_table(df, parquet_path)
-        dr = xo.deferred_read_parquet(con, parquet_path, table_name=mt.name)
+        # we normalize based on content so we can reproducible hash
+        dr = xo.deferred_read_parquet(
+            con,
+            parquet_path,
+            table_name=mt.name,
+            normalize_method=normalize_read_path_md5sum,
+        )
         op = dr.op()
         args = dict(zip(op.__argnames__, op.__args__))
         args["values"] = {IS_DATABASE_TABLE: True}

@@ -406,6 +406,7 @@ class Read(ops.Relation):
     schema: Schema
     source: Any
     read_kwargs: Any
+    normalize_method: Any
     values = FrozenDict()
 
     def make_dt(self):
