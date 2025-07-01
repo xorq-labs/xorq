@@ -227,6 +227,111 @@ class TLSKwargs:
             ca_kwargs, server_kwargs, client_kwargs, verify_client=verify_client
         )
 
+    @classmethod
+    def from_disk(
+        cls,
+        ca_cert_path,
+        ca_private_key_path,
+        server_cert_path,
+        server_private_key_path,
+        client_cert_path=None,
+        client_private_key_path=None,
+        verify_client=True,
+        ca_password=None,
+        server_password=None,
+        client_password=None,
+    ):
+        """
+        Create TLSKwargs by loading certificates and private keys from disk.
+
+        Args:
+            ca_cert_path: Path to CA certificate file
+            ca_private_key_path: Path to CA private key file
+            server_cert_path: Path to server certificate file
+            server_private_key_path: Path to server private key file
+            client_cert_path: Path to client certificate file (optional)
+            client_private_key_path: Path to client private key file (optional)
+            verify_client: Whether client verification is required
+            ca_password: Password for CA private key (optional)
+            server_password: Password for server private key (optional)
+            client_password: Password for client private key (optional)
+
+        Returns:
+            TLSKwargs instance with certificates loaded from disk
+        """
+        # Load CA certificate
+        ca_tlscert = TLSCert.from_disk(ca_cert_path, ca_private_key_path, ca_password)
+
+        # Load server certificate
+        server_tlscert = TLSCert.from_disk(
+            server_cert_path, server_private_key_path, server_password
+        )
+
+        # Load client certificate if paths provided or if client verification is required
+        client_tlscert = None
+        if client_cert_path is not None and client_private_key_path is not None:
+            client_tlscert = TLSCert.from_disk(
+                client_cert_path, client_private_key_path, client_password
+            )
+        elif verify_client:
+            raise ValueError(
+                "Client certificate paths must be provided when verify_client=True"
+            )
+
+        return cls(
+            verify_client=verify_client,
+            ca_tlscert=ca_tlscert,
+            server_tlscert=server_tlscert,
+            client_tlscert=client_tlscert,
+        )
+
+    def to_disk(
+        self,
+        ca_cert_path,
+        ca_private_key_path,
+        server_cert_path,
+        server_private_key_path,
+        client_cert_path=None,
+        client_private_key_path=None,
+        ca_password=None,
+        server_password=None,
+        client_password=None,
+    ):
+        """
+        Save all TLS certificates and private keys to disk.
+
+        Args:
+            ca_cert_path: Path where CA certificate will be saved
+            ca_private_key_path: Path where CA private key will be saved
+            server_cert_path: Path where server certificate will be saved
+            server_private_key_path: Path where server private key will be saved
+            client_cert_path: Path where client certificate will be saved (optional)
+            client_private_key_path: Path where client private key will be saved (optional)
+            ca_password: Password to encrypt CA private key (optional)
+            server_password: Password to encrypt server private key (optional)
+            client_password: Password to encrypt client private key (optional)
+
+        Raises:
+            ValueError: If client paths are not provided when client_tlscert exists
+        """
+        # Save CA certificate and key
+        self.ca_tlscert.to_disk(ca_cert_path, ca_private_key_path, ca_password)
+
+        # Save server certificate and key
+        self.server_tlscert.to_disk(
+            server_cert_path, server_private_key_path, server_password
+        )
+
+        # Save client certificate and key if it exists
+        if self.client_tlscert is not None:
+            if client_cert_path is None or client_private_key_path is None:
+                raise ValueError(
+                    "Client certificate paths must be provided when client_tlscert exists"
+                )
+            self.client_tlscert.to_disk(
+                client_cert_path, client_private_key_path, client_password
+            )
+
 
 def get_san(cert):
     cls = x509.SubjectAlternativeName
