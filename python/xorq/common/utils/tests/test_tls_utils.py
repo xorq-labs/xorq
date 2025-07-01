@@ -2,6 +2,9 @@ import socket
 from pathlib import Path
 
 import pytest
+from attr import (
+    evolve,
+)
 from cryptography.exceptions import (
     InvalidSignature,
 )
@@ -234,3 +237,43 @@ def test_mtls_flight_client_failure():
             **server.flight_url.client_kwargs,
             **bad_client_kwargs,
         )
+
+
+@pytest.mark.parametrize("verify_client", (True, False))
+@pytest.mark.parametrize("password", (None, b"password"))
+def test_tls_kwargs_from_disk_roundtrip(verify_client, password, tmpdir):
+    """Test that TLSKwargs can be saved to disk and loaded back correctly."""
+    original_tls_kwargs = TLSKwargs.from_common_name(verify_client=verify_client)
+    tmpdir = Path(str(tmpdir))
+
+    path_kwargs = {
+        f"{name}_path": tmpdir / name
+        for name in (
+            "ca_cert",
+            "ca_private_key",
+            "server_cert",
+            "server_private_key",
+            "client_cert",
+            "client_private_key",
+        )
+    }
+
+    original_tls_kwargs.to_disk(
+        **path_kwargs,
+        ca_password=password,
+        server_password=password,
+        client_password=password,
+    )
+
+    loaded_tls_kwargs = TLSKwargs.from_disk(
+        **path_kwargs,
+        verify_client=verify_client,
+        ca_password=password,
+        server_password=password,
+        client_password=password,
+    )
+
+    assert loaded_tls_kwargs == original_tls_kwargs
+    assert loaded_tls_kwargs != evolve(
+        original_tls_kwargs, verify_client=not original_tls_kwargs.verify_client
+    )
