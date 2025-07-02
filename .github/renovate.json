@@ -17,7 +17,7 @@
   "prBodyTemplate": "{{{table}}}{{{notes}}}{{{warnings}}}{{{controls}}}",
   "packageRules": [
     {
-      "matchManagers": ["github-actions", "pre-commit"],
+      "matchManagers": ["pre-commit", "github-actions"],
       "rangeStrategy": "pin",
       "automerge": false
     },
@@ -25,12 +25,22 @@
       "matchManagers": ["pep621"],
       "matchPackageNames": "dask",
       "enabled": false
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "enabled": false,
+      "matchPackageNames": "actions/setup-python",
+      "rangeStrategy": "replace",
+      "automerge": false
     }
+  ],
+  "schedule": [
+    "* 0-9 1 * *"
   ],
   "pre-commit": {
     "enabled": true
   },
-  "prHourlyLimit": 3,
+  "prHourlyLimit": 5,
   "automerge": false,
   "printConfig": true
 }
