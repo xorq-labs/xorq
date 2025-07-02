@@ -63,6 +63,9 @@ jobs:
           POSTGRES_HOST: localhost
           POSTGRES_PORT: 5432
           POSTGRES_DATABASE: ibis_testing
+          WEATHER_FEATURES_PORT: 8819
+          WEATHER_API_URL: https://api.openweathermap.org/data/2.5/weather
+          OPENWEATHER_API_KEY: ${{ secrets.OPENWEATHER_API_KEY }}
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.3
