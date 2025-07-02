@@ -151,6 +151,7 @@ def test_run_command_default(tmp_path, fixture_dir):
         raise AssertionError("No expression hash")
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
 def test_run_command(tmp_path, fixture_dir, output_format):
     target_dir = tmp_path / "build"
@@ -189,6 +190,7 @@ def test_run_command(tmp_path, fixture_dir, output_format):
         raise AssertionError("No expression hash")
 
 
+@pytest.mark.slow
 def test_serve_command(tmp_path, fixture_dir):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "udxf_pipeline.py"
@@ -295,6 +297,7 @@ def test_build_command_bad_expr_name(tmp_path, fixture_dir, expression, message)
     ("example", "expr_name"),
     build_run_examples_expr_names,
 )
+@pytest.mark.slow
 def test_examples(
     example,
     expr_name,
