@@ -207,6 +207,7 @@ markers = [
     "s3",
     "gcs",
     "snapshot_check",
+    "slow",
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

@@ -12,6 +12,7 @@ import xorq as xo
         xo.postgres.connect_examples,
     ),
 )
+@pytest.mark.slow
 def test_remote_reconnect(make_connection):
     con = make_connection()
     expected = con.list_tables()
