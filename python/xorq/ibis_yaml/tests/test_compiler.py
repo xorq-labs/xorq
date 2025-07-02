@@ -346,6 +346,38 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
 
 
+@pytest.mark.parametrize(
+    "table_from_df",
+    (
+        pytest.param(lambda _, df: xo.memtable(df, name="users"), id="memtable"),
+        pytest.param(
+            lambda con, df: con.register(df, table_name="users"), id="database_table"
+        ),
+    ),
+)
+def test_roundtrip_database_table_behind_cache(
+    build_dir, tmp_path, users_df, table_from_df
+):
+    original = xo.connect()
+    ddb = xo.duckdb.connect()
+
+    storage = ParquetStorage(source=ddb, relative_path=tmp_path)
+
+    t = table_from_df(original, users_df)
+    expr = (
+        t.filter(t.age > 30)
+        .cache(storage=storage)
+        .select(xo._.user_id, xo._.name, xo._.age * 2)
+    )
+
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
+
+
 def test_build_pandas_backend(build_dir, users_df):
     xo_con = xo.connect()
     pandas_con = xo.pandas.connect()
@@ -484,3 +516,21 @@ def test_build_file_stability_local(build_dir, tmpdir, monkeypatch):
     # test that it also runs
     roundtrip_expr = compiler.load_expr(expr_hash)
     assert expr.execute().equals(roundtrip_expr.execute())
+
+
+def test_build_pandas_backend_behind_into_backend(build_dir, users_df):
+    xo_con = xo.connect()
+    pandas_con = xo.pandas.connect()
+    t = xo_con.register(users_df, table_name="users")
+
+    expected = (
+        t.filter(t.age > 30)
+        .into_backend(pandas_con, name="pandas_users")
+        .select(xo._.user_id, xo._.name, xo._.age * 2)
+    )
+
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expected)
+    actual = compiler.load_expr(expr_hash)
+
+    assert_frame_equal(xo.execute(expected), actual.execute())
