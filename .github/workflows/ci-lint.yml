@@ -47,7 +47,7 @@ jobs:
           enable-cache: true
 
       - name: Install dependencies
-        run: uv sync --no-sources --locked --only-group dev
+        run: uv sync --locked --only-group dev
 
       - name: Check requirements-dev.txt
         run: uv export --frozen --no-hashes --no-emit-project --all-groups --all-extras --output-file=requirements-dev.txt
