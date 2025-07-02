@@ -4854,7 +4854,6 @@ dependencies = [
     { name = "prometheus-client" },
     { name = "pyarrow", marker = "python_full_version < '4.0'" },
     { name = "pyarrow-hotfix", marker = "python_full_version < '4.0'" },
-    { name = "pyiceberg", extra = ["sql-postgres", "sql-sqlite"] },
     { name = "pytest-mock", marker = "python_full_version < '4.0'" },
     { name = "python-dateutil" },
     { name = "pythran", marker = "sys_platform == 'darwin'" },
@@ -4891,6 +4890,9 @@ examples = [
 postgres = [
     { name = "adbc-driver-postgresql" },
     { name = "psycopg2-binary" },
+]
+pyiceberg = [
+    { name = "pyiceberg", extra = ["sql-postgres", "sql-sqlite"] },
 ]
 quickgrove = [
     { name = "quickgrove" },
@@ -4967,7 +4969,7 @@ requires-dist = [
     { name = "psycopg2-binary", marker = "extra == 'postgres'", specifier = ">=2.9.10" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=13.0.0,<21" },
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4,<1" },
-    { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], specifier = ">=0.9.0" },
+    { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
     { name = "pytest-mock", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=3.14.0,<4" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pythran", marker = "sys_platform == 'darwin'", specifier = ">=0.17.0" },
@@ -4985,7 +4987,7 @@ requires-dist = [
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=1.6.1" },
     { name = "xorq-datafusion", specifier = "==0.2.3" },
 ]
-provides-extras = ["duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres"]
 
 [package.metadata.requires-dev]
 dev = [
