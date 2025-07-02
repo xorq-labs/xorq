@@ -5,29 +5,25 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import toolz
-
-import xorq as xo
-import xorq.expr.datatypes as dt
-from xorq.common.utils.feature_utils import (
+import weather_lib
+from feature_utils import (
     Entity,
     Feature,
     FeatureStore,
     FeatureView,
 )
-from xorq.common.utils.import_utils import import_python
+
+import xorq as xo
+import xorq.expr.datatypes as dt
 from xorq.common.utils.logging_utils import get_logger
 from xorq.flight import Backend as FlightBackend
 from xorq.flight import FlightServer, FlightUrl
-
-
-# from xorq.flight.client import FlightClient
 
 
 logging = get_logger()
 
 logging_format = "[%(asctime)s] %(levelname)s %(message)s"
 
-weather_lib = import_python("examples/libs/weather_lib.py")
 do_fetch_current_weather_udxf = weather_lib.do_fetch_current_weather_udxf
 do_fetch_current_weather_flight_udxf = weather_lib.do_fetch_current_weather_flight_udxf
 
