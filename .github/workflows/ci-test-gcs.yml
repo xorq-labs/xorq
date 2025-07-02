@@ -48,7 +48,7 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Install the project
-        run: uv sync --extra examples --group dev --group test
+        run: uv sync --no-sources --extra examples --group dev --group test
         working-directory: ${{ github.workspace }}
 
       - name: start services

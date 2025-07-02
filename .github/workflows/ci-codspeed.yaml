@@ -33,7 +33,7 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --all-extras --all-groups
+        run: uv sync --no-sources --all-extras --all-groups
         working-directory: ${{ github.workspace }}
 
       - name: start services
