@@ -96,6 +96,8 @@ examples = [
     "mcp>=1.5.0",
     "requests>=2.32.3",
     "cryptography>=45.0.3",
+    "feature-utils",
+    "weather-lib",
 ]
 postgres = [
     "adbc-driver-postgresql>=1.4.0",
@@ -279,3 +281,8 @@ filter_commits = true
 tag_pattern = "v[0-9].*"
 topo_order = false
 sort_commits = "oldest"
+
+[tool.uv.sources]
+hash-cache = { git = "https://github.com/xorq-labs/hash-cache", branch = "feat/ttl" }
+weather-lib= { git = "https://github.com/xorq-labs/weather-lib", branch = "main" }
+feature-utils= { git = "https://github.com/xorq-labs/feature-utils", branch = "main" }
