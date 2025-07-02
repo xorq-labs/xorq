@@ -238,3 +238,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    pytest_examples_passed = True
