@@ -150,7 +150,7 @@
           virtualenv-editable-312 = xorq-312.editableShell;
           virtualenv-313 = xorq-313.shell;
           virtualenv-editable-313 = xorq-313.editableShell;
-          default = self.devShells.${system}.virtualenv-310;
+          default = self.devShells.${system}.virtualenv-313;
         };
       }
     );
