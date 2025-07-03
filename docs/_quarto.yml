@@ -91,27 +91,13 @@ quartodoc:
           path: expression-relations
           summary:
             name: Table expressions
-            desc: Tables are one of the core data structures in Ibis.
+            desc: Tables are one of the core data structures in Xorq.
           package: xorq.vendor.ibis.expr.types.relations
           contents:
             - name: Table
-              members:
-                - alias
-                - as_scalar
-                - count
-                - difference
-                - distinct
-                - dropna
-                - fillna
-                - filter
-                - intersect
-                - limit
-                - order_by
-                - sample
-                - select
-                - sql
-                - union
-                - view
+              include_inherited: true
+            - name: GroupedTable
+              package: xorq.vendor.ibis.expr.types.groupby
 
         - kind: page
           path: expression-generic

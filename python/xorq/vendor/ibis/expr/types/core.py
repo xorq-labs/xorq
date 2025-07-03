@@ -295,6 +295,7 @@ class Expr(Immutable, Coercible):
         Examples
         --------
         >>> import xorq as xo
+        >>> xo.options.interactive = False
         >>> t = xo.table([("a", "int64"), ("b", "string")], name="t")
         >>> f = lambda a: (a + 1).name("a")
         >>> g = lambda a: (a * 2).name("a")
