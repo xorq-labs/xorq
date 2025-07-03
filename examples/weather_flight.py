@@ -105,7 +105,7 @@ def setup_store() -> FeatureStore:
 def run_feature_server() -> None:
     server = FlightServer(
         FlightUrl(port=WEATHER_FEATURES_PORT),
-        connection=xo.duckdb.connect,
+        make_connection=xo.duckdb.connect,
         exchangers=[do_fetch_current_weather_udxf],
     )
     logging.info(f"Serving feature store on grpc://localhost:{WEATHER_FEATURES_PORT}")
