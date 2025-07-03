@@ -106,12 +106,16 @@ def setup_store() -> FeatureStore:
     return store, references
 
 
-def run_feature_server() -> None:
-    server = FlightServer(
+def make_server():
+    return FlightServer(
         FlightUrl(port=WEATHER_FEATURES_PORT),
         make_connection=xo.duckdb.connect,
         exchangers=[do_fetch_current_weather_udxf],
     )
+
+
+def run_feature_server() -> None:
+    server = make_server()
     logging.info(f"Serving feature store on grpc://localhost:{WEATHER_FEATURES_PORT}")
 
     def handle_keyboard_interrupt(_):
@@ -122,6 +126,7 @@ def run_feature_server() -> None:
         KeyboardInterrupt, server.serve, handle_keyboard_interrupt
     )
     serve_excepting(block=True)
+    return server
 
 
 def run_materialize_online() -> None:
@@ -146,6 +151,7 @@ def run_infer() -> None:
     df = store.get_online_features(references, entity_df).execute()
     logging.info("Retrieved online features")
     print(df)
+    return df
 
 
 def run_historical_features() -> None:
@@ -211,6 +217,42 @@ def run_push_to_view_source() -> None:
             backend.insert(TABLE_BATCH, table)
 
 
+def demo_infer():
+    server = make_server()
+    server.serve(block=False)
+    run_push_to_view_source()
+    run_materialize_online()
+    df = run_infer()
+    return df
+
+
+def run_clean():
+    import functools
+    import operator
+    import shutil
+
+    fs_paths = (
+        (
+            operator.methodcaller("unlink", missing_ok=True),
+            data_dir.joinpath("metadata.sqlite"),
+        ),
+        (
+            functools.partial(shutil.rmtree, ignore_errors=True),
+            data_dir.joinpath("main"),
+        ),
+    )
+    for f, path in fs_paths:
+        if path.exists():
+            print(f"removing {path}")
+            f(path)
+
+
+def test_demo_infer():
+    run_clean()
+    df = demo_infer()
+    assert not df.empty
+
+
 def main(override=None) -> None:
     parser = argparse.ArgumentParser("Weather Flight Store")
     parser.add_argument(
@@ -221,21 +263,27 @@ def main(override=None) -> None:
             "historical",
             "infer",
             "push",
+            "demo_infer",
+            "clean",
         ),
-        help="Action: 'serve_features', 'materialize_online', 'historical', 'push' or 'infer'",
+        help="Action: 'serve_features', 'materialize_online', 'historical', 'push', 'infer', or 'clean'",
     )
     args = parser.parse_args(override)
 
     if args.command == "serve_features":
-        run_feature_server()
+        return run_feature_server()
     elif args.command == "materialize_online":
-        run_materialize_online()
+        return run_materialize_online()
     elif args.command == "infer":
-        run_infer()
+        return run_infer()
     elif args.command == "push":
-        run_push_to_view_source()
+        return run_push_to_view_source()
     elif args.command == "historical":
-        run_historical_features()
+        return run_historical_features()
+    elif args.command == "demo_infer":
+        return demo_infer()
+    elif args.command == "clean":
+        return run_clean()
     else:
         logging.error(f"Unknown command: {args.command}")
 
@@ -243,6 +291,6 @@ def main(override=None) -> None:
 if __name__ == "__main__":
     main()
 elif __name__ == "__pytest_main__":
-    training_df = main(["historical"])
-    assert not training_df.empty
+    df = main(["demo_infer"])
+    assert not df.empty
     pytest_examples_passed = True
