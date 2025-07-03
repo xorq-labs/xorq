@@ -5,8 +5,8 @@ from datetime import datetime, timedelta
 
 import pandas as pd
 import toolz
-import weather_lib
-from feature_utils import (
+import xorq_weather_lib
+from xorq_feature_utils import (
     Entity,
     Feature,
     FeatureStore,
@@ -24,10 +24,12 @@ logging = get_logger()
 
 logging_format = "[%(asctime)s] %(levelname)s %(message)s"
 
-do_fetch_current_weather_udxf = weather_lib.do_fetch_current_weather_udxf
-do_fetch_current_weather_flight_udxf = weather_lib.do_fetch_current_weather_flight_udxf
+do_fetch_current_weather_udxf = xorq_weather_lib.do_fetch_current_weather_udxf
+do_fetch_current_weather_flight_udxf = (
+    xorq_weather_lib.do_fetch_current_weather_flight_udxf
+)
 
-WEATHER_FEATURES_PORT = weather_lib.WEATHER_FEATURES_PORT
+WEATHER_FEATURES_PORT = xorq_weather_lib.WEATHER_FEATURES_PORT
 TIMESTAMP_COLUMN = "timestamp"
 
 # Database files

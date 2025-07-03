@@ -164,8 +164,8 @@ let
           addResolved final (if python.pythonAtLeast "3.12" then [ "setuptools" ] else [ ])
         );
         hash-cache = prev.hash-cache.overrideAttrs (addResolved final [ "hatchling" ]);
-        feature-utils = prev.feature-utils.overrideAttrs (addResolved final [ "hatchling" ]);
-        weather-lib = prev.weather-lib.overrideAttrs (addResolved final [ "hatchling" ]);
+        xorq-feature-utils = prev.xorq-feature-utils.overrideAttrs (addResolved final [ "hatchling" ]);
+        xorq-weather-lib = prev.xorq-weather-lib.overrideAttrs (addResolved final [ "hatchling" ]);
         pyiceberg = prev.pyiceberg.overrideAttrs (old: {
           nativeBuildInputs = (old.nativeBuildInputs or [ ]) ++ [
             prev.poetry-core
