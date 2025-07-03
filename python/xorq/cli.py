@@ -3,6 +3,7 @@ import os
 import pdb
 import sys
 import traceback
+from enum import StrEnum
 from functools import partial
 from pathlib import Path
 
@@ -20,6 +21,11 @@ from xorq.vendor.ibis import Expr
 
 
 logger = get_print_logger()
+
+
+class InitTemplates(StrEnum):
+    cached_fetcher = "cached-fetcher"
+    sklearn = "sklearn"
 
 
 @tracer.start_as_current_span("cli.build_command")
@@ -197,6 +203,18 @@ def serve_command(
     server.serve(block=True)
 
 
+@tracer.start_as_current_span("cli.init_command")
+def init_command(
+    path="./xorq-template",
+    template=InitTemplates.cached_fetcher,
+):
+    from xorq.common.utils.download_utils import download_xorq_template
+
+    path = download_xorq_template(path, template)
+    print(f"initialized xorq template `{template}` to {path}")
+    return path
+
+
 def parse_args(override=None):
     parser = argparse.ArgumentParser(
         description="xorq - build, run, and serve expressions"
@@ -286,6 +304,22 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for all generated parquet files cache",
     )
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Initialize a xorq project",
+    )
+    init_parser.add_argument(
+        "-p",
+        "--path",
+        type=Path,
+        default="./xorq-template",
+    )
+    init_parser.add_argument(
+        "-t",
+        "--template",
+        choices=InitTemplates,
+        default=InitTemplates.cached_fetcher,
+    )
 
     args = parser.parse_args(override)
     if getattr(args, "output_path", None) == "-":
@@ -324,6 +358,11 @@ def main():
                         args.prometheus_port,
                         args.cache_dir,
                     ),
+                )
+            case "init":
+                f, f_args = (
+                    init_command,
+                    (args.path, args.template),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
