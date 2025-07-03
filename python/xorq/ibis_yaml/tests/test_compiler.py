@@ -1,4 +1,5 @@
 import hashlib
+import json
 import os
 import pathlib
 
@@ -396,7 +397,7 @@ def test_build_pandas_backend(build_dir, users_df):
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
-def test_build_file_stability_https(build_dir):
+def test_build_file_stability_https(build_dir, snapshot):
     def with_profile_idx(con, idx):
         profile = con._profile
         con._profile = profile.clone(idx=idx)
@@ -428,30 +429,32 @@ def test_build_file_stability_https(build_dir):
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)
 
-    expected = {
-        "6c96e9dd3dae.sql": "64898e4816b436c2c6c5d534e2005d8f",
-        "f5b135d95dc0.sql": "afd43082cc3cfc4c63b39666520519c0",
-        "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
-        "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
-        "profiles.yaml": "7cbd1ea3f1c556b4abf9d8bbd67b60c1",
-        "deferred_reads.yaml": "77c67b9a3ebeec1701c9fadc3f3dd4b7",
-        "expr.yaml": "6bcb57ff1a0118353c4a86e3416028a2",
-        "sql.yaml": "711aba56b7714b3d43833584342cd93b",
-    }
-    actual = {
-        p.name: hashlib.md5(p.read_bytes()).hexdigest()
-        for p in build_dir.joinpath(expr_hash).iterdir()
-        if p.name in expected
-    }
-    if diff := sorted(set(actual.items()).difference(expected.items())):
-        raise ValueError(diff)
+    actual = json.dumps(
+        {
+            p.name: hashlib.md5(p.read_bytes()).hexdigest()
+            for p in build_dir.joinpath(expr_hash).iterdir()
+            if p.name
+            in (
+                "6c96e9dd3dae.sql",
+                "d9167e92b15e.sql",
+                "profiles.yaml",
+                "deferred_reads.yaml",
+                "expr.yaml",
+                "sql.yaml",
+            )
+        },
+        indent=2,
+        sort_keys=True,
+    )
+
+    snapshot.assert_match(actual, "expected.json")
 
     # test that it also runs
     roundtrip_expr = compiler.load_expr(expr_hash)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_build_file_stability_local(build_dir, tmpdir, monkeypatch):
+def test_build_file_stability_local(build_dir, tmpdir, monkeypatch, snapshot):
     monkeypatch.chdir(tmpdir)
 
     def get_local_path(name):
@@ -495,23 +498,25 @@ def test_build_file_stability_local(build_dir, tmpdir, monkeypatch):
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)
 
-    expected = {
-        "6c96e9dd3dae.sql": "64898e4816b436c2c6c5d534e2005d8f",
-        "f5b135d95dc0.sql": "afd43082cc3cfc4c63b39666520519c0",
-        "4a7a618d1a8c.sql": "ad96e3a7093504b1b00c19350e5653dc",
-        "d9167e92b15e.sql": "677d396e365f6dcbda3f20b588d6a064",
-        "profiles.yaml": "7cbd1ea3f1c556b4abf9d8bbd67b60c1",
-        "deferred_reads.yaml": "b2cb085e310e1daee3ac15706b252edb",
-        "expr.yaml": "8d7052831fe30520823c39e0fb2f7e3f",
-        "sql.yaml": "a192634f50c33372fa34a8b78a3db204",
-    }
-    actual = {
-        p.name: hashlib.md5(p.read_bytes()).hexdigest()
-        for p in build_dir.joinpath(expr_hash).iterdir()
-        if p.name in expected
-    }
-    if diff := sorted(set(actual.items()).difference(expected.items())):
-        raise ValueError(diff)
+    actual = json.dumps(
+        {
+            p.name: hashlib.md5(p.read_bytes()).hexdigest()
+            for p in build_dir.joinpath(expr_hash).iterdir()
+            if p.name
+            in (
+                "6c96e9dd3dae.sql",
+                "d9167e92b15e.sql",
+                "profiles.yaml",
+                "deferred_reads.yaml",
+                "expr.yaml",
+                "sql.yaml",
+            )
+        },
+        indent=2,
+        sort_keys=True,
+    )
+
+    snapshot.assert_match(actual, "expected.json")
 
     # test that it also runs
     roundtrip_expr = compiler.load_expr(expr_hash)
