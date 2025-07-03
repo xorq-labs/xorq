@@ -207,7 +207,7 @@ def run_push_to_view_source() -> None:
             backend.insert(TABLE_BATCH, table)
 
 
-def main() -> None:
+def main(override=None) -> None:
     parser = argparse.ArgumentParser("Weather Flight Store")
     parser.add_argument(
         "command",
@@ -220,7 +220,7 @@ def main() -> None:
         ),
         help="Action: 'serve_features', 'materialize_online', 'historical', 'push' or 'infer'",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(override)
 
     if args.command == "serve_features":
         run_feature_server()
@@ -238,4 +238,7 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+elif __name__ == "__pytest_main__":
+    training_df = main(["historical"])
+    assert not training_df.empty
     pytest_examples_passed = True
