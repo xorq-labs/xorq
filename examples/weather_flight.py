@@ -35,6 +35,10 @@ TABLE_BATCH = "weather_history"
 CITIES = ["London", "Tokyo", "New York", "Lahore"]
 
 
+data_dir = xo.common.utils.caching_utils.get_xorq_cache_dir().joinpath("weather-flight")
+data_dir.mkdir(parents=True, exist_ok=True)
+
+
 def setup_store() -> FeatureStore:
     logging.info("Setting up FeatureStore")
 
@@ -44,10 +48,10 @@ def setup_store() -> FeatureStore:
     # 2. Offline source (batch history)
     # this is not being used
     offline_con = xo.duckdb.connect()
-    offline_con.raw_sql("""
+    offline_con.raw_sql(f"""
         INSTALL ducklake;
         INSTALL sqlite;
-        ATTACH 'ducklake:sqlite:metadata.sqlite' AS my_ducklake (DATA_PATH 'file_path/');
+        ATTACH 'ducklake:sqlite:{data_dir}/metadata.sqlite' AS my_ducklake (DATA_PATH '{data_dir}/');
         USE my_ducklake;
         """)
     ensure_table(offline_con, TABLE_BATCH)
