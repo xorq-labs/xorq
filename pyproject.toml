@@ -96,8 +96,8 @@ examples = [
     "mcp>=1.5.0",
     "requests>=2.32.3",
     "cryptography>=45.0.3",
-    "feature-utils @ git+https://github.com/xorq-labs/feature-utils",
-    "weather-lib @ git+https://github.com/xorq-labs/feature-utils",
+    "xorq-feature-utils @ git+https://github.com/xorq-labs/xorq-feature-utils",
+    "xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib",
 ]
 postgres = [
     "adbc-driver-postgresql>=1.4.0",
@@ -284,8 +284,8 @@ sort_commits = "oldest"
 
 [tool.uv.sources]
 hash-cache = { git = "https://github.com/xorq-labs/hash-cache", branch = "feat/ttl" }
-weather-lib= { git = "https://github.com/xorq-labs/weather-lib", branch = "main" }
-feature-utils= { git = "https://github.com/xorq-labs/feature-utils", branch = "main" }
+xorq-weather-lib = { git = "https://github.com/xorq-labs/xorq-weather-lib", branch = "main" }
+xorq-feature-utils = { git = "https://github.com/xorq-labs/xorq-feature-utils", branch = "main" }
 
 [tool.hatch.metadata]
 allow-direct-references = true
