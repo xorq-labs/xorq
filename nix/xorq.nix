@@ -170,6 +170,9 @@ let
         });
       };
       pyprojectOverrides-editable = final: prev: {
+        hash-cache = prev.hash-cache.overrideAttrs (addResolved final [ "hatchling" ]);
+        feature-utils = prev.feature-utils.overrideAttrs (addResolved final [ "hatchling" ]);
+        weather-lib = prev.weather-lib.overrideAttrs (addResolved final [ "hatchling" ]);
         xorq = prev.xorq.overrideAttrs (old: {
           nativeBuildInputs =
             (old.nativeBuildInputs or [ ])
