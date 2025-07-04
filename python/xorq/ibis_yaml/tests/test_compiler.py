@@ -22,6 +22,18 @@ from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
+@pytest.fixture(scope="session")
+def check_file_names():
+    file_paths = (
+        pathlib.Path(__file__)
+        .parent.joinpath("snapshots", "test_compiler")
+        .rglob("test_build_file_stability_*/**/expected.json")
+    )
+    local, https = (json.load(fp).keys() for fp in map(open, file_paths))
+    assert local == https
+    return tuple(local)
+
+
 @pytest.mark.snapshot_check
 def test_build_manager_expr_hash(t, build_dir, snapshot):
     build_manager = ArtifactStore(build_dir)
@@ -397,7 +409,7 @@ def test_build_pandas_backend(build_dir, users_df):
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
-def test_build_file_stability_https(build_dir, snapshot):
+def test_build_file_stability_https(build_dir, snapshot, check_file_names):
     def with_profile_idx(con, idx):
         profile = con._profile
         con._profile = profile.clone(idx=idx)
@@ -433,15 +445,7 @@ def test_build_file_stability_https(build_dir, snapshot):
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
             for p in build_dir.joinpath(expr_hash).iterdir()
-            if p.name
-            in (
-                "6c96e9dd3dae.sql",
-                "d9167e92b15e.sql",
-                "profiles.yaml",
-                "deferred_reads.yaml",
-                "expr.yaml",
-                "sql.yaml",
-            )
+            if p.name in check_file_names
         },
         indent=2,
         sort_keys=True,
@@ -454,7 +458,9 @@ def test_build_file_stability_https(build_dir, snapshot):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_build_file_stability_local(build_dir, tmpdir, monkeypatch, snapshot):
+def test_build_file_stability_local(
+    build_dir, tmpdir, monkeypatch, snapshot, check_file_names
+):
     monkeypatch.chdir(tmpdir)
 
     def get_local_path(name):
@@ -502,15 +508,7 @@ def test_build_file_stability_local(build_dir, tmpdir, monkeypatch, snapshot):
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
             for p in build_dir.joinpath(expr_hash).iterdir()
-            if p.name
-            in (
-                "6c96e9dd3dae.sql",
-                "d9167e92b15e.sql",
-                "profiles.yaml",
-                "deferred_reads.yaml",
-                "expr.yaml",
-                "sql.yaml",
-            )
+            if p.name in check_file_names
         },
         indent=2,
         sort_keys=True,
