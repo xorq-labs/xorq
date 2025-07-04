@@ -295,6 +295,7 @@ class Expr(Immutable, Coercible):
         Examples
         --------
         >>> import xorq as xo
+        >>> xo.options.interactive = False
         >>> t = xo.table([("a", "int64"), ("b", "string")], name="t")
         >>> f = lambda a: (a + 1).name("a")
         >>> g = lambda a: (a * 2).name("a")
@@ -481,6 +482,43 @@ class Expr(Immutable, Coercible):
         )
 
     def execute(self: ir.Expr, **kwargs: Any):
+        """Execute an expression against its backend if one exists.
+
+        Parameters
+        ----------
+        kwargs
+            Keyword arguments
+
+        Examples
+        --------
+        >>> import xorq as xo
+        >>> t = xo.examples.penguins.fetch()
+        >>> t.execute()
+               species     island  bill_length_mm  ...  body_mass_g     sex  year
+        0       Adelie  Torgersen            39.1  ...       3750.0    male  2007
+        1       Adelie  Torgersen            39.5  ...       3800.0  female  2007
+        2       Adelie  Torgersen            40.3  ...       3250.0  female  2007
+        3       Adelie  Torgersen             NaN  ...          NaN    None  2007
+        4       Adelie  Torgersen            36.7  ...       3450.0  female  2007
+        ..         ...        ...             ...  ...          ...     ...   ...
+        339  Chinstrap      Dream            55.8  ...       4000.0    male  2009
+        340  Chinstrap      Dream            43.5  ...       3400.0  female  2009
+        341  Chinstrap      Dream            49.6  ...       3775.0    male  2009
+        342  Chinstrap      Dream            50.8  ...       4100.0    male  2009
+        343  Chinstrap      Dream            50.2  ...       3775.0  female  2009
+        [344 rows x 8 columns]
+
+        Scalar parameters can be supplied dynamically during execution.
+        >>> species = xo.param("string")
+        >>> expr = t.filter(t.species == species).order_by(t.bill_length_mm)
+        >>> expr.execute(limit=3, params={species: "Gentoo"})
+          species  island  bill_length_mm  ...  body_mass_g     sex  year
+        0  Gentoo  Biscoe            40.9  ...         4650  female  2007
+        1  Gentoo  Biscoe            41.7  ...         4700  female  2009
+        2  Gentoo  Biscoe            42.0  ...         4150  female  2007
+        <BLANKLINE>
+        [3 rows x 8 columns]
+        """
         from xorq.expr.api import execute
 
         return execute(self, **kwargs)
@@ -491,11 +529,44 @@ class Expr(Immutable, Coercible):
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ):
+        """Execute expression and return a RecordBatchReader.
+
+        This method is eager and will execute the associated expression
+        immediately.
+
+        Parameters
+        ----------
+        chunk_size
+            Maximum number of rows in each returned record batch.
+        kwargs
+            Keyword arguments
+
+        Returns
+        -------
+        results
+            RecordBatchReader
+        """
         from xorq.expr.api import to_pyarrow_batches
 
         return to_pyarrow_batches(self, chunk_size=chunk_size, **kwargs)
 
     def to_pyarrow(self: ir.Expr, **kwargs: Any):
+        """Execute expression and return results in as a pyarrow table.
+
+        This method is eager and will execute the associated expression
+        immediately.
+
+        Parameters
+        ----------
+        kwargs
+            Keyword arguments
+
+        Returns
+        -------
+        Table
+            A pyarrow table holding the results of the executed expression.
+        """
+
         from xorq.expr.api import to_pyarrow
 
         return to_pyarrow(self, **kwargs)
@@ -506,6 +577,31 @@ class Expr(Immutable, Coercible):
         params: Mapping[ir.Scalar, Any] | None = None,
         **kwargs: Any,
     ):
+        """Write the results of executing the given expression to a parquet file.
+
+        This method is eager and will execute the associated expression
+        immediately.
+
+        See https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetWriter.html for details.
+
+        Parameters
+        ----------
+        path
+            A string or Path where the Parquet file will be written.
+        params
+            Mapping of scalar parameter expressions to value.
+        **kwargs
+            Additional keyword arguments passed to pyarrow.parquet.ParquetWriter
+
+        Examples
+        --------
+        Write out an expression to a single parquet file.
+
+        >>> import ibis
+        >>> import tempfile
+        >>> penguins = ibis.examples.penguins.fetch()
+        >>> penguins.to_parquet(tempfile.mktemp())
+        """
         from xorq.expr.api import to_parquet
 
         return to_parquet(self, path=path, params=params, **kwargs)

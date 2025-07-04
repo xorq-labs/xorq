@@ -3805,10 +3805,10 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
-        >>> import xorq.selectors as s
-        >>> from xorq import _
-        >>> xo.options.interactive = True
+        >>> import ibis
+        >>> import ibis.selectors as s
+        >>> from ibis import _
+        >>> ibis.options.interactive = True
 
         Basic usage
 
@@ -3852,7 +3852,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         You can do simple transpose-like operations using `pivot_wider`
 
-        >>> t = xo.memtable(dict(outcome=["yes", "no"], counted=[3, 4]))
+        >>> t = ibis.memtable(dict(outcome=["yes", "no"], counted=[3, 4]))
         >>> t
         ┏━━━━━━━━━┳━━━━━━━━━┓
         ┃ outcome ┃ counted ┃
@@ -3896,7 +3896,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Compute multiple values columns
 
-        >>> us_rent_income = xo.examples.us_rent_income.fetch()
+        >>> us_rent_income = ibis.examples.us_rent_income.fetch()
         >>> us_rent_income
         ┏━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━━━━┳━━━━━━━┓
         ┃ geoid  ┃ name       ┃ variable ┃ estimate ┃ moe   ┃
@@ -3963,7 +3963,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Supply an alternative function to summarize values
 
-        >>> warpbreaks = xo.examples.warpbreaks.fetch().select("wool", "tension", "breaks")
+        >>> warpbreaks = ibis.examples.warpbreaks.fetch().select("wool", "tension", "breaks")
         >>> warpbreaks
         ┏━━━━━━━━┳━━━━━━━━━┳━━━━━━━━┓
         ┃ wool   ┃ tension ┃ breaks ┃
@@ -4032,7 +4032,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         >>> import random
         >>> random.seed(0)
-        >>> raw = xo.memtable(
+        >>> raw = ibis.memtable(
         ...     [
         ...         dict(
         ...             product=product,
