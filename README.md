@@ -69,7 +69,7 @@ expr = expr.filter(
     expr.body_mass_g.isnull() == False,
 )
 print(expr.schema())
-print(expr.ls.backend)
+print(expr.ls.backends)
 ```
 > ```sh
 > Out[2]:
