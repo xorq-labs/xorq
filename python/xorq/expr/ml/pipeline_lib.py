@@ -31,10 +31,12 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_attrs,
 )
 from xorq.expr.ml.fit_lib import (
-    Structer,
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
     deferred_fit_transform_sklearn_struct,
+)
+from xorq.expr.ml.structer import (
+    Structer,
 )
 from xorq.vendor.ibis.expr.types.core import Expr
 
