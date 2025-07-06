@@ -322,6 +322,9 @@ quartodoc:
           path: ml-api
           package: xorq.expr.ml
           summary:
-            name: ML API functions
+            name: ML functions
+            desc: ML functions and classes helpers
           contents:
             - train_test_splits
+            - Step
+            - Pipeline
