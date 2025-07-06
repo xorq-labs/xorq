@@ -10,13 +10,6 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
-from sklearn.feature_extraction.text import (
-    TfidfVectorizer,
-)
-from sklearn.feature_selection import (
-    SelectKBest,
-)
-from sklearn.preprocessing import StandardScaler
 
 import xorq.expr.datatypes as dt
 
@@ -67,27 +60,38 @@ def structer_from_instance(instance, expr, features=None):
     raise ValueError(f"can't handle type {instance.__class__}")
 
 
-@structer_from_instance.register(StandardScaler)
-def _(instance, expr, features=None):
-    features = features or tuple(expr.columns)
-    typ = float
-    structer = Structer.from_names_typ(features, typ)
-    return structer
+try:
+    from sklearn.feature_extraction.text import (
+        TfidfVectorizer,
+    )
+    from sklearn.feature_selection import (
+        SelectKBest,
+    )
+    from sklearn.preprocessing import (
+        StandardScaler,
+    )
 
+    @structer_from_instance.register(StandardScaler)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        typ = float
+        structer = Structer.from_names_typ(features, typ)
+        return structer
 
-@structer_from_instance.register(SelectKBest)
-def _(instance, expr, features=None):
-    features = features or tuple(expr.columns)
-    (typ, *rest) = set(expr.select(features).schema().values())
-    if rest:
-        raise ValueError
-    structer = Structer.from_n_typ_prefix(n=instance.k, typ=typ)
-    return structer
+    @structer_from_instance.register(SelectKBest)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        (typ, *rest) = set(expr.select(features).schema().values())
+        if rest:
+            raise ValueError
+        structer = Structer.from_n_typ_prefix(n=instance.k, typ=typ)
+        return structer
 
-
-@structer_from_instance.register(TfidfVectorizer)
-def _(instance, expr, features=None):
-    features = features or tuple(expr.columns)
-    typ = dt.Array(dt.float64)
-    structer = Structer.from_names_typ(features, typ)
-    return structer
+    @structer_from_instance.register(TfidfVectorizer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        typ = dt.Array(dt.float64)
+        structer = Structer.from_names_typ(features, typ)
+        return structer
+except ImportError:
+    pass
