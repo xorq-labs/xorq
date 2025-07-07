@@ -144,7 +144,9 @@ def deferred_read_csv(
         # FIXME: determine how to best handle schema
         read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
     elif con.name == "duckdb":
-        read_kwargs = make_read_kwargs(method, path, table_name, types=schema, **kwargs)
+        read_kwargs = make_read_kwargs(
+            method, path, table_name, columns=schema, **kwargs
+        )
     else:
         read_kwargs = make_read_kwargs(
             method, path, table_name, schema=schema, **kwargs
