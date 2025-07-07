@@ -153,6 +153,51 @@ pre>code.sourceCode {
     color: $white;
 }
 
+
+.card-text {
+    border: 1px solid $gray-300;
+    border-radius: 16px;
+    padding: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    transition: all 0.2s ease-in-out;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    text-decoration: none;
+    color: inherit;
+
+    &:hover {
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+      transform: translateY(-2px);
+      border-color: $white;
+    }
+}
+
+.card-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 1.5rem;
+  position: relative;
+  text-align: center;
+}
+
+
+.card-icon {
+  font-size: 2rem;
+  color: $white;
+  transition: color 0.2s ease;
+  margin-bottom: 1rem;
+}
+
+.listing-title-text {
+  display: block;
+  line-height: 1.4;
+  font-weight: 500;
+}
+
 .icon-title-row {
   display: flex;
   align-items: center;
@@ -161,12 +206,12 @@ pre>code.sourceCode {
 }
 
 .icon-title-row i {
-  font-size: 1.875rem; /* Adjust icon size as needed */
+  font-size: 1.5rem; /* Adjust icon size as needed */
   margin-right: 0.5rem; /* Space between icon and text */
 }
 
 .listing-title-text {
-  font-size: 1.5rem; /* Adjust text size as needed */
+  font-size: 1.2rem; /* Adjust text size as needed */
 }
 
 
