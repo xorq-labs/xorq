@@ -1,5 +1,6 @@
 import functools
 import pickle
+from typing import Callable
 
 import dask
 from attr import (
@@ -20,6 +21,16 @@ from sklearn.feature_extraction.text import (
 from sklearn.feature_selection import (
     SelectKBest,
 )
+from sklearn.linear_model import (
+    LinearRegression,
+    LogisticRegression,
+)
+from sklearn.neighbors import (
+    KNeighborsClassifier,
+)
+from sklearn.svm import (
+    LinearSVC,
+)
 
 import xorq as xo
 import xorq.expr.datatypes as dt
@@ -30,31 +41,22 @@ from xorq.caching import (
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_attrs,
 )
+from xorq.common.utils.func_utils import (
+    return_constant,
+)
 from xorq.expr.ml.fit_lib import (
-    Structer,
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
     deferred_fit_transform_sklearn_struct,
+)
+from xorq.expr.ml.structer import (
+    Structer,
 )
 from xorq.vendor.ibis.expr.types.core import Expr
 
 
 def do_into_backend(expr, con=None):
     return expr.into_backend(con or xo.connect())
-
-
-def get_predict_return_type(step, expr, features, target):
-    match step.typ.__name__:
-        case "LogisticRegression" | "LinearRegression":
-            return dt.float
-        case "KNeighborsClassifier":
-            return expr[target].type()
-        case "LinearSVC":
-            return expr[target].type()
-        case _:
-            if return_type := getattr(step.typ, "return_type", None):
-                return return_type
-            raise ValueError(f"Can't handle {step.typ.__name__}")
 
 
 def make_estimator_typ(fit, predict, return_type, name=None):
@@ -424,3 +426,39 @@ class FittedPipeline:
         df = pd.DataFrame(np.array(X), columns=self.features).assign(**{self.target: y})
         expr = xo.register(df, "t")
         return self.score_expr(expr, **kwargs)
+
+
+def get_target_type(step, expr, features, target):
+    return expr[target].type()
+
+
+step_typ_to_f = {
+    LinearRegression: return_constant(dt.float),
+    LogisticRegression: return_constant(dt.float),
+    KNeighborsClassifier: get_target_type,
+    LinearSVC: get_target_type,
+}
+
+
+def get_predict_return_type(step, expr, features, target):
+    if return_type := getattr(step.typ, "return_type", None):
+        return return_type
+    elif f := step_typ_to_f.get(step.typ):
+        return_type = f(step, expr, features, target)
+        return return_type
+    else:
+        raise ValueError(f"Can't handle {step.typ.__name__}")
+
+
+def register(typ, f, clobber=False):
+    if not isinstance(typ, type):
+        raise ValueError
+    if not isinstance(f, Callable):
+        raise ValueError
+    # FIXME: check that signature matches
+    if typ in step_typ_to_f and not clobber:
+        raise ValueError
+    step_typ_to_f[typ] = f
+
+
+get_predict_return_type.register = register

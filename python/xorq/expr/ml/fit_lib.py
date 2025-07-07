@@ -1,21 +1,12 @@
-import operator
-
 import cloudpickle
 import dask
-import pandas as pd
 import pyarrow as pa
 import toolz
-from attr import (
-    field,
-    frozen,
-)
-from attr.validators import (
-    instance_of,
-)
 
 import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
+from xorq.expr.ml.structer import Structer
 from xorq.expr.udf import make_pandas_expr_udf
 
 
@@ -216,66 +207,6 @@ def deferred_fit_transform_series_sklearn(
         storage=storage,
     )
     return deferred_model, model_udaf, deferred_transform
-
-
-@frozen
-class Structer:
-    struct = field(validator=instance_of(dt.Struct))
-
-    @property
-    def dtype(self):
-        return toolz.valmap(operator.methodcaller("to_pandas"), self.struct.fields)
-
-    @property
-    def return_type(self):
-        return self.struct
-
-    def get_convert_array(self):
-        return self.convert_array(self.struct)
-
-    @classmethod
-    @toolz.curry
-    def convert_array(cls, struct, array):
-        self = cls(struct)
-        return (
-            pd.DataFrame(array, columns=struct.fields)
-            .astype(self.dtype)
-            .to_dict(orient="records")
-        )
-
-    @classmethod
-    def from_names_typ(cls, names, typ):
-        struct = dt.Struct({name: typ for name in names})
-        return cls(struct)
-
-    @classmethod
-    @toolz.curry
-    def from_n_typ_prefix(cls, n, typ=float, prefix="transformed_"):
-        names = tuple(f"{prefix}{i}" for i in range(n))
-        return cls.from_names_typ(names, typ)
-
-    @classmethod
-    def from_instance_expr(cls, instance, expr, features=None):
-        match instance.__class__.__name__:
-            case "StandardScaler":
-                features = features or tuple(expr.columns)
-                typ = float
-                structer = cls.from_names_typ(features, typ)
-                return structer
-            case "SelectKBest":
-                features = features or tuple(expr.columns)
-                (typ, *rest) = set(expr.select(features).schema().values())
-                if rest:
-                    raise ValueError
-                structer = cls.from_n_typ_prefix(n=instance.k, typ=typ)
-                return structer
-            case "TfidfVectorizer":
-                features = features or tuple(expr.columns)
-                typ = dt.Array(dt.float64)
-                structer = cls.from_names_typ(features, typ)
-                return structer
-            case _:
-                raise ValueError(f"can't handle type {instance.__class__}")
 
 
 @toolz.curry
