@@ -36,7 +36,7 @@ def to_sql(expr: ir.Expr) -> str:
     except XorqError:
         pass
 
-    return ibis.to_sql(expr)
+    return ibis.to_sql(expr.ls.uncached)
 
 
 def find_relations(expr: ir.Expr) -> List[str]:
@@ -106,7 +106,7 @@ def generate_sql_plans(expr: ir.Expr) -> Tuple[SQLPlans, DeferredReadsPlan]:
             "engine": backend.name,
             "profile_name": backend._profile.hash_name,
             "relations": find_relations(expr),
-            "sql": to_sql(expr.ls.uncached).strip(),
+            "sql": to_sql(expr).strip(),
             "options": {},
         }
     } | remote_tables
