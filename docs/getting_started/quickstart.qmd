@@ -1,6 +1,7 @@
 ---
-title: 'Quickstart'
-icon: 'pencil-square'
+title: "Quickstart"
+icon: "pencil-square"
+headline: "Get a first taste of xorq"
 ---
 
 ## Installation

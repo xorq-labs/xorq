@@ -1,6 +1,7 @@
 ---
-title: '10-minute tour of xorq'
-icon: 'clock'
+title: "10-minute tour of xorq"
+icon: "clock"
+headline: "Learn key concepts in a brief tutorial"
 ---
 
 This tutorial will walk you through the key features of xorq, a data processing library that enables you to work seamlessly across multiple data engines.

@@ -1,6 +1,7 @@
 ---
 title: "Data Labeling w/ LLMs"
 icon: "database"
+headline: "Learn to use UDXFs for preparing and labeling data with OpenAI."
 description: "Learn how to fetch HackerNews data and automatically label data with sentiment using OpenAI GPT models"
 ---
 
