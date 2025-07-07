@@ -121,6 +121,10 @@ pre code {
     color: $white !important;
 }
 
+div.cell-output > pre {
+  color: $white !important;
+}
+
 pre.sourceCode {
     border: 1px solid $gray-300 !important;
 }

@@ -97,6 +97,10 @@ input {
     font-family: $font-family-monospace;
 }
 
+div.cell-output > pre {
+  color: $white !important;
+}
+
 pre.sourceCode {
     background: $black !important;
 }
