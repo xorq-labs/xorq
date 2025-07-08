@@ -198,12 +198,15 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
     elif isinstance(value, list):
         return [_translate_literal_value(v, dtype.value_type) for v in value]
     elif isinstance(value, dict):
-        return {
-            _translate_literal_value(k, dtype.key_type): _translate_literal_value(
-                v, dtype.value_type
-            )
-            for k, v in value.items()
-        }
+        if isinstance(dtype, dt.Struct):
+            raise NotImplementedError
+        else:
+            return {
+                _translate_literal_value(k, dtype.key_type): _translate_literal_value(
+                    v, dtype.value_type
+                )
+                for k, v in value.items()
+            }
     else:
         return value
 
