@@ -528,3 +528,18 @@ def test_build_pandas_backend_behind_into_backend(build_dir, users_df):
     actual = compiler.load_expr(expr_hash)
 
     assert_frame_equal(xo.execute(expected), actual.execute())
+
+
+def test_struct_field(build_dir, tmpdir):
+    compiler = BuildManager(build_dir)
+    path = pathlib.Path(tmpdir).joinpath("t.parquet")
+    xo.memtable({"a": [{"b": 1, "c": "string"}]}).to_parquet(path)
+    t = xo.deferred_read_parquet(
+        xo.connect(),
+        path,
+        table_name="t",
+    )
+    expr = t.select(t.a.b.name("a-b"))
+    expr_hash = compiler.compile_expr(expr)
+    roundtrip_expr = compiler.load_expr(expr_hash)
+    assert_frame_equal(expr.execute(), roundtrip_expr.execute())
