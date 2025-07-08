@@ -41,7 +41,12 @@ def _replace_offset(offset):
 
 
 class DataFusionType(PostgresType):
-    unknown_type_strings = {"utf8": dt.string, "float64": dt.float64, "date32": dt.date}
+    unknown_type_strings = {
+        "utf8": dt.string,
+        "utf8view": dt.string,
+        "float64": dt.float64,
+        "date32": dt.date,
+    }
 
     @classmethod
     def _from_ibis_LargeString(cls, dtype: LargeString) -> sge.DataType:
