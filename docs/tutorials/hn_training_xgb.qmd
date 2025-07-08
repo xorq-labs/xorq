@@ -1,5 +1,7 @@
 ---
 title: "XGBoost Training"
+icon: "diagram-3"
+headline: "Learn how to build fit-predict style deferred pipelines."
 description: "Part 3: Learn how to train XGBoost models, make predictions, and
 evaluate model performance using xorq's deferred pipelines"
 ---
