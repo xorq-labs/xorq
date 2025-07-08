@@ -1,0 +1,154 @@
+name: ci-test-install
+
+on:
+  push:
+    # Skip the backend suite if all changes are docs
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.qmd"
+      - "*.md"
+      - "codecov.yml"
+      - ".envrc"
+    branches:
+      - main
+      - master
+    tags:
+      - '*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-installability:
+    name: Test installation on ${{ matrix.os }} with Python ${{ matrix.python-version }}
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Create build virtual environment
+        run: uv venv .venv-build
+
+      - name: Build package
+        run: uv build
+
+      - name: test installation from wheel
+        shell: bash
+        run: |
+          python -m venv .venv-test
+          
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            source .venv-test/Scripts/activate
+          else
+            source .venv-test/bin/activate
+          fi
+          
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
+          
+          # Create test directory to avoid importing from source
+          mkdir test-directory
+          cd test-directory
+          
+          # Test basic import and version
+          python -c "import pathlib; print(f'Current working directory: {pathlib.Path.cwd()}')"
+          python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
+          
+      - name: test installation from source distribution
+        shell: bash
+        run: |
+          # Create another test environment for sdist
+          python -m venv .venv-sdist
+          
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            source .venv-sdist/Scripts/activate
+          else
+            source .venv-sdist/bin/activate
+          fi
+          
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.tar.gz
+          
+          # Test that installation from sdist works
+          python -c "import xorq; print(f'Successfully installed xorq {xorq.__version__} from source distribution')"
+
+  get-extras:
+    runs-on: ubuntu-latest
+    outputs:
+      extras: ${{ steps.get-extras.outputs.extras }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Get package extras
+        id: get-extras
+        run: |
+          python -c "
+          import configparser
+          import json
+          import os
+          try:
+              config = configparser.ConfigParser()
+              config.read('setup.cfg')
+              extras = list(config['options.extras_require'].keys())
+          except:
+              try:
+                  import tomllib
+                  with open('pyproject.toml', 'rb') as f:
+                      data = tomllib.load(f)
+                  extras = list(data.get('project', {}).get('optional-dependencies', {}).keys())
+              except:
+                  extras = []
+
+          extras_json = json.dumps(extras)
+          print(f'extras={extras_json}')
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as f:
+              f.write(f'extras={extras_json}\n')
+          "
+
+  test-extras:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
+        extra: ${{ fromJson(needs.get-extras.outputs.extras) }}
+    needs: get-extras
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install package with ${{ matrix.extra }} extra
+        run: pip install .[${{ matrix.extra }}]
+
+      - name: Test import
+        run: python -c "import xorq"
