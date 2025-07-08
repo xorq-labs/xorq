@@ -1,5 +1,7 @@
 ---
-title: 'Quickstart'
+title: "Quickstart"
+icon: "pencil-square"
+headline: "Get a first taste of xorq"
 ---
 
 ## Installation
@@ -58,6 +60,8 @@ You can also build more complex pipelines that process data and expose
 endpoints via Arrow Flight:
 
 ```{python}
+#| eval: false
+
 import pathlib
 import pickle
 
