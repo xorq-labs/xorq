@@ -279,6 +279,16 @@ def _window_boundary_from_yaml(yaml_dict: dict, context: TranslationContext) -> 
     return ops.WindowBoundary(value, preceding=yaml_dict["preceding"])
 
 
+@translate_to_yaml.register(ops.StructField)
+def _struct_field_to_yaml(op: ops.Node, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": type(op).__name__,
+            "args": [translate_to_yaml(arg, context) for arg in op.args],
+        }
+    )
+
+
 @translate_to_yaml.register(ops.Node)
 def _base_op_to_yaml(op: ops.Node, context: TranslationContext) -> dict:
     return freeze(
@@ -1599,6 +1609,12 @@ def _string_join_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
     sep = translate_from_yaml(yaml_dict["sep"], context)
 
     return ops.StringJoin(args, sep).to_expr()
+
+
+@register_from_yaml_handler("StructField")
+def _structfield_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    args = tuple(translate_from_yaml(arg, context) for arg in yaml_dict["args"])
+    return ops.StructField(*args).to_expr()
 
 
 def _type_from_yaml(yaml_dict: dict) -> dt.DataType:
