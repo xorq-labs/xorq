@@ -168,7 +168,7 @@ def read_csv(
     """Lazily load a CSV or set of CSVs.
 
     This function delegates to the `read_csv` method on the current default
-    backend (DuckDB or `ibis.config.default_backend`).
+    backend (DuckDB or `xorq.config.default_backend`).
 
     Parameters
     ----------
@@ -382,6 +382,43 @@ def _transform_deferred_reads(expr):
 
 @tracer.start_as_current_span("execute")
 def execute(expr: ir.Expr, **kwargs: Any):
+    """Execute an expression against its backend if one exists.
+
+    Parameters
+    ----------
+    kwargs
+        Keyword arguments
+
+    Examples
+    --------
+    >>> import xorq as xo
+    >>> t = xo.examples.penguins.fetch()
+    >>> t.execute()
+           species     island  bill_length_mm  ...  body_mass_g     sex  year
+    0       Adelie  Torgersen            39.1  ...       3750.0    male  2007
+    1       Adelie  Torgersen            39.5  ...       3800.0  female  2007
+    2       Adelie  Torgersen            40.3  ...       3250.0  female  2007
+    3       Adelie  Torgersen             NaN  ...          NaN    None  2007
+    4       Adelie  Torgersen            36.7  ...       3450.0  female  2007
+    ..         ...        ...             ...  ...          ...     ...   ...
+    339  Chinstrap      Dream            55.8  ...       4000.0    male  2009
+    340  Chinstrap      Dream            43.5  ...       3400.0  female  2009
+    341  Chinstrap      Dream            49.6  ...       3775.0    male  2009
+    342  Chinstrap      Dream            50.8  ...       4100.0    male  2009
+    343  Chinstrap      Dream            50.2  ...       3775.0  female  2009
+    [344 rows x 8 columns]
+
+    Scalar parameters can be supplied dynamically during execution.
+    >>> species = xo.param("string")
+    >>> expr = t.filter(t.species == species).order_by(t.bill_length_mm)
+    >>> expr.execute(limit=3, params={species: "Gentoo"})
+      species  island  bill_length_mm  ...  body_mass_g     sex  year
+    0  Gentoo  Biscoe            40.9  ...         4650  female  2007
+    1  Gentoo  Biscoe            41.7  ...         4700  female  2009
+    2  Gentoo  Biscoe            42.0  ...         4150  female  2007
+    <BLANKLINE>
+    [3 rows x 8 columns]
+    """
     batch_reader = to_pyarrow_batches(expr, **kwargs)
     with tracer.start_as_current_span("read_pandas"):
         df = batch_reader.read_pandas(timestamp_as_object=True)
@@ -403,6 +440,23 @@ def to_pyarrow_batches(
     chunk_size: int = 1_000_000,
     **kwargs: Any,
 ):
+    """Execute expression and return a RecordBatchReader.
+
+    This method is eager and will execute the associated expression
+    immediately.
+
+    Parameters
+    ----------
+    chunk_size
+        Maximum number of rows in each returned record batch.
+    kwargs
+        Keyword arguments
+
+    Returns
+    -------
+    results
+        RecordBatchReader
+    """
     from xorq.expr.relations import FlightExpr, FlightUDXF
 
     span = trace.get_current_span()
@@ -428,6 +482,21 @@ def to_pyarrow_batches(
 
 
 def to_pyarrow(expr: ir.Expr, **kwargs: Any):
+    """Execute expression and return results in as a pyarrow table.
+
+    This method is eager and will execute the associated expression
+    immediately.
+
+    Parameters
+    ----------
+    kwargs
+        Keyword arguments
+
+    Returns
+    -------
+    Table
+        A pyarrow table holding the results of the executed expression.
+    """
     batch_reader = to_pyarrow_batches(expr, **kwargs)
     arrow_table = batch_reader.read_all()
     return expr.__pyarrow_result__(arrow_table)
@@ -439,6 +508,31 @@ def to_parquet(
     params: Mapping[ir.Scalar, Any] | None = None,
     **kwargs: Any,
 ):
+    """Write the results of executing the given expression to a parquet file.
+
+    This method is eager and will execute the associated expression
+    immediately.
+
+    See https://arrow.apache.org/docs/python/generated/pyarrow.parquet.ParquetWriter.html for details.
+
+    Parameters
+    ----------
+    path
+        A string or Path where the Parquet file will be written.
+    params
+        Mapping of scalar parameter expressions to value.
+    **kwargs
+        Additional keyword arguments passed to pyarrow.parquet.ParquetWriter
+
+    Examples
+    --------
+    Write out an expression to a single parquet file.
+
+    >>> import ibis
+    >>> import tempfile
+    >>> penguins = ibis.examples.penguins.fetch()
+    >>> penguins.to_parquet(tempfile.mktemp())
+    """
     import pyarrow  # noqa: ICN001, F401
     import pyarrow.parquet as pq
     import pyarrow_hotfix  # noqa: F401
@@ -455,6 +549,23 @@ def to_csv(
     params: Mapping[ir.Scalar, Any] | None = None,
     **kwargs: Any,
 ):
+    """Write the results of executing the given expression to a CSV file.
+
+    This method is eager and will execute the associated expression
+    immediately.
+
+    Parameters
+    ----------
+    path
+        The data source. A string or Path to the CSV file.
+    params
+        Mapping of scalar parameter expressions to value.
+    **kwargs
+        Additional keyword arguments passed to pyarrow.csv.CSVWriter
+
+    https://arrow.apache.org/docs/python/generated/pyarrow.csv.CSVWriter.htmlditional keyword arguments passed to pyarrow.csv.CSVWriter
+    """
+
     import pyarrow  # noqa: ICN001, F401
     import pyarrow.csv as pcsv
     import pyarrow_hotfix  # noqa: F401
@@ -470,6 +581,20 @@ def to_json(
     path: str | Path | TextIOWrapper,
     params: Mapping[ir.Scalar, Any] | None = None,
 ):
+    """Write the results of `expr` to a NDJSON file.
+
+    This method is eager and will execute the associated expression
+    immediately.
+
+    Parameters
+    ----------
+    path
+        The data source. A string or Path to the Delta Lake table.
+    **kwargs
+        Additional, backend-specific keyword arguments.
+
+    https://github.com/ndjson/ndjson-spec
+    """
     import pyarrow  # noqa: ICN001, F401
     import pyarrow_hotfix  # noqa: F401
 

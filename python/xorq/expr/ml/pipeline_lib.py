@@ -90,6 +90,62 @@ def make_estimator_typ(fit, predict, return_type, name=None):
 
 @frozen
 class Step:
+    """
+    A single step in a machine learning pipeline that wraps a scikit-learn estimator.
+
+    This class represents an individual processing step that can either transform data
+    (transformers like StandardScaler, SelectKBest) or make predictions (classifiers
+    like KNeighborsClassifier, LinearSVC). Steps can be combined into Pipeline objects
+    to create complex ML workflows.
+
+    Parameters
+    ----------
+    typ : type
+        The scikit-learn estimator class (must inherit from BaseEstimator).
+    name : str, optional
+        A unique name for this step. If None, generates a name from the class name and ID.
+    params_tuple : tuple, optional
+        Tuple of (parameter_name, parameter_value) pairs for the estimator.
+        Parameters are automatically sorted for consistency.
+
+    Attributes
+    ----------
+    typ : type
+        The scikit-learn estimator class.
+    name : str
+        The unique name for this step in the pipeline.
+    params_tuple : tuple
+        Sorted tuple of parameter key-value pairs.
+
+    Examples
+    --------
+    Create a scaler step:
+
+    >>> from xorq.ml import Step
+    >>> from sklearn.preprocessing import StandardScaler
+    >>> scaler_step = Step(typ=StandardScaler, name="scaler")
+    >>> scaler_step.instance
+    StandardScaler()
+
+    Create a classifier step with parameters:
+
+    >>> from sklearn.neighbors import KNeighborsClassifier
+    >>> knn_step = Step(
+    ...     typ=KNeighborsClassifier,
+    ...     name="knn",
+    ...     params_tuple=(("n_neighbors", 5), ("weights", "uniform"))
+    ... )
+    >>> knn_step.instance
+    KNeighborsClassifier(n_neighbors=5)
+
+    Notes
+    -----
+    - The Step class is frozen (immutable) using attrs.
+    - All estimators must inherit from sklearn.base.BaseEstimator.
+    - Parameter tuples are automatically sorted for hash consistency.
+    - Steps can be fitted to data using the fit() method which returns a FittedStep.
+    """
+
     typ = field(validator=instance_of(type))
     name = field(validator=optional(instance_of(str)), default=None)
     params_tuple = field(validator=instance_of(tuple), default=(), converter=tuple)
@@ -103,9 +159,40 @@ class Step:
 
     @property
     def instance(self):
+        """
+        Create an instance of the estimator with the configured parameters.
+
+        Returns
+        -------
+        object
+            An instantiated scikit-learn estimator.
+        """
+
         return self.typ(**dict(self.params_tuple))
 
     def fit(self, expr, features=None, target=None, storage=None, dest_col=None):
+        """
+        Fit this step to the given expression data.
+
+        Parameters
+        ----------
+        expr : Expr
+            The xorq expression containing the training data.
+        features : tuple of str, optional
+            Column names to use as features. If None, infers from expr.columns.
+        target : str, optional
+            Target column name. Required for prediction steps.
+        storage : Storage, optional
+            Storage backend for caching fitted models.
+        dest_col : str, optional
+            Destination column name for transformed output.
+
+        Returns
+        -------
+        FittedStep
+            A fitted step that can transform or predict on new data.
+        """
+
         # how does ColumnTransformer interact with features/target?
         # features = features or self.features or tuple(expr.columns)
         features = features or tuple(expr.columns)
@@ -119,6 +206,24 @@ class Step:
         )
 
     def set_params(self, **kwargs):
+        """
+        Create a new Step with updated parameters.
+
+        Parameters
+        ----------
+        **kwargs
+            Parameter names and values to update.
+
+        Returns
+        -------
+        Step
+            A new Step instance with updated parameters.
+
+        Examples
+        --------
+        >>> knn_step = Step(typ=KNeighborsClassifier, name="knn")
+        >>> updated_step = knn_step.set_params(n_neighbors=10, weights="distance")
+        """
         return self.__class__.from_instance_name(
             self.instance.set_params(**kwargs),
             name=self.name,
@@ -126,15 +231,67 @@ class Step:
 
     @classmethod
     def from_instance_name(cls, instance, name=None):
+        """
+        Create a Step from an existing scikit-learn estimator instance.
+
+        Parameters
+        ----------
+        instance : object
+            A scikit-learn estimator instance.
+        name : str, optional
+            Name for the step. If None, generates from instance class name.
+
+        Returns
+        -------
+        Step
+            A new Step wrapping the estimator instance.
+        """
         params_tuple = tuple(instance.get_params().items())
         return cls(typ=instance.__class__, name=name, params_tuple=params_tuple)
 
     @classmethod
     def from_name_instance(cls, name, instance):
+        """
+        Create a Step from a name and estimator instance.
+
+        Parameters
+        ----------
+        name : str
+            Name for the step.
+        instance : object
+            A scikit-learn estimator instance.
+
+        Returns
+        -------
+        Step
+            A new Step wrapping the estimator instance.
+        """
         return cls.from_instance_name(instance, name)
 
     @classmethod
     def from_fit_predict(cls, fit, predict, return_type, klass_name=None, name=None):
+        """
+        Create a Step from custom fit and predict functions.
+
+        Parameters
+        ----------
+        fit : callable
+            Function to fit the model.
+        predict : callable
+            Function to make predictions.
+        return_type : DataType
+            The return type for predictions.
+        klass_name : str, optional
+            Name for the generated estimator class.
+        name : str, optional
+            Name for the step.
+
+        Returns
+        -------
+        Step
+            A new Step with a dynamically created estimator type.
+        """
+
         typ = make_estimator_typ(
             fit=fit, predict=predict, return_type=return_type, name=klass_name
         )
@@ -310,6 +467,62 @@ class FittedStep:
 
 @frozen
 class Pipeline:
+    """
+    A machine learning pipeline that chains multiple processing steps together.
+
+    This class provides a xorq-native implementation that wraps scikit-learn pipelines,
+    enabling deferred execution and integration with xorq expressions. The pipeline
+    can contain both transform steps (data preprocessing) and a final prediction step.
+
+    Parameters
+    ----------
+    steps : tuple of Step
+        Sequence of Step objects that make up the pipeline.
+
+    Attributes
+    ----------
+    steps : tuple of Step
+        The sequence of processing steps.
+    instance : sklearn.pipeline.Pipeline
+        The equivalent scikit-learn Pipeline instance.
+    transform_steps : tuple of Step
+        All steps except the final prediction step (if any).
+    predict_step : Step or None
+        The final step if it has a predict method, otherwise None.
+
+    Examples
+    --------
+    Create a pipeline from scikit-learn estimators:
+
+    >>> from xorq.ml import Pipeline
+    >>> from sklearn.preprocessing import StandardScaler
+    >>> from sklearn.neighbors import KNeighborsClassifier
+    >>> import sklearn.pipeline
+    >>>
+    >>> sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ...     ("scaler", StandardScaler()),
+    ...     ("knn", KNeighborsClassifier(n_neighbors=5))
+    ... ])
+    >>> xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+    Fit and predict with xorq expressions:
+
+    >>> # Assuming train and test are xorq expressions
+    >>> fitted = xorq_pipeline.fit(train, features=("feature1", "feature2"), target="target")  # quartodoc: +SKIP
+    >>> predictions = fitted.predict(test)  # quartodoc: +SKIP
+
+    Update pipeline parameters:
+
+    >>> updated_pipeline = xorq_pipeline.set_params(knn__n_neighbors=10)  # quartodoc: +SKIP
+
+    Notes
+    -----
+    - The Pipeline class is frozen (immutable) using attrs.
+    - Pipelines automatically detect transform vs predict steps based on method availability.
+    - The fit() method returns a FittedPipeline that can transform and predict on new data.
+    - Parameter updates use sklearn's parameter naming convention (step__parameter).
+    """
+
     steps = field(
         validator=deep_iterable(instance_of(Step), instance_of(tuple)),
         converter=tuple,
@@ -320,6 +533,15 @@ class Pipeline:
 
     @property
     def instance(self):
+        """
+        Create an equivalent scikit-learn Pipeline instance.
+
+        Returns
+        -------
+        sklearn.pipeline.Pipeline
+            A scikit-learn pipeline with the same steps and parameters.
+        """
+
         import sklearn
 
         return sklearn.pipeline.Pipeline(
@@ -328,6 +550,15 @@ class Pipeline:
 
     @property
     def transform_steps(self):
+        """
+        Get all transformation steps (excluding final prediction step).
+
+        Returns
+        -------
+        tuple of Step
+            All steps that transform data but don't make final predictions.
+        """
+
         (*steps, last_step) = self.steps
         if hasattr(last_step.instance, "predict"):
             return steps
@@ -336,10 +567,54 @@ class Pipeline:
 
     @property
     def predict_step(self):
+        """
+        Get the final prediction step if it exists.
+
+        Returns
+        -------
+        Step or None
+            The final step if it has a predict method, otherwise None.
+        """
+
         (*_, last_step) = self.steps
         return last_step if hasattr(last_step.instance, "predict") else None
 
     def fit(self, expr, features=None, target=None):
+        """
+        Fit the pipeline to training data.
+
+        This method sequentially fits each step in the pipeline, using the output
+        of each transform step as input to the next step.
+
+        Parameters
+        ----------
+        expr : Expr
+            The xorq expression containing training data.
+        features : tuple of str, optional
+            Column names to use as features. If None, infers from expr columns
+            excluding the target.
+        target : str, optional
+            Target column name. Required if pipeline has a prediction step.
+
+        Returns
+        -------
+        FittedPipeline
+            A fitted pipeline that can transform and predict on new data.
+
+        Raises
+        ------
+        ValueError
+            If target is not provided but pipeline has a prediction step.
+
+        Examples
+        --------
+        >>> fitted = pipeline.fit(
+        ...     train_data,
+        ...     features=("sepal_length", "sepal_width"),
+        ...     target="species"
+        ... )  # quartodoc: +SKIP
+        """
+
         if not target and self.predict_step:
             raise ValueError("Can't infer target for a prediction step")
         features = features or tuple(col for col in expr.features if col != target)
@@ -368,6 +643,31 @@ class Pipeline:
 
     @classmethod
     def from_instance(cls, instance):
+        """
+        Create a Pipeline from an existing scikit-learn Pipeline.
+
+        Parameters
+        ----------
+        instance : sklearn.pipeline.Pipeline
+            A fitted or unfitted scikit-learn pipeline.
+
+        Returns
+        -------
+        Pipeline
+            A new xorq Pipeline wrapping the scikit-learn pipeline.
+
+        Examples
+        --------
+        >>> import sklearn.pipeline
+        >>> from sklearn.preprocessing import StandardScaler
+        >>> from sklearn.svm import SVC
+        >>>
+        >>> sklearn_pipe = sklearn.pipeline.Pipeline([
+        ...     ("scaler", StandardScaler()),
+        ...     ("svc", SVC())
+        ... ])
+        >>> xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+        """
         steps = tuple(
             Step.from_instance_name(step, name) for name, step in instance.steps
         )
