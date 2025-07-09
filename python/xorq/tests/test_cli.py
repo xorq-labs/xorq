@@ -189,7 +189,8 @@ def test_run_command(tmp_path, fixture_dir, output_format):
         raise AssertionError("No expression hash")
 
 
-def test_serve_command(tmp_path, fixture_dir):
+@pytest.mark.parametrize("cache_dir", [None, "cache"])
+def test_serve_command(tmp_path, fixture_dir, cache_dir):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "udxf_pipeline.py"
 
@@ -208,11 +209,9 @@ def test_serve_command(tmp_path, fixture_dir):
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
 
-        serve_args = [
-            "xorq",
-            "serve",
-            str(expression_path),
-        ]
+        cache_dir_args = ["--cache-dir", str(tmp_path / cache_dir)] if cache_dir else []
+
+        serve_args = ["xorq", "serve", str(expression_path), *cache_dir_args]
 
         process = non_blocking_subprocess_run(serve_args)
         is_running = False
