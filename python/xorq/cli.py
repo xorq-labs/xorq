@@ -129,7 +129,12 @@ def run_command(
 
 @tracer.start_as_current_span("cli.serve_command")
 def serve_command(
-    expr_path, host=None, port=None, duckdb_path=None, prometheus_port=None
+    expr_path,
+    host=None,
+    port=None,
+    duckdb_path=None,
+    prometheus_port=None,
+    cache_dir=get_xorq_cache_dir(),
 ):
     """
     Serve a built expression via Flight Server
@@ -145,6 +150,9 @@ def serve_command(
     duckdb_path : str or None
         Path to duckdb cache DB file
     prometheus_port : int or None
+        Port to connect to the prometheus server
+    cache_dir : str or None
+        Path to the dir to store the parquet cache files
     """
 
     span = trace.get_current_span()
@@ -161,7 +169,7 @@ def serve_command(
     expr_hash = expr_path.stem
 
     logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
-    build_manager = BuildManager(expr_path.parent)
+    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
     if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
         raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
 
@@ -272,6 +280,12 @@ def parse_args(override=None):
         default=None,
         help="Port to expose Prometheus metrics (default: disabled)",
     )
+    serve_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
 
     args = parser.parse_args(override)
     if getattr(args, "output_path", None) == "-":
@@ -308,6 +322,7 @@ def main():
                         args.port,
                         args.duckdb_path,
                         args.prometheus_port,
+                        args.cache_dir,
                     ),
                 )
             case _:
