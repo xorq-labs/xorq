@@ -56,13 +56,20 @@ website:
             - href: tutorials/hn_serving.qmd
 
     - id: api-reference
-      title: "Expression API"
+      title: "API"
       contents:
-        - href: reference/expression-relations.qmd
-        - href: reference/expression-generic.qmd
-        - href: reference/expression-numeric.qmd
-        - href: reference/expression-strings.qmd
-        - href: reference/expression-temporal.qmd
+        - id: expression-api
+          section: "Expression API"
+          contents:
+            - href: reference/expression-relations.qmd
+            - href: reference/expression-generic.qmd
+            - href: reference/expression-numeric.qmd
+            - href: reference/expression-strings.qmd
+            - href: reference/expression-temporal.qmd
+        - id: ml-api
+          section: "ML API"
+          contents:
+            - href: reference/ml-api.qmd
 
 
 format:
@@ -92,12 +99,52 @@ quartodoc:
           summary:
             name: Table expressions
             desc: Tables are one of the core data structures in Xorq.
-          package: xorq.vendor.ibis.expr.types.relations
           contents:
             - name: Table
               include_inherited: true
+              package: xorq.vendor.ibis.expr.types.relations
             - name: GroupedTable
               package: xorq.vendor.ibis.expr.types.groupby
+            - name: read_csv
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: read_parquet
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: memtable
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: to_sql
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: execute
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: to_pyarrow_batches
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: to_pyarrow
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: to_parquet
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: to_csv
+              dynamic: true
+              signature_name: full
+              package: xorq
+            - name: to_json
+              dynamic: true
+              signature_name: full
+              package: xorq
 
         - kind: page
           path: expression-generic
@@ -272,59 +319,12 @@ quartodoc:
                 - to_unit
 
         - kind: page
-          path: toplevel-api
-          package: xorq.expr.api
-          summary:
-            name: Top Level API functions
-          contents:
-            - param
-            - schema
-            - table
-            - memtable
-            - desc
-            - asc
-            - preceding
-            - following
-            - and_
-            - or_
-            - random
-            - uuid
-            - case
-            - now
-            - today
-            - rank
-            - dense_rank
-            - percent_rank
-            - cume_dist
-            - ntile
-            - row_number
-            - read_csv
-            - read_parquet
-            - register
-            - read_postgres
-            - union
-            - intersect
-            - difference
-            - ifelse
-            - coalesce
-            - greatest
-            - least
-            - range
-            - timestamp
-            - date
-            - time
-            - interval
-            - to_sql
-            - execute
-            - to_pyarrow_batches
-            - to_pyarrow
-            - to_parquet
-            - get_plans
-
-        - kind: page
           path: ml-api
           package: xorq.expr.ml
           summary:
-            name: ML API functions
+            name: ML functions
+            desc: ML functions and classes helpers
           contents:
             - train_test_splits
+            - Step
+            - Pipeline
