@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.4] - 2025-07-09
+### Details
+#### Added
+- Add base methods from Expr by @mesejo in [#1093](https://github.com/xorq-labs/xorq/pull/1093)
+- Add cache_dir to serve command by @mesejo in [#1106](https://github.com/xorq-labs/xorq/pull/1106)
+
+#### Changed
+- Feature store by @hussainsultan in [#1091](https://github.com/xorq-labs/xorq/pull/1091)
+- Rename weather micro-libs to xorq-prefix by @dlovell in [#1096](https://github.com/xorq-labs/xorq/pull/1096)
+- Singledispatch sklearn by @dlovell in [#1100](https://github.com/xorq-labs/xorq/pull/1100)
+- Use snapshot in test_build_file_stability by @mesejo in [#1092](https://github.com/xorq-labs/xorq/pull/1092)
+- Improve grid listing style by @mesejo in [#1101](https://github.com/xorq-labs/xorq/pull/1101)
+- Improve ml section documentation by @mesejo in [#1099](https://github.com/xorq-labs/xorq/pull/1099)
+
+#### Fixed
+- Override base, not just editables by @dlovell in [#1095](https://github.com/xorq-labs/xorq/pull/1095)
+- Correct backend reference in README by @IndexSeek in [#1097](https://github.com/xorq-labs/xorq/pull/1097)
+- Deferred_read_csv: schema: use columns not types by @dlovell in [#1103](https://github.com/xorq-labs/xorq/pull/1103)
+- Fix border output color by @mesejo in [#1104](https://github.com/xorq-labs/xorq/pull/1104)
+- Generic handling of cached node by @dlovell in [#1105](https://github.com/xorq-labs/xorq/pull/1105)
+- Structfield by @dlovell in [#1109](https://github.com/xorq-labs/xorq/pull/1109)
+- Fetch penguins by @mesejo in [#1114](https://github.com/xorq-labs/xorq/pull/1114)
+
+## New Contributors
+* @IndexSeek made their first contribution in [#1097](https://github.com/xorq-labs/xorq/pull/1097)
+
 ## [0.2.3] - 2025-07-02
 ### Details
 
