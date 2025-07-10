@@ -114,7 +114,7 @@ def run_command(
 
     expr_path = Path(expr_path)
     build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
-    expr = build_manager.load_expr(expr_path.stem)
+    expr = build_manager.load_expr(expr_path.name)
 
     match output_format:
         case "csv":
