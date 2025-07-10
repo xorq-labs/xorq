@@ -136,11 +136,11 @@ jobs:
                   
                   # Test import
                   subprocess.run([sys.executable, '-c', 'import xorq'], check=True)
-                  print(f'✓ Successfully tested extra: {extra}')
+                  print(f'Successfully tested extra: {extra}')
                   
                   # Uninstall to clean up for next extra
                   subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', 'xorq'], check=True)
               except subprocess.CalledProcessError as e:
-                  print(f'✗ Failed to test extra {extra}: {e}')
+                  print(f'Failed to test extra {extra}: {e}')
                   sys.exit(1)
           "
