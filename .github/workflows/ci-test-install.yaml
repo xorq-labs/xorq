@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 jobs:
-  test-installability:
+  test-installation:
     name: Test installation on ${{ matrix.os }} with Python ${{ matrix.python-version }}
     runs-on: ${{ matrix.os }}
 
@@ -45,66 +45,9 @@ jobs:
         with:
           enable-cache: true
 
-      - name: Create build virtual environment
-        run: uv venv .venv-build
-
-      - name: Build package
-        run: uv build
-
-      - name: test installation from wheel
-        shell: bash
-        run: |
-          python -m venv .venv-test
-          
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            source .venv-test/Scripts/activate
-          else
-            source .venv-test/bin/activate
-          fi
-          
-          python -m pip install --upgrade pip
-          python -m pip install dist/*.whl
-          
-          # Create test directory to avoid importing from source
-          mkdir test-directory
-          cd test-directory
-          
-          # Test basic import and version
-          python -c "import pathlib; print(f'Current working directory: {pathlib.Path.cwd()}')"
-          python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
-          
-      - name: test installation from source distribution
-        shell: bash
-        run: |
-          # Create another test environment for sdist
-          python -m venv .venv-sdist
-          
-          if [ "$RUNNER_OS" == "Windows" ]; then
-            source .venv-sdist/Scripts/activate
-          else
-            source .venv-sdist/bin/activate
-          fi
-          
-          python -m pip install --upgrade pip
-          python -m pip install dist/*.tar.gz
-          
-          # Test that installation from sdist works
-          python -c "import xorq; print(f'Successfully installed xorq {xorq.__version__} from source distribution')"
-
-  get-extras:
-    runs-on: ubuntu-latest
-    outputs:
-      extras: ${{ steps.get-extras.outputs.extras }}
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: '3.11'
-
       - name: Get package extras
         id: get-extras
+        shell: bash
         run: |
           python -c "
           import configparser
@@ -129,26 +72,75 @@ jobs:
               f.write(f'extras={extras_json}\n')
           "
 
-  test-extras:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
-        python-version: [ "3.10", "3.11", "3.12", "3.13" ]
-        extra: ${{ fromJson(needs.get-extras.outputs.extras) }}
-    needs: get-extras
+      - name: Build package
+        run: uv build
 
-    steps:
-      - uses: actions/checkout@v4
+      - name: Test installation from wheel and source distribution
+        shell: bash
+        run: |
+          # Test wheel installation
+          python -m venv .venv-wheel
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            source .venv-wheel/Scripts/activate
+          else
+            source .venv-wheel/bin/activate
+          fi
+          
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.whl
+          
+          # Test basic import and version in separate directory
+          mkdir -p test-wheel && cd test-wheel
+          python -c "import pathlib; print(f'Current working directory: {pathlib.Path.cwd()}')"
+          python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
+          cd ..
+          deactivate
+          
+          # Test source distribution installation
+          python -m venv .venv-sdist
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            source .venv-sdist/Scripts/activate
+          else
+            source .venv-sdist/bin/activate
+          fi
+          
+          python -m pip install --upgrade pip
+          python -m pip install dist/*.tar.gz
+          python -c "import xorq; print(f'Successfully installed xorq {xorq.__version__} from source distribution')"
+          deactivate
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
-        with:
-          python-version: ${{ matrix.python-version }}
-
-      - name: Install package with ${{ matrix.extra }} extra
-        run: pip install .[${{ matrix.extra }}]
-
-      - name: Test import
-        run: python -c "import xorq"
+      - name: Test extras installation
+        shell: bash
+        run: |
+          extras='${{ steps.get-extras.outputs.extras }}'
+          
+          # Parse JSON array of extras
+          echo "Testing extras: $extras"
+          
+          # Convert JSON array to bash array and test each extra
+          python -c "
+          import json
+          import subprocess
+          import sys
+          
+          extras = json.loads('$extras')
+          if not extras:
+              print('No extras found to test')
+              sys.exit(0)
+          
+          for extra in extras:
+              print(f'Testing extra: {extra}')
+              try:
+                  # Install package with extra
+                  subprocess.run([sys.executable, '-m', 'pip', 'install', f'.[{extra}]'], check=True)
+                  
+                  # Test import
+                  subprocess.run([sys.executable, '-c', 'import xorq'], check=True)
+                  print(f'✓ Successfully tested extra: {extra}')
+                  
+                  # Uninstall to clean up for next extra
+                  subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', 'xorq'], check=True)
+              except subprocess.CalledProcessError as e:
+                  print(f'✗ Failed to test extra {extra}: {e}')
+                  sys.exit(1)
+          "
