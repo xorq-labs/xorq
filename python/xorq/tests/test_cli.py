@@ -6,7 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from xorq.cli import build_command
+from xorq.cli import (
+    InitTemplates,
+    build_command,
+)
 from xorq.common.utils.process_utils import (
     non_blocking_subprocess_run,
     subprocess_run,
@@ -339,3 +342,53 @@ def test_examples(
     assert returncode == 0
     print(stderr, file=sys.stderr)
     assert output_path.exists()
+
+
+def test_init_command_default(tmpdir):
+    path = Path(tmpdir).joinpath("xorq-template-default")
+    init_args = (
+        "xorq",
+        "init",
+        "--path",
+        str(path),
+    )
+    print(" ".join(init_args), file=sys.stderr)
+    (returncode, stdout, stderr) = subprocess_run(init_args)
+    assert returncode == 0
+    assert path.exists()
+    assert path.joinpath("pyproject.toml").exists()
+
+
+@pytest.mark.parametrize("template", InitTemplates)
+def test_init_command_sklearn(template, tmpdir):
+    path = Path(tmpdir).joinpath(f"xorq-template-{template}")
+    init_args = (
+        "xorq",
+        "init",
+        "--path",
+        str(path),
+        "--template",
+        template,
+    )
+    print(" ".join(init_args), file=sys.stderr)
+    (returncode, stdout, stderr) = subprocess_run(init_args)
+    assert returncode == 0
+    assert path.exists()
+    assert path.joinpath("pyproject.toml").exists()
+
+
+@pytest.mark.parametrize("template", InitTemplates)
+def test_init_command_path_exists(template, tmpdir):
+    path = Path(tmpdir).joinpath(f"xorq-template-{template}")
+    init_args = (
+        "xorq",
+        "init",
+        "--path",
+        str(path),
+        "--template",
+        template,
+    )
+    print(" ".join(init_args), file=sys.stderr)
+    path.mkdir()
+    (returncode, stdout, stderr) = subprocess_run(init_args)
+    assert returncode != 0
