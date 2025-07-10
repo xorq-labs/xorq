@@ -208,7 +208,7 @@ xorq run builds/ca3da8b86a86
 > └── sql.yaml
 > ```
 Notice that we have an expr.yaml file with complete schemas and lineage
-information as well as debug outputs for SQL. The expr can rountrip back and
+information as well as debug outputs for SQL. The expr can roundtrip back and
 forth from Ibis expressions.
 
 >```yaml

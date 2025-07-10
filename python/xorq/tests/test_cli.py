@@ -1,4 +1,5 @@
 import re
+import shutil
 import sys
 import threading
 import time
@@ -146,6 +147,20 @@ def test_run_command_default(tmp_path, fixture_dir):
             expression_path,
         ]
         (returncode, _, _) = subprocess_run(test_args)
+
+        # test with problematic name (see https://github.com/xorq-labs/xorq/issues/1116)
+        test_args = [
+            "xorq",
+            "run",
+            str(
+                shutil.move(
+                    expression_path,
+                    Path(expression_path).parent.joinpath("becb4e71406b.bak"),
+                )
+            ),
+        ]
+        (returncode, _, _) = subprocess_run(test_args)
+
         assert returncode == 0
     else:
         raise AssertionError("No expression hash")
