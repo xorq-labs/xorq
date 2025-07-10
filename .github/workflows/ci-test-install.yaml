@@ -75,6 +75,14 @@ jobs:
       - name: Build package
         run: uv build
 
+      - name: Get wheel filename
+        id: wheel-name
+        shell: bash
+        run: |
+          wheel_file=$(ls dist/*.whl | head -1)
+          echo "wheel_file=$wheel_file" >> $GITHUB_OUTPUT
+          echo "Found wheel: $wheel_file"
+
       - name: Test installation from wheel and source distribution
         shell: bash
         run: |
@@ -109,21 +117,25 @@ jobs:
           python -c "import xorq; print(f'Successfully installed xorq {xorq.__version__} from source distribution')"
           deactivate
 
-      - name: Test extras installation
+      - name: Test extras installation from wheel
         shell: bash
         run: |
           extras='${{ steps.get-extras.outputs.extras }}'
+          wheel_file='${{ steps.wheel-name.outputs.wheel_file }}'
           
-          # Parse JSON array of extras
           echo "Testing extras: $extras"
+          echo "Using wheel: $wheel_file"
           
-          # Convert JSON array to bash array and test each extra
+          # Test each extra from the wheel file
           python -c "
           import json
           import subprocess
           import sys
+          import os
           
           extras = json.loads('$extras')
+          wheel_file = '$wheel_file'
+          
           if not extras:
               print('No extras found to test')
               sys.exit(0)
@@ -131,15 +143,26 @@ jobs:
           for extra in extras:
               print(f'Testing extra: {extra}')
               try:
-                  # Install package with extra
-                  subprocess.run([sys.executable, '-m', 'pip', 'install', f'.[{extra}]'], check=True)
+                  # Create fresh venv for each extra
+                  venv_name = f'.venv-extra-{extra}'
+                  subprocess.run([sys.executable, '-m', 'venv', venv_name], check=True)
+                  
+                  # Determine activation script path
+                  if os.name == 'nt':  # Windows
+                      pip_path = os.path.join(venv_name, 'Scripts', 'pip')
+                      python_path = os.path.join(venv_name, 'Scripts', 'python')
+                  else:  # Unix-like
+                      pip_path = os.path.join(venv_name, 'bin', 'pip')
+                      python_path = os.path.join(venv_name, 'bin', 'python')
+                  
+                  # Install package with extra from wheel
+                  subprocess.run([pip_path, 'install', '--upgrade', 'pip'], check=True)
+                  subprocess.run([pip_path, 'install', f'{wheel_file}[{extra}]'], check=True)
                   
                   # Test import
-                  subprocess.run([sys.executable, '-c', 'import xorq'], check=True)
+                  subprocess.run([python_path, '-c', 'import xorq'], check=True)
                   print(f'Successfully tested extra: {extra}')
                   
-                  # Uninstall to clean up for next extra
-                  subprocess.run([sys.executable, '-m', 'pip', 'uninstall', '-y', 'xorq'], check=True)
               except subprocess.CalledProcessError as e:
                   print(f'Failed to test extra {extra}: {e}')
                   sys.exit(1)
