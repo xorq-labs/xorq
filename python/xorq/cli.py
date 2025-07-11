@@ -3,7 +3,6 @@ import os
 import pdb
 import sys
 import traceback
-from enum import StrEnum
 from functools import partial
 from pathlib import Path
 
@@ -18,6 +17,12 @@ from xorq.common.utils.otel_utils import tracer
 from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import BuildManager
 from xorq.vendor.ibis import Expr
+
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
 
 
 logger = get_print_logger()
@@ -317,7 +322,7 @@ def parse_args(override=None):
     init_parser.add_argument(
         "-t",
         "--template",
-        choices=InitTemplates,
+        choices=tuple(InitTemplates),
         default=InitTemplates.cached_fetcher,
     )
 
