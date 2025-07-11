@@ -156,7 +156,7 @@ jobs:
                       python_path = os.path.join(venv_name, 'bin', 'python')
                   
                   # Install package with extra from wheel
-                  subprocess.run([pip_path, 'install', '--upgrade', 'pip'], check=True)
+                  subprocess.run([python_path, '-m', 'pip', 'install', '--upgrade', 'pip'], check=True)
                   subprocess.run([pip_path, 'install', f'{wheel_file}[{extra}]'], check=True)
                   
                   # Test import
