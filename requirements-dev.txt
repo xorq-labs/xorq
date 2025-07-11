@@ -732,6 +732,8 @@ stack-data==0.6.3
     # via ipython
 starlette==0.47.1
     # via mcp
+strenum==0.4.15 ; python_full_version < '3.11'
+    # via xorq
 strictyaml==1.7.3
     # via pyiceberg
 structlog==25.4.0 ; python_full_version < '4'
