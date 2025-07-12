@@ -4865,6 +4865,7 @@ dependencies = [
     { name = "attrs", marker = "python_full_version < '4'" },
     { name = "cityhash", marker = "python_full_version < '4'" },
     { name = "cloudpickle" },
+    { name = "cryptography" },
     { name = "dask", marker = "python_full_version < '4'" },
     { name = "envyaml" },
     { name = "geoarrow-types", marker = "python_full_version < '4'" },
@@ -4898,7 +4899,6 @@ duckdb = [
 ]
 examples = [
     { name = "adbc-driver-postgresql" },
-    { name = "cryptography" },
     { name = "duckdb", marker = "python_full_version < '4'" },
     { name = "fsspec", marker = "python_full_version < '4'" },
     { name = "mcp" },
@@ -4973,7 +4973,7 @@ requires-dist = [
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.0.0,<26" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
-    { name = "cryptography", marker = "extra == 'examples'", specifier = ">=45.0.3" },
+    { name = "cryptography", specifier = ">=45.0.3" },
     { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==2025.1.0" },
     { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'datafusion'", specifier = ">=0.6,<48" },
     { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.10.3,<2" },
