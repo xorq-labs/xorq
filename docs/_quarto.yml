@@ -80,7 +80,7 @@ format:
     toc: true
     code-copy: true
     code-overflow: wrap
-    include-in-header: "style/fontawesome.html"
+    include-in-header: "style/google.html"
 
 quartodoc:
   package: xorq
