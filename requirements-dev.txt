@@ -751,7 +751,9 @@ threadpoolctl==3.6.0
 tinycss2==1.4.0
     # via bleach
 toml==0.10.2
-    # via vendoring
+    # via
+    #   vendoring
+    #   xorq
 tomli==2.2.1
     # via
     #   black
