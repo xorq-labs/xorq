@@ -14,8 +14,10 @@ from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
+from xorq.common.utils.process_utils import Popened
 from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import BuildManager
+from xorq.ibis_yaml.packager import Packager
 from xorq.vendor.ibis import Expr
 
 
@@ -31,6 +33,29 @@ logger = get_print_logger()
 class InitTemplates(StrEnum):
     cached_fetcher = "cached-fetcher"
     sklearn = "sklearn"
+
+
+def uv_build_command(
+    script_path,
+    sys_argv,
+    *,
+    pyproject_path=None,
+):
+    packager = Packager(script_path, pyproject_path)
+    args = (
+        "uv",
+        "tool",
+        "run",
+        "--with",
+        str(packager.sdist_path),
+        "xorq",
+        "build",
+        *sys_argv,
+    )
+    popened = Popened(args)
+    print(popened.stderr, file=sys.stderr)
+    print(popened.stdout, file=sys.stdout)
+    # should we execv here instead?
 
 
 @tracer.start_as_current_span("cli.build_command")
@@ -232,6 +257,26 @@ def parse_args(override=None):
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
 
+    uv_build_parser = subparsers.add_parser(
+        "uv-build",
+    )
+    uv_build_parser.add_argument("script_path", help="Path to the Python script")
+    uv_build_parser.add_argument(
+        "-e",
+        "--expr-name",
+        default="expr",
+        help="Name of the expression variable in the Python script",
+    )
+    uv_build_parser.add_argument(
+        "--builds-dir", default="builds", help="Directory for all generated artifacts"
+    )
+    uv_build_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+
     build_parser = subparsers.add_parser(
         "build", help="Generate artifacts from an expression"
     )
@@ -342,6 +387,11 @@ def main():
 
     try:
         match args.command:
+            case "uv-build":
+                f, f_args = (
+                    uv_build_command,
+                    (args.script_path, sys.argv[2:]),
+                )
             case "build":
                 f, f_args = (
                     build_command,
