@@ -23,7 +23,8 @@ website:
 
     left:
       - sidebar:user-guide
-      - sidebar:api-reference
+      - href: reference/index.qmd
+
 
   sidebar:
     - id: user-guide
@@ -56,20 +57,45 @@ website:
             - href: tutorials/hn_serving.qmd
 
     - id: api-reference
-      title: "API"
+      title: "Reference"
+      collapse-level: 2
       contents:
-        - id: expression-api
-          section: "Expression API"
+        - id: core-operations-section
+          section: "Core Operations"
           contents:
-            - href: reference/expression-relations.qmd
-            - href: reference/expression-generic.qmd
-            - href: reference/expression-numeric.qmd
-            - href: reference/expression-strings.qmd
-            - href: reference/expression-temporal.qmd
-        - id: ml-api
-          section: "ML API"
+            - reference/read_csv.qmd
+            - reference/read_parquet.qmd
+            - reference/memtable.qmd
+            - reference/to_sql.qmd
+            - reference/execute.qmd
+            - reference/to_pyarrow_batches.qmd
+            - reference/to_pyarrow.qmd
+            - reference/to_parquet.qmd
+            - reference/to_csv.qmd
+            - reference/to_json.qmd
+        - id: data-operations-section
+          section: "Data Operations"
           contents:
-            - href: reference/ml-api.qmd
+            - reference/Table.qmd
+            - reference/GroupedTable.qmd
+            - reference/Value.qmd
+            - reference/Scalar.qmd
+            - reference/Column.qmd
+            - reference/NumericColumn.qmd
+            - reference/IntegerColumn.qmd
+            - reference/FloatingColumn.qmd
+            - reference/StringValue.qmd
+            - reference/TimeValue.qmd
+            - reference/DateValue.qmd
+            - reference/DayOfWeek.qmd
+            - reference/TimestampValue.qmd
+            - reference/IntervalValue.qmd
+        - id: machine-learning-operations-section
+          section: "Machine Learning Operations"
+          contents:
+            - reference/train_test_splits.qmd
+            - reference/Step.qmd
+            - reference/Pipeline.qmd
 
 
 format:
@@ -91,240 +117,87 @@ quartodoc:
   options:
     signature_name: short
   sections:
-    - title: Expression API
-      desc: "APIs for manipulating table, column and scalar expressions"
+    - title: Core Operations
+      desc: "APIs for reading and returning data"
       contents:
-        - kind: page
-          path: expression-relations
-          summary:
-            name: Table expressions
-            desc: Tables are one of the core data structures in Xorq.
-          contents:
-            - name: Table
-              include_inherited: true
-              package: xorq.vendor.ibis.expr.types.relations
-            - name: GroupedTable
-              package: xorq.vendor.ibis.expr.types.groupby
-            - name: read_csv
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: read_parquet
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: memtable
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_sql
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: execute
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_pyarrow_batches
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_pyarrow
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_parquet
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_csv
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_json
-              dynamic: true
-              signature_name: full
-              package: xorq
+        - name: read_csv
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: read_parquet
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: memtable
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_sql
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: execute
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_pyarrow_batches
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_pyarrow
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_parquet
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_csv
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_json
+          dynamic: true
+          signature_name: full
+          package: xorq
 
-        - kind: page
-          path: expression-generic
+    - title: Data Operations
+      desc:
+      contents:
+        - name: Table
+          include_inherited: true
+          package: xorq.vendor.ibis.expr.types.relations
+        - name: GroupedTable
+          package: xorq.vendor.ibis.expr.types.groupby
+        - name: Value
           package: xorq.vendor.ibis.expr.types.generic
-          summary:
-            name: Generic expressions
-            desc: Scalars and columns of any element type.
-          contents:
-            - name: Value
-              members:
-                - asc
-                - cast
-                - coalesce
-                - collect
-                - identical_to
-                - isin
-                - isnull
-                - name
-                - notnull
-                - nullif
-                - try_cast
-            - name: Scalar
-              members:
-                - as_table
-            - name: Column
-              members:
-                - approx_median
-                - approx_nunique
-                - arbitrary
-                - count
-                - first
-                - lag
-                - last
-                - lead
-                - max
-                - median
-                - min
-                - nth
-                - nunique
-
-        - kind: page
-          path: expression-numeric
+        - name: Scalar
+          package: xorq.vendor.ibis.expr.types.generic
+        - name: Column
+          package: xorq.vendor.ibis.expr.types.generic
+        - name: NumericColumn
           package: xorq.vendor.ibis.expr.types.numeric
-          summary:
-            name: Numeric and Boolean expressions
-            desc: Integer, floating point, decimal, and boolean expressions.
-          contents:
-            - name: NumericColumn
-              members:
-                - abs
-                - acos
-                - asin
-                - atan
-                - atan2
-                - bucket
-                - ceil
-                - corr
-                - cos
-                - cot
-                - cov
-                - degrees
-                - exp
-                - floor
-                - ln
-                - log
-                - log10
-                - log2
-                - mean
-                - negate
-                - radians
-                - round
-                - sign
-                - sin
-                - sqrt
-                - std
-                - sum
-                - tan
-                - var
-            - name: IntegerColumn
-              members:
-                - bit_and
-                - bit_or
-                - bit_xor
-                - to_timestamp
-            - name: FloatingColumn
-              members:
-                - isinf
-                - isnan
-
-        - kind: page
-          path: expression-strings
+        - name: IntegerColumn
+          package: xorq.vendor.ibis.expr.types.numeric
+        - name: FloatingColumn
+          package: xorq.vendor.ibis.expr.types.numeric
+        - name: StringValue
           package: xorq.vendor.ibis.expr.types.strings
-          summary:
-            name: String expressions
-            desc: All string operations are valid for both scalars and columns.
-          contents:
-            - name: StringValue
-              members:
-                - ascii_str
-                - authority
-                - capitalize
-                - concat
-                - contains
-                - endswith
-                - find
-                - find_in_set
-                - fragment
-                - host
-                - length
-                - levenshtein
-                - lower
-                - lpad
-                - lstrip
-                - path
-                - protocol
-                - query
-                - re_extract
-                - re_replace
-                - re_search
-                - re_split
-                - repeat
-                - replace
-                - reverse
-                - right
-                - rpad
-                - rstrip
-                - split
-                - startswith
-                - strip
-                - substr
-                - to_date
-                - translate
-                - upper
-                - userinfo
-
-        - kind: page
-          path: expression-temporal
+        - name: TimeValue
           package: xorq.vendor.ibis.expr.types.temporal
-          summary:
-            name: Temporal expressions
-            desc: Dates, times, timestamps and intervals.
-          contents:
-            - name: TimeValue
-              members:
-                - hour
-                - microsecond
-                - millisecond
-                - minute
-                - second
-                - time
-                - truncate
-            - name: DateValue
-              members:
-                - day
-                - day_of_year
-                - epoch_seconds
-                - month
-                - quarter
-                - truncate
-                - week_of_year
-                - year
-            - name: DayOfWeek
-              members:
-                - full_name
-                - index
-            - name: TimestampValue
-              members:
-                - date
-                - truncate
-            - name: IntervalValue
-              members:
-                - to_unit
+        - name: DateValue
+          package: xorq.vendor.ibis.expr.types.temporal
+        - name: DayOfWeek
+          package: xorq.vendor.ibis.expr.types.temporal
+        - name: TimestampValue
+          package: xorq.vendor.ibis.expr.types.temporal
+        - name: IntervalValue
+          package: xorq.vendor.ibis.expr.types.temporal
 
-        - kind: page
-          path: ml-api
-          package: xorq.expr.ml
-          summary:
-            name: ML functions
-            desc: ML functions and classes helpers
-          contents:
-            - train_test_splits
-            - Step
-            - Pipeline
+    - title: Machine Learning Operations
+      package: xorq.expr.ml
+      desc: "Machine Learning Functions and Helpers"
+      contents:
+        - train_test_splits
+        - Step
+        - Pipeline
