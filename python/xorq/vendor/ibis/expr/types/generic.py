@@ -205,7 +205,7 @@ class Value(Expr):
         If you make an illegal cast, you won't know until the backend actually
         executes it. Consider [`.try_cast()`](#ibis.expr.types.generic.Value.try_cast).
 
-        >>> ibis.literal("a string").cast("int64")  # doctest: +SKIP
+        >>> ibis.literal("a string").cast("int64")  # quartodoc: +SKIP # doctest: +SKIP
         <error>
         """
         op = ops.Cast(self, to=target_type)
