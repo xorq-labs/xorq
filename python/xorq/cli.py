@@ -10,6 +10,7 @@ from opentelemetry import trace
 
 import xorq as xo
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
@@ -32,6 +33,10 @@ class InitTemplates(StrEnum):
     cached_fetcher = "cached-fetcher"
     sklearn = "sklearn"
     penguins = "penguins"
+
+    @classproperty
+    def default(self):
+        return self.cached_fetcher
 
 
 @tracer.start_as_current_span("cli.build_command")
@@ -213,7 +218,7 @@ def serve_command(
 @tracer.start_as_current_span("cli.init_command")
 def init_command(
     path="./xorq-template",
-    template=InitTemplates.cached_fetcher,
+    template=InitTemplates.default,
 ):
     from xorq.common.utils.download_utils import download_xorq_template
 
