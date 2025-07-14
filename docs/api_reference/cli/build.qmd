@@ -2,13 +2,10 @@
 title: 'Build'
 ---
 
-The `build` command compiles a Xorq expression into a reusable artifact that can be executed later.
 
-## Overview
+The xorq CLI provides the `build` command to compile xorq expressions into reusable artifacts that can be executed later. This separation enables:
 
-The `build` command is part of xorq's approach to separating the definition of data transformations from their execution. This separation enables:
-
-- **Replicability**: Define transformations once and execute them consistently across different environments with guaranteed identical results
+- **Replicability**: Define transformations once and execute them consistently across different environments with guaranteed identical results.
 - **Serialization**: Store complex queries as compiled artifacts that can be shared, versioned, and executed without the original code
 - **Performance optimization**: Pre-compile expressions to avoid repeated parsing and optimization at runtime
 
@@ -20,7 +17,11 @@ Before starting, make sure you have xorq installed:
 pip install xorq
 ```
 
-## Basic Usage
+## Building Expressions
+
+The `build` command compiles a xorq expression into a reusable artifact that can be executed later.
+
+### Basic Usage
 
 The basic syntax for the `build` command is:
 
@@ -28,104 +29,210 @@ The basic syntax for the `build` command is:
 xorq build <script_path> -e <expression_name> --builds-dir <output_directory>
 ```
 
-### Arguments
-
+Where:
 - `<script_path>` is the path to your Python script containing the expression
-- `-e, --expr-name <expression_name>` is the name of the variable holding the Ibis expression (defaults to "expr")
-- `--builds-dir <output_directory>` is where the artifacts will be generated (defaults to "builds")
-- `--cache-dir <cache_directory>` is where the parquet cache files will be generated (defaults to system cache directory)
+- `<expression_name>` is the name of the variable holding the xorq expression
+- `<builds-dir>` is where the artifacts will be generated (defaults to "builds")
 
-## Example
+### Example: Penguins Data Processing
 
-Let's create a simple script that defines an Ibis expression:
+Let's create a complete example using the penguins dataset. First, we'll create a script that defines a xorq expression with a UDXF for data processing:
 
 ```{python}
 #| eval: false
+# penguins_analysis.py
 
+import pandas as pd
 import xorq as xo
-from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.expr.relations import into_backend
 
-pg = xo.postgres.connect_env()
-db = xo.duckdb.connect()
+def analyze_penguin_health(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Analyze penguin health based on body mass and bill dimensions.
+    This function demonstrates a typical ML preprocessing pipeline.
+    """
+    def calculate_health_score(row):
+        if pd.isna(row['body_mass_g']) or pd.isna(row['bill_length_mm']):
+            return None
+        
+        # Simple health score based on mass-to-bill ratio
+        mass_score = min(row['body_mass_g'] / 1000, 10)  # Scale to 0-10
+        bill_score = min(row['bill_length_mm'] / 10, 10)  # Scale to 0-10
+        return (mass_score + bill_score) / 2
+    
+    def categorize_size(mass):
+        if pd.isna(mass):
+            return "unknown"
+        elif mass < 3500:
+            return "small"
+        elif mass < 4500:
+            return "medium" 
+        else:
+            return "large"
+    
+    return df.assign(
+        health_score=df.apply(calculate_health_score, axis=1),
+        size_category=df['body_mass_g'].apply(categorize_size),
+        processed_at=pd.Timestamp.now()
+    )
 
-batting = pg.table("batting")
+# Load penguins data
+pandas_con = xo.pandas.connect()
+penguins_data = xo.examples.penguins.fetch(backend=pandas_con)
 
-backend = xo.duckdb.connect()
-awards_players = deferred_read_parquet(
-    backend,
-    xo.config.options.pins.get_path("awards_players"),
-    table_name="award_players",
+# Filter out rows with missing critical values
+filtered_penguins = penguins_data.filter(
+    penguins_data.bill_length_mm.isnull() == False,
+    penguins_data.bill_depth_mm.isnull() == False,
+    penguins_data.flipper_length_mm.isnull() == False,
+    penguins_data.body_mass_g.isnull() == False,
 )
-left = batting.filter(batting.yearID == 2015)
-right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
-expr = left.join(
-    into_backend(right, pg, "pg-filtered-table"), ["playerID"], how="semi"
-)[["yearID", "stint"]]
+
+# Define schemas for the UDXF
+input_schema = xo.schema({
+    "species": str,
+    "island": str,
+    "bill_length_mm": float,
+    "bill_depth_mm": float,
+    "flipper_length_mm": float,
+    "body_mass_g": float,
+    "sex": str,
+    "year": int
+})
+
+output_schema = xo.schema({
+    "species": str,
+    "island": str,
+    "bill_length_mm": float,
+    "bill_depth_mm": float,
+    "flipper_length_mm": float,
+    "body_mass_g": float,
+    "sex": str,
+    "year": int,
+    "health_score": float,
+    "size_category": str,
+    "processed_at": "timestamp"
+})
+
+# Create the UDXF expression - this is what gets built
+expr = xo.expr.relations.flight_udxf(
+    filtered_penguins,
+    process_df=analyze_penguin_health,
+    maybe_schema_in=input_schema,
+    maybe_schema_out=output_schema,
+    con=xo.connect(),
+    make_udxf_kwargs={
+        "name": "analyze_penguin_health",
+        "command": "penguin_health_analyzer"
+    }
+)
 ```
 
 Now, let's build this expression using the CLI:
 
 ```bash
-xorq build pipeline.py -e expr --builds-dir artifacts
+xorq build penguins_analysis.py -e expr --builds-dir builds
 ```
 
 This command will:
-1. Load the `pipeline.py` script
-2. Find the `expr` variable
+1. Load the `penguins_analysis.py` script
+2. Find the `expr` variable containing the UDXF expression
 3. Generate artifacts based on the expression
-4. Save them to the `artifacts` directory
+4. Save them to the `builds` directory
 
 You should see output similar to:
 
 ```bash
-Building expr from pipeline.py
-Written 'expr' to artifacts/3350466c8fcd
+Building expr from penguins_analysis.py
+Written 'expr' to builds/f02d28198715
 ```
 
-## Build Artifacts
+### Understanding Build Artifacts
 
-The build process generates several files in the output directory:
-
-- **expr.yaml**: Complete expression metadata with schemas and lineage information
-- **SQL files**: Debug outputs showing the generated SQL queries
-- **profiles.yaml**: Backend connection profiles used
-- **metadata.json**: Build metadata and timestamps
-- **deferred_reads.yaml**: Information about deferred data sources
-
-## Error Handling
-
-The CLI will provide helpful error messages if:
-
-- The script doesn't exist at the specified path
-- The expression variable isn't found in the script
-- The variable isn't an Ibis expression
-- The expression name is not provided when required
-- There are issues with the expression compilation
-
-## Advanced Usage
-
-### Custom Expression Names
-
-If your expression variable has a different name than the default "expr":
+After building, you'll find several artifacts in the build directory:
 
 ```bash
-xorq build my_pipeline.py -e my_custom_expression --builds-dir outputs
+builds/penguins_analysis/
+├── expr.yaml          # YAML expression definition
+├── metadata.json      # Build metadata and checksums
+├── deferred_reads.yaml # Data source configurations
+└── profiles.yaml      # Backend connection profiles
 ```
 
-### Custom Cache Directory
+**expr.yaml** contains the complete expression definition:
+```yaml
+# Example snippet from expr.yaml
+expression:
+  op: RemoteTable
+  table: ibis_rbr-placeholder_row5rfsuc5dino
+  schema_ref: schema_0
+  profile: feda6956a9ca4d2bda0fbc8e775042c3_3
+  remote_expr:
+    op: FlightUDXF
+    name: ibis_rbr-placeholder_xcbivckvizcild
+    schema_ref: schema_0
+    input_expr:
+      node_ref: fa2a3654153da35ad09d4a9c84ea14c8
+    udxf: gAWVfRoAAAAAAACMF2Nsb3VkcGlja2xlLmNsb3
+    make_server: gAWV7wMAAAAAAACMF2Nsb3VkcGlja2x
+    make_connection: gAWVFAAAAAAAAACMBHhvcnGUjAd
+    do_instrument_reader: false
+```
 
-To specify a custom directory for parquet cache files:
+**deferred_reads.yaml** tracks data sources:
+```yaml
+reads:
+  penguins-8e3342f56fda839fd4878058ca4394f9:
+    engine: pandas
+    profile_name: 08f39a9ca2742d208a09d0ee9c7756c0_1
+    relations:
+    - penguins-8e3342f56fda839fd4878058ca4394f9
+    options:
+      method_name: read_parquet
+      name: penguins
+      read_kwargs:
+      - source: path/to/penguins
+      - table_name: penguins
+    sql_file: f7bbe97f6c5e.sql
+```
+
+## Advanced Build Options
+
+### Custom Build Directory
+
+Specify a custom location for build artifacts:
 
 ```bash
-xorq build pipeline.py -e expr --cache-dir /path/to/cache
+xorq build penguins_analysis.py -e expr --builds-dir /path/to/custom/builds
 ```
 
-### Building Multiple Expressions
+### Cache Directory
 
-To build different expressions from the same script, run the command multiple times with different expression names:
+Specify where intermediate cache files should be stored:
 
 ```bash
-xorq build pipeline.py -e train_expr --builds-dir artifacts
-xorq build pipeline.py -e test_expr --builds-dir artifacts
+xorq build penguins_analysis.py -e expr --cache-dir /path/to/cache
 ```
+
+### Multiple Expressions
+
+You can build different expressions from the same script:
+
+```{python}
+#| eval: false
+# In penguins_analysis.py, add another expression:
+
+# Simple aggregation expression
+summary_expr = filtered_penguins.group_by("species").agg(
+    avg_mass=filtered_penguins.body_mass_g.mean(),
+    count=filtered_penguins.count()
+)
+```
+
+Build each expression separately:
+
+```bash
+xorq build penguins_analysis.py -e expr --builds-dir builds
+xorq build penguins_analysis.py -e summary_expr --builds-dir builds
+```
+
+The build step separates the definition of your data transformation from its execution, enabling reproducible and portable data pipelines.

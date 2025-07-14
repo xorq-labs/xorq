@@ -2,18 +2,19 @@
 title: 'Run'
 ---
 
-The `run` command executes a built expression artifact and outputs the results in your desired format.
+The `xorq run` command executes built xorq expressions and outputs the results in various formats. This command takes the artifacts created by `xorq build` and executes the expression to produce data.
 
-## Overview
+## Prerequisites
 
-Once you've built an expression using the `build` command, you can execute it with the `run` command. This enables you to:
+Before running xorq expressions, you need:
+- Built xorq expression artifacts (created with `xorq build`)
+- xorq installed with necessary dependencies
 
-- **Execute compiled expressions** without the original Python script
-- **Generate results** in multiple output formats (CSV, JSON, Parquet)
-- **Leverage caching** for efficient repeated execution
-- **Deploy pipelines** in production environments
+## Running Expressions
 
-## Basic Usage
+Once you've built a xorq expression using `xorq build`, you can execute it with the `run` command.
+
+### Basic Usage
 
 The basic syntax for the `run` command is:
 
@@ -21,150 +22,99 @@ The basic syntax for the `run` command is:
 xorq run <build_path> --output-path <output_file> --format <output_format>
 ```
 
-### Arguments
+Where:
+- `<build_path>` is the path to the built xorq expression directory
+- `--output-path` specifies where to write the results (defaults to discarding output)
+- `--format` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
 
-- `<build_path>` is the path to the built expression directory (output of `xorq build`)
-- `-o, --output-path <output_file>` specifies where to write the results (defaults to discarding output, writing to [os.devnull](https://docs.python.org/3/library/os.html#os.devnull))
-- `-f, --format <output_format>` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
-- `--cache-dir <cache_directory>` is where the parquet cache files are stored (defaults to system cache directory)
+### Example: Running the Penguins Analysis
 
-## Examples
-
-### Basic Execution
-
-To run an expression built earlier and save results to a parquet file:
+Assuming you've built the penguins analysis expression from the [run example](run.qmd):
 
 ```bash
-xorq run artifacts/3350466c8fcd --output-path results.parquet
+# Run the expression and save results as Parquet (default format)
+xorq run builds/f02d28198715 --output-path penguin_results.parquet
 ```
 
-### Different Output Formats
+The command will execute the UDXF xorq expression and produce a dataset with the health analysis results.
 
-Save results as CSV:
+### Output Formats
+
+#### Parquet Output (Default)
+```bash
+xorq run builds/f02d28198715 --output-path results.parquet --format parquet
+```
+
+Parquet is efficient for large datasets and preserves data types perfectly.
+
+#### CSV Output
+```bash
+xorq run builds/f02d28198715 --output-path results.csv --format csv
+```
+
+CSV is human-readable and works well with spreadsheet applications.
+
+#### JSON Output
+```bash
+xorq run builds/f02d28198715 --output-path results.json --format json
+```
+
+JSON is useful for web applications and APIs.
+
+### Example Output
+
+When you run the penguins health analysis, you'll get output like (for json the output format is [NDJSON](https://github.com/ndjson/ndjson-spec)):
+
+```json
+{
+  "species": "Adelie",
+  "island": "Torgersen",
+  "bill_length_mm": 39.1,
+  "bill_depth_mm": 18.7,
+  "flipper_length_mm": 181.0,
+  "body_mass_g": 3750.0,
+  "sex": "male",
+  "year": 2007,
+  "health_score": 3.83,
+  "size_category": "medium",
+  "processed_at": 1752508034
+}
+```
+
+### Advanced Options
+
+#### Custom Cache Directory
+Specify where intermediate cache files are stored:
 
 ```bash
-xorq run artifacts/3350466c8fcd --output-path results.csv --format csv
+xorq run builds/penguins_analysis \
+    --output-path results.parquet \
+    --cache-dir /path/to/cache
 ```
 
-Save results as JSON:
+#### Output to Standard Output
+Use `-` to output to stdout (useful for piping):
 
 ```bash
-xorq run artifacts/3350466c8fcd --output-path results.json --format json
+# Output CSV to stdout and pipe to another command
+xorq run builds/f02d28198715 --output-path - --format csv | head -10
 ```
 
-### Output to Standard Output
-
-To output results directly to stdout (useful for piping):
+#### Discarding Output
+When you don't need to save results (useful for validation):
 
 ```bash
-xorq run artifacts/3350466c8fcd --output-path - --format csv
+# Run without saving output (goes to /dev/null)
+xorq run builds/f02d28198715
 ```
 
-### Discarding Output
+## Understanding Execution
 
-To execute an expression without saving results (useful for testing):
+When you run `xorq run`, several things happen:
 
-```bash
-xorq run artifacts/3350466c8fcd
-```
+1. **Load Expression**: The build artifacts are loaded to reconstruct the xorq expression
+2. **Resolve Dependencies**: Data sources and UDXFs are resolved
+3. **Execute Expression**: The xorq expression is executed using the appropriate backend
+4. **Format Output**: Results are formatted and written to the specified location
 
-## Output Formats
-
-### Parquet (Default)
-- **Extension**: `.parquet`
-- **Best for**: Efficient storage, preserving data types, analytics workflows
-- **Compression**: Built-in compression for smaller file sizes
-
-### CSV
-- **Extension**: `.csv`
-- **Best for**: Interoperability, human-readable format, spreadsheet applications
-- **Note**: May lose precision for some data types
-
-### JSON
-- **Extension**: `.json`
-- **Best for**: Web applications, APIs, structured data exchange
-- **Format**: Records-oriented JSON (array of objects)
-
-## Working with Build Artifacts
-
-When you run `xorq build`, you get output like:
-
-```bash
-Building expr from pipeline.py
-Written 'expr' to artifacts/3350466c8fcd
-```
-
-The hash identifier (`3350466c8fcd`) uniquely identifies your built expression. You can:
-
-1. **Run immediately**: Use the full path shown in the build output
-2. **List artifacts**: Check what's in your builds directory
-3. **Reuse builds**: The same hash will be generated for identical expressions
-
-```bash
-# List all built artifacts
-ls artifacts/
-
-# Run a specific build
-xorq run artifacts/3350466c8fcd --output-path my_results.parquet
-```
-
-## Caching and Performance
-
-The `run` command leverages xorq's caching system:
-
-- **Automatic caching**: Intermediate results are cached to avoid recomputation
-- **Cache reuse**: Identical queries reuse cached results across runs
-- **Custom cache directory**: Use `--cache-dir` to specify cache location
-
-```bash
-# Use custom cache directory
-xorq run artifacts/3350466c8fcd --cache-dir /fast/ssd/cache --output-path results.parquet
-```
-
-## Error Handling
-
-The CLI will provide helpful error messages if:
-
-- The build path doesn't exist or isn't a valid xorq artifact
-- The output path directory doesn't exist
-- The specified output format isn't supported
-- There are issues during expression execution
-- Database connections fail
-
-## Advanced Usage
-
-### Pipeline Execution
-
-Run multiple expressions in sequence:
-
-```bash
-# Run data preparation
-xorq run artifacts/prep_3350466c --output-path prep_data.parquet
-
-# Run feature engineering 
-xorq run artifacts/features_8da2b71f --output-path features.parquet
-
-# Run model predictions
-xorq run artifacts/predict_f2a85db9 --output-path predictions.csv --format csv
-```
-
-### Automation and Scripting
-
-Incorporate into shell scripts or CI/CD pipelines:
-
-```bash
-#!/bin/bash
-BUILD_PATH=$(xorq build pipeline.py -e expr --builds-dir /tmp/builds)
-xorq run "$BUILD_PATH" --output-path /data/output/results.parquet
-```
-
-### Large-Scale Execution
-
-For production workloads, consider:
-
-```bash
-# Use high-performance cache directory
-xorq run artifacts/large_expr --cache-dir /nvme/cache --output-path results.parquet
-
-# Process in chunks or use distributed backends as configured in your expression
-```
+The run command provides a reliable way to execute your data transformations consistently across different environments.
