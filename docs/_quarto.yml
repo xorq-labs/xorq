@@ -23,7 +23,11 @@ website:
 
     left:
       - sidebar:user-guide
-      - href: reference/index.qmd
+      - text: "Reference"
+        menu:
+          - api_reference/cli/index.qmd
+          - reference/index.qmd
+          - api_reference/backend_configuration/index.qmd
 
 
   sidebar:
@@ -57,7 +61,7 @@ website:
             - href: tutorials/hn_serving.qmd
 
     - id: api-reference
-      title: "Reference"
+      title: "Python API"
       collapse-level: 2
       contents:
         - id: core-operations-section
@@ -96,7 +100,13 @@ website:
             - reference/train_test_splits.qmd
             - reference/Step.qmd
             - reference/Pipeline.qmd
-
+    - id: cli-reference
+      title: "CLI Commands"
+      collapse-level: 2
+      contents:
+        - api_reference/cli/build.qmd
+        - api_reference/cli/run.qmd
+        - api_reference/cli/serve.qmd
 
 format:
   html:
@@ -110,7 +120,7 @@ format:
 
 quartodoc:
   package: xorq
-  title: Reference
+  title: Python API
   sidebar: reference/_sidebar.yml
   render_interlinks: true
   renderer: _renderer.py

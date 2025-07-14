@@ -2,17 +2,11 @@
 title: Profiles API
 ---
 
-# Profiles API
-
 The Profiles API provides a secure way to manage database connection parameters through environment variable references, allowing you to create, save, load, and use database connections while keeping sensitive information protected.
 
 ## Profile
 
 A `Profile` is an immutable representation of database connection settings that can be serialized to disk.
-
-```python
-from xorq.vendor.ibis.backends.profiles import Profile
-```
 
 ### Properties
 
@@ -26,7 +20,10 @@ from xorq.vendor.ibis.backends.profiles import Profile
 
 ### Creation Methods
 
-```python
+```{python}
+import xorq as xo 
+from xorq.vendor.ibis.backends.profiles import Profile
+
 # Create a new profile
 profile = Profile(
     con_name="postgres",
@@ -40,7 +37,7 @@ profile = Profile(
 )
 
 # Create from an existing connection
-profile = Profile.from_con(connection)
+profile = Profile.from_con(xo.connect())
 
 # Load from disk by alias
 profile = Profile.load("postgres_example")
@@ -48,7 +45,7 @@ profile = Profile.load("postgres_example")
 
 ### Instance Methods
 
-```python
+```{python}
 # Create a connection
 connection = profile.get_con()
 
@@ -72,7 +69,7 @@ path = profile.save(alias="postgres_example", clobber=True)
 
 A collection manager for working with multiple saved profiles.
 
-```python
+```{python}
 from xorq.vendor.ibis.backends.profiles import Profiles
 
 # Create a profiles manager
@@ -81,7 +78,7 @@ profiles = Profiles()
 
 ### Methods
 
-```python
+```{python}
 # List all available profiles
 available = profiles.list()
 
@@ -99,7 +96,7 @@ profile = profiles["postgres_example"]
 
 Profiles store references to environment variables, not their values:
 
-```python
+```{python}
 import os
 
 # Set environment variables
@@ -130,7 +127,7 @@ conn = profile.get_con()
 
 ### Creating and Using Profiles
 
-```python
+```{python}
 # Create profile
 profile = Profile(
     con_name="postgres",
@@ -158,7 +155,7 @@ tables = connection.list_tables()
 
 ### Cloning and Modifying Profiles
 
-```python
+```{python}
 # Clone with modifications
 cloned_profile = profile.clone(**{"connect_timeout": 10})
 
@@ -168,7 +165,7 @@ cloned_profile.save(alias="postgres_other_db", clobber=True)
 
 ### Working with Multiple Profiles
 
-```python
+```{python}
 # Get profiles collection
 profiles = Profiles()
 

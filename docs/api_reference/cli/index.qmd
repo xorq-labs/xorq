@@ -1,0 +1,7 @@
+## CLI Commands
+
+|                    |                                                                                      |
+|--------------------|--------------------------------------------------------------------------------------|
+| [build](build.qmd) | Compile a Xorq expression into a reusable artifact that can be executed later.       |
+| [run](run.qmd)     | Executes a built expression artifact and outputs the results in your desired format. |
+| [serve](serve.qmd) | Deploys UDXF nodes to a Flight Server, enabling remote execution and  data serving.  |

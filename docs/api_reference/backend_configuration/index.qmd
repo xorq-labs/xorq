@@ -1,0 +1,6 @@
+## Backend Configurations
+
+|                                     |                                                                                   |
+|-------------------------------------|-----------------------------------------------------------------------------------|
+| [Profiles](profiles_api.qmd)        | The Profiles API securely manages database connections via environment variables. |
+

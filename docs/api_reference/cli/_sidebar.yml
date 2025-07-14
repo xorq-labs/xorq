@@ -1,0 +1,8 @@
+website:
+  sidebar:
+  - contents:
+    - api_reference/cli/build.qmd
+    - api_reference/cli/run.qmd
+    - api_reference/cli/serve.qmd
+    id: cli-reference
+  - id: dummy-sidebar-cli

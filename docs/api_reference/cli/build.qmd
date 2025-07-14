@@ -1,0 +1,131 @@
+---
+title: 'Build'
+---
+
+The `build` command compiles a Xorq expression into a reusable artifact that can be executed later.
+
+## Overview
+
+The `build` command is part of xorq's approach to separating the definition of data transformations from their execution. This separation enables:
+
+- **Replicability**: Define transformations once and execute them consistently across different environments with guaranteed identical results
+- **Serialization**: Store complex queries as compiled artifacts that can be shared, versioned, and executed without the original code
+- **Performance optimization**: Pre-compile expressions to avoid repeated parsing and optimization at runtime
+
+## Prerequisites
+
+Before starting, make sure you have xorq installed:
+
+```bash
+pip install xorq
+```
+
+## Basic Usage
+
+The basic syntax for the `build` command is:
+
+```bash
+xorq build <script_path> -e <expression_name> --builds-dir <output_directory>
+```
+
+### Arguments
+
+- `<script_path>` is the path to your Python script containing the expression
+- `-e, --expr-name <expression_name>` is the name of the variable holding the Ibis expression (defaults to "expr")
+- `--builds-dir <output_directory>` is where the artifacts will be generated (defaults to "builds")
+- `--cache-dir <cache_directory>` is where the parquet cache files will be generated (defaults to system cache directory)
+
+## Example
+
+Let's create a simple script that defines an Ibis expression:
+
+```{python}
+#| eval: false
+
+import xorq as xo
+from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.expr.relations import into_backend
+
+pg = xo.postgres.connect_env()
+db = xo.duckdb.connect()
+
+batting = pg.table("batting")
+
+backend = xo.duckdb.connect()
+awards_players = deferred_read_parquet(
+    backend,
+    xo.config.options.pins.get_path("awards_players"),
+    table_name="award_players",
+)
+left = batting.filter(batting.yearID == 2015)
+right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
+expr = left.join(
+    into_backend(right, pg, "pg-filtered-table"), ["playerID"], how="semi"
+)[["yearID", "stint"]]
+```
+
+Now, let's build this expression using the CLI:
+
+```bash
+xorq build pipeline.py -e expr --builds-dir artifacts
+```
+
+This command will:
+1. Load the `pipeline.py` script
+2. Find the `expr` variable
+3. Generate artifacts based on the expression
+4. Save them to the `artifacts` directory
+
+You should see output similar to:
+
+```bash
+Building expr from pipeline.py
+Written 'expr' to artifacts/3350466c8fcd
+```
+
+## Build Artifacts
+
+The build process generates several files in the output directory:
+
+- **expr.yaml**: Complete expression metadata with schemas and lineage information
+- **SQL files**: Debug outputs showing the generated SQL queries
+- **profiles.yaml**: Backend connection profiles used
+- **metadata.json**: Build metadata and timestamps
+- **deferred_reads.yaml**: Information about deferred data sources
+
+## Error Handling
+
+The CLI will provide helpful error messages if:
+
+- The script doesn't exist at the specified path
+- The expression variable isn't found in the script
+- The variable isn't an Ibis expression
+- The expression name is not provided when required
+- There are issues with the expression compilation
+
+## Advanced Usage
+
+### Custom Expression Names
+
+If your expression variable has a different name than the default "expr":
+
+```bash
+xorq build my_pipeline.py -e my_custom_expression --builds-dir outputs
+```
+
+### Custom Cache Directory
+
+To specify a custom directory for parquet cache files:
+
+```bash
+xorq build pipeline.py -e expr --cache-dir /path/to/cache
+```
+
+### Building Multiple Expressions
+
+To build different expressions from the same script, run the command multiple times with different expression names:
+
+```bash
+xorq build pipeline.py -e train_expr --builds-dir artifacts
+xorq build pipeline.py -e test_expr --builds-dir artifacts
+```

@@ -1,0 +1,120 @@
+---
+title: 'Serve'
+---
+
+The `xorq serve` command is designed to serve expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. Under the hood, it uses `FlightServer.from_udxf()` to create a specialized Flight server optimized for serving these user-defined functions.
+
+## What the serve Command Does
+
+When you run `xorq serve`, the following happens internally:
+
+1. **Loads the built expression** from the specified directory
+2. **Detects UDXF nodes** within the expression
+3. **Creates a FlightServer** using `FlightServer.from_udxf()`
+4. **Starts the server** and blocks until stopped
+
+The serve command is essentially a wrapper that makes UDXF-containing expressions available as network services.
+
+## Example: Penguins Data Processing
+
+Let's create a complete example using the penguins dataset to demonstrate how the serve command works.
+
+### Step 1: Create the Example Script
+
+First, we'll create `penguins_example.py` with a UDXF expression:
+
+```python
+# penguins_example.py
+
+import pandas as pd
+import xorq as xo
+
+
+def classify_penguin_size(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Classify penguins as small, medium, or large based on body mass.
+    This represents a typical ML inference function that might be served.
+    """
+
+    def get_size_category(mass):
+        if pd.isna(mass):
+            return "unknown"
+        elif mass < 3500:
+            return "small"
+        elif mass < 4500:
+            return "medium"
+        else:
+            return "large"
+
+    return df.assign(
+        size_category=df['body_mass_g'].apply(get_size_category),
+        processed_timestamp=pd.Timestamp.now()
+    )
+
+
+# Define the input schema for penguins data
+input_schema = xo.schema({
+    "species": str,
+    "island": str,
+    "bill_length_mm": float,
+    "bill_depth_mm": float,
+    "flipper_length_mm": float,
+    "body_mass_g": float,
+    "sex": str
+})
+
+# Define the output schema (input + our new columns)
+output_schema = xo.schema({
+    "species": str,
+    "island": str,
+    "bill_length_mm": float,
+    "bill_depth_mm": float,
+    "flipper_length_mm": float,
+    "body_mass_g": float,
+    "sex": str,
+    "size_category": str,
+    "processed_timestamp": "timestamp"
+})
+
+penguins_input = xo.examples.penguins.fetch().select(
+    *input_schema.keys()
+)
+
+# Create the UDXF expression - this is what gets served
+expr = xo.expr.relations.flight_udxf(
+    penguins_input,
+    process_df=classify_penguin_size,
+    maybe_schema_in=input_schema,
+    maybe_schema_out=output_schema,
+    con=xo.connect(),
+    make_udxf_kwargs={
+        "name": "classify_penguin_size",
+        "command": "penguin_classifier"
+    }
+)
+```
+
+### Step 2: Build the Expression
+
+```bash
+# Build the expression
+xorq build penguins_example.py --expr-name expr
+```
+
+This creates a `builds/2c0c1967fbc4/` directory with the serialized expression.
+
+### Step 3: Serve the Expression
+
+```bash
+# Serve the built expression
+xorq serve builds/2c0c1967fbc4 --host 0.0.0.0 --port 8080
+```
+
+## Key Points About UDXF Serving
+
+The serve command is specifically designed for UDXF expressions because:
+
+1. **UDXF expressions contain user-defined functions** that can be efficiently served over Flight
+2. **FlightServer.from_udxf()** automatically extracts the UDXF command ("penguin_classifier" in our example)
+3. **The server hosts the function** and makes it available for remote execution
+4. **Clients can send data** and get processed results back via the Flight protocol

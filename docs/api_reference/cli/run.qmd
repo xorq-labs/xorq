@@ -1,0 +1,170 @@
+---
+title: 'Run'
+---
+
+The `run` command executes a built expression artifact and outputs the results in your desired format.
+
+## Overview
+
+Once you've built an expression using the `build` command, you can execute it with the `run` command. This enables you to:
+
+- **Execute compiled expressions** without the original Python script
+- **Generate results** in multiple output formats (CSV, JSON, Parquet)
+- **Leverage caching** for efficient repeated execution
+- **Deploy pipelines** in production environments
+
+## Basic Usage
+
+The basic syntax for the `run` command is:
+
+```bash
+xorq run <build_path> --output-path <output_file> --format <output_format>
+```
+
+### Arguments
+
+- `<build_path>` is the path to the built expression directory (output of `xorq build`)
+- `-o, --output-path <output_file>` specifies where to write the results (defaults to discarding output, writing to [os.devnull](https://docs.python.org/3/library/os.html#os.devnull))
+- `-f, --format <output_format>` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
+- `--cache-dir <cache_directory>` is where the parquet cache files are stored (defaults to system cache directory)
+
+## Examples
+
+### Basic Execution
+
+To run an expression built earlier and save results to a parquet file:
+
+```bash
+xorq run artifacts/3350466c8fcd --output-path results.parquet
+```
+
+### Different Output Formats
+
+Save results as CSV:
+
+```bash
+xorq run artifacts/3350466c8fcd --output-path results.csv --format csv
+```
+
+Save results as JSON:
+
+```bash
+xorq run artifacts/3350466c8fcd --output-path results.json --format json
+```
+
+### Output to Standard Output
+
+To output results directly to stdout (useful for piping):
+
+```bash
+xorq run artifacts/3350466c8fcd --output-path - --format csv
+```
+
+### Discarding Output
+
+To execute an expression without saving results (useful for testing):
+
+```bash
+xorq run artifacts/3350466c8fcd
+```
+
+## Output Formats
+
+### Parquet (Default)
+- **Extension**: `.parquet`
+- **Best for**: Efficient storage, preserving data types, analytics workflows
+- **Compression**: Built-in compression for smaller file sizes
+
+### CSV
+- **Extension**: `.csv`
+- **Best for**: Interoperability, human-readable format, spreadsheet applications
+- **Note**: May lose precision for some data types
+
+### JSON
+- **Extension**: `.json`
+- **Best for**: Web applications, APIs, structured data exchange
+- **Format**: Records-oriented JSON (array of objects)
+
+## Working with Build Artifacts
+
+When you run `xorq build`, you get output like:
+
+```bash
+Building expr from pipeline.py
+Written 'expr' to artifacts/3350466c8fcd
+```
+
+The hash identifier (`3350466c8fcd`) uniquely identifies your built expression. You can:
+
+1. **Run immediately**: Use the full path shown in the build output
+2. **List artifacts**: Check what's in your builds directory
+3. **Reuse builds**: The same hash will be generated for identical expressions
+
+```bash
+# List all built artifacts
+ls artifacts/
+
+# Run a specific build
+xorq run artifacts/3350466c8fcd --output-path my_results.parquet
+```
+
+## Caching and Performance
+
+The `run` command leverages xorq's caching system:
+
+- **Automatic caching**: Intermediate results are cached to avoid recomputation
+- **Cache reuse**: Identical queries reuse cached results across runs
+- **Custom cache directory**: Use `--cache-dir` to specify cache location
+
+```bash
+# Use custom cache directory
+xorq run artifacts/3350466c8fcd --cache-dir /fast/ssd/cache --output-path results.parquet
+```
+
+## Error Handling
+
+The CLI will provide helpful error messages if:
+
+- The build path doesn't exist or isn't a valid xorq artifact
+- The output path directory doesn't exist
+- The specified output format isn't supported
+- There are issues during expression execution
+- Database connections fail
+
+## Advanced Usage
+
+### Pipeline Execution
+
+Run multiple expressions in sequence:
+
+```bash
+# Run data preparation
+xorq run artifacts/prep_3350466c --output-path prep_data.parquet
+
+# Run feature engineering 
+xorq run artifacts/features_8da2b71f --output-path features.parquet
+
+# Run model predictions
+xorq run artifacts/predict_f2a85db9 --output-path predictions.csv --format csv
+```
+
+### Automation and Scripting
+
+Incorporate into shell scripts or CI/CD pipelines:
+
+```bash
+#!/bin/bash
+BUILD_PATH=$(xorq build pipeline.py -e expr --builds-dir /tmp/builds)
+xorq run "$BUILD_PATH" --output-path /data/output/results.parquet
+```
+
+### Large-Scale Execution
+
+For production workloads, consider:
+
+```bash
+# Use high-performance cache directory
+xorq run artifacts/large_expr --cache-dir /nvme/cache --output-path results.parquet
+
+# Process in chunks or use distributed backends as configured in your expression
+```
