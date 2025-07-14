@@ -383,7 +383,7 @@ def main():
             traceback.print_exception(e)
             pdb.post_mortem(e.__traceback__)
         else:
-            print(e, file=sys.stderr)
+            traceback.print_exc()
         sys.exit(1)
 
 
