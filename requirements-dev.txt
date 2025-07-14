@@ -49,12 +49,12 @@ atpublic==6.0.1
 attrs==25.3.0
     # via
     #   aiohttp
-    #   hash-cache
     #   jsonschema
     #   referencing
     #   sphobjinv
     #   xorq
     #   xorq-feature-utils
+    #   xorq-hash-cache
 babel==2.17.0
     # via jupyterlab-server
 beartype==0.21.0
@@ -117,8 +117,8 @@ click==8.2.1
 cloudpickle==3.1.1
     # via
     #   dask
-    #   hash-cache
     #   xorq
+    #   xorq-hash-cache
 codespell==2.4.1
 colorama==0.4.6
     # via
@@ -138,8 +138,8 @@ cryptography==45.0.5
     #   xorq
 dask==2025.1.0
     # via
-    #   hash-cache
     #   xorq
+    #   xorq-hash-cache
 databackend==0.0.3 ; python_full_version < '4'
     # via pins
 datafusion==47.0.0
@@ -233,8 +233,6 @@ h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
-hash-cache @ git+https://github.com/xorq-labs/hash-cache@0c15468a0fb72bd8fb67a65bc552558708b6d4a8
-    # via xorq-weather-lib
 httpcore==1.0.9
     # via httpx
 httpx==0.28.1
@@ -466,10 +464,10 @@ packaging==25.0
     #   vendoring
 pandas==2.3.0
     # via
-    #   hash-cache
     #   pins
     #   xorq
     #   xorq-feature-utils
+    #   xorq-hash-cache
     #   xorq-weather-lib
 pandocfilters==1.5.1
     # via nbconvert
@@ -765,11 +763,11 @@ tomlkit==0.13.3 ; python_full_version < '4'
 toolz==1.0.0
     # via
     #   dask
-    #   hash-cache
     #   ibis-framework
     #   partd
     #   xorq
     #   xorq-feature-utils
+    #   xorq-hash-cache
     #   xorq-weather-lib
 tornado==6.5.1
     # via
@@ -848,9 +846,9 @@ uri-template==1.3.0
 urllib3==2.5.0
     # via
     #   botocore
-    #   hash-cache
     #   requests
     #   xorq-feature-utils
+    #   xorq-hash-cache
     #   xorq-weather-lib
 uvicorn==0.35.0 ; sys_platform != 'emscripten'
     # via mcp
@@ -873,9 +871,11 @@ xgboost==3.0.2
     # via xorq
 xorq-datafusion==0.2.3
     # via xorq
-xorq-feature-utils @ git+https://github.com/xorq-labs/xorq-feature-utils@cbd61a83b647422c329214f2739f86d8aedf920f
+xorq-feature-utils==0.1.0
     # via xorq
-xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib@2421b57a22bb5f3b35440ba32f07f19500080c62
+xorq-hash-cache==0.1.0
+    # via xorq-weather-lib
+xorq-weather-lib==0.1.0
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4'
     # via pins

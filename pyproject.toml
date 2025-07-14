@@ -282,11 +282,3 @@ filter_commits = true
 tag_pattern = "v[0-9].*"
 topo_order = false
 sort_commits = "oldest"
-
-[tool.uv.sources]
-hash-cache = { git = "https://github.com/xorq-labs/hash-cache", branch = "feat/ttl" }
-xorq-weather-lib = { git = "https://github.com/xorq-labs/xorq-weather-lib", branch = "main" }
-xorq-feature-utils = { git = "https://github.com/xorq-labs/xorq-feature-utils", branch = "main" }
-
-[tool.hatch.metadata]
-allow-direct-references = true
