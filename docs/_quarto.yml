@@ -23,6 +23,8 @@ website:
 
     left:
       - sidebar:user-guide
+      - text: How-To Guides
+        href: how_to/index.qmd
       - text: "Reference"
         menu:
           - api_reference/cli/index.qmd

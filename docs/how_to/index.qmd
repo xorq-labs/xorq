@@ -1,0 +1,7 @@
+## How-To Guides
+
+|                                                           |                                                  |
+|-----------------------------------------------------------|--------------------------------------------------|
+| [Installation](installation.qmd)                          | How to install Xorq                              |
+| [Backend Switching and Caching](into_backend_caching.qmd) | How to switch between backends and cache results |
+
