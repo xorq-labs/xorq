@@ -62,7 +62,7 @@ website:
 
     - id: api-reference
       title: "Python API"
-      collapse-level: 2
+      collapse-level: 1
       contents:
         - id: core-operations-section
           section: "Core Expressions"
@@ -102,6 +102,12 @@ website:
             - reference/to_json.qmd
         - id: udf-system-section
           section: "UDF System"
+          contents:
+            - reference/agg.pandas_df.qmd
+            - reference/agg.pyarrow.qmd
+            - reference/make_pandas_expr_udf.qmd
+            - reference/make_pandas_udf.qmd
+            - reference/pyarrow_udwf.qmd
 
     - id: cli-reference
       title: "CLI Commands"
