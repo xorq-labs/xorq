@@ -39,6 +39,7 @@ dependencies = [
     "prometheus-client>=0.22.1",
     "cryptography>=45.0.3",
     "strenum>=0.4.15 ; python_version <= '3.10'",
+    "uv>=0.7.20",
 ]
 requires-python = ">=3.10"
 authors = [
