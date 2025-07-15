@@ -21,6 +21,8 @@ A `Profile` is an immutable representation of database connection settings that 
 ### Creation Methods
 
 ```{python}
+#| eval: false
+
 import xorq as xo 
 from xorq.vendor.ibis.backends.profiles import Profile
 
@@ -46,6 +48,8 @@ profile = Profile.load("postgres_example")
 ### Instance Methods
 
 ```{python}
+#| eval: false
+
 # Create a connection
 connection = profile.get_con()
 
@@ -70,6 +74,8 @@ path = profile.save(alias="postgres_example", clobber=True)
 A collection manager for working with multiple saved profiles.
 
 ```{python}
+#| eval: false
+
 from xorq.vendor.ibis.backends.profiles import Profiles
 
 # Create a profiles manager
@@ -79,6 +85,8 @@ profiles = Profiles()
 ### Methods
 
 ```{python}
+#| eval: false
+
 # List all available profiles
 available = profiles.list()
 
@@ -97,6 +105,8 @@ profile = profiles["postgres_example"]
 Profiles store references to environment variables, not their values:
 
 ```{python}
+#| eval: false
+
 import os
 
 # Set environment variables
@@ -128,6 +138,8 @@ conn = profile.get_con()
 ### Creating and Using Profiles
 
 ```{python}
+#| eval: false
+
 # Create profile
 profile = Profile(
     con_name="postgres",
@@ -156,6 +168,8 @@ tables = connection.list_tables()
 ### Cloning and Modifying Profiles
 
 ```{python}
+#| eval: false
+
 # Clone with modifications
 cloned_profile = profile.clone(**{"connect_timeout": 10})
 
@@ -166,6 +180,8 @@ cloned_profile.save(alias="postgres_other_db", clobber=True)
 ### Working with Multiple Profiles
 
 ```{python}
+#| eval: false
+
 # Get profiles collection
 profiles = Profiles()
 
