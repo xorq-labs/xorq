@@ -65,20 +65,7 @@ website:
       collapse-level: 2
       contents:
         - id: core-operations-section
-          section: "Core Operations"
-          contents:
-            - reference/read_csv.qmd
-            - reference/read_parquet.qmd
-            - reference/memtable.qmd
-            - reference/to_sql.qmd
-            - reference/execute.qmd
-            - reference/to_pyarrow_batches.qmd
-            - reference/to_pyarrow.qmd
-            - reference/to_parquet.qmd
-            - reference/to_csv.qmd
-            - reference/to_json.qmd
-        - id: data-operations-section
-          section: "Data Operations"
+          section: "Core Expressions"
           contents:
             - reference/Table.qmd
             - reference/GroupedTable.qmd
@@ -95,11 +82,27 @@ website:
             - reference/TimestampValue.qmd
             - reference/IntervalValue.qmd
         - id: machine-learning-operations-section
-          section: "Machine Learning Operations"
+          section: "Machine Learning Helpers"
           contents:
             - reference/train_test_splits.qmd
             - reference/Step.qmd
             - reference/Pipeline.qmd
+        - id: data-operations-section
+          section: "Data Operations"
+          contents:
+            - reference/read_csv.qmd
+            - reference/read_parquet.qmd
+            - reference/memtable.qmd
+            - reference/to_sql.qmd
+            - reference/execute.qmd
+            - reference/to_pyarrow_batches.qmd
+            - reference/to_pyarrow.qmd
+            - reference/to_parquet.qmd
+            - reference/to_csv.qmd
+            - reference/to_json.qmd
+        - id: udf-system-section
+          section: "UDF System"
+
     - id: cli-reference
       title: "CLI Commands"
       collapse-level: 2
@@ -211,3 +214,85 @@ quartodoc:
         - train_test_splits
         - Step
         - Pipeline
+
+    - title: Type System
+      desc: "Data types and schemas"
+      contents:
+        - kind: page
+          path: datatypes
+          package: xorq.vendor.ibis.expr.datatypes.core
+          summary:
+            name: Data types
+            desc: Scalar and column data types
+          contents:
+            - name: dtype
+              package: ibis
+              dynamic: true
+              signature_name: full
+            - DataType
+            - Array
+            - Binary
+            - Boolean
+            - Date
+            - Decimal
+            - Float16
+            - Float32
+            - Float64
+            - INET
+            - Int16
+            - Int32
+            - Int64
+            - Int8
+            - Interval
+            - JSON
+            - LineString
+            - MACADDR
+            - Map
+            - MultiLineString
+            - MultiPoint
+            - MultiPolygon
+            - "Null"
+            - Point
+            - Polygon
+            - String
+            - Struct
+            - Time
+            - Timestamp
+            - UInt16
+            - UInt32
+            - UInt64
+            - UInt8
+            - UUID
+        - kind: page
+          path: schemas
+          summary:
+            name: Schemas
+            desc: Table Schemas
+          contents:
+            - name: schema
+              dynamic: true
+              signature_name: full
+            - name: Schema
+              package: xorq.vendor.ibis.expr.schema
+
+    - title: UDF System
+      desc: "The functions for creating UDF"
+      contents:
+        - name: make_pandas_udf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.udf
+        - name: make_pandas_expr_udf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.udf
+        - name: pyarrow_udwf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.udf
+        - name: agg.pyarrow
+          dynamic: true
+          package: xorq.expr.udf
+        - name: agg.pandas_df
+          dynamic: true
+          package: xorq.expr.udf
