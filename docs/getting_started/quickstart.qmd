@@ -18,227 +18,237 @@ Or using nix to drop into an IPython shell:
 nix run github:xorq-labs/xorq
 ```
 
-## Quick Start
+### Initialize a Project
 
-### Write a Simple Pandas UDF
+The fastest way to get started with Xorq is to use the `xorq init` command:
 
-```{python}
-import xorq as xo
-import xorq.expr.datatypes as dt
-
-@xo.udf.make_pandas_udf(
-    schema=xo.schema({"title": str, "url": str}),
-    return_type=dt.bool,
-    name="url_in_title",
-)
-def url_in_title(df):
-    return df.apply(
-        lambda s: (s.url or "") in (s.title or ""),
-        axis=1,
-    )
-
-# Connect to xorq's embedded engine
-con = xo.connect()
-
-# Reference the parquet file
-name = "hn-data-small.parquet"
-expr = xo.deferred_read_parquet(
-    con,
-    xo.options.pins.get_path(name),
-    name,
-).mutate(**{"url_in_title": url_in_title.on_expr})
-
-# Display results
-print(expr.execute().head())
+```bash
+xorq init -t penguins
 ```
 
-Save this file as `example.py`.
+This creates a starting example project with the Palmer Penguins dataset that demonstrates key xorq features including machine learning pipelines, caching, and lineage tracking.
 
-### Create a Sentiment Analysis Pipeline
+Navigate to the created directory and explore the `expr.py` file to see how xorq works in practice.
 
-You can also build more complex pipelines that process data and expose
-endpoints via Arrow Flight:
+## Understanding the Generated Pipeline
+
+The template creates an `expr.py` file that demonstrates a complete ML workflow. Let's walk through the key components:
+
+### 1. Data Loading and Preparation
 
 ```{python}
-#| eval: false
-
-import pathlib
-import pickle
-
-import toolz
-import pandas as pd
-import xgboost as xgb
+# https://inria.github.io/scikit-learn-mooc/python_scripts/trees_classification.html
+import sklearn
+from sklearn.linear_model import LogisticRegression
 
 import xorq as xo
-import xorq.expr.datatypes as dt
-from xorq.common.utils.import_utils import import_python
-
-# Define paths to models and data
-TFIDF_MODEL_PATH = pathlib.Path(xo.options.pins.get_path("hn_tfidf_fitted_model"))
-XGB_MODEL_PATH = pathlib.Path(xo.options.pins.get_path("hn_sentiment_reg"))
-HACKERNEWS_DATA_NAME = "hn-fetcher-input-small"
-
-# Import HackerNews library from pinned path
-hackernews_lib = import_python(xo.options.pins.get_path("hackernews_lib"))
-
-# Load pre-trained models
-def load_models():
-    transformer = pickle.loads(TFIDF_MODEL_PATH.read_bytes())
-    xgb_model = xgb.XGBRegressor()
-    xgb_model.load_model(XGB_MODEL_PATH)
-    return transformer, xgb_model
-
-def predict_sentiment(titles):
-    transformer, xgb_model = load_models()
-    return xgb_model.predict(transformer.transform(titles))
-
-# Create a pandas UDF for sentiment prediction
-@xo.udf.make_pandas_udf(
-    schema=xo.schema({"title": str}),
-    return_type=dt.float64,
-    name="title_transformed",
-)
-def transform_predict(df):
-    return predict_sentiment(df["title"])
-
-# Define a pipeline
-connection = xo.connect()
-pipeline = (
-    xo.deferred_read_parquet(
-        connection,
-        xo.options.pins.get_path(HACKERNEWS_DATA_NAME),
-        HACKERNEWS_DATA_NAME,
-    )
-    .pipe(hackernews_lib.do_hackernews_fetcher_udxf)
-    .select(xo._.title)
-    .mutate(sentiment_score=transform_predict.on_expr)
+from xorq.caching import ParquetStorage
+from xorq.expr.ml.pipeline_lib import (
+    Pipeline,
 )
 
-# Execute the pipeline
-results = pipeline.execute()
-```
 
-Save this file as `sentiment_pipeline.py`.
-
-### Serve Your Pipeline
-
-## CLI Commands
-
-### Build (experimental)
-
-Xorq makes it easy to serialize the pipeline in a diffable and human-readable format, including YAML for expressions, compiled SQL, and deferred reads. Once these artifacts are checked into git, we can build validation, lineage, and documentation tools in the CI/CD process.
-
-```sh
-❯ xorq build example.py -e expr
-Building expr from scrap.py
-              by  ...  url_in_title
-0         benkan  ...         False
-1  iancmceachern  ...         False
-2        michidk  ...         False
-3        journal  ...         False
-4         r0b3r4  ...         False
-[5 rows x 12 columns]
-Written 'expr' to builds/831efa9ba0ec
-```
-
-You can also build more complex pipelines:
-
-```sh
-❯ xorq build sentiment_pipeline.py -e pipeline
-Building pipeline from sentiment_pipeline.py
-Written 'pipeline' to builds/36293178ec4f
-```
-
-The build artifacts are serialized to disk in the `builds` directory by default:
+features = ("bill_length_mm", "bill_depth_mm")
+target = "species"
+data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
 
 ```
-❯ ls -a builds/831efa9ba0ec/
-8db502c29647.sql
-32f00c2c2c8b.sql
-deferred_reads.yaml
-expr.yaml
-metadata.json
-profiles.yaml
-sql.yaml
-```
 
-### Run 
+### 2. Create Train/Test Splits
 
-Execute the serialized expressions by using `xorq run`:
-
-```sh
-❯ xorq run builds/831efa9ba0ec/
-```
-
-### Serve (coming soon)
-
-Deploy your pipeline as a service:
-
-```sh
-❯ xorq serve builds/36293178ec4f/
-```
-
-## Advanced Features
-
-### Using Arrow Flight for Microservices
-
-Create data microservices with Arrow Flight:
-
-Expose your data pipeline as a service using Arrow Flight:
+The template includes a utility function for creating reproducible data splits:
 
 ```{python}
-#| eval: false
 
-from xorq.flight import FlightServer, FlightUrl
-from xorq.flight.exchanger import make_udxf
-# Define schemas for the service
-schema_in = xo.schema({"title": str})
-schema_out = xo.schema({"sentiment_score": dt.double})
+def gen_splits(expr, test_size=.2, random_seed=42, **split_kwargs):
+    # inject and drop row number
+    assert "test_sizes" not in split_kwargs
+    assert isinstance(test_size, float)
+    row_number = "row_number"
+    yield from (
+        expr.drop(row_number)
+        for expr in xo.train_test_splits(
+            expr.mutate(**{row_number: xo.row_number()}),
+            unique_key=row_number,
+            test_sizes=test_size,
+            random_seed=random_seed,
+            **split_kwargs,
+        )
+    )
 
-# Flight server function
-def sentiment_analysis(df: pd.DataFrame):
-    scores = predict_sentiment(df["title"])
-    return pd.DataFrame({"sentiment_score": [float(scores)]})
 
-# Create the UDXF for Flight server
-sentiment_udxf = make_udxf(
-    sentiment_analysis, 
-    schema_in.to_pyarrow(), 
-    schema_out.to_pyarrow()
-)
-
-# Start the Flight server with our exchanger
-flight_port = 8815
-flight_server = FlightServer(
-    FlightUrl(port=flight_port), 
-    exchangers=[sentiment_udxf]
-)
-flight_server.serve()
+def get_penguins_splits(storage=None, **split_kwargs):
+    t = (
+        xo.deferred_read_parquet(
+            con=xo.duckdb.connect(),
+            path=data_url,
+            table_name="t",
+        )
+        .select(features+(target,))
+        .drop_null()
+    )
+    (train, test) = (
+        expr
+        .cache(storage or ParquetStorage())
+        for expr in gen_splits(t, **split_kwargs)
+    )
+    return (train, test)
 ```
-And now, we can connect and test our service:
+
+### 3. Define and Configure Pipeline
 
 ```{python}
-#| eval: false
-
-# Test the service
-client = flight_server.client
-do_sentiment = toolz.curry(client.do_exchange, sentiment_udxf.command)
-
-def test_flight_service():
-    test_data = xo.memtable(
-        {"title": ["This is an amazing HackerNews post"]}, 
-        schema=schema_in
+def make_pipeline(params=()):
+    clf = (
+        sklearn.pipeline.Pipeline(
+            steps=[
+                ("logistic", LogisticRegression()),
+            ]
+        )
+        .set_params(**dict(params))
     )
-    result = do_sentiment(test_data.to_pyarrow_batches())
-    res = result[1].read_pandas()
-    print("Flight service test result:\n", res)
+    return clf
 
-print("Testing Flight service...")
-test_flight_service()
+
+def fit_and_score_sklearn_pipeline(pipeline, train, test):
+    (
+        (X_train, y_train),
+        (X_test, y_test),
+    ) = (
+        expr.execute().pipe(lambda t: (
+            t.filter(regex=f"^(?!{target})"),
+            t.filter(regex=f"^{target}"),
+        ))
+        for expr in (train, test)
+    )
+    clf = pipeline.fit(X_train, y_train)
+    score = clf.score(X_test, y_test)
+    return clf, score
 ```
+
+### 4. Create Deferred ML Pipeline
+
+The key innovation is converting scikit-learn pipelines to deferred xorq expressions:
+
+```{python}
+# Configure hyperparameters
+params = {
+    "logistic__C": 1E-4,
+}
+
+
+# Get train/test splits
+(train, test) = get_penguins_splits()
+
+# Create scikit-learn pipeline
+sklearn_pipeline = make_pipeline(params=params)
+
+# Convert to xorq pipeline
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# still no work done: deferred fit expression
+fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
+
+train_predicted = fitted_pipeline.fitted_steps[-1].predicted
+expr = test_predicted = fitted_pipeline.predict(test[features])
+```
+
+The beauty here is that `fitted_pipeline` is still just an expression - no actual training has happened yet. The computation is deferred until you call `.execute()`.
+
+### 5. Execute and Validate
+
+```{python}
+
+# Compare xorq vs sklearn results
+clf, score_sklearn = fit_and_score_sklearn_pipeline(sklearn_pipeline, train, test)
+score_xorq = fitted_pipeline.score_expr(test)
+assert score_xorq == score_sklearn  # Results should be identical
+```
+
+## Exploring Pipeline Lineage
+
+One of Xorq's most powerful features is automatic lineage tracking. You can visualize the complete computational graph:
+
+```{python}
+from xorq.common.utils.lineage_utils import build_column_trees, print_tree
+
+# Visualize lineage for predictions
+print_tree(build_column_trees(expr)['predicted'])
+```
+
+This outputs a tree showing the complete lineage of how predictions were computed, including:
+
+- Data source (Read operation from parquet file)
+- Null value removal (DropNull)
+- Feature selection (DropColumns)
+- Train/test split logic (complex Filter with hash-based row sampling using row_number)
+- Caching layer for performance optimization
+- Final prediction computation (RemoteTable representing the fitted model output)
+
+## Building and Running the Pipeline
+
+### Build the Expression
+
+Serialize your pipeline for deployment:
+
+```bash
+xorq build expr.py -e expr
+```
+
+Output:
+
+```
+Building expr from expr.py
+Written 'expr' to builds/85f70392e095
+builds/85f70392e095
+```
+
+The build creates several artifacts:
+```
+❯ ls -a builds/85f70392e095/
+
+58bf5c46c84f.sql  
+aee2ca7e0e12.sql  
+d5d0022edaf3.sql  
+dacc6a158d67.sql  
+deferred_reads.yaml  
+expr.yaml  # Complete expression
+metadata.json  
+profiles.yaml  
+sql.yaml # Debug SQL outputs
+```
+
+### Run the Built Expression
+
+Execute the serialized Expression:
+
+```bash
+xorq run builds/85f70392e095/
+```
+
+Save results to different formats:
+```bash
+xorq run builds/85f70392e095/ --output-path predictions.csv --format csv
+xorq run builds/85f70392e095/ --output-path predictions.parquet --format parquet
+```
+
+## Key Benefits Demonstrated
+
+The penguins template showcases several xorq advantages:
+
+**Deferred Execution**: ML pipelines are built as expressions and executed only when needed, enabling optimization and caching.
+**Automatic Caching**: Train/test splits are cached automatically, avoiding recomputation across different experiments.
+**Reproducibility**: Random seeds and versioned data ensure consistent results across runs.
+**Lineage Tracking**: Complete computational provenance from raw data to final predictions.
+**Portability**: Pipelines serialize to YAML/SQL artifacts that can be version controlled and deployed anywhere.
+**Engine Flexibility**: Same code works across DuckDB, DataFusion, Snowflake, and other supported backends.
 
 ## Next Steps
 
-- Explore more examples in the [`examples/`](https://github.com/xorq-labs/xorq/tree/main/examples) directory
-- Read the full API documentation
+- Experiment with the generated `expr.py` file
+- Try different feature combinations by modifying the `features` tuple
+- Explore different algorithms by changing the pipeline steps
+- Read about [Profiles](https://docs.xorq.dev/core_concepts/profiles_guide) to connect to remote backends
+- Learn about the [Caching system](https://docs.xorq.dev/core_concepts/caching) for automatic result storage
+- Check out more examples in the [`examples/`](https://github.com/xorq-labs/xorq/tree/main/examples) directory
 - Join our [community](https://discord.gg/8Kma9DhcJG) for support and discussions
