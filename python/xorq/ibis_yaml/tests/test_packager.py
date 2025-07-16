@@ -55,3 +55,36 @@ def test_sdist_builder(template, tmpdir):
     script_path = project_path.joinpath("expr.py")
     sdist_builder = SdistBuilder(script_path=script_path, sdist_path=tgz_path)
     assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
+
+
+@pytest.mark.parametrize("template", tuple(InitTemplates))
+def test_sdist_builder_no_requirements(template, tmpdir):
+    # test that we build and inject the requirements.txt
+    tgz_path, project_path = prep_template_tmpdir(template, tmpdir)
+    script_path = project_path.joinpath("expr.py")
+    requirements_path = project_path.joinpath("requirements.txt")
+    requirements_path.unlink()
+    sdist_builder = SdistBuilder.from_script_path(
+        script_path=script_path, project_path=project_path, require_requirements=False
+    )
+    assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
+
+
+@pytest.mark.parametrize("template", tuple(InitTemplates))
+def test_sdist_builder_no_requirements_fails(template, tmpdir):
+    # test that we build and inject the requirements.txt
+    tgz_path, project_path = prep_template_tmpdir(template, tmpdir)
+    script_path = project_path.joinpath("expr.py")
+    requirements_path = project_path.joinpath("requirements.txt")
+    requirements_path.unlink()
+    #
+    sdister = Sdister(project_path=project_path)
+    sdist_path = sdister.sdist_path
+    bak_path = sdister.sdist_path.with_name(sdist_path.name + ".bak")
+    #
+    bak_path.rename(sdist_path)
+    with pytest.raises(AssertionError):
+        sdist_builder = SdistBuilder(
+            script_path=script_path, sdist_path=sdist_path, require_requirements=True
+        )
+        sdist_builder
