@@ -72,7 +72,7 @@ def calc_tgz_content_hexdigest(path, member_filter=uv_sdist_member_filter):
 
     with tarfile.TarFile.gzopen(path) as tf:
         dct = {
-            name: file_digest(fh, "md5")
+            name: file_digest(fh, hashlib.md5)
             for name, fh in (
                 (member.name, tf.extractfile(member))
                 for member in tf.getmembers()

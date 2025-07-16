@@ -90,7 +90,11 @@ def normalize_read_path_stat(path):
 
 
 def manual_file_digest(path, digest=hashlib.md5, size=2**20):
-    with pathlib.Path(path).open("rb") as fh:
+    from contextlib import closing
+    from tarfile import ExFileObject
+
+    fh = path if isinstance(path, ExFileObject) else pathlib.Path(path).open("rb")
+    with closing(fh):
         obj = digest()
         for chunk in itertools.takewhile(
             bool, (fh.read(size) for fh in itertools.repeat(fh))
@@ -100,14 +104,19 @@ def manual_file_digest(path, digest=hashlib.md5, size=2**20):
 
 
 def file_digest(path, digest=hashlib.md5, size=2**20):
-    try:
-        return hashlib.file_digest(path, digest).hexdigest()
-    except (TypeError, ValueError):
-        try:
+    from tarfile import ExFileObject
+
+    if hasattr(hashlib, "file_digest"):
+        if isinstance(path, ExFileObject):
+            return hashlib.file_digest(path, digest).hexdigest()
+        elif isinstance(path, (str, pathlib.Path)):
             with pathlib.Path(path).open("rb") as fh:
                 return hashlib.file_digest(fh, digest).hexdigest()
-        except AttributeError:
-            return manual_file_digest(path, digest, size=size)
+        else:
+            raise ValueError(f"Don't know how to handle type {type}")
+    else:
+        # python 3.10
+        return manual_file_digest(path, digest, size=size)
 
 
 def normalize_read_path_md5sum(path):
