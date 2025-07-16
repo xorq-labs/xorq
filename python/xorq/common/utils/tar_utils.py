@@ -189,8 +189,7 @@ class TGZAppender:
     def append_toplevel(cls, tgz_path, append_path, suffix=".bak", **kwargs):
         # write to same location as the original tgz_path
         append_path = Path(append_path)
-        root_dir = get_root_dir(tgz_path)
-        arcname = str(root_dir.joinpath(append_path))
+        arcname = str(TGZProxy(tgz_path).root_dir.joinpath(append_path.name))
         kwargs_tuple = tuple(({"arcname": arcname} | kwargs).items())
         self = cls(tgz_path, append_path, kwargs_tuple=kwargs_tuple)
         # make sure the append is successful
