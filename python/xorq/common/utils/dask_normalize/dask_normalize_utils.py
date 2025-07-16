@@ -102,7 +102,7 @@ def manual_file_digest(path, digest=hashlib.md5, size=2**20):
 def file_digest(path, digest=hashlib.md5, size=2**20):
     try:
         return hashlib.file_digest(path, digest).hexdigest()
-    except TypeError:
+    except (TypeError, ValueError):
         try:
             with pathlib.Path(path).open("rb") as fh:
                 return hashlib.file_digest(fh, digest).hexdigest()
