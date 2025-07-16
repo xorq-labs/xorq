@@ -173,17 +173,17 @@ class SdistBuilder:
         return self.get_build_path()
 
     @classmethod
-    def from_script_path(cls, script_path, project_path=None, args=()):
+    def from_script_path(cls, script_path, project_path=None, **kwargs):
         packager = (
             Sdister(project_path)
             if project_path
             else Sdister.from_script_path(script_path)
         )
         return cls(
-            script_path,
-            packager.sdist_path,
-            args=args,
+            script_path=script_path,
+            sdist_path=packager.sdist_path,
             maybe_packager=packager,
+            **kwargs,
         )
 
 
