@@ -34,7 +34,7 @@ website:
 
   sidebar:
     - id: user-guide
-      title: "User Guide"
+      title: "Tutorials"
       collapse-level: 2
       contents:
         - id: user-guide-section
@@ -115,9 +115,18 @@ website:
       title: "CLI Commands"
       collapse-level: 2
       contents:
+        - api_reference/cli/init.qmd
         - api_reference/cli/build.qmd
         - api_reference/cli/run.qmd
         - api_reference/cli/serve.qmd
+
+    - id: how_to_guides
+      title: "How-To Guides"
+      contents:
+         - how_to/installation.qmd
+         - how_to/into_backend_caching.qmd
+         - how_to/integration_patterns.qmd
+         - how_to/io_xorq.qmd
 
 format:
   html:
