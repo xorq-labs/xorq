@@ -18,6 +18,7 @@ from xorq.common.utils.process_utils import (
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
     Sdister,
+    SdistRunner,
 )
 
 
@@ -88,3 +89,22 @@ def test_sdist_builder_no_requirements_fails(template, tmpdir):
             script_path=script_path, sdist_path=sdist_path, require_requirements=True
         )
         sdist_builder
+
+
+@pytest.mark.parametrize("template", tuple(InitTemplates))
+def test_sdist_runner(template, tmpdir):
+    tmpdir = Path(tmpdir)
+    output_path = tmpdir.joinpath("output")
+    tgz_path, project_path = prep_template_tmpdir(template, tmpdir)
+    script_path = project_path.joinpath("expr.py")
+    sdist_builder = SdistBuilder(script_path=script_path, sdist_path=tgz_path)
+    args = (
+        "xorq",
+        "run",
+        "--output-path",
+        str(output_path),
+        str(sdist_builder.build_path),
+    )
+    sdist_runner = SdistRunner(sdist_builder.build_path, args=args)
+    assert not sdist_runner.popened.returncode
+    assert output_path.exists()
