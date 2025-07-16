@@ -1512,6 +1512,31 @@ def _not_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr
     return arg.notnull()
 
 
+@translate_to_yaml.register(ops.DropNull)
+def _drop_null_to_yaml(op: ops.DropNull, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "DropNull",
+            "parent": translate_to_yaml(op.parent, context),
+            "how": translate_to_yaml(op.how, context) if op.how is not None else None,
+            "subset": translate_to_yaml(op.subset, context)
+            if op.subset is not None
+            else None,
+        }
+    )
+
+
+@register_from_yaml_handler("DropNull")
+def _drop_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    return ops.DropNull(
+        parent=translate_from_yaml(yaml_dict["parent"], context),
+        how=translate_from_yaml(yaml_dict["how"], context),
+        subset=translate_from_yaml(yaml_dict["subset"], context)
+        if yaml_dict["subset"] is not None
+        else None,
+    ).to_expr()
+
+
 @register_from_yaml_handler(
     "ExtractYear",
     "ExtractMonth",
