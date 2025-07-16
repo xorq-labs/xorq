@@ -75,7 +75,7 @@ print("Dataset is now ready for multi-backend operations!")
 
 ## Backend Switching with `into_backend()`
 
-Xorq's powerful `into_backend()` method allows seamless data movement between different query engines using Apache Arrow as an intermediate format.
+Xorq's powerful [`into_backend()`](../reference/Table.qmd#xorq.vendor.ibis.expr.types.relations.Table.into_backend) method allows seamless data movement between different query engines using Apache Arrow as an intermediate format.
 
 ### Moving Data to DuckDB
 
@@ -86,7 +86,7 @@ Let's move our cleaned penguins data to DuckDB for processing:
 penguins_ddb = clean_penguins.into_backend(ddb, "penguins_clean")
 
 print("Data successfully moved to DuckDB!")
-print(f"DuckDB backends: {penguins_ddb.ls.backends}")
+print(f"All the expression backends: {penguins_ddb.ls.backends}")
 
 # Perform DuckDB-specific aggregations
 species_stats_ddb = (

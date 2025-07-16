@@ -1,0 +1,219 @@
+---
+title: "Integration Patterns with Scikit-Learn"
+---
+
+## Overview
+
+This guide demonstrates ML integration patterns using Xorq's `Step` and `Pipeline` classes with Scikit-Learn estimators, for it, we'll use the iris dataset from `xorq.examples.iris`.
+
+## Prerequisites
+
+```bash
+pip install "xorq[examples]"
+```
+
+## Core Components
+
+### Step Class
+The `Step` class wraps individual scikit-learn estimators for use in Xorq pipelines:
+
+```{python}
+from sklearn.feature_selection import SelectKBest
+from sklearn.linear_model import LogisticRegression
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.preprocessing import StandardScaler
+
+import xorq as xo
+from xorq.expr.ml.pipeline_lib import Step, Pipeline
+
+# Load the iris dataset
+con = xo.connect()
+iris_data = xo.examples.iris.fetch(backend=con)
+print(iris_data.schema())
+```
+
+### Creating Individual Steps
+
+#### Direct Step Creation
+
+```{python}
+# Data preprocessing step
+scaler_step = Step(
+    typ=StandardScaler,
+    name="scaler",
+    params_tuple=()
+)
+
+# Feature selection step  
+selector_step = Step(
+    typ=SelectKBest,
+    name="selector",
+    params_tuple=(("k", 3),)
+)
+
+# Classification step
+classifier_step = Step(
+    typ=KNeighborsClassifier,
+    name="knn",
+    params_tuple=(("n_neighbors", 5), ("weights", "uniform"))
+)
+
+# Alternative classifier
+logistic_step = Step(
+    typ=LogisticRegression,
+    name="logistic",
+    params_tuple=(("random_state", 42), ("max_iter", 1000))
+)
+```
+
+#### Using from_instance Class Method
+
+```{python}
+# Create scikit-learn estimator instances first
+scaler_instance = StandardScaler()
+selector_instance = SelectKBest(k=3)
+knn_instance = KNeighborsClassifier(n_neighbors=5, weights='uniform')
+logistic_instance = LogisticRegression(random_state=42, max_iter=1000)
+
+# Create Steps from instances using from_instance class method
+scaler_step_from_instance = Step.from_instance_name(scaler_instance, name="scaler_from_instance")
+selector_step_from_instance = Step.from_instance_name(selector_instance, name="selector_from_instance")
+knn_step_from_instance = Step.from_instance_name(knn_instance, name="knn_from_instance")
+logistic_step_from_instance = Step.from_instance_name(logistic_instance, name="logistic_from_instance")
+
+# Alternative method using from_name_instance
+scaler_step_alt = Step.from_name_instance("scaler_alt", scaler_instance)
+selector_step_alt = Step.from_name_instance("selector_alt", selector_instance)
+
+print("Steps created from instances:")
+print(f"Scaler: {scaler_step_from_instance.name} - {scaler_step_from_instance.params_tuple}")
+print(f"Selector: {selector_step_from_instance.name} - {selector_step_from_instance.params_tuple}")
+print(f"KNN: {knn_step_from_instance.name} - {knn_step_from_instance.params_tuple}")
+print(f"Logistic: {logistic_step_from_instance.name} - {logistic_step_from_instance.params_tuple}")
+```
+
+#### Creating from Pre-fitted Estimators
+
+```{python}
+# You can also create Steps from already fitted estimators
+# First, let's fit some estimators on sample data
+from sklearn.datasets import load_iris
+from sklearn.model_selection import train_test_split
+
+# Load sample data for pre-fitting
+iris_sklearn = load_iris()
+X, y = iris_sklearn.data, iris_sklearn.target
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Pre-fit the estimators
+fitted_scaler = StandardScaler()
+fitted_scaler.fit(X_train)
+
+fitted_selector = SelectKBest(k=3)
+fitted_selector.fit(X_train, y_train)
+
+fitted_knn = KNeighborsClassifier(n_neighbors=5)
+fitted_knn.fit(X_train, y_train)
+
+# Create Steps from pre-fitted instances
+prefitted_scaler_step = Step.from_instance_name(fitted_scaler, name="prefitted_scaler")
+prefitted_selector_step = Step.from_instance_name(fitted_selector, name="prefitted_selector")
+prefitted_knn_step = Step.from_instance_name(fitted_knn, name="prefitted_knn")
+
+print("\nSteps created from pre-fitted estimators:")
+print(f"Pre-fitted Scaler: {prefitted_scaler_step.name}")
+print(f"Pre-fitted Selector: {prefitted_selector_step.name}")
+print(f"Pre-fitted KNN: {prefitted_knn_step.name}")
+```
+
+### Building Pipelines
+
+#### Direct Pipeline Creation
+
+```{python}
+# Create a simple preprocessing + classification pipeline
+simple_pipeline = Pipeline(steps=(scaler_step, classifier_step))
+```
+
+#### Using from_instance Class Method with Scikit-Learn Pipelines
+
+```{python}
+import sklearn.pipeline
+
+# Create a scikit-learn pipeline first
+sklearn_simple_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=5))
+])
+
+# Convert scikit-learn pipelines to Xorq Pipelines using from_instance
+xorq_simple_pipeline = Pipeline.from_instance(sklearn_simple_pipeline)
+
+print("Pipelines created from scikit-learn instances:")
+print(f"Simple pipeline steps: {[step.name for step in xorq_simple_pipeline.steps]}")
+
+# You can also create pipelines from pre-fitted scikit-learn pipelines
+fitted_sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", fitted_scaler),
+    ("knn", fitted_knn)
+])
+
+xorq_fitted_pipeline = Pipeline.from_instance(fitted_sklearn_pipeline)
+print(f"Fitted pipeline steps: {[step.name for step in xorq_fitted_pipeline.steps]}")
+```
+
+#### Mixed Approach - Combining Both Methods
+
+```{python}
+# Create some steps directly and others from instances
+direct_scaler = Step(typ=StandardScaler, name="direct_scaler")
+instance_selector = Step.from_instance_name(SelectKBest(k=4), name="instance_selector")
+
+# Create a sklearn estimator with custom configuration
+custom_knn = KNeighborsClassifier(
+    n_neighbors=7,
+    weights='distance',
+    metric='manhattan'
+)
+instance_knn = Step.from_instance_name(custom_knn, name="custom_knn")
+
+# Mix direct and instance-based steps in a pipeline
+mixed_pipeline = Pipeline(steps=(direct_scaler, instance_selector, instance_knn))
+
+print(f"\nMixed pipeline steps: {[step.name for step in mixed_pipeline.steps]}")
+print("Step details:")
+for step in mixed_pipeline.steps:
+    print(f"  {step.name}: {dict(step.params_tuple)}")
+```
+
+#### Pipeline Fitting and Prediction Examples
+
+```{python}
+# Define features and target
+features = ['sepal_length', 'sepal_width', 'petal_length', 'petal_width']
+target = 'species'
+
+# Fit the pipelines created from instances
+fitted_xorq_simple = xorq_simple_pipeline.fit(
+    iris_data,
+    features=features,
+    target=target
+)
+
+fitted_mixed = mixed_pipeline.fit(
+    iris_data,
+    features=features,
+    target=target
+)
+
+# Make predictions
+simple_instance_predictions = fitted_xorq_simple.predict(iris_data)
+mixed_predictions = fitted_mixed.predict(iris_data)
+
+print("\nPipeline Predictions from from_instance:")
+print("Simple pipeline (from sklearn):")
+print(simple_instance_predictions.head().execute())
+
+print("\nMixed pipeline:")
+print(mixed_predictions.head().execute())
+```
