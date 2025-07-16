@@ -54,4 +54,4 @@ def test_sdist_builder(template, tmpdir):
     tgz_path, project_path = prep_template_tmpdir(template, tmpdir)
     script_path = project_path.joinpath("expr.py")
     sdist_builder = SdistBuilder(script_path=script_path, sdist_path=tgz_path)
-    assert sdist_builder.build_path
+    assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
