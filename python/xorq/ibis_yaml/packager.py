@@ -66,6 +66,8 @@ class Sdister:
         popened = Popened(args)
         return popened
 
+    popened = _uv_build_popened
+
     @property
     def _sdist_path(self):
         prefix = "Successfully built "
@@ -153,6 +155,8 @@ class SdistBuilder:
         )
         return popened
 
+    popened = _uv_tool_run_xorq_build
+
     def get_build_path(self):
         # FIXME: don't capture stdout so user can still use --pdb
         return Path(self._uv_tool_run_xorq_build.stdout.strip())
@@ -238,6 +242,8 @@ class SdistRunner:
             capturing=False,
         )
         return popened
+
+    popened = _uv_tool_run_xorq_run
 
 
 def find_file_upwards(start, name):
