@@ -30,6 +30,10 @@ website:
           - api_reference/cli/index.qmd
           - reference/index.qmd
           - api_reference/backend_configuration/index.qmd
+      - text: "Core Concepts"
+        menu:
+          - core_concepts/multi_engine.qmd
+          - core_concepts/deferred_execution.qmd
 
 
   sidebar:
@@ -37,30 +41,19 @@ website:
       title: "Tutorials"
       collapse-level: 2
       contents:
-        - id: user-guide-section
-          section: "User Guide"
+        - id: tutorials-section
+          section: "Getting Started"
           contents:
             - href: getting_started/quickstart.qmd
-        - id: core-concepts-section
-          section: "Core Concepts"
-          contents:
-            - href: core_concepts/caching.qmd
-            - href: core_concepts/multi_engine.qmd
-            - href: core_concepts/udxf.qmd
-            - href: core_concepts/build.qmd
-            - href: core_concepts/profiles_guide.qmd
+            - href: tutorials/hn_data_prep.qmd
+            - href: tutorials/hn_transform_tfidf.qmd
+            - href: tutorials/hn_training_xgb.qmd
+            - href: tutorials/hn_serving.qmd
         - id: vignettes-section
           section: "Vignettes"
           contents:
             - href: vignettes/duckdb_concurrent.qmd
             - href: vignettes/mcp_flight_server.qmd
-        - id: tutorials-section
-          section: "Tutorials"
-          contents:
-            - href: tutorials/hn_data_prep.qmd
-            - href: tutorials/hn_transform_tfidf.qmd
-            - href: tutorials/hn_training_xgb.qmd
-            - href: tutorials/hn_serving.qmd
 
     - id: api-reference
       title: "Python API"
