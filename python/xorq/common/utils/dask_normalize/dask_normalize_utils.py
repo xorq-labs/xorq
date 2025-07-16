@@ -101,10 +101,13 @@ def manual_file_digest(path, digest=hashlib.md5, size=2**20):
 
 def file_digest(path, digest=hashlib.md5, size=2**20):
     try:
-        with pathlib.Path(path).open("rb") as fh:
-            return hashlib.file_digest(fh, digest).hexdigest()
-    except AttributeError:
-        return manual_file_digest(path, digest, size=size)
+        return hashlib.file_digest(path, digest).hexdigest()
+    except TypeError:
+        try:
+            with pathlib.Path(path).open("rb") as fh:
+                return hashlib.file_digest(fh, digest).hexdigest()
+        except AttributeError:
+            return manual_file_digest(path, digest, size=size)
 
 
 def normalize_read_path_md5sum(path):

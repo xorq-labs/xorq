@@ -66,9 +66,13 @@ def get_root_dir(tgz_path):
 
 def calc_tgz_content_hexdigest(path, member_filter=uv_sdist_member_filter):
     # ignore metadata like permissions and modification time
+    from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+        file_digest,
+    )
+
     with tarfile.TarFile.gzopen(path) as tf:
         dct = {
-            name: hashlib.file_digest(fh, "md5").hexdigest()
+            name: file_digest(fh, "md5")
             for name, fh in (
                 (member.name, tf.extractfile(member))
                 for member in tf.getmembers()
