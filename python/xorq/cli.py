@@ -31,6 +31,7 @@ logger = get_print_logger()
 class InitTemplates(StrEnum):
     cached_fetcher = "cached-fetcher"
     sklearn = "sklearn"
+    penguins = "penguins"
 
 
 @tracer.start_as_current_span("cli.build_command")
