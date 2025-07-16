@@ -407,3 +407,45 @@ def test_init_command_path_exists(template, tmpdir):
     path.mkdir()
     (returncode, stdout, stderr) = subprocess_run(init_args)
     assert returncode != 0
+
+
+@pytest.mark.parametrize("template", InitTemplates)
+def test_init_uv_build_uv_run(template, tmpdir):
+    tmpdir = Path(tmpdir)
+    path = tmpdir.joinpath(f"xorq-template-{template}")
+    init_args = (
+        "xorq",
+        "init",
+        "--path",
+        str(path),
+        "--template",
+        template,
+    )
+    print(" ".join(init_args), file=sys.stderr)
+    (returncode, stdout, stderr) = subprocess_run(init_args)
+    assert returncode == 0
+    assert path.exists()
+    assert path.joinpath("pyproject.toml").exists()
+    assert path.joinpath("requirements.txt").exists()
+
+    build_args = (
+        "xorq",
+        "uv-build",
+        str(path.joinpath("expr.py")),
+    )
+    (returncode, stdout, stderr) = subprocess_run(build_args, do_decode=True)
+    assert returncode == 0
+    build_path = Path(stdout.strip().split("\n")[-1])
+    assert build_path.exists()
+
+    output_path = tmpdir.joinpath("output")
+    run_args = (
+        "xorq",
+        "uv-run",
+        "--output-path",
+        str(output_path),
+        str(build_path),
+    )
+    (returncode, stdout, stderr) = subprocess_run(run_args, do_decode=True)
+    assert returncode == 0
+    assert output_path.exists()
