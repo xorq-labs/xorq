@@ -409,6 +409,9 @@ def test_init_command_path_exists(template, tmpdir):
     assert returncode != 0
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
 @pytest.mark.parametrize("template", InitTemplates)
 def test_init_uv_build_uv_run(template, tmpdir):
     tmpdir = Path(tmpdir)
