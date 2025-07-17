@@ -27,19 +27,27 @@ def extract_tar(source, target):
     return target
 
 
-def download_xorq_template(target, template, branch="main"):
+def download_xorq_template(template, branch="main", target=None):
+    return download_github_archive(
+        org="xorq-labs",
+        repo=f"xorq-template-{template}",
+        branch=branch,
+        target=target,
+    )
+
+
+def download_unpacked_xorq_template(target, template, branch="main"):
     target = Path(target)
     if target.exists():
-        raise ValueError(f"download_xorq_template: target `{target}` already exists")
+        raise ValueError(
+            f"download_unpacked_xorq_template: target `{target}` already exists"
+        )
     with TemporaryDirectory() as td:
-        tdp = Path(td)
-        archive_target = tdp.joinpath("repo.tar.gz")
-        download_github_archive(
-            "xorq-labs",
-            f"xorq-template-{template}",
-            branch,
-            "".join(archive_target.suffixes),
-            archive_target,
+        archive_target = Path(td).joinpath("repo.tar.gz")
+        download_xorq_template(
+            template=template,
+            branch=branch,
+            target=archive_target,
         )
         extract_tar(archive_target, target)
         return target
