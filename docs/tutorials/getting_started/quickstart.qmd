@@ -50,17 +50,17 @@ from xorq.expr.ml.pipeline_lib import (
 
 features = ("bill_length_mm", "bill_depth_mm")
 target = "species"
-data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
+data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250206T212843Z-8f28a/penguins.csv"
 
 ```
 
-### 2. Create Train/Test Splits
+### 2. Handling CSV Files with NA Values
 
-The template includes a utility function for creating reproducible data splits:
+The template demonstrates a critical pattern for real-world data processing. Since we're reading a CSV with NA values (not the default empty string for NULL), we use pandas first:
 
 ```{python}
 
-def gen_splits(expr, test_size=.2, random_seed=42, **split_kwargs):
+def gen_splits(expr, test_size=0.2, random_seed=42, **split_kwargs):
     # inject and drop row number
     assert "test_sizes" not in split_kwargs
     assert isinstance(test_size, float)
@@ -79,34 +79,33 @@ def gen_splits(expr, test_size=.2, random_seed=42, **split_kwargs):
 
 def get_penguins_splits(storage=None, **split_kwargs):
     t = (
-        xo.deferred_read_parquet(
-            con=xo.duckdb.connect(),
+        xo.deferred_read_csv(
+            con=xo.pandas.connect(),
             path=data_url,
             table_name="t",
         )
-        .select(features+(target,))
+        .into_backend(xo.duckdb.connect(), name="t")
+        .select(features + (target,))
         .drop_null()
     )
     (train, test) = (
-        expr
-        .cache(storage or ParquetStorage())
+        expr.cache(storage or ParquetStorage())
         for expr in gen_splits(t, **split_kwargs)
     )
     return (train, test)
 ```
 
+**Why this pattern matters**: [pandas automatically recognizes 19 different NA value representations](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html) including `'NA'`, `'NULL'`, `'NaN'`, and empty strings, while [DuckDB only treats empty strings as NULL by default](https://duckdb.org/docs/stable/data/csv/auto_detection.html). The `into_backend()` method allows us to leverage pandas' superior CSV parsing capabilities, then seamlessly transition to DuckDB's high-performance analytical engine.
+
 ### 3. Define and Configure Pipeline
 
 ```{python}
 def make_pipeline(params=()):
-    clf = (
-        sklearn.pipeline.Pipeline(
-            steps=[
-                ("logistic", LogisticRegression()),
-            ]
-        )
-        .set_params(**dict(params))
-    )
+    clf = sklearn.pipeline.Pipeline(
+        steps=[
+            ("logistic", LogisticRegression()),
+        ]
+    ).set_params(**dict(params))
     return clf
 
 
@@ -115,12 +114,15 @@ def fit_and_score_sklearn_pipeline(pipeline, train, test):
         (X_train, y_train),
         (X_test, y_test),
     ) = (
-        expr.execute().pipe(lambda t: (
-            t.filter(regex=f"^(?!{target})"),
-            t.filter(regex=f"^{target}"),
-        ))
+        expr.execute().pipe(
+            lambda t: (
+                t.filter(regex=f"^(?!{target})"),
+                t.filter(regex=f"^{target}"),
+            )
+        )
         for expr in (train, test)
     )
+    print(len(X_train), len(X_test))
     clf = pipeline.fit(X_train, y_train)
     score = clf.score(X_test, y_test)
     return clf, score
@@ -133,7 +135,7 @@ The key innovation is converting scikit-learn pipelines to deferred xorq express
 ```{python}
 # Configure hyperparameters
 params = {
-    "logistic__C": 1E-4,
+    "logistic__C": 1e-4,
 }
 
 
@@ -178,7 +180,8 @@ print_tree(build_column_trees(expr)['predicted'])
 
 This outputs a tree showing the complete lineage of how predictions were computed, including:
 
-- Data source (Read operation from parquet file)
+- Data source (Read operation from CSV file via pandas)
+- Backend transition (into_backend operation to DuckDB)
 - Null value removal (DropNull)
 - Feature selection (DropColumns)
 - Train/test split logic (complex Filter with hash-based row sampling using row_number)
@@ -236,6 +239,7 @@ xorq run builds/5704ffbeade4/ --output-path predictions.parquet --format parquet
 
 The penguins template showcases several xorq advantages:
 
+- **Multi-Engine Flexibility**: Start with pandas for robust CSV parsing, seamlessly transition to DuckDB for analytics
 - **Deferred Execution**: ML pipelines are built as expressions and executed only when needed, 
 enabling optimization and caching.
 - **Automatic Caching**: Train/test splits are cached automatically, avoiding recomputation across different experiments.
