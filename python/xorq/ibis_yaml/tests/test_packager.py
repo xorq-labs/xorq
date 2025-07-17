@@ -1,4 +1,5 @@
 import functools
+import sys
 import tempfile
 from pathlib import (
     Path,
@@ -49,6 +50,9 @@ def test_sdist_path_hexdigest(template, tmpdir, snapshot):
     snapshot.assert_match(actual, f"test_sdist_path_hexdigest-{template}")
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_builder(template, tmpdir):
     # test that we build and inject the requirements.txt
@@ -58,6 +62,9 @@ def test_sdist_builder(template, tmpdir):
     assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_builder_no_requirements(template, tmpdir):
     # test that we build and inject the requirements.txt
@@ -71,6 +78,9 @@ def test_sdist_builder_no_requirements(template, tmpdir):
     assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_builder_no_requirements_fails(template, tmpdir):
     # test that we build and inject the requirements.txt
@@ -91,6 +101,9 @@ def test_sdist_builder_no_requirements_fails(template, tmpdir):
         sdist_builder
 
 
+@pytest.mark.skipif(
+    sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
+)
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_runner(template, tmpdir):
     tmpdir = Path(tmpdir)
