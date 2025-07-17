@@ -279,7 +279,7 @@ class TimeValue(_TimeComponentMixin, Value):
         >>> ibis.options.interactive = True
         >>> start = ibis.time("01:58:00")
         >>> end = ibis.time("23:59:59")
-        >>> end.delta(start, "hour")
+        >>> end.delta(start, unit="hour")
         ┌────┐
         │ 22 │
         └────┘
@@ -294,7 +294,7 @@ class TimeValue(_TimeComponentMixin, Value):
         >>> taxi = ibis.read_csv("/tmp/triptimes.csv")
         >>> ride_duration = (
         ...     taxi.tpep_dropoff_datetime.time()
-        ...     .delta(taxi.tpep_pickup_datetime.time(), "minute")
+        ...     .delta(taxi.tpep_pickup_datetime.time(), unit="minute")
         ...     .name("ride_minutes")
         ... )
         >>> ride_duration
@@ -446,14 +446,14 @@ class DateValue(Value, _DateComponentMixin):
         >>> ibis.options.interactive = True
         >>> start = ibis.date("1992-09-30")
         >>> end = ibis.date("1992-10-01")
-        >>> end.delta(start, "day")
+        >>> end.delta(start, unit="day")
         ┌───┐
         │ 1 │
         └───┘
         >>> prez = ibis.examples.presidential.fetch()
         >>> prez.mutate(
-        ...     years_in_office=prez.end.delta(prez.start, "year"),
-        ...     hours_in_office=prez.end.delta(prez.start, "hour"),
+        ...     years_in_office=prez.end.delta(prez.start, unit="year"),
+        ...     hours_in_office=prez.end.delta(prez.start, unit="hour"),
         ... ).drop("party")
         ┏━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
         ┃ name       ┃ start      ┃ end        ┃ years_in_office ┃ hours_in_office ┃
@@ -509,7 +509,7 @@ class DateValue(Value, _DateComponentMixin):
         │ 2020-01-01 │ 18262 │
         └────────────┴───────┘
         """
-        return self.delta(ibis.date(1970, 1, 1), "day")
+        return self.delta(ibis.date(1970, 1, 1), unit="day")
 
 
 @public
@@ -816,7 +816,7 @@ class TimestampValue(_DateComponentMixin, _TimeComponentMixin, Value):
         >>> ibis.options.interactive = True
         >>> start = ibis.time("01:58:00")
         >>> end = ibis.time("23:59:59")
-        >>> end.delta(start, "hour")
+        >>> end.delta(start, unit="hour")
         ┌────┐
         │ 22 │
         └────┘
@@ -830,7 +830,7 @@ class TimestampValue(_DateComponentMixin, _TimeComponentMixin, Value):
         ...     nbytes = f.write(data)  # nbytes is unused
         >>> taxi = ibis.read_csv("/tmp/triptimes.csv")
         >>> ride_duration = taxi.tpep_dropoff_datetime.delta(
-        ...     taxi.tpep_pickup_datetime, "minute"
+        ...     taxi.tpep_pickup_datetime, unit="minute"
         ... ).name("ride_minutes")
         >>> ride_duration
         ┏━━━━━━━━━━━━━━┓

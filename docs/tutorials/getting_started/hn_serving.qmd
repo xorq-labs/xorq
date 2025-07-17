@@ -9,7 +9,8 @@ xorq's Flight serving capabilities for real-time predictions"
 ## Overview
 
 In this tutorial (Part 4 of our series), you'll learn how to:
-- Deploy your trained models as microservices using xorq's Flight serving capabilities
+
+- Deploy your trained models as microservices using Xorq's Flight serving capabilities
 - Create Flight servers to serve your TF-IDF transformation and XGBoost prediction models
 - Use these services to make predictions on new data
 - Build an end-to-end inference pipeline
@@ -214,20 +215,20 @@ print(y.groupby("sentiment_int").sentiment_int_predicted.describe().T)
 
 ```
 
-## Understanding Flight in xorq
+## Understanding Flight in Xorq
 
 Before diving into the implementation, let's understand what Flight is and how
-it works in xorq.
+it works in Xorq.
 
 ::: {.callout-note}
 Apache Arrow Flight is a high-performance client-server framework for moving
-large datasets over the network. In xorq, Flight serves as the foundation for
+large datasets over the network. In Xorq, Flight serves as the foundation for
 deploying models as microservices.
 
-Key components of Flight in xorq:
+Key components of Flight in Xorq:
 1. **FlightServer**: Hosts your models and transformations as services
 2. **FlightUrl**: Specifies the endpoint where your service is available
-3. **flight_serve**: Function to create a Flight server from an xorq expression
+3. **flight_serve**: Function to create a Flight server from an Xorq expression
 :::
 
 ## Setting Up Flight Servers
@@ -266,7 +267,7 @@ Now, let's set up Flight servers for our TF-IDF transformation and XGBoost predi
 ```
 
 ::: {.callout-note}
-The `flight_serve` function creates a Flight server from an xorq expression. It returns:
+The `flight_serve` function creates a Flight server from a Xorq expression. It returns:
 1. The server instance, which you can start and stop
 2. A command that clients can use to interact with the server
 

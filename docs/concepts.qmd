@@ -5,7 +5,7 @@ description: 'The core concepts to understand what is xorq'
 
 ## Caching System
 
-xorq provides a sophisticated caching system that enables efficient iterative development of ML pipelines. The caching system allows you to:
+Xorq provides a sophisticated caching system that enables efficient iterative development of ML pipelines. The caching system allows you to:
 
 - Cache results from upstream query engines
 - Persist data locally or in remote storage
@@ -14,7 +14,7 @@ xorq provides a sophisticated caching system that enables efficient iterative de
 
 ### Storage Types
 
-xorq supports two main types of cache storage:
+Xorq supports two main types of cache storage:
 
 #### 1. SourceStorage
 
