@@ -34,6 +34,7 @@ website:
         menu:
           - core_concepts/multi_engine.qmd
           - core_concepts/deferred_execution.qmd
+          - core_concepts/flight_udxf.qmd
 
 
   sidebar:
@@ -307,3 +308,6 @@ quartodoc:
         - name: agg.pandas_df
           dynamic: true
           package: xorq.expr.udf
+        - name: flight_udxf
+          dynamic: true
+          package: xorq.expr.relations

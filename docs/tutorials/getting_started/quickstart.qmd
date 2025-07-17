@@ -253,6 +253,6 @@ enabling optimization and caching.
 - Experiment with the generated `expr.py` file
 - Try different feature combinations by modifying the `features` tuple
 - Explore different algorithms by changing the pipeline steps
-- Read about [Profiles](../api_reference/backend_configuration/profiles_api.qmd) to learn more about connecting to backends
+- Read about [Profiles](../../api_reference/backend_configuration/profiles_api.qmd) to learn more about connecting to backends
 - Check out more examples in the [`examples/`](https://github.com/xorq-labs/xorq/tree/main/examples) directory
 - Join our [community](https://discord.gg/8Kma9DhcJG) for support and discussions
