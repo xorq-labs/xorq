@@ -734,7 +734,7 @@ def get_target_type(step, expr, features, target):
 
 step_typ_to_f = {
     LinearRegression: return_constant(dt.float),
-    LogisticRegression: return_constant(dt.float),
+    LogisticRegression: get_target_type,
     KNeighborsClassifier: get_target_type,
     LinearSVC: get_target_type,
 }
