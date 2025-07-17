@@ -199,13 +199,13 @@ Output:
 
 ```
 Building expr from expr.py
-Written 'expr' to builds/85f70392e095
-builds/85f70392e095
+Written 'expr' to builds/5704ffbeade4
+builds/5704ffbeade4
 ```
 
 The build creates several artifacts:
 ```
-❯ ls -a builds/85f70392e095/
+❯ ls -a builds/5704ffbeade4/
 
 58bf5c46c84f.sql  
 aee2ca7e0e12.sql  
@@ -223,32 +223,32 @@ sql.yaml # Debug SQL outputs
 Execute the serialized Expression:
 
 ```bash
-xorq run builds/85f70392e095/
+xorq run builds/5704ffbeade4/
 ```
 
 Save results to different formats:
 ```bash
-xorq run builds/85f70392e095/ --output-path predictions.csv --format csv
-xorq run builds/85f70392e095/ --output-path predictions.parquet --format parquet
+xorq run builds/5704ffbeade4/ --output-path predictions.csv --format csv
+xorq run builds/5704ffbeade4/ --output-path predictions.parquet --format parquet
 ```
 
 ## Key Benefits Demonstrated
 
 The penguins template showcases several xorq advantages:
 
-**Deferred Execution**: ML pipelines are built as expressions and executed only when needed, enabling optimization and caching.
-**Automatic Caching**: Train/test splits are cached automatically, avoiding recomputation across different experiments.
-**Reproducibility**: Random seeds and versioned data ensure consistent results across runs.
-**Lineage Tracking**: Complete computational provenance from raw data to final predictions.
-**Portability**: Pipelines serialize to YAML/SQL artifacts that can be version controlled and deployed anywhere.
-**Engine Flexibility**: Same code works across DuckDB, DataFusion, Snowflake, and other supported backends.
+- **Deferred Execution**: ML pipelines are built as expressions and executed only when needed, 
+enabling optimization and caching.
+- **Automatic Caching**: Train/test splits are cached automatically, avoiding recomputation across different experiments.
+- **Reproducibility**: Random seeds and versioned data ensure consistent results across runs.
+- **Lineage Tracking**: Complete computational provenance from raw data to final predictions.
+- **Portability**: Pipelines serialize to YAML/SQL artifacts that can be version controlled and deployed anywhere.
+- **Engine Flexibility**: Same code works across DuckDB, DataFusion, Snowflake, and other supported backends.
 
 ## Next Steps
 
 - Experiment with the generated `expr.py` file
 - Try different feature combinations by modifying the `features` tuple
 - Explore different algorithms by changing the pipeline steps
-- Read about [Profiles](https://docs.xorq.dev/core_concepts/profiles_guide) to connect to remote backends
-- Learn about the [Caching system](https://docs.xorq.dev/core_concepts/caching) for automatic result storage
+- Read about [Profiles](../api_reference/backend_configuration/profiles_api.qmd) to learn more about connecting to backends
 - Check out more examples in the [`examples/`](https://github.com/xorq-labs/xorq/tree/main/examples) directory
 - Join our [community](https://discord.gg/8Kma9DhcJG) for support and discussions

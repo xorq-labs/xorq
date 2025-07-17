@@ -4,18 +4,18 @@ listing:
   - id: getting-started
     template: "style/gallery.ejs"
     contents: 
-      - "getting_started/quickstart.qmd"
-      - "tutorials/10_minutes_xorq_tour.qmd"
+      - "tutorials/getting_started/quickstart.qmd"
+      - "tutorials/getting_started/10_minutes_xorq_tour.qmd"
     type: grid
     grid-columns: 2
     fields: [title]
   - id: dive-deeper
     template: "style/gallery.ejs"
     contents: 
-      - "tutorials/hn_data_prep.qmd"
-      - "tutorials/hn_transform_tfidf.qmd"
-      - "tutorials/hn_training_xgb.qmd"
-      - "tutorials/hn_serving.qmd"
+      - "tutorials/getting_started/hn_data_prep.qmd"
+      - "tutorials/getting_started/hn_transform_tfidf.qmd"
+      - "tutorials/getting_started/hn_training_xgb.qmd"
+      - "tutorials/getting_started/hn_serving.qmd"
     type: grid
     grid-columns: 2
     fields: [title]

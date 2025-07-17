@@ -44,11 +44,12 @@ website:
         - id: tutorials-section
           section: "Getting Started"
           contents:
-            - href: getting_started/quickstart.qmd
-            - href: tutorials/hn_data_prep.qmd
-            - href: tutorials/hn_transform_tfidf.qmd
-            - href: tutorials/hn_training_xgb.qmd
-            - href: tutorials/hn_serving.qmd
+            - href: tutorials/getting_started/quickstart.qmd
+            - href: tutorials/getting_started/10_minutes_xorq_tour.qmd
+            - href: tutorials/getting_started/hn_data_prep.qmd
+            - href: tutorials/getting_started/hn_transform_tfidf.qmd
+            - href: tutorials/getting_started/hn_training_xgb.qmd
+            - href: tutorials/getting_started/hn_serving.qmd
         - id: vignettes-section
           section: "Vignettes"
           contents:

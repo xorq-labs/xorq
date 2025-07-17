@@ -1,0 +1,164 @@
+---
+title: "10-minute tour of xorq"
+icon: "clock"
+headline: "Learn key concepts in a brief tutorial"
+---
+
+## Installation
+
+Let's get you set up! Install xorq with the DuckDB backend (because who doesn't love DuckDB?):
+
+```bash
+pip install 'xorq[duckdb]'
+```
+
+## Setting up Connections
+
+Here's where xorq starts to shine. Instead of juggling connection strings and different APIs, you get a clean, consistent interface:
+
+```{python}
+import xorq as xo
+from xorq import _  # import the underscore accessor for column reference
+
+# Create connections to different backends
+con = xo.connect()  # xorq's main connection
+ddb = xo.duckdb.connect()  # DuckDB connection
+pg = xo.postgres.connect_examples()  # Postgres connection
+```
+
+What just happened? We created three different backend connections with the same simple API. No more memorizing different connection patterns for each database!
+
+Want a custom Postgres connection? Easy:
+
+```{python}
+pg = xo.postgres.connect(
+  host="localhost",
+  port=5432,
+  user="postgres",
+  password="postgres",
+  database="ibis_testing"
+)
+```
+
+## Reading Data
+
+Reading data in xorq is straightforward:
+
+```{python}
+# Read a parquet file using xorq
+path = xo.config.options.pins.get_path("batting")
+batting = con.read_parquet(path, table_name="batting")
+```
+
+## Basic Operations
+
+Let's do some actual data work. Here's where xorq's lazy evaluation really pays off:
+
+```{python}
+# Filtering and selection that feels like pandas but runs anywhere
+recent_batting = (
+    batting[batting.yearID > 2010]  # filter for recent years
+    .select(['playerID', 'yearID', 'teamID', 'G', 'AB', 'R', 'H'])  # select specific columns
+)
+
+# Execute to see results
+recent_batting.execute()
+```
+
+**Key insight:** Notice how operations are lazy by default. Nothing actually runs until you call `execute()`, which returns a pandas DataFrame. This means you can build complex queries without hitting the database until you're ready.
+
+## Multi-Engine Magic
+
+Here's where xorq gets **really** exciting. Want to move data between engines? One method call:
+
+```{python}
+# Read a table from Postgres and move it to xorq's backend
+awards = pg.table("awards_players").into_backend(con, "awards")  # bring into xorq backend
+
+# Perform a join between the two tables
+player_awards = (
+    recent_batting.join(
+        awards,
+        ['playerID', 'yearID'],  # join keys
+        how='left'  # left join
+    )
+    .select([
+        'playerID',
+        'yearID',
+        'teamID',
+        'awardID',
+        'G',
+        'AB',
+        'H'
+    ])
+)
+
+player_awards.execute()
+```
+
+**What's happening under the hood:** `into_backend()` uses PyArrow's [RecordBatchReader](https://arrow.apache.org/docs/python/generated/pyarrow.RecordBatchReader.html) to efficiently stream data between engines.
+
+**Use `into_backend()` when you want to:**
+
+- Combine data from different database engines
+- Leverage specific engine strengths for different operations
+- Avoid the pain of writing intermediate results to disk
+
+### Leveraging Different Backend Strengths
+
+Different engines excel at different things. Let's use DuckDB's analytical superpowers:
+
+```{python}
+# Move data to DuckDB for fast analytics
+ddb_awards = player_awards.into_backend(ddb, "ddb_awards")
+
+# Perform DuckDB-optimized aggregations
+ddb_summary = (
+    ddb_awards.group_by(['yearID', 'awardID'])
+    .agg([
+        _.count().name('player_count'),
+        _.G.mean().name('avg_games'),
+        _.H.mean().name('avg_hits'),
+    ])
+    .order_by(['yearID', 'awardID'])
+)
+
+print("Award summary from DuckDB:")
+ddb_summary.execute()
+```
+
+**Pro tip:** Each backend has its strengths. Use Postgres for transactional workloads, DuckDB for analytics, and Python for complex transformations—all in the same pipeline!
+
+## Caching
+
+Nobody likes waiting for the same query to run twice. xorq's caching has your back:
+
+```{python}
+from pathlib import Path
+from xorq.caching import ParquetStorage
+
+# Create a storage for cached data
+cache_storage = ParquetStorage(source=con, base_path=Path.cwd())
+
+# Cache the results
+cached_awards = player_awards.cache(storage=cache_storage)
+
+# The next execution will use the cached data
+cached_awards.execute()
+```
+
+**The payoff:** Expensive joins and transformations only run once. 
+
+## What You Just Accomplished
+
+In 10 minutes, you've learned how to:
+
+* **Work seamlessly across multiple data engines** without vendor lock-in
+* **Build lazy, efficient pipelines** that only compute when needed
+* **Move data between backends effortlessly** using `into_backend()`
+* **Cache results intelligently** to avoid wasteful recomputation
+* **Leverage each engine's strengths** in a single workflow
+
+**The xorq advantage:** One consistent API, multiple engines, zero headaches. Your data pipelines can now be as flexible as your requirements—and actually work in production.
+
+Ready to dive deeper? Check out our [core concepts](../core_concepts/) or try building your first real pipeline!
