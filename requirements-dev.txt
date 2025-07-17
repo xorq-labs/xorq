@@ -852,6 +852,8 @@ urllib3==2.5.0
     #   requests
     #   xorq-feature-utils
     #   xorq-weather-lib
+uv==0.7.20
+    # via xorq
 uvicorn==0.35.0 ; sys_platform != 'emscripten'
     # via mcp
 vendoring==1.2.0

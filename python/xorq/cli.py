@@ -10,12 +10,17 @@ from opentelemetry import trace
 
 import xorq as xo
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
 from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import BuildManager
+from xorq.ibis_yaml.packager import (
+    SdistBuilder,
+    SdistRunner,
+)
 from xorq.vendor.ibis import Expr
 
 
@@ -32,6 +37,38 @@ class InitTemplates(StrEnum):
     cached_fetcher = "cached-fetcher"
     sklearn = "sklearn"
     penguins = "penguins"
+
+    @classproperty
+    def default(self):
+        return self.cached_fetcher
+
+
+@tracer.start_as_current_span("cli.uv_build_command")
+def uv_build_command(
+    script_path,
+    project_path=None,
+    sys_argv=(),
+):
+    sdist_builder = SdistBuilder.from_script_path(
+        script_path, project_path=project_path, args=sys_argv
+    )
+    # should we execv here instead?
+    # ensure we do copy_sdist
+    sdist_builder.build_path
+    popened = sdist_builder._uv_tool_run_xorq_build
+    print(popened.stderr, file=sys.stderr, end="")
+    print(popened.stdout, file=sys.stdout, end="")
+    return popened
+
+
+@tracer.start_as_current_span("cli.uv_run_command")
+def uv_run_command(
+    expr_path,
+    sys_argv=(),
+):
+    sdist_runner = SdistRunner(expr_path, args=sys_argv)
+    popened = sdist_runner._uv_tool_run_xorq_run
+    return popened
 
 
 @tracer.start_as_current_span("cli.build_command")
@@ -213,11 +250,11 @@ def serve_command(
 @tracer.start_as_current_span("cli.init_command")
 def init_command(
     path="./xorq-template",
-    template=InitTemplates.cached_fetcher,
+    template=InitTemplates.default,
 ):
-    from xorq.common.utils.download_utils import download_xorq_template
+    from xorq.common.utils.download_utils import download_unpacked_xorq_template
 
-    path = download_xorq_template(path, template)
+    path = download_unpacked_xorq_template(path, template)
     print(f"initialized xorq template `{template}` to {path}")
     return path
 
@@ -233,6 +270,50 @@ def parse_args(override=None):
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
+
+    uv_build_parser = subparsers.add_parser(
+        "uv-build",
+    )
+    uv_build_parser.add_argument("script_path", help="Path to the Python script")
+    uv_build_parser.add_argument(
+        "-e",
+        "--expr-name",
+        default="expr",
+        help="Name of the expression variable in the Python script",
+    )
+    uv_build_parser.add_argument(
+        "--builds-dir", default="builds", help="Directory for all generated artifacts"
+    )
+    uv_build_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+
+    uv_run_parser = subparsers.add_parser(
+        "uv-run",
+    )
+    uv_run_parser.add_argument("build_path", help="Path to the build script")
+    uv_run_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+    uv_run_parser.add_argument(
+        "-o",
+        "--output-path",
+        default=None,
+        help=f"Path to write output (default: {os.devnull})",
+    )
+    uv_run_parser.add_argument(
+        "-f",
+        "--format",
+        choices=["csv", "json", "parquet"],
+        default="parquet",
+        help="Output format (default: parquet)",
+    )
 
     build_parser = subparsers.add_parser(
         "build", help="Generate artifacts from an expression"
@@ -344,6 +425,18 @@ def main():
 
     try:
         match args.command:
+            case "uv-build":
+                sys_argv = tuple(el if el != "uv-build" else "build" for el in sys.argv)
+                f, f_args = (
+                    uv_build_command,
+                    (args.script_path, None, sys_argv),
+                )
+            case "uv-run":
+                sys_argv = tuple(el if el != "uv-run" else "run" for el in sys.argv)
+                f, f_args = (
+                    uv_run_command,
+                    (args.build_path, sys_argv),
+                )
             case "build":
                 f, f_args = (
                     build_command,
