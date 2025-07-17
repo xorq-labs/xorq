@@ -1,6 +1,8 @@
-# xorq init
+---
+title: "Init"
+---
 
-Initialize a new xorq project from a template.
+Initialize a new Xorq project from a template.
 
 ## Usage
 

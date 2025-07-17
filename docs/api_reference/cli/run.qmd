@@ -2,17 +2,17 @@
 title: 'Run'
 ---
 
-The `xorq run` command executes built xorq expressions and outputs the results in various formats. This command takes the artifacts created by `xorq build` and executes the expression to produce data.
+The `Xorq run` command executes built Xorq expressions and outputs the results in various formats. This command takes the artifacts created by `xorq build` and executes the expression to produce data.
 
 ## Prerequisites
 
-Before running xorq expressions, you need:
-- Built xorq expression artifacts (created with `xorq build`)
-- xorq installed with necessary dependencies
+Before running Xorq expressions, you need:
+- Built Xorq expression artifacts (created with `xorq build`)
+- Xorq installed with necessary dependencies
 
 ## Running Expressions
 
-Once you've built a xorq expression using `xorq build`, you can execute it with the `run` command.
+Once you've built a Xorq expression using `xorq build`, you can execute it with the `run` command.
 
 ### Basic Usage
 
@@ -23,7 +23,7 @@ xorq run <build_path> --output-path <output_file> --format <output_format>
 ```
 
 Where:
-- `<build_path>` is the path to the built xorq expression directory
+- `<build_path>` is the path to the built Xorq expression directory
 - `--output-path` specifies where to write the results (defaults to discarding output)
 - `--format` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
 
@@ -36,7 +36,7 @@ Assuming you've built the penguins analysis expression from the [run example](ru
 xorq run builds/f02d28198715 --output-path penguin_results.parquet
 ```
 
-The command will execute the UDXF xorq expression and produce a dataset with the health analysis results.
+The command will execute the UDXF Xorq expression and produce a dataset with the health analysis results.
 
 ### Output Formats
 
@@ -112,9 +112,9 @@ xorq run builds/f02d28198715
 
 When you run `xorq run`, several things happen:
 
-1. **Load Expression**: The build artifacts are loaded to reconstruct the xorq expression
+1. **Load Expression**: The build artifacts are loaded to reconstruct the Xorq expression
 2. **Resolve Dependencies**: Data sources and UDXFs are resolved
-3. **Execute Expression**: The xorq expression is executed using the appropriate backend
+3. **Execute Expression**: The Xorq expression is executed using the appropriate backend
 4. **Format Output**: Results are formatted and written to the specified location
 
 The run command provides a reliable way to execute your data transformations consistently across different environments.

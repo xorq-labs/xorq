@@ -5,7 +5,7 @@ description: 'Understanding the concept, and applications of User-Defined Exchan
 
 ## What are UDXFs?
 
-User-Defined Exchange Functions (UDXFs) are a specialized type of user-defined function in xorq that enable **distributed data processing** using Apache Arrow Flight protocol. Unlike traditional UDFs that operate within a single process, UDXFs execute custom Python logic in separate processes or even remote services, making them ideal for:
+User-Defined Exchange Functions (UDXFs) are a specialized type of user-defined function in Xorq that enable **distributed data processing** using Apache Arrow Flight protocol. Unlike traditional UDFs that operate within a single process, UDXFs execute custom Python logic in separate processes or even remote services, making them ideal for:
 
 - **External API integrations** (calling REST APIs, databases, or third-party services)
 - **Resource-intensive computations** (ML model inference, heavy transformations)

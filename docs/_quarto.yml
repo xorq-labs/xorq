@@ -122,6 +122,7 @@ website:
          - how_to/into_backend_caching.qmd
          - how_to/integration_patterns.qmd
          - how_to/io_xorq.qmd
+         - how_to/lineage.qmd
 
 format:
   html:

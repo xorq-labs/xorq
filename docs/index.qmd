@@ -1,5 +1,5 @@
 ---
-title: Welcome to xorq!
+title: Welcome to Xorq!
 listing:
   - id: getting-started
     template: "style/gallery.ejs"
@@ -21,9 +21,9 @@ listing:
     fields: [title]
 ---
 
-xorq is an opinionated framework for cataloging composable compute expressions that enables you to build portable, multi-engine ML pipelines 
+Xorq is an opinionated framework for cataloging composable compute expressions that enables you to build portable, multi-engine ML pipelines 
 with deferred execution. Write expressive, pandas-style transformations that seamlessly move between SQL engines and Python, 
-with built-in caching, lineage tracking, and deployment-ready artifacts. xorq is built on top of [Ibis](https://ibis-project.org/) 
+with built-in caching, lineage tracking, and deployment-ready artifacts. Xorq is built on top of [Ibis](https://ibis-project.org/) 
 and [Apache DataFusion](https://datafusion.apache.org/).
 
 
@@ -39,7 +39,7 @@ Multipart series on how to build an end-to-end ML pipeline using live data from 
 :::{#dive-deeper}
 :::
 
-## Why xorq?
+## Why Xorq?
 
 xorq was developed to solve the frustrating complexities of building reliable ML pipelines across multiple engines and environments. Traditional approaches force you to choose between the expressiveness of pandas and the scalability of SQL engines, leading to SQL-pandas impedance mismatches, wasteful recomputation, and pipelines that work in notebooks but fail in production.
 The xorq computational framework provides a quantum leap in ML development by:

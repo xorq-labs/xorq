@@ -26,9 +26,9 @@ The fastest way to get started with Xorq is to use the `xorq init` command:
 xorq init -t penguins
 ```
 
-This creates a starting example project with the Palmer Penguins dataset that demonstrates key xorq features including machine learning pipelines, caching, and lineage tracking.
+This creates a starting example project with the Palmer Penguins dataset that demonstrates key Xorq features including machine learning pipelines, caching, and lineage tracking.
 
-Navigate to the created directory and explore the `expr.py` file to see how xorq works in practice.
+Navigate to the created directory and explore the `expr.py` file to see how Xorq works in practice.
 
 ## Understanding the Generated Pipeline
 
@@ -130,7 +130,7 @@ def fit_and_score_sklearn_pipeline(pipeline, train, test):
 
 ### 4. Create Deferred ML Pipeline
 
-The key innovation is converting scikit-learn pipelines to deferred xorq expressions:
+The key innovation is converting scikit-learn pipelines to deferred Xorq expressions:
 
 ```{python}
 # Configure hyperparameters
@@ -237,7 +237,7 @@ xorq run builds/5704ffbeade4/ --output-path predictions.parquet --format parquet
 
 ## Key Benefits Demonstrated
 
-The penguins template showcases several xorq advantages:
+The penguins template showcases several Xorq advantages:
 
 - **Multi-Engine Flexibility**: Start with pandas for robust CSV parsing, seamlessly transition to DuckDB for analytics
 - **Deferred Execution**: ML pipelines are built as expressions and executed only when needed, 

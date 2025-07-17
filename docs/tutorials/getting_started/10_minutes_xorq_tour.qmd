@@ -1,12 +1,12 @@
 ---
-title: "10-minute tour of xorq"
+title: "10-minute tour of Xorq"
 icon: "clock"
 headline: "Learn key concepts in a brief tutorial"
 ---
 
 ## Installation
 
-Let's get you set up! Install xorq with the DuckDB backend (because who doesn't love DuckDB?):
+Let's get you set up! Install Xorq with the DuckDB backend (because who doesn't love DuckDB?):
 
 ```bash
 pip install 'xorq[duckdb]'
@@ -14,7 +14,7 @@ pip install 'xorq[duckdb]'
 
 ## Setting up Connections
 
-Here's where xorq starts to shine. Instead of juggling connection strings and different APIs, you get a clean, consistent interface:
+Here's where Xorq starts to shine. Instead of juggling connection strings and different APIs, you get a clean, consistent interface:
 
 ```{python}
 import xorq as xo
@@ -52,7 +52,7 @@ batting = con.read_parquet(path, table_name="batting")
 
 ## Basic Operations
 
-Let's do some actual data work. Here's where xorq's lazy evaluation really pays off:
+Let's do some actual data work. Here's where Xorq's lazy evaluation really pays off:
 
 ```{python}
 # Filtering and selection that feels like pandas but runs anywhere
@@ -69,11 +69,11 @@ recent_batting.execute()
 
 ## Multi-Engine Magic
 
-Here's where xorq gets **really** exciting. Want to move data between engines? One method call:
+Here's where Xorq gets **really** exciting. Want to move data between engines? One method call:
 
 ```{python}
-# Read a table from Postgres and move it to xorq's backend
-awards = pg.table("awards_players").into_backend(con, "awards")  # bring into xorq backend
+# Read a table from Postgres and move it to Xorq's backend
+awards = pg.table("awards_players").into_backend(con, "awards")  # bring into Xorq backend
 
 # Perform a join between the two tables
 player_awards = (
@@ -131,7 +131,7 @@ ddb_summary.execute()
 
 ## Caching
 
-Nobody likes waiting for the same query to run twice. xorq's caching has your back:
+Nobody likes waiting for the same query to run twice. Xorq's caching has your back:
 
 ```{python}
 from pathlib import Path
@@ -159,6 +159,6 @@ In 10 minutes, you've learned how to:
 * **Cache results intelligently** to avoid wasteful recomputation
 * **Leverage each engine's strengths** in a single workflow
 
-**The xorq advantage:** One consistent API, multiple engines, zero headaches. Your data pipelines can now be as flexible as your requirements—and actually work in production.
+**The Xorq advantage:** One consistent API, multiple engines, zero headaches. Your data pipelines can now be as flexible as your requirements—and actually work in production.
 
 Ready to dive deeper? Check out our [core concepts](../core_concepts/) or try building your first real pipeline!

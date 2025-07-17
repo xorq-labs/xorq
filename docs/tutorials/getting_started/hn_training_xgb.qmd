@@ -3,12 +3,13 @@ title: "XGBoost Training"
 icon: "diagram-3"
 headline: "Learn how to build fit-predict style deferred pipelines."
 description: "Part 3: Learn how to train XGBoost models, make predictions, and
-evaluate model performance using xorq's deferred pipelines"
+evaluate model performance using Xorq's deferred pipelines"
 ---
 
 ## Overview
 
 In this tutorial (Part 3 of our series), you'll learn how to:
+
 - Define deferred model training and prediction operations
 - Split data into train and test sets
 - Train an XGBoost model with TF-IDF
@@ -186,12 +187,12 @@ Before training our model, we'll split the data into training and testing sets:
 ```
 
 ::: {.callout-note}
-The `train_test_splits` function in xorq ensures a proper and deterministic
+The `train_test_splits` function in Xorq ensures a proper and deterministic
 split of your data. It works by using a hashing function to convert the unique
 key (`id` in our case) into an integer, then applies a modulo operation to
 split the data into buckets.
 
-Having a unique key field is essential as it allows xorq to deterministically
+Having a unique key field is essential as it allows Xorq to deterministically
 order the table and assign records to either the training or test set. This
 approach ensures that:
 1. The same record will always end up in the same split when using the same random seed
@@ -323,12 +324,12 @@ Congratulations! In this third part of our tutorial series, you've:
 7. Applied the model to make predictions on new data
 
 In the next tutorial (Part 4), we'll explore how to deploy our trained model
-for real-time predictions using xorq's Flight serving capabilities.
+for real-time predictions using Xorq's Flight serving capabilities.
 
 ## Further Reading
 
 - [XGBoost Documentation](https://xgboost.readthedocs.io/)
-- [xorq Documentation](https://docs.xorq.io)
+- [Xorq Documentation](https://docs.xorq.io)
 - [Model Evaluation Metrics](https://scikit-learn.org/stable/modules/model_evaluation.html)
 
 ## Appendix

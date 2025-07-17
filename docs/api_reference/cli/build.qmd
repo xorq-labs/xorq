@@ -3,7 +3,7 @@ title: 'Build'
 ---
 
 
-The xorq CLI provides the `build` command to compile xorq expressions into reusable artifacts that can be executed later. This separation enables:
+The Xorq CLI provides the `build` command to compile Xorq expressions into reusable artifacts that can be executed later. This separation enables:
 
 - **Replicability**: Define transformations once and execute them consistently across different environments with guaranteed identical results.
 - **Serialization**: Store complex queries as compiled artifacts that can be shared, versioned, and executed without the original code
@@ -11,7 +11,7 @@ The xorq CLI provides the `build` command to compile xorq expressions into reusa
 
 ## Prerequisites
 
-Before starting, make sure you have xorq installed:
+Before starting, make sure you have Xorq installed:
 
 ```bash
 pip install xorq
@@ -19,7 +19,7 @@ pip install xorq
 
 ## Building Expressions
 
-The `build` command compiles a xorq expression into a reusable artifact that can be executed later.
+The `build` command compiles a Xorq expression into a reusable artifact that can be executed later.
 
 ### Basic Usage
 
@@ -36,7 +36,7 @@ Where:
 
 ### Example: Penguins Data Processing
 
-Let's create a complete example using the penguins dataset. First, we'll create a script that defines a xorq expression with a UDXF for data processing:
+Let's create a complete example using the penguins dataset. First, we'll create a script that defines a Xorq expression with a UDXF for data processing:
 
 ```{python}
 #| eval: false
