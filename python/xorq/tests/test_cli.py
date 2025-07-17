@@ -368,6 +368,7 @@ def test_examples(
     assert output_path.exists()
 
 
+@pytest.mark.slow
 def test_init_command_default(tmpdir):
     path = Path(tmpdir).joinpath("xorq-template-default")
     init_args = (
@@ -383,6 +384,7 @@ def test_init_command_default(tmpdir):
     assert path.joinpath("pyproject.toml").exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("template", InitTemplates)
 def test_init_command_sklearn(template, tmpdir):
     path = Path(tmpdir).joinpath(f"xorq-template-{template}")
@@ -401,6 +403,7 @@ def test_init_command_sklearn(template, tmpdir):
     assert path.joinpath("pyproject.toml").exists()
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("template", InitTemplates)
 def test_init_command_path_exists(template, tmpdir):
     path = Path(tmpdir).joinpath(f"xorq-template-{template}")
@@ -418,6 +421,7 @@ def test_init_command_path_exists(template, tmpdir):
     assert returncode != 0
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
