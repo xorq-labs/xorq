@@ -219,6 +219,15 @@ quartodoc:
         - name: IntervalValue
           package: xorq.vendor.ibis.expr.types.temporal
 
+    - title: Caching
+      package: xorq.caching
+      desc: "Caching Storage"
+      contents:
+         - ParquetStorage
+         - ParquetSnapshotStorage
+         - SourceStorage
+         - SourceSnapshotStorage
+
     - title: Machine Learning Operations
       package: xorq.expr.ml
       desc: "Machine Learning Functions and Helpers"
