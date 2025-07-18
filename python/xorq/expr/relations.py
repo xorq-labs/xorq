@@ -158,7 +158,9 @@ class FlightExpr(ops.DatabaseTable):
 
     @classmethod
     def validate_schema(cls, input_expr, unbound_expr):
-        (dt, *rest) = unbound_expr.op().find(ops.UnboundTable)
+        from xorq.common.utils.graph_utils import walk_nodes
+
+        (dt, *rest) = walk_nodes(ops.UnboundTable, unbound_expr)
         if rest or not isinstance(dt, ops.UnboundTable):
             raise ValueError
         if dt.schema != input_expr.schema():
