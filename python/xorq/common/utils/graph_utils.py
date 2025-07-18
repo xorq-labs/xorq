@@ -79,6 +79,7 @@ def replace_nodes(replacer, expr):
         return op.__recreate__(kwargs)
 
     def process_node(op, _kwargs):
+        op = replacer(op, _kwargs)
         match op:
             case rel.RemoteTable():
                 remote_expr = op.remote_expr.op().replace(process_node).to_expr()
@@ -97,11 +98,11 @@ def replace_nodes(replacer, expr):
                     op, _kwargs, computed_kwargs_expr=computed_kwargs_expr
                 )
             case rel.Read():
-                return replacer(op, _kwargs)
+                return op
             case _:
                 if isinstance(op, opaque_ops):
                     raise ValueError(f"unhandled opaque op {type(op)}")
-                return replacer(op, _kwargs)
+                return op
 
     initial_op = expr.op() if hasattr(expr, "op") else expr
     op = initial_op.replace(process_node)
