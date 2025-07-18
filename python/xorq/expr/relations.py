@@ -233,7 +233,9 @@ class FlightExpr(ops.DatabaseTable):
         return pa.RecordBatchReader.from_batches(schema, gen)
 
     def serve(self, make_server=None, **kwargs):
-        return flight_serve(self.unbound_expr, make_server=make_server, **kwargs)
+        return flight_serve_unbound(
+            self.unbound_expr, make_server=make_server, **kwargs
+        )
 
 
 def flight_serve(
@@ -241,29 +243,23 @@ def flight_serve(
     make_server=None,
     **kwargs,
 ):
+    return flight_serve_unbound(expr.unbind(), make_server=make_server, **kwargs)
+
+
+def flight_serve_unbound(
+    unbound_expr,
+    make_server=None,
+    **kwargs,
+):
     from xorq.flight import FlightServer
-    from xorq.flight.action import AddExchangeAction
     from xorq.flight.exchanger import (
         UnboundExprExchanger,
     )
 
-    @toolz.curry
-    def do_exchange(server, command, expr):
-        (fut, rbr_out) = server.client.do_exchange(command, expr)
-        return rbr_out
-
+    unbound_expr_exchanger = UnboundExprExchanger(unbound_expr)
     server = (make_server or FlightServer)(**kwargs)
-    server.serve()
-
-    unbound_expr_exchanger = UnboundExprExchanger(expr.unbind())
-    command = unbound_expr_exchanger.command
-    client = server.client
-    client.do_action(
-        AddExchangeAction.name,
-        unbound_expr_exchanger,
-        options=client._options,
-    )
-    return server, do_exchange(server, command)
+    server.exchangers += (unbound_expr_exchanger,)
+    server.serve(block=True)
 
 
 @toolz.curry
