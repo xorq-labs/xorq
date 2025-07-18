@@ -213,6 +213,21 @@ class DropViewAction(AbstractAction):
         yield make_flight_result(f"dropped view {table_name}")
 
 
+class ShutdownAction(AbstractAction):
+    @classproperty
+    def name(cls):
+        return "shutdown"
+
+    @classproperty
+    def description(cls):
+        return "shutdown the server"
+
+    @classmethod
+    def do_action(cls, server, context, action):
+        yield make_flight_result("shutting down")
+        server.shutdown()
+
+
 class ReadParquetAction(AbstractAction):
     @classproperty
     def name(cls):
@@ -280,5 +295,6 @@ actions = {
         VersionAction,
         GetSchemaQueryAction,
         GetExchangeAction,
+        ShutdownAction,
     )
 }
