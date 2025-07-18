@@ -98,6 +98,8 @@ def replace_nodes(replacer, expr):
                 kwargs = dict(zip(op.__argnames__, op.__args__))
                 kwargs["computed_kwargs_expr"] = computed_kwargs_expr
                 return op.__recreate__(kwargs)
+            case rel.Read():
+                return replacer(op, _kwargs)
             case _:
                 if isinstance(op, opaque_ops):
                     raise ValueError(f"unhandled opaque op {type(op)}")
