@@ -450,6 +450,7 @@ def normalize_agg_udf(udf):
 
 
 def opaque_node_replacer(node, kwargs):
+    # FIXME: use xorq.common.utils.graph_utils.opaque_ops (includes ExprScalarUDF)
     opaque_ops = (
         rel.Read,
         rel.CachedNode,
