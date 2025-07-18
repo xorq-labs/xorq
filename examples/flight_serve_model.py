@@ -24,8 +24,8 @@ deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
 con = xo.connect()
 train_expr, test_expr = (
     deferred_read_parquet(
-        con,
         xo.options.pins.get_path("hn-fetcher-input-small.parquet"),
+        con,
         "fetcher-input",
     )
     .pipe(m.do_hackernews_fetcher_udxf)

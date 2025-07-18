@@ -169,8 +169,8 @@ def make_exprs():
 
     (train_expr, test_expr) = (
         deferred_read_parquet(
-            con,
             xo.options.pins.get_path(name),
+            con,
             name,
         )
         .pipe(do_hackernews_fetcher_udxf)

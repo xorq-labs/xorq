@@ -165,8 +165,8 @@ def deferred_read_csv(
 
 
 def deferred_read_parquet(
-    con: Backend,
     path: str | Path,
+    con: Backend | None = None,
     table_name: str | None = None,
     normalize_method: Callable = normalize_read_path_stat,
     **kwargs,
@@ -201,6 +201,8 @@ def deferred_read_parquet(
 
     deferred_read_parquet.method_name = method_name = "read_parquet"
     method = getattr(con, method_name)
+    if con is None:
+        con = xo.config._backend_init()
     if table_name is None:
         table_name = gen_name(f"letsql-{method_name}")
     schema = xo.connect().read_parquet(path).schema()

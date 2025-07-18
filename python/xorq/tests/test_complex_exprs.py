@@ -27,7 +27,7 @@ def asof_join_flight_data(con, tail, flight, airborne_only=True):
 
     rates = (0.25, 1.0, 2.0, 4.0, 8.0, 16.0)
     ts = (
-        deferred_read_parquet(con, parquet_path, rate_to_rate_str(rate)).mutate(
+        deferred_read_parquet(parquet_path, con, rate_to_rate_str(rate)).mutate(
             flight=xo.literal(flight)
         )
         for rate, parquet_path in (

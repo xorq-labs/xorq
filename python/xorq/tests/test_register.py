@@ -169,7 +169,7 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
     con = xo.connect()
     path = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet"
     expr = (
-        xo.deferred_read_parquet(con, path)
+        xo.deferred_read_parquet(path, con)
         .cache(
             storage=ParquetStorage(source=xo.duckdb.connect(), relative_path=tmp_path)
         )
