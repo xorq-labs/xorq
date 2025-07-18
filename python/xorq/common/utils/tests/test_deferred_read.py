@@ -328,7 +328,7 @@ def test_deferred_read_csv_multiple_paths():
 
     t = con.read_csv(path, table_name="iris")
 
-    expr = deferred_read_csv(con, (path, path), schema=t.schema())
+    expr = deferred_read_csv((path, path), con, schema=t.schema())
 
     assert not expr.execute().empty
 
@@ -356,7 +356,7 @@ def test_register_csv_with_glob_string(data_dir, backend):
         glob_pattern, table_name=f"{table_name}_expected"
     ).execute()
 
-    read = xo.deferred_read_csv(backend, glob_pattern, table_name=table_name)
+    read = xo.deferred_read_csv(glob_pattern, backend, table_name=table_name)
     actual = read.execute()  # triggers the table creation
 
     assert any(table_name in t for t in backend.list_tables())
@@ -367,4 +367,4 @@ def test_register_empty_glob_pattern_fails(data_dir, con):
     glob_pattern = str(data_dir / "csv" / "*foo.csv")
 
     with pytest.raises(ValueError, match="At least one path is required"):
-        xo.deferred_read_csv(con, glob_pattern, table_name="foo")
+        xo.deferred_read_csv(glob_pattern, con, table_name="foo")

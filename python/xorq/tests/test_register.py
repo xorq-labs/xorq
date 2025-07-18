@@ -198,8 +198,8 @@ def test_read_csv_from_s3_and_cache(tmp_path):
 
     path = "s3://humor-detection-pds/Humorous.csv"
     t = xo.deferred_read_csv(
-        con,
         path,
+        con,
         schema=schema,
         storage_options=FrozenDict(
             {

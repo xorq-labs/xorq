@@ -87,8 +87,8 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
 
 
 def deferred_read_csv(
-    con: Backend,
     path: str | Path,
+    con: Backend | None = None,
     table_name: str | None = None,
     schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
@@ -136,6 +136,9 @@ def deferred_read_csv(
     infer_schema = kwargs.pop("infer_schema", infer_csv_schema_pandas)
     deferred_read_csv.method_name = method_name = "read_csv"
     method = getattr(con, method_name)
+
+    if con is None:
+        con = xo.config._backend_init()
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
     if schema is None:
