@@ -24,7 +24,7 @@ def to_node(maybe_expr: Any) -> Node:
         case Expr():
             return maybe_expr.op()
         case _:
-            raise ValueError
+            raise ValueError(f"Don't know how to handle type {type(maybe_expr)}")
 
 
 def gen_children_of(node: Node) -> Tuple[Node, ...]:
