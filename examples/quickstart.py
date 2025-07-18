@@ -78,8 +78,8 @@ connection = xo.connect()
 
 pipeline = (
     deferred_read_parquet(
-        connection,
         xo.options.pins.get_path(HACKERNEWS_DATA_NAME),
+        connection,
         HACKERNEWS_DATA_NAME,
     )
     # process with HackerNews fetcher Exchanger that does a live fetch

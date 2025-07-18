@@ -37,12 +37,12 @@ def get_table_from_name(name, backend, table_name=None, deferred=True, **kwargs)
     match suffix:
         case ".parquet":
             if deferred:
-                method = functools.partial(deferred_read_parquet, backend)
+                method = functools.partial(deferred_read_parquet, con=backend)
             else:
                 method = backend.read_parquet
         case ".csv":
             if deferred:
-                method = functools.partial(deferred_read_csv, backend)
+                method = functools.partial(deferred_read_csv, con=backend)
             else:
                 method = backend.read_csv
         case _:

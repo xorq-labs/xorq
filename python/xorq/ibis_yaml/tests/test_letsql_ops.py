@@ -77,7 +77,7 @@ def test_memtable(build_dir):
 def test_into_backend(build_dir):
     parquet_path = xo.config.options.pins.get_path("awards_players")
     backend = xo.duckdb.connect()
-    table = deferred_read_parquet(backend, parquet_path, table_name="award_players")
+    table = deferred_read_parquet(parquet_path, backend, table_name="award_players")
     expr = table.mutate(new_id=2 * xo._.playerID)
 
     con2 = xo.connect()

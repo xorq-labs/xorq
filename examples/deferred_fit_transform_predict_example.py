@@ -43,8 +43,8 @@ def predict_xgboost_model(model, df):
 def make_splits(con):
     train_expr, test_expr = (
         deferred_read_parquet(
-            con,
             xo.options.pins.get_path("hn-fetcher-input-small.parquet"),
+            con,
             "fetcher-input",
         )
         # we still need to set inner_name, else we get unstable hash

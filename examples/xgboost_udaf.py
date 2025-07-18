@@ -48,8 +48,8 @@ ibis_output_type = dt.infer(({"feature": "feature", "score": 0.0},))
 
 
 t = xo.deferred_read_parquet(
-    xo.connect(),
     xo.options.pins.get_path("lending-club"),
+    xo.connect(),
 )
 agg_udf = udf.agg.pandas_df(
     curried_calc_best_features,

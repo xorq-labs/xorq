@@ -97,7 +97,7 @@ def test_ibis_compiler_parquet_reader(build_dir):
     backend = xo.duckdb.connect()
     parquet_path = xo.config.options.pins.get_path("awards_players")
     awards_players = deferred_read_parquet(
-        backend, parquet_path, table_name="award_players"
+        parquet_path, backend, table_name="award_players"
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
     compiler = BuildManager(build_dir)
@@ -110,8 +110,8 @@ def test_ibis_compiler_parquet_reader(build_dir):
 def test_compiler_sql(build_dir, parquet_dir):
     backend = xo.datafusion.connect()
     awards_players = deferred_read_parquet(
-        backend,
         parquet_dir / "awards_players.parquet",
+        backend,
         table_name="awards_players",
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
@@ -146,8 +146,8 @@ def test_deferred_reads_yaml(build_dir):
     # Factor out the config path
     config_path = xo.config.options.pins.get_path("awards_players")
     awards_players = deferred_read_parquet(
-        backend,
         config_path,
+        backend,
         table_name="awards_players",
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
@@ -412,13 +412,13 @@ def test_build_file_stability_https(build_dir, snapshot):
     batting_path = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
 
     awards_players = xo.deferred_read_parquet(
-        con0,
         awards_players_path,
+        con0,
         "awards_players",
     ).into_backend(con1, "awards_players_into")
     batting = xo.deferred_read_parquet(
-        con2,
         batting_path,
+        con2,
         "batting",
     ).into_backend(con1, "batting_into")
     expr = (
@@ -474,15 +474,15 @@ def test_build_file_stability_local(
     con3 = with_profile_idx(xo.connect(), 3)
 
     awards_players = xo.deferred_read_parquet(
-        con0,
         awards_players_path,
+        con0,
         "awards_players",
         # we must hash based on content: inode stat is constantly updating
         normalize_method=normalize_read_path_md5sum,
     ).into_backend(con1, "awards_players_into")
     batting = xo.deferred_read_parquet(
-        con2,
         batting_path,
+        con2,
         "batting",
         # we must hash based on content: inode stat is constantly updating
         normalize_method=normalize_read_path_md5sum,
@@ -535,8 +535,8 @@ def test_struct_field(build_dir, tmpdir):
     path = pathlib.Path(tmpdir).joinpath("t.parquet")
     xo.memtable({"a": [{"b": 1, "c": "string"}]}).to_parquet(path)
     t = xo.deferred_read_parquet(
-        xo.connect(),
         path,
+        xo.connect(),
         table_name="t",
     )
     expr = t.select(t.a.b.name("a-b"))

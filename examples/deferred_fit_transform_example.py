@@ -27,8 +27,8 @@ con = xo.connect()
 storage = ParquetStorage(source=con)
 train_expr, test_expr = (
     deferred_read_parquet(
-        con,
         xo.options.pins.get_path("hn-fetcher-input-small.parquet"),
+        con,
         "fetcher-input",
     )
     .pipe(m.do_hackernews_fetcher_udxf)
