@@ -3,6 +3,7 @@ import shutil
 import sys
 import threading
 import time
+from itertools import chain
 from pathlib import Path
 
 import pytest
@@ -214,7 +215,9 @@ def test_run_command(tmp_path, fixture_dir, output_format):
 
 @pytest.mark.slow
 @pytest.mark.parametrize("cache_dir", [None, "cache"])
-def test_serve_command(tmp_path, fixture_dir, cache_dir):
+@pytest.mark.parametrize("host", [None, "0.0.0.0"])
+@pytest.mark.parametrize("port", [None, "5000"])
+def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "udxf_pipeline.py"
 
@@ -233,9 +236,19 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir):
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
 
-        cache_dir_args = ["--cache-dir", str(tmp_path / cache_dir)] if cache_dir else []
+        optional_args = tuple(
+            chain.from_iterable(
+                (arg, value)
+                for arg, value in (
+                    ("--cache-dir", str(tmp_path / cache_dir) if cache_dir else None),
+                    ("--host", host),
+                    ("--port", port),
+                )
+                if value
+            )
+        )
 
-        serve_args = ["xorq", "serve", str(expression_path), *cache_dir_args]
+        serve_args = ["xorq", "serve", str(expression_path), *optional_args]
 
         process = non_blocking_subprocess_run(serve_args)
         is_running = False
