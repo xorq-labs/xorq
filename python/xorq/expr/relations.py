@@ -158,7 +158,9 @@ class FlightExpr(ops.DatabaseTable):
 
     @classmethod
     def validate_schema(cls, input_expr, unbound_expr):
-        (dt, *rest) = unbound_expr.op().find(ops.UnboundTable)
+        from xorq.common.utils.graph_utils import walk_nodes
+
+        (dt, *rest) = walk_nodes(ops.UnboundTable, unbound_expr)
         if rest or not isinstance(dt, ops.UnboundTable):
             raise ValueError
         if dt.schema != input_expr.schema():
@@ -231,11 +233,21 @@ class FlightExpr(ops.DatabaseTable):
         return pa.RecordBatchReader.from_batches(schema, gen)
 
     def serve(self, make_server=None, **kwargs):
-        return flight_serve(self.unbound_expr, make_server=make_server, **kwargs)
+        return flight_serve_unbound(
+            self.unbound_expr, make_server=make_server, **kwargs
+        )
 
 
 def flight_serve(
     expr,
+    make_server=None,
+    **kwargs,
+):
+    return flight_serve_unbound(expr.unbind(), make_server=make_server, **kwargs)
+
+
+def flight_serve_unbound(
+    unbound_expr,
     make_server=None,
     **kwargs,
 ):
@@ -253,7 +265,7 @@ def flight_serve(
     server = (make_server or FlightServer)(**kwargs)
     server.serve()
 
-    unbound_expr_exchanger = UnboundExprExchanger(expr.unbind())
+    unbound_expr_exchanger = UnboundExprExchanger(unbound_expr)
     command = unbound_expr_exchanger.command
     client = server.client
     client.do_action(

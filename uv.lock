@@ -1435,19 +1435,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hash-cache"
-version = "0.1.0"
-source = { git = "https://github.com/xorq-labs/hash-cache#0c15468a0fb72bd8fb67a65bc552558708b6d4a8" }
-dependencies = [
-    { name = "attrs" },
-    { name = "cloudpickle" },
-    { name = "dask" },
-    { name = "pandas" },
-    { name = "toolz" },
-    { name = "urllib3" },
-]
-
-[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -5039,8 +5026,8 @@ requires-dist = [
     { name = "uv", specifier = ">=0.7.20" },
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=1.6.1" },
     { name = "xorq-datafusion", specifier = "==0.2.3" },
-    { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
-    { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
+    { name = "xorq-feature-utils", marker = "extra == 'examples'" },
+    { name = "xorq-weather-lib", marker = "extra == 'examples'" },
 ]
 provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres"]
 
@@ -5101,7 +5088,7 @@ wheels = [
 [[package]]
 name = "xorq-feature-utils"
 version = "0.1.0"
-source = { git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main#cbd61a83b647422c329214f2739f86d8aedf920f" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "pandas" },
@@ -5111,19 +5098,44 @@ dependencies = [
     { name = "urllib3" },
     { name = "xorq" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/e0/79/4375f04931d42ef9f687a6bc07ec5ca64c26f9757e942d3d12c8a2bcb7f0/xorq_feature_utils-0.1.0.tar.gz", hash = "sha256:2408e3c4631891e386f40faf01a71ae403ccee7ef55b42230f5ce7085e54f0cc", size = 94841, upload-time = "2025-07-09T14:45:30.649Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/13/58/09472621ed44ba3138c78af72a049a66516c85a09a862043c830b82898be/xorq_feature_utils-0.1.0-py3-none-any.whl", hash = "sha256:75cf85439b0a35ca3a1f8b7b8da10fce20810cdba8cce72b0315f8832ef9d7b9", size = 4319, upload-time = "2025-07-09T14:45:29.042Z" },
+]
+
+[[package]]
+name = "xorq-hash-cache"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "cloudpickle" },
+    { name = "dask" },
+    { name = "pandas" },
+    { name = "toolz" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/1b/369bfc6a3263ac5c9dbf21a344bda93c3211e3ccd89188550640282badf4/xorq_hash_cache-0.1.0.tar.gz", hash = "sha256:e45c5610b9553fa1a028193116c96154869f2f13dae32471d82b44ca1affcea6", size = 39525, upload-time = "2025-07-09T15:16:11.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/fb/cc5f7e92b8582cdf88a10b9172c87eb5b01bbd58f98dd4983dc8eac30e32/xorq_hash_cache-0.1.0-py3-none-any.whl", hash = "sha256:760b334b3003e4b96643192f8ddab843eab238e333ff53aecc177e6aaaa06672", size = 8463, upload-time = "2025-07-09T15:16:10.042Z" },
+]
 
 [[package]]
 name = "xorq-weather-lib"
 version = "0.1.0"
-source = { git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main#2421b57a22bb5f3b35440ba32f07f19500080c62" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "hash-cache" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "requests" },
     { name = "toolz" },
     { name = "urllib3" },
     { name = "xorq" },
+    { name = "xorq-hash-cache" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/38/b6/dd86726633bb8d20580443c5d11313d51c81c99725c3f1092ec360be3edb/xorq_weather_lib-0.1.0.tar.gz", hash = "sha256:27da5720e7a701897168c2dc04a526d3d0575c4dcbaf9e8100545537a051f930", size = 64112, upload-time = "2025-07-09T15:41:05.3Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d8/54/edd14490cf607ef86b57a3cb89f9ac6232dc3eacaa36e14d3dbf9cac06b5/xorq_weather_lib-0.1.0-py3-none-any.whl", hash = "sha256:a090f16d26cbb747e26c91235f11a396215881b9300745fe09185d4077fd25d2", size = 2731, upload-time = "2025-07-09T15:41:04.193Z" },
 ]
 
 [[package]]
