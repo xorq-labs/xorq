@@ -7,13 +7,16 @@
 
 </div>
 
-> **✨ Xorq is an opinionated framework for cataloging composable compute expressions for your data in flight. ✨**
+> **✨ Xorq is an opinionated framework for cataloging composable compute
+> expressions for your data in flight. ✨**
 
-Xorq helps teams build **declarative, reusable ML pipelines** across Python and SQL engines like DuckDB, Snowflake, and DataFusion. It offers:
+Xorq helps teams build **declarative, reusable ML pipelines** across Python and
+SQL engines like DuckDB, Snowflake, and DataFusion. It offers:
 
-* 🧠 **Multi-engine expressions** using pandas-style syntax and Ibis.
+* 🧠 **Multi-engine, declarative expressions** using pandas-style syntax and Ibis.
+* 📦 **Expression Format** for Python in YAML, enabling repeatable compute.
 * ⚡ **Portable UDFs and UDAFs** with automatic serialization.
-* 🔁 **Cached, composable compute** with reproducibility guarantees.
+* 🔁 **Cached, shift-left** with hash-based expression tokenization.
 * 🔍 **Column-level lineage and observability** out of the box.
 
 ## 🔧 Quickstart
@@ -33,10 +36,10 @@ ML pipelines are brittle, inconsistent, and hard to reuse. Xorq gives you:
 | --------------------- | ----------------------- |
 | Mixing pandas and SQL | Unified declarative API |
 | Wasted computation    | Transparent caching     |
-| Manual deployment     | YAML-backed CI/CD       |
+| Manual deployment     | Xorq serve any expr     |
 | Debugging lineage     | Visual lineage trees    |
 | Engine lock-in        | Portable UDxFs          |
-| Repro issues          | Compile-time validation |
+| Repro issues          | Compile-time schema and relational integrity validation |
 
 ## 📸 Example Output
 
