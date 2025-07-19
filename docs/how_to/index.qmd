@@ -1,0 +1,12 @@
+---
+title: "How-To Guides"
+---
+
+|                                                           |                                                  |
+|-----------------------------------------------------------|--------------------------------------------------|
+| [Installation](installation.qmd)                          | How to install Xorq                              |
+| [Backend Switching and Caching](into_backend_caching.qmd) | How to switch between backends and cache results |
+| [Integration with Scikit-Learn](integration_patterns.qmd) | How to integrate Xorq in Scikit-Learn pipelines  |
+| [Reading and Writing in Xorq](io_xorq.qmd)                | Basic I/O in Xorq                                |
+| [How to do lineage in Xorq](lineage.qmd)                  | Data Lineage in Xorq (Experimental)              |
+

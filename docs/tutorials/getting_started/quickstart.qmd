@@ -1,0 +1,258 @@
+---
+title: "Quickstart"
+icon: "pencil-square"
+headline: "Get a first taste of xorq"
+---
+
+## Installation
+
+Xorq can be installed using pip:
+
+```bash
+pip install xorq
+```
+
+Or using nix to drop into an IPython shell:
+
+```bash
+nix run github:xorq-labs/xorq
+```
+
+### Initialize a Project
+
+The fastest way to get started with Xorq is to use the `xorq init` command:
+
+```bash
+xorq init -t penguins
+```
+
+This creates a starting example project with the Palmer Penguins dataset that demonstrates key Xorq features including machine learning pipelines, caching, and lineage tracking.
+
+Navigate to the created directory and explore the `expr.py` file to see how Xorq works in practice.
+
+## Understanding the Generated Pipeline
+
+The template creates an `expr.py` file that demonstrates a complete ML workflow. Let's walk through the key components:
+
+### 1. Data Loading and Preparation
+
+```{python}
+# https://inria.github.io/scikit-learn-mooc/python_scripts/trees_classification.html
+import sklearn
+from sklearn.linear_model import LogisticRegression
+
+import xorq as xo
+from xorq.caching import ParquetStorage
+from xorq.expr.ml.pipeline_lib import (
+    Pipeline,
+)
+
+
+features = ("bill_length_mm", "bill_depth_mm")
+target = "species"
+data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250206T212843Z-8f28a/penguins.csv"
+
+```
+
+### 2. Handling CSV Files with NA Values
+
+The template demonstrates a critical pattern for real-world data processing. Since we're reading a CSV with NA values (not the default empty string for NULL), we use pandas first:
+
+```{python}
+
+def gen_splits(expr, test_size=0.2, random_seed=42, **split_kwargs):
+    # inject and drop row number
+    assert "test_sizes" not in split_kwargs
+    assert isinstance(test_size, float)
+    row_number = "row_number"
+    yield from (
+        expr.drop(row_number)
+        for expr in xo.train_test_splits(
+            expr.mutate(**{row_number: xo.row_number()}),
+            unique_key=row_number,
+            test_sizes=test_size,
+            random_seed=random_seed,
+            **split_kwargs,
+        )
+    )
+
+
+def get_penguins_splits(storage=None, **split_kwargs):
+    t = (
+        xo.deferred_read_csv(
+            con=xo.pandas.connect(),
+            path=data_url,
+            table_name="t",
+        )
+        .into_backend(xo.duckdb.connect(), name="t")
+        .select(features + (target,))
+        .drop_null()
+    )
+    (train, test) = (
+        expr.cache(storage or ParquetStorage())
+        for expr in gen_splits(t, **split_kwargs)
+    )
+    return (train, test)
+```
+
+**Why this pattern matters**: [pandas automatically recognizes 19 different NA value representations](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html) including `'NA'`, `'NULL'`, `'NaN'`, and empty strings, while [DuckDB only treats empty strings as NULL by default](https://duckdb.org/docs/stable/data/csv/auto_detection.html). The `into_backend()` method allows us to leverage pandas' superior CSV parsing capabilities, then seamlessly transition to DuckDB's high-performance analytical engine.
+
+### 3. Define and Configure Pipeline
+
+```{python}
+def make_pipeline(params=()):
+    clf = sklearn.pipeline.Pipeline(
+        steps=[
+            ("logistic", LogisticRegression()),
+        ]
+    ).set_params(**dict(params))
+    return clf
+
+
+def fit_and_score_sklearn_pipeline(pipeline, train, test):
+    (
+        (X_train, y_train),
+        (X_test, y_test),
+    ) = (
+        expr.execute().pipe(
+            lambda t: (
+                t.filter(regex=f"^(?!{target})"),
+                t.filter(regex=f"^{target}"),
+            )
+        )
+        for expr in (train, test)
+    )
+    print(len(X_train), len(X_test))
+    clf = pipeline.fit(X_train, y_train)
+    score = clf.score(X_test, y_test)
+    return clf, score
+```
+
+### 4. Create Deferred ML Pipeline
+
+The key innovation is converting scikit-learn pipelines to deferred Xorq expressions:
+
+```{python}
+# Configure hyperparameters
+params = {
+    "logistic__C": 1e-4,
+}
+
+
+# Get train/test splits
+(train, test) = get_penguins_splits()
+
+# Create scikit-learn pipeline
+sklearn_pipeline = make_pipeline(params=params)
+
+# Convert to xorq pipeline
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# still no work done: deferred fit expression
+fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
+
+train_predicted = fitted_pipeline.fitted_steps[-1].predicted
+expr = test_predicted = fitted_pipeline.predict(test[features])
+```
+
+The beauty here is that `fitted_pipeline` is still just an expression - no actual training has happened yet. The computation is deferred until you call `.execute()`.
+
+### 5. Execute and Validate
+
+```{python}
+
+# Compare xorq vs sklearn results
+clf, score_sklearn = fit_and_score_sklearn_pipeline(sklearn_pipeline, train, test)
+score_xorq = fitted_pipeline.score_expr(test)
+assert score_xorq == score_sklearn  # Results should be identical
+```
+
+## Exploring Pipeline Lineage
+
+One of Xorq's most powerful features is automatic lineage tracking. You can visualize the complete computational graph:
+
+```{python}
+from xorq.common.utils.lineage_utils import build_column_trees, print_tree
+
+# Visualize lineage for predictions
+print_tree(build_column_trees(expr)['predicted'])
+```
+
+This outputs a tree showing the complete lineage of how predictions were computed, including:
+
+- Data source (Read operation from CSV file via pandas)
+- Backend transition (into_backend operation to DuckDB)
+- Null value removal (DropNull)
+- Feature selection (DropColumns)
+- Train/test split logic (complex Filter with hash-based row sampling using row_number)
+- Caching layer for performance optimization
+- Final prediction computation (RemoteTable representing the fitted model output)
+
+## Building and Running the Pipeline
+
+### Build the Expression
+
+Serialize your pipeline for deployment:
+
+```bash
+xorq build expr.py -e expr
+```
+
+Output:
+
+```
+Building expr from expr.py
+Written 'expr' to builds/5704ffbeade4
+builds/5704ffbeade4
+```
+
+The build creates several artifacts:
+```
+❯ ls -a builds/5704ffbeade4/
+
+58bf5c46c84f.sql  
+aee2ca7e0e12.sql  
+d5d0022edaf3.sql  
+dacc6a158d67.sql  
+deferred_reads.yaml  
+expr.yaml  # Complete expression
+metadata.json  
+profiles.yaml  
+sql.yaml # Debug SQL outputs
+```
+
+### Run the Built Expression
+
+Execute the serialized Expression:
+
+```bash
+xorq run builds/5704ffbeade4/
+```
+
+Save results to different formats:
+```bash
+xorq run builds/5704ffbeade4/ --output-path predictions.csv --format csv
+xorq run builds/5704ffbeade4/ --output-path predictions.parquet --format parquet
+```
+
+## Key Benefits Demonstrated
+
+The penguins template showcases several Xorq advantages:
+
+- **Multi-Engine Flexibility**: Start with pandas for robust CSV parsing, seamlessly transition to DuckDB for analytics
+- **Deferred Execution**: ML pipelines are built as expressions and executed only when needed, 
+enabling optimization and caching.
+- **Automatic Caching**: Train/test splits are cached automatically, avoiding recomputation across different experiments.
+- **Reproducibility**: Random seeds and versioned data ensure consistent results across runs.
+- **Lineage Tracking**: Complete computational provenance from raw data to final predictions.
+- **Portability**: Pipelines serialize to YAML/SQL artifacts that can be version controlled and deployed anywhere.
+- **Engine Flexibility**: Same code works across DuckDB, DataFusion, Snowflake, and other supported backends.
+
+## Next Steps
+
+- Experiment with the generated `expr.py` file
+- Try different feature combinations by modifying the `features` tuple
+- Explore different algorithms by changing the pipeline steps
+- Read about [Profiles](../../api_reference/backend_configuration/profiles_api.qmd) to learn more about connecting to backends
+- Check out more examples in the [`examples/`](https://github.com/xorq-labs/xorq/tree/main/examples) directory
+- Join our [community](https://discord.gg/8Kma9DhcJG) for support and discussions

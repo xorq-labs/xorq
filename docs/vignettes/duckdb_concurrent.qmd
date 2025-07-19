@@ -59,10 +59,10 @@ The example demonstrates how xorq handles the concurrent operations smoothly, al
 ## Key Concepts
 
 - **Flight Server**: xorq's implementation of Apache Arrow Flight for
-  high-performance data transfer. As such, xorq makes it easier to spin up
+  high-performance data transfer. As such, Xorq makes it easier to spin up
   Flight servers without diving into Flight RPC details.
 
-- **Concurrency Control with Locks**: The example demonstrates xorq's
+- **Concurrency Control with Locks**: The example demonstrates Xorq's
   implementation of threading locks to safely manage concurrent database
   operations. While DuckDB itself supports concurrent reads and writes within a
   single process using optimistic concurrency control (as described in the

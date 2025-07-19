@@ -10,7 +10,8 @@ This is part 1/4.
 ## Overview
 
 In this tutorial, you'll learn how to:
-- Set up xorq and configure the necessary components
+
+- Set up Xorq and configure the necessary components
 - Fetch data from the [HackerNews API](https://github.com/HackerNews/API)
 - Use OpenAI gpt-3.5-turbo model to automatically label data with sentiment analysis
 - Create a labeled dataset ready for future machine learning tasks
@@ -30,7 +31,7 @@ export OPENAI_API_KEY=your_api_key
 
 ## Installation and Imports
 
-First, install xorq and the required dependencies:
+First, install Xorq and the required dependencies:
 
 ```bash
 pip install xorq pandas 
@@ -81,7 +82,7 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
 
 ## Setting Up the Backend and Storage
 
-Let's initialize the xorq backend and storage:
+Let's initialize the Xorq backend and storage:
 
 ::: {.callout-warning}
 The below code will attempt to download ~100k items from HackerNew API that can
@@ -153,7 +154,7 @@ print(labeled_df[["id", "title", "sentiment", "sentiment_int"]].head())
 ## Summary
 
 Congratulations! You've now:
-1. Set up xorq
+1. Set up Xorq
 2. Fetched data from the HackerNews API
 3. Set up local caching with `ParquetStorage`
 3. Used OpenAI GPT to automatically label the data with sentiment analysis

@@ -986,9 +986,9 @@ class Value(Expr):
 
         Examples
         --------
-        >>> import ibis
-        >>> ibis.options.interactive = True
-        >>> t = ibis.memtable({"values": [1, 2, 1, 2, 3, 2, 4]})
+        >>> import xorq as xo
+        >>> xo.options.interactive = True
+        >>> t = xo.memtable({"values": [1, 2, 1, 2, 3, 2, 4]})
         >>> t
         ┏━━━━━━━━┓
         ┃ values ┃

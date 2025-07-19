@@ -1,30 +1,31 @@
 ---
-title: Welcome to xorq!
+title: Welcome to Xorq!
 listing:
   - id: getting-started
     template: "style/gallery.ejs"
     contents: 
-      - "getting_started/quickstart.qmd"
-      - "tutorials/10_minutes_xorq_tour.qmd"
+      - "tutorials/getting_started/quickstart.qmd"
+      - "tutorials/getting_started/10_minutes_xorq_tour.qmd"
     type: grid
     grid-columns: 2
     fields: [title]
   - id: dive-deeper
     template: "style/gallery.ejs"
     contents: 
-      - "tutorials/hn_data_prep.qmd"
-      - "tutorials/hn_transform_tfidf.qmd"
-      - "tutorials/hn_training_xgb.qmd"
-      - "tutorials/hn_serving.qmd"
+      - "tutorials/getting_started/hn_data_prep.qmd"
+      - "tutorials/getting_started/hn_transform_tfidf.qmd"
+      - "tutorials/getting_started/hn_training_xgb.qmd"
+      - "tutorials/getting_started/hn_serving.qmd"
     type: grid
     grid-columns: 2
     fields: [title]
 ---
 
-xorq is a deferred computational framework for building, running, and serving
-pandas groupby-apply style pipelines common in ML workflows. xorq is built on
-top of [Ibis](https://ibis-project.org/) and
-[Apache DataFusion](https://datafusion.apache.org/).
+Xorq is an opinionated framework for cataloging composable compute expressions that enables you to build portable, multi-engine ML pipelines 
+with deferred execution. Write expressive, pandas-style transformations that seamlessly move between SQL engines and Python, 
+with built-in caching, lineage tracking, and deployment-ready artifacts. Xorq is built on top of [Ibis](https://ibis-project.org/) 
+and [Apache DataFusion](https://datafusion.apache.org/).
+
 
 ## Getting Started
 
@@ -38,15 +39,13 @@ Multipart series on how to build an end-to-end ML pipeline using live data from 
 :::{#dive-deeper}
 :::
 
-## Why xorq?
+## Why Xorq?
 
-xorq was developed to give Python developers a more ergonomic way to build,
-cache, and serve pipelines—without getting locked into a single engine. The
-xorq computational framework provides a quantum leap in ML development by:
+xorq was developed to solve the frustrating complexities of building reliable ML pipelines across multiple engines and environments. Traditional approaches force you to choose between the expressiveness of pandas and the scalability of SQL engines, leading to SQL-pandas impedance mismatches, wasteful recomputation, and pipelines that work in notebooks but fail in production.
+The xorq computational framework provides a quantum leap in ML development by:
 
-- **Simplifying development** - no more juggling separate SQL jobs, pandas
-  scripts, and ML framework specific transformations.
-- **Accelerating iteration** - intelligent caching means no more having to wait
-  for full pipeline re-runs after every little change.
-- **Making deployment seamless** - moving a working pipeline from local dev to
-  production no longer requires rewriting.
+- **Unifying multi-engine workflows** - seamlessly combine Snowflake, DuckDB, and Python within a single declarative pipeline, eliminating engine-specific rewrites.
+- **Enabling true portability** - write UDFs once and run them consistently across any supported engine, with automatic serialization to diff-able YAML artifacts for reproducibility.
+- **Accelerating iteration** - intelligent caching of intermediate results means no more waiting for expensive joins or full pipeline re-runs after every change.
+- **Making deployment seamless** - moving a working pipeline from local development to production requires no rewriting, with built-in compile-time validation and lineage tracking.
+- **Providing observability** - automatic column-level lineage tracking and fail-fast pipelines give you the visibility and confidence needed for production ML systems.
