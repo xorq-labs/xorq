@@ -241,6 +241,8 @@ def serve_command(
     server = FlightServer.from_udxf(
         expr,
         make_connection=partial(xo.duckdb.connect, str(db_path)),
+        port=port,
+        host=host,
     )
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_hash}' on {location}")
