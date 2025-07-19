@@ -1,3 +1,4 @@
+import functools
 import itertools
 import pathlib
 import re
@@ -500,7 +501,11 @@ def opaque_node_replacer(node, kwargs):
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    op = expr.op()
+    return normalize_op(expr.op())
+
+
+@functools.cache
+def normalize_op(op):
     sql = unbound_expr_to_default_sql(
         op.replace(opaque_node_replacer).to_expr().unbind()
     )
