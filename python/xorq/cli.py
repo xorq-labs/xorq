@@ -390,6 +390,34 @@ def parse_args(override=None):
         default="parquet",
         help="Output format (default: parquet)",
     )
+
+    serve_unbound_parser = subparsers.add_parser(
+        "serve-unbound", help="Serve an an unbound expr via Flight Server"
+    )
+    serve_unbound_parser.add_argument(
+        "build_path", help="Path to the build directory (output of xorq build)"
+    )
+    serve_unbound_parser.add_argument(
+        "to_unbind_hash", help="hash of the expr to replace"
+    )
+    serve_unbound_parser.add_argument(
+        "--host",
+        default="localhost",
+        help="Host to bind Flight Server (default: localhost)",
+    )
+    serve_unbound_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind Flight Server (default: random)",
+    )
+    serve_unbound_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+
     serve_parser = subparsers.add_parser(
         "serve", help="Serve a build via Flight Server"
     )
@@ -424,6 +452,7 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for all generated parquet files cache",
     )
+
     init_parser = subparsers.add_parser(
         "init",
         help="Initialize a xorq project",
@@ -478,6 +507,17 @@ def main():
                 f, f_args = (
                     run_command,
                     (args.build_path, args.output_path, args.format, args.cache_dir),
+                )
+            case "serve-unbound":
+                f, f_args = (
+                    unbind_and_serve_command,
+                    (
+                        args.build_path,
+                        args.to_unbind_hash,
+                        args.host,
+                        args.port,
+                        args.cache_dir,
+                    ),
                 )
             case "serve":
                 f, f_args = (
