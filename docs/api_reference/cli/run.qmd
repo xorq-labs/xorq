@@ -1,0 +1,120 @@
+---
+title: 'Run'
+---
+
+The `Xorq run` command executes built Xorq expressions and outputs the results in various formats. This command takes the artifacts created by `xorq build` and executes the expression to produce data.
+
+## Prerequisites
+
+Before running Xorq expressions, you need:
+- Built Xorq expression artifacts (created with `xorq build`)
+- Xorq installed with necessary dependencies
+
+## Running Expressions
+
+Once you've built a Xorq expression using `xorq build`, you can execute it with the `run` command.
+
+### Basic Usage
+
+The basic syntax for the `run` command is:
+
+```bash
+xorq run <build_path> --output-path <output_file> --format <output_format>
+```
+
+Where:
+- `<build_path>` is the path to the built Xorq expression directory
+- `--output-path` specifies where to write the results (defaults to discarding output)
+- `--format` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
+
+### Example: Running the Penguins Analysis
+
+Assuming you've built the penguins analysis expression from the [run example](run.qmd):
+
+```bash
+# Run the expression and save results as Parquet (default format)
+xorq run builds/f02d28198715 --output-path penguin_results.parquet
+```
+
+The command will execute the UDXF Xorq expression and produce a dataset with the health analysis results.
+
+### Output Formats
+
+#### Parquet Output (Default)
+```bash
+xorq run builds/f02d28198715 --output-path results.parquet --format parquet
+```
+
+Parquet is efficient for large datasets and preserves data types perfectly.
+
+#### CSV Output
+```bash
+xorq run builds/f02d28198715 --output-path results.csv --format csv
+```
+
+CSV is human-readable and works well with spreadsheet applications.
+
+#### JSON Output
+```bash
+xorq run builds/f02d28198715 --output-path results.json --format json
+```
+
+JSON is useful for web applications and APIs.
+
+### Example Output
+
+When you run the penguins health analysis, you'll get output like (for json the output format is [NDJSON](https://github.com/ndjson/ndjson-spec)):
+
+```json
+{
+  "species": "Adelie",
+  "island": "Torgersen",
+  "bill_length_mm": 39.1,
+  "bill_depth_mm": 18.7,
+  "flipper_length_mm": 181.0,
+  "body_mass_g": 3750.0,
+  "sex": "male",
+  "year": 2007,
+  "health_score": 3.83,
+  "size_category": "medium",
+  "processed_at": 1752508034
+}
+```
+
+### Advanced Options
+
+#### Custom Cache Directory
+Specify where intermediate cache files are stored:
+
+```bash
+xorq run builds/penguins_analysis \
+    --output-path results.parquet \
+    --cache-dir /path/to/cache
+```
+
+#### Output to Standard Output
+Use `-` to output to stdout (useful for piping):
+
+```bash
+# Output CSV to stdout and pipe to another command
+xorq run builds/f02d28198715 --output-path - --format csv | head -10
+```
+
+#### Discarding Output
+When you don't need to save results (useful for validation):
+
+```bash
+# Run without saving output (goes to /dev/null)
+xorq run builds/f02d28198715
+```
+
+## Understanding Execution
+
+When you run `xorq run`, several things happen:
+
+1. **Load Expression**: The build artifacts are loaded to reconstruct the Xorq expression
+2. **Resolve Dependencies**: Data sources and UDXFs are resolved
+3. **Execute Expression**: The Xorq expression is executed using the appropriate backend
+4. **Format Output**: Results are formatted and written to the specified location
+
+The run command provides a reliable way to execute your data transformations consistently across different environments.

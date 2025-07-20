@@ -9,6 +9,7 @@ using TF-IDF vectorization on HackerNews data"
 ## Overview
 
 In this tutorial (Part 2 of our series), you'll learn how to:
+
 - Load the labeled HackerNews data from Part 1
 - Split the data into training and testing sets
 - Apply TF-IDF vectorization to the text data

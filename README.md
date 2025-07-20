@@ -128,6 +128,7 @@ DataFusion under the hood for efficient computation.
 
 ## 🧪 Status
 
+>>>>>>> main
 Xorq is pre-1.0 and evolving fast. Expect breaking changes.
 
 ## 🤝 Get Involved

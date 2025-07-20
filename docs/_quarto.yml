@@ -23,54 +23,106 @@ website:
 
     left:
       - sidebar:user-guide
-      - sidebar:api-reference
+      - text: How-To Guides
+        href: how_to/index.qmd
+      - text: "Reference"
+        menu:
+          - api_reference/cli/index.qmd
+          - reference/index.qmd
+          - api_reference/backend_configuration/index.qmd
+      - text: "Core Concepts"
+        menu:
+          - core_concepts/multi_engine.qmd
+          - core_concepts/deferred_execution.qmd
+          - core_concepts/flight_udxf.qmd
+
 
   sidebar:
     - id: user-guide
-      title: "User Guide"
+      title: "Tutorials"
       collapse-level: 2
       contents:
-        - id: user-guide-section
-          section: "User Guide"
+        - id: tutorials-section
+          section: "Getting Started"
           contents:
-            - href: getting_started/quickstart.qmd
-        - id: core-concepts-section
-          section: "Core Concepts"
-          contents:
-            - href: core_concepts/caching.qmd
-            - href: core_concepts/multi_engine.qmd
-            - href: core_concepts/udxf.qmd
-            - href: core_concepts/build.qmd
-            - href: core_concepts/profiles_guide.qmd
+            - href: tutorials/getting_started/quickstart.qmd
+            - href: tutorials/getting_started/10_minutes_xorq_tour.qmd
+            - href: tutorials/getting_started/hn_data_prep.qmd
+            - href: tutorials/getting_started/hn_transform_tfidf.qmd
+            - href: tutorials/getting_started/hn_training_xgb.qmd
+            - href: tutorials/getting_started/hn_serving.qmd
         - id: vignettes-section
           section: "Vignettes"
           contents:
             - href: vignettes/duckdb_concurrent.qmd
             - href: vignettes/mcp_flight_server.qmd
-        - id: tutorials-section
-          section: "Tutorials"
-          contents:
-            - href: tutorials/hn_data_prep.qmd
-            - href: tutorials/hn_transform_tfidf.qmd
-            - href: tutorials/hn_training_xgb.qmd
-            - href: tutorials/hn_serving.qmd
 
     - id: api-reference
-      title: "API"
+      title: "Python API"
+      collapse-level: 1
       contents:
-        - id: expression-api
-          section: "Expression API"
+        - id: core-operations-section
+          section: "Core Expressions"
           contents:
-            - href: reference/expression-relations.qmd
-            - href: reference/expression-generic.qmd
-            - href: reference/expression-numeric.qmd
-            - href: reference/expression-strings.qmd
-            - href: reference/expression-temporal.qmd
-        - id: ml-api
-          section: "ML API"
+            - reference/Table.qmd
+            - reference/GroupedTable.qmd
+            - reference/Value.qmd
+            - reference/Scalar.qmd
+            - reference/Column.qmd
+            - reference/NumericColumn.qmd
+            - reference/IntegerColumn.qmd
+            - reference/FloatingColumn.qmd
+            - reference/StringValue.qmd
+            - reference/TimeValue.qmd
+            - reference/DateValue.qmd
+            - reference/DayOfWeek.qmd
+            - reference/TimestampValue.qmd
+            - reference/IntervalValue.qmd
+        - id: machine-learning-operations-section
+          section: "Machine Learning Helpers"
           contents:
-            - href: reference/ml-api.qmd
+            - reference/train_test_splits.qmd
+            - reference/Step.qmd
+            - reference/Pipeline.qmd
+        - id: data-operations-section
+          section: "Data Operations"
+          contents:
+            - reference/read_csv.qmd
+            - reference/read_parquet.qmd
+            - reference/memtable.qmd
+            - reference/to_sql.qmd
+            - reference/execute.qmd
+            - reference/to_pyarrow_batches.qmd
+            - reference/to_pyarrow.qmd
+            - reference/to_parquet.qmd
+            - reference/to_csv.qmd
+            - reference/to_json.qmd
+        - id: udf-system-section
+          section: "UDF System"
+          contents:
+            - reference/agg.pandas_df.qmd
+            - reference/agg.pyarrow.qmd
+            - reference/make_pandas_expr_udf.qmd
+            - reference/make_pandas_udf.qmd
+            - reference/pyarrow_udwf.qmd
 
+    - id: cli-reference
+      title: "CLI Commands"
+      collapse-level: 2
+      contents:
+        - api_reference/cli/init.qmd
+        - api_reference/cli/build.qmd
+        - api_reference/cli/run.qmd
+        - api_reference/cli/serve.qmd
+
+    - id: how_to_guides
+      title: "How-To Guides"
+      contents:
+         - how_to/installation.qmd
+         - how_to/into_backend_caching.qmd
+         - how_to/integration_patterns.qmd
+         - how_to/io_xorq.qmd
+         - how_to/lineage.qmd
 
 format:
   html:
@@ -84,247 +136,188 @@ format:
 
 quartodoc:
   package: xorq
-  title: Reference
+  title: Python API
   sidebar: reference/_sidebar.yml
   render_interlinks: true
   renderer: _renderer.py
   options:
     signature_name: short
   sections:
-    - title: Expression API
-      desc: "APIs for manipulating table, column and scalar expressions"
+    - title: Core Operations
+      desc: "APIs for reading and returning data"
+      contents:
+        - name: read_csv
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: read_parquet
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: memtable
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_sql
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: execute
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_pyarrow_batches
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_pyarrow
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_parquet
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_csv
+          dynamic: true
+          signature_name: full
+          package: xorq
+        - name: to_json
+          dynamic: true
+          signature_name: full
+          package: xorq
+
+    - title: Data Operations
+      desc:
+      contents:
+        - name: Table
+          include_inherited: true
+          package: xorq.vendor.ibis.expr.types.relations
+        - name: GroupedTable
+          package: xorq.vendor.ibis.expr.types.groupby
+        - name: Value
+          package: xorq.vendor.ibis.expr.types.generic
+        - name: Scalar
+          package: xorq.vendor.ibis.expr.types.generic
+        - name: Column
+          package: xorq.vendor.ibis.expr.types.generic
+        - name: NumericColumn
+          package: xorq.vendor.ibis.expr.types.numeric
+        - name: IntegerColumn
+          package: xorq.vendor.ibis.expr.types.numeric
+        - name: FloatingColumn
+          package: xorq.vendor.ibis.expr.types.numeric
+        - name: StringValue
+          package: xorq.vendor.ibis.expr.types.strings
+        - name: TimeValue
+          package: xorq.vendor.ibis.expr.types.temporal
+        - name: DateValue
+          package: xorq.vendor.ibis.expr.types.temporal
+        - name: DayOfWeek
+          package: xorq.vendor.ibis.expr.types.temporal
+        - name: TimestampValue
+          package: xorq.vendor.ibis.expr.types.temporal
+        - name: IntervalValue
+          package: xorq.vendor.ibis.expr.types.temporal
+
+    - title: Caching
+      package: xorq.caching
+      desc: "Caching Storage"
+      contents:
+         - ParquetStorage
+         - ParquetSnapshotStorage
+         - SourceStorage
+         - SourceSnapshotStorage
+
+    - title: Machine Learning Operations
+      package: xorq.expr.ml
+      desc: "Machine Learning Functions and Helpers"
+      contents:
+        - train_test_splits
+        - Step
+        - Pipeline
+
+    - title: Type System
+      desc: "Data types and schemas"
       contents:
         - kind: page
-          path: expression-relations
+          path: datatypes
+          package: xorq.vendor.ibis.expr.datatypes.core
           summary:
-            name: Table expressions
-            desc: Tables are one of the core data structures in Xorq.
+            name: Data types
+            desc: Scalar and column data types
           contents:
-            - name: Table
-              include_inherited: true
-              package: xorq.vendor.ibis.expr.types.relations
-            - name: GroupedTable
-              package: xorq.vendor.ibis.expr.types.groupby
-            - name: read_csv
+            - name: dtype
+              package: ibis
               dynamic: true
               signature_name: full
-              package: xorq
-            - name: read_parquet
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: memtable
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_sql
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: execute
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_pyarrow_batches
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_pyarrow
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_parquet
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_csv
-              dynamic: true
-              signature_name: full
-              package: xorq
-            - name: to_json
-              dynamic: true
-              signature_name: full
-              package: xorq
-
+            - DataType
+            - Array
+            - Binary
+            - Boolean
+            - Date
+            - Decimal
+            - Float16
+            - Float32
+            - Float64
+            - INET
+            - Int16
+            - Int32
+            - Int64
+            - Int8
+            - Interval
+            - JSON
+            - LineString
+            - MACADDR
+            - Map
+            - MultiLineString
+            - MultiPoint
+            - MultiPolygon
+            - "Null"
+            - Point
+            - Polygon
+            - String
+            - Struct
+            - Time
+            - Timestamp
+            - UInt16
+            - UInt32
+            - UInt64
+            - UInt8
+            - UUID
         - kind: page
-          path: expression-generic
-          package: xorq.vendor.ibis.expr.types.generic
+          path: schemas
           summary:
-            name: Generic expressions
-            desc: Scalars and columns of any element type.
+            name: Schemas
+            desc: Table Schemas
           contents:
-            - name: Value
-              members:
-                - asc
-                - cast
-                - coalesce
-                - collect
-                - identical_to
-                - isin
-                - isnull
-                - name
-                - notnull
-                - nullif
-                - try_cast
-            - name: Scalar
-              members:
-                - as_table
-            - name: Column
-              members:
-                - approx_median
-                - approx_nunique
-                - arbitrary
-                - count
-                - first
-                - lag
-                - last
-                - lead
-                - max
-                - median
-                - min
-                - nth
-                - nunique
+            - name: schema
+              dynamic: true
+              signature_name: full
+            - name: Schema
+              package: xorq.vendor.ibis.expr.schema
 
-        - kind: page
-          path: expression-numeric
-          package: xorq.vendor.ibis.expr.types.numeric
-          summary:
-            name: Numeric and Boolean expressions
-            desc: Integer, floating point, decimal, and boolean expressions.
-          contents:
-            - name: NumericColumn
-              members:
-                - abs
-                - acos
-                - asin
-                - atan
-                - atan2
-                - bucket
-                - ceil
-                - corr
-                - cos
-                - cot
-                - cov
-                - degrees
-                - exp
-                - floor
-                - ln
-                - log
-                - log10
-                - log2
-                - mean
-                - negate
-                - radians
-                - round
-                - sign
-                - sin
-                - sqrt
-                - std
-                - sum
-                - tan
-                - var
-            - name: IntegerColumn
-              members:
-                - bit_and
-                - bit_or
-                - bit_xor
-                - to_timestamp
-            - name: FloatingColumn
-              members:
-                - isinf
-                - isnan
-
-        - kind: page
-          path: expression-strings
-          package: xorq.vendor.ibis.expr.types.strings
-          summary:
-            name: String expressions
-            desc: All string operations are valid for both scalars and columns.
-          contents:
-            - name: StringValue
-              members:
-                - ascii_str
-                - authority
-                - capitalize
-                - concat
-                - contains
-                - endswith
-                - find
-                - find_in_set
-                - fragment
-                - host
-                - length
-                - levenshtein
-                - lower
-                - lpad
-                - lstrip
-                - path
-                - protocol
-                - query
-                - re_extract
-                - re_replace
-                - re_search
-                - re_split
-                - repeat
-                - replace
-                - reverse
-                - right
-                - rpad
-                - rstrip
-                - split
-                - startswith
-                - strip
-                - substr
-                - to_date
-                - translate
-                - upper
-                - userinfo
-
-        - kind: page
-          path: expression-temporal
-          package: xorq.vendor.ibis.expr.types.temporal
-          summary:
-            name: Temporal expressions
-            desc: Dates, times, timestamps and intervals.
-          contents:
-            - name: TimeValue
-              members:
-                - hour
-                - microsecond
-                - millisecond
-                - minute
-                - second
-                - time
-                - truncate
-            - name: DateValue
-              members:
-                - day
-                - day_of_year
-                - epoch_seconds
-                - month
-                - quarter
-                - truncate
-                - week_of_year
-                - year
-            - name: DayOfWeek
-              members:
-                - full_name
-                - index
-            - name: TimestampValue
-              members:
-                - date
-                - truncate
-            - name: IntervalValue
-              members:
-                - to_unit
-
-        - kind: page
-          path: ml-api
-          package: xorq.expr.ml
-          summary:
-            name: ML functions
-            desc: ML functions and classes helpers
-          contents:
-            - train_test_splits
-            - Step
-            - Pipeline
+    - title: UDF System
+      desc: "The functions for creating UDF"
+      contents:
+        - name: make_pandas_udf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.udf
+        - name: make_pandas_expr_udf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.udf
+        - name: pyarrow_udwf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.udf
+        - name: agg.pyarrow
+          dynamic: true
+          package: xorq.expr.udf
+        - name: agg.pandas_df
+          dynamic: true
+          package: xorq.expr.udf
+        - name: flight_udxf
+          dynamic: true
+          package: xorq.expr.relations

@@ -1,0 +1,47 @@
+---
+title: "Init"
+---
+
+Initialize a new Xorq project from a template.
+
+## Usage
+
+```bash
+xorq init [OPTIONS]
+```
+
+## Options
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--path` | `-p` | `./xorq-template` | Directory path where template will be created |
+| `--template` | `-t` | `cached-fetcher` | Template type to initialize |
+
+## Templates
+
+- **`cached-fetcher`** - Default template for cached data fetching workflows
+- **`sklearn`** - Template for machine learning workflows with scikit-learn
+
+## Examples
+
+Initialize with default template:
+```bash
+xorq init
+```
+
+Initialize in custom directory:
+```bash
+xorq init --path ./my-project
+```
+
+Initialize with sklearn template:
+```bash
+xorq init --template sklearn --path ./ml-project
+```
+
+## Output
+
+The command creates a new directory with template files and prints:
+```
+initialized xorq template `{template}` to {path}
+```

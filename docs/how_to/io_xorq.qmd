@@ -1,0 +1,163 @@
+---
+title: "Xorq I/O Operations"
+---
+
+This guide covers the essential I/O operations in Xorq, including reading various file formats, working with dataframes, and handling PyArrow tables.
+
+## Table of Contents
+
+1. [Reading Files](#reading-files)
+2. [Deferred Operations](#deferred-operations)
+3. [Working with DataFrames](#working-with-dataframes)
+4. [PyArrow Tables](#pyarrow-tables)
+5. [Output Formats](#output-formats)
+
+
+## Reading Files
+
+### Reading Parquet Files
+
+The most common way to read Parquet files in Xorq is using the `read_parquet()` method:
+
+```{python}
+import xorq as xo
+
+# Create a connection
+con = xo.connect()
+
+# Read a Parquet file
+path = xo.options.pins.get_path("penguins")  # replace with the path to the parquet file 
+table = con.read_parquet(path, table_name="my_parquet_table")
+
+# You can also read directly without a connection
+table = xo.read_parquet(path)
+```
+
+**Parameters:**
+- `path`: Path to the Parquet file
+- `table_name`: Optional name for the table in the backend
+
+### Reading CSV Files
+
+CSV files can be read using `read_csv()` method:
+
+```{python}
+# Read CSV file
+csv_path = xo.options.pins.get_path("iris")  # replace with the path to the csv file
+table = con.read_csv(csv_path, table_name="iris_csv_table")
+```
+
+## Deferred Operations
+
+Xorq supports deferred operations that build computation graphs which delay execution until explicitly requested:
+
+```{python}
+from xorq.common.utils.defer_utils import deferred_read_parquet
+
+# Create a deferred read operation
+deferred_table = deferred_read_parquet(
+    con,
+    path,
+    "deferred_penguins"
+)
+
+# Execute when needed
+result = deferred_table.execute()
+```
+
+## Working with DataFrames
+
+### Registering Pandas DataFrames
+
+You can register existing pandas DataFrames with Xorq backends:
+
+```{python}
+import pandas as pd
+import xorq as xo
+
+# Create a pandas DataFrame
+df = pd.DataFrame({
+    "id": [1, 2, 3],
+    "name": ["Alice", "Bob", "Charlie"],
+    "value": [10.5, 20.3, 30.1]
+})
+
+# Register with Xorq backend
+con = xo.connect()
+table = con.register(df, table_name="my_dataframe")
+
+# Now you can use it in Xorq operations
+result = table.filter(table.value > 15).execute()
+```
+
+### Converting Back to DataFrames
+
+All Xorq table operations return pandas DataFrames when executed:
+
+```{python}
+# Execute operations to get pandas DataFrame
+df_result = table.select(['id', 'name']).execute()
+print(type(df_result))  # <class 'pandas.core.frame.DataFrame'>
+```
+
+## PyArrow Tables
+
+### Creating Tables from PyArrow
+
+Xorq can work directly with PyArrow tables:
+
+```{python}
+import pyarrow as pa
+import xorq as xo
+
+# Create a PyArrow table
+pa_table = pa.table({
+    "a": [1, 2, 3],
+    "b": ["x", "y", "z"]
+})
+
+# Register with backend
+con = xo.connect()
+table = con.create_table("pa_table", pa_table)
+
+# Execute to get results
+result = table.execute()
+```
+
+### Working with RecordBatchReaders
+
+You can also work with PyArrow RecordBatchReaders:
+
+```{python}
+import pyarrow as pa
+
+# Create a RecordBatchReader
+pa_table = pa.table({"x": [10, 20], "y": [True, False]})
+reader = pa.RecordBatchReader.from_batches(
+    pa_table.schema,
+    pa_table.to_batches()
+)
+
+# Create table from RecordBatchReader
+expr = con.read_record_batches(reader, "rbr_table")
+result = expr.execute()
+```
+
+## Output Formats
+
+### Saving Data
+
+Xorq supports multiple output formats:
+
+```{python}
+# Save as Parquet (default)
+expr.to_parquet("output.parquet")
+
+# Save as CSV
+expr.to_csv("output.csv")
+
+# Save as JSON
+expr.to_json("output.json")
+```
+
+This guide covers the essential I/O operations in Xorq. For more advanced usage patterns, refer to the specific backend documentation and the Xorq examples in the project.
