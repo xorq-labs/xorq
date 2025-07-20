@@ -49,7 +49,7 @@ Once you `xorq build` your pipeline, you get:
 * `deferred_reads.yaml`: source metadata
 * SQL and metadata files for inspection and CI
 
-Here is a sample (abreviated) output:
+Here is a sample (abbreviated) output:
 
 ```bash
 ❯ cat deferred_reads.yaml
@@ -128,7 +128,6 @@ DataFusion under the hood for efficient computation.
 
 ## 🧪 Status
 
->>>>>>> main
 Xorq is pre-1.0 and evolving fast. Expect breaking changes.
 
 ## 🤝 Get Involved
