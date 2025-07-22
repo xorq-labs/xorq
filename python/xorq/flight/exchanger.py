@@ -268,7 +268,10 @@ class UnboundExprExchanger(AbstractExchanger):
 
     @property
     def op_hash(self):
-        return dask.base.tokenize(self.unbound_expr)
+        import xorq.common.utils.dask_normalize.dask_normalize_utils as DNU
+
+        with DNU.patch_normalize_op_caching():
+            return dask.base.tokenize(self.unbound_expr)
 
     @property
     def exchange_f(self):

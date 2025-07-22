@@ -27,11 +27,14 @@ def do_replace_dct(node, kwargs, *, replace_dct):
 
 
 def find_by_expr_hash(expr, to_replace_hash, typs=replace_typs):
-    (to_replace, *rest) = (
-        node
-        for node in walk_nodes(typs, expr)
-        if dask.base.tokenize(node.to_expr()) == to_replace_hash
-    )
+    import xorq.common.utils.dask_normalize.dask_normalize_utils as DNU
+
+    with DNU.patch_normalize_op_caching():
+        (to_replace, *rest) = (
+            node
+            for node in walk_nodes(typs, expr)
+            if dask.base.tokenize(node.to_expr()) == to_replace_hash
+        )
     if rest:
         raise ValueError
     return to_replace
