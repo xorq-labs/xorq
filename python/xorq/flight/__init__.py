@@ -232,6 +232,7 @@ class FlightServer:
         return self
 
     def serve(self, block=False):
+        assert not self.server
         self.flight_url.unbind_socket()
         self.server = FlightServerDelegate(
             self.make_connection,
