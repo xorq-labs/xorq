@@ -875,9 +875,9 @@ xorq-datafusion==0.2.3
     # via xorq
 xorq-feature-utils @ git+https://github.com/xorq-labs/xorq-feature-utils@cbd61a83b647422c329214f2739f86d8aedf920f
     # via xorq
-xorq-hash-cache @ git+https://github.com/xorq-labs/hash-cache@91bee9d85ba005412fab6ea16ca7480db6bf42d8
+xorq-hash-cache==0.1.0
     # via xorq-weather-lib
-xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib@eb99f5ac1d36ef2bd51d931967667dad65770b19
+xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib@664e2e58c5dbafff59a792314a32896cbb0f796a
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4'
     # via pins

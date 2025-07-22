@@ -5027,7 +5027,7 @@ requires-dist = [
     { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=1.6.1" },
     { name = "xorq-datafusion", specifier = "==0.2.3" },
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
-    { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
+    { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=chore%2Fupdate-hash-cache-dep" },
 ]
 provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres"]
 
@@ -5102,7 +5102,7 @@ dependencies = [
 [[package]]
 name = "xorq-hash-cache"
 version = "0.1.0"
-source = { git = "https://github.com/xorq-labs/hash-cache#91bee9d85ba005412fab6ea16ca7480db6bf42d8" }
+source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "attrs" },
     { name = "cloudpickle" },
@@ -5111,11 +5111,15 @@ dependencies = [
     { name = "toolz" },
     { name = "urllib3" },
 ]
+sdist = { url = "https://files.pythonhosted.org/packages/24/1b/369bfc6a3263ac5c9dbf21a344bda93c3211e3ccd89188550640282badf4/xorq_hash_cache-0.1.0.tar.gz", hash = "sha256:e45c5610b9553fa1a028193116c96154869f2f13dae32471d82b44ca1affcea6", size = 39525, upload-time = "2025-07-09T15:16:11.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/fb/cc5f7e92b8582cdf88a10b9172c87eb5b01bbd58f98dd4983dc8eac30e32/xorq_hash_cache-0.1.0-py3-none-any.whl", hash = "sha256:760b334b3003e4b96643192f8ddab843eab238e333ff53aecc177e6aaaa06672", size = 8463, upload-time = "2025-07-09T15:16:10.042Z" },
+]
 
 [[package]]
 name = "xorq-weather-lib"
 version = "0.1.0"
-source = { git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main#eb99f5ac1d36ef2bd51d931967667dad65770b19" }
+source = { git = "https://github.com/xorq-labs/xorq-weather-lib?branch=chore%2Fupdate-hash-cache-dep#664e2e58c5dbafff59a792314a32896cbb0f796a" }
 dependencies = [
     { name = "pandas" },
     { name = "pyarrow" },
