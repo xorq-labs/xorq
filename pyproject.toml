@@ -286,8 +286,9 @@ topo_order = false
 sort_commits = "oldest"
 
 [tool.uv.sources]
-hash-cache = { git = "https://github.com/xorq-labs/hash-cache", branch = "feat/ttl" }
-xorq-weather-lib = { git = "https://github.com/xorq-labs/xorq-weather-lib", branch = "main" }
+hash-cache = { git = "https://github.com/xorq-labs/hash-cache", branch = "main" }
+xorq-hash-cache = { git = "https://github.com/xorq-labs/xorq-hash-cache", branch = "main" }
+xorq-weather-lib = { git = "https://github.com/xorq-labs/xorq-weather-lib", branch = "chore/update-hash-cache-dep" }
 xorq-feature-utils = { git = "https://github.com/xorq-labs/xorq-feature-utils", branch = "main" }
 
 [tool.hatch.metadata]
