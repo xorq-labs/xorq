@@ -1435,19 +1435,6 @@ wheels = [
 ]
 
 [[package]]
-name = "hash-cache"
-version = "0.1.0"
-source = { git = "https://github.com/xorq-labs/hash-cache#0c15468a0fb72bd8fb67a65bc552558708b6d4a8" }
-dependencies = [
-    { name = "attrs" },
-    { name = "cloudpickle" },
-    { name = "dask" },
-    { name = "pandas" },
-    { name = "toolz" },
-    { name = "urllib3" },
-]
-
-[[package]]
 name = "httpcore"
 version = "1.0.9"
 source = { registry = "https://pypi.org/simple" }
@@ -4887,29 +4874,29 @@ version = "0.2.4"
 source = { editable = "." }
 dependencies = [
     { name = "atpublic" },
-    { name = "attrs", marker = "python_full_version < '4.0'" },
-    { name = "cityhash", marker = "python_full_version < '4.0'" },
+    { name = "attrs", marker = "python_full_version < '4'" },
+    { name = "cityhash", marker = "python_full_version < '4'" },
     { name = "cloudpickle" },
     { name = "cryptography" },
-    { name = "dask", marker = "python_full_version < '4.0'" },
+    { name = "dask", marker = "python_full_version < '4'" },
     { name = "envyaml" },
-    { name = "geoarrow-types", marker = "python_full_version < '4.0'" },
+    { name = "geoarrow-types", marker = "python_full_version < '4'" },
     { name = "opentelemetry-exporter-otlp" },
     { name = "opentelemetry-exporter-prometheus" },
     { name = "opentelemetry-sdk" },
-    { name = "pandas", marker = "python_full_version < '4.0'" },
+    { name = "pandas", marker = "python_full_version < '4'" },
     { name = "parsy" },
     { name = "prometheus-client" },
-    { name = "pyarrow", marker = "python_full_version < '4.0'" },
-    { name = "pyarrow-hotfix", marker = "python_full_version < '4.0'" },
-    { name = "pytest-mock", marker = "python_full_version < '4.0'" },
+    { name = "pyarrow", marker = "python_full_version < '4'" },
+    { name = "pyarrow-hotfix", marker = "python_full_version < '4'" },
+    { name = "pytest-mock", marker = "python_full_version < '4'" },
     { name = "python-dateutil" },
     { name = "pythran", marker = "sys_platform == 'darwin'" },
     { name = "pytz" },
     { name = "pyyaml" },
     { name = "sqlglot" },
     { name = "strenum", marker = "python_full_version < '3.11'" },
-    { name = "structlog", marker = "python_full_version < '4.0'" },
+    { name = "structlog", marker = "python_full_version < '4'" },
     { name = "toolz" },
     { name = "typing-extensions" },
     { name = "uv" },
@@ -4918,23 +4905,23 @@ dependencies = [
 
 [package.optional-dependencies]
 datafusion = [
-    { name = "datafusion", marker = "python_full_version < '4.0'" },
+    { name = "datafusion", marker = "python_full_version < '4'" },
 ]
 duckdb = [
     { name = "duckdb" },
 ]
 examples = [
     { name = "adbc-driver-postgresql" },
-    { name = "duckdb", marker = "python_full_version < '4.0'" },
-    { name = "fsspec", marker = "python_full_version < '4.0'" },
+    { name = "duckdb", marker = "python_full_version < '4'" },
+    { name = "fsspec", marker = "python_full_version < '4'" },
     { name = "mcp" },
     { name = "openai" },
-    { name = "pins", extra = ["gcs"], marker = "python_full_version < '4.0'" },
+    { name = "pins", extra = ["gcs"], marker = "python_full_version < '4'" },
     { name = "psycopg2-binary" },
     { name = "quickgrove" },
     { name = "requests" },
     { name = "scikit-learn" },
-    { name = "xgboost", marker = "python_full_version < '4.0'" },
+    { name = "xgboost", marker = "python_full_version < '4'" },
     { name = "xorq-feature-utils" },
     { name = "xorq-weather-lib" },
 ]
@@ -4950,7 +4937,7 @@ quickgrove = [
 ]
 snowflake = [
     { name = "adbc-driver-snowflake" },
-    { name = "snowflake-connector-python", marker = "python_full_version < '4.0'" },
+    { name = "snowflake-connector-python", marker = "python_full_version < '4'" },
 ]
 
 [package.dev-dependencies]
@@ -4996,32 +4983,32 @@ requires-dist = [
     { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },
     { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.5.0" },
     { name = "atpublic", specifier = ">=5.1" },
-    { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=24.0.0,<26" },
-    { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4.7,<1" },
+    { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.0.0,<26" },
+    { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "cryptography", specifier = ">=45.0.3" },
-    { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = "==2025.1.0" },
-    { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'datafusion'", specifier = ">=0.6,<48" },
-    { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=0.10.3,<2" },
+    { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==2025.1.0" },
+    { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'datafusion'", specifier = ">=0.6,<48" },
+    { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.10.3,<2" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.3" },
     { name = "envyaml", specifier = ">=1.10.211231" },
-    { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=2024.6.1,<2025.5.2" },
-    { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.2,<1" },
+    { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=2024.6.1,<2025.5.2" },
+    { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.2,<1" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.32.1" },
     { name = "opentelemetry-exporter-prometheus", specifier = ">=0.55b1" },
     { name = "opentelemetry-sdk", specifier = ">=1.32.1" },
-    { name = "pandas", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=1.5.3,<3" },
+    { name = "pandas", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=1.5.3,<3" },
     { name = "parsy", specifier = ">=2" },
-    { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=0.8.3,<1" },
+    { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.8.3,<1" },
     { name = "prometheus-client", specifier = ">=0.22.1" },
     { name = "psycopg2-binary", marker = "extra == 'examples'", specifier = ">=2.9.10" },
     { name = "psycopg2-binary", marker = "extra == 'postgres'", specifier = ">=2.9.10" },
-    { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=13.0.0,<21" },
-    { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=0.4,<1" },
+    { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=13.0.0,<21" },
+    { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4,<1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
-    { name = "pytest-mock", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=3.14.0,<4" },
+    { name = "pytest-mock", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=3.14.0,<4" },
     { name = "python-dateutil", specifier = ">=2.8.2" },
     { name = "pythran", marker = "sys_platform == 'darwin'", specifier = ">=0.17.0" },
     { name = "pytz", specifier = ">=2022.7" },
@@ -5030,17 +5017,17 @@ requires-dist = [
     { name = "quickgrove", marker = "extra == 'quickgrove'", specifier = ">=0.1.2" },
     { name = "requests", marker = "extra == 'examples'", specifier = ">=2.32.3" },
     { name = "scikit-learn", marker = "extra == 'examples'", specifier = ">=1.4.0,<2.0.0" },
-    { name = "snowflake-connector-python", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'snowflake'", specifier = ">=3.10.1,<4" },
+    { name = "snowflake-connector-python", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'snowflake'", specifier = ">=3.10.1,<4" },
     { name = "sqlglot", specifier = "==25.20.2" },
     { name = "strenum", marker = "python_full_version < '3.11'", specifier = ">=0.4.15" },
-    { name = "structlog", marker = "python_full_version >= '3.10' and python_full_version < '4.0'", specifier = ">=24.2.0,<26" },
+    { name = "structlog", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.2.0,<26" },
     { name = "toolz", specifier = ">=0.11" },
     { name = "typing-extensions", specifier = ">=4.3.0" },
     { name = "uv", specifier = ">=0.7.20" },
-    { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4.0' and extra == 'examples'", specifier = ">=1.6.1" },
+    { name = "xgboost", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=1.6.1" },
     { name = "xorq-datafusion", specifier = "==0.2.3" },
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
-    { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
+    { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=chore%2Fupdate-hash-cache-dep" },
 ]
 provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres"]
 
@@ -5113,17 +5100,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "xorq-hash-cache"
+version = "0.1.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "cloudpickle" },
+    { name = "dask" },
+    { name = "pandas" },
+    { name = "toolz" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/24/1b/369bfc6a3263ac5c9dbf21a344bda93c3211e3ccd89188550640282badf4/xorq_hash_cache-0.1.0.tar.gz", hash = "sha256:e45c5610b9553fa1a028193116c96154869f2f13dae32471d82b44ca1affcea6", size = 39525, upload-time = "2025-07-09T15:16:11.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c3/fb/cc5f7e92b8582cdf88a10b9172c87eb5b01bbd58f98dd4983dc8eac30e32/xorq_hash_cache-0.1.0-py3-none-any.whl", hash = "sha256:760b334b3003e4b96643192f8ddab843eab238e333ff53aecc177e6aaaa06672", size = 8463, upload-time = "2025-07-09T15:16:10.042Z" },
+]
+
+[[package]]
 name = "xorq-weather-lib"
 version = "0.1.0"
-source = { git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main#2421b57a22bb5f3b35440ba32f07f19500080c62" }
+source = { git = "https://github.com/xorq-labs/xorq-weather-lib?branch=chore%2Fupdate-hash-cache-dep#664e2e58c5dbafff59a792314a32896cbb0f796a" }
 dependencies = [
-    { name = "hash-cache" },
     { name = "pandas" },
     { name = "pyarrow" },
     { name = "requests" },
     { name = "toolz" },
     { name = "urllib3" },
     { name = "xorq" },
+    { name = "xorq-hash-cache" },
 ]
 
 [[package]]

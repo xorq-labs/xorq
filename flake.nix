@@ -81,23 +81,39 @@
       {
         formatter = pkgs.nixfmt-rfc-style;
         apps = {
-          ipython-310 = drvToApp {
-            drv = xorq-310.virtualenv;
+          python-310-default = drvToApp {
+            drv = xorq-310.virtualenv-default;
+            name = "python";
+          };
+          python-311-default = drvToApp {
+            drv = xorq-311.virtualenv-default;
+            name = "python";
+          };
+          python-312-default = drvToApp {
+            drv = xorq-312.virtualenv-default;
+            name = "python";
+          };
+          python-313-default = drvToApp {
+            drv = xorq-313.virtualenv-default;
+            name = "python";
+          };
+          ipython-310-all = drvToApp {
+            drv = xorq-310.virtualenv-all;
             name = "ipython";
           };
-          ipython-311 = drvToApp {
-            drv = xorq-311.virtualenv;
+          ipython-311-all = drvToApp {
+            drv = xorq-311.virtualenv-all;
             name = "ipython";
           };
-          ipython-312 = drvToApp {
-            drv = xorq-312.virtualenv;
+          ipython-312-all = drvToApp {
+            drv = xorq-312.virtualenv-all;
             name = "ipython";
           };
-          ipython-313 = drvToApp {
-            drv = xorq-313.virtualenv;
+          ipython-313-all = drvToApp {
+            drv = xorq-313.virtualenv-all;
             name = "ipython";
           };
-          default = self.apps.${system}.ipython-312;
+          default = self.apps.${system}.python-312-default;
         };
         lib = {
           inherit
