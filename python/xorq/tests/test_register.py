@@ -169,7 +169,7 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
     con = xo.connect()
     path = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet"
     expr = (
-        xo.deferred_read_parquet(con, path)
+        xo.deferred_read_parquet(path, con)
         .cache(
             storage=ParquetStorage(source=xo.duckdb.connect(), relative_path=tmp_path)
         )
@@ -198,8 +198,8 @@ def test_read_csv_from_s3_and_cache(tmp_path):
 
     path = "s3://humor-detection-pds/Humorous.csv"
     t = xo.deferred_read_csv(
-        con,
         path,
+        con,
         schema=schema,
         storage_options=FrozenDict(
             {

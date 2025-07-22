@@ -11,8 +11,8 @@ batting = pg.table("batting")
 
 backend = xo.duckdb.connect()
 awards_players = deferred_read_parquet(
-    backend,
     xo.config.options.pins.get_path("awards_players"),
+    backend,
     table_name="award_players",
 )
 left = batting.filter(batting.yearID == 2015)

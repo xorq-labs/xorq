@@ -119,7 +119,7 @@ def test_deferred_read_cache_key_check(con, tmp_path, pins_resource, request):
     storage = ParquetStorage(source=xo.connect(), relative_path=tmp_path)
 
     assert pins_resource.table_name not in con.tables
-    t = pins_resource.deferred_reader(con, pins_resource.path, pins_resource.table_name)
+    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
     storage.get_key(t)
     assert pins_resource.table_name not in con.tables
 
@@ -129,7 +129,7 @@ def test_deferred_read_to_sql(con, pins_resource, request):
     # check that we don't invoke read when we convert to sql
     pins_resource = request.getfixturevalue(pins_resource)
     assert pins_resource.table_name not in con.tables
-    t = pins_resource.deferred_reader(con, pins_resource.path, pins_resource.table_name)
+    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
     xo.to_sql(t)
     assert pins_resource.table_name not in con.tables
 
@@ -144,7 +144,7 @@ def test_deferred_read_to_sql(con, pins_resource, request):
 def test_deferred_read(con, pins_resource, request):
     pins_resource = request.getfixturevalue(pins_resource)
     assert pins_resource.table_name not in con.tables
-    t = pins_resource.deferred_reader(con, pins_resource.path, pins_resource.table_name)
+    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
     assert xo.execute(t).equals(pins_resource.df)
     assert pins_resource.table_name in con.tables
     # is this a test of mode for postgres?
@@ -168,7 +168,7 @@ def test_deferred_read(con, pins_resource, request):
 )
 def test_deferred_read_temporary(con, pins_resource, request):
     pins_resource = request.getfixturevalue(pins_resource)
-    t = pins_resource.deferred_reader(con, pins_resource.path, None, temporary=True)
+    t = pins_resource.deferred_reader(pins_resource.path, con, None, temporary=True)
     table_name = t.op().name
     assert xo.execute(t).equals(pins_resource.df)
     assert table_name in con.tables
@@ -192,7 +192,7 @@ def test_cached_deferred_read(con, pins_resource, filter_, request, tmp_path):
     storage = ParquetStorage(source=xo.connect(), relative_path=tmp_path)
 
     df = pins_resource.df[filter_].reset_index(drop=True)
-    t = pins_resource.deferred_reader(con, pins_resource.path, pins_resource.table_name)
+    t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
     expr = t[filter_].cache(storage=storage)
 
     # no work is done yet
@@ -232,7 +232,7 @@ def test_cached_deferred_read(con, pins_resource, filter_, request, tmp_path):
 
         # with mode="replace" we can clobber
         t = pins_resource.deferred_reader(
-            con, pins_resource.path, pins_resource.table_name, mode="replace"
+            pins_resource.path, con, pins_resource.table_name, mode="replace"
         )
         expr = t[filter_].cache(storage=storage)
         assert xo.execute(expr).equals(df)
@@ -256,7 +256,7 @@ def test_cached_csv_mutate(con, iris_csv, tmp_path):
 
     df = iris_csv.df
     kwargs = {"mode": "replace"} if con.name == "postgres" else {}
-    t = iris_csv.deferred_reader(con, target_path, iris_csv.table_name, **kwargs)
+    t = iris_csv.deferred_reader(target_path, con, iris_csv.table_name, **kwargs)
     expr = t.cache(storage=storage)
 
     # nothing exists yet
@@ -298,7 +298,7 @@ def test_deferred_read_cache(con, tmp_path, method_name, path, remote):
     read_method = getattr(xo, method_name)
     connection = con if remote else xo.duckdb.connect()
 
-    t = read_method(connection, path)
+    t = read_method(path, connection)
     uncached = t.head(10)
     assert storage.get_key(uncached) is not None
 
@@ -318,7 +318,7 @@ def test_deferred_read_kwargs(pg):
 
 def test_deferred_read_parquet_multiple_paths():
     path = xo.config.options.pins.get_path("lending-club")
-    expr = deferred_read_parquet(xo.connect(), (path, path))
+    expr = deferred_read_parquet((path, path), xo.connect())
     assert not expr.execute().empty
 
 
@@ -328,7 +328,7 @@ def test_deferred_read_csv_multiple_paths():
 
     t = con.read_csv(path, table_name="iris")
 
-    expr = deferred_read_csv(con, (path, path), schema=t.schema())
+    expr = deferred_read_csv((path, path), con, schema=t.schema())
 
     assert not expr.execute().empty
 
@@ -356,7 +356,7 @@ def test_register_csv_with_glob_string(data_dir, backend):
         glob_pattern, table_name=f"{table_name}_expected"
     ).execute()
 
-    read = xo.deferred_read_csv(backend, glob_pattern, table_name=table_name)
+    read = xo.deferred_read_csv(glob_pattern, backend, table_name=table_name)
     actual = read.execute()  # triggers the table creation
 
     assert any(table_name in t for t in backend.list_tables())
@@ -367,4 +367,4 @@ def test_register_empty_glob_pattern_fails(data_dir, con):
     glob_pattern = str(data_dir / "csv" / "*foo.csv")
 
     with pytest.raises(ValueError, match="At least one path is required"):
-        xo.deferred_read_csv(con, glob_pattern, table_name="foo")
+        xo.deferred_read_csv(glob_pattern, con, table_name="foo")

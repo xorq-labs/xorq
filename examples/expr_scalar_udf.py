@@ -58,7 +58,8 @@ def run_pd(train, test):
 
 
 t = xo.deferred_read_parquet(
-    xo.connect(), xo.config.options.pins.get_path("lending-club")
+    xo.config.options.pins.get_path("lending-club"),
+    xo.connect(),
 )
 
 (train, test) = xo.train_test_splits(
