@@ -122,3 +122,15 @@ def file_digest(path, digest=hashlib.md5, size=2**20):
 def normalize_read_path_md5sum(path):
     tpls = (("content-md5sum", file_digest(path)),)
     return tpls
+
+
+@contextmanager
+def patch_normalize_op_caching():
+    import functools
+
+    import xorq.common.utils.dask_normalize.dask_normalize_expr as mod
+
+    attr = "normalize_op"
+    cached_attr = functools.cache(getattr(mod, attr))
+    with patch.object(mod, attr, cached_attr):
+        yield
