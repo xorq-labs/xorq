@@ -374,7 +374,7 @@ def replace_memtables(build_dir, expr):
         )
         df.to_parquet(parquet_path)
         # FIXME: enable Path
-        dr = xo.deferred_read_parquet(con, str(parquet_path), table_name=mt.name)
+        dr = xo.deferred_read_parquet(parquet_path, con, table_name=mt.name)
         op = dr.op()
         args = dict(zip(op.__argnames__, op.__args__))
         args["values"] = {IS_INMEMORY: True}
@@ -403,8 +403,8 @@ def replace_database_tables(build_dir, expr):
         pq.write_table(df, parquet_path)
         # we normalize based on content so we can reproducible hash
         dr = xo.deferred_read_parquet(
-            con,
             parquet_path,
+            con,
             table_name=mt.name,
             normalize_method=normalize_read_path_md5sum,
         )

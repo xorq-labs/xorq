@@ -453,8 +453,8 @@ def test_deferred_fit_transform_series_sklearn():
     )
     con = xo.connect()
     train, test = deferred_read_parquet(
-        con,
         xo.options.pins.get_path("hn-data-small.parquet"),
+        con,
         "fetcher-input",
     ).pipe(
         xo.train_test_splits,
