@@ -284,3 +284,9 @@ filter_commits = true
 tag_pattern = "v[0-9].*"
 topo_order = false
 sort_commits = "oldest"
+
+[tool.uv.sources]
+hash-cache = { git = "https://github.com/xorq-labs/hash-cache", branch = "main" }
+
+[tool.hatch.metadata]
+allow-direct-references = true
