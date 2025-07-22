@@ -46,11 +46,11 @@ class FlightUrl:
     path: Optional[str] = field(default="", validator=instance_of(str))
     query: Optional[str] = field(default="", validator=instance_of(str))
     fragment: Optional[str] = field(default="", validator=instance_of(str))
-    bound: Optional[bool] = field(default=True, validator=instance_of(bool))
+    bind: Optional[bool] = field(default=True, validator=instance_of(bool))
     _socket = field(default=None, init=False)
 
     def __attrs_post_init__(self):
-        if self.bound:
+        if self.bind:
             if self.port is None:
                 self.find_and_bind_socket()
             else:
