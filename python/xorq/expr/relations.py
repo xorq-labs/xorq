@@ -256,10 +256,16 @@ def flight_serve_unbound(
         UnboundExprExchanger,
     )
 
+    @toolz.curry
+    def do_exchange(server, command, expr):
+        (_, rbr_out) = server.client.do_exchange(command, expr)
+        return rbr_out
+
     unbound_expr_exchanger = UnboundExprExchanger(unbound_expr)
     server = (make_server or FlightServer)(**kwargs)
     server.exchangers += (unbound_expr_exchanger,)
-    server.serve(block=True)
+    server.serve()
+    return server, do_exchange(server, unbound_expr_exchanger.command)
 
 
 @toolz.curry
