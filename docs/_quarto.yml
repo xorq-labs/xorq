@@ -33,8 +33,10 @@ website:
       - text: "Core Concepts"
         menu:
           - core_concepts/multi_engine.qmd
+          - core_concepts/caching.qmd
           - core_concepts/deferred_execution.qmd
           - core_concepts/flight_udxf.qmd
+
 
 
   sidebar:
