@@ -6,6 +6,8 @@ import functools
 import operator
 from typing import Any, Callable
 
+import toolz
+
 import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
@@ -88,6 +90,21 @@ def _interval_unit_to_yaml(
 @register_from_yaml_handler("IntervalUnit")
 def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     return tm.IntervalUnit(yaml_dict["value"])
+
+
+@translate_to_yaml.register(bool)
+def _bool_to_yaml(value: bool, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "bool",
+            "value": value,
+        }
+    )
+
+
+@register_from_yaml_handler("bool")
+def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
+    return yaml_dict["value"]
 
 
 @translate_to_yaml.register(int)
@@ -209,6 +226,32 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
             }
     else:
         return value
+
+
+@translate_to_yaml.register(dt.DataType)
+def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "DataType",
+            "type": type(dtype).__name__,
+        }
+        | {
+            argname: translate_to_yaml(arg, context)
+            for argname, arg in zip(dtype.argnames, dtype.args)
+        }
+    )
+
+
+@register_from_yaml_handler("DataType")
+def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    typ = getattr(dt, yaml_dict["type"])
+    dct = toolz.dissoc(yaml_dict, "op", "type")
+    return typ(
+        **{
+            key: translate_from_yaml(value, context) if value is not None else None
+            for key, value in dct.items()
+        }
+    )
 
 
 @translate_to_yaml.register(ir.Expr)
