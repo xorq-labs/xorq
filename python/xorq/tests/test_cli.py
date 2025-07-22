@@ -60,7 +60,7 @@ def test_build_command(tmp_path, fixture_dir):
     (returncode, _, stderr) = subprocess_run(test_args)
 
     assert "Building expr" in stderr.decode("ascii")
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert builds_dir.exists()
 
 
@@ -80,7 +80,7 @@ def test_build_command_with_udtf(tmp_path, fixture_dir):
     ]
     (returncode, _, stderr) = subprocess_run(test_args)
     assert "Building expr" in stderr.decode("ascii")
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert builds_dir.exists()
 
 
@@ -101,7 +101,7 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
     (returncode, _, stderr) = subprocess_run(test_args)
 
     assert "Building expr" in stderr.decode("ascii")
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert builds_dir.exists()
 
 
@@ -125,7 +125,7 @@ def test_build_command_with_cache_dir(tmp_path, fixture_dir):
     (returncode, _, stderr) = subprocess_run(test_args)
 
     assert "Building expr" in stderr.decode("ascii")
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert builds_dir.exists()
 
 
@@ -143,8 +143,8 @@ def test_run_command_default(tmp_path, fixture_dir):
         "--builds-dir",
         str(target_dir),
     ]
-    (returncode, stdout, _) = subprocess_run(args)
-    assert returncode == 0
+    (returncode, stdout, stderr) = subprocess_run(args)
+    assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
@@ -166,9 +166,9 @@ def test_run_command_default(tmp_path, fixture_dir):
                 )
             ),
         ]
-        (returncode, _, _) = subprocess_run(test_args)
+        (returncode, _, stderr) = subprocess_run(test_args)
 
-        assert returncode == 0
+        assert returncode == 0, stderr
     else:
         raise AssertionError("No expression hash")
 
@@ -188,8 +188,8 @@ def test_run_command(tmp_path, fixture_dir, output_format):
         "--builds-dir",
         str(target_dir),
     ]
-    (returncode, stdout, _) = subprocess_run(build_args)
-    assert returncode == 0
+    (returncode, stdout, stderr) = subprocess_run(build_args)
+    assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         output_path = tmp_path / f"test.{output_format}"
@@ -203,8 +203,8 @@ def test_run_command(tmp_path, fixture_dir, output_format):
             "--format",
             output_format,
         ]
-        (returncode, _, _) = subprocess_run(test_args)
-        assert returncode == 0
+        (returncode, _, stderr) = subprocess_run(test_args)
+        assert returncode == 0, stderr
         assert output_path.exists()
         assert output_path.stat().st_size > 0
 
@@ -227,8 +227,8 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir):
         "--builds-dir",
         str(target_dir),
     ]
-    (return_code, stdout, _) = subprocess_run(build_args)
-    assert return_code == 0
+    (return_code, stdout, stderr) = subprocess_run(build_args)
+    assert return_code == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
@@ -269,8 +269,8 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
         "--builds-dir",
         str(target_dir),
     ]
-    (returncode, stdout, _) = subprocess_run(build_args)
-    assert returncode == 0
+    (returncode, stdout, stderr) = subprocess_run(build_args)
+    assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
@@ -283,8 +283,8 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
             "--format",
             output_format,
         ]
-        (returncode, stdout, _) = subprocess_run(test_args)
-        assert returncode == 0
+        (returncode, stdout, stderr) = subprocess_run(test_args)
+        assert returncode == 0, stderr
         assert stdout
     else:
         raise AssertionError("No expression hash")
@@ -342,7 +342,7 @@ def test_examples(
     )
     print(" ".join(build_args), file=sys.stderr)
     (returncode, stdout, stderr) = subprocess_run(build_args)
-    assert returncode == 0
+    assert returncode == 0, stderr
     print(stderr.decode("ascii"), file=sys.stderr)
     expression_path = Path(stdout.decode("ascii").strip().split("\n")[-1])
     # debugging can capture stdout and result in spurious path of "."
@@ -363,7 +363,7 @@ def test_examples(
     )
     print(" ".join(run_args), file=sys.stderr)
     (returncode, stdout, stderr) = subprocess_run(run_args)
-    assert returncode == 0
+    assert returncode == 0, stderr
     print(stderr, file=sys.stderr)
     assert output_path.exists()
 
@@ -378,7 +378,7 @@ def test_init_command_default(tmpdir):
     )
     print(" ".join(init_args), file=sys.stderr)
     (returncode, stdout, stderr) = subprocess_run(init_args)
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert path.exists()
     assert path.joinpath("pyproject.toml").exists()
 
@@ -396,7 +396,7 @@ def test_init_command_sklearn(template, tmpdir):
     )
     print(" ".join(init_args), file=sys.stderr)
     (returncode, stdout, stderr) = subprocess_run(init_args)
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert path.exists()
     assert path.joinpath("pyproject.toml").exists()
 
@@ -435,7 +435,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
     )
     print(" ".join(init_args), file=sys.stderr)
     (returncode, stdout, stderr) = subprocess_run(init_args)
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert path.exists()
     assert path.joinpath("pyproject.toml").exists()
     assert path.joinpath("requirements.txt").exists()
@@ -446,7 +446,7 @@ def test_init_uv_build_uv_run(template, tmpdir):
         str(path.joinpath("expr.py")),
     )
     (returncode, stdout, stderr) = subprocess_run(build_args, do_decode=True)
-    assert returncode == 0
+    assert returncode == 0, stderr
     build_path = Path(stdout.strip().split("\n")[-1])
     assert build_path.exists()
 
@@ -459,5 +459,5 @@ def test_init_uv_build_uv_run(template, tmpdir):
         str(build_path),
     )
     (returncode, stdout, stderr) = subprocess_run(run_args, do_decode=True)
-    assert returncode == 0
+    assert returncode == 0, stderr
     assert output_path.exists()
