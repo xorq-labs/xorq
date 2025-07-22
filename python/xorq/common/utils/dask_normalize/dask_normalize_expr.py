@@ -1,4 +1,3 @@
-import functools
 import itertools
 import pathlib
 import re
@@ -504,7 +503,6 @@ def normalize_expr(expr):
     return normalize_op(expr.op())
 
 
-@functools.cache
 def normalize_op(op):
     sql = unbound_expr_to_default_sql(
         op.replace(opaque_node_replacer).to_expr().unbind()
