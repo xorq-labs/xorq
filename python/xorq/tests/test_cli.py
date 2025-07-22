@@ -3,10 +3,12 @@ import shutil
 import sys
 import threading
 import time
+from itertools import chain
 from pathlib import Path
 
 import pytest
 
+import xorq as xo
 from xorq.cli import (
     InitTemplates,
     build_command,
@@ -15,6 +17,7 @@ from xorq.common.utils.process_utils import (
     non_blocking_subprocess_run,
     subprocess_run,
 )
+from xorq.flight import FlightUrl
 
 
 build_run_examples_expr_names = (
@@ -213,8 +216,10 @@ def test_run_command(tmp_path, fixture_dir, output_format):
 
 
 @pytest.mark.slow
-@pytest.mark.parametrize("cache_dir", [None, "cache"])
-def test_serve_command(tmp_path, fixture_dir, cache_dir):
+@pytest.mark.parametrize(
+    "host,port,cache_dir", [(None, None, None), ("0.0.0.0", "5000", "cache")]
+)
+def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "udxf_pipeline.py"
 
@@ -233,9 +238,19 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir):
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
         expression_path = match.group()
 
-        cache_dir_args = ["--cache-dir", str(tmp_path / cache_dir)] if cache_dir else []
+        optional_args = tuple(
+            chain.from_iterable(
+                (arg, value)
+                for arg, value in (
+                    ("--cache-dir", str(tmp_path / cache_dir) if cache_dir else None),
+                    ("--host", host),
+                    ("--port", port),
+                )
+                if value
+            )
+        )
 
-        serve_args = ["xorq", "serve", str(expression_path), *cache_dir_args]
+        serve_args = ["xorq", "serve", str(expression_path), *optional_args]
 
         process = non_blocking_subprocess_run(serve_args)
         is_running = False
@@ -243,6 +258,13 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir):
         def check_if_still_running():
             time.sleep(1)
             nonlocal is_running
+            if port and host:
+                flight_url = FlightUrl(host=host, port=int(port), bind=False)
+                flight_con = xo.flight.connect(flight_url)
+
+                udxf_name = "diamonds_exchange_command"
+                assert udxf_name in flight_con.list_udxfs()
+
             is_running = process.poll() is None
 
         checker_thread = threading.Thread(target=check_if_still_running)
