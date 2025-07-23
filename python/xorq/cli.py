@@ -176,6 +176,41 @@ def run_command(
             raise ValueError(f"Unknown output_format: {output_format}")
 
 
+@tracer.start_as_current_span("cli.unbind_and_serve_command")
+def unbind_and_serve_command(
+    expr_path,
+    to_unbind_hash,
+    host=None,
+    port=None,
+    cache_dir=get_xorq_cache_dir(),
+):
+    import functools
+
+    from xorq.common.utils.node_utils import unbind_expr_hash
+
+    expr_path = Path(expr_path)
+    expr_hash = expr_path.stem
+
+    logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
+    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
+    if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
+        raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
+
+    expr = build_manager.load_expr(expr_hash)
+    unbound_expr = unbind_expr_hash(expr, to_unbind_hash)
+    flight_url = xo.flight.FlightUrl(host=host, port=port)
+    make_server = functools.partial(
+        xo.flight.FlightServer,
+        flight_url=flight_url,
+    )
+    logger.info(f"Serving expression '{expr_hash}' from {expr_path}")
+    logger.info(f"Serving at {flight_url.host}:{flight_url.port}")
+    server, _ = xo.expr.relations.flight_serve_unbound(
+        unbound_expr, make_server=make_server
+    )
+    server.wait()
+
+
 @tracer.start_as_current_span("cli.serve_command")
 def serve_command(
     expr_path,
@@ -360,6 +395,34 @@ def parse_args(override=None):
         default="parquet",
         help="Output format (default: parquet)",
     )
+
+    serve_unbound_parser = subparsers.add_parser(
+        "serve-unbound", help="Serve an an unbound expr via Flight Server"
+    )
+    serve_unbound_parser.add_argument(
+        "build_path", help="Path to the build directory (output of xorq build)"
+    )
+    serve_unbound_parser.add_argument(
+        "to_unbind_hash", help="hash of the expr to replace"
+    )
+    serve_unbound_parser.add_argument(
+        "--host",
+        default="localhost",
+        help="Host to bind Flight Server (default: localhost)",
+    )
+    serve_unbound_parser.add_argument(
+        "--port",
+        type=int,
+        default=None,
+        help="Port to bind Flight Server (default: random)",
+    )
+    serve_unbound_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+
     serve_parser = subparsers.add_parser(
         "serve", help="Serve a build via Flight Server"
     )
@@ -394,6 +457,7 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for all generated parquet files cache",
     )
+
     init_parser = subparsers.add_parser(
         "init",
         help="Initialize a xorq project",
@@ -448,6 +512,17 @@ def main():
                 f, f_args = (
                     run_command,
                     (args.build_path, args.output_path, args.format, args.cache_dir),
+                )
+            case "serve-unbound":
+                f, f_args = (
+                    unbind_and_serve_command,
+                    (
+                        args.build_path,
+                        args.to_unbind_hash,
+                        args.host,
+                        args.port,
+                        args.cache_dir,
+                    ),
                 )
             case "serve":
                 f, f_args = (

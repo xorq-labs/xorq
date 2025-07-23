@@ -1,6 +1,7 @@
 import functools
 import random
 import socket
+import time
 from typing import Optional
 from urllib.parse import urlunparse
 
@@ -15,6 +16,7 @@ from attrs.validators import (
 )
 
 import xorq as xo
+from xorq.common.utils.logging_utils import get_print_logger
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.backend import Backend
 from xorq.flight.server import (
@@ -252,6 +254,16 @@ class FlightServer:
         self.server.__exit__(*args)
         self.server = None
         self.flight_url.bind_socket()
+
+    def wait(self):
+        assert self.server
+        while self.server:
+            try:
+                time.sleep(1)
+            except KeyboardInterrupt:
+                logger = get_print_logger()
+                logger.info("Keyboard Interrupt: server shutting down")
+                break
 
     def __exit__(self, *args):
         self.close(*args)

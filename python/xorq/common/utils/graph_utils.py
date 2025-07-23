@@ -24,7 +24,7 @@ def to_node(maybe_expr: Any) -> Node:
         case Expr():
             return maybe_expr.op()
         case _:
-            raise ValueError
+            raise ValueError(f"Don't know how to handle type {type(maybe_expr)}")
 
 
 def gen_children_of(node: Node) -> Tuple[Node, ...]:
@@ -74,34 +74,35 @@ def walk_nodes(node_types, expr):
 
 
 def replace_nodes(replacer, expr):
+    def do_recreate(op, _kwargs, **kwargs):
+        kwargs = dict(zip(op.__argnames__, op.__args__)) | (_kwargs or {}) | kwargs
+        return op.__recreate__(kwargs)
+
     def process_node(op, _kwargs):
+        op = replacer(op, _kwargs)
         match op:
             case rel.RemoteTable():
                 remote_expr = op.remote_expr.op().replace(process_node).to_expr()
-                kwargs = dict(zip(op.__argnames__, op.__args__))
-                kwargs["remote_expr"] = remote_expr
-                return op.__recreate__(kwargs)
+                return do_recreate(op, _kwargs, remote_expr=remote_expr)
             case rel.CachedNode():
                 parent = op.parent.op().replace(process_node).to_expr()
-                kwargs = dict(zip(op.__argnames__, op.__args__))
-                kwargs["parent"] = parent
-                return op.__recreate__(kwargs)
+                return do_recreate(op, _kwargs, parent=parent)
             case rel.FlightExpr() | rel.FlightUDXF():
                 input_expr = op.input_expr.op().replace(process_node).to_expr()
-                kwargs = dict(zip(op.__argnames__, op.__args__))
-                kwargs["input_expr"] = input_expr
-                return op.__recreate__(kwargs)
+                return do_recreate(op, _kwargs, input_expr=input_expr)
             case udf.ExprScalarUDF():
                 computed_kwargs_expr = (
                     op.computed_kwargs_expr.op().replace(process_node).to_expr()
                 )
-                kwargs = dict(zip(op.__argnames__, op.__args__))
-                kwargs["computed_kwargs_expr"] = computed_kwargs_expr
-                return op.__recreate__(kwargs)
+                return do_recreate(
+                    op, _kwargs, computed_kwargs_expr=computed_kwargs_expr
+                )
+            case rel.Read():
+                return op
             case _:
                 if isinstance(op, opaque_ops):
                     raise ValueError(f"unhandled opaque op {type(op)}")
-                return replacer(op, _kwargs)
+                return op
 
     initial_op = expr.op() if hasattr(expr, "op") else expr
     op = initial_op.replace(process_node)
