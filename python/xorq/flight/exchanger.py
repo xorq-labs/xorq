@@ -15,6 +15,10 @@ from xorq.common.utils import classproperty
 from xorq.common.utils.func_utils import (
     return_constant,
 )
+from xorq.common.utils.graph_utils import (
+    replace_nodes,
+    walk_nodes,
+)
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     excepts_print_exc,
@@ -30,7 +34,8 @@ def schemas_equal(s0, s1):
 
 
 def replace_one_unbound(unbound_expr, table):
-    (unbound, *rest) = unbound_expr.op().find(ops.UnboundTable)
+    # FIXME: consolidate UnboundExprExchanger.set_one_unbound_name and this logic
+    (unbound, *rest) = walk_nodes(ops.UnboundTable, unbound_expr)
     if rest:
         raise ValueError
     dt = table.op()
@@ -47,7 +52,7 @@ def replace_one_unbound(unbound_expr, table):
         else:
             return node
 
-    return unbound_expr.op().replace(_replace_unbound).to_expr()
+    return replace_nodes(_replace_unbound, unbound_expr.op()).to_expr()
 
 
 @excepts_print_exc
@@ -236,8 +241,7 @@ class PandasUDFExchanger(AbstractExchanger):
 
 class UnboundExprExchanger(AbstractExchanger):
     def __init__(self, unbound_expr, make_connection=xo.connect):
-        if unbound_expr.op().find(ops.DatabaseTable):
-            raise ValueError("unbound_expr must be unbound")
+        self.get_one_unbound(unbound_expr)
         self.unbound_expr = self.set_one_unbound_name(unbound_expr)
         self.make_connection = make_connection
         self._schema_in_required = self.get_one_unbound(self.unbound_expr).schema
@@ -246,7 +250,7 @@ class UnboundExprExchanger(AbstractExchanger):
 
     @staticmethod
     def get_one_unbound(expr):
-        (unbound, *rest) = expr.op().find(ops.UnboundTable)
+        (unbound, *rest) = walk_nodes(ops.UnboundTable, expr)
         if rest:
             raise ValueError("expr must only have one unbound table")
         return unbound
@@ -260,11 +264,14 @@ class UnboundExprExchanger(AbstractExchanger):
                 op = op.__recreate__(kwargs)
             return op
 
-        return expr.op().replace(set_name).to_expr()
+        return replace_nodes(set_name, expr).to_expr()
 
     @property
     def op_hash(self):
-        return dask.base.tokenize(self.unbound_expr)
+        import xorq.common.utils.dask_normalize.dask_normalize_utils as DNU
+
+        with DNU.patch_normalize_op_caching():
+            return dask.base.tokenize(self.unbound_expr)
 
     @property
     def exchange_f(self):

@@ -450,6 +450,7 @@ def normalize_agg_udf(udf):
 
 
 def opaque_node_replacer(node, kwargs):
+    # FIXME: use xorq.common.utils.graph_utils.opaque_ops (includes ExprScalarUDF)
     opaque_ops = (
         rel.Read,
         rel.CachedNode,
@@ -499,7 +500,10 @@ def opaque_node_replacer(node, kwargs):
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    op = expr.op()
+    return normalize_op(expr.op())
+
+
+def normalize_op(op):
     sql = unbound_expr_to_default_sql(
         op.replace(opaque_node_replacer).to_expr().unbind()
     )
