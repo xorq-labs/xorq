@@ -205,7 +205,10 @@ def unbind_and_serve_command(
     )
     logger.info(f"Serving expression '{expr_hash}' from {expr_path}")
     logger.info(f"Serving at {flight_url.host}:{flight_url.port}")
-    xo.expr.relations.flight_serve_unbound(unbound_expr, make_server=make_server)
+    server, _ = xo.expr.relations.flight_serve_unbound(
+        unbound_expr, make_server=make_server
+    )
+    server.wait()
 
 
 @tracer.start_as_current_span("cli.serve_command")
