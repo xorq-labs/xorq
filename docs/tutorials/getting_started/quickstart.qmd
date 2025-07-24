@@ -18,52 +18,84 @@ Or using nix to drop into an IPython shell:
 nix run github:xorq-labs/xorq
 ```
 
-### Initialize a Project
+## Quick Start: 4 Steps to Your First Pipeline
+
+### Step 1: Initialize a Project
 
 The fastest way to get started with Xorq is to use the `xorq init` command:
 
 ```bash
-xorq init -t penguins
+xorq init -t penguins -p penguins_example
+cd penguins_example
 ```
 
-This creates a starting example project with the Palmer Penguins dataset that demonstrates key Xorq features including machine learning pipelines, caching, and lineage tracking.
+This creates a complete ML pipeline example with the Palmer Penguins dataset
+demonstrating key Xorq features including machine learning, caching, and
+lineage tracking.
 
-Navigate to the created directory and explore the `expr.py` file to see how Xorq works in practice.
+### Step 2: Build Your Expression
+
+Convert your pipeline into a serialized, executable format:
+
+```bash
+xorq build expr.py
+```
+
+Output:
+```
+Building expr from expr.py
+Written 'expr' to builds/7061dd65ff3c
+builds/7061dd65ff3c
+```
+
+### Step 3: Run Your Pipeline
+
+Execute your built pipeline:
+
+```bash
+# Run and see results
+xorq run builds/7061dd65ff3c
+
+# Save to file
+xorq run builds/7061dd65ff3c -o predictions.parquet
+
+# Run with limit for testing
+xorq run builds/7061dd65ff3c --limit 10
+```
+
+### Step 4: Serve Your Pipelines
+
+To serve your pipeline as an endpoint, you can use the `xorq serve-unbound` command:
+```bash
+xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
+# This replaces a specific node hash with an exchanger input and serves the unbound expr as do_exchange
+```
+
+That's it! You've built and run your first Xorq ML pipeline.
 
 ## Understanding the Generated Pipeline
 
-The template creates an `expr.py` file that demonstrates a complete ML workflow. Let's walk through the key components:
+The template creates an `expr.py` file that demonstrates a complete ML
+workflow. Let's walk through the key components:
 
 ### 1. Data Loading and Preparation
 
-```{python}
-# https://inria.github.io/scikit-learn-mooc/python_scripts/trees_classification.html
+```python
 import sklearn
 from sklearn.linear_model import LogisticRegression
-
 import xorq as xo
 from xorq.caching import ParquetStorage
-from xorq.expr.ml.pipeline_lib import (
-    Pipeline,
-)
-
+from xorq.expr.ml.pipeline_lib import Pipeline
 
 features = ("bill_length_mm", "bill_depth_mm")
 target = "species"
-data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250206T212843Z-8f28a/penguins.csv"
-
+data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
 ```
 
-### 2. Handling CSV Files with NA Values
+### 2. Data Splitting
 
-The template demonstrates a critical pattern for real-world data processing. Since we're reading a CSV with NA values (not the default empty string for NULL), we use pandas first:
-
-```{python}
-
+```python
 def gen_splits(expr, test_size=0.2, random_seed=42, **split_kwargs):
-    # inject and drop row number
-    assert "test_sizes" not in split_kwargs
-    assert isinstance(test_size, float)
     row_number = "row_number"
     yield from (
         expr.drop(row_number)
@@ -76,15 +108,13 @@ def gen_splits(expr, test_size=0.2, random_seed=42, **split_kwargs):
         )
     )
 
-
 def get_penguins_splits(storage=None, **split_kwargs):
     t = (
-        xo.deferred_read_csv(
-            con=xo.pandas.connect(),
+        xo.deferred_read_parquet(
+            con=xo.duckdb.connect(),
             path=data_url,
             table_name="t",
         )
-        .into_backend(xo.duckdb.connect(), name="t")
         .select(features + (target,))
         .drop_null()
     )
@@ -95,164 +125,183 @@ def get_penguins_splits(storage=None, **split_kwargs):
     return (train, test)
 ```
 
-**Why this pattern matters**: [pandas automatically recognizes 19 different NA value representations](https://pandas.pydata.org/docs/reference/api/pandas.read_csv.html) including `'NA'`, `'NULL'`, `'NaN'`, and empty strings, while [DuckDB only treats empty strings as NULL by default](https://duckdb.org/docs/stable/data/csv/auto_detection.html). The `into_backend()` method allows us to leverage pandas' superior CSV parsing capabilities, then seamlessly transition to DuckDB's high-performance analytical engine.
+### 3. Deferred ML Pipeline
 
-### 3. Define and Configure Pipeline
+The key is converting scikit-learn pipelines to deferred expressions:
 
-```{python}
-def make_pipeline(params=()):
-    clf = sklearn.pipeline.Pipeline(
-        steps=[
-            ("logistic", LogisticRegression()),
-        ]
-    ).set_params(**dict(params))
-    return clf
-
-
-def fit_and_score_sklearn_pipeline(pipeline, train, test):
-    (
-        (X_train, y_train),
-        (X_test, y_test),
-    ) = (
-        expr.execute().pipe(
-            lambda t: (
-                t.filter(regex=f"^(?!{target})"),
-                t.filter(regex=f"^{target}"),
-            )
-        )
-        for expr in (train, test)
-    )
-    print(len(X_train), len(X_test))
-    clf = pipeline.fit(X_train, y_train)
-    score = clf.score(X_test, y_test)
-    return clf, score
-```
-
-### 4. Create Deferred ML Pipeline
-
-The key innovation is converting scikit-learn pipelines to deferred Xorq expressions:
-
-```{python}
+```python
 # Configure hyperparameters
-params = {
-    "logistic__C": 1e-4,
-}
+params = {"logistic__C": 1e-4}
 
-
-# Get train/test splits
+# Get train/test splits (still deferred!)
 (train, test) = get_penguins_splits()
 
-# Create scikit-learn pipeline
+# Create and convert pipeline
 sklearn_pipeline = make_pipeline(params=params)
-
-# Convert to xorq pipeline
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 
-# still no work done: deferred fit expression
+# Create fitted pipeline expression (no computation yet!)
 fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
 
-train_predicted = fitted_pipeline.fitted_steps[-1].predicted
-expr = test_predicted = fitted_pipeline.predict(test[features])
+# Get prediction expression
+expr = test_predicted = fitted_pipeline.predict(test[list(features)])
 ```
 
-The beauty here is that `fitted_pipeline` is still just an expression - no actual training has happened yet. The computation is deferred until you call `.execute()`.
+`fitted_pipeline` is still just an expression - no actual training has happened
+yet. The computation is deferred until you call `.execute()` or run via CLI.
 
-### 5. Execute and Validate
+## CLI Commands Deep Dive
 
-```{python}
+### Build Options
 
-# Compare xorq vs sklearn results
-clf, score_sklearn = fit_and_score_sklearn_pipeline(sklearn_pipeline, train, test)
-score_xorq = fitted_pipeline.score_expr(test)
-assert score_xorq == score_sklearn  # Results should be identical
+```bash
+# Basic build
+xorq build expr.py
+
+# Build with specific expression name
+xorq build expr.py -e my_expr
+
+# Build with profile
+xorq build expr.py --profile production
 ```
+
+### Run Options
+
+```bash
+# Different output formats
+xorq run builds/HASH -o results.csv --format csv
+xorq run builds/HASH -o results.json --format json
+xorq run builds/HASH -o results.parquet --format parquet
+
+# Control output size
+xorq run builds/HASH --limit 100
+```
+
+### Inspecting Builds
+
+```bash
+# View build contents
+ls builds/7061dd65ff3c/
+# Shows: expr.yaml, *.sql, metadata.json, deferred_reads.yaml
+
+# Check expression definition
+cat builds/7061dd65ff3c/expr.yaml
+
+# View generated SQL
+cat builds/7061dd65ff3c/*.sql
+```
+
+## Serving Pipelines as Endpoints
+
+### Basic Catalog Server with Arrow Flight
+
+Start a Flight server:
+
+```bash
+# Start server
+xorq serve --port 8001
+```
+
+Then connect and execute expressions:
+
+```python
+import xorq as xo
+
+# Connect to Flight server
+client = xo.flight.client.FlightClient(port=8001)
+
+# Create a simple expression
+data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
+
+expr = (
+    xo.deferred_read_parquet(
+        con=xo.duckdb.connect(),
+        path=data_url,
+        table_name="penguins",
+    )
+    .select("bill_length_mm", "bill_depth_mm", "species")  # Match schema order
+    .drop_null()
+    .limit(5)
+)
+
+print("Executing via Flight do_exchange...")
+fut, rbr = client.do_exchange("default", expr)
+result_df = rbr.read_pandas()
+print(result_df)
+```
+
+### Serving Built Pipelines with serve-unbound
+
+For deployments, you can serve a specific built expression as an endpoint using
+`serve-unbound`. This allows you to expose a particular expression as a
+Catalog service:
+
+```bash
+xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
+```
+
+**Understanding the command:**
+- `builds/7061dd65ff3c`: Your built pipeline directory
+- `--host localhost --port 8001`: Server configuration
+- `--cache-dir penguins_example`: Directory for caching results
+- `b2370a29c19df8e1e639c63252dacd0e`: The specific node hash to serve
+
+### Finding the Node Hash
+
+The node hash (like `b2370a29c19df8e1e639c63252dacd0e`) identifies a specific
+expression node in your pipeline. You can find this hash using:
+
+```python
+import dask
+import sys
+sys.path.append('penguins_example')
+from expr import expr  # or your specific expression
+
+# Get the hash for any expression
+node_hash = dask.base.tokenize(expr)
+print(f"Node hash: {node_hash}")
+```
+
+This hash represents the unique identity of your expression, including its
+computation graph and dependencies. When you serve this specific node, clients
+can query exactly that expression endpoint.
 
 ## Exploring Pipeline Lineage
 
-One of Xorq's most powerful features is automatic lineage tracking. You can visualize the complete computational graph:
+One of Xorq's most powerful features is automatic lineage tracking:
 
-```{python}
+```python
 from xorq.common.utils.lineage_utils import build_column_trees, print_tree
 
-# Visualize lineage for predictions
+# Visualize complete lineage
 print_tree(build_column_trees(expr)['predicted'])
 ```
 
-This outputs a tree showing the complete lineage of how predictions were computed, including:
-
-- Data source (Read operation from CSV file via pandas)
-- Backend transition (into_backend operation to DuckDB)
-- Null value removal (DropNull)
-- Feature selection (DropColumns)
-- Train/test split logic (complex Filter with hash-based row sampling using row_number)
-- Caching layer for performance optimization
-- Final prediction computation (RemoteTable representing the fitted model output)
-
-## Building and Running the Pipeline
-
-### Build the Expression
-
-Serialize your pipeline for deployment:
-
-```bash
-xorq build expr.py -e expr
-```
-
-Output:
-
-```
-Building expr from expr.py
-Written 'expr' to builds/5704ffbeade4
-builds/5704ffbeade4
-```
-
-The build creates several artifacts:
-```
-❯ ls -a builds/5704ffbeade4/
-
-58bf5c46c84f.sql  
-aee2ca7e0e12.sql  
-d5d0022edaf3.sql  
-dacc6a158d67.sql  
-deferred_reads.yaml  
-expr.yaml  # Complete expression
-metadata.json  
-profiles.yaml  
-sql.yaml # Debug SQL outputs
-```
-
-### Run the Built Expression
-
-Execute the serialized Expression:
-
-```bash
-xorq run builds/5704ffbeade4/
-```
-
-Save results to different formats:
-```bash
-xorq run builds/5704ffbeade4/ --output-path predictions.csv --format csv
-xorq run builds/5704ffbeade4/ --output-path predictions.parquet --format parquet
-```
-
-## Key Benefits Demonstrated
-
-The penguins template showcases several Xorq advantages:
-
-- **Multi-Engine Flexibility**: Start with pandas for robust CSV parsing, seamlessly transition to DuckDB for analytics
-- **Deferred Execution**: ML pipelines are built as expressions and executed only when needed, 
-enabling optimization and caching.
-- **Automatic Caching**: Train/test splits are cached automatically, avoiding recomputation across different experiments.
-- **Reproducibility**: Random seeds and versioned data ensure consistent results across runs.
-- **Lineage Tracking**: Complete computational provenance from raw data to final predictions.
-- **Portability**: Pipelines serialize to YAML/SQL artifacts that can be version controlled and deployed anywhere.
-- **Engine Flexibility**: Same code works across DuckDB, DataFusion, Snowflake, and other supported backends.
+This shows the complete computational graph from raw data to predictions,
+including data loading, splitting, caching, and model execution.
 
 ## Next Steps
 
-- Experiment with the generated `expr.py` file
-- Try different feature combinations by modifying the `features` tuple
-- Explore different algorithms by changing the pipeline steps
-- Read about [Profiles](../../api_reference/backend_configuration/profiles_api.qmd) to learn more about connecting to backends
-- Check out more examples in the [`examples/`](https://github.com/xorq-labs/xorq/tree/main/examples) directory
-- Join our [community](https://discord.gg/8Kma9DhcJG) for support and discussions
+- **Experiment**: Modify `expr.py` and rebuild to see changes
+- **Learn more**: Check [Profiles](../../api_reference/backend_configuration/profiles_api.qmd) for backend configuration
+- **Get help**: Join our [community](https://discord.gg/8Kma9DhcJG) for support
+
+## Common Patterns
+
+```bash
+# Development cycle
+xorq init -t penguins -p my_project
+cd my_project
+# Edit expr.py
+xorq build expr.py
+xorq run builds/HASH --limit 10  # test
+xorq run builds/HASH -o final_results.parquet  # production
+
+# Batch processing
+for file in data/*.csv; do
+  xorq run builds/HASH --input $file -o results/$(basename $file .csv).parquet
+done
+
+# API serving
+xorq serve-unbound builds/HASH --host 0.0.0.0 --port 8001 --cache-dir cache NODE_HASH
+```
