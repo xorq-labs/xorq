@@ -10,6 +10,7 @@ import pyarrow as pa
 import toolz
 
 import xorq as xo
+import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils import classproperty
 from xorq.common.utils.func_utils import (
@@ -39,7 +40,7 @@ def replace_one_unbound(unbound_expr, table):
     if rest:
         raise ValueError
     dt = table.op()
-    if not isinstance(dt, ops.DatabaseTable):
+    if not isinstance(dt, (ops.DatabaseTable, rel.Read)):
         raise ValueError
     if not unbound.schema == dt.schema:
         raise ValueError
