@@ -102,40 +102,44 @@ result2 = cached_enriched.execute()  # Much faster
 UDXF are functions that spin an ephemeral Flight Server for the execution through a [DoExchange](https://arrow.apache.org/docs/format/Flight.html#exchanging-data):
 
 ```{python}
-from xorq.expr.relations import flight_udxf
-
 import pandas as pd
+
+import xorq as xo
+
+penguins = xo.examples.penguins.fetch(deferred=False)
+
 
 def standardize_penguins(df: pd.DataFrame) -> pd.DataFrame:
     """
     Return a new DataFrame with penguin measurements standardized.
     """
-    clean = df.dropna(subset=["bill_length_mm", "bill_depth_mm", "body_mass_g"]).copy()
-
-    clean["bill_length_std"] = (
-        (clean["bill_length_mm"] - clean["bill_length_mm"].mean()) 
-        / clean["bill_length_mm"].std()
+    return df.dropna(
+        subset=["bill_length_mm", "bill_depth_mm", "body_mass_g"], ignore_index=True
+    ).assign(
+        **{
+            "bill_length_std": lambda t: t["bill_length_mm"]
+            .sub(t["bill_length_mm"].mean())
+            .div(t["bill_length_mm"].std()),
+            "body_mass_std": lambda t: t["body_mass_g"]
+            .sub(t["body_mass_g"].mean())
+            .div(t["body_mass_g"].std()),
+        }
     )
 
-    clean["body_mass_std"] = (
-        (clean["body_mass_g"] - clean["body_mass_g"].mean()) 
-        / clean["body_mass_g"].std()
-    )
 
-    return clean
-
-
-flight_udxf(
-    process_df=standarized_penguins,
-    maybe_schema_in=penguins.schema()
+expr = penguins.select(
+    "bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"
 )
 
-# Chain UDXF nodes
-pipeline_result = (
-    penguins
-    .pipe(standardize_penguins)
-    .execute()
+
+my_udxf = xo.expr.relations.flight_udxf(
+    process_df=standardize_penguins,
+    maybe_schema_in=expr.schema(),
+    maybe_schema_out=expr.schema()
+    | xo.schema({"bill_length_std": "float", "body_mass_std": "float"}),
 )
+
+expr.pipe(my_udxf).execute()
 ```
 
 ## Profiles 
