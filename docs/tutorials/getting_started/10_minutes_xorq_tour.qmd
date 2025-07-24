@@ -76,7 +76,7 @@ enriched.execute()
 
 ## Caching
 
-Xorq provides a caching mechanism that can write to Parquet to avoid re-computation:
+Xorq provides a caching mechanism that can write to Parquet or a source (DuckDB, Postgres) to avoid re-computation:
 
 ```{python}
 from pathlib import Path
@@ -149,6 +149,7 @@ For persisting connections Xorq provides the [Profiles API](../../api_reference/
 ```{python}
 import xorq as xo
 from xorq import _  # column references
+from xorq.vendor.ibis.backends.profiles import Profile
 
 # Create a Profile from pandas connection
 pandas_profile = Profile.from_con(xo.pandas.connect())
@@ -164,7 +165,7 @@ profile = Profile(
         )
 )
 
-pandas_profile.save("pandas_example")
+path = pandas_profile.save(alias="pandas_example", clobber=True)  # clobber for overwriting
 ```
 
 The Profiles API supports serialization to  and deserialization from YAML, environment variable substitution, and security  checks to prevent sensitive information from being stored in plain text.
