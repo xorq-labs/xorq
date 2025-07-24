@@ -56,8 +56,8 @@ from xorq.common.utils.defer_utils import deferred_read_parquet
 
 # Create a deferred read operation
 deferred_table = deferred_read_parquet(
-    con,
     path,
+    con,
     "deferred_penguins"
 )
 
