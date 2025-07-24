@@ -241,6 +241,7 @@ xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir 
 ```
 
 **Understanding the command:**
+
 - `builds/7061dd65ff3c`: Your built pipeline directory
 - `--host localhost --port 8001`: Server configuration
 - `--cache-dir penguins_example`: Directory for caching results
