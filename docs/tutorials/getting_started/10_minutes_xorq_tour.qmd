@@ -4,161 +4,180 @@ icon: "clock"
 headline: "Learn key concepts in a brief tutorial"
 ---
 
+A quick tour of Xorq's core features. This tutorial covers multi-engine operations, caching, UDXF nodes and Profiles.
+
 ## Installation
 
-Let's get you set up! Install Xorq with the DuckDB backend (because who doesn't love DuckDB?):
-
 ```bash
-pip install 'xorq[duckdb]'
+pip install 'xorq[duckdb,examples]'
 ```
 
-## Setting up Connections
+## Working with Data
 
-Here's where Xorq starts to shine. Instead of juggling connection strings and different APIs, you get a clean, consistent interface:
-
-```{python}
-import xorq as xo
-from xorq import _  # import the underscore accessor for column reference
-
-# Create connections to different backends
-con = xo.connect()  # xorq's main connection
-ddb = xo.duckdb.connect()  # DuckDB connection
-pg = xo.postgres.connect_examples()  # Postgres connection
-```
-
-What just happened? We created three different backend connections with the same simple API. No more memorizing different connection patterns for each database!
-
-Want a custom Postgres connection? Easy:
+Xorq leverage Ibis for working with data, for example:
 
 ```{python}
-pg = xo.postgres.connect(
-  host="localhost",
-  port=5432,
-  user="postgres",
-  password="postgres",
-  database="ibis_testing"
-)
-```
+import xorq as xo 
+from xorq import _
 
-## Reading Data
+penguins = xo.examples.penguins.fetch(backend=xo.pandas.connect())
 
-Reading data in xorq is straightforward:
-
-```{python}
-# Read a parquet file using xorq
-path = xo.config.options.pins.get_path("batting")
-batting = con.read_parquet(path, table_name="batting")
-```
-
-## Basic Operations
-
-Let's do some actual data work. Here's where Xorq's lazy evaluation really pays off:
-
-```{python}
-# Filtering and selection that feels like pandas but runs anywhere
-recent_batting = (
-    batting[batting.yearID > 2010]  # filter for recent years
-    .select(['playerID', 'yearID', 'teamID', 'G', 'AB', 'R', 'H'])  # select specific columns
+# Build a query - nothing executes yet
+clean_penguins = (
+    penguins
+    .filter(
+        _.bill_length_mm.isnull() == False,
+        _.sex.isnull() == False
+    )
+    .select(['species', 'island', 'sex', 'bill_length_mm', 'body_mass_g'])
+    .mutate(
+        body_mass_kg=_.body_mass_g / 1000
+    )
 )
 
 # Execute to see results
-recent_batting.execute()
+clean_penguins.execute()
 ```
 
-**Key insight:** Notice how operations are lazy by default. Nothing actually runs until you call `execute()`, which returns a pandas DataFrame. This means you can build complex queries without hitting the database until you're ready.
+For more info on data operations and transformations with Ibis, check the [Ibis docs](https://ibis-project.org/).
 
-## Multi-Engine Magic
+## Multi-Engine Operations
 
-Here's where Xorq gets **really** exciting. Want to move data between engines? One method call:
-
-```{python}
-# Read a table from Postgres and move it to Xorq's backend
-awards = pg.table("awards_players").into_backend(con, "awards")  # bring into Xorq backend
-
-# Perform a join between the two tables
-player_awards = (
-    recent_batting.join(
-        awards,
-        ['playerID', 'yearID'],  # join keys
-        how='left'  # left join
-    )
-    .select([
-        'playerID',
-        'yearID',
-        'teamID',
-        'awardID',
-        'G',
-        'AB',
-        'H'
-    ])
-)
-
-player_awards.execute()
-```
-
-**What's happening under the hood:** `into_backend()` uses PyArrow's [RecordBatchReader](https://arrow.apache.org/docs/python/generated/pyarrow.RecordBatchReader.html) to efficiently stream data between engines.
-
-**Use `into_backend()` when you want to:**
-
-- Combine data from different database engines
-- Leverage specific engine strengths for different operations
-- Avoid the pain of writing intermediate results to disk
-
-### Leveraging Different Backend Strengths
-
-Different engines excel at different things. Let's use DuckDB's analytical superpowers:
+A core feature of Xorq is the capability of moving data between backends use `into_backend()`:
 
 ```{python}
-# Move data to DuckDB for fast analytics
-ddb_awards = player_awards.into_backend(ddb, "ddb_awards")
+# Move pandas data to DuckDB
+ddb = xo.duckdb.connect()
+ddb_penguins = clean_penguins.into_backend(ddb, "penguins_clean")
 
-# Perform DuckDB-optimized aggregations
-ddb_summary = (
-    ddb_awards.group_by(['yearID', 'awardID'])
+# Now use DuckDB for analytics
+species_stats = (
+    ddb_penguins
+    .group_by(['species', 'island'])
     .agg([
-        _.count().name('player_count'),
-        _.G.mean().name('avg_games'),
-        _.H.mean().name('avg_hits'),
+        _.bill_length_mm.mean().name('avg_bill_length'),
+        _.body_mass_g.mean().name('avg_body_mass'),
+        _.count().name('penguin_count')
     ])
-    .order_by(['yearID', 'awardID'])
 )
 
-print("Award summary from DuckDB:")
-ddb_summary.execute()
-```
+# Join across the same backend
+enriched = (
+    ddb_penguins
+    .join(species_stats, ['species', 'island'], how='left')
+    .mutate(
+        bill_vs_avg=_.bill_length_mm - _.avg_bill_length,
+        mass_vs_avg=_.body_mass_g - _.avg_body_mass
+    )
+)
 
-**Pro tip:** Each backend has its strengths. Use Postgres for transactional workloads, DuckDB for analytics, and Python for complex transformations—all in the same pipeline!
+enriched.execute()
+```
 
 ## Caching
 
-Nobody likes waiting for the same query to run twice. Xorq's caching has your back:
+Xorq provides a caching mechanism that can write to Parquet or a source (DuckDB, Postgres) to avoid re-computation:
 
 ```{python}
 from pathlib import Path
 from xorq.caching import ParquetStorage
 
-# Create a storage for cached data
+con = xo.connect()
+
+# Set up caching
 cache_storage = ParquetStorage(source=con, base_path=Path.cwd())
 
-# Cache the results
-cached_awards = player_awards.cache(storage=cache_storage)
+# Cache the result
+cached_enriched = enriched.cache(storage=cache_storage)
 
-# The next execution will use the cached data
-cached_awards.execute()
+# First execution computes and caches
+result1 = cached_enriched.execute()
+
+# Second execution uses cache
+result2 = cached_enriched.execute()  # Much faster
 ```
 
-**The payoff:** Expensive joins and transformations only run once. 
+## UDXF (User-Defined Exchange Functions)
 
-## What You Just Accomplished
+UDXF are functions that spin an ephemeral Flight Server for the execution through a [DoExchange](https://arrow.apache.org/docs/format/Flight.html#exchanging-data):
 
-In 10 minutes, you've learned how to:
+```{python}
+import pandas as pd
 
-* **Work seamlessly across multiple data engines** without vendor lock-in
-* **Build lazy, efficient pipelines** that only compute when needed
-* **Move data between backends effortlessly** using `into_backend()`
-* **Cache results intelligently** to avoid wasteful recomputation
-* **Leverage each engine's strengths** in a single workflow
+import xorq as xo
 
-**The Xorq advantage:** One consistent API, multiple engines, zero headaches. Your data pipelines can now be as flexible as your requirements—and actually work in production.
+penguins = xo.examples.penguins.fetch(deferred=False)
 
-Ready to dive deeper? Check out our [core concepts](../core_concepts/) or try building your first real pipeline!
+
+def standardize_penguins(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a new DataFrame with penguin measurements standardized.
+    """
+    return df.dropna(
+        subset=["bill_length_mm", "bill_depth_mm", "body_mass_g"], ignore_index=True
+    ).assign(
+        **{
+            "bill_length_std": lambda t: t["bill_length_mm"]
+            .sub(t["bill_length_mm"].mean())
+            .div(t["bill_length_mm"].std()),
+            "body_mass_std": lambda t: t["body_mass_g"]
+            .sub(t["body_mass_g"].mean())
+            .div(t["body_mass_g"].std()),
+        }
+    )
+
+
+expr = penguins.select(
+    "bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"
+)
+
+
+my_udxf = xo.expr.relations.flight_udxf(
+    process_df=standardize_penguins,
+    maybe_schema_in=expr.schema(),
+    maybe_schema_out=expr.schema()
+    | xo.schema({"bill_length_std": "float", "body_mass_std": "float"}),
+)
+
+expr.pipe(my_udxf).execute()
+```
+
+## Profiles 
+
+For persisting connections Xorq provides the [Profiles API](../../api_reference/backend_configuration/profiles_api.qmd), a Profile is a representation of a database connection that can be saved and loaded:
+
+```{python}
+import xorq as xo
+from xorq import _  # column references
+from xorq.vendor.ibis.backends.profiles import Profile
+
+# Create a Profile from pandas connection
+pandas_profile = Profile.from_con(xo.pandas.connect())
+
+profile = Profile(
+   con_name='postgres',
+   kwargs_tuple=(
+            ('host', '${POSTGRES_HOST}'),
+            ('port', 5432),
+            ('database', 'ibis_testing'),
+            ('user', '${POSTGRES_USER}'),
+            ('password', '${POSTGRES_PASSWORD}'),
+        )
+)
+
+path = pandas_profile.save(alias="pandas_example", clobber=True)  # clobber for overwriting
+```
+
+The Profiles API supports serialization to  and deserialization from YAML, environment variable substitution, and security  checks to prevent sensitive information from being stored in plain text.
+
+
+## Summary
+
+You've seen:
+
+* **Multi-engine operations** for moving data between backends with `into_backend()`
+* **Caching** deferred, for store expensive computation results
+* **UDXF nodes** for creating reusable transformation functions
+* **Profiles** for managing backend connections
+
+Next steps: Explore [core concepts](../../core_concepts/index.qmd) or learn more about [UDXF nodes](../../core_concepts/flight_udxf.qmd).

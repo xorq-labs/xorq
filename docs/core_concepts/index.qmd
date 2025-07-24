@@ -1,0 +1,7 @@
+## Core Concepts
+
+|                                                    |
+|----------------------------------------------------|
+| [Deferred Execution](deferred_execution.qmd)       |
+| [User-Defined Exchange Functions](flight_udxf.qmd) | 
+| [Multi-Engine](multi_engine.qmd)                   | 
