@@ -1,5 +1,5 @@
 ---
-title: Profiles API
+title: Profiles
 ---
 
 The Profiles API provides a secure way to manage database connection parameters through environment variable references, allowing you to create, save, load, and use database connections while keeping sensitive information protected.
