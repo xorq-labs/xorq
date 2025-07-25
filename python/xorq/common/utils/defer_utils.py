@@ -1,3 +1,4 @@
+from functools import partial
 from itertools import chain
 from pathlib import Path
 from typing import Callable
@@ -42,7 +43,7 @@ def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
     path = normalize_filenames(path)
     gen = pd.read_csv(path[0], chunksize=chunksize, **kwargs)
     df = next(gen)
-    batch = pa.RecordBatch.from_pandas(df)
+    batch = pa.RecordBatch.from_pandas(df, preserve_index=False)
     schema = ibis.Schema.from_pyarrow(batch.schema)
     return schema
 
@@ -61,7 +62,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
     paths = normalize_filenames(*args)
 
     gen = map(
-        pa.RecordBatch.from_pandas,
+        partial(pa.RecordBatch.from_pandas, preserve_index=False),
         chain.from_iterable(
             pd.read_csv(
                 path,

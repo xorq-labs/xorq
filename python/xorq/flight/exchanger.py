@@ -192,7 +192,7 @@ class PandasUDFExchanger(AbstractExchanger):
                 out = df.assign(**{series.name: series})
             else:
                 out = series.to_frame()
-            return pa.RecordBatch.from_pandas(out)
+            return pa.RecordBatch.from_pandas(out, preserve_index=False)
 
         return functools.partial(streaming_exchange, f)
 
@@ -320,7 +320,7 @@ def make_udxf(
     def process_batch(process_df, batch, metadata=None, **kwargs):
         df = batch.to_pandas()
         out = process_df(df)
-        return pa.RecordBatch.from_pandas(out)
+        return pa.RecordBatch.from_pandas(out, preserve_index=False)
 
     if do_wraps:
         exchange_f = excepts_print_exc(
