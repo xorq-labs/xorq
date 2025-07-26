@@ -5,6 +5,45 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.5] - 2025-07-26
+### Details
+
+#### Added
+- Add `xorq init` by @dlovell in [#1117](https://github.com/xorq-labs/xorq/pull/1117)
+- Add cryptography as a core dependency by @dlovell in [#1123](https://github.com/xorq-labs/xorq/pull/1123)
+- Add google verification to docs by @mesejo in [#1126](https://github.com/xorq-labs/xorq/pull/1126)
+- Add penguins template to xorq init by @mesejo in [#1134](https://github.com/xorq-labs/xorq/pull/1134)
+- Add DropNull op translation by @mesejo in [#1135](https://github.com/xorq-labs/xorq/pull/1135)
+- Add caching concept by @mesejo in [#1154](https://github.com/xorq-labs/xorq/pull/1154)
+
+#### Changed
+- Test installation for multiple Python versions and OS by @mesejo in [#1107](https://github.com/xorq-labs/xorq/pull/1107)
+- Uv-build by @dlovell in [#1132](https://github.com/xorq-labs/xorq/pull/1132)
+- Run slow tests in a different runner by @mesejo in [#1087](https://github.com/xorq-labs/xorq/pull/1087)
+- Refactor reference structure by @mesejo in [#1129](https://github.com/xorq-labs/xorq/pull/1129)
+- Readme graphic by @hussainsultan in [#1150](https://github.com/xorq-labs/xorq/pull/1150)
+- Move functions to translate.py by @mesejo in [#1152](https://github.com/xorq-labs/xorq/pull/1152)
+- Make con optional in deferred_read by @mesejo in [#1142](https://github.com/xorq-labs/xorq/pull/1142)
+- Xorq serve inference by @dlovell in [#1143](https://github.com/xorq-labs/xorq/pull/1143)
+- Update quickstart tutorial to reflect CLI-centric approach by @hussainsultan in [#1157](https://github.com/xorq-labs/xorq/pull/1157)
+- Update 10_minutes_xorq_tour by @mesejo in [#1151](https://github.com/xorq-labs/xorq/pull/1151)
+
+#### Fixed
+- Use Path.name instead of Path.stem in run_command by @mesejo in [#1118](https://github.com/xorq-labs/xorq/pull/1118)
+- Update for xorq-hash-cache rename by @dlovell in [#1122](https://github.com/xorq-labs/xorq/pull/1122)
+- Fix quoting in google indexing by @mesejo in [#1127](https://github.com/xorq-labs/xorq/pull/1127)
+- Use print_exc by @dlovell in [#1125](https://github.com/xorq-labs/xorq/pull/1125)
+- Use port and host args in serve by @mesejo in [#1130](https://github.com/xorq-labs/xorq/pull/1130)
+- Better type inference for LogisticRegression by @dlovell in [#1136](https://github.com/xorq-labs/xorq/pull/1136)
+- Update for xorq-hash-cache by @dlovell in [#1131](https://github.com/xorq-labs/xorq/pull/1131)
+- Port and host args handling by @mesejo in [#1144](https://github.com/xorq-labs/xorq/pull/1144)
+- Use expr.ls.uncached when finding backend by @mesejo in [#1141](https://github.com/xorq-labs/xorq/pull/1141)
+- Fix run commands by @dlovell in [#1153](https://github.com/xorq-labs/xorq/pull/1153)
+- Deferred_read_* methods by @mesejo in [#1155](https://github.com/xorq-labs/xorq/pull/1155)
+
+#### Removed
+- Serve_command: remove spurious kwargs by @dlovell in [#1145](https://github.com/xorq-labs/xorq/pull/1145)
+
 ## [0.2.4] - 2025-07-09
 ### Details
 #### Added
