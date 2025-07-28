@@ -114,6 +114,10 @@
             name = "ipython";
           };
           default = self.apps.${system}.python-312-default;
+          xorq = drvToApp {
+            drv = xorq-312.virtualenv-default;
+            name = "xorq";
+          };
         };
         lib = {
           inherit
