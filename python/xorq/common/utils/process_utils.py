@@ -32,19 +32,22 @@ try_decode_ascii = toolz.excepts(
 )
 
 
-@frozen
+@frozen(eq=False)
 class Popened:
     args = field(
         validator=or_(
             deep_iterable(instance_of(str), instance_of(tuple)), instance_of(str)
-        )
+        ),
+        converter=tuple,
     )
     kwargs_tuple = field(validator=instance_of(tuple), default=())
-    capturing = field(validator=instance_of(bool), default=True)
+    deferred = field(validator=instance_of(bool), default=True)
 
     def __attrs_post_init__(self):
         if isinstance(self.args, str):
             assert self.kwargs.get("shell")
+        if not self.deferred:
+            self.popen
 
     @property
     def kwargs(self):
@@ -58,8 +61,21 @@ class Popened:
 
     @property
     @functools.cache
+    def stdout_peeker(self):
+        from xorq.common.utils.io_utils import Peeker
+
+        return Peeker(self.popen.stdout)
+
+    def peek_stdout(self, size):
+        return self.stdout_peeker.peek(size)
+
+    @property
+    @functools.cache
     def communicated(self):
-        return self.popen.communicate()
+        buf = self.stdout_peeker.buf.read()
+        (_stdout, _stderr) = self.popen.communicate()
+        _stdout = buf + _stdout
+        return (_stdout, _stderr)
 
     @property
     def _stdout(self):
