@@ -1,5 +1,6 @@
 import functools
 import operator
+import re
 from subprocess import (
     PIPE,
     Popen,
@@ -116,3 +117,8 @@ def subprocess_run(args, do_decode=False, **kwargs):
     if do_decode:
         (stdout, stderr) = (try_decode_ascii(el) for el in popened.communicate())
     return (popened.returncode, stdout, stderr)
+
+
+# https://stackoverflow.com/a/14693789
+ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+remove_ansi_escape = functools.partial(ansi_escape.sub, "")
