@@ -55,6 +55,21 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
     yield from filter(None, gen)
 
 
+def bfs(node):
+    from collections import deque
+
+    from xorq.vendor.ibis.common.graph import Graph
+
+    queue = deque((to_node(node),))
+    dct = dict()
+    while queue:
+        if (node := queue.popleft()) not in dct:
+            children = tuple(gen_children_of(node))
+            dct[node] = children
+            queue.extend(children)
+    return Graph(dct)
+
+
 def walk_nodes(node_types, expr):
     visited = set()
     to_visit = [to_node(expr)]
