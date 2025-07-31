@@ -202,7 +202,14 @@ def unbind_and_serve_command(
 
     def expr_to_unbound(expr, to_unbind_hash):
         """create an unbound expr that only needs to have a source of record batches fed in"""
-        from xorq.common.utils.node_utils import replace_by_expr_hash
+        from xorq.common.utils.graph_utils import (
+            replace_nodes,
+            walk_nodes,
+        )
+        from xorq.common.utils.node_utils import (
+            elide_downstream_cached_node,
+            replace_by_expr_hash,
+        )
         from xorq.vendor.ibis.expr.operations import UnboundTable
 
         found_cons = find_all_sources(expr)
@@ -220,7 +227,9 @@ def unbind_and_serve_command(
         replaced = replace_by_expr_hash(
             expr, to_unbind_hash, replace_with, typs=(type(found),)
         )
-        return replaced
+        (found,) = walk_nodes(UnboundTable, replaced)
+        elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
+        return elided
 
     unbound_expr = expr_to_unbound(expr, to_unbind_hash)
     flight_url = xo.flight.FlightUrl(host=host, port=port)
