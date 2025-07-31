@@ -9,6 +9,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_op_caching,
 )
 from xorq.common.utils.graph_utils import (
+    bfs,
     replace_nodes,
     walk_nodes,
 )
@@ -79,3 +80,35 @@ def unbind_expr_hash(expr, to_replace_hash, typs=replace_typs):
         expr,
     )
     return unbound_expr.to_expr()
+
+
+def gen_downstream(expr, downstream_of):
+    gi = bfs(expr).invert()
+
+    def inner(op):
+        for child in gi[op]:
+            yield child
+            yield from inner(child)
+
+    yield from inner(downstream_of)
+
+
+def elide_downstream_cached_node(expr, downstream_of):
+    cns = set(
+        el
+        for el in gen_downstream(expr, downstream_of)
+        if isinstance(el, rel.CachedNode)
+    )
+
+    def elide_cached_node(node, kwargs):
+        if isinstance(node, rel.CachedNode):
+            print(node)
+        if node in cns:
+            while isinstance(node, rel.CachedNode):
+                node = node.parent.op()
+            node = replace_nodes(elide_cached_node, node.to_expr())
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        return node
+
+    return elide_cached_node
