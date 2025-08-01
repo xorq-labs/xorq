@@ -39,7 +39,6 @@ class Popened:
         validator=or_(
             deep_iterable(instance_of(str), instance_of(tuple)), instance_of(str)
         ),
-        converter=tuple,
     )
     kwargs_tuple = field(validator=instance_of(tuple), default=())
     deferred = field(validator=instance_of(bool), default=True)
