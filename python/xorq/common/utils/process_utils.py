@@ -64,7 +64,7 @@ class Popened:
     def stdout_peeker(self):
         from xorq.common.utils.io_utils import Peeker
 
-        return Peeker(self.popen.stdout)
+        return Peeker(self.popen.stdout) if self.popen.stdout else None
 
     def peek_stdout(self, size):
         return self.stdout_peeker.peek(size)
@@ -72,9 +72,11 @@ class Popened:
     @property
     @functools.cache
     def communicated(self):
-        buf = self.stdout_peeker.buf.read()
-        (_stdout, _stderr) = self.popen.communicate()
-        _stdout = buf + _stdout
+        (_stdout, _stderr) = (None, None)
+        if self.stdout_peeker:
+            buf = self.stdout_peeker.buf.read()
+            (_stdout, _stderr) = self.popen.communicate()
+            _stdout = buf + _stdout
         return (_stdout, _stderr)
 
     @property
