@@ -22,10 +22,10 @@ awards_players = deferred_read_parquet(
 )
 
 
-left = batting.filter(batting.yearID == 2015)
+left = batting.filter(batting.yearID == 2015).cache()
 right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 expr = left.join(
     right.into_backend(con, "awards_players-filtered"),
     ["playerID"],
     how="semi",
-)[["playerID", "yearID", "stint", "teamID", "lgID"]]
+)[["playerID", "yearID", "stint", "teamID", "lgID"]].cache()
