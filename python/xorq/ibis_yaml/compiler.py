@@ -309,6 +309,11 @@ class BuildManager:
         return self.artifact_store.load_yaml(expr_hash, "deferred_reads.yaml")
 
 
+def load_expr(expr_path, cache_dir=None):
+    expr_path = Path(expr_path)
+    return BuildManager(expr_path.parent, cache_dir=cache_dir).load_expr(expr_path.name)
+
+
 IS_INMEMORY = "is-inmemory"
 IS_DATABASE_TABLE = "is-database-table"
 
