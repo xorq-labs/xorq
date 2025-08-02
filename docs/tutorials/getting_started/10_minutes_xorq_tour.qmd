@@ -240,6 +240,72 @@ Serve your pipeline as an Arrow Flight endpoint:
 xorq serve-unbound builds/5704ffbeade4 b2370a29c19df8e1e639c63252dacd0e
 ```
 
+### `xorq serve`
+
+The [`xorq serve`](../../api_reference/cli/serve.qmd) command serves expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. 
+
+For this command, we'll use the following `expr.py` file:
+
+```python
+import pandas as pd
+
+import xorq as xo
+
+penguins = xo.examples.penguins.fetch(deferred=False)
+
+
+def standardize_penguins(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a new DataFrame with penguin measurements standardized.
+    """
+    return (
+        df
+        .dropna(subset=["bill_length_mm", "bill_depth_mm", "body_mass_g"], ignore_index=True)
+        .assign(**{
+            "bill_length_std": lambda t: t["bill_length_mm"].sub(t["bill_length_mm"].mean()).div(t["bill_length_mm"].std()),
+            "body_mass_std": lambda t: t["body_mass_g"].sub(t["body_mass_g"].mean()).div(t["body_mass_g"].std()),
+        })
+    )
+
+
+expr = penguins.select(
+    "bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"
+)
+
+
+my_udxf = xo.expr.relations.flight_udxf(
+    process_df=standardize_penguins,
+    maybe_schema_in=expr.schema(),
+    maybe_schema_out=expr.schema() | {"bill_length_std": float, "body_mass_std": float},
+)
+
+pipeline = expr.pipe(my_udxf)
+
+
+if __name__ == "__pytest_main__":
+    pipeline.execute()
+```
+
+First, let's rebuild the expression:
+
+```bash
+xorq build penguins_example/expr.py
+```
+
+This produces the following output:
+
+```bash
+Building expr from penguins_example/expr.py
+Written 'expr' to builds/cb63fef71027
+builds/cb63fef71027
+```
+
+Now we can serve the expression:
+
+```bash
+xorq serve builds/cb63fef71027
+```
+
 ## Summary
 
 You've seen:
