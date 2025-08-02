@@ -78,7 +78,7 @@ duckdb = [
     "duckdb>=1.1.3",
 ]
 datafusion = [
-    "datafusion>=0.6,<48; python_version >= '3.10' and python_version < '4.0'"
+    "datafusion>=0.6,<49; python_version >= '3.10' and python_version < '4.0'"
 ]
 snowflake = [
     "adbc-driver-snowflake>=1.5.0",
