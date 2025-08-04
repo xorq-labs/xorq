@@ -83,7 +83,7 @@ cachetools==5.5.2
     # via
     #   google-auth
     #   pyiceberg
-certifi==2025.7.14
+certifi==2025.8.3
     # via
     #   httpcore
     #   httpx
@@ -106,9 +106,9 @@ charset-normalizer==3.4.2
     # via
     #   requests
     #   snowflake-connector-python
-cityhash==0.4.8 ; python_full_version < '4'
+cityhash==0.4.9 ; python_full_version < '4'
     # via xorq
-click==8.2.2
+click==8.2.1
     # via
     #   black
     #   dask
@@ -131,7 +131,7 @@ colorama==0.4.6
     #   tqdm
 comm==0.2.3
     # via ipykernel
-coverage==7.9.1
+coverage==7.10.2
     # via pytest-cov
 cryptography==45.0.5
     # via
@@ -634,7 +634,7 @@ pyyaml==6.0.2
     #   pre-commit
     #   quartodoc
     #   xorq
-pyzmq==27.0.0
+pyzmq==27.0.1
     # via
     #   ipykernel
     #   jupyter-client
@@ -864,7 +864,7 @@ uv==0.8.4
 uvicorn==0.35.0 ; sys_platform != 'emscripten'
     # via mcp
 vendoring==1.2.0
-virtualenv==20.32.0
+virtualenv==20.33.0
     # via pre-commit
 watchdog==6.0.0
     # via quartodoc
