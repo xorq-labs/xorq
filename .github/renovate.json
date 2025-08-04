@@ -28,7 +28,6 @@
     },
     {
       "matchManagers": ["github-actions"],
-      "enabled": false,
       "matchPackageNames": "actions/setup-python",
       "rangeStrategy": "replace",
       "automerge": false
