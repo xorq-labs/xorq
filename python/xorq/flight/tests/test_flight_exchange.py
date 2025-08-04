@@ -1,8 +1,11 @@
 import operator
 
 import pandas as pd
+import pyarrow as pa
+import pytest
 
 import xorq as xo
+from xorq.flight.exchanger import make_udxf
 from xorq.flight.tests.conftest import (
     do_agg,
     field_name,
@@ -53,3 +56,30 @@ def test_flight_udxf(con, diamonds, baseline):
         expected,
         check_exact=False,
     )
+
+
+def test_make_udxf_fails():
+    def dummy(df: pd.DataFrame):
+        return pd.DataFrame({"row_count": [42]})
+
+    with pytest.raises(ValueError):
+        make_udxf(
+            dummy,
+            xo.schema({"dummy": "int64"}),
+            pa.schema(
+                [
+                    ("row_count", pa.int64()),
+                ]
+            ),
+        )
+
+    with pytest.raises(ValueError):
+        make_udxf(
+            dummy,
+            pa.schema(
+                [
+                    ("dummy", pa.int64()),
+                ]
+            ),
+            xo.schema({"row_count": "int64"}),
+        )

@@ -56,10 +56,15 @@ def replace_one_unbound(unbound_expr, table):
 
 
 @excepts_print_exc
-def streaming_exchange(f, context, reader, writer, options=None, **kwargs):
+def streaming_exchange(
+    f, context, reader, writer, options=None, out_schema=None, **kwargs
+):
     started = False
     for chunk in (chunk for chunk in reader if chunk.data):
         out = f(chunk.data, metadata=chunk.app_metadata)
+        if out_schema is not None:
+            assert out_schema == out.schema, (out_schema, "\n", out.schema)
+
         if not started:
             writer.begin(out.schema, options=options)
             started = True
@@ -192,7 +197,7 @@ class PandasUDFExchanger(AbstractExchanger):
                 out = df.assign(**{series.name: series})
             else:
                 out = series.to_frame()
-            return pa.RecordBatch.from_pandas(out)
+            return pa.RecordBatch.from_pandas(out, preserve_index=False)
 
         return functools.partial(streaming_exchange, f)
 
@@ -320,17 +325,7 @@ def make_udxf(
     def process_batch(process_df, batch, metadata=None, **kwargs):
         df = batch.to_pandas()
         out = process_df(df)
-        return pa.RecordBatch.from_pandas(out)
-
-    if do_wraps:
-        exchange_f = excepts_print_exc(
-            functools.partial(
-                streaming_exchange, functools.partial(process_batch, process_df)
-            ),
-            Exception,
-        )
-    else:
-        exchange_f = process_df
+        return pa.RecordBatch.from_pandas(out, preserve_index=False)
 
     if isinstance(maybe_schema_in, pa.Schema):
         raise ValueError
@@ -343,14 +338,28 @@ def make_udxf(
     else:
         raise ValueError
 
+    out_schema = None
     if isinstance(maybe_schema_out, pa.Schema):
         raise ValueError
     elif isinstance(maybe_schema_out, xo.Schema):
         calc_schema_out = return_constant(maybe_schema_out)
+        out_schema = maybe_schema_out
     elif isinstance(maybe_schema_out, Callable):
         calc_schema_out = maybe_schema_out
     else:
         raise ValueError
+
+    if do_wraps:
+        exchange_f = excepts_print_exc(
+            functools.partial(
+                streaming_exchange,
+                functools.partial(process_batch, process_df),
+                out_schema=out_schema.to_pyarrow() if out_schema else None,
+            ),
+            Exception,
+        )
+    else:
+        exchange_f = process_df
 
     name = name or process_df.__name__
     typ = type(
