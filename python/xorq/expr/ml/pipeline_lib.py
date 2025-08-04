@@ -230,7 +230,7 @@ class Step:
         )
 
     @classmethod
-    def from_instance_name(cls, instance, name=None):
+    def from_instance_name(cls, instance, name=None, deep=False):
         """
         Create a Step from an existing scikit-learn estimator instance.
 
@@ -246,11 +246,11 @@ class Step:
         Step
             A new Step wrapping the estimator instance.
         """
-        params_tuple = tuple(instance.get_params().items())
+        params_tuple = tuple(instance.get_params(deep=deep).items())
         return cls(typ=instance.__class__, name=name, params_tuple=params_tuple)
 
     @classmethod
-    def from_name_instance(cls, name, instance):
+    def from_name_instance(cls, name, instance, deep=False):
         """
         Create a Step from a name and estimator instance.
 
@@ -266,7 +266,7 @@ class Step:
         Step
             A new Step wrapping the estimator instance.
         """
-        return cls.from_instance_name(instance, name)
+        return cls.from_instance_name(instance, name, deep=deep)
 
     @classmethod
     def from_fit_predict(cls, fit, predict, return_type, klass_name=None, name=None):
@@ -642,7 +642,7 @@ class Pipeline:
         return FittedPipeline(fitted_steps, expr)
 
     @classmethod
-    def from_instance(cls, instance):
+    def from_instance(cls, instance, deep=False):
         """
         Create a Pipeline from an existing scikit-learn Pipeline.
 
@@ -668,8 +668,10 @@ class Pipeline:
         ... ])
         >>> xorq_pipe = Pipeline.from_instance(sklearn_pipe)
         """
+        # https://github.com/scikit-learn/scikit-learn/issues/18272#issuecomment-682180783
         steps = tuple(
-            Step.from_instance_name(step, name) for name, step in instance.steps
+            Step.from_instance_name(step, name, deep=deep)
+            for name, step in instance.steps
         )
         return cls(steps)
 
