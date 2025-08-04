@@ -354,7 +354,7 @@ def make_udxf(
             functools.partial(
                 streaming_exchange,
                 functools.partial(process_batch, process_df),
-                out_schema=out_schema.to_pyarrow(),
+                out_schema=out_schema.to_pyarrow() if out_schema else None,
             ),
             Exception,
         )
