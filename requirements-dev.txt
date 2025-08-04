@@ -181,7 +181,7 @@ frozenlist==1.7.0 ; python_full_version < '4'
     # via
     #   aiohttp
     #   aiosignal
-fsspec==2025.5.1
+fsspec==2025.7.0
     # via
     #   dask
     #   gcsfs
@@ -192,7 +192,7 @@ gast==0.6.0 ; sys_platform == 'darwin'
     # via
     #   beniget
     #   pythran
-gcsfs==2025.5.1 ; python_full_version < '4'
+gcsfs==2025.7.0 ; python_full_version < '4'
     # via pins
 geoarrow-types==0.3.0 ; python_full_version < '4'
     # via xorq

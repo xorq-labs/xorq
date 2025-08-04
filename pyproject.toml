@@ -88,7 +88,7 @@ quickgrove = [
     "quickgrove>=0.1.2",
 ]
 examples = [
-    "fsspec>=2024.6.1,<2025.5.2; python_version >= '3.10' and python_version < '4.0'",
+    "fsspec>=2024.6.1,<2025.7.1; python_version >= '3.10' and python_version < '4.0'",
     "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "xgboost >=1.6.1 ; python_version >= '3.10' and python_version < '4.0'",
     "duckdb >=0.10.3,<2 ; python_version >= '3.10' and python_version < '4.0'",
