@@ -5,6 +5,7 @@ headline: "Learn key concepts in a brief tutorial"
 ---
 
 A quick tour of Xorq's core features. This tutorial covers multi-engine operations, caching, UDXF nodes and Profiles.
+Xorq also ships with a CLI for quickly bootstrapping the creation, execution and serving of expressions. 
 
 ## Installation
 
@@ -170,6 +171,140 @@ path = pandas_profile.save(alias="pandas_example", clobber=True)  # clobber for 
 
 The Profiles API supports serialization to  and deserialization from YAML, environment variable substitution, and security  checks to prevent sensitive information from being stored in plain text.
 
+# Xorq CLI Commands
+
+The `xorq` CLI provides powerful commands to build, run, and serve data pipelines. This section covers the essential commands you'll use in your workflow.
+
+## Overview
+
+Xorq separates pipeline definition from execution through its CLI:
+
+```bash
+xorq <command> [options]
+```
+
+## Core Commands
+
+### `xorq init` – Initialize a Project
+
+Quickly bootstrap a new Xorq project from templates:
+
+```bash
+# Use the Penguins ML template
+xorq init -t penguins -p penguins_example
+```
+
+### `xorq build` - Compile Expressions
+
+Convert Python expressions into serialized artifacts:
+
+```bash
+# Basic build
+xorq build penguins_example/expr.py
+```
+
+You should see output similar to the following:
+
+```bash
+Building expr from penguins_example/expr.py
+Written 'expr' to builds/5704ffbeade4
+builds/5704ffbeade4
+```
+
+This means the artifact for the variable named `expr` in the file `expr.py` was written to  
+`builds/5704ffbeade4`.
+
+### `xorq run` – Execute Pipelines
+
+Run compiled expressions with various output options:
+
+```bash
+# Run and display results
+xorq run builds/5704ffbeade4
+```
+
+The above command runs the serialized artifact and discards the result. To permanently  
+save the output, use:
+
+```bash
+# Save to file
+xorq run builds/5704ffbeade4 -o results.parquet
+```
+
+### `xorq serve-unbound` – Deploy as Flight Server
+
+Serve your pipeline as an Arrow Flight endpoint:
+
+```bash
+# Basic server
+xorq serve-unbound builds/5704ffbeade4 b2370a29c19df8e1e639c63252dacd0e
+```
+
+### `xorq serve`
+
+The [`xorq serve`](../../api_reference/cli/serve.qmd) command serves expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. 
+
+For this command, we'll use the following `expr.py` file:
+
+```python
+import pandas as pd
+
+import xorq as xo
+
+penguins = xo.examples.penguins.fetch(deferred=False)
+
+
+def standardize_penguins(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Return a new DataFrame with penguin measurements standardized.
+    """
+    return (
+        df
+        .dropna(subset=["bill_length_mm", "bill_depth_mm", "body_mass_g"], ignore_index=True)
+        .assign(**{
+            "bill_length_std": lambda t: t["bill_length_mm"].sub(t["bill_length_mm"].mean()).div(t["bill_length_mm"].std()),
+            "body_mass_std": lambda t: t["body_mass_g"].sub(t["body_mass_g"].mean()).div(t["body_mass_g"].std()),
+        })
+    )
+
+
+expr = penguins.select(
+    "bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g"
+)
+
+
+my_udxf = xo.expr.relations.flight_udxf(
+    process_df=standardize_penguins,
+    maybe_schema_in=expr.schema(),
+    maybe_schema_out=expr.schema() | {"bill_length_std": float, "body_mass_std": float},
+)
+
+pipeline = expr.pipe(my_udxf)
+
+
+if __name__ == "__pytest_main__":
+    pipeline.execute()
+```
+
+First, let's rebuild the expression:
+
+```bash
+xorq build penguins_example/expr.py
+```
+
+This produces the following output:
+
+```bash
+Building expr from penguins_example/expr.py
+Written 'expr' to builds/cb63fef71027
+builds/cb63fef71027
+```
+
+Now we can serve the expression:
+
+```bash
+xorq serve builds/cb63fef71027
+```
 
 ## Summary
 
@@ -179,5 +314,6 @@ You've seen:
 * **Caching** deferred, for store expensive computation results
 * **UDXF nodes** for creating reusable transformation functions
 * **Profiles** for managing backend connections
+* **CLI Commands** for building, running and serving expressions
 
 Next steps: Explore [core concepts](../../core_concepts/index.qmd) or learn more about [UDXF nodes](../../core_concepts/flight_udxf.qmd).
