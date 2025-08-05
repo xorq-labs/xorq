@@ -20,11 +20,6 @@ from sklearn.tree import DecisionTreeClassifier
 
 import xorq as xo
 from xorq.expr.ml import Pipeline
-from xorq.expr.ml.pipeline_lib import (
-    get_predict_return_type,
-    get_target_type,
-    step_typ_to_f,
-)
 
 
 target = "target"
@@ -39,6 +34,7 @@ def make_linearly_separable():
         random_state=1,
         n_clusters_per_class=1,
     )
+    y = tuple(chr(ord("a") + el) for el in y)
     rng = np.random.RandomState(2)
     X += 2 * rng.uniform(size=X.shape)
     return (X, y)
@@ -62,6 +58,23 @@ def make_exprs(X_train, y_train, X_test, y_test):
     return (train, test, features)
 
 
+def train_and_score(clf, X_train, X_test, y_train, y_test):
+    (train, test, features) = make_exprs(X_train, y_train, X_test, y_test)
+    sklearn_pipeline = make_pipeline(StandardScaler(), clf).fit(X_train, y_train)
+    sklearn_score = sklearn_pipeline.score(X_test, y_test)
+    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
+        train, features=features, target=target
+    )
+    xorq_score = xorq_pipeline.score_expr(test)
+    dct = {
+        "sklearn_pipeline": sklearn_pipeline,
+        "sklearn_score": sklearn_score,
+        "xorq_pipeline": xorq_pipeline,
+        "xorq_score": xorq_score,
+    }
+    return dct
+
+
 classifiers = {
     "Nearest Neighbors": KNeighborsClassifier(3),
     "Linear SVM": SVC(kernel="linear", C=0.025, random_state=42),
@@ -79,33 +92,41 @@ classifiers = {
 }
 
 
-for typ in set(clf.__class__ for clf in classifiers.values()).difference(step_typ_to_f):
-    get_predict_return_type.register(typ, get_target_type)
-
-
 datasets = {
-    "moons": make_moons(noise=0.3, random_state=0),
-    "circles": make_circles(noise=0.2, factor=0.5, random_state=1),
-    "linearly separable": make_linearly_separable(),
+    name: train_test_split(
+        *f(**kwargs),
+        test_size=0.4,
+        random_state=42,
+    )
+    for (name, f, kwargs) in (
+        (
+            "moons",
+            make_moons,
+            {
+                "noise": 0.3,
+                "random_state": 0,
+            },
+        ),
+        (
+            "circles",
+            make_circles,
+            {
+                "noise": 0.2,
+                "factor": 0.5,
+                "random_state": 1,
+            },
+        ),
+        ("linearly separable", make_linearly_separable, {}),
+    )
 }
 
 
-dct = {}
-for ds_name, (X, y) in datasets.items():
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.4, random_state=42
-    )
-    (train, test, features) = make_exprs(X_train, y_train, X_test, y_test)
-    for clf_name, clf in classifiers.items():
-        sklearn_pipeline = make_pipeline(StandardScaler(), clf).fit(X_train, y_train)
-        sklearn_score = sklearn_pipeline.score(X_test, y_test)
-        xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
-            train, features=features, target=target
-        )
-        xorq_score = xorq_pipeline.score_expr(test)
-        dct[(ds_name, clf_name)] = {
-            "sklearn_pipeline": sklearn_pipeline,
-            "sklearn_score": sklearn_score,
-            "xorq_pipeline": xorq_pipeline,
-            "xorq_score": xorq_score,
-        }
+df = pd.DataFrame.from_dict(
+    {
+        (ds_name, clf_name): train_and_score(clf, X_train, X_test, y_train, y_test)
+        for (ds_name, (X_train, X_test, y_train, y_test)) in datasets.items()
+        for (clf_name, clf) in classifiers.items()
+    },
+    orient="index",
+)
+assert df.sklearn_score.equals(df.xorq_score)
