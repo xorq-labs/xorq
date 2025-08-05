@@ -36,6 +36,16 @@ def test_unregistered_raises():
         dask.base.tokenize(Unregistered())
 
 
+@pytest.fixture(scope="function")
+def alltypes_df(pg):
+    return pg.table("functional_alltypes").execute()
+
+
+@pytest.fixture(scope="function")
+def batting(pg):
+    return pg.table("batting")
+
+
 @pytest.mark.snapshot_check
 def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
     con = xo.datafusion.connect()
