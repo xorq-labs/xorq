@@ -191,7 +191,7 @@ def test_filter(alltypes, sorted_df, predicate_fn, expected_fn):
     assert_frame_equal(result, expected)
 
 
-def test_case_where(alltypes, df):
+def test_case_where(alltypes, alltypes_df):
     table = alltypes
     table = table.mutate(
         new_col=(
@@ -206,7 +206,7 @@ def test_case_where(alltypes, df):
 
     result = table.execute()
 
-    expected = df.copy()
+    expected = alltypes_df.copy()
     mask_0 = expected["int_col"] == 1
     mask_1 = expected["int_col"] == 0
 
@@ -346,9 +346,9 @@ def test_select_sort_sort(alltypes):
         ),
     ],
 )
-def test_order_by(alltypes, df, key, df_kwargs):
+def test_order_by(alltypes, alltypes_df, key, df_kwargs):
     result = alltypes.filter(_.id < 100).order_by(key).execute()
-    expected = df.loc[df.id < 100].sort_values(**df_kwargs)
+    expected = alltypes_df.loc[alltypes_df.id < 100].sort_values(**df_kwargs)
     assert_frame_equal(result, expected)
 
 
@@ -387,9 +387,13 @@ def test_order_by_random(alltypes):
         ),
     ],
 )
-def test_isin_notin(alltypes, df, ibis_op, pandas_op):
+def test_isin_notin(alltypes, alltypes_df, ibis_op, pandas_op):
     expr = alltypes[ibis_op]
-    expected = df.loc[pandas_op(df)].sort_values(["id"]).reset_index(drop=True)
+    expected = (
+        alltypes_df.loc[pandas_op(alltypes_df)]
+        .sort_values(["id"])
+        .reset_index(drop=True)
+    )
     result = expr.execute().sort_values(["id"]).reset_index(drop=True)
     assert_frame_equal(result, expected)
 
@@ -417,13 +421,13 @@ def test_logical_negation_literal(con, expr, expected, op):
         neg,
     ],
 )
-def test_logical_negation_column(alltypes, df, op):
+def test_logical_negation_column(alltypes, alltypes_df, op):
     result = op(alltypes["bool_col"]).name("tmp").execute()
-    expected = op(df["bool_col"])
+    expected = op(alltypes_df["bool_col"])
     assert_series_equal(result, expected, check_names=False)
 
 
-def test_ifelse_select(alltypes, df):
+def test_ifelse_select(alltypes, alltypes_df):
     table = alltypes
     table = table.select(
         [
@@ -434,7 +438,7 @@ def test_ifelse_select(alltypes, df):
 
     result = table.execute()
 
-    expected = df.loc[:, ["int_col"]].copy()
+    expected = alltypes_df.loc[:, ["int_col"]].copy()
 
     expected["where_col"] = -1
     expected.loc[expected["int_col"] == 0, "where_col"] = 42
@@ -442,12 +446,12 @@ def test_ifelse_select(alltypes, df):
     assert_frame_equal(result, expected)
 
 
-def test_ifelse_column(alltypes, df):
+def test_ifelse_column(alltypes, alltypes_df):
     expr = xo.ifelse(alltypes["int_col"] == 0, 42, -1).cast("int64").name("where_col")
     result = xo.execute(expr)
 
     expected = pd.Series(
-        np.where(df.int_col == 0, 42, -1),
+        np.where(alltypes_df.int_col == 0, 42, -1),
         name="where_col",
         dtype="int64",
     )
@@ -455,24 +459,26 @@ def test_ifelse_column(alltypes, df):
     assert_series_equal(result, expected)
 
 
-def test_select_filter(alltypes, df):
+def test_select_filter(alltypes, alltypes_df):
     t = alltypes
 
     expr = t.select("int_col", "string_col").filter(t.string_col == "4")
     result = expr.execute()
 
-    expected = df.loc[df.string_col == "4", ["int_col", "string_col"]].reset_index(
-        drop=True
-    )
+    expected = alltypes_df.loc[
+        alltypes_df.string_col == "4", ["int_col", "string_col"]
+    ].reset_index(drop=True)
     assert_frame_equal(result, expected)
 
 
-def test_select_filter_select(alltypes, df):
+def test_select_filter_select(alltypes, alltypes_df):
     t = alltypes
     expr = t.select("int_col", "string_col").filter(t.string_col == "4").int_col
     result = expr.execute().rename("int_col")
 
-    expected = df.loc[df.string_col == "4", "int_col"].reset_index(drop=True)
+    expected = alltypes_df.loc[alltypes_df.string_col == "4", "int_col"].reset_index(
+        drop=True
+    )
     assert_series_equal(result, expected)
 
 
@@ -615,8 +621,8 @@ def test_pivot_wider(diamonds):
         ),
     ],
 )
-def test_static_table_slice(slc, expected_count_fn, functional_alltypes):
-    t = functional_alltypes
+def test_static_table_slice(slc, expected_count_fn, alltypes):
+    t = alltypes
 
     rows = t[slc]
     count = rows.count().to_pandas()
@@ -625,8 +631,8 @@ def test_static_table_slice(slc, expected_count_fn, functional_alltypes):
     assert count == expected_count
 
 
-def test_sample(functional_alltypes):
-    t = functional_alltypes.filter(_.int_col >= 2)
+def test_sample(alltypes):
+    t = alltypes.filter(_.int_col >= 2)
 
     total_rows = t.count().execute()
     empty = t.limit(1).execute().iloc[:0]

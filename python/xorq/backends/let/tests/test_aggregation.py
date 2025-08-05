@@ -39,13 +39,13 @@ aggregate_test_params = [
     ("result_fn", "expected_fn"),
     aggregate_test_params,
 )
-def test_aggregate(alltypes, df, result_fn, expected_fn):
+def test_aggregate(alltypes, alltypes_df, result_fn, expected_fn):
     expr = alltypes.aggregate(tmp=result_fn)
     result = expr.execute()
 
     # Create a single-row single-column dataframe with the Pandas `agg` result
     # (to match the output format of Ibis `aggregate`)
-    expected = pd.DataFrame({"tmp": [expected_fn(df)]})
+    expected = pd.DataFrame({"tmp": [expected_fn(alltypes_df)]})
 
     assert_frame_equal(result, expected, check_dtype=False)
 
@@ -54,7 +54,7 @@ def test_aggregate(alltypes, df, result_fn, expected_fn):
     ("result_fn", "expected_fn"),
     aggregate_test_params,
 )
-def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
+def test_aggregate_grouped(alltypes, alltypes_df, result_fn, expected_fn):
     grouping_key_col = "bigint_col"
 
     # Two (equivalent) variations:
@@ -67,7 +67,10 @@ def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
 
     # Note: Using `reset_index` to get the grouping key as a column
     expected = (
-        df.groupby(grouping_key_col).apply(expected_fn).rename("tmp").reset_index()
+        alltypes_df.groupby(grouping_key_col)
+        .apply(expected_fn)
+        .rename("tmp")
+        .reset_index()
     )
 
     # Row ordering may differ depending on backend, so sort on the
@@ -223,7 +226,7 @@ def test_aggregate_grouped(alltypes, df, result_fn, expected_fn):
 )
 def test_reduction_ops(
     alltypes,
-    df,
+    alltypes_df,
     result_fn,
     expected_fn,
     ibis_cond,
@@ -231,7 +234,7 @@ def test_reduction_ops(
 ):
     expr = alltypes.agg(tmp=result_fn(alltypes, ibis_cond(alltypes))).tmp
     result = expr.execute().squeeze()
-    expected = expected_fn(df, pandas_cond(df))
+    expected = expected_fn(alltypes_df, pandas_cond(alltypes_df))
 
     try:
         np.testing.assert_allclose(result, expected, rtol=reduction_tolerance)
@@ -316,20 +319,20 @@ def test_approx_median(alltypes):
     assert isinstance(result, float)
 
 
-def test_median(alltypes, df):
+def test_median(alltypes, alltypes_df):
     expr = alltypes.double_col.median()
     result = expr.execute()
-    expected = df.double_col.median()
+    expected = alltypes_df.double_col.median()
     assert result == expected
 
 
-def test_topk_op(alltypes, df):
+def test_topk_op(alltypes, alltypes_df):
     # TopK expression will order rows by "count" but each backend
     # can have different result for that.
     # Note: Maybe would be good if TopK could order by "count"
     # and the field used by TopK
     t = alltypes.order_by(alltypes.string_col)
-    df = df.sort_values("string_col")
+    df = alltypes_df.sort_values("string_col")
     expr = t.string_col.topk(3)
     result = expr.execute()
     expected = df.groupby("string_col")["string_col"].count().head(3)
@@ -350,13 +353,13 @@ def test_topk_op(alltypes, df):
         )
     ],
 )
-def test_topk_filter_op(alltypes, df, result_fn, expected_fn):
+def test_topk_filter_op(alltypes, alltypes_df, result_fn, expected_fn):
     # TopK expression will order rows by "count" but each backend
     # can have different result for that.
     # Note: Maybe would be good if TopK could order by "count"
     # and the field used by TopK
     t = alltypes.order_by(alltypes.string_col)
-    df = df.sort_values("string_col")
+    df = alltypes_df.sort_values("string_col")
     expr = result_fn(t)
     result = expr.execute()
     expected = expected_fn(df)
@@ -379,7 +382,7 @@ def test_agg_sort(alltypes):
         query.order_by(alltypes.year)
 
 
-def test_filter(alltypes, df):
+def test_filter(alltypes, alltypes_df):
     expr = (
         alltypes[_.string_col == "1"]
         .mutate(x=L(1, "int64"))
@@ -389,7 +392,7 @@ def test_filter(alltypes, df):
 
     result = expr.execute().astype({"x": "int64"})
     expected = (
-        df.loc[df.string_col == "1", :]
+        alltypes_df.loc[alltypes_df.string_col == "1", :]
         .assign(x=1)
         .groupby("x")
         .double_col.sum()
@@ -417,12 +420,12 @@ def test_grouped_case(con):
     assert_frame_equal(result, expected)
 
 
-def test_value_counts_on_expr(alltypes, df):
+def test_value_counts_on_expr(alltypes, alltypes_df):
     expr = alltypes.bigint_col.add(1).value_counts()
     columns = expr.columns
     expr = expr.order_by(columns)
     result = expr.execute().sort_values(columns).reset_index(drop=True)
-    expected = df.bigint_col.add(1).value_counts().reset_index()
+    expected = alltypes_df.bigint_col.add(1).value_counts().reset_index()
     expected.columns = columns
     expected = expected.sort_values(by=columns).reset_index(drop=True)
     assert_frame_equal(result, expected)

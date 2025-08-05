@@ -3,7 +3,7 @@ from __future__ import annotations
 from xorq.tests.util import assert_frame_equal
 
 
-def test_where_multiple_conditions(alltypes, df):
+def test_where_multiple_conditions(alltypes, alltypes_df):
     expr = alltypes.filter(
         [
             alltypes.float_col > 0,
@@ -13,10 +13,10 @@ def test_where_multiple_conditions(alltypes, df):
     )
     result = expr.execute()
 
-    expected = df[
-        (df["float_col"] > 0)
-        & (df["smallint_col"] == 9)
-        & (df["int_col"] < df["float_col"] * 2)
+    expected = alltypes_df[
+        (alltypes_df["float_col"] > 0)
+        & (alltypes_df["smallint_col"] == 9)
+        & (alltypes_df["int_col"] < alltypes_df["float_col"] * 2)
     ]
 
     assert_frame_equal(result, expected)
