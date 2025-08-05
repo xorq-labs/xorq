@@ -13,11 +13,24 @@ from xorq.cli import (
     InitTemplates,
     build_command,
 )
+from xorq.common.utils.node_utils import (
+    find_by_expr_hash,
+)
 from xorq.common.utils.process_utils import (
+    Popened,
     non_blocking_subprocess_run,
+    remove_ansi_escape,
     subprocess_run,
 )
-from xorq.flight import FlightUrl
+from xorq.flight import (
+    FlightUrl,
+)
+from xorq.flight.client import (
+    FlightClient,
+)
+from xorq.ibis_yaml.compiler import (
+    load_expr,
+)
 
 
 build_run_examples_expr_names = (
@@ -440,6 +453,7 @@ def test_init_command_path_exists(template, tmpdir):
     assert returncode != 0
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
@@ -483,3 +497,80 @@ def test_init_uv_build_uv_run(template, tmpdir):
     (returncode, stdout, stderr) = subprocess_run(run_args, do_decode=True)
     assert returncode == 0, stderr
     assert output_path.exists()
+
+
+serve_hashes = (
+    "324e7584cafbdf8cc5688a4869ad1629",  # batting, rel.Read
+    "26cd1ab356e036c953835380a6e0265f",  # awards_players, rel.Read
+    "656c8362e81d2a1a84d767270157d970",  # left, ops.Filter
+    "9a56179702c49336749e3d4795cb2e4e",  # right, ops.DropColumns
+)
+
+
+@pytest.fixture(scope="function")
+def pipeline_https_build(tmp_path, fixture_dir):
+    builds_dir = tmp_path / "builds"
+    script_path = fixture_dir / "pipeline_https.py"
+
+    build_args = [
+        "xorq",
+        "build",
+        str(script_path),
+        "--expr-name",
+        "expr",
+        "--builds-dir",
+        str(builds_dir),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(build_args, do_decode=True)
+
+    assert "Building expr" in stderr
+    assert returncode == 0, stderr
+    assert builds_dir.exists()
+    serve_dir = Path(stdout.strip())
+    return serve_dir
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("serve_hash", serve_hashes)
+def test_serve_unbound(serve_hash, pipeline_https_build):
+    def peek_port(popened):
+        def do_match(buf):
+            (*_, line) = remove_ansi_escape(buf.decode("ascii").strip()).rsplit("\n", 1)
+            match = re.match(".*on grpc://localhost:(\\d+)$", line)
+            return match
+
+        buf = popened.stdout_peeker.peek_line_until(do_match)
+        (as_string,) = do_match(buf).groups()
+        port = int(as_string)
+        return port
+
+    def hit_server(port, expr):
+        client = FlightClient(port=port)
+        (_, rbr) = client.do_exchange("default", expr)
+        df = rbr.read_pandas()
+        return df
+
+    lookup = {
+        "9a56179702c49336749e3d4795cb2e4e": "xorq.vendor.ibis.expr.operations.DropColumns",
+        "656c8362e81d2a1a84d767270157d970": "xorq.vendor.ibis.expr.operations.Filter",
+    }
+    expr = load_expr(pipeline_https_build)
+    typ = lookup.get(serve_hash)
+    subexpr = find_by_expr_hash(expr, serve_hash, typs=typ).to_expr()
+
+    serve_args = (
+        "xorq",
+        "serve-unbound",
+        str(pipeline_https_build),
+        serve_hash,
+    ) + (("--typ", typ) if typ else ())
+    serve_popened = Popened(serve_args, deferred=False)
+    port = peek_port(serve_popened)
+    actual = hit_server(port=port, expr=subexpr)
+    expected = expr.execute()
+    (actual, expected) = (
+        df.sort_values(list(df.columns), ignore_index=True) for df in (actual, expected)
+    )
+    assert actual.equals(expected)
+
+    serve_popened.popen.terminate()

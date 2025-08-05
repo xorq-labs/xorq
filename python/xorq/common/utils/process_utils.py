@@ -1,5 +1,6 @@
 import functools
 import operator
+import re
 from subprocess import (
     PIPE,
     Popen,
@@ -32,19 +33,21 @@ try_decode_ascii = toolz.excepts(
 )
 
 
-@frozen
+@frozen(eq=False)
 class Popened:
     args = field(
         validator=or_(
             deep_iterable(instance_of(str), instance_of(tuple)), instance_of(str)
-        )
+        ),
     )
     kwargs_tuple = field(validator=instance_of(tuple), default=())
-    capturing = field(validator=instance_of(bool), default=True)
+    deferred = field(validator=instance_of(bool), default=True)
 
     def __attrs_post_init__(self):
         if isinstance(self.args, str):
             assert self.kwargs.get("shell")
+        if not self.deferred:
+            self.popen
 
     @property
     def kwargs(self):
@@ -58,8 +61,23 @@ class Popened:
 
     @property
     @functools.cache
+    def stdout_peeker(self):
+        from xorq.common.utils.io_utils import Peeker
+
+        return Peeker(self.popen.stdout) if self.popen.stdout else None
+
+    def peek_stdout(self, size):
+        return self.stdout_peeker.peek(size)
+
+    @property
+    @functools.cache
     def communicated(self):
-        return self.popen.communicate()
+        (_stdout, _stderr) = (None, None)
+        if self.stdout_peeker:
+            buf = self.stdout_peeker.buf.read()
+            (_stdout, _stderr) = self.popen.communicate()
+            _stdout = buf + _stdout
+        return (_stdout, _stderr)
 
     @property
     def _stdout(self):
@@ -100,3 +118,8 @@ def subprocess_run(args, do_decode=False, **kwargs):
     if do_decode:
         (stdout, stderr) = (try_decode_ascii(el) for el in popened.communicate())
     return (popened.returncode, stdout, stderr)
+
+
+# https://stackoverflow.com/a/14693789
+ansi_escape = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
+remove_ansi_escape = functools.partial(ansi_escape.sub, "")

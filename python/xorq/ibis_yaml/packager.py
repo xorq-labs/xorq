@@ -279,6 +279,7 @@ def uv_tool_run(
     )
     popened = Popened(popened_args, kwargs_tuple=kwargs_tuple)
     if check:
+        popened.popen.wait()
         assert not popened.returncode, popened.stderr
     return popened
 
