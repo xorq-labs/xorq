@@ -48,15 +48,13 @@ class FlightUrl:
     path: Optional[str] = field(default="", validator=instance_of(str))
     query: Optional[str] = field(default="", validator=instance_of(str))
     fragment: Optional[str] = field(default="", validator=instance_of(str))
-    bind: Optional[bool] = field(default=True, validator=instance_of(bool))
     _socket = field(default=None, init=False)
 
     def __attrs_post_init__(self):
-        if self.bind:
-            if self.port is None:
-                self.find_and_bind_socket()
-            else:
-                self.bind_socket()
+        if self.port is None:
+            self.find_and_bind_socket()
+        else:
+            self.bind_socket()
 
     @property
     def client_kwargs(self):
@@ -269,13 +267,19 @@ class FlightServer:
         self.close(*args)
 
 
-def connect(url, tls_kwargs=None):
+def connect(host=None, port=None, username=None, password=None, tls_kwargs=None):
     new_backend = Backend()
     new_backend.do_connect(
-        host=url.host,
-        port=url.port,
-        username=url.username,
-        password=url.password,
+        **{
+            k: v
+            for k, v in (
+                ("host", host),
+                ("port", port),
+                ("username", username),
+                ("password", password),
+            )
+            if v
+        },
         **(tls_kwargs.client_kwargs if tls_kwargs else {}),
     )
 
