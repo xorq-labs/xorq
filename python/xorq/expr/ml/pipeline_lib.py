@@ -14,6 +14,7 @@ from attr.validators import (
 )
 from sklearn.base import (
     BaseEstimator,
+    ClassifierMixin,
 )
 from sklearn.feature_extraction.text import (
     TfidfVectorizer,
@@ -27,9 +28,6 @@ from sklearn.linear_model import (
 )
 from sklearn.neighbors import (
     KNeighborsClassifier,
-)
-from sklearn.svm import (
-    LinearSVC,
 )
 
 import xorq as xo
@@ -738,7 +736,6 @@ step_typ_to_f = {
     LinearRegression: return_constant(dt.float),
     LogisticRegression: get_target_type,
     KNeighborsClassifier: get_target_type,
-    LinearSVC: get_target_type,
 }
 
 
@@ -747,6 +744,9 @@ def get_predict_return_type(step, expr, features, target):
         return return_type
     elif f := step_typ_to_f.get(step.typ):
         return_type = f(step, expr, features, target)
+        return return_type
+    elif ClassifierMixin in step.typ.mro():
+        return_type = get_target_type(step, expr, features, target)
         return return_type
     else:
         raise ValueError(f"Can't handle {step.typ.__name__}")
