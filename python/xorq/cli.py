@@ -16,7 +16,10 @@ from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
 from xorq.flight import FlightServer
-from xorq.ibis_yaml.compiler import BuildManager
+from xorq.ibis_yaml.compiler import (
+    BuildManager,
+    load_expr,
+)
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
@@ -183,28 +186,58 @@ def unbind_and_serve_command(
     host=None,
     port=None,
     cache_dir=get_xorq_cache_dir(),
+    typ=None,
 ):
     import functools
 
-    from xorq.common.utils.node_utils import unbind_expr_hash
+    from xorq.common.utils.graph_utils import (
+        find_all_sources,
+    )
+    from xorq.common.utils.node_utils import (
+        find_by_expr_hash,
+    )
 
-    expr_path = Path(expr_path)
-    expr_hash = expr_path.stem
+    logger.info(f"Loading expression from {expr_path}")
+    expr = load_expr(expr_path)
 
-    logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
-    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
-    if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
-        raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
+    def expr_to_unbound(expr, to_unbind_hash):
+        """create an unbound expr that only needs to have a source of record batches fed in"""
+        from xorq.common.utils.graph_utils import (
+            replace_nodes,
+            walk_nodes,
+        )
+        from xorq.common.utils.node_utils import (
+            elide_downstream_cached_node,
+            replace_by_expr_hash,
+        )
+        from xorq.vendor.ibis.expr.operations import UnboundTable
 
-    expr = build_manager.load_expr(expr_hash)
-    unbound_expr = unbind_expr_hash(expr, to_unbind_hash)
+        found_cons = find_all_sources(expr)
+        found = find_by_expr_hash(expr, to_unbind_hash, typs=typ)
+
+        if len(found_cons) == 0:
+            raise ValueError
+        elif len(found_cons) == 1:
+            (found_con,) = found_cons
+        else:
+            (found_con,) = find_all_sources(found)
+
+        unbound_table = UnboundTable("unbound", found.schema)
+        replace_with = unbound_table.to_expr().into_backend(found_con).op()
+        replaced = replace_by_expr_hash(
+            expr, to_unbind_hash, replace_with, typs=(type(found),)
+        )
+        (found,) = walk_nodes(UnboundTable, replaced)
+        elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
+        return elided
+
+    unbound_expr = expr_to_unbound(expr, to_unbind_hash)
     flight_url = xo.flight.FlightUrl(host=host, port=port)
     make_server = functools.partial(
         xo.flight.FlightServer,
         flight_url=flight_url,
     )
-    logger.info(f"Serving expression '{expr_hash}' from {expr_path}")
-    logger.info(f"Serving at {flight_url.host}:{flight_url.port}")
+    logger.info(f"Serving expression from '{expr_path}' on {flight_url.to_location()}")
     server, _ = xo.expr.relations.flight_serve_unbound(
         unbound_expr, make_server=make_server
     )
@@ -250,14 +283,8 @@ def serve_command(
     span.add_event("serve.params", params)
 
     expr_path = Path(expr_path)
-    expr_hash = expr_path.stem
-
-    logger.info(f"Loading expression '{expr_hash}' from {expr_path}")
-    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
-    if not build_manager.artifact_store.exists(expr_hash, "expr.yaml"):
-        raise ValueError(f"Error: expr.yaml not found in build directory {expr_path}")
-
-    expr = build_manager.load_expr(expr_hash)
+    logger.info(f"Loading expression from {expr_path}")
+    expr = load_expr(expr_path)
 
     db_path = Path(duckdb_path or "xorq_serve.db")  # FIXME what should be the default?
 
@@ -280,7 +307,7 @@ def serve_command(
         host=host,
     )
     location = server.flight_url.to_location()
-    logger.info(f"Serving expression '{expr_hash}' on {location}")
+    logger.info(f"Serving expression '{expr_path.stem}' on {location}")
     server.serve(block=True)
 
 
@@ -422,6 +449,12 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for all generated parquet files cache",
     )
+    serve_unbound_parser.add_argument(
+        "--typ",
+        required=False,
+        default=None,
+        help="type of the node to unbind",
+    )
 
     serve_parser = subparsers.add_parser(
         "serve", help="Serve a build via Flight Server"
@@ -522,6 +555,7 @@ def main():
                         args.host,
                         args.port,
                         args.cache_dir,
+                        args.typ,
                     ),
                 )
             case "serve":

@@ -119,5 +119,6 @@ def test_sdist_runner(template, tmpdir):
         str(sdist_builder.build_path),
     )
     sdist_runner = SdistRunner(sdist_builder.build_path, args=args)
-    assert not sdist_runner.popened.returncode
+    assert not sdist_runner.popened.popen.wait()
+    assert sdist_runner.popened.returncode == 0
     assert output_path.exists()

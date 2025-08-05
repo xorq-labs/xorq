@@ -55,6 +55,21 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
     yield from filter(None, gen)
 
 
+def bfs(node):
+    from collections import deque
+
+    from xorq.vendor.ibis.common.graph import Graph
+
+    queue = deque((to_node(node),))
+    dct = dict()
+    while queue:
+        if (node := queue.popleft()) not in dct:
+            children = tuple(gen_children_of(node))
+            dct[node] = children
+            queue.extend(children)
+    return Graph(dct)
+
+
 def walk_nodes(node_types, expr):
     visited = set()
     to_visit = [to_node(expr)]
@@ -109,6 +124,15 @@ def replace_nodes(replacer, expr):
     return op
 
 
+def get_ordered_unique_sources(nodes):
+    sources, seen = (), set()
+    for node in nodes:
+        if (value := (node.source, node.source._profile)) not in seen:
+            seen.add(value)
+            sources += (node.source,)
+    return sources
+
+
 def find_all_sources(expr):
     import xorq.vendor.ibis.expr.operations as ops
 
@@ -124,8 +148,5 @@ def find_all_sources(expr):
         # FlightOperator has a dynamically generated connection: it should be passed a Profile instead
     )
     nodes = walk_nodes(node_types, expr)
-    sources = tuple(
-        source
-        for (source, _) in set((node.source, node.source._profile) for node in nodes)
-    )
+    sources = get_ordered_unique_sources(nodes)
     return sources
