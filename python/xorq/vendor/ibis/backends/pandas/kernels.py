@@ -496,6 +496,7 @@ elementwise = {
     ops.MapKeys: safe_keys,
     ops.MapValues: safe_values,
     ops.Round: lambda x, digits=0: round(x, digits),
+    ops.Hash: hash,
 }
 
 
@@ -510,6 +511,7 @@ elementwise_decimal = {
     ops.Log2: safe_decimal(lambda x: x.ln() / decimal.Decimal(2).ln()),
     ops.Sign: safe_decimal(lambda x: math.copysign(1, x)),
     ops.Log: safe_decimal(lambda x, base: x.ln() / decimal.Decimal(base).ln()),
+    ops.Multiply: safe_decimal(lambda left, right: left * right),
 }
 
 
