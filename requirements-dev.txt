@@ -886,7 +886,7 @@ xorq-feature-utils @ git+https://github.com/xorq-labs/xorq-feature-utils@cbd61a8
     # via xorq
 xorq-hash-cache==0.1.0
     # via xorq-weather-lib
-xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib@664e2e58c5dbafff59a792314a32896cbb0f796a
+xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib@b8d9bfbed5467e2fa7aa8d9a3dd8ec4d62b609e1
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4'
     # via pins
