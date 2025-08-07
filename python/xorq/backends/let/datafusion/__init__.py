@@ -696,7 +696,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         table_name = table_name or gen_name("read_record_batches")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
         self.con.deregister_table(table_ident)
-        self.con.register_record_batch_reader(table_ident, source)
+        self.con.register_record_batch_reader(table_ident, source.cast(source.schema))
         return self.table(table_name)
 
     def to_pyarrow_batches(
