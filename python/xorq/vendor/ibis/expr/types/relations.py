@@ -385,7 +385,6 @@ class Table(Expr, _FixedTextJupyterMixin):
         Examples
         --------
         >>> import xorq as xo
-        >>> import xorq.selectors as s
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.schema()
@@ -1034,7 +1033,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         --------
         >>> import xorq as xo
         >>> import xorq.examples as ex
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> xo.options.interactive = True
         >>> t = ex.penguins.fetch()
         >>> t
@@ -1510,7 +1509,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         [Selectors](./selectors.qmd) are allowed as sort keys and are a concise way to sort by
         multiple columns matching some criteria
 
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> penguins = xo.examples.penguins.fetch(deferred=False)
         >>> penguins[["year", "island"]].value_counts().order_by(s.startswith("year"))
         ┏━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
@@ -1808,7 +1807,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         Examples
         --------
         >>> import xorq as xo
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> from xorq import _
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False).select("species", "year", "bill_length_mm")
@@ -2032,7 +2031,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Projection with a selector
 
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> t.select(s.numeric() & ~s.cols("year")).head()
         ┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
         ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ body_mass_g ┃
@@ -2269,7 +2268,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Drop with selectors, mix and match
 
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> t.drop("species", s.startswith("bill_")).head()
         ┏━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┳━━━━━━━━┳━━━━━━━┓
         ┃ island    ┃ flipper_length_mm ┃ body_mass_g ┃ sex    ┃ year  ┃
@@ -2736,7 +2735,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         Examples
         --------
         >>> import xorq as xo
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> xo.options.interactive = True
         >>> p = xo.examples.penguins.fetch(deferred=False)
         >>> p.describe() # doctest: +SKIP
@@ -3105,7 +3104,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         Examples
         --------
         >>> import xorq as xo
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> from xorq import _
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
@@ -3461,7 +3460,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         Basic usage
 
         >>> import xorq as xo
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> from xorq import _
         >>> xo.options.interactive = True
         >>> relig_income = xo.examples.relig_income_raw.fetch()
@@ -4246,7 +4245,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         --------
         >>> import xorq as xo
         >>> xo.options.interactive = True
-        >>> import xorq.selectors as s
+        >>> import xorq.expr.selectors as s
         >>> t = xo.memtable(dict(a=[1], b=[1], c=[1], d=["a"], e=["a"], f=["a"]))
         >>> t
         ┏━━━━━━━┳━━━━━━━┳━━━━━━━┳━━━━━━━━┳━━━━━━━━┳━━━━━━━━┓

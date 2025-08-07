@@ -6,7 +6,7 @@ from sklearn.metrics import classification_report, confusion_matrix, roc_auc_sco
 from sklearn.preprocessing import OneHotEncoder
 
 import xorq as xo
-import xorq.selectors as s
+import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_csv
 from xorq.common.utils.toolz_utils import curry
