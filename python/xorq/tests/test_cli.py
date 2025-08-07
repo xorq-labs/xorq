@@ -22,9 +22,6 @@ from xorq.common.utils.process_utils import (
     remove_ansi_escape,
     subprocess_run,
 )
-from xorq.flight import (
-    FlightUrl,
-)
 from xorq.flight.client import (
     FlightClient,
 )
@@ -272,8 +269,7 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
             time.sleep(1)
             nonlocal is_running
             if port and host:
-                flight_url = FlightUrl(host=host, port=int(port), bind=False)
-                flight_con = xo.flight.connect(flight_url)
+                flight_con = xo.flight.connect(host=host, port=int(port))
 
                 udxf_name = "diamonds_exchange_command"
                 assert udxf_name in flight_con.list_udxfs()
