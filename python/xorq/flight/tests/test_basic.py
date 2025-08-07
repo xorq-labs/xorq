@@ -18,6 +18,6 @@ def test_connect(auth, verify_client):
         auth=auth,
         **tls_kwargs.server_kwargs,
     ) as _:
-        con = xo.flight.connect(flight_url, tls_kwargs)
+        con = xo.flight.connect(**flight_url.client_kwargs, tls_kwargs=tls_kwargs)
         assert con is not None
         con.list_tables()
