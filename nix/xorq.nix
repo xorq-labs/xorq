@@ -65,17 +65,19 @@ let
             rev = "18d17540097fca7c40be3d42c167e6bfad90763c";
             hash= "sha256-gKEQc2RKpVp39RmuZbIeIXAwiAXDHGnLXF6VQuJtnRA=";
           };
-          version = "20.0.0";
+          version = "21.0.0";
           arrow-cpp = pkgs.arrow-cpp.overrideAttrs (old: {
             inherit version;
             src = pkgs.fetchFromGitHub {
               owner = "apache";
               repo = "arrow";
               rev = "apache-arrow-${version}";
-              hash = "sha256-JFPdKraCU+xRkBTAHyY4QGnBVlOjQ1P5+gq9uxyqJtk=";
+              hash = "sha256-6RFa4GTNgjsHSX5LYp4t6p8ynmmr7Nuotj9C7mTmvlM=";
             };
             PARQUET_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${parquet-testing}/data";
             ARROW_TEST_DATA = pkgs.lib.optionalString old.doInstallCheck "${arrow-testing}/data";
+            # Disable mimalloc allocator to avoid missing header on Darwin (why?)
+            cmakeFlags = (old.cmakeFlags or []) ++ [ "-DARROW_MIMALLOC=OFF" ];
           });
         in (prev.pyarrow.overrideAttrs (compose [
           (addBuildInputs [
