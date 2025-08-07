@@ -474,8 +474,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         import pandas as pd
 
-        quoted = self.compiler.quoted
-        table_ident = str(sg.to_identifier(table_name, quoted=quoted))
+        table_name = table_name or gen_name("register")
+        table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
 
         if isinstance(source, (str, Path)):
             first = str(source)
