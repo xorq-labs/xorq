@@ -357,33 +357,57 @@ def catalog_command(args):
         build_path_str = str(build_path)
         catalog = load_catalog()
         now = datetime.now(timezone.utc).isoformat()
-        # Create new entry and revision
-        entry_id = str(uuid.uuid4())
-        revision_id = "r1"
-        revision = {
-            "revision_id": revision_id,
-            "created_at": now,
-            "build": {"build_id": build_id, "path": build_path_str},
-            "expr_hashes": expr_hashes,
-            "meta_digest": meta_digest,
-        }
-        if metadata_preview:
-            revision["metadata"] = metadata_preview
-
-        entry = {
-            "entry_id": entry_id,
-            "created_at": now,
-            "current_revision": revision_id,
-            "history": [revision],
-        }
-        catalog.setdefault("entries", []).append(entry)
-        # Handle alias if provided
-        if alias:
-            catalog.setdefault("aliases", {})[alias] = {
-                "entry_id": entry_id,
+        # If alias exists, append a new revision to that entry
+        if alias and alias in (catalog.get("aliases") or {}):
+            mapping = catalog["aliases"][alias]
+            entry_id = mapping["entry_id"]
+            entry = next(e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id)
+            # Determine next revision number
+            existing = [r.get("revision_id", "r0") for r in entry.get("history", [])]
+            nums = [int(r[1:]) for r in existing if r.startswith("r")]
+            next_num = max(nums, default=0) + 1
+            revision_id = f"r{next_num}"
+            revision = {
                 "revision_id": revision_id,
-                "updated_at": now,
+                "created_at": now,
+                "build": {"build_id": build_id, "path": build_path_str},
+                "expr_hashes": expr_hashes,
+                "meta_digest": meta_digest,
             }
+            if metadata_preview:
+                revision["metadata"] = metadata_preview
+            # Update entry
+            entry.setdefault("history", []).append(revision)
+            entry["current_revision"] = revision_id
+            # Update alias mapping timestamp
+            mapping["revision_id"] = revision_id
+            mapping["updated_at"] = now
+        else:
+            # New entry and optional alias
+            entry_id = str(uuid.uuid4())
+            revision_id = "r1"
+            revision = {
+                "revision_id": revision_id,
+                "created_at": now,
+                "build": {"build_id": build_id, "path": build_path_str},
+                "expr_hashes": expr_hashes,
+                "meta_digest": meta_digest,
+            }
+            if metadata_preview:
+                revision["metadata"] = metadata_preview
+            entry = {
+                "entry_id": entry_id,
+                "created_at": now,
+                "current_revision": revision_id,
+                "history": [revision],
+            }
+            catalog.setdefault("entries", []).append(entry)
+            if alias:
+                catalog.setdefault("aliases", {})[alias] = {
+                    "entry_id": entry_id,
+                    "revision_id": revision_id,
+                    "updated_at": now,
+                }
         save_catalog(catalog)
         print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
 
@@ -407,16 +431,12 @@ def catalog_command(args):
 
     elif args.subcommand == "inspect":
         catalog = load_catalog()
-        entry_arg = args.entry
-        # Resolve alias
-        aliases = catalog.get("aliases", {})
-        if entry_arg in aliases:
-            mapping = aliases[entry_arg]
-            entry_id = mapping["entry_id"]
-            revision_id = args.revision or mapping["revision_id"]
-        else:
-            entry_id = entry_arg
-            revision_id = args.revision
+        # Resolve alias or entry@revision or entry
+        from xorq.catalog import resolve_target
+        target = resolve_target(args.entry, catalog)
+        entry_id = target.entry_id
+        # Use explicit --revision or target.rev (from alias@rev or entry@rev)
+        revision_id = args.revision or target.rev
         # Find entry
         entry = next((e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id), None)
         if entry is None:
@@ -459,7 +479,7 @@ def catalog_command(args):
         for h in node_hashes:
             try:
                 node = find_by_expr_hash(expr, h)
-                print(f"{h}: {type(node).__name__}  —  {node!r}")
+                print(f"{h}: {type(node).__name__}  -  {node!r}")
             except Exception as e:
                 print(f"{h}: <error resolving node: {e}>")
         # Show only pure Read-nodes
@@ -484,8 +504,91 @@ def catalog_command(args):
                 print(yaml.safe_dump(full_meta, sort_keys=False))
             else:
                 print(f"Full metadata file not found at {full_meta_file}")
+        # Print Ibis DAG of the expression
+        print("Ibis DAG:")
+        print(expr)
+    elif args.subcommand == "diff-builds":
+        import sys, subprocess
+        # Use module-level Path import
+        from xorq.catalog import resolve_build_dir
+
+        catalog = load_catalog()
+        try:
+            left_dir = resolve_build_dir(args.left, catalog)
+            right_dir = resolve_build_dir(args.right, catalog)
+        except ValueError as e:
+            print(f"Error: {e}")
+            sys.exit(2)
+        if not left_dir.exists() or not left_dir.is_dir():
+            print(f"Build directory not found: {left_dir}")
+            sys.exit(2)
+        if not right_dir.exists() or not right_dir.is_dir():
+            print(f"Build directory not found: {right_dir}")
+            sys.exit(2)
+        if args.files:
+            file_list = args.files
+        elif args.all:
+            default_files = ["expr.yaml", "deferred_reads.yaml", "node_hashes.yaml", "profiles.yaml", "sql.yaml", "metadata.json"]
+            sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")}
+            sqls |= {p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")}
+            file_list = default_files + sorted(sqls)
+        else:
+            file_list = ["expr.yaml"]
+        keep = [f for f in file_list if (left_dir / f).exists() or (right_dir / f).exists()]
+        if not keep:
+            print("No files to diff")
+            sys.exit(2)
+        exit_code = 0
+        for f in keep:
+            print(f"## Diff: {f}")
+            lf = left_dir / f
+            rf = right_dir / f
+            ret = subprocess.call(["git", "diff", "--no-index", "--", str(lf), str(rf)])
+            if ret == 1:
+                exit_code = 1
+            elif ret != 0:
+                sys.exit(ret)
+        sys.exit(exit_code)
+    elif args.subcommand == "diff":
+        import tempfile
+        from xorq.catalog import resolve_target, build_virtual_export_tree, write_tree, unified_dir_diff
+
+        catalog = load_catalog()
+        left_t = resolve_target(args.left, catalog)
+        def get_entry(entry_id):
+            return next(e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id)
+
+        if args.right is None and left_t.alias:
+            entry = get_entry(left_t.entry_id)
+            hist = sorted(entry.get("history", []), key=lambda r: int(r.get("revision_id", "")[1:]))
+            if len(hist) < 2:
+                print("Not enough revisions to diff for this alias.")
+                sys.exit(0)
+            lrev, rrev = hist[-2], hist[-1]
+            entry_l = entry_r = entry
+        else:
+            right_t = resolve_target(args.right, catalog)
+            entry_l = get_entry(left_t.entry_id)
+            entry_r = get_entry(right_t.entry_id)
+            lrev = next(r for r in entry_l.get("history", []) if r.get("revision_id") == (left_t.rev or entry_l.get("current_revision")))
+            rrev = next(r for r in entry_r.get("history", []) if r.get("revision_id") == (right_t.rev or entry_r.get("current_revision")))
+
+        with tempfile.TemporaryDirectory() as ld, tempfile.TemporaryDirectory() as rd:
+            lroot, rroot = Path(ld), Path(rd)
+            lfiles = build_virtual_export_tree(entry_l, lrev)
+            rfiles = build_virtual_export_tree(entry_r, rrev)
+            write_tree(lroot, lfiles)
+            write_tree(rroot, rfiles)
+            different, patch = unified_dir_diff(lroot, rroot)
+
+            print("Different:" if different else "No differences.")
+            if different and args.print_diff:
+                print(patch, end="")
+            if different:
+                sys.exit(1)
     else:
         print(f"Unknown catalog subcommand: {args.subcommand}")
+
 
 
 def parse_args(override=None):
@@ -697,6 +800,15 @@ def parse_args(override=None):
     catalog_inspect.add_argument("entry", help="Entry ID or alias to inspect")
     catalog_inspect.add_argument("-r", "--revision", help="Revision ID to inspect", default=None)
     catalog_inspect.add_argument("--full", action="store_true", help="Show full build metadata")
+    catalog_diff = catalog_subparsers.add_parser("diff", help="Compare two revisions via YAML export")
+    catalog_diff.add_argument("left", help="Left target: alias or entry_id[@revision]")
+    catalog_diff.add_argument("right", nargs="?", help="Right target: alias or entry_id[@revision]")
+    catalog_diff.add_argument("--print-diff", action="store_true", help="Print unified diff")
+    catalog_diff_builds = catalog_subparsers.add_parser("diff-builds", help="Compare two build artifacts via git diff --no-index")
+    catalog_diff_builds.add_argument("left", help="Left build target: alias, entry_id, build_id, or path to build dir")
+    catalog_diff_builds.add_argument("right", help="Right build target: alias, entry_id, build_id, or path to build dir")
+    catalog_diff_builds.add_argument("--all", action="store_true", help="Diff all known build files plus all .sql files")
+    catalog_diff_builds.add_argument("--files", nargs="+", help="Explicit list of relative files to diff (overrides --all)", default=None)
 
     args = parser.parse_args(override)
     if getattr(args, "output_path", None) == "-":
