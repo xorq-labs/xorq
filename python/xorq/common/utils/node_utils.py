@@ -45,16 +45,24 @@ def get_typs(maybe_typs):
 
 
 def find_by_expr_hash(expr, to_replace_hash, typs=replace_typs):
+    """
+    Find a node in the expression whose tokenize hash prefix matches the given hash.
+    Raises if no matches or multiple matches.
+    """
     typs = get_typs(typs)
+    # Determine prefix length from provided hash
+    hash_len = len(to_replace_hash)
     with patch_normalize_op_caching():
-        (to_replace, *rest) = (
-            node
-            for node in walk_nodes(typs, expr)
-            if dask.base.tokenize(node.to_expr()) == to_replace_hash
-        )
-    if rest:
-        raise ValueError
-    return to_replace
+        matches = []
+        for node in walk_nodes(typs, expr):
+            tok = dask.base.tokenize(node.to_expr())
+            if tok[:hash_len] == to_replace_hash:
+                matches.append(node)
+    if not matches:
+        raise ValueError(f"No node found matching hash prefix: {to_replace_hash}")
+    if len(matches) > 1:
+        raise ValueError(f"Multiple nodes found matching hash prefix: {to_replace_hash}")
+    return matches[0]
 
 
 def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=replace_typs):
