@@ -4,10 +4,14 @@ from typing import Iterable, Iterator, Tuple
 
 import toolz
 
+import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.types as ir
 from xorq.vendor.ibis.expr.api import (
     case,
     literal,
+)
+from xorq.vendor.ibis.common.selectors import (
+    Selector,
 )
 
 
@@ -123,7 +127,9 @@ def calc_split_conditions(
     # Set the random seed if set, & Generate a random 256-bit key
     random_str = str(Random(random_seed).getrandbits(256))
 
-    comb_key = literal(",").join(table[col].cast("str") for col in unique_key)
+    comb_key = literal(",").join(
+        table[col].cast("str") for col in table.select(unique_key).columns
+    )
     split_bucket = comb_key.concat(random_str).hash().abs().mod(num_buckets)
     conditions = (
         (literal(lower_bound).cast("decimal(38, 9)") * num_buckets <= split_bucket)
@@ -208,8 +214,8 @@ def calc_split_column(
 
 def train_test_splits(
     table: ir.Table,
-    unique_key: str | tuple[str] | list[str],
     test_sizes: Iterable[float] | float,
+    unique_key: str | tuple[str] | list[str] | Selector = s.all(),
     num_buckets: int = 10000,
     random_seed: int | None = None,
 ) -> Iterator[ir.Table]:
