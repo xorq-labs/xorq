@@ -80,30 +80,26 @@ class XGBoostModelExplodeEncoded:
 
 
 def make_pipeline_exprs(dataset_name, target_column, predicted_col):
-    ROW_NUMBER = "row_number"
     ENCODED = "encoded"
 
     con = xo.connect()
     train_table, test_table = (
-        expr.drop(ROW_NUMBER)
-        for expr in (
-            deferred_read_csv(
-                path=xo.options.pins.get_path(dataset_name),
-                con=con,
-            )
-            .mutate(
-                **{
-                    target_column: (xo._[target_column] == "yes").cast("int"),
-                    ROW_NUMBER: xo.row_number(),
-                }
-            )
-            .pipe(
-                train_test_splits,
-                unique_key=ROW_NUMBER,
-                test_sizes=[0.5, 0.5],
-                num_buckets=2,
-                random_seed=42,
-            )
+        deferred_read_csv(
+            path=xo.options.pins.get_path(dataset_name),
+            con=con,
+        )
+        .mutate(
+            **{
+                target_column: (xo._[target_column] == "yes").cast("int"),
+            }
+        )
+        .pipe(
+            train_test_splits,
+            test_sizes=[0.5, 0.5],
+            # unique_key=ROW_NUMBER,
+            # unique_key defaults to s.all()
+            num_buckets=2,
+            random_seed=42,
         )
     )
 
