@@ -1,4 +1,5 @@
 import argparse
+from typing import List
 import os
 import pdb
 import sys
@@ -455,61 +456,69 @@ def catalog_command(args):
             shallow["node_hashes"] = revision["node_hashes"]
         if "metadata" in revision:
             shallow["metadata"] = revision["metadata"]
-        # Show shallow revision info
-        print(yaml.safe_dump(shallow, sort_keys=False))
-        # Compute and show detailed node hashes and types
-        print("all node hashes:")
-        # Load expression to resolve nodes
-        expr = load_expr(revision["build"]["path"])
+        # Compute Ibis expression, node details, and Ibis DAG
+        expr = load_expr(revision['build']['path'])
         from xorq.common.utils.node_utils import replace_typs, find_by_expr_hash
         from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import Read
         from xorq.ibis_yaml.config import config
         import dask
 
+        # Compute raw hashes and filter out the build's own expr hash
         hash_len = config.hash_length
         nodes = walk_nodes(replace_typs, expr)
-        # Compute token hashes for each candidate node
-        node_hashes = sorted({dask.base.tokenize(node.to_expr())[:hash_len] for node in nodes})
-        # Exclude the top-level expr hash
-        expr_hash = revision["build"]["build_id"]
-        node_hashes = [h for h in node_hashes if h != expr_hash]
-        print(node_hashes)
-        # Print each node's type and repr
+        raw_hashes = sorted({dask.base.tokenize(node.to_expr())[:hash_len] for node in nodes})
+        build_id = revision.get('build', {}).get('build_id')
+        node_hashes = [h for h in raw_hashes if h != build_id]
+        # Build node_details list and identify read-only nodes
+        node_details: List[tuple[str, str, str]] = []
+        reads: List[str] = []
         for h in node_hashes:
             try:
                 node = find_by_expr_hash(expr, h)
-                print(f"{h}: {type(node).__name__}  -  {node!r}")
+                tname = type(node).__name__
+                rrepr = repr(node)
+                if isinstance(node, Read):
+                    reads.append(h)
             except Exception as e:
-                print(f"{h}: <error resolving node: {e}>")
-        # Show only pure Read-nodes
-        reads = []
-        for h in node_hashes:
-            try:
-                node = find_by_expr_hash(expr, h)
-            except Exception:
-                continue
-            if isinstance(node, Read):
-                reads.append(h)
-        print("only Read-nodes:", reads)
-        # Print full metadata if requested
-        if args.full:
-            build_path = Path(revision["build"]["path"])
-            full_meta_file = build_path / "metadata.json"
-            if full_meta_file.exists():
-                import json
-
-                full_meta = json.load(full_meta_file.open())
-                print("Full metadata:")
-                print(yaml.safe_dump(full_meta, sort_keys=False))
-            else:
-                print(f"Full metadata file not found at {full_meta_file}")
-        # Print Ibis DAG of the expression
-        print("Ibis DAG:")
-        print(expr)
+                tname = '<error>'
+                rrepr = f'<error resolving node: {e}>'
+            node_details.append((h, tname, rrepr))
+        ibis_dag_text = repr(expr)
+        # Determine alias for header
+        alias_name = None
+        for a, m in catalog.get('aliases', {}).items():
+            if m.get('entry_id') == entry_id:
+                alias_name = a
+                break
+        # Plain text Docker-like output
+        build_id = revision.get("build", {}).get("build_id")
+        header = "=" * 80
+        print(header)
+        print(f" xorq catalog inspect // {(alias_name or entry_id)}@{revision_id} // build {build_id}")
+        print(header)
+        # Summary
+        print("Summary:")
+        print(f"  Revision     : {revision_id}")
+        print(f"  Created      : {shallow.get('created_at')}")
+        print(f"  Build ID     : {build_id}")
+        print(f"  Build Path   : {revision.get('build', {}).get('path')}")
+        expr_hash = (shallow.get("expr_hashes") or {}).get("expr")
+        print(f"  Expr Hash    : {expr_hash}")
+        print(f"  Meta Digest  : {shallow.get('meta_digest')}")
+        # Nodes
+        print("\nNodes:")
+        for idx, (h, tname, rrepr) in enumerate(node_details):
+            print(f"  {idx:3}: {h} | {tname} | {rrepr}")
+        # Read Nodes
+        print("\nRead Nodes:")
+        print("  " + ", ".join(reads))
+        # Ibis DAG
+        print("\nIbis DAG:")
+        print(ibis_dag_text)
     elif args.subcommand == "diff-builds":
-        import sys, subprocess
-        # Use module-level Path import
+        import subprocess
+        # Use module-level sys and Path
         from xorq.catalog import resolve_build_dir
 
         catalog = load_catalog()
@@ -549,43 +558,6 @@ def catalog_command(args):
             elif ret != 0:
                 sys.exit(ret)
         sys.exit(exit_code)
-    elif args.subcommand == "diff":
-        import tempfile
-        from xorq.catalog import resolve_target, build_virtual_export_tree, write_tree, unified_dir_diff
-
-        catalog = load_catalog()
-        left_t = resolve_target(args.left, catalog)
-        def get_entry(entry_id):
-            return next(e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id)
-
-        if args.right is None and left_t.alias:
-            entry = get_entry(left_t.entry_id)
-            hist = sorted(entry.get("history", []), key=lambda r: int(r.get("revision_id", "")[1:]))
-            if len(hist) < 2:
-                print("Not enough revisions to diff for this alias.")
-                sys.exit(0)
-            lrev, rrev = hist[-2], hist[-1]
-            entry_l = entry_r = entry
-        else:
-            right_t = resolve_target(args.right, catalog)
-            entry_l = get_entry(left_t.entry_id)
-            entry_r = get_entry(right_t.entry_id)
-            lrev = next(r for r in entry_l.get("history", []) if r.get("revision_id") == (left_t.rev or entry_l.get("current_revision")))
-            rrev = next(r for r in entry_r.get("history", []) if r.get("revision_id") == (right_t.rev or entry_r.get("current_revision")))
-
-        with tempfile.TemporaryDirectory() as ld, tempfile.TemporaryDirectory() as rd:
-            lroot, rroot = Path(ld), Path(rd)
-            lfiles = build_virtual_export_tree(entry_l, lrev)
-            rfiles = build_virtual_export_tree(entry_r, rrev)
-            write_tree(lroot, lfiles)
-            write_tree(rroot, rfiles)
-            different, patch = unified_dir_diff(lroot, rroot)
-
-            print("Different:" if different else "No differences.")
-            if different and args.print_diff:
-                print(patch, end="")
-            if different:
-                sys.exit(1)
     else:
         print(f"Unknown catalog subcommand: {args.subcommand}")
 
@@ -800,10 +772,9 @@ def parse_args(override=None):
     catalog_inspect.add_argument("entry", help="Entry ID or alias to inspect")
     catalog_inspect.add_argument("-r", "--revision", help="Revision ID to inspect", default=None)
     catalog_inspect.add_argument("--full", action="store_true", help="Show full build metadata")
-    catalog_diff = catalog_subparsers.add_parser("diff", help="Compare two revisions via YAML export")
-    catalog_diff.add_argument("left", help="Left target: alias or entry_id[@revision]")
-    catalog_diff.add_argument("right", nargs="?", help="Right target: alias or entry_id[@revision]")
-    catalog_diff.add_argument("--print-diff", action="store_true", help="Print unified diff")
+    catalog_inspect.add_argument("--pretty", dest="pretty", action="store_true", help="Pretty output using Rich")
+    catalog_inspect.add_argument("--no-pretty", dest="pretty", action="store_false", help="Disable pretty output")
+    catalog_inspect.set_defaults(pretty=None)
     catalog_diff_builds = catalog_subparsers.add_parser("diff-builds", help="Compare two build artifacts via git diff --no-index")
     catalog_diff_builds.add_argument("left", help="Left build target: alias, entry_id, build_id, or path to build dir")
     catalog_diff_builds.add_argument("right", help="Right build target: alias, entry_id, build_id, or path to build dir")
