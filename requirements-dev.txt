@@ -72,9 +72,9 @@ black==25.1.0
 blackdoc==0.4.1
 bleach==6.2.0
     # via nbconvert
-boto3==1.40.1 ; python_full_version < '4'
+boto3==1.40.5 ; python_full_version < '4'
     # via snowflake-connector-python
-botocore==1.40.1 ; python_full_version < '4'
+botocore==1.40.5 ; python_full_version < '4'
     # via
     #   boto3
     #   s3transfer
@@ -133,7 +133,7 @@ comm==0.2.3
     # via ipykernel
 coverage==7.10.2
     # via pytest-cov
-cryptography==45.0.5
+cryptography==45.0.6
     # via
     #   pyopenssl
     #   snowflake-connector-python
@@ -146,7 +146,7 @@ databackend==0.0.3 ; python_full_version < '4'
     # via pins
 datafusion==48.0.0
     # via xorq
-debugpy==1.8.15
+debugpy==1.8.16
     # via ipykernel
 decorator==5.2.1
     # via
@@ -225,9 +225,9 @@ googleapis-common-protos==1.70.0
     #   google-api-core
     #   opentelemetry-exporter-otlp-proto-grpc
     #   opentelemetry-exporter-otlp-proto-http
-greenlet==3.2.3 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
+greenlet==3.2.4 ; (python_full_version < '3.14' and platform_machine == 'AMD64') or (python_full_version < '3.14' and platform_machine == 'WIN32') or (python_full_version < '3.14' and platform_machine == 'aarch64') or (python_full_version < '3.14' and platform_machine == 'amd64') or (python_full_version < '3.14' and platform_machine == 'ppc64le') or (python_full_version < '3.14' and platform_machine == 'win32') or (python_full_version < '3.14' and platform_machine == 'x86_64')
     # via sqlalchemy
-griffe==1.9.0
+griffe==1.11.0
     # via quartodoc
 grpcio==1.74.0
     # via opentelemetry-exporter-otlp-proto-grpc
@@ -271,7 +271,7 @@ importlib-resources==6.5.2
     #   quartodoc
 iniconfig==2.1.0
     # via pytest
-ipykernel==6.30.0
+ipykernel==6.30.1
     # via jupyterlab
 ipython==8.37.0 ; python_full_version < '3.11'
     # via ipykernel
@@ -365,7 +365,7 @@ matplotlib-inline==0.1.7
     # via
     #   ipykernel
     #   ipython
-mcp==1.12.3
+mcp==1.12.4
     # via xorq
 mdurl==0.1.2
     # via markdown-it-py
@@ -394,7 +394,7 @@ nest-asyncio==1.6.0
     # via ipykernel
 nodeenv==1.9.1
     # via pre-commit
-notebook==7.4.4
+notebook==7.4.5
 notebook-shim==0.2.4
     # via
     #   jupyterlab
@@ -413,11 +413,11 @@ numpy==2.3.2 ; python_full_version >= '3.11'
     #   scikit-learn
     #   scipy
     #   xgboost
-nvidia-nccl-cu12==2.27.6 ; platform_machine != 'aarch64' and sys_platform == 'linux'
+nvidia-nccl-cu12==2.27.7 ; platform_machine != 'aarch64' and sys_platform == 'linux'
     # via xgboost
 oauthlib==3.3.1 ; python_full_version < '4'
     # via requests-oauthlib
-openai==1.98.0
+openai==1.99.3
     # via xorq
 opentelemetry-api==1.36.0
     # via
@@ -684,7 +684,7 @@ rich==13.9.4
     #   pytest-codspeed
     #   vendoring
     #   xorq
-rpds-py==0.26.0
+rpds-py==0.27.0
     # via
     #   jsonschema
     #   referencing
@@ -859,12 +859,12 @@ urllib3==2.5.0
     #   xorq-feature-utils
     #   xorq-hash-cache
     #   xorq-weather-lib
-uv==0.8.4
+uv==0.8.6
     # via xorq
 uvicorn==0.35.0 ; sys_platform != 'emscripten'
     # via mcp
 vendoring==1.2.0
-virtualenv==20.33.0
+virtualenv==20.33.1
     # via pre-commit
 watchdog==6.0.0
     # via quartodoc
