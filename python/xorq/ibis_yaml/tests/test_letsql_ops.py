@@ -120,17 +120,20 @@ def test_memtable_cache(build_dir):
     assert xo.execute(expr).equals(xo.execute(roundtrip_expr))
 
 
-def test_deferred_read_csv(build_dir):
-    csv_name = "iris"
-    csv_path = xo.options.pins.get_path(csv_name)
+def test_deferred_read_csv(build_dir, csv_dir):
+    csv_name = "astronauts"
+    csv_path = csv_dir / f"{csv_name}.csv"
+
     pd_con = xo.pandas.connect()
     expr = deferred_read_csv(con=pd_con, path=csv_path, table_name=csv_name).filter(
-        _.sepal_length > 6
+        _.id > 6
     )
 
     profiles = {pd_con._profile.hash_name: pd_con}
     compiler = YamlExpressionTranslator()
-    yaml_dict = compiler.to_yaml(expr, profiles)
-    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
+
+    with pytest.warns(UserWarning):
+        yaml_dict = compiler.to_yaml(expr, profiles)
+        roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
 
     assert xo.execute(expr).equals(xo.execute(roundtrip_expr))
