@@ -20,6 +20,10 @@ from xorq.ibis_yaml.compiler import (
     BuildManager,
     load_expr,
 )
+import yaml
+import uuid
+from datetime import datetime, timezone
+from xorq.catalog import load_catalog, save_catalog, DEFAULT_CATALOG_PATH
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
@@ -340,6 +344,149 @@ def init_command(
     print(f"initialized xorq template `{template}` to {path}")
     return path
 
+@tracer.start_as_current_span("cli.catalog_command")
+def catalog_command(args):
+    """
+    Manage build catalog subcommands: add, ls, inspect.
+    """
+    if args.subcommand == "add":
+        build_path = Path(args.build_path)
+        alias = args.alias
+        # Validate build and extract metadata
+        build_id, expr_hashes, meta_digest, metadata_preview = BuildManager.validate_build(build_path)
+        build_path_str = str(build_path)
+        catalog = load_catalog()
+        now = datetime.now(timezone.utc).isoformat()
+        # Create new entry and revision
+        entry_id = str(uuid.uuid4())
+        revision_id = "r1"
+        revision = {
+            "revision_id": revision_id,
+            "created_at": now,
+            "build": {"build_id": build_id, "path": build_path_str},
+            "expr_hashes": expr_hashes,
+            "meta_digest": meta_digest,
+        }
+        if metadata_preview:
+            revision["metadata"] = metadata_preview
+
+        entry = {
+            "entry_id": entry_id,
+            "created_at": now,
+            "current_revision": revision_id,
+            "history": [revision],
+        }
+        catalog.setdefault("entries", []).append(entry)
+        # Handle alias if provided
+        if alias:
+            catalog.setdefault("aliases", {})[alias] = {
+                "entry_id": entry_id,
+                "revision_id": revision_id,
+                "updated_at": now,
+            }
+        save_catalog(catalog)
+        print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
+
+    elif args.subcommand == "ls":
+        catalog = load_catalog()
+        aliases = catalog.get("aliases", {})
+        if aliases:
+            print("Aliases:")
+            for al, mapping in aliases.items():
+                print(f"{al}\t{mapping['entry_id']}\t{mapping['revision_id']}")
+        print("Entries:")
+        for entry in catalog.get("entries", []):
+            ent_id = entry.get("entry_id")
+            curr_rev = entry.get("current_revision")
+            build_id = None
+            for rev in entry.get("history", []):
+                if rev.get("revision_id") == curr_rev:
+                    build_id = rev.get("build", {}).get("build_id")
+                    break
+            print(f"{ent_id}\t{curr_rev}\t{build_id}")
+
+    elif args.subcommand == "inspect":
+        catalog = load_catalog()
+        entry_arg = args.entry
+        # Resolve alias
+        aliases = catalog.get("aliases", {})
+        if entry_arg in aliases:
+            mapping = aliases[entry_arg]
+            entry_id = mapping["entry_id"]
+            revision_id = args.revision or mapping["revision_id"]
+        else:
+            entry_id = entry_arg
+            revision_id = args.revision
+        # Find entry
+        entry = next((e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id), None)
+        if entry is None:
+            print(f"Entry {entry_id} not found in catalog")
+            return
+        # Determine revision
+        if not revision_id:
+            revision_id = entry.get("current_revision")
+        revision = next((r for r in entry.get("history", []) if r.get("revision_id") == revision_id), None)
+        if revision is None:
+            print(f"Revision {revision_id} not found for entry {entry_id}")
+            return
+        # Print shallow info
+        shallow = {k: revision[k] for k in ["revision_id", "created_at", "build", "expr_hashes", "meta_digest"] if k in revision}
+        if "node_hashes" in revision:
+            shallow["node_hashes"] = revision["node_hashes"]
+        if "metadata" in revision:
+            shallow["metadata"] = revision["metadata"]
+        # Show shallow revision info
+        print(yaml.safe_dump(shallow, sort_keys=False))
+        # Compute and show detailed node hashes and types
+        print("all node hashes:")
+        # Load expression to resolve nodes
+        expr = load_expr(revision["build"]["path"])
+        from xorq.common.utils.node_utils import replace_typs, find_by_expr_hash
+        from xorq.common.utils.graph_utils import walk_nodes
+        from xorq.expr.relations import Read
+        from xorq.ibis_yaml.config import config
+        import dask
+
+        hash_len = config.hash_length
+        nodes = walk_nodes(replace_typs, expr)
+        # Compute token hashes for each candidate node
+        node_hashes = sorted({dask.base.tokenize(node.to_expr())[:hash_len] for node in nodes})
+        # Exclude the top-level expr hash
+        expr_hash = revision["build"]["build_id"]
+        node_hashes = [h for h in node_hashes if h != expr_hash]
+        print(node_hashes)
+        # Print each node's type and repr
+        for h in node_hashes:
+            try:
+                node = find_by_expr_hash(expr, h)
+                print(f"{h}: {type(node).__name__}  —  {node!r}")
+            except Exception as e:
+                print(f"{h}: <error resolving node: {e}>")
+        # Show only pure Read-nodes
+        reads = []
+        for h in node_hashes:
+            try:
+                node = find_by_expr_hash(expr, h)
+            except Exception:
+                continue
+            if isinstance(node, Read):
+                reads.append(h)
+        print("only Read-nodes:", reads)
+        # Print full metadata if requested
+        if args.full:
+            build_path = Path(revision["build"]["path"])
+            full_meta_file = build_path / "metadata.json"
+            if full_meta_file.exists():
+                import json
+
+                full_meta = json.load(full_meta_file.open())
+                print("Full metadata:")
+                print(yaml.safe_dump(full_meta, sort_keys=False))
+            else:
+                print(f"Full metadata file not found at {full_meta_file}")
+    else:
+        print(f"Unknown catalog subcommand: {args.subcommand}")
+
 
 def parse_args(override=None):
     parser = argparse.ArgumentParser(
@@ -535,6 +682,21 @@ def parse_args(override=None):
         choices=tuple(InitTemplates),
         default=InitTemplates.cached_fetcher,
     )
+    # Catalog commands
+    catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
+    catalog_subparsers = catalog_parser.add_subparsers(dest="subcommand", help="Catalog commands")
+    catalog_subparsers.required = True
+
+    catalog_add = catalog_subparsers.add_parser("add", help="Add a build to the catalog")
+    catalog_add.add_argument("build_path", help="Path to the build directory")
+    catalog_add.add_argument("-a", "--alias", help="Optional alias for this entry", default=None)
+
+    catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
+
+    catalog_inspect = catalog_subparsers.add_parser("inspect", help="Inspect a catalog entry")
+    catalog_inspect.add_argument("entry", help="Entry ID or alias to inspect")
+    catalog_inspect.add_argument("-r", "--revision", help="Revision ID to inspect", default=None)
+    catalog_inspect.add_argument("--full", action="store_true", help="Show full build metadata")
 
     args = parser.parse_args(override)
     if getattr(args, "output_path", None) == "-":
@@ -610,6 +772,11 @@ def main():
                 f, f_args = (
                     init_command,
                     (args.path, args.template),
+                )
+            case "catalog":
+                f, f_args = (
+                    catalog_command,
+                    (args,),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
