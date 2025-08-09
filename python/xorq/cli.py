@@ -42,6 +42,14 @@ def maybe_resolve_build_dirs(left: str, right: str, catalog) -> tuple[Path, Path
     except ValueError as e:
         print(f"Error: {e}")
         return None
+    # Ensure resolution succeeded
+    if left_dir is None:
+        print(f"Build target not found: {left}")
+        return None
+    if right_dir is None:
+        print(f"Build target not found: {right}")
+        return None
+    # Ensure paths exist and are directories
     if not left_dir.exists() or not left_dir.is_dir():
         print(f"Build directory not found: {left_dir}")
         return None
@@ -409,6 +417,29 @@ def init_command(
     path = download_unpacked_xorq_template(path, template)
     print(f"initialized xorq template `{template}` to {path}")
     return path
+   
+@tracer.start_as_current_span("cli.lineage_command")
+def lineage_command(
+    target: str,
+):
+    """
+    Print per-column lineage trees for a single build.
+    """
+    catalog = load_catalog()
+    build_dir = resolve_build_dir(target, catalog)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {target}")
+        sys.exit(2)
+    # Load serialized expression
+    expr = load_expr(build_dir)
+    # Build and print lineage trees
+    from xorq.common.utils.lineage_utils import build_column_trees, print_tree
+
+    trees = build_column_trees(expr)
+    for column, tree in trees.items():
+        print(f"Lineage for column '{column}':")
+        print_tree(tree)
+        print()
 
 @tracer.start_as_current_span("cli.catalog_command")
 def catalog_command(args):
@@ -731,6 +762,15 @@ def parse_args(override=None):
         choices=tuple(InitTemplates),
         default=InitTemplates.cached_fetcher,
     )
+    # Top-level lineage command
+    lineage_parser = subparsers.add_parser(
+        "lineage",
+        help="Print lineage trees of all columns for a build",
+    )
+    lineage_parser.add_argument(
+        "target",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
     # Catalog commands
     catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
     catalog_subparsers = catalog_parser.add_subparsers(dest="subcommand", help="Catalog commands")
@@ -849,6 +889,11 @@ def main():
                 f, f_args = (
                     init_command,
                     (args.path, args.template),
+                )
+            case "lineage":
+                f, f_args = (
+                    lineage_command,
+                    (args.target,),
                 )
             case "catalog":
                 f, f_args = (
