@@ -260,7 +260,7 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
             )
         )
 
-        serve_args = ["xorq", "serve", str(expression_path), *optional_args]
+        serve_args = ["xorq", "serve-flight-udxf", str(expression_path), *optional_args]
 
         process = non_blocking_subprocess_run(serve_args)
         is_running = False
