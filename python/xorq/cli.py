@@ -84,7 +84,7 @@ def run_diffs(left_dir: Path, right_dir: Path, keep_files: tuple[str, ...]) -> i
         elif ret != 0:
             return ret
     return exit_code
- 
+
 def do_diff_builds(
     left: str,
     right: str,
@@ -418,7 +418,7 @@ def init_command(
     path = download_unpacked_xorq_template(path, template)
     print(f"initialized xorq template `{template}` to {path}")
     return path
-   
+
 @tracer.start_as_current_span("cli.lineage_command")
 def lineage_command(
     target: str,
