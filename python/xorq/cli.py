@@ -275,6 +275,7 @@ def unbind_and_serve_command(
     prometheus_port=None,
     cache_dir=get_xorq_cache_dir(),
     typ=None,
+    con_index=None,
 ):
     import functools
 
@@ -313,11 +314,25 @@ def unbind_and_serve_command(
         found = find_by_expr_hash(expr, to_unbind_hash, typs=typ)
 
         if len(found_cons) == 0:
-            raise ValueError
+            raise ValueError(f"No sources found to unbind for expression hash: {to_unbind_hash}")
         elif len(found_cons) == 1:
-            (found_con,) = found_cons
+            found_con = found_cons[0]
         else:
-            (found_con,) = find_all_sources(found)
+            subtree_cons = find_all_sources(found)
+            if con_index is not None:
+                if con_index < 0 or con_index >= len(subtree_cons):
+                    raise ValueError(
+                        f"Invalid --con-index: {con_index}. Must be between 0 and {len(subtree_cons) - 1}"
+                    )
+                found_con = subtree_cons[con_index]
+            elif len(subtree_cons) == 1:
+                found_con = subtree_cons[0]
+            else:
+                raise ValueError(
+                    f"Multiple sources found for expr hash {to_unbind_hash}: "
+                    + ", ".join(f"[{i}]: {src}" for i, src in enumerate(subtree_cons))
+                    + ". Please specify --con-index to select one."
+                )
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()
@@ -795,6 +810,12 @@ def parse_args(override=None):
         default=None,
         help="Port to expose Prometheus metrics (default: disabled)",
     )
+    serve_unbound_parser.add_argument(
+        "--con-index",
+        type=int,
+        default=None,
+        help="index of the source connection to use for unbinding when multiple sources exist",
+    )
     serve_parser = subparsers.add_parser(
         "serve-flight-udxf", help="Serve a build via Flight Server"
     )
@@ -994,6 +1015,7 @@ def main():
                         args.prometheus_port,
                         args.cache_dir,
                         args.typ,
+                        args.con_index,
                     ),
                 )
             case "serve-flight-udxf":
