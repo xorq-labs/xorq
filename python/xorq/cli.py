@@ -63,7 +63,8 @@ def get_diff_file_list(left_dir: Path, right_dir: Path, files: list[str] | None,
     if files is not None:
         return tuple(files)
     if all_flag:
-        default_files = ("expr.yaml", "deferred_reads.yaml", "node_hashes.yaml", "profiles.yaml", "sql.yaml", "metadata.json")
+        # Exclude node_hashes.yaml as node hashes are not used here
+        default_files = ("expr.yaml", "deferred_reads.yaml", "profiles.yaml", "sql.yaml", "metadata.json")
         sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")}
         return default_files + tuple(sorted(sqls))
     return default
@@ -538,6 +539,9 @@ def catalog_command(args):
         # Resolve alias or entry@revision or entry
         from xorq.catalog import resolve_target
         target = resolve_target(args.entry, catalog)
+        if target is None:
+            print(f"Entry {args.entry} not found in catalog")
+            return
         entry_id = target.entry_id
         # Use explicit --revision or target.rev (from alias@rev or entry@rev)
         revision_id = args.revision or target.rev
@@ -553,17 +557,97 @@ def catalog_command(args):
         if revision is None:
             print(f"Revision {revision_id} not found for entry {entry_id}")
             return
-        # Print shallow info
-        shallow = {k: revision[k] for k in ["revision_id", "created_at", "build", "expr_hashes", "meta_digest"] if k in revision}
-        if "node_hashes" in revision:
-            shallow["node_hashes"] = revision["node_hashes"]
-        if "metadata" in revision:
-            shallow["metadata"] = revision["metadata"]
-        # Summary only: print basic information and exit
+        # Prepare output data
+        output = {
+            "entry_id": entry_id,
+            "revision_id": revision_id,
+            "entry": entry,
+            "revision": revision,
+        }
+        # JSON/YAML output
+        if args.as_json:
+            import json
+            print(json.dumps(output, indent=2, default=str))
+            return
+        if args.as_yaml:
+            print(yaml.safe_dump(output, sort_keys=False))
+            return
+        # Print summary info and catalog entry details
         print("Summary:")
-        # Expr hash or fallback to build ID
-        expr_hash = (shallow.get("expr_hashes") or {}).get("expr") or revision.get("build", {}).get("build_id")
-        print(f"  Expr Hash    : {expr_hash}")
+        print(f"  Entry ID: {entry_id}")
+        entry_created = entry.get("created_at")
+        if entry_created:
+            print(f"  Entry Created: {entry_created}")
+        print(f"  Revision ID: {revision_id}")
+        revision_created = revision.get("created_at")
+        if revision_created:
+            print(f"  Revision Created: {revision_created}")
+        expr_hash = (revision.get("expr_hashes") or {}).get("expr") or revision.get("build", {}).get("build_id")
+        print(f"  Expr Hash: {expr_hash}")
+        meta_digest = revision.get("meta_digest")
+        if meta_digest:
+            print(f"  Meta Digest: {meta_digest}")
+        # Sections
+        build_path = revision.get("build", {}).get("path")
+        expr = None
+        schema = None
+        # Load expression and schema if needed
+        if build_path and (args.full or args.plan or args.schema or args.profiles or args.caches):
+            from xorq.ibis_yaml.compiler import load_expr
+            try:
+                expr = load_expr(Path(build_path))
+                schema = expr.schema()
+            except Exception as e:
+                print(f"Error loading expression or schema: {e}")
+        # Plan section
+        if args.full or args.plan:
+            print("\nPlan:")
+            if expr is not None:
+                # Print the Ibis expression representation
+                print(expr)
+            else:
+                print("  No plan available.")
+        # Schema section
+        if args.full or args.schema:
+            print("\nSchema:")
+            if schema:
+                for name, dtype in schema.items():
+                    print(f"  {name}: {dtype}")
+            else:
+                print("  No schema available.")
+        # Profiles section
+        if args.full or args.profiles:
+            profiles_file = Path(build_path) / "profiles.yaml" if build_path else None
+            print("\nProfiles:")
+            if profiles_file and profiles_file.exists():
+                try:
+                    text = profiles_file.read_text()
+                    data = yaml.safe_load(text) or {}
+                    for name, profile in data.items():
+                        print(f"  {name}: {profile}")
+                except Exception as e:
+                    print(f"  Error loading profiles: {e}")
+            else:
+                print("  No profiles available.")
+        # Caches section
+        if args.full or args.caches:
+            print("\nCaches:")
+            if expr is not None:
+                from xorq.common.utils.graph_utils import walk_nodes
+                from xorq.expr.relations import CachedNode
+                import dask
+                try:
+                    nodes = walk_nodes((CachedNode,), expr)
+                    if nodes:
+                        for node in nodes:
+                            h = dask.base.tokenize(node.to_expr())
+                            print(f"  {h}: {node}")
+                    else:
+                        print("  No caches recorded.")
+                except Exception as e:
+                    print(f"  Error computing caches: {e}")
+            else:
+                print("  No caches available.")
         return
     elif args.subcommand == "diff-builds":
         # Compare two build artifacts via git diff --no-index
@@ -791,14 +875,54 @@ def parse_args(override=None):
 
     catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
 
-    catalog_inspect = catalog_subparsers.add_parser("inspect", help="Inspect a catalog entry")
-    catalog_inspect.add_argument("entry", help="Entry ID or alias to inspect")
-    catalog_inspect.add_argument("-r", "--revision", help="Revision ID to inspect", default=None)
-    catalog_inspect.add_argument("--full", action="store_true", help="Show full build metadata")
-    catalog_inspect.add_argument("--pretty", dest="pretty", action="store_true", help="Pretty output using Rich")
-    catalog_inspect.add_argument("--no-pretty", dest="pretty", action="store_false", help="Disable pretty output")
-    catalog_inspect.add_argument("--print-nodes", action="store_true", help="Print node hashes and repr via Dask crawl")
-    catalog_inspect.set_defaults(pretty=None)
+    catalog_inspect = catalog_subparsers.add_parser(
+        "inspect", help="Inspect a catalog entry",
+        description="Inspect build catalog entries with optional detail sections",
+    )
+    catalog_inspect.add_argument(
+        "entry", help="Entry ID, alias, or entry@revision to inspect"
+    )
+    catalog_inspect.add_argument(
+        "-r", "--revision", help="Revision ID to inspect (overrides alias)", default=None
+    )
+    catalog_inspect.add_argument(
+        "--schema", action="store_true", help="Show schema section"
+    )
+    catalog_inspect.add_argument(
+        "--plan", action="store_true", help="Show plan section"
+    )
+    catalog_inspect.add_argument(
+        "--profiles", action="store_true", help="Show profiles section"
+    )
+    catalog_inspect.add_argument(
+        "--caches", action="store_true", help="Show caches section"
+    )
+    catalog_inspect.add_argument(
+        "--full", action="store_true", help="Show all available sections"
+    )
+    catalog_inspect.add_argument(
+        "--json", dest="as_json", action="store_true", help="Output result as JSON"
+    )
+    catalog_inspect.add_argument(
+        "--yaml", dest="as_yaml", action="store_true", help="Output result as YAML"
+    )
+    catalog_inspect.add_argument(
+        "--no-color", action="store_true", help="Disable colorized output"
+    )
+    catalog_inspect.add_argument(
+        "--raw-names", action="store_true", help="Display full object names without truncation"
+    )
+    # Deprecated flags (ignored)
+    catalog_inspect.add_argument(
+        "--pretty", dest="pretty", action="store_true", help=argparse.SUPPRESS
+    )
+    catalog_inspect.add_argument(
+        "--no-pretty", dest="pretty", action="store_false", help=argparse.SUPPRESS
+    )
+    catalog_inspect.set_defaults(
+        as_json=False, as_yaml=False, full=False, schema=False,
+        plan=False, profiles=False, caches=False, pretty=None
+    )
     # diff-builds: compare two build artifacts via git diff --no-index
     # diff-builds (alias: diff): compare two build artifacts via git diff --no-index
     catalog_diff_builds = catalog_subparsers.add_parser(
