@@ -32,6 +32,8 @@ from xorq.ibis_yaml.packager import (
     SdistRunner,
 )
 import subprocess
+# JSON handling
+import json
 # Helper functions for diff-builds subcommand
 from xorq.catalog import _dict_resolve_build_dir as resolve_build_dir
 
@@ -286,6 +288,15 @@ def unbind_and_serve_command(
         find_node,
     )
 
+    # Preserve original target token for server listing
+    orig_target = expr_path
+    # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
+    catalog = load_catalog()
+    build_dir = resolve_build_dir(expr_path, catalog)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+    expr_path = Path(build_dir)
     logger.info(f"Loading expression from {expr_path}")
     try:
         # initialize console and optional Prometheus metrics
@@ -344,6 +355,22 @@ def unbind_and_serve_command(
     server, _ = xo.expr.relations.flight_serve_unbound(
         unbound_expr, make_server=make_server
     )
+    # Record server metadata
+    import os, json
+    from datetime import datetime
+    record_dir = Path(cache_dir) / "servers"
+    record_dir.mkdir(parents=True, exist_ok=True)
+    pid = os.getpid()
+    record = {
+        "pid": pid,
+        "command": "serve-unbound",
+        "host": host,
+        "port": flight_url.port,
+        "start_time": datetime.now().isoformat(),
+        "target": orig_target,
+        "to_unbind_hash": to_unbind_hash,
+    }
+    (record_dir / f"{pid}.json").write_text(json.dumps(record))
     server.wait()
 
 
@@ -375,6 +402,15 @@ def serve_command(
         Path to the dir to store the parquet cache files
     """
 
+    # Preserve original target token for server listing
+    orig_target = expr_path
+    # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
+    catalog = load_catalog()
+    build_dir = resolve_build_dir(expr_path, catalog)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+    expr_path = build_dir
     span = trace.get_current_span()
     params = {
         "build_path": expr_path,
@@ -409,6 +445,21 @@ def serve_command(
         port=port,
         host=host,
     )
+    # Record server metadata
+    import os, json
+    from datetime import datetime
+    record_dir = Path(cache_dir) / "servers"
+    record_dir.mkdir(parents=True, exist_ok=True)
+    pid = os.getpid()
+    record = {
+        "pid": pid,
+        "command": "serve-flight-udxf",
+        "host": host,
+        "port": server.flight_url.port,
+        "start_time": datetime.now().isoformat(),
+        "target": orig_target,
+    }
+    (record_dir / f"{pid}.json").write_text(json.dumps(record))
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_path.stem}' on {location}")
     server.serve(block=True)
@@ -425,7 +476,6 @@ def init_command(
     print(f"initialized xorq template `{template}` to {path}")
     return path
    
-@tracer.start_as_current_span("cli.lineage_command")
 def lineage_command(
     target: str,
 ):
@@ -448,7 +498,6 @@ def lineage_command(
         print_tree(tree)
         print()
 
-@tracer.start_as_current_span("cli.catalog_command")
 def catalog_command(args):
     """
     Manage build catalog subcommands: add, ls, inspect.
@@ -658,6 +707,123 @@ def catalog_command(args):
 
 
 
+def ps_command(cache_dir):
+    """List active xorq servers."""
+    import os, json
+    from datetime import datetime
+
+    record_dir = Path(cache_dir) / "servers"
+    # Table: TARGET, STATE, COMMAND, HASH, PID, PORT, UPTIME
+    headers = ["TARGET", "STATE", "COMMAND", "HASH", "PID", "PORT", "UPTIME"]
+    entries = {}
+    now = datetime.now()
+    if record_dir.exists():
+        for f in record_dir.glob("*.json"):
+            try:
+                data = json.loads(f.read_text())
+            except Exception:
+                continue
+            target = data.get("target", "")
+            cmd = data.get("command", "")
+            node_hash = data.get("to_unbind_hash", "")
+            pid = data.get("pid")
+            port = data.get("port", "")
+            # Check if process still exists
+            try:
+                os.kill(pid, 0)
+            except Exception:
+                continue
+            # Test service responsiveness via TCP connect
+            host = data.get("host", "localhost")
+            healthy = False
+            try:
+                import socket
+                with socket.create_connection((host, data.get("port")), timeout=1):
+                    healthy = True
+            except Exception:
+                pass
+            if not healthy:
+                continue
+            state = "running"
+            # Compute uptime
+            uptime = ""
+            try:
+                start = datetime.fromisoformat(data.get("start_time"))
+                delta = now - start
+                hours, rem = divmod(int(delta.total_seconds()), 3600)
+                minutes, _ = divmod(rem, 60)
+                uptime = f"{hours}h{minutes}m"
+            except Exception:
+                pass
+            # Keep first entry per target
+            if target and target not in entries:
+                entries[target] = [target, state, cmd, node_hash, str(pid), str(port), uptime]
+    rows = list(entries.values())
+    # Compute column widths
+    if rows:
+        widths = [max(len(str(cell)) for cell in col) for col in zip(headers, *rows)]
+    else:
+        widths = [len(h) for h in headers]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    # Print header and rows
+    print(fmt.format(*headers))
+    for row in rows:
+        print(fmt.format(*row))
+
+def hash_command(target: str):
+    """
+    List replaceable nodes (Read, CachedNode, PhysicalTable) in a build and their dask hashes.
+    """
+    import dask
+    # Resolve build identifier via catalog
+    catalog = load_catalog()
+    build_dir = resolve_build_dir(target, catalog)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {target}")
+        sys.exit(2)
+    # Load expression
+    expr = load_expr(build_dir)
+    # Find replaceable node types
+    from xorq.common.utils.node_utils import replace_typs
+    from xorq.common.utils.graph_utils import walk_nodes
+
+    nodes = walk_nodes(replace_typs, expr)
+    if not nodes:
+        print("No replaceable nodes found.")
+        return
+    # Print each node's dask hash, class name, and representation
+    for node in nodes:
+        tok = dask.base.tokenize(node.to_expr())
+        print(f"{tok} {type(node).__name__} {node}")
+
+def profile_command(args):
+    """
+    Manage connection profiles: add new profiles.
+    """
+    sub = args.subcommand
+    if sub == "add":
+        alias = args.alias
+        con_name = args.con_name
+        params = {}
+        for p in args.param:
+            if "=" not in p:
+                print(f"Invalid parameter '{p}', expected KEY=VALUE")
+                sys.exit(1)
+            k, v = p.split("=", 1)
+            params[k] = v
+        # Create and save profile
+        from xorq.vendor.ibis.backends.profiles import Profile
+        prof = Profile(con_name=con_name, kwargs_tuple=tuple(params.items()))
+        try:
+            path = prof.save(alias=alias, clobber=False)
+            print(f"Profile '{alias}' saved to {path}")
+        except ValueError as e:
+            print(f"Error saving profile: {e}")
+            sys.exit(1)
+    else:
+        print(f"Unknown profile subcommand: {sub}")
+        sys.exit(2)
+
 def parse_args(override=None):
     parser = argparse.ArgumentParser(
         description="xorq - build, run, and serve expressions"
@@ -767,7 +933,7 @@ def parse_args(override=None):
         "serve-unbound", help="Serve an an unbound expr via Flight Server"
     )
     serve_unbound_parser.add_argument(
-        "build_path", help="Path to the build directory (output of xorq build)"
+        "build_path", help="Build target: alias, entry_id, build_id, or path to build dir"
     )
     serve_unbound_parser.add_argument(
         "--to_unbind_hash", default=None, help="hash of the expr to replace"
@@ -808,7 +974,7 @@ def parse_args(override=None):
         "serve-flight-udxf", help="Serve a build via Flight Server"
     )
     serve_parser.add_argument(
-        "build_path", help="Path to the build directory (output of xorq build)"
+        "build_path", help="Build target: alias, entry_id, build_id, or path to build dir"
     )
     serve_parser.add_argument(
         "--host",
@@ -863,6 +1029,44 @@ def parse_args(override=None):
     lineage_parser.add_argument(
         "target",
         help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
+    # List replaceable node hashes
+    hash_parser = subparsers.add_parser(
+        "hash", help="List replaceable nodes and their dask hashes for a build"
+    )
+    hash_parser.add_argument(
+        "target",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
+    # List running servers
+    ps_parser = subparsers.add_parser(
+        "ps",
+        help="List running xorq servers",
+    )
+    ps_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for server state records",
+    )
+    # Connection profile commands
+    profile_parser = subparsers.add_parser("profile", help="Manage connection profiles")
+    profile_subparsers = profile_parser.add_subparsers(dest="subcommand", help="Profile commands")
+    profile_subparsers.required = True
+    # Add profile
+    profile_add = profile_subparsers.add_parser("add", help="Add a connection profile")
+    profile_add.add_argument("alias", help="Profile alias name")
+    profile_add.add_argument(
+        "--con-name",
+        required=True,
+        help="Connection backend name (e.g. 'postgres', 'duckdb')",
+    )
+    profile_add.add_argument(
+        "-p", "--param",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Connection parameter KEY=VALUE",
     )
     # Catalog commands
     catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
@@ -1029,10 +1233,25 @@ def main():
                     lineage_command,
                     (args.target,),
                 )
+            case "hash":
+                f, f_args = (
+                    hash_command,
+                    (args.target,),
+                )
+            case "profile":
+                f, f_args = (
+                    profile_command,
+                    (args,),
+                )
             case "catalog":
                 f, f_args = (
                     catalog_command,
                     (args,),
+                )
+            case "ps":
+                f, f_args = (
+                    ps_command,
+                    (args.cache_dir,),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
