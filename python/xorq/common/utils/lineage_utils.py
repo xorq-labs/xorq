@@ -18,6 +18,7 @@ from xorq.common.utils.graph_utils import (
     to_node,
 )
 from xorq.vendor.ibis.expr.operations.core import Node
+import sys
 
 
 __all__ = [
@@ -261,6 +262,92 @@ def build_tree(
 
     return _to_tree(node, 0)
 
+# ASCII fallback functions for non-TTY environments
+@singledispatch
+def ascii_format_node(node: Node, config: Dict[str, Any] | None = None) -> str:
+    return node.__class__.__name__
+
+@ascii_format_node.register
+def _(node: ops.Field, config: Dict[str, Any] | None = None) -> str:
+    return f"Field:{node.name}"
+
+@ascii_format_node.register
+def _(node: rel.RemoteTable, config: Dict[str, Any] | None = None) -> str:
+    return f"RemoteTable:{node.name}"
+
+@ascii_format_node.register
+def _(node: rel.CachedNode, config: Dict[str, Any] | None = None) -> str:
+    store = getattr(node.storage, "kind", "cache")
+    name = getattr(node, "name", "")
+    return f"Cache[{store}] {name}"
+
+@ascii_format_node.register
+def _(node: rel.FlightExpr, config: Dict[str, Any] | None = None) -> str:
+    return f"FlightExpr ({node.input_expr})"
+
+@ascii_format_node.register
+def _(node: ops.Literal, config: Dict[str, Any] | None = None) -> str:
+    return f"Literal: {node.value}"
+
+def ascii_build_tree_lines(
+    node: GenericNode,
+    *,
+    palette: ColorScheme | None = None,
+    dedup: bool = True,
+    max_depth: int | None = None,
+) -> list[str]:
+    seen: Dict[str, int] = {}
+    seq = count(1)
+
+    def recurse(
+        g: GenericNode,
+        prefix: str,
+        is_last: bool,
+        depth: int,
+    ) -> list[str]:
+        # Handle max depth
+        if max_depth is not None and depth > max_depth:
+            connector = "`-- " if depth > 0 and is_last else "|-- " if depth > 0 else ""
+            return [f"{prefix}{connector}..." if connector else "..."]
+
+        digest = _token_node(g) if dedup else None
+        # Handle deduplicated nodes
+        if digest is not None and digest in seen:
+            ref = seen[digest]
+            label = f"(see #{ref})"
+            if depth == 0:
+                return [label]
+            connector = "`-- " if is_last else "|-- "
+            return [f"{prefix}{connector}{label}"]
+
+        # Assign reference id
+        ref = next(seq)
+        if digest is not None:
+            seen[digest] = ref
+
+        # Format label
+        label = ascii_format_node(g.op)
+        if dedup:
+            label = f"{label} #{ref}"
+
+        # Build current line
+        if depth == 0:
+            line = label
+        else:
+            connector = "`-- " if is_last else "|-- "
+            line = f"{prefix}{connector}{label}"
+        lines: list[str] = [line]
+
+        # Prepare prefix for children
+        child_prefix = prefix + ("    " if is_last else "|   ")
+        # Process children
+        for i, child in enumerate(g.children):
+            child_is_last = i == len(g.children) - 1
+            lines.extend(recurse(child, child_prefix, child_is_last, depth + 1))
+        return lines
+
+    return recurse(node, prefix="", is_last=False, depth=0)
+
 
 def print_tree(
     node: GenericNode,
@@ -269,4 +356,14 @@ def print_tree(
     dedup: bool = True,
     max_depth: int | None = None,
 ) -> None:
-    rprint(build_tree(node, palette=palette, dedup=dedup, max_depth=max_depth))
+    """
+    Print the lineage tree. Uses Rich if stdout is a TTY, otherwise falls back to ASCII output.
+    """
+    if not sys.stdout.isatty():
+        # ASCII fallback for non-TTY environments
+        for line in ascii_build_tree_lines(
+            node, palette=palette, dedup=dedup, max_depth=max_depth
+        ):
+            print(line)
+    else:
+        rprint(build_tree(node, palette=palette, dedup=dedup, max_depth=max_depth))
