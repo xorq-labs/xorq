@@ -10,6 +10,8 @@ from pathlib import Path
 from opentelemetry import trace
 
 import xorq as xo
+# Ensure custom Dask normalization handlers are registered
+import xorq.common.utils.dask_normalize  # noqa: F401
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
@@ -24,11 +26,74 @@ from xorq.ibis_yaml.compiler import (
 import yaml
 import uuid
 from datetime import datetime, timezone
-from xorq.catalog import load_catalog, save_catalog, DEFAULT_CATALOG_PATH
+from xorq.catalog import _dict_load_catalog as load_catalog, _dict_save_catalog as save_catalog, DEFAULT_CATALOG_PATH
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
 )
+import subprocess
+# Helper functions for diff-builds subcommand
+from xorq.catalog import _dict_resolve_build_dir as resolve_build_dir
+
+def maybe_resolve_build_dirs(left: str, right: str, catalog) -> tuple[Path, Path] | None:
+    try:
+        left_dir = resolve_build_dir(left, catalog)
+        right_dir = resolve_build_dir(right, catalog)
+    except ValueError as e:
+        print(f"Error: {e}")
+        return None
+    if not left_dir.exists() or not left_dir.is_dir():
+        print(f"Build directory not found: {left_dir}")
+        return None
+    if not right_dir.exists() or not right_dir.is_dir():
+        print(f"Build directory not found: {right_dir}")
+        return None
+    return left_dir, right_dir
+
+def get_diff_file_list(left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool) -> tuple[str, ...]:
+    default = ("expr.yaml",)
+    if files is not None:
+        return tuple(files)
+    if all_flag:
+        default_files = ("expr.yaml", "deferred_reads.yaml", "node_hashes.yaml", "profiles.yaml", "sql.yaml", "metadata.json")
+        sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")}
+        return default_files + tuple(sorted(sqls))
+    return default
+
+def get_keep_files(file_list: tuple[str, ...], left_dir: Path, right_dir: Path) -> tuple[str, ...]:
+    return tuple(f for f in file_list if (left_dir / f).exists() or (right_dir / f).exists())
+
+def run_diffs(left_dir: Path, right_dir: Path, keep_files: tuple[str, ...]) -> int:
+    exit_code = 0
+    for f in keep_files:
+        print(f"## Diff: {f}")
+        lf = left_dir / f
+        rf = right_dir / f
+        ret = subprocess.call(["git", "diff", "--no-index", "--", str(lf), str(rf)])
+        if ret == 1:
+            exit_code = 1
+        elif ret != 0:
+            return ret
+    return exit_code
+ 
+def do_diff_builds(
+    left: str,
+    right: str,
+    files: list[str] | None,
+    all_flag: bool,
+) -> int:
+    catalog = load_catalog()
+    resolved = maybe_resolve_build_dirs(left, right, catalog)
+    if not resolved:
+        return 2
+    left_dir, right_dir = resolved
+    file_list = get_diff_file_list(left_dir, right_dir, files, all_flag)
+    keep_files = get_keep_files(file_list, left_dir, right_dir)
+    if not keep_files:
+        print("No files to diff")
+        return 2
+    return run_diffs(left_dir, right_dir, keep_files)
+
 from xorq.vendor.ibis import Expr
 
 
@@ -351,7 +416,8 @@ def catalog_command(args):
     Manage build catalog subcommands: add, ls, inspect.
     """
     if args.subcommand == "add":
-        build_path = Path(args.build_path)
+        # Use absolute path for build directory
+        build_path = Path(args.build_path).resolve()
         alias = args.alias
         # Validate build and extract metadata
         build_id, expr_hashes, meta_digest, metadata_preview = BuildManager.validate_build(build_path)
@@ -456,108 +522,16 @@ def catalog_command(args):
             shallow["node_hashes"] = revision["node_hashes"]
         if "metadata" in revision:
             shallow["metadata"] = revision["metadata"]
-        # Compute Ibis expression, node details, and Ibis DAG
-        expr = load_expr(revision['build']['path'])
-        from xorq.common.utils.node_utils import replace_typs, find_by_expr_hash
-        from xorq.common.utils.graph_utils import walk_nodes
-        from xorq.expr.relations import Read
-        from xorq.ibis_yaml.config import config
-        import dask
-
-        # Compute raw hashes and filter out the build's own expr hash
-        hash_len = config.hash_length
-        nodes = walk_nodes(replace_typs, expr)
-        raw_hashes = sorted({dask.base.tokenize(node.to_expr())[:hash_len] for node in nodes})
-        build_id = revision.get('build', {}).get('build_id')
-        node_hashes = [h for h in raw_hashes if h != build_id]
-        # Build node_details list and identify read-only nodes
-        node_details: List[tuple[str, str, str]] = []
-        reads: List[str] = []
-        for h in node_hashes:
-            try:
-                node = find_by_expr_hash(expr, h)
-                tname = type(node).__name__
-                rrepr = repr(node)
-                if isinstance(node, Read):
-                    reads.append(h)
-            except Exception as e:
-                tname = '<error>'
-                rrepr = f'<error resolving node: {e}>'
-            node_details.append((h, tname, rrepr))
-        ibis_dag_text = repr(expr)
-        # Determine alias for header
-        alias_name = None
-        for a, m in catalog.get('aliases', {}).items():
-            if m.get('entry_id') == entry_id:
-                alias_name = a
-                break
-        # Plain text Docker-like output
-        build_id = revision.get("build", {}).get("build_id")
-        header = "=" * 80
-        print(header)
-        print(f" xorq catalog inspect // {(alias_name or entry_id)}@{revision_id} // build {build_id}")
-        print(header)
-        # Summary
+        # Summary only: print basic information and exit
         print("Summary:")
-        print(f"  Revision     : {revision_id}")
-        print(f"  Created      : {shallow.get('created_at')}")
-        print(f"  Build ID     : {build_id}")
-        print(f"  Build Path   : {revision.get('build', {}).get('path')}")
-        expr_hash = (shallow.get("expr_hashes") or {}).get("expr")
+        # Expr hash or fallback to build ID
+        expr_hash = (shallow.get("expr_hashes") or {}).get("expr") or revision.get("build", {}).get("build_id")
         print(f"  Expr Hash    : {expr_hash}")
-        print(f"  Meta Digest  : {shallow.get('meta_digest')}")
-        # Nodes
-        print("\nNodes:")
-        for idx, (h, tname, rrepr) in enumerate(node_details):
-            print(f"  {idx:3}: {h} | {tname} | {rrepr}")
-        # Read Nodes
-        print("\nRead Nodes:")
-        print("  " + ", ".join(reads))
-        # Ibis DAG
-        print("\nIbis DAG:")
-        print(ibis_dag_text)
+        return
     elif args.subcommand == "diff-builds":
-        import subprocess
-        # Use module-level sys and Path
-        from xorq.catalog import resolve_build_dir
-
-        catalog = load_catalog()
-        try:
-            left_dir = resolve_build_dir(args.left, catalog)
-            right_dir = resolve_build_dir(args.right, catalog)
-        except ValueError as e:
-            print(f"Error: {e}")
-            sys.exit(2)
-        if not left_dir.exists() or not left_dir.is_dir():
-            print(f"Build directory not found: {left_dir}")
-            sys.exit(2)
-        if not right_dir.exists() or not right_dir.is_dir():
-            print(f"Build directory not found: {right_dir}")
-            sys.exit(2)
-        if args.files:
-            file_list = args.files
-        elif args.all:
-            default_files = ["expr.yaml", "deferred_reads.yaml", "node_hashes.yaml", "profiles.yaml", "sql.yaml", "metadata.json"]
-            sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")}
-            sqls |= {p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")}
-            file_list = default_files + sorted(sqls)
-        else:
-            file_list = ["expr.yaml"]
-        keep = [f for f in file_list if (left_dir / f).exists() or (right_dir / f).exists()]
-        if not keep:
-            print("No files to diff")
-            sys.exit(2)
-        exit_code = 0
-        for f in keep:
-            print(f"## Diff: {f}")
-            lf = left_dir / f
-            rf = right_dir / f
-            ret = subprocess.call(["git", "diff", "--no-index", "--", str(lf), str(rf)])
-            if ret == 1:
-                exit_code = 1
-            elif ret != 0:
-                sys.exit(ret)
-        sys.exit(exit_code)
+        # Compare two build artifacts via git diff --no-index
+        code = do_diff_builds(args.left, args.right, args.files, args.all)
+        sys.exit(code)
     else:
         print(f"Unknown catalog subcommand: {args.subcommand}")
 
@@ -774,12 +748,32 @@ def parse_args(override=None):
     catalog_inspect.add_argument("--full", action="store_true", help="Show full build metadata")
     catalog_inspect.add_argument("--pretty", dest="pretty", action="store_true", help="Pretty output using Rich")
     catalog_inspect.add_argument("--no-pretty", dest="pretty", action="store_false", help="Disable pretty output")
+    catalog_inspect.add_argument("--print-nodes", action="store_true", help="Print node hashes and repr via Dask crawl")
     catalog_inspect.set_defaults(pretty=None)
-    catalog_diff_builds = catalog_subparsers.add_parser("diff-builds", help="Compare two build artifacts via git diff --no-index")
-    catalog_diff_builds.add_argument("left", help="Left build target: alias, entry_id, build_id, or path to build dir")
-    catalog_diff_builds.add_argument("right", help="Right build target: alias, entry_id, build_id, or path to build dir")
-    catalog_diff_builds.add_argument("--all", action="store_true", help="Diff all known build files plus all .sql files")
-    catalog_diff_builds.add_argument("--files", nargs="+", help="Explicit list of relative files to diff (overrides --all)", default=None)
+    # diff-builds: compare two build artifacts via git diff --no-index
+    # diff-builds (alias: diff): compare two build artifacts via git diff --no-index
+    catalog_diff_builds = catalog_subparsers.add_parser(
+        "diff-builds", aliases=["diff"], help="Compare two build artifacts via git diff --no-index"
+    )
+    catalog_diff_builds.add_argument(
+        "left",
+        help="Left build target: alias, entry_id, build_id, or path to build dir",
+    )
+    catalog_diff_builds.add_argument(
+        "right",
+        help="Right build target: alias, entry_id, build_id, or path to build dir",
+    )
+    catalog_diff_builds.add_argument(
+        "--all",
+        action="store_true",
+        help="Diff all known build files plus all .sql files",
+    )
+    catalog_diff_builds.add_argument(
+        "--files",
+        nargs="+",
+        help="Explicit list of relative files to diff (overrides --all)",
+        default=None,
+    )
 
     args = parser.parse_args(override)
     if getattr(args, "output_path", None) == "-":
