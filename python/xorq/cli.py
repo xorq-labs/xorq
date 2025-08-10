@@ -26,7 +26,7 @@ from xorq.ibis_yaml.compiler import (
 import yaml
 import uuid
 from datetime import datetime, timezone
-from xorq.catalog import _dict_load_catalog as load_catalog, _dict_save_catalog as save_catalog, DEFAULT_CATALOG_PATH
+from xorq.catalog import load_catalog, save_catalog, DEFAULT_CATALOG_PATH
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
@@ -35,7 +35,7 @@ import subprocess
 # JSON handling
 import json
 # Helper functions for diff-builds subcommand
-from xorq.catalog import _dict_resolve_build_dir as resolve_build_dir
+from xorq.catalog import resolve_build_dir
 
 def maybe_resolve_build_dirs(left: str, right: str, catalog) -> tuple[Path, Path] | None:
     try:
@@ -717,14 +717,12 @@ def catalog_command(args):
 
     elif args.subcommand == "inspect":
         catalog = load_catalog()
-        # Resolve alias or entry@revision or entry
         from xorq.catalog import resolve_target
         target = resolve_target(args.entry, catalog)
         if target is None:
             print(f"Entry {args.entry} not found in catalog")
             return
         entry_id = target.entry_id
-        # Use explicit --revision or target.rev (from alias@rev or entry@rev)
         revision_id = args.revision or target.rev
         # Find entry
         entry = next((e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id), None)
@@ -745,50 +743,38 @@ def catalog_command(args):
             "entry": entry,
             "revision": revision,
         }
-        # JSON/YAML output
-        if args.as_json:
-            import json
-            print(json.dumps(output, indent=2, default=str))
-            return
-        if args.as_yaml:
-            print(yaml.safe_dump(output, sort_keys=False))
-            return
-        # Print summary info and catalog entry details
-        print("Summary:")
-        print(f"  {'Entry ID':<13}: {entry_id}")
-        entry_created = entry.get("created_at")
-        if entry_created:
-            print(f"  Entry Created: {entry_created}")
-        print(f"  {'Revision ID':<13}: {revision_id}")
-        revision_created = revision.get("created_at")
-        if revision_created:
-            print(f"  Revision Created: {revision_created}")
-        expr_hash = (revision.get("expr_hashes") or {}).get("expr") or revision.get("build", {}).get("build_id")
-        print(f"  {'Expr Hash':<13}: {expr_hash}")
-        meta_digest = revision.get("meta_digest")
-        if meta_digest:
-            print(f"  {'Meta Digest':<13}: {meta_digest}")
-        # Sections
+        # Only show summary when not focusing on specific sections
+        if args.full or not (args.plan or args.profiles or args.hashes):
+            print("Summary:")
+            print(f"  {'Entry ID':<13}: {entry_id}")
+            entry_created = entry.get("created_at")
+            if entry_created:
+                print(f"  Entry Created: {entry_created}")
+            print(f"  {'Revision ID':<13}: {revision_id}")
+            revision_created = revision.get("created_at")
+            if revision_created:
+                print(f"  Revision Created: {revision_created}")
+            expr_hash = (revision.get("expr_hashes") or {}).get("expr") or revision.get("build", {}).get("build_id")
+            print(f"  {'Expr Hash':<13}: {expr_hash}")
+            meta_digest = revision.get("meta_digest")
+            if meta_digest:
+                print(f"  {'Meta Digest':<13}: {meta_digest}")
         build_path = revision.get("build", {}).get("path")
         expr = None
         schema = None
-        # Load expression and schema if needed (including for printing node hashes)
-        if build_path and (args.full or args.plan or args.schema or args.profiles or args.caches or args.print_nodes):
+        if build_path and (args.full or args.plan or args.schema or args.profiles or args.hashes):
             from xorq.ibis_yaml.compiler import load_expr
             try:
                 expr = load_expr(Path(build_path))
                 schema = expr.schema()
             except Exception as e:
                 print(f"Error loading expression for DAG: {e}")
-        # Plan section
         if args.full or args.plan:
             print("\nPlan:")
             if expr is not None:
-                # Print the Ibis expression representation
                 print(expr)
             else:
                 print("  No plan available.")
-        # Schema section
         if args.full or args.schema:
             print("\nSchema:")
             if schema:
@@ -796,7 +782,6 @@ def catalog_command(args):
                     print(f"  {name}: {dtype}")
             else:
                 print("  No schema available.")
-        # Profiles section
         if args.full or args.profiles:
             profiles_file = Path(build_path) / "profiles.yaml" if build_path else None
             print("\nProfiles:")
@@ -810,35 +795,35 @@ def catalog_command(args):
                     print(f"  Error loading profiles: {e}")
             else:
                 print("  No profiles available.")
-        # Node hashes section
-        if args.full or args.print_nodes:
+        if args.full or args.hashes:
             print("\nNode hashes:")
-            # node_hashes stored in catalog entry history
-            node_hashes = revision.get("node_hashes") or []
-            if node_hashes:
-                for nh in node_hashes:
-                    print(f"  {nh}")
-            else:
-                print("  No node hashes recorded.")
-        # Caches section
-        if args.full or args.caches:
-            print("\nCaches:")
+            # Dynamically compute hashes for CachedNode instances
             if expr is not None:
-                from xorq.common.utils.graph_utils import walk_nodes
-                from xorq.expr.relations import CachedNode
-                import dask
                 try:
+                    from xorq.common.utils.graph_utils import walk_nodes
+                    from xorq.expr.relations import CachedNode
+                    import dask
+
                     nodes = walk_nodes((CachedNode,), expr)
                     if nodes:
                         for node in nodes:
                             h = dask.base.tokenize(node.to_expr())
-                            print(f"  {h}: {node}")
+                            print(f"  {h}")
                     else:
-                        print("  No caches recorded.")
+                        print("  No node hashes recorded.")
                 except Exception as e:
-                    print(f"  Error computing caches: {e}")
+                    print(f"  Error computing node hashes: {e}")
             else:
-                print("  No caches available.")
+                print("  No node hashes recorded.")
+        return
+    elif args.subcommand == "info":
+        # Show top-level catalog info
+        catalog = load_catalog()
+        entries = catalog.get("entries", []) or []
+        aliases = catalog.get("aliases", {}) or {}
+        print(f"Catalog path: {DEFAULT_CATALOG_PATH}")
+        print(f"Entries: {len(entries)}")
+        print(f"Aliases: {len(aliases)}")
         return
     elif args.subcommand == "rm":
         # Remove an entry or alias from the catalog
@@ -993,11 +978,9 @@ def parse_args(override=None):
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
-    # Top-level 'ls' as alias for 'catalog ls'
-    ls_parser = subparsers.add_parser(
-        "ls", help="List catalog entries (alias for 'catalog ls')"
-    )
-    ls_parser.set_defaults(command="catalog", subcommand="ls")
+    ls_parser = subparsers.add_parser("ls", help="List catalog entries")
+    ls_parser.set_defaults(subcommand="ls")
+
 
     uv_build_parser = subparsers.add_parser(
         "uv-build",
@@ -1207,14 +1190,6 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory to store parquet cache files",
     )
-    # List replaceable node hashes
-    hash_parser = subparsers.add_parser(
-        "hash", help="List replaceable nodes and their dask hashes for a build"
-    )
-    hash_parser.add_argument(
-        "target",
-        help="Build target: alias, entry_id, build_id, or path to build dir",
-    )
     # List running servers
     ps_parser = subparsers.add_parser(
         "ps",
@@ -1253,6 +1228,8 @@ def parse_args(override=None):
     catalog_add = catalog_subparsers.add_parser("add", help="Add a build to the catalog")
     catalog_add.add_argument("build_path", help="Path to the build directory")
     catalog_add.add_argument("-a", "--alias", help="Optional alias for this entry", default=None)
+    # List catalog entries
+    catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
 
     catalog_inspect = catalog_subparsers.add_parser(
         "inspect", help="Inspect a catalog entry",
@@ -1274,26 +1251,11 @@ def parse_args(override=None):
         "--profiles", action="store_true", help="Show profiles section"
     )
     catalog_inspect.add_argument(
-        "--caches", action="store_true", help="Show caches section"
-    )
-    catalog_inspect.add_argument(
-        "--print-nodes", dest="print_nodes", action="store_true",
+        "--hashes", dest="hashes", action="store_true",
         help="Show node hashes section"
     )
     catalog_inspect.add_argument(
         "--full", action="store_true", help="Show all available sections"
-    )
-    catalog_inspect.add_argument(
-        "--json", dest="as_json", action="store_true", help="Output result as JSON"
-    )
-    catalog_inspect.add_argument(
-        "--yaml", dest="as_yaml", action="store_true", help="Output result as YAML"
-    )
-    catalog_inspect.add_argument(
-        "--no-color", action="store_true", help="Disable colorized output"
-    )
-    catalog_inspect.add_argument(
-        "--raw-names", action="store_true", help="Display full object names without truncation"
     )
     # Deprecated flags (ignored)
     catalog_inspect.add_argument(
@@ -1302,15 +1264,21 @@ def parse_args(override=None):
     catalog_inspect.add_argument(
         "--no-pretty", dest="pretty", action="store_false", help=argparse.SUPPRESS
     )
+    # Deprecated/removed: --caches is now redundant and no longer supported
+    # Note: JSON/YAML output, raw names, color toggles, and --print-nodes removed
     catalog_inspect.set_defaults(
-        as_json=False, as_yaml=False, full=False, schema=False,
-        plan=False, profiles=False, caches=False, print_nodes=False,
+        full=False, schema=False,
+        plan=False, profiles=False, hashes=False,
         pretty=None
     )
     # diff-builds: compare two build artifacts via git diff --no-index
-    # diff-builds (alias: diff): compare two build artifacts via git diff --no-index
+    # diff-builds: compare two build artifacts via git diff --no-index
     catalog_diff_builds = catalog_subparsers.add_parser(
-        "diff-builds", aliases=["diff"], help="Compare two build artifacts via git diff --no-index"
+        "diff-builds", help="Compare two build artifacts via git diff --no-index"
+    )
+    # Show top-level catalog information
+    catalog_info = catalog_subparsers.add_parser(
+        "info", help="Show catalog information"
     )
     # Remove an entry or alias from the catalog
     catalog_rm = catalog_subparsers.add_parser(
@@ -1418,11 +1386,6 @@ def main():
             case "lineage":
                 f, f_args = (
                     lineage_command,
-                    (args.target,),
-                )
-            case "hash":
-                f, f_args = (
-                    hash_command,
                     (args.target,),
                 )
             case "cache":
