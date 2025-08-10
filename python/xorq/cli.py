@@ -638,8 +638,8 @@ def catalog_command(args):
         # Use absolute path for build directory
         build_path = Path(args.build_path).resolve()
         alias = args.alias
-        # Validate build and extract metadata
-        build_id, expr_hashes, meta_digest, metadata_preview = BuildManager.validate_build(build_path)
+        # Validate build and extract metadata (expr hash recalculated fresh later)
+        build_id, meta_digest, metadata_preview = BuildManager.validate_build(build_path)
         build_path_str = str(build_path)
         catalog = load_catalog()
         now = datetime.now(timezone.utc).isoformat()
@@ -657,7 +657,7 @@ def catalog_command(args):
                 "revision_id": revision_id,
                 "created_at": now,
                 "build": {"build_id": build_id, "path": build_path_str},
-                "expr_hashes": expr_hashes,
+                # expr_hash recalculated fresh when inspecting
                 "meta_digest": meta_digest,
             }
             if metadata_preview:
@@ -676,7 +676,7 @@ def catalog_command(args):
                 "revision_id": revision_id,
                 "created_at": now,
                 "build": {"build_id": build_id, "path": build_path_str},
-                "expr_hashes": expr_hashes,
+                # expr_hash recalculated fresh when inspecting
                 "meta_digest": meta_digest,
             }
             if metadata_preview:
@@ -755,31 +755,31 @@ def catalog_command(args):
             return
         # Print summary info and catalog entry details
         print("Summary:")
-        print(f"  Entry ID: {entry_id}")
+        print(f"  {'Entry ID':<13}: {entry_id}")
         entry_created = entry.get("created_at")
         if entry_created:
             print(f"  Entry Created: {entry_created}")
-        print(f"  Revision ID: {revision_id}")
+        print(f"  {'Revision ID':<13}: {revision_id}")
         revision_created = revision.get("created_at")
         if revision_created:
             print(f"  Revision Created: {revision_created}")
         expr_hash = (revision.get("expr_hashes") or {}).get("expr") or revision.get("build", {}).get("build_id")
-        print(f"  Expr Hash: {expr_hash}")
+        print(f"  {'Expr Hash':<13}: {expr_hash}")
         meta_digest = revision.get("meta_digest")
         if meta_digest:
-            print(f"  Meta Digest: {meta_digest}")
+            print(f"  {'Meta Digest':<13}: {meta_digest}")
         # Sections
         build_path = revision.get("build", {}).get("path")
         expr = None
         schema = None
-        # Load expression and schema if needed
-        if build_path and (args.full or args.plan or args.schema or args.profiles or args.caches):
+        # Load expression and schema if needed (including for printing node hashes)
+        if build_path and (args.full or args.plan or args.schema or args.profiles or args.caches or args.print_nodes):
             from xorq.ibis_yaml.compiler import load_expr
             try:
                 expr = load_expr(Path(build_path))
                 schema = expr.schema()
             except Exception as e:
-                print(f"Error loading expression or schema: {e}")
+                print(f"Error loading expression for DAG: {e}")
         # Plan section
         if args.full or args.plan:
             print("\nPlan:")
