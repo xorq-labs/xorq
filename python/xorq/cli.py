@@ -86,7 +86,7 @@ def run_diffs(left_dir: Path, right_dir: Path, keep_files: tuple[str, ...]) -> i
         elif ret != 0:
             return ret
     return exit_code
- 
+
 def do_diff_builds(
     left: str,
     right: str,
@@ -321,6 +321,13 @@ def unbind_and_serve_command(
             (found_con,) = found_cons
         else:
             (found_con,) = find_all_sources(found)
+        # Log the node being replaced and its dask hash
+        try:
+            import dask
+            node_hash = dask.base.tokenize(found.to_expr())
+            logger.info(f"Replacing node {type(found).__name__} with hash {node_hash}")
+        except Exception:
+            logger.info(f"Replacing node {type(found).__name__}")
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()
@@ -461,7 +468,7 @@ def init_command(
     path = download_unpacked_xorq_template(path, template)
     print(f"initialized xorq template `{template}` to {path}")
     return path
-   
+
 def lineage_command(
     target: str,
 ):
