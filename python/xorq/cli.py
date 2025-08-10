@@ -508,7 +508,6 @@ def lineage_command(
         print_tree(tree)
         print()
 
-@tracer.start_as_current_span("cli.catalog_command")
 def catalog_command(args):
     """
     Manage build catalog subcommands: add, ls, inspect.
@@ -807,6 +806,34 @@ def hash_command(target: str):
         tok = dask.base.tokenize(node.to_expr())
         print(f"{tok} {type(node).__name__} {node}")
 
+def profile_command(args):
+    """
+    Manage connection profiles: add new profiles.
+    """
+    sub = args.subcommand
+    if sub == "add":
+        alias = args.alias
+        con_name = args.con_name
+        params = {}
+        for p in args.param:
+            if "=" not in p:
+                print(f"Invalid parameter '{p}', expected KEY=VALUE")
+                sys.exit(1)
+            k, v = p.split("=", 1)
+            params[k] = v
+        # Create and save profile
+        from xorq.vendor.ibis.backends.profiles import Profile
+        prof = Profile(con_name=con_name, kwargs_tuple=tuple(params.items()))
+        try:
+            path = prof.save(alias=alias, clobber=False)
+            print(f"Profile '{alias}' saved to {path}")
+        except ValueError as e:
+            print(f"Error saving profile: {e}")
+            sys.exit(1)
+    else:
+        print(f"Unknown profile subcommand: {sub}")
+        sys.exit(2)
+
 def parse_args(override=None):
     parser = argparse.ArgumentParser(
         description="xorq - build, run, and serve expressions"
@@ -1035,6 +1062,25 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for server state records",
     )
+    # Connection profile commands
+    profile_parser = subparsers.add_parser("profile", help="Manage connection profiles")
+    profile_subparsers = profile_parser.add_subparsers(dest="subcommand", help="Profile commands")
+    profile_subparsers.required = True
+    # Add profile
+    profile_add = profile_subparsers.add_parser("add", help="Add a connection profile")
+    profile_add.add_argument("alias", help="Profile alias name")
+    profile_add.add_argument(
+        "--con-name",
+        required=True,
+        help="Connection backend name (e.g. 'postgres', 'duckdb')",
+    )
+    profile_add.add_argument(
+        "-p", "--param",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Connection parameter KEY=VALUE",
+    )
     # Catalog commands
     catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
     catalog_subparsers = catalog_parser.add_subparsers(dest="subcommand", help="Catalog commands")
@@ -1204,6 +1250,11 @@ def main():
                 f, f_args = (
                     hash_command,
                     (args.target,),
+                )
+            case "profile":
+                f, f_args = (
+                    profile_command,
+                    (args,),
                 )
             case "catalog":
                 f, f_args = (
