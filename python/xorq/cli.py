@@ -862,10 +862,12 @@ def hash_command(target: str):
         sys.exit(2)
     # Load expression
     expr = load_expr(build_dir)
-    # Find replaceable node types
-    from xorq.common.utils.node_utils import replace_typs
+    # FIXME: there is an issue with dask.base.tokenize and RemoteTable node that takes forever to tokenize
+    # so for now we are only lisitng CachedNode and Read nodes
+    #from xorq.common.utils.node_utils import replace_typs
     from xorq.common.utils.graph_utils import walk_nodes
 
+    replace_typs = (xo.expr.relations.CachedNode, xo.expr.relations.Read)
     nodes = walk_nodes(replace_typs, expr)
     if not nodes:
         print("No replaceable nodes found.")
