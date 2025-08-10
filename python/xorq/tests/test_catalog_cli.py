@@ -176,3 +176,29 @@ def test_rm_not_found(tmp_path, capsys):
     catalog_command(args)
     out = capsys.readouterr().out
     assert "Entry noexist not found in catalog" in out
+    
+def test_info_empty_catalog(tmp_path, capsys):
+    # On an empty catalog, info should show zero entries and aliases
+    args = parse_args(["catalog", "info"])
+    catalog_command(args)
+    out = capsys.readouterr().out
+    assert "Catalog path:" in out
+    assert "Entries: 0" in out
+    assert "Aliases: 0" in out
+
+def test_info_after_add(tmp_path, capsys):
+    # After adding one entry and one alias, info should update counts
+    build_dir = tmp_path / "b1"
+    build_dir.mkdir()
+    (build_dir / "metadata.json").write_text("{}")
+    # Add with alias
+    alias = "foo"
+    args = parse_args(["catalog", "add", "-a", alias, str(build_dir)])
+    catalog_command(args)
+    _ = capsys.readouterr()
+    # Info now should report 1 entry and 1 alias
+    args = parse_args(["catalog", "info"])
+    catalog_command(args)
+    out = capsys.readouterr().out
+    assert "Entries: 1" in out
+    assert "Aliases: 1" in out

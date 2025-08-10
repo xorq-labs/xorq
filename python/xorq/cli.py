@@ -828,6 +828,15 @@ def catalog_command(args):
             else:
                 print("  No caches available.")
         return
+    elif args.subcommand == "info":
+        # Show top-level catalog info
+        catalog = load_catalog()
+        entries = catalog.get("entries", []) or []
+        aliases = catalog.get("aliases", {}) or {}
+        print(f"Catalog path: {DEFAULT_CATALOG_PATH}")
+        print(f"Entries: {len(entries)}")
+        print(f"Aliases: {len(aliases)}")
+        return
     elif args.subcommand == "rm":
         # Remove an entry or alias from the catalog
         catalog = load_catalog()
@@ -1302,6 +1311,10 @@ def parse_args(override=None):
     # diff-builds (alias: diff): compare two build artifacts via git diff --no-index
     catalog_diff_builds = catalog_subparsers.add_parser(
         "diff-builds", aliases=["diff"], help="Compare two build artifacts via git diff --no-index"
+    )
+    # Show top-level catalog information
+    catalog_info = catalog_subparsers.add_parser(
+        "info", help="Show catalog information"
     )
     # Remove an entry or alias from the catalog
     catalog_rm = catalog_subparsers.add_parser(
