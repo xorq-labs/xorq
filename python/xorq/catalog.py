@@ -151,10 +151,19 @@ class ExportIndex:
     meta_digest: Optional[str] = field(default=None, validator=optional(instance_of(str)))
 
 
-DEFAULT_CATALOG_PATH = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "xorq" / "catalog.yaml"
-
 def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
-    return Path(path) if path else DEFAULT_CATALOG_PATH
+    """Return the catalog file path, using XDG_CONFIG_HOME if set or default to ~/.config."""
+    if path:
+        return Path(path)
+    # Determine config home directory at runtime
+    xdg = os.environ.get("XDG_CONFIG_HOME")
+    if xdg:
+        config_home = Path(xdg)
+    else:
+        config_home = Path.home() / ".config"
+    return config_home / "xorq" / "catalog.yaml"
+# Keep DEFAULT_CATALOG_PATH for backward compatibility
+DEFAULT_CATALOG_PATH = get_catalog_path()
 
 def do_save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = None) -> None:
     catalog_path = get_catalog_path(path)

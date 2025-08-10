@@ -810,6 +810,16 @@ def catalog_command(args):
                     print(f"  Error loading profiles: {e}")
             else:
                 print("  No profiles available.")
+        # Node hashes section
+        if args.full or args.print_nodes:
+            print("\nNode hashes:")
+            # node_hashes stored in catalog entry history
+            node_hashes = revision.get("node_hashes") or []
+            if node_hashes:
+                for nh in node_hashes:
+                    print(f"  {nh}")
+            else:
+                print("  No node hashes recorded.")
         # Caches section
         if args.full or args.caches:
             print("\nCaches:")
@@ -829,6 +839,39 @@ def catalog_command(args):
                     print(f"  Error computing caches: {e}")
             else:
                 print("  No caches available.")
+        return
+    elif args.subcommand == "rm":
+        # Remove an entry or alias from the catalog
+        catalog = load_catalog()
+        token = args.entry
+        # Remove alias if present
+        aliases = catalog.get("aliases", {}) or {}
+        if token in aliases:
+            aliases.pop(token, None)
+            # If no aliases remain, clean up key
+            if not aliases:
+                catalog.pop("aliases", None)
+            save_catalog(catalog)
+            print(f"Removed alias {token}")
+            return
+        # Remove entry if present
+        entries = catalog.get("entries", [])
+        for i, entry in enumerate(entries):
+            if entry.get("entry_id") == token:
+                # Remove entry and any related aliases
+                entries.pop(i)
+                # Clean aliases pointing to this entry
+                to_remove = [a for a, m in aliases.items() if m.get("entry_id") == token]
+                for a in to_remove:
+                    aliases.pop(a, None)
+                # Clean empty aliases dict
+                if not aliases:
+                    catalog.pop("aliases", None)
+                save_catalog(catalog)
+                print(f"Removed entry {token}")
+                return
+        # Not found
+        print(f"Entry {token} not found in catalog")
         return
     elif args.subcommand == "diff-builds":
         # Compare two build artifacts via git diff --no-index
@@ -950,6 +993,11 @@ def parse_args(override=None):
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
+    # Top-level 'ls' as alias for 'catalog ls'
+    ls_parser = subparsers.add_parser(
+        "ls", help="List catalog entries (alias for 'catalog ls')"
+    )
+    ls_parser.set_defaults(command="catalog", subcommand="ls")
 
     uv_build_parser = subparsers.add_parser(
         "uv-build",
@@ -1206,8 +1254,6 @@ def parse_args(override=None):
     catalog_add.add_argument("build_path", help="Path to the build directory")
     catalog_add.add_argument("-a", "--alias", help="Optional alias for this entry", default=None)
 
-    catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
-
     catalog_inspect = catalog_subparsers.add_parser(
         "inspect", help="Inspect a catalog entry",
         description="Inspect build catalog entries with optional detail sections",
@@ -1229,6 +1275,10 @@ def parse_args(override=None):
     )
     catalog_inspect.add_argument(
         "--caches", action="store_true", help="Show caches section"
+    )
+    catalog_inspect.add_argument(
+        "--print-nodes", dest="print_nodes", action="store_true",
+        help="Show node hashes section"
     )
     catalog_inspect.add_argument(
         "--full", action="store_true", help="Show all available sections"
@@ -1254,12 +1304,20 @@ def parse_args(override=None):
     )
     catalog_inspect.set_defaults(
         as_json=False, as_yaml=False, full=False, schema=False,
-        plan=False, profiles=False, caches=False, pretty=None
+        plan=False, profiles=False, caches=False, print_nodes=False,
+        pretty=None
     )
     # diff-builds: compare two build artifacts via git diff --no-index
     # diff-builds (alias: diff): compare two build artifacts via git diff --no-index
     catalog_diff_builds = catalog_subparsers.add_parser(
         "diff-builds", aliases=["diff"], help="Compare two build artifacts via git diff --no-index"
+    )
+    # Remove an entry or alias from the catalog
+    catalog_rm = catalog_subparsers.add_parser(
+        "rm", help="Remove a build entry or alias from the catalog"
+    )
+    catalog_rm.add_argument(
+        "entry", help="Entry ID or alias to remove"
     )
     catalog_diff_builds.add_argument(
         "left",
