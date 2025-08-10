@@ -464,7 +464,6 @@ def unbind_and_serve_command(
         import dask
         node_hash = dask.base.tokenize(found.to_expr())
         logger.info(f"Unbinding with node {type(found).__name__} with hash {node_hash}")
->>>>>>> 0ebcec7 (feat: add cache command and ref)
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()

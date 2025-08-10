@@ -184,21 +184,53 @@ def inspect_catalog(
     no_pager: bool = typer.Option(False, "--no-pager", help="Disable pager"),
 ):
     """Inspect a catalog entry and display details."""
-    # TODO: fetch real data instead of stub
+    # Load catalog and resolve target
+    from xorq.catalog import load_catalog, resolve_target
+    cat = load_catalog()
+    tgt = resolve_target(entry, cat)
+    if tgt is None:
+        typer.echo(f"Entry {entry} not found in catalog")
+        raise typer.Exit(code=1)
+    entry_id = tgt.entry_id
+    rev_id = revision or tgt.rev
+    # Find entry and revision data
+    entries = cat.get("entries", [])
+    e = next((e for e in entries if e.get("entry_id") == entry_id), None)
+    if e is None:
+        typer.echo(f"Entry {entry_id} not found in catalog")
+        raise typer.Exit(code=1)
+    # Parse timestamps
+    try:
+        created = datetime.fromisoformat(e.get("created_at"))
+    except Exception:
+        created = datetime.now(timezone.utc)
+    # Determine revision
+    if not rev_id:
+        rev_id = e.get("current_revision")
+    history = e.get("history", [])
+    r = next((r for r in history if r.get("revision_id") == rev_id), None)
+    if r is None:
+        typer.echo(f"Revision {rev_id} not found for entry {entry_id}")
+        raise typer.Exit(code=1)
+    try:
+        rev_created = datetime.fromisoformat(r.get("created_at"))
+    except Exception:
+        rev_created = datetime.now(timezone.utc)
+    # Expr ID: try expr_hashes, else build ID
+    expr_hash = (r.get("expr_hashes") or {}).get("expr") or r.get("build", {}).get("build_id")
+    meta_digest = r.get("meta_digest")
+    # Build result object (sections loaded later)
     result = InspectResult(
         entry=entry,
-        entry_id="8eb057de42ab247b55a4e6bd",
-        created_at=datetime(2025, 8, 8, 19, 21, tzinfo=timezone.utc),
-        expr_id="7061dd65ff3c",
-        meta="sha1:21a5ab244802",
-        revision=revision or "r1",
-        schema=[Column(name="predicted", type="string")],
-        plan=[
-            PlanNode(id="r0", op="Read", details="parquet", engine="duckdb"),
-            PlanNode(id="r1", op="Project", details="keep: bill_length_mm,bill_depth_mm,species"),
-        ],
-        profiles=[Profile(id="2eca757959a1", engine="duckdb", params={"database": ":memory:"})],
-        caches=[CacheRecord(id="3b3aca6d2b085c0565e46bbb4a23f450", node="r7 (Cache)", backend="parquet", source="let")],
+        entry_id=entry_id,
+        created_at=created,
+        expr_id=expr_hash,
+        meta=meta_digest,
+        revision=rev_id,
+        schema=None,
+        plan=None,
+        profiles=None,
+        caches=None,
     )
     # Machine-readable output
     data_dict = dataclass_to_dict(result)
