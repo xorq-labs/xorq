@@ -344,6 +344,13 @@ def unbind_and_serve_command(
                     + ", ".join(f"[{i}]: {src}" for i, src in enumerate(subtree_cons))
                     + ". Please specify --con-index to select one."
                 )
+        # Log the node being replaced and its dask hash
+        try:
+            import dask
+            node_hash = dask.base.tokenize(found.to_expr())
+            logger.info(f"Replacing node {type(found).__name__} with hash {node_hash}")
+        except Exception:
+            logger.info(f"Replacing node {type(found).__name__}")
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()
