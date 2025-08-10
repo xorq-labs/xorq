@@ -119,8 +119,8 @@ def test_inspect_print_nodes_only(tmp_path, capsys):
     catalog_command(args)
     out_add = capsys.readouterr().out
     entry_id = out_add.split()[5]
-    # Inspect with --print-nodes only
-    args = parse_args(["catalog", "inspect", entry_id, "--print-nodes"])
+    # Inspect with --hashes only
+    args = parse_args(["catalog", "inspect", entry_id, "--hashes"])
     catalog_command(args)
     out = capsys.readouterr().out
     # Should print Node hashes section with no recorded hashes
