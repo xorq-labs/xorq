@@ -60,6 +60,123 @@ def maybe_resolve_build_dirs(left: str, right: str, catalog) -> tuple[Path, Path
         return None
     return left_dir, right_dir
 
+# === Server Recording Utilities ===
+from dataclasses import dataclass
+from typing import Optional, Tuple
+
+@dataclass(frozen=True)
+class ServerRecord:
+    pid: int
+    command: str
+    target: str
+    port: Optional[int]
+    start_time: datetime
+    node_hash: Optional[str] = None
+
+def maybe_make_server_record(data: dict) -> Optional[ServerRecord]:
+    try:
+        pid = data["pid"]
+        command = data["command"]
+        target = data.get("target", "")
+        port = data.get("port")
+        node_hash = data.get("to_unbind_hash")
+        start_time = datetime.fromisoformat(data["start_time"])
+        return ServerRecord(pid=pid, command=command, target=target, port=port, start_time=start_time, node_hash=node_hash)
+    except Exception:
+        return None
+
+def get_server_records(record_dir: Path) -> Tuple[ServerRecord, ...]:
+    if not record_dir.exists():
+        return ()
+    records: list[ServerRecord] = []
+    for f in record_dir.glob("*.json"):
+        try:
+            data = json.loads(f.read_text())
+        except Exception:
+            continue
+        rec = maybe_make_server_record(data)
+        if rec is not None:
+            records.append(rec)
+    return tuple(records)
+
+def filter_running(records: Tuple[ServerRecord, ...]) -> Tuple[ServerRecord, ...]:
+    running: list[ServerRecord] = []
+    for rec in records:
+        try:
+            os.kill(rec.pid, 0)
+            running.append(rec)
+        except Exception:
+            continue
+    return tuple(running)
+
+def format_server_table(records: Tuple[ServerRecord, ...]) -> Tuple[Tuple[str, ...], Tuple[Tuple[str, ...], ...]]:
+    headers = ("TARGET", "STATE", "COMMAND", "HASH", "PID", "PORT", "UPTIME")
+    rows: list[tuple[str, ...]] = []
+    now = datetime.now()
+    for rec in records:
+        state = "running"
+        try:
+            delta = now - rec.start_time
+            hours, rem = divmod(int(delta.total_seconds()), 3600)
+            minutes, _ = divmod(rem, 60)
+            uptime = f"{hours}h{minutes}m"
+        except Exception:
+            uptime = ""
+        rows.append((
+            rec.target,
+            state,
+            rec.command,
+            rec.node_hash or "",
+            str(rec.pid),
+            str(rec.port) if rec.port is not None else "",
+            uptime
+        ))
+    return headers, tuple(rows)
+
+def do_print_table(headers: Tuple[str, ...], rows: Tuple[Tuple[str, ...], ...]) -> None:
+    if rows:
+        widths = [max(len(cell) for cell in col) for col in zip(headers, *rows)]
+    else:
+        widths = [len(h) for h in headers]
+    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+    print(fmt.format(*headers))
+    for row in rows:
+        print(fmt.format(*row))
+
+def make_server_record(
+    pid: int,
+    command: str,
+    target: str,
+    port: Optional[int] = None,
+    start_time: Optional[datetime] = None,
+    node_hash: Optional[str] = None,
+) -> ServerRecord:
+    """Factory: create a ServerRecord with optional start_time."""
+    ts = start_time or datetime.now()
+    return ServerRecord(
+        pid=pid,
+        command=command,
+        target=target,
+        port=port,
+        start_time=ts,
+        node_hash=node_hash,
+    )
+
+def do_save_server_record(record: ServerRecord, record_dir: Path) -> None:
+    """Side effect: save a ServerRecord to JSON file in record_dir."""
+    record_dir.mkdir(parents=True, exist_ok=True)
+    path = record_dir / f"{record.pid}.json"
+    data: dict = {
+        "pid": record.pid,
+        "command": record.command,
+        "target": record.target,
+        "port": record.port,
+        "start_time": record.start_time.isoformat(),
+    }
+    if record.node_hash is not None:
+        data["to_unbind_hash"] = record.node_hash
+    path.write_text(json.dumps(data))
+
 def get_diff_file_list(left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool) -> tuple[str, ...]:
     default = ("expr.yaml",)
     if files is not None:
@@ -328,6 +445,26 @@ def unbind_and_serve_command(
             logger.info(f"Replacing node {type(found).__name__} with hash {node_hash}")
         except Exception:
             logger.info(f"Replacing node {type(found).__name__}")
+            subtree_cons = find_all_sources(found)
+            if con_index is not None:
+                if con_index < 0 or con_index >= len(subtree_cons):
+                    raise ValueError(
+                        f"Invalid --con-index: {con_index}. Must be between 0 and {len(subtree_cons) - 1}"
+                    )
+                found_con = subtree_cons[con_index]
+            elif len(subtree_cons) == 1:
+                found_con = subtree_cons[0]
+            else:
+                raise ValueError(
+                    f"Multiple sources found for expr hash {to_unbind_hash}: "
+                    + ", ".join(f"[{i}]: {src}" for i, src in enumerate(subtree_cons))
+                    + ". Please specify --con-index to select one."
+                )
+
+        import dask
+        node_hash = dask.base.tokenize(found.to_expr())
+        logger.info(f"Unbinding with node {type(found).__name__} with hash {node_hash}")
+>>>>>>> 0ebcec7 (feat: add cache command and ref)
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()
@@ -349,21 +486,15 @@ def unbind_and_serve_command(
         unbound_expr, make_server=make_server
     )
     # Record server metadata
-    import os, json
-    from datetime import datetime
-    record_dir = Path(cache_dir) / "servers"
-    record_dir.mkdir(parents=True, exist_ok=True)
-    pid = os.getpid()
-    record = {
-        "pid": pid,
-        "command": "serve-unbound",
-        "host": host,
-        "port": flight_url.port,
-        "start_time": datetime.now().isoformat(),
-        "target": orig_target,
-        "to_unbind_hash": to_unbind_hash,
-    }
-    (record_dir / f"{pid}.json").write_text(json.dumps(record))
+    rec = make_server_record(
+        pid=os.getpid(),
+        command="serve-unbound",
+        target=orig_target,
+        port=flight_url.port,
+        start_time=datetime.now(),
+        node_hash=to_unbind_hash,
+    )
+    do_save_server_record(rec, Path(cache_dir) / "servers")
     server.wait()
 
 
@@ -439,20 +570,14 @@ def serve_command(
         host=host,
     )
     # Record server metadata
-    import os, json
-    from datetime import datetime
-    record_dir = Path(cache_dir) / "servers"
-    record_dir.mkdir(parents=True, exist_ok=True)
-    pid = os.getpid()
-    record = {
-        "pid": pid,
-        "command": "serve-flight-udxf",
-        "host": host,
-        "port": server.flight_url.port,
-        "start_time": datetime.now().isoformat(),
-        "target": orig_target,
-    }
-    (record_dir / f"{pid}.json").write_text(json.dumps(record))
+    rec = make_server_record(
+        pid=os.getpid(),
+        command="serve-flight-udxf",
+        target=orig_target,
+        port=server.flight_url.port,
+        start_time=datetime.now(),
+    )
+    do_save_server_record(rec, Path(cache_dir) / "servers")
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_path.stem}' on {location}")
     server.serve(block=True)
@@ -700,68 +825,15 @@ def catalog_command(args):
 
 
 
-def ps_command(cache_dir):
+def ps_command(cache_dir: str) -> None:
     """List active xorq servers."""
-    import os, json
-    from datetime import datetime
-
     record_dir = Path(cache_dir) / "servers"
-    # Table: TARGET, STATE, COMMAND, HASH, PID, PORT, UPTIME
-    headers = ["TARGET", "STATE", "COMMAND", "HASH", "PID", "PORT", "UPTIME"]
-    entries = {}
-    now = datetime.now()
-    if record_dir.exists():
-        for f in record_dir.glob("*.json"):
-            try:
-                data = json.loads(f.read_text())
-            except Exception:
-                continue
-            target = data.get("target", "")
-            cmd = data.get("command", "")
-            node_hash = data.get("to_unbind_hash", "")
-            pid = data.get("pid")
-            port = data.get("port", "")
-            # Check if process still exists
-            try:
-                os.kill(pid, 0)
-            except Exception:
-                continue
-            # Test service responsiveness via TCP connect
-            host = data.get("host", "localhost")
-            healthy = False
-            try:
-                import socket
-                with socket.create_connection((host, data.get("port")), timeout=1):
-                    healthy = True
-            except Exception:
-                pass
-            if not healthy:
-                continue
-            state = "running"
-            # Compute uptime
-            uptime = ""
-            try:
-                start = datetime.fromisoformat(data.get("start_time"))
-                delta = now - start
-                hours, rem = divmod(int(delta.total_seconds()), 3600)
-                minutes, _ = divmod(rem, 60)
-                uptime = f"{hours}h{minutes}m"
-            except Exception:
-                pass
-            # Keep first entry per target
-            if target and target not in entries:
-                entries[target] = [target, state, cmd, node_hash, str(pid), str(port), uptime]
-    rows = list(entries.values())
-    # Compute column widths
-    if rows:
-        widths = [max(len(str(cell)) for cell in col) for col in zip(headers, *rows)]
-    else:
-        widths = [len(h) for h in headers]
-    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
-    # Print header and rows
-    print(fmt.format(*headers))
-    for row in rows:
-        print(fmt.format(*row))
+    headers, rows = format_server_table(
+        filter_running(
+            get_server_records(record_dir)
+        )
+    )
+    do_print_table(headers, rows)
 
 def hash_command(target: str):
     """
@@ -788,6 +860,40 @@ def hash_command(target: str):
     for node in nodes:
         tok = dask.base.tokenize(node.to_expr())
         print(f"{tok} {type(node).__name__} {node}")
+
+def cache_command(args):
+    """
+    Cache a built expression output to Parquet using a CachedNode.
+    """
+    from xorq.common.utils.caching_utils import find_backend
+    from xorq.caching import ParquetStorage
+    # Resolve build target
+    catalog = load_catalog()
+    build_dir = resolve_build_dir(args.target, catalog)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {args.target}")
+        sys.exit(2)
+    # Load expression
+    expr = load_expr(build_dir)
+    # Determine backend for caching
+    con, _ = find_backend(expr.op(), use_default=True)
+    # Setup Parquet storage at given cache directory
+    base_path = Path(args.cache_dir)
+    storage = ParquetStorage(source=con, relative_path=Path("."), base_path=base_path)
+    # Attach cache node
+    cached_expr = expr.cache(storage=storage)
+    # Execute to materialize cache
+    try:
+        for _ in cached_expr.to_pyarrow_batches():
+            pass
+    except Exception as e:
+        print(f"Error during caching execution: {e}")
+        sys.exit(1)
+    # Report cache files
+    cache_path = storage.cache.storage.path
+    print(f"Cache written to: {cache_path}")
+    for pq_file in sorted(cache_path.rglob("*.parquet")):
+        print(f"  {pq_file.relative_to(cache_path)}")
 
 def profile_command(args):
     """
@@ -1015,6 +1121,20 @@ def parse_args(override=None):
         "target",
         help="Build target: alias, entry_id, build_id, or path to build dir",
     )
+    # Cache a built expression to Parquet via CachedNode
+    cache_parser = subparsers.add_parser(
+        "cache", help="Cache a build's expression output to Parquet"
+    )
+    cache_parser.add_argument(
+        "target",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
+    cache_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory to store parquet cache files",
+    )
     # List replaceable node hashes
     hash_parser = subparsers.add_parser(
         "hash", help="List replaceable nodes and their dask hashes for a build"
@@ -1214,6 +1334,11 @@ def main():
                 f, f_args = (
                     hash_command,
                     (args.target,),
+                )
+            case "cache":
+                f, f_args = (
+                    cache_command,
+                    (args,),
                 )
             case "profile":
                 f, f_args = (
