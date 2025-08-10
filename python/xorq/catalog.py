@@ -15,9 +15,6 @@ from attrs.validators import instance_of, optional, deep_iterable
 
 import xorq as xo
 
-# =============================================================================
-# Immutable Data Structures
-# =============================================================================
 
 @frozen
 class CatalogMetadata:
@@ -279,45 +276,6 @@ def dump_json(obj: Any) -> str:
     """Dump object to JSON string."""
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
-def build_virtual_export_tree(entry: Entry, revision: Revision) -> Mapping[str, bytes]:
-    """Build virtual export file tree."""
-    # Extract values safely
-    build = revision.build
-    expr_hashes = revision.expr_hashes or {}
-
-    index = ExportIndex(
-        alias=None,
-        entry_id=entry.entry_id,
-        revision_id=revision.revision_id,
-        build_id=build.build_id if build else None,
-        expr_digest=expr_hashes.get("expr"),
-        meta_digest=revision.meta_digest
-    )
-
-    files = {}
-    files["EXPORT_INDEX.yaml"] = dump_yaml(normalize_obj(asdict(index))).encode()
-
-    # Expression files
-    if index.expr_digest:
-        files["expr/expr.yaml"] = dump_yaml({"root_expr": index.expr_digest}).encode()
-
-        for node_hash in revision.node_hashes:
-            files[f"expr/nodes/{node_hash}.yaml"] = dump_yaml({"id": node_hash}).encode()
-
-    # Schema fingerprint
-    schema_fp = _maybe_get_schema_fingerprint(revision)
-    if schema_fp:
-        files["schema/output.schema.json"] = dump_json({"fingerprint": schema_fp}).encode()
-
-    # Read set
-    read_set = _maybe_get_read_set(revision)
-    if read_set:
-        files["reads/sources.yaml"] = dump_yaml(normalize_obj(read_set)).encode()
-
-    # Metadata
-    files["meta/volatile.yaml"] = dump_yaml({"created_at": revision.created_at}).encode()
-
-    return files
 
 def unified_dir_diff(left_root: Path, right_root: Path) -> Tuple[bool, str]:
     """Compare two directories and return unified diff."""
@@ -487,22 +445,12 @@ def with_alias(name: str, alias: Alias, catalog: XorqCatalog) -> XorqCatalog:
     """Curried version of with_alias for composition."""
     return catalog.with_alias(name, alias)
 
-load_catalog = load_catalog_or_default
-resolve_target = maybe_resolve_target  # For backward compatibility - consider deprecating
-resolve_build_dir = maybe_resolve_build_dir  # For backward compatibility - consider deprecating
-
-def save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = None) -> XorqCatalog:
-    """Save catalog and return the updated version."""
-    updated_catalog = catalog.with_updated_metadata()
-    do_save_catalog(updated_catalog, path)
-    return updated_catalog
 
 def write_tree(root: Path, files: Mapping[str, bytes]) -> None:
-    """Alias for do_write_tree for backward compatibility."""
+    """Write file tree to disk."""
     do_write_tree(root, files)
-    
-# Legacy dict-based (mapping) API for catalog operations
-def _dict_load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
+
+def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """Load catalog as raw dict; return minimal structure if not found."""
     catalog_path = get_catalog_path(path)
     if not catalog_path.exists():
@@ -513,14 +461,14 @@ def _dict_load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any
     data.setdefault("aliases", {})
     return data
 
-def _dict_save_catalog(catalog: Dict[str, Any], path: Optional[Union[str, Path]] = None) -> None:
+def save_catalog(catalog: Dict[str, Any], path: Optional[Union[str, Path]] = None) -> None:
     """Save raw catalog dict to disk."""
     catalog_path = get_catalog_path(path)
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
     with catalog_path.open("w") as f:
         yaml.safe_dump(catalog, f, sort_keys=False)
 
-def _dict_resolve_target(target: str, catalog: Dict[str, Any]) -> Optional[Target]:
+def resolve_target(target: str, catalog: Dict[str, Any]) -> Optional[Target]:
     """Resolve target string against raw catalog dict."""
     if "@" in target:
         base, rev = target.split("@", 1)
@@ -536,13 +484,8 @@ def _dict_resolve_target(target: str, catalog: Dict[str, Any]) -> Optional[Targe
     if base in alias_map:
         alias_data = alias_map[base]
         entry_id = alias_data.get("entry_id")
-        # Use explicit revision if provided, else alias's current revision_id
-        if rev is not None:
-            rev_id = rev
-        else:
-            rev_id = alias_data.get("revision_id")
+        rev_id = rev if rev is not None else alias_data.get("revision_id")
         return Target(entry_id=entry_id, rev=rev_id, alias=True)
-    entries = catalog.get("entries", [])
     entry_ids = [e.get("entry_id") for e in entries]
     if base in entry_ids:
         if rev is None:
@@ -553,7 +496,7 @@ def _dict_resolve_target(target: str, catalog: Dict[str, Any]) -> Optional[Targe
         return Target(entry_id=base, rev=rev_id, alias=False)
     return None
 
-def _dict_resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
+def resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
     """Resolve build directory from raw catalog dict."""
     path = Path(token)
     if path.exists() and path.is_dir():
@@ -576,9 +519,3 @@ def _dict_resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Pat
                     if build and build.get("path"):
                         return Path(build.get("path"))
     return None
-
-# Override public API for backward compatibility
-load_catalog = _dict_load_catalog
-save_catalog = _dict_save_catalog
-resolve_target = _dict_resolve_target
-resolve_build_dir = _dict_resolve_build_dir

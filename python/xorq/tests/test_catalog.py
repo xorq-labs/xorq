@@ -8,7 +8,6 @@ from xorq.catalog import (
     save_catalog,
     resolve_target,
     resolve_build_dir,
-    build_virtual_export_tree,
     write_tree,
     unified_dir_diff,
 )
