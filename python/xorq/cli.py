@@ -981,6 +981,11 @@ def parse_args(override=None):
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
+    # Top-level 'ls' as alias for 'catalog ls'
+    ls_parser = subparsers.add_parser(
+        "ls", help="List catalog entries (alias for 'catalog ls')"
+    )
+    ls_parser.set_defaults(command="catalog", subcommand="ls")
 
     uv_build_parser = subparsers.add_parser(
         "uv-build",
@@ -1239,8 +1244,6 @@ def parse_args(override=None):
     catalog_add = catalog_subparsers.add_parser("add", help="Add a build to the catalog")
     catalog_add.add_argument("build_path", help="Path to the build directory")
     catalog_add.add_argument("-a", "--alias", help="Optional alias for this entry", default=None)
-
-    catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
 
     catalog_inspect = catalog_subparsers.add_parser(
         "inspect", help="Inspect a catalog entry",

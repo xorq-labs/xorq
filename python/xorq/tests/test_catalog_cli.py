@@ -20,7 +20,7 @@ def isolate_catalog(tmp_path, monkeypatch):
 
 
 def test_ls_empty_catalog(capsys):
-    args = parse_args(["catalog", "ls"])
+    args = parse_args(["ls"])
     catalog_command(args)
     out = capsys.readouterr().out
     # No aliases, just Entries header
@@ -39,7 +39,7 @@ def test_add_and_ls_and_inspect(tmp_path, capsys):
     out_add = capsys.readouterr().out
     assert "Added build build1 as entry" in out_add
     # ls shows the entry
-    args = parse_args(["catalog", "ls"])
+    args = parse_args(["ls"])
     catalog_command(args)
     out_ls = capsys.readouterr().out
     assert "build1" in out_ls
@@ -145,7 +145,7 @@ def test_rm_entry(tmp_path, capsys):
     out_rm = capsys.readouterr().out
     assert f"Removed entry {entry_id}" in out_rm
     # ls should no longer list the entry
-    args = parse_args(["catalog", "ls"])
+    args = parse_args(["ls"])
     catalog_command(args)
     out_ls = capsys.readouterr().out
     assert entry_id not in out_ls
@@ -165,7 +165,7 @@ def test_rm_alias(tmp_path, capsys):
     out_rm = capsys.readouterr().out
     assert f"Removed alias {alias}" in out_rm
     # ls should not show any aliases
-    args = parse_args(["catalog", "ls"])
+    args = parse_args(["ls"])
     catalog_command(args)
     out_ls = capsys.readouterr().out
     assert "Aliases:" not in out_ls
