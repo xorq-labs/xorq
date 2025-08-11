@@ -51,6 +51,17 @@ def maybe_resolve_build_dirs(
     try:
         left_dir = resolve_build_dir(left, catalog)
         right_dir = resolve_build_dir(right, catalog)
+        # Interpret relative build paths from catalog as relative to config directory
+        config_path = get_catalog_path()
+        config_dir = config_path.parent
+        # Adjust left_dir if token is not a literal directory and left_dir is relative
+        token_path = Path(left)
+        if not token_path.is_dir() and left_dir is not None and not left_dir.is_absolute():
+            left_dir = config_dir / left_dir
+        # Adjust right_dir similarly
+        token_path = Path(right)
+        if not token_path.is_dir() and right_dir is not None and not right_dir.is_absolute():
+            right_dir = config_dir / right_dir
     except ValueError as e:
         print(f"Error: {e}")
         return None

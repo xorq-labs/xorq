@@ -499,21 +499,33 @@ def resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
     path = Path(token)
     if path.exists() and path.is_dir():
         return path
+    # Match on explicit build_id entries
     for entry in catalog.get("entries", []):
         for rev in entry.get("history", []):
             build = rev.get("build")
             if build and build.get("build_id") == token:
                 p = build.get("path")
                 if p:
-                    return Path(p)
+                    pth = Path(p)
+                    # If stored path is relative, interpret relative to catalog config directory
+                    if not pth.is_absolute():
+                        cfg_dir = get_catalog_path().parent
+                        pth = cfg_dir / pth
+                    return pth
     t = resolve_target(token, catalog)
     if t is None:
         return None
+    # Match on entry@revision targets
     for entry in catalog.get("entries", []):
         if entry.get("entry_id") == t.entry_id:
             for rev in entry.get("history", []):
                 if rev.get("revision_id") == t.rev:
                     build = rev.get("build")
                     if build and build.get("path"):
-                        return Path(build.get("path"))
+                        p = build.get("path")
+                        pth = Path(p)
+                        if not pth.is_absolute():
+                            cfg_dir = get_catalog_path().parent
+                            pth = cfg_dir / pth
+                        return pth
     return None
