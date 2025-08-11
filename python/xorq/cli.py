@@ -971,6 +971,29 @@ def catalog_command(args):
         # Not found
         print(f"Entry {token} not found in catalog")
         return
+    elif args.subcommand == "export":
+        # Export catalog.yaml and all builds to a target directory
+        export_dir = Path(args.output_path)
+        # Ensure export directory exists
+        if export_dir.exists() and not export_dir.is_dir():
+            print(f"Export path exists and is not a directory: {export_dir}")
+            return
+        export_dir.mkdir(parents=True, exist_ok=True)
+        # Copy catalog file
+        if config_path.exists():
+            shutil.copy2(config_path, export_dir / config_path.name)
+        else:
+            print(f"No catalog found at {config_path}")
+            return
+        # Copy builds directory
+        src_builds = config_dir / "catalog-builds"
+        if src_builds.exists() and src_builds.is_dir():
+            dest_builds = export_dir / src_builds.name
+            if dest_builds.exists():
+                shutil.rmtree(dest_builds)
+            shutil.copytree(src_builds, dest_builds)
+        print(f"Exported catalog and builds to {export_dir}")
+        return
     elif args.subcommand == "diff-builds":
         # Compare two build artifacts via git diff --no-index
         code = do_diff_builds(args.left, args.right, args.files, args.all)
@@ -1411,6 +1434,14 @@ def parse_args(override=None):
         "rm", help="Remove a build entry or alias from the catalog"
     )
     catalog_rm.add_argument("entry", help="Entry ID or alias to remove")
+    # Export catalog and builds to a directory
+    catalog_export = catalog_subparsers.add_parser(
+        "export", help="Export catalog and all builds to a target directory"
+    )
+    catalog_export.add_argument(
+        "output_path",
+        help="Directory path to export catalog.yaml and builds subfolder"
+    )
     catalog_diff_builds.add_argument(
         "left",
         help="Left build target: alias, entry_id, build_id, or path to build dir",
