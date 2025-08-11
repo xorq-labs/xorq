@@ -1,12 +1,7 @@
-import os
-import sys
-import yaml
 import pytest
-from pathlib import Path
+import yaml
 
-import xorq
-from xorq.cli import parse_args, catalog_command
-from xorq.catalog import load_catalog, DEFAULT_CATALOG_PATH
+from xorq.cli import catalog_command, parse_args
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +45,7 @@ def test_add_and_ls_and_inspect(tmp_path, capsys):
     catalog_command(args)
     out_inspect = capsys.readouterr().out
     assert "Summary:" in out_inspect
-    assert f"Expr Hash    : build1" in out_inspect
+    assert "Expr Hash    : build1" in out_inspect
 
 
 def test_diff_builds_identical(tmp_path, capsys):

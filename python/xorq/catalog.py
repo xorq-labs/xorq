@@ -1,17 +1,15 @@
+import difflib
+import json
 import os
 import uuid
-import yaml
-import hashlib
-import json
-import difflib
-from pathlib import Path
 from datetime import datetime, timezone
-from dataclasses import dataclass
-from typing import Any, Dict, List, Tuple, Optional, Union, Mapping, Sequence
-from functools import singledispatch, partial
-from toolz import curry, pipe
-from attrs import frozen, field, asdict
-from attrs.validators import instance_of, optional, deep_iterable
+from pathlib import Path
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+
+import yaml
+from attrs import asdict, field, frozen
+from attrs.validators import deep_iterable, instance_of, optional
+from toolz import curry
 
 import xorq as xo
 
