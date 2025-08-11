@@ -1107,6 +1107,17 @@ def parse_args(override=None):
         default=None,
         help="index of the source connection to use for unbinding when multiple sources exist",
     )
+<<<<<<< HEAD
+=======
+    serve_unbound_parser.add_argument(
+        "--prometheus-port",
+        type=int,
+        default=None,
+        help="Port to expose Prometheus metrics (default: disabled)",
+    )
+
+    # Serve a built expression via Flight Server (UDXF)
+>>>>>>> b11f2ee (add prometheus port to serve-unbound)
     serve_parser = subparsers.add_parser(
         "serve-flight-udxf", help="Serve a build via Flight Server"
     )
