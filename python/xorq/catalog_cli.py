@@ -2,16 +2,17 @@
 CLI command for inspecting catalog entries using Typer and Rich.
 """
 import json
-from typing import List, Optional, Dict, Any
-from dataclasses import dataclass, is_dataclass, fields
+from dataclasses import dataclass, fields, is_dataclass
 from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 import typer
 import yaml
+from rich import box
 from rich.console import Console
 from rich.table import Table
 from rich.tree import Tree
-from rich import box
+
 
 # Mapping of operation types to Rich styles
 OP_TYPE_STYLES = {

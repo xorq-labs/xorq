@@ -1,14 +1,9 @@
-import json
-import yaml
-import pytest
-from pathlib import Path
 
 from xorq.catalog import (
     load_catalog,
-    save_catalog,
-    resolve_target,
     resolve_build_dir,
-    write_tree,
+    resolve_target,
+    save_catalog,
     unified_dir_diff,
 )
 

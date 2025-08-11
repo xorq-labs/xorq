@@ -1,18 +1,34 @@
 import argparse
-from typing import List
+import json
 import os
 import pdb
+import shutil
+
+# JSON handling
+import subprocess
 import sys
 import traceback
+import uuid
+from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
 
+import yaml
 from opentelemetry import trace
 
 import xorq as xo
+
 # Ensure custom Dask normalization handlers are registered
 import xorq.common.utils.dask_normalize  # noqa: F401
 import xorq.common.utils.pickle_utils  # noqa: F401
+
+# Helper functions for diff-builds subcommand
+from xorq.catalog import (
+    get_catalog_path,
+    load_catalog,
+    resolve_build_dir,
+    save_catalog,
+)
 from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
@@ -23,21 +39,15 @@ from xorq.ibis_yaml.compiler import (
     BuildManager,
     load_expr,
 )
-import yaml
-import uuid
-from datetime import datetime, timezone
-from xorq.catalog import load_catalog, save_catalog, DEFAULT_CATALOG_PATH
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
 )
-import subprocess
-# JSON handling
-import json
-# Helper functions for diff-builds subcommand
-from xorq.catalog import resolve_build_dir
 
-def maybe_resolve_build_dirs(left: str, right: str, catalog) -> tuple[Path, Path] | None:
+
+def maybe_resolve_build_dirs(
+    left: str, right: str, catalog
+) -> tuple[Path, Path] | None:
     try:
         left_dir = resolve_build_dir(left, catalog)
         right_dir = resolve_build_dir(right, catalog)
@@ -60,9 +70,11 @@ def maybe_resolve_build_dirs(left: str, right: str, catalog) -> tuple[Path, Path
         return None
     return left_dir, right_dir
 
+
 # === Server Recording Utilities ===
 from dataclasses import dataclass
 from typing import Optional, Tuple
+
 
 @dataclass(frozen=True)
 class ServerRecord:
@@ -73,6 +85,7 @@ class ServerRecord:
     start_time: datetime
     node_hash: Optional[str] = None
 
+
 def maybe_make_server_record(data: dict) -> Optional[ServerRecord]:
     try:
         pid = data["pid"]
@@ -81,9 +94,17 @@ def maybe_make_server_record(data: dict) -> Optional[ServerRecord]:
         port = data.get("port")
         node_hash = data.get("to_unbind_hash")
         start_time = datetime.fromisoformat(data["start_time"])
-        return ServerRecord(pid=pid, command=command, target=target, port=port, start_time=start_time, node_hash=node_hash)
+        return ServerRecord(
+            pid=pid,
+            command=command,
+            target=target,
+            port=port,
+            start_time=start_time,
+            node_hash=node_hash,
+        )
     except Exception:
         return None
+
 
 def get_server_records(record_dir: Path) -> Tuple[ServerRecord, ...]:
     if not record_dir.exists():
@@ -99,6 +120,7 @@ def get_server_records(record_dir: Path) -> Tuple[ServerRecord, ...]:
             records.append(rec)
     return tuple(records)
 
+
 def filter_running(records: Tuple[ServerRecord, ...]) -> Tuple[ServerRecord, ...]:
     running: list[ServerRecord] = []
     for rec in records:
@@ -109,7 +131,10 @@ def filter_running(records: Tuple[ServerRecord, ...]) -> Tuple[ServerRecord, ...
             continue
     return tuple(running)
 
-def format_server_table(records: Tuple[ServerRecord, ...]) -> Tuple[Tuple[str, ...], Tuple[Tuple[str, ...], ...]]:
+
+def format_server_table(
+    records: Tuple[ServerRecord, ...],
+) -> Tuple[Tuple[str, ...], Tuple[Tuple[str, ...], ...]]:
     headers = ("TARGET", "STATE", "COMMAND", "HASH", "PID", "PORT", "UPTIME")
     rows: list[tuple[str, ...]] = []
     now = datetime.now()
@@ -122,16 +147,19 @@ def format_server_table(records: Tuple[ServerRecord, ...]) -> Tuple[Tuple[str, .
             uptime = f"{hours}h{minutes}m"
         except Exception:
             uptime = ""
-        rows.append((
-            rec.target,
-            state,
-            rec.command,
-            rec.node_hash or "",
-            str(rec.pid),
-            str(rec.port) if rec.port is not None else "",
-            uptime
-        ))
+        rows.append(
+            (
+                rec.target,
+                state,
+                rec.command,
+                rec.node_hash or "",
+                str(rec.pid),
+                str(rec.port) if rec.port is not None else "",
+                uptime,
+            )
+        )
     return headers, tuple(rows)
+
 
 def do_print_table(headers: Tuple[str, ...], rows: Tuple[Tuple[str, ...], ...]) -> None:
     if rows:
@@ -142,6 +170,7 @@ def do_print_table(headers: Tuple[str, ...], rows: Tuple[Tuple[str, ...], ...]) 
     print(fmt.format(*headers))
     for row in rows:
         print(fmt.format(*row))
+
 
 def make_server_record(
     pid: int,
@@ -162,6 +191,7 @@ def make_server_record(
         node_hash=node_hash,
     )
 
+
 def do_save_server_record(record: ServerRecord, record_dir: Path) -> None:
     """Side effect: save a ServerRecord to JSON file in record_dir."""
     record_dir.mkdir(parents=True, exist_ok=True)
@@ -177,19 +207,36 @@ def do_save_server_record(record: ServerRecord, record_dir: Path) -> None:
         data["to_unbind_hash"] = record.node_hash
     path.write_text(json.dumps(data))
 
-def get_diff_file_list(left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool) -> tuple[str, ...]:
+
+def get_diff_file_list(
+    left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool
+) -> tuple[str, ...]:
     default = ("expr.yaml",)
     if files is not None:
         return tuple(files)
     if all_flag:
         # Exclude node_hashes.yaml as node hashes are not used here
-        default_files = ("expr.yaml", "deferred_reads.yaml", "profiles.yaml", "sql.yaml", "metadata.json")
-        sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")}
+        default_files = (
+            "expr.yaml",
+            "deferred_reads.yaml",
+            "profiles.yaml",
+            "sql.yaml",
+            "metadata.json",
+        )
+        sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {
+            p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")
+        }
         return default_files + tuple(sorted(sqls))
     return default
 
-def get_keep_files(file_list: tuple[str, ...], left_dir: Path, right_dir: Path) -> tuple[str, ...]:
-    return tuple(f for f in file_list if (left_dir / f).exists() or (right_dir / f).exists())
+
+def get_keep_files(
+    file_list: tuple[str, ...], left_dir: Path, right_dir: Path
+) -> tuple[str, ...]:
+    return tuple(
+        f for f in file_list if (left_dir / f).exists() or (right_dir / f).exists()
+    )
+
 
 def run_diffs(left_dir: Path, right_dir: Path, keep_files: tuple[str, ...]) -> int:
     exit_code = 0
@@ -203,6 +250,7 @@ def run_diffs(left_dir: Path, right_dir: Path, keep_files: tuple[str, ...]) -> i
         elif ret != 0:
             return ret
     return exit_code
+
 
 def do_diff_builds(
     left: str,
@@ -221,6 +269,7 @@ def do_diff_builds(
         print("No files to diff")
         return 2
     return run_diffs(left_dir, right_dir, keep_files)
+
 
 from xorq.vendor.ibis import Expr
 
@@ -414,7 +463,6 @@ def unbind_and_serve_command(
         logger.warning(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
-
     expr = load_expr(expr_path)
 
     def expr_to_unbound(expr, to_unbind_hash):
@@ -433,7 +481,9 @@ def unbind_and_serve_command(
         found = find_by_expr_hash(expr, to_unbind_hash, typs=typ)
 
         if len(found_cons) == 0:
-            raise ValueError
+            raise ValueError(
+                f"No sources found to unbind for expression hash: {to_unbind_hash}"
+            )
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
@@ -462,6 +512,7 @@ def unbind_and_serve_command(
                 )
 
         import dask
+
         node_hash = dask.base.tokenize(found.to_expr())
         logger.info(f"Unbinding with node {type(found).__name__} with hash {node_hash}")
 
@@ -593,6 +644,7 @@ def init_command(
     print(f"initialized xorq template `{template}` to {path}")
     return path
 
+
 def lineage_command(
     target: str,
 ):
@@ -615,24 +667,54 @@ def lineage_command(
         print_tree(tree)
         print()
 
+
 def catalog_command(args):
     """
     Manage build catalog subcommands: add, ls, inspect.
     """
+    # Determine canonical catalog path in config directory
+    config_path = get_catalog_path()
+    config_dir = config_path.parent
     if args.subcommand == "add":
         # Use absolute path for build directory
         build_path = Path(args.build_path).resolve()
         alias = args.alias
         # Validate build and extract metadata (expr hash recalculated fresh later)
-        build_id, meta_digest, metadata_preview = BuildManager.validate_build(build_path)
-        build_path_str = str(build_path)
-        catalog = load_catalog()
+        build_id, meta_digest, metadata_preview = BuildManager.validate_build(
+            build_path
+        )
+        # Ensure local catalog directory and builds subdirectory exist
+        config_dir.mkdir(parents=True, exist_ok=True)
+        # Store all builds under a canonical folder
+        builds_dir = config_dir / "catalog-builds"
+        builds_dir.mkdir(parents=True, exist_ok=True)
+        target_dir = builds_dir / build_id
+        # Copy into a temporary directory then atomically rename to avoid partial state
+        temp_dir = builds_dir / f".{build_id}.tmp"
+        if temp_dir.exists():
+            shutil.rmtree(temp_dir)
+        try:
+            shutil.copytree(build_path, temp_dir)
+            # Remove old target if exists, then atomically replace
+            if target_dir.exists():
+                shutil.rmtree(target_dir)
+            os.replace(str(temp_dir), str(target_dir))
+        except Exception:
+            # Clean up temp on failure
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise
+        # Store relative path to build artifacts
+        build_path_str = str(Path("catalog-builds") / build_id)
+        # Load existing catalog (empty if not exists)
+        catalog = load_catalog(path=config_path)
         now = datetime.now(timezone.utc).isoformat()
         # If alias exists, append a new revision to that entry
         if alias and alias in (catalog.get("aliases") or {}):
             mapping = catalog["aliases"][alias]
             entry_id = mapping["entry_id"]
-            entry = next(e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id)
+            entry = next(
+                e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id
+            )
             # Determine next revision number
             existing = [r.get("revision_id", "r0") for r in entry.get("history", [])]
             nums = [int(r[1:]) for r in existing if r.startswith("r")]
@@ -679,11 +761,13 @@ def catalog_command(args):
                     "revision_id": revision_id,
                     "updated_at": now,
                 }
-        save_catalog(catalog)
+        # Save updated catalog to local catalog file
+        save_catalog(catalog, path=config_path)
         print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
 
     elif args.subcommand == "ls":
-        catalog = load_catalog()
+        # Load catalog from local catalog file
+        catalog = load_catalog(path=config_path)
         aliases = catalog.get("aliases", {})
         if aliases:
             print("Aliases:")
@@ -701,8 +785,10 @@ def catalog_command(args):
             print(f"{ent_id}\t{curr_rev}\t{build_id}")
 
     elif args.subcommand == "inspect":
-        catalog = load_catalog()
+        # Load catalog from local catalog file
+        catalog = load_catalog(path=config_path)
         from xorq.catalog import resolve_target
+
         target = resolve_target(args.entry, catalog)
         if target is None:
             print(f"Entry {args.entry} not found in catalog")
@@ -710,14 +796,24 @@ def catalog_command(args):
         entry_id = target.entry_id
         revision_id = args.revision or target.rev
         # Find entry
-        entry = next((e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id), None)
+        entry = next(
+            (e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id),
+            None,
+        )
         if entry is None:
             print(f"Entry {entry_id} not found in catalog")
             return
         # Determine revision
         if not revision_id:
             revision_id = entry.get("current_revision")
-        revision = next((r for r in entry.get("history", []) if r.get("revision_id") == revision_id), None)
+        revision = next(
+            (
+                r
+                for r in entry.get("history", [])
+                if r.get("revision_id") == revision_id
+            ),
+            None,
+        )
         if revision is None:
             print(f"Revision {revision_id} not found for entry {entry_id}")
             return
@@ -739,18 +835,27 @@ def catalog_command(args):
             revision_created = revision.get("created_at")
             if revision_created:
                 print(f"  Revision Created: {revision_created}")
-            expr_hash = (revision.get("expr_hashes") or {}).get("expr") or revision.get("build", {}).get("build_id")
+            expr_hash = (revision.get("expr_hashes") or {}).get("expr") or revision.get(
+                "build", {}
+            ).get("build_id")
             print(f"  {'Expr Hash':<13}: {expr_hash}")
             meta_digest = revision.get("meta_digest")
             if meta_digest:
                 print(f"  {'Meta Digest':<13}: {meta_digest}")
-        build_path = revision.get("build", {}).get("path")
+        # Resolve build directory path (handle relative paths)
+        bp = revision.get("build", {}).get("path")
+        build_dir = Path(bp) if bp else None
+        if build_dir and not build_dir.is_absolute():
+            build_dir = config_dir / build_dir
         expr = None
         schema = None
-        if build_path and (args.full or args.plan or args.schema or args.profiles or args.hashes):
+        if build_dir and (
+            args.full or args.plan or args.schema or args.profiles or args.hashes
+        ):
             from xorq.ibis_yaml.compiler import load_expr
+
             try:
-                expr = load_expr(Path(build_path))
+                expr = load_expr(build_dir)
                 schema = expr.schema()
             except Exception as e:
                 print(f"Error loading expression for DAG: {e}")
@@ -768,7 +873,8 @@ def catalog_command(args):
             else:
                 print("  No schema available.")
         if args.full or args.profiles:
-            profiles_file = Path(build_path) / "profiles.yaml" if build_path else None
+            # Load profiles from build directory
+            profiles_file = build_dir / "profiles.yaml" if build_dir else None
             print("\nProfiles:")
             if profiles_file and profiles_file.exists():
                 try:
@@ -785,9 +891,10 @@ def catalog_command(args):
             # Dynamically compute hashes for CachedNode instances
             if expr is not None:
                 try:
+                    import dask
+
                     from xorq.common.utils.graph_utils import walk_nodes
                     from xorq.expr.relations import CachedNode
-                    import dask
 
                     nodes = walk_nodes((CachedNode,), expr)
                     if nodes:
@@ -803,16 +910,18 @@ def catalog_command(args):
         return
     elif args.subcommand == "info":
         # Show top-level catalog info
-        catalog = load_catalog()
+        # Load catalog from local catalog file
+        catalog = load_catalog(path=config_path)
         entries = catalog.get("entries", []) or []
         aliases = catalog.get("aliases", {}) or {}
-        print(f"Catalog path: {DEFAULT_CATALOG_PATH}")
+        print(f"Catalog path: {config_path}")
         print(f"Entries: {len(entries)}")
         print(f"Aliases: {len(aliases)}")
         return
     elif args.subcommand == "rm":
         # Remove an entry or alias from the catalog
-        catalog = load_catalog()
+        # Load catalog from local catalog file
+        catalog = load_catalog(path=config_path)
         token = args.entry
         # Remove alias if present
         aliases = catalog.get("aliases", {}) or {}
@@ -821,7 +930,8 @@ def catalog_command(args):
             # If no aliases remain, clean up key
             if not aliases:
                 catalog.pop("aliases", None)
-            save_catalog(catalog)
+            # Save updated catalog
+            save_catalog(catalog, path=config_path)
             print(f"Removed alias {token}")
             return
         # Remove entry if present
@@ -831,13 +941,16 @@ def catalog_command(args):
                 # Remove entry and any related aliases
                 entries.pop(i)
                 # Clean aliases pointing to this entry
-                to_remove = [a for a, m in aliases.items() if m.get("entry_id") == token]
+                to_remove = [
+                    a for a, m in aliases.items() if m.get("entry_id") == token
+                ]
                 for a in to_remove:
                     aliases.pop(a, None)
                 # Clean empty aliases dict
                 if not aliases:
                     catalog.pop("aliases", None)
-                save_catalog(catalog)
+                # Save updated catalog
+                save_catalog(catalog, path=config_path)
                 print(f"Removed entry {token}")
                 return
         # Not found
@@ -851,22 +964,19 @@ def catalog_command(args):
         print(f"Unknown catalog subcommand: {args.subcommand}")
 
 
-
 def ps_command(cache_dir: str) -> None:
     """List active xorq servers."""
     record_dir = Path(cache_dir) / "servers"
-    headers, rows = format_server_table(
-        filter_running(
-            get_server_records(record_dir)
-        )
-    )
+    headers, rows = format_server_table(filter_running(get_server_records(record_dir)))
     do_print_table(headers, rows)
+
 
 def hash_command(target: str):
     """
     List replaceable nodes (Read, CachedNode, PhysicalTable) in a build and their dask hashes.
     """
     import dask
+
     # Resolve build identifier via catalog
     catalog = load_catalog()
     build_dir = resolve_build_dir(target, catalog)
@@ -877,7 +987,7 @@ def hash_command(target: str):
     expr = load_expr(build_dir)
     # FIXME: there is an issue with dask.base.tokenize and RemoteTable node that takes forever to tokenize
     # so for now we are only lisitng CachedNode and Read nodes
-    #from xorq.common.utils.node_utils import replace_typs
+    # from xorq.common.utils.node_utils import replace_typs
     from xorq.common.utils.graph_utils import walk_nodes
 
     replace_typs = (xo.expr.relations.CachedNode, xo.expr.relations.Read)
@@ -890,12 +1000,14 @@ def hash_command(target: str):
         tok = dask.base.tokenize(node.to_expr())
         print(f"{tok} {type(node).__name__} {node}")
 
+
 def cache_command(args):
     """
     Cache a built expression output to Parquet using a CachedNode.
     """
-    from xorq.common.utils.caching_utils import find_backend
     from xorq.caching import ParquetStorage
+    from xorq.common.utils.caching_utils import find_backend
+
     # Resolve build target
     catalog = load_catalog()
     build_dir = resolve_build_dir(args.target, catalog)
@@ -924,6 +1036,7 @@ def cache_command(args):
     for pq_file in sorted(cache_path.rglob("*.parquet")):
         print(f"  {pq_file.relative_to(cache_path)}")
 
+
 def profile_command(args):
     """
     Manage connection profiles: add new profiles.
@@ -941,6 +1054,7 @@ def profile_command(args):
             params[k] = v
         # Create and save profile
         from xorq.vendor.ibis.backends.profiles import Profile
+
         prof = Profile(con_name=con_name, kwargs_tuple=tuple(params.items()))
         try:
             path = prof.save(alias=alias, clobber=False)
@@ -951,6 +1065,7 @@ def profile_command(args):
     else:
         print(f"Unknown profile subcommand: {sub}")
         sys.exit(2)
+
 
 def parse_args(override=None):
     parser = argparse.ArgumentParser(
@@ -965,7 +1080,6 @@ def parse_args(override=None):
     subparsers.required = True
     ls_parser = subparsers.add_parser("ls", help="List catalog entries")
     ls_parser.set_defaults(subcommand="ls")
-
 
     uv_build_parser = subparsers.add_parser(
         "uv-build",
@@ -1059,7 +1173,8 @@ def parse_args(override=None):
         "serve-unbound", help="Serve an an unbound expr via Flight Server"
     )
     serve_unbound_parser.add_argument(
-        "build_path", help="Build target: alias, entry_id, build_id, or path to build dir"
+        "build_path",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
     )
     serve_unbound_parser.add_argument(
         "to_unbind_hash", help="hash of the expr to replace"
@@ -1097,7 +1212,8 @@ def parse_args(override=None):
         "serve", help="Serve a build via Flight Server"
     )
     serve_parser.add_argument(
-        "build_path", help="Build target: alias, entry_id, build_id, or path to build dir"
+        "build_path",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
     )
     serve_parser.add_argument(
         "--host",
@@ -1180,7 +1296,9 @@ def parse_args(override=None):
     )
     # Connection profile commands
     profile_parser = subparsers.add_parser("profile", help="Manage connection profiles")
-    profile_subparsers = profile_parser.add_subparsers(dest="subcommand", help="Profile commands")
+    profile_subparsers = profile_parser.add_subparsers(
+        dest="subcommand", help="Profile commands"
+    )
     profile_subparsers.required = True
     # Add profile
     profile_add = profile_subparsers.add_parser("add", help="Add a connection profile")
@@ -1191,7 +1309,8 @@ def parse_args(override=None):
         help="Connection backend name (e.g. 'postgres', 'duckdb')",
     )
     profile_add.add_argument(
-        "-p", "--param",
+        "-p",
+        "--param",
         action="append",
         default=[],
         metavar="KEY=VALUE",
@@ -1199,24 +1318,34 @@ def parse_args(override=None):
     )
     # Catalog commands
     catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
-    catalog_subparsers = catalog_parser.add_subparsers(dest="subcommand", help="Catalog commands")
+    catalog_subparsers = catalog_parser.add_subparsers(
+        dest="subcommand", help="Catalog commands"
+    )
     catalog_subparsers.required = True
 
-    catalog_add = catalog_subparsers.add_parser("add", help="Add a build to the catalog")
+    catalog_add = catalog_subparsers.add_parser(
+        "add", help="Add a build to the catalog"
+    )
     catalog_add.add_argument("build_path", help="Path to the build directory")
-    catalog_add.add_argument("-a", "--alias", help="Optional alias for this entry", default=None)
+    catalog_add.add_argument(
+        "-a", "--alias", help="Optional alias for this entry", default=None
+    )
     # List catalog entries
     catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
 
     catalog_inspect = catalog_subparsers.add_parser(
-        "inspect", help="Inspect a catalog entry",
+        "inspect",
+        help="Inspect a catalog entry",
         description="Inspect build catalog entries with optional detail sections",
     )
     catalog_inspect.add_argument(
         "entry", help="Entry ID, alias, or entry@revision to inspect"
     )
     catalog_inspect.add_argument(
-        "-r", "--revision", help="Revision ID to inspect (overrides alias)", default=None
+        "-r",
+        "--revision",
+        help="Revision ID to inspect (overrides alias)",
+        default=None,
     )
     catalog_inspect.add_argument(
         "--schema", action="store_true", help="Show schema section"
@@ -1228,8 +1357,7 @@ def parse_args(override=None):
         "--profiles", action="store_true", help="Show profiles section"
     )
     catalog_inspect.add_argument(
-        "--hashes", dest="hashes", action="store_true",
-        help="Show node hashes section"
+        "--hashes", dest="hashes", action="store_true", help="Show node hashes section"
     )
     catalog_inspect.add_argument(
         "--full", action="store_true", help="Show all available sections"
@@ -1244,9 +1372,7 @@ def parse_args(override=None):
     # Deprecated/removed: --caches is now redundant and no longer supported
     # Note: JSON/YAML output, raw names, color toggles, and --print-nodes removed
     catalog_inspect.set_defaults(
-        full=False, schema=False,
-        plan=False, profiles=False, hashes=False,
-        pretty=None
+        full=False, schema=False, plan=False, profiles=False, hashes=False, pretty=None
     )
     # diff-builds: compare two build artifacts via git diff --no-index
     # diff-builds: compare two build artifacts via git diff --no-index
@@ -1261,9 +1387,7 @@ def parse_args(override=None):
     catalog_rm = catalog_subparsers.add_parser(
         "rm", help="Remove a build entry or alias from the catalog"
     )
-    catalog_rm.add_argument(
-        "entry", help="Entry ID or alias to remove"
-    )
+    catalog_rm.add_argument("entry", help="Entry ID or alias to remove")
     catalog_diff_builds.add_argument(
         "left",
         help="Left build target: alias, entry_id, build_id, or path to build dir",
