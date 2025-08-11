@@ -200,6 +200,8 @@ def deferred_read_parquet(
          An expression representing the deferred read operation.
     """
 
+    # Ensure path is a string for filename normalization and regex operations
+    path = str(path)
     deferred_read_parquet.method_name = method_name = "read_parquet"
     method = getattr(con, method_name)
     if con is None:
