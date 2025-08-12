@@ -185,6 +185,7 @@ def unbind_and_serve_command(
     to_unbind_hash,
     host=None,
     port=None,
+    prometheus_port=None,
     cache_dir=get_xorq_cache_dir(),
     typ=None,
 ):
@@ -198,6 +199,15 @@ def unbind_and_serve_command(
     )
 
     logger.info(f"Loading expression from {expr_path}")
+    try:
+        # initialize console and optional Prometheus metrics
+        from xorq.flight.metrics import setup_console_metrics
+        setup_console_metrics(prometheus_port=prometheus_port)
+    except ImportError:
+        logger.warning(
+            "Metrics support requires 'opentelemetry-sdk' and console exporter"
+        )
+
     expr = load_expr(expr_path)
 
     def expr_to_unbound(expr, to_unbind_hash):
@@ -455,7 +465,12 @@ def parse_args(override=None):
         default=None,
         help="type of the node to unbind",
     )
-
+    serve_unbound_parser.add_argument(
+        "--prometheus-port",
+        type=int,
+        default=None,
+        help="Port to expose Prometheus metrics (default: disabled)",
+    )
     serve_parser = subparsers.add_parser(
         "serve", help="Serve a build via Flight Server"
     )
@@ -554,6 +569,7 @@ def main():
                         args.to_unbind_hash,
                         args.host,
                         args.port,
+                        args.prometheus_port,
                         args.cache_dir,
                         args.typ,
                     ),
