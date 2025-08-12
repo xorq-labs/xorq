@@ -96,12 +96,16 @@ data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z
 
 ```python
 def gen_splits(expr, test_size=0.2, random_seed=42, **split_kwargs):
-    yield from xo.train_test_splits(
-        expr,
-        unique_key=expr.columns,
-        test_sizes=test_size,
-        random_seed=random_seed,
-        **split_kwargs,
+    row_number = "row_number"
+    yield from (
+        expr.drop(row_number)
+        for expr in xo.train_test_splits(
+            expr.mutate(**{row_number: xo.row_number()}),
+            unique_key=row_number,
+            test_sizes=test_size,
+            random_seed=random_seed,
+            **split_kwargs,
+        )
     )
 
 def get_penguins_splits(storage=None, **split_kwargs):
