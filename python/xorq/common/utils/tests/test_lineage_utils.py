@@ -4,11 +4,13 @@ import xorq as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.graph_utils import to_node
 from xorq.common.utils.lineage_utils import (
-    ColorScheme,
+    FormatterConfig,
     GenericNode,
-    _build_column_tree,
     build_column_trees,
-    build_tree,
+    build_tree_expr,
+)
+from xorq.common.utils.lineage_utils import (
+    _build_column_tree_recursive as _build_column_tree,
 )
 
 
@@ -71,16 +73,17 @@ def test_build_column_trees_and_display(sample_expression):
     assert isinstance(total_discount_tree, GenericNode)
     assert isinstance(total_price_tree, GenericNode)
 
-    display_tree = build_tree(total_discount_tree, dedup=True, max_depth=5)
+    # Build tree with deduplication and depth limit
+    cfg = FormatterConfig(max_depth=5, dedup=True)
+    display_tree = build_tree_expr(total_discount_tree, cfg).build()
 
     from rich.tree import Tree
 
     assert isinstance(display_tree, Tree)
 
-    custom_palette = ColorScheme()
-    display_tree_custom = build_tree(
-        total_discount_tree, palette=custom_palette, dedup=False
-    )
+    # Build tree with custom settings (no deduplication)
+    cfg2 = FormatterConfig(dedup=False)
+    display_tree_custom = build_tree_expr(total_discount_tree, cfg2).build()
     assert isinstance(display_tree_custom, Tree)
 
 

@@ -43,6 +43,7 @@ __all__ = [
     "PlainTextFormatter",
     "RichFormatter",
     "make_default_formatter",
+    "maybe_build_tree_expr",
     "do_print_tree",
     "print_tree",
 ]
@@ -289,8 +290,8 @@ def _format_window_function(node: ops.WindowFunction, config: FormatterConfig) -
 class TreeNode(Protocol):
     """Protocol for tree nodes that can be formatted."""
 
-    def add_child(self, child: "TreeNode") -> None: ...
-    def set_label(self, label: str) -> None: ...
+    def add(self, child: "TreeNode") -> "TreeNode": ...  # Rich Tree uses add()
+    def __str__(self) -> str: ...
 
 
 class TreeFormatter(ABC):
@@ -336,8 +337,14 @@ class PlainTextTreeNode:
         self.children: list[PlainTextTreeNode] = []
         self.indent = indent
 
-    def add_child(self, child: "PlainTextTreeNode") -> None:
+    def add(self, child: "PlainTextTreeNode") -> "PlainTextTreeNode":
+        """Add child and return the added child (to match Rich Tree API)."""
         self.children.append(child)
+        return child
+
+    def add_child(self, child: "PlainTextTreeNode") -> None:
+        """Legacy method for compatibility."""
+        self.add(child)
 
     def set_label(self, label: str) -> None:
         self.label = label
@@ -352,6 +359,9 @@ class PlainTextTreeNode:
             result += child.to_string(depth + 1, child_prefix)
 
         return result
+
+    def __str__(self) -> str:
+        return self.to_string()
 
 
 class PlainTextFormatter(TreeFormatter):
@@ -376,50 +386,52 @@ class PlainTextFormatter(TreeFormatter):
         print(tree.to_string())
 
 
-if RICH_AVAILABLE:
+class RichFormatter(TreeFormatter):
+    """Rich-based formatter with graceful fallback to plain text."""
 
-    class RichTreeNode:
-        """Wrapper for Rich Tree."""
+    def __init__(self, config: Optional[FormatterConfig] = None):
+        super().__init__(config)
+        self._warned = False
 
-        def __init__(self, tree: RichTree):
-            self._tree = tree
+    def create_tree(self, label: str) -> TreeNode:
+        if RICH_AVAILABLE:
+            return RichTree(label)
+        else:
+            if not self._warned:
+                print("Note: Rich not available, using plain text formatting")
+                self._warned = True
+            return PlainTextTreeNode(label, self.config.indent)
 
-        def add_child(self, child: "RichTreeNode") -> None:
-            self._tree.add(child._tree)
+    def format_color(self, text: str, color: str) -> str:
+        if not RICH_AVAILABLE:
+            return text  # No color in fallback mode
 
-        def set_label(self, label: str) -> None:
-            self._tree.label = label
-
-        @property
-        def tree(self) -> RichTree:
-            return self._tree
-
-    class RichFormatter(TreeFormatter):
-        """Rich-based formatter with full styling support."""
-
-        def create_tree(self, label: str) -> RichTreeNode:
-            return RichTreeNode(RichTree(label))
-
-        def format_color(self, text: str, color: str) -> str:
-            if color.startswith("#"):
-                return f"[{color}]{text}[/]"
+        if color.startswith("#"):
             return f"[{color}]{text}[/]"
+        return f"[{color}]{text}[/]"
 
-        def format_style(self, text: str, style: str) -> str:
-            return f"[{style}]{text}[/]"
+    def format_style(self, text: str, style: str) -> str:
+        if not RICH_AVAILABLE:
+            # Use plain text styling
+            style_mapping = {
+                "bold": lambda t: f"**{t}**",
+                "italic": lambda t: f"*{t}*",
+                "dim": lambda t: f"({t})",
+            }
+            return style_mapping.get(style, lambda t: t)(text)
 
-        def do_print_tree(self, tree: RichTreeNode) -> None:
-            """Print tree using Rich (side effect)."""
-            rprint(tree.tree)
+        return f"[{style}]{text}[/]"
 
-else:
-
-    class RichFormatter(PlainTextFormatter):
-        """Fallback when Rich unavailable."""
-
-        def __init__(self, config: Optional[FormatterConfig] = None):
-            super().__init__(config)
-            print("Warning: Rich not available, using plain text")
+    def do_print_tree(self, tree: TreeNode) -> None:
+        """Print tree using Rich or plain text fallback."""
+        if RICH_AVAILABLE and RichTree and isinstance(tree, RichTree):
+            rprint(tree)
+        elif isinstance(tree, PlainTextTreeNode):
+            tree_formatter = PlainTextFormatter(self.config)
+            tree_formatter.do_print_tree(tree)
+        else:
+            # Fallback - convert to string
+            print(str(tree))
 
 
 @frozen
@@ -470,20 +482,25 @@ class TreeExpr:
         return fn(self)
 
 
-def make_default_formatter(config: Optional[FormatterConfig] = None) -> TreeFormatter:
-    """Factory function for default formatter."""
+def make_default_formatter(
+    config: Optional[FormatterConfig] = None, force_plain: bool = False
+) -> TreeFormatter:
+    """Factory function for default formatter with options."""
     config = config or FormatterConfig()
-    if RICH_AVAILABLE:
-        return RichFormatter(config)
-    return PlainTextFormatter(config)
+
+    if force_plain or not RICH_AVAILABLE:
+        return PlainTextFormatter(config)
+    return RichFormatter(config)
 
 
-def make_plain_formatter(config: Optional[FormatterConfig] = None) -> TreeFormatter:
+def make_plain_formatter(
+    config: Optional[FormatterConfig] = None,
+) -> PlainTextFormatter:
     """Factory function for plain text formatter."""
     return PlainTextFormatter(config or FormatterConfig())
 
 
-def make_rich_formatter(config: Optional[FormatterConfig] = None) -> TreeFormatter:
+def make_rich_formatter(config: Optional[FormatterConfig] = None) -> RichFormatter:
     """Factory function for Rich formatter."""
     return RichFormatter(config or FormatterConfig())
 
@@ -544,7 +561,7 @@ def _build_tree_recursive(
         child_tree = _build_tree_recursive(
             child, formatter, config, seen, seq, depth + 1
         )
-        tree_node.add_child(child_tree)
+        tree_node.add(child_tree)
 
     return tree_node
 
@@ -600,10 +617,21 @@ def maybe_build_tree_expr(
 
 
 def build_tree_expr(
-    node: GenericNode, config: Optional[FormatterConfig] = None
+    node: GenericNode,
+    config: Optional[FormatterConfig] = None,
+    formatter_type: str = "auto",
 ) -> TreeExpr:
-    """Build tree expression from node."""
-    return TreeExpr(node=node, config=config or FormatterConfig())
+    """Build tree expression from node with formatter selection."""
+    config = config or FormatterConfig()
+
+    if formatter_type == "plain":
+        formatter = make_plain_formatter(config)
+    elif formatter_type == "rich":
+        formatter = make_rich_formatter(config)
+    else:  # auto
+        formatter = make_default_formatter(config)
+
+    return TreeExpr(node=node, config=config, formatter=formatter)
 
 
 def do_print_tree(
@@ -647,6 +675,7 @@ def print_tree(
     max_depth: Optional[int] = None,
     dedup: bool = True,
     colors: Optional[Dict[str, str]] = None,
+    formatter_type: str = "auto",
 ) -> None:
     """Print tree with functional pipeline."""
     config = FormatterConfig()
@@ -657,4 +686,5 @@ def print_tree(
     if colors:
         config = config.with_colors(**colors)
 
-    do_print_tree(node, config=config)
+    tree_expr = build_tree_expr(node, config, formatter_type)
+    tree_expr.execute()
