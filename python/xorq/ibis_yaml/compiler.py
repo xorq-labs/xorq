@@ -183,10 +183,16 @@ class YamlExpressionTranslator:
 
 
 class BuildManager:
-    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path | str = None):
+    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path | str = None, debug: bool = False):
+        """
+        build_dir: root directory where build artifacts are stored
+        cache_dir: optional directory for parquet cache files
+        debug: when True, output SQL files and debug artifacts (sql.yaml, deferred_reads.yaml)
+        """
         self.artifact_store = ArtifactStore(build_dir)
         self.profiles = {}
         self.cache_dir = Path(cache_dir or get_xorq_cache_dir())
+        self.debug = debug
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
         hash_length = config.hash_length
@@ -262,15 +268,15 @@ class BuildManager:
         self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
-        sql_plans, deferred_reads = generate_sql_plans(expr)
-
-        updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
-        self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
-
-        updated_deferred_reads = self._process_deferred_reads(deferred_reads, expr_hash)
-        self.artifact_store.save_yaml(
-            updated_deferred_reads, expr_hash, "deferred_reads.yaml"
-        )
+        # write SQL plan and deferred-read artifacts if debug enabled
+        if getattr(self, 'debug', False):
+            sql_plans, deferred_reads = generate_sql_plans(expr)
+            updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
+            self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
+            updated_deferred_reads = self._process_deferred_reads(deferred_reads, expr_hash)
+            self.artifact_store.save_yaml(
+                updated_deferred_reads, expr_hash, "deferred_reads.yaml"
+            )
 
         metadata_json = self._make_metadata()
         self.artifact_store.write_text(metadata_json, expr_hash, "metadata.json")

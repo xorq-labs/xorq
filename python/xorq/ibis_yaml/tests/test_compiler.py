@@ -110,13 +110,13 @@ def test_ibis_compiler_parquet_reader(build_dir):
 def test_compiler_sql(build_dir, parquet_dir):
     backend = xo.datafusion.connect()
     awards_players = deferred_read_parquet(
-        parquet_dir / "awards_players.parquet",
+        str(parquet_dir / "awards_players.parquet"),
         backend,
         table_name="awards_players",
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
-    compiler = BuildManager(build_dir)
+    compiler = BuildManager(build_dir, debug=True)
     expr_hash = compiler.compile_expr(expr)
     _roundtrip_expr = compiler.load_expr(expr_hash)
     expected_relation = find_relations(awards_players)[0]
@@ -152,11 +152,10 @@ def test_deferred_reads_yaml(build_dir):
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
-    # Get the dynamic relation and profile hash
     expected_relation = find_relations(awards_players)[0]
     expected_profile = backend._profile.hash_name
 
-    compiler = BuildManager(build_dir)
+    compiler = BuildManager(build_dir, debug=True)
     expr_hash = compiler.compile_expr(expr)
     _roundtrip_expr = compiler.load_expr(expr_hash)
 
@@ -426,7 +425,7 @@ def test_build_file_stability_https(build_dir, snapshot):
         .into_backend(con3, "joined_into")
         .filter(xo._.G == 1)
     )
-    compiler = BuildManager(build_dir)
+    compiler = BuildManager(build_dir, debug=True)
     expr_hash = compiler.compile_expr(expr)
 
     actual = json.dumps(
@@ -492,7 +491,7 @@ def test_build_file_stability_local(
         .into_backend(con3, "joined_into")
         .filter(xo._.G == 1)
     )
-    compiler = BuildManager(build_dir)
+    compiler = BuildManager(build_dir, debug=True)
     expr_hash = compiler.compile_expr(expr)
 
     actual = json.dumps(
@@ -543,3 +542,13 @@ def test_struct_field(build_dir, tmpdir):
     expr_hash = compiler.compile_expr(expr)
     roundtrip_expr = compiler.load_expr(expr_hash)
     assert_frame_equal(expr.execute(), roundtrip_expr.execute())
+
+
+def test_no_sql_or_deferred_when_debug_false(build_dir):
+    t = xo.memtable({"a": [1, 2, 3]})
+    expr = t.filter(t.a > 1)
+    compiler = BuildManager(build_dir, debug=False)
+    expr_hash = compiler.compile_expr(expr)
+    build_path = build_dir / expr_hash
+    assert not os.path.exists(build_path / "sql.yaml")
+    assert not os.path.exists(build_path / "deferred_reads.yaml")
