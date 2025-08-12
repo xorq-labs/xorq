@@ -1,192 +1,275 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 from functools import lru_cache, singledispatch
 from itertools import count
-from typing import Any, Callable, Dict, Tuple
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Optional,
+    Protocol,
+    Tuple,
+)
 
 import dask.base
-from attrs import evolve, field, frozen
-from attrs.validators import instance_of
-from rich import print as rprint
-from rich.tree import Tree
+from attrs import evolve, field, frozen, validators
+from toolz import curry
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.graph_utils import (
-    gen_children_of,
-    to_node,
-)
+from xorq.common.utils.graph_utils import gen_children_of, to_node
 from xorq.vendor.ibis.expr.operations.core import Node
+
+
+try:
+    from rich import print as rprint
+    from rich.tree import Tree as RichTree
+
+    RICH_AVAILABLE = True
+except ImportError:
+    RICH_AVAILABLE = False
+    rprint = print
+    RichTree = None
 
 
 __all__ = [
     "build_column_trees",
-    "build_tree",
+    "build_tree_expr",
+    "TreeExpr",
+    "FormatterConfig",
+    "TreeFormatter",
+    "PlainTextFormatter",
+    "RichFormatter",
+    "make_default_formatter",
+    "do_print_tree",
     "print_tree",
 ]
 
 
 @frozen
 class GenericNode:
-    op: Node = field(validator=instance_of(Node))
+    """Immutable representation of a lineage tree node."""
+
+    op: Node = field(validator=validators.instance_of(Node))
     children: Tuple["GenericNode", ...] = field(
-        factory=tuple, validator=instance_of(tuple)
+        factory=tuple, validator=validators.instance_of(tuple)
     )
+
+    def __attrs_post_init__(self):
+        """Validate children after initialization."""
+        for i, child in enumerate(self.children):
+            if not isinstance(child, GenericNode):
+                raise TypeError(f"Child {i} must be GenericNode, got {type(child)}")
+
+    def with_children(self, children: Tuple["GenericNode", ...]) -> "GenericNode":
+        """Return new node with different children."""
+        return self.clone(children=children)
 
     def map_children(
         self, fn: Callable[["GenericNode"], "GenericNode"]
     ) -> "GenericNode":
-        return evolve(self, children=tuple(fn(c) for c in self.children))
+        """Transform children using provided function."""
+        return self.with_children(tuple(fn(c) for c in self.children))
 
     def clone(self, **changes: Any) -> "GenericNode":
+        """Create new instance with specified changes."""
         return evolve(self, **changes)
 
-
-def _build_column_tree(node: Node) -> GenericNode:
-    match node:
-        case ops.Field(rel=ops.Project(values=values)) as field_node:
-            # include the field and recurse into its mapped expression
-            mapped = values[field_node.name]
-            child = _build_column_tree(to_node(mapped))
-            return GenericNode(op=field_node, children=(child,))
-
-        case ops.Field() as field_node:
-            children = tuple(
-                _build_column_tree(to_node(child))
-                for child in gen_children_of(field_node)
-            )
-            return GenericNode(op=field_node, children=children)
-
-        case ops.Project() as proj:
-            return _build_column_tree(to_node(proj.parent))
-
-        case _:
-            children = tuple(
-                _build_column_tree(to_node(child)) for child in gen_children_of(node)
-            )
-            return GenericNode(op=node, children=children)
-
-
-def build_column_trees(expr: Any) -> Dict[str, GenericNode]:
-    """Builds a lineage tree for each column in the expression."""
-    op = to_node(expr)
-    cols = getattr(op, "values", None) or getattr(op, "fields", {})
-    return {k: _build_column_tree(to_node(v)) for k, v in cols.items()}
+    def pipe(self, fn: Callable[["GenericNode"], Any]) -> Any:
+        """Pipe this node through a function for composition."""
+        return fn(self)
 
 
 @frozen
-class ColorScheme:
-    colors: Dict[str, str] = {
-        "table": "[#658594]",  # dragonBlue2 (muted ocean blue)
-        "cached_table": "[#8a739a]",  # dragonViolet (soft purple)
-        "field": "[#8ea4a2]",  # dragonAsh (sage green)
-        "literal": "[#b6927b]",  # dragonOrange2 (warm earth)
-        "project": "[#c5c9c5]",  # dragonWhite (soft cloud)
-        "filter": "[#87a987]",  # springViolet (forest green)
-        "join": "[bold #a292a3]",  # springViolet2 (muted lavender)
-        "aggregate": "[#c4b28a]",  # dragonYellow (wheat)
-        "sort": "[#7d7c61]",  # comet (olive)
-        "limit": "[#43436c]",  # dragonInk (deep twilight)
-        "value": "[#b98d7b]",  # dragonOrange (clay)
-        "binary": "[#7d957d]",  # dragonGreen2 (moss)
-        "window": "[bold #8a739a]",  # bold dragonViolet
-        "udf": "[#7e9cd8]",  # waveBlue1 (accent blue)
-        "default": "[#a6a69c]",  # fujiGray (natural stone)
-    }
+class FormatterConfig:
+    """Immutable configuration for tree formatting."""
 
-    def get(self, category: str) -> str:
-        return self.colors.get(category, self.colors["default"])
-
-
-default_palette = ColorScheme()
-
-
-def _category(node: Node) -> str:
-    name_typs = (
-        ops.Field,
-        ops.Literal,
-        ops.Project,
-        ops.Filter,
-        ops.Aggregate,
-        ops.Sort,
-        ops.Limit,
-        ops.BinaryOp,
-        ops.ValueOp,
+    colors: Tuple[Tuple[str, str], ...] = field(
+        factory=lambda: (
+            ("table", "blue"),
+            ("cached_table", "magenta"),
+            ("field", "green"),
+            ("literal", "yellow"),
+            ("project", "white"),
+            ("filter", "cyan"),
+            ("join", "bright_magenta"),
+            ("aggregate", "bright_yellow"),
+            ("sort", "bright_black"),
+            ("limit", "bright_blue"),
+            ("value", "bright_red"),
+            ("binary", "bright_green"),
+            ("window", "bright_magenta"),
+            ("udf", "bright_cyan"),
+            ("remote_table", "bright_blue"),
+            ("flight", "bright_white"),
+            ("udxf", "magenta"),
+            ("default", "white"),
+        ),
+        validator=validators.instance_of(tuple),
     )
-    if isinstance(node, name_typs):
-        return node.__class__.__name__.lower()
-    if isinstance(node, (ops.InMemoryTable, ops.UnboundTable, ops.DatabaseTable)):
-        return "table"
-    if isinstance(node, rel.RemoteTable):
-        return "remote_table"
-    if isinstance(node, rel.FlightExpr):
-        return "flight"
-    if isinstance(node, rel.FlightUDXF):
-        return "udxf"
-    if isinstance(node, udf.ExprScalarUDF):
-        return "udf"
-    if isinstance(node, rel.CachedNode):
-        return "cached_table"
-    if isinstance(node, rel.Read):
-        return "table"
-    if isinstance(node, ops.JoinChain):
-        return "join"
-    if isinstance(node, ops.WindowFunction):
-        return "window"
+
+    show_node_ids: bool = field(default=True, validator=validators.instance_of(bool))
+    max_depth: Optional[int] = field(
+        default=None, validator=validators.optional(validators.instance_of(int))
+    )
+    dedup: bool = field(default=True, validator=validators.instance_of(bool))
+    indent: str = field(default="  ", validator=validators.instance_of(str))
+
+    show_literal_values: bool = field(
+        default=True, validator=validators.instance_of(bool)
+    )
+    truncate_literals: int = field(default=50, validator=validators.instance_of(int))
+    show_field_details: bool = field(
+        default=True, validator=validators.instance_of(bool)
+    )
+
+    def __attrs_post_init__(self):
+        """Validate color mappings after initialization."""
+        for item in self.colors:
+            if not isinstance(item, tuple) or len(item) != 2:
+                raise ValueError(
+                    f"Color mapping must be tuple of (category, color), got {item}"
+                )
+            category, color = item
+            if not isinstance(category, str) or not isinstance(color, str):
+                raise ValueError(f"Category and color must be strings, got {item}")
+
+    def with_colors(self, **color_updates: str) -> "FormatterConfig":
+        """Return new config with updated colors."""
+        color_dict = dict(self.colors)
+        color_dict.update(color_updates)
+        return self.clone(colors=tuple(color_dict.items()))
+
+    def with_depth_limit(self, max_depth: int) -> "FormatterConfig":
+        """Return new config with depth limit."""
+        return self.clone(max_depth=max_depth)
+
+    def with_dedup(self, enabled: bool = True) -> "FormatterConfig":
+        """Return new config with deduplication setting."""
+        return self.clone(dedup=enabled)
+
+    def with_node_ids(self, enabled: bool = True) -> "FormatterConfig":
+        """Return new config with node ID display setting."""
+        return self.clone(show_node_ids=enabled)
+
+    def clone(self, **changes: Any) -> "FormatterConfig":
+        """Create new config with specified changes."""
+        return evolve(self, **changes)
+
+    def get_color(self, category: str) -> str:
+        """Get color for category with fallback to default."""
+        color_dict = dict(self.colors)
+        return color_dict.get(category, color_dict["default"])
+
+    def pipe(self, fn: Callable[["FormatterConfig"], Any]) -> Any:
+        """Pipe this config through a function for composition."""
+        return fn(self)
+
+
+_NODE_CATEGORY_MAPPING = {
+    ops.Field: "field",
+    ops.Literal: "literal",
+    ops.Project: "project",
+    ops.Filter: "filter",
+    ops.Aggregate: "aggregate",
+    ops.Sort: "sort",
+    ops.Limit: "limit",
+    ops.BinaryOp: "binary",
+    ops.ValueOp: "value",
+    ops.JoinChain: "join",
+    ops.WindowFunction: "window",
+    ops.InMemoryTable: "table",
+    ops.UnboundTable: "table",
+    ops.DatabaseTable: "table",
+}
+
+# Special node type mapping
+_SPECIAL_NODE_MAPPING = {
+    rel.RemoteTable: "remote_table",
+    rel.FlightExpr: "flight",
+    rel.FlightUDXF: "udxf",
+    udf.ExprScalarUDF: "udf",
+    rel.CachedNode: "cached_table",
+    rel.Read: "table",
+}
+
+
+def _get_node_category(node: Node) -> str:
+    """Determine node category using lookup tables."""
+    # Check direct type mapping first
+    node_type = type(node)
+    if node_type in _NODE_CATEGORY_MAPPING:
+        return _NODE_CATEGORY_MAPPING[node_type]
+
+    # Check special types
+    for special_type, category in _SPECIAL_NODE_MAPPING.items():
+        if isinstance(node, special_type):
+            return category
+
     return "default"
 
 
+def maybe_truncate_text(text: str, limit: int) -> str:
+    """Truncate text if it exceeds limit."""
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def maybe_get_node_name(node: Node) -> Optional[str]:
+    """Extract name from node if available."""
+    return getattr(node, "name", None)
+
+
+def maybe_get_node_value(node: Node) -> Optional[Any]:
+    """Extract value from node if available."""
+    return getattr(node, "value", None)
+
+
 @singledispatch
-def format_node(node: Node, config: Dict[str, Any] | None = None) -> str:
-    config = config or {}
-    palette: ColorScheme = config.get("palette", default_palette)
-    cat = _category(node)
-    color = palette.get(cat)
-    return f"{color}{node.__class__.__name__}[/]"
+def format_node_label(node: Node, config: FormatterConfig) -> str:
+    """Format node label based on node type."""
+    return node.__class__.__name__
 
 
-@format_node.register
-def _(node: ops.Field, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("field")
-    return f"{col}Field:{node.name}[/]"
+@format_node_label.register(ops.Field)
+def _format_field(node: ops.Field, config: FormatterConfig) -> str:
+    """Format field node with optional details."""
+    if config.show_field_details:
+        return f"Field:{node.name}"
+    return node.name
 
 
-@format_node.register
-def _(node: rel.RemoteTable, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("remote_table")
-    return f"{col}RemoteTable:{node.name}[/]"
+@format_node_label.register(ops.Literal)
+def _format_literal(node: ops.Literal, config: FormatterConfig) -> str:
+    """Format literal node with optional value display."""
+    if not config.show_literal_values:
+        return "Literal"
+
+    value_str = str(node.value)
+    truncated = maybe_truncate_text(value_str, config.truncate_literals)
+    return f"Literal: {truncated}"
 
 
-@format_node.register
-def _(node: rel.CachedNode, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("cached_table")
+@format_node_label.register(rel.RemoteTable)
+def _format_remote_table(node: rel.RemoteTable, config: FormatterConfig) -> str:
+    """Format remote table node."""
+    return f"RemoteTable:{node.name}"
+
+
+@format_node_label.register(rel.CachedNode)
+def _format_cached_node(node: rel.CachedNode, config: FormatterConfig) -> str:
+    """Format cached node with storage info."""
     store = getattr(node.storage, "kind", "cache")
-    return f"{col}Cache[{store}] {getattr(node, 'name', '')}[/]"
+    name = getattr(node, "name", "")
+    return f"Cache[{store}] {name}".strip()
 
 
-@format_node.register
-def _(node: rel.FlightExpr, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("flight")
-    return f"{col}FlightExpr ({node.input_expr})[/]"
-
-
-@format_node.register
-def _(node: udf.ExprScalarUDF, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("udxf")
-    return f"{col}ExprScalarUDF[/]"
-
-
-@format_node.register
-def _(node: ops.WindowFunction, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("window")
-
+@format_node_label.register(ops.WindowFunction)
+def _format_window_function(node: ops.WindowFunction, config: FormatterConfig) -> str:
+    """Format window function with details."""
     parts = []
     if node.order_by:
         parts.append(f"order_by: {node.order_by}")
@@ -199,74 +282,379 @@ def _(node: ops.WindowFunction, cfg: Dict[str, Any] | None = None) -> str:
 
     if parts:
         details = "\n ".join(parts)
-        return f"{col}WindowFunction:\n {details}[/]"
-    else:
-        return f"{col}WindowFunction[/]"
+        return f"WindowFunction:\n {details}"
+    return "WindowFunction"
 
 
-@format_node.register
-def _(node: ops.Literal, cfg: Dict[str, Any] | None = None) -> str:
-    palette: ColorScheme = (cfg or {}).get("palette", default_palette)
-    col = palette.get("literal")
-    return f"{col}Literal: {node.value}[/]"
+class TreeNode(Protocol):
+    """Protocol for tree nodes that can be formatted."""
+
+    def add_child(self, child: "TreeNode") -> None: ...
+    def set_label(self, label: str) -> None: ...
 
 
-@lru_cache
-def _token_node(g: GenericNode) -> str:
-    """unique token for the node based on its operation and children (useful in
-    deduplication)"""
-    op = g.op
+class TreeFormatter(ABC):
+    """Abstract base for tree formatters with functional interface."""
+
+    def __init__(self, config: Optional[FormatterConfig] = None):
+        self.config = config or FormatterConfig()
+
+    @abstractmethod
+    def create_tree(self, label: str) -> TreeNode:
+        """Create a new tree with the given root label."""
+        pass
+
+    @abstractmethod
+    def format_color(self, text: str, color: str) -> str:
+        """Apply color formatting to text."""
+        pass
+
+    @abstractmethod
+    def format_style(self, text: str, style: str) -> str:
+        """Apply style formatting to text."""
+        pass
+
+    @abstractmethod
+    def do_print_tree(self, tree: TreeNode) -> None:
+        """Print the tree (side effect)."""
+        pass
+
+    def with_config(self, config: FormatterConfig) -> "TreeFormatter":
+        """Return new formatter with different config."""
+        return type(self)(config)
+
+    def pipe(self, fn: Callable[["TreeFormatter"], Any]) -> Any:
+        """Pipe this formatter through a function."""
+        return fn(self)
+
+
+class PlainTextTreeNode:
+    """Simple tree node for plain text output."""
+
+    def __init__(self, label: str, indent: str = "  "):
+        self.label = label
+        self.children: list[PlainTextTreeNode] = []
+        self.indent = indent
+
+    def add_child(self, child: "PlainTextTreeNode") -> None:
+        self.children.append(child)
+
+    def set_label(self, label: str) -> None:
+        self.label = label
+
+    def to_string(self, depth: int = 0, prefix: str = "") -> str:
+        """Convert tree to string representation."""
+        result = prefix + self.label + "\n"
+
+        for i, child in enumerate(self.children):
+            is_last = i == len(self.children) - 1
+            child_prefix = prefix + ("└── " if is_last else "├── ")
+            result += child.to_string(depth + 1, child_prefix)
+
+        return result
+
+
+class PlainTextFormatter(TreeFormatter):
+    """Plain text formatter - no dependencies required."""
+
+    def create_tree(self, label: str) -> PlainTextTreeNode:
+        return PlainTextTreeNode(label, self.config.indent)
+
+    def format_color(self, text: str, color: str) -> str:
+        return text  # No color in plain text
+
+    def format_style(self, text: str, style: str) -> str:
+        style_mapping = {
+            "bold": lambda t: f"**{t}**",
+            "italic": lambda t: f"*{t}*",
+            "dim": lambda t: f"({t})",
+        }
+        return style_mapping.get(style, lambda t: t)(text)
+
+    def do_print_tree(self, tree: PlainTextTreeNode) -> None:
+        """Print tree to stdout (side effect)."""
+        print(tree.to_string())
+
+
+if RICH_AVAILABLE:
+
+    class RichTreeNode:
+        """Wrapper for Rich Tree."""
+
+        def __init__(self, tree: RichTree):
+            self._tree = tree
+
+        def add_child(self, child: "RichTreeNode") -> None:
+            self._tree.add(child._tree)
+
+        def set_label(self, label: str) -> None:
+            self._tree.label = label
+
+        @property
+        def tree(self) -> RichTree:
+            return self._tree
+
+    class RichFormatter(TreeFormatter):
+        """Rich-based formatter with full styling support."""
+
+        def create_tree(self, label: str) -> RichTreeNode:
+            return RichTreeNode(RichTree(label))
+
+        def format_color(self, text: str, color: str) -> str:
+            if color.startswith("#"):
+                return f"[{color}]{text}[/]"
+            return f"[{color}]{text}[/]"
+
+        def format_style(self, text: str, style: str) -> str:
+            return f"[{style}]{text}[/]"
+
+        def do_print_tree(self, tree: RichTreeNode) -> None:
+            """Print tree using Rich (side effect)."""
+            rprint(tree.tree)
+
+else:
+
+    class RichFormatter(PlainTextFormatter):
+        """Fallback when Rich unavailable."""
+
+        def __init__(self, config: Optional[FormatterConfig] = None):
+            super().__init__(config)
+            print("Warning: Rich not available, using plain text")
+
+
+@frozen
+class TreeExpr:
+    """Immutable expression for building trees with deferred execution."""
+
+    node: GenericNode = field(validator=validators.instance_of(GenericNode))
+    config: FormatterConfig = field(factory=FormatterConfig)
+    formatter: Optional[TreeFormatter] = field(default=None)
+
+    def with_config(self, config: FormatterConfig) -> "TreeExpr":
+        """Return new expression with different config."""
+        return self.clone(config=config)
+
+    def with_formatter(self, formatter: TreeFormatter) -> "TreeExpr":
+        """Return new expression with different formatter."""
+        return self.clone(formatter=formatter)
+
+    def with_depth_limit(self, max_depth: int) -> "TreeExpr":
+        """Return new expression with depth limit."""
+        return self.with_config(self.config.with_depth_limit(max_depth))
+
+    def with_dedup(self, enabled: bool = True) -> "TreeExpr":
+        """Return new expression with deduplication setting."""
+        return self.with_config(self.config.with_dedup(enabled))
+
+    def with_colors(self, **colors: str) -> "TreeExpr":
+        """Return new expression with custom colors."""
+        return self.with_config(self.config.with_colors(**colors))
+
+    def clone(self, **changes: Any) -> "TreeExpr":
+        """Create new expression with changes."""
+        return evolve(self, **changes)
+
+    def build(self) -> TreeNode:
+        """Build the tree structure (deferred execution)."""
+        formatter = self.formatter or make_default_formatter(self.config)
+        return _build_tree_recursive(self.node, formatter, self.config)
+
+    def execute(self) -> None:
+        """Execute the tree building and print (side effect)."""
+        tree = self.build()
+        formatter = self.formatter or make_default_formatter(self.config)
+        formatter.do_print_tree(tree)
+
+    def pipe(self, fn: Callable[["TreeExpr"], Any]) -> Any:
+        """Pipe this expression through a function."""
+        return fn(self)
+
+
+def make_default_formatter(config: Optional[FormatterConfig] = None) -> TreeFormatter:
+    """Factory function for default formatter."""
+    config = config or FormatterConfig()
+    if RICH_AVAILABLE:
+        return RichFormatter(config)
+    return PlainTextFormatter(config)
+
+
+def make_plain_formatter(config: Optional[FormatterConfig] = None) -> TreeFormatter:
+    """Factory function for plain text formatter."""
+    return PlainTextFormatter(config or FormatterConfig())
+
+
+def make_rich_formatter(config: Optional[FormatterConfig] = None) -> TreeFormatter:
+    """Factory function for Rich formatter."""
+    return RichFormatter(config or FormatterConfig())
+
+
+@lru_cache(maxsize=1024)
+def _get_node_token(node: GenericNode) -> str:
+    """Get unique token for node deduplication."""
+    op = node.op
     return dask.base.tokenize(
         (
-            getattr(op, "name", None),  # is name always set?
+            getattr(op, "name", None),
             getattr(op, "schema", None),
-            tuple(_token_node(c) for c in g.children),
+            tuple(_get_node_token(c) for c in node.children),
         )
     )
 
 
-def build_tree(
+def _build_tree_recursive(
     node: GenericNode,
-    *,
-    palette: ColorScheme | None = None,
-    dedup: bool = True,
-    max_depth: int | None = None,
-) -> Tree:
-    cfg = {"palette": palette or default_palette}
+    formatter: TreeFormatter,
+    config: FormatterConfig,
+    seen: Optional[Dict[str, int]] = None,
+    seq: Optional[count] = None,
+    depth: int = 0,
+) -> TreeNode:
+    """Recursively build tree structure."""
 
-    seen: dict[str, int] = {}
-    seq = count(1)
+    if seen is None:
+        seen = {}
+    if seq is None:
+        seq = count(1)
 
-    def _to_tree(g: GenericNode, depth: int) -> Tree:
-        if max_depth is not None and depth > max_depth:
-            return Tree("[dim]…[/]")
+    if config.max_depth is not None and depth > config.max_depth:
+        return formatter.create_tree(formatter.format_style("…", "dim"))
 
-        digest = _token_node(g) if dedup else None
-        if digest is not None and digest in seen:
-            ref = seen[digest]
-            return Tree(f"[italic dim]↻ see #{ref}[/]")
+    if config.dedup:
+        token = _get_node_token(node)
+        if token in seen:
+            ref_num = seen[token]
+            label = formatter.format_style(f"↻ see #{ref_num}", "italic")
+            return formatter.create_tree(label)
 
-        ref = next(seq)
-        if digest is not None:
-            seen[digest] = ref
+        ref_num = next(seq)
+        seen[token] = ref_num
 
-        label = format_node(g.op, cfg)
-        if dedup:
-            label += f" [grey37]#{ref}[/]"
-        branch = Tree(label)
+    base_label = format_node_label(node.op, config)
+    category = _get_node_category(node.op)
+    colored_label = formatter.format_color(base_label, config.get_color(category))
 
-        for child in g.children:
-            branch.add(_to_tree(child, depth + 1))
-        return branch
+    final_label = colored_label
+    if config.show_node_ids and config.dedup:
+        ref_text = formatter.format_style(f" #{seen.get(token, next(seq))}", "dim")
+        final_label += ref_text
 
-    return _to_tree(node, 0)
+    tree_node = formatter.create_tree(final_label)
+
+    for child in node.children:
+        child_tree = _build_tree_recursive(
+            child, formatter, config, seen, seq, depth + 1
+        )
+        tree_node.add_child(child_tree)
+
+    return tree_node
+
+
+def _build_column_tree_recursive(node: Node) -> GenericNode:
+    """Recursively build column lineage tree."""
+    match node:
+        case ops.Field(rel=ops.Project(values=values)) as field_node:
+            mapped = values[field_node.name]
+            child = _build_column_tree_recursive(to_node(mapped))
+            return GenericNode(op=field_node, children=(child,))
+
+        case ops.Field() as field_node:
+            children = tuple(
+                _build_column_tree_recursive(to_node(child))
+                for child in gen_children_of(field_node)
+            )
+            return GenericNode(op=field_node, children=children)
+
+        case ops.Project() as proj:
+            return _build_column_tree_recursive(to_node(proj.parent))
+
+        case _:
+            children = tuple(
+                _build_column_tree_recursive(to_node(child))
+                for child in gen_children_of(node)
+            )
+            return GenericNode(op=node, children=children)
+
+
+def build_column_trees(expr: Any) -> Dict[str, GenericNode]:
+    """Build lineage trees for each column in expression."""
+    op = to_node(expr)
+    cols = getattr(op, "values", None) or getattr(op, "fields", {})
+    return {k: _build_column_tree_recursive(to_node(v)) for k, v in cols.items()}
+
+
+def maybe_build_tree_expr(
+    expr: Any, column_name: Optional[str] = None
+) -> Optional[TreeExpr]:
+    """Maybe build tree expression from expression and column name."""
+    try:
+        if column_name:
+            trees = build_column_trees(expr)
+            if column_name not in trees:
+                return None
+            return TreeExpr(node=trees[column_name])
+        else:
+            node = GenericNode(op=to_node(expr))
+            return TreeExpr(node=node)
+    except Exception:
+        return None
+
+
+def build_tree_expr(
+    node: GenericNode, config: Optional[FormatterConfig] = None
+) -> TreeExpr:
+    """Build tree expression from node."""
+    return TreeExpr(node=node, config=config or FormatterConfig())
+
+
+def do_print_tree(
+    node: GenericNode,
+    formatter: Optional[TreeFormatter] = None,
+    config: Optional[FormatterConfig] = None,
+) -> None:
+    """Print tree (side effect function)."""
+    tree_expr = build_tree_expr(node, config)
+    if formatter:
+        tree_expr = tree_expr.with_formatter(formatter)
+    tree_expr.execute()
+
+
+@curry
+def with_depth_limit(max_depth: int, tree_expr: TreeExpr) -> TreeExpr:
+    """Curried function to set depth limit."""
+    return tree_expr.with_depth_limit(max_depth)
+
+
+@curry
+def with_colors(color_map: Dict[str, str], tree_expr: TreeExpr) -> TreeExpr:
+    """Curried function to set colors."""
+    return tree_expr.with_colors(**color_map)
+
+
+@curry
+def with_formatter_type(formatter_type: str, tree_expr: TreeExpr) -> TreeExpr:
+    """Curried function to set formatter type."""
+    formatter_factories = {
+        "rich": make_rich_formatter,
+        "plain": make_plain_formatter,
+        "default": make_default_formatter,
+    }
+    factory = formatter_factories.get(formatter_type, make_default_formatter)
+    return tree_expr.with_formatter(factory(tree_expr.config))
 
 
 def print_tree(
     node: GenericNode,
-    *,
-    palette: ColorScheme | None = None,
+    max_depth: Optional[int] = None,
     dedup: bool = True,
-    max_depth: int | None = None,
+    colors: Optional[Dict[str, str]] = None,
 ) -> None:
-    rprint(build_tree(node, palette=palette, dedup=dedup, max_depth=max_depth))
+    """Print tree with functional pipeline."""
+    config = FormatterConfig()
+    if max_depth is not None:
+        config = config.with_depth_limit(max_depth)
+    if not dedup:
+        config = config.with_dedup(False)
+    if colors:
+        config = config.with_colors(**colors)
+
+    do_print_tree(node, config=config)
