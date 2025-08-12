@@ -199,9 +199,15 @@ def unbind_and_serve_command(
     )
 
     logger.info(f"Loading expression from {expr_path}")
-    # initialize console and optional Prometheus metrics
-    from xorq.flight.metrics import setup_console_metrics
-    setup_console_metrics(prometheus_port=prometheus_port)
+    try:
+        # initialize console and optional Prometheus metrics
+        from xorq.flight.metrics import setup_console_metrics
+        setup_console_metrics(prometheus_port=prometheus_port)
+    except ImportError:
+        logger.warning(
+            "Metrics support requires 'opentelemetry-sdk' and console exporter"
+        )
+
     expr = load_expr(expr_path)
 
     def expr_to_unbound(expr, to_unbind_hash):
