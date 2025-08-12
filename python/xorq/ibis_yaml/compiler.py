@@ -314,8 +314,9 @@ class BuildManager:
         Validate a build directory and extract build metadata for catalog.
         Returns: build_id, meta_digest, metadata_preview
         """
-        from pathlib import Path
         import hashlib
+        from pathlib import Path
+
         build_path = Path(path)
         if not build_path.exists() or not build_path.is_dir():
             raise ValueError(f"Build path not found: {build_path}")

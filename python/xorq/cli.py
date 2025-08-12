@@ -12,15 +12,13 @@ import uuid
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
+from typing import Optional, Tuple
 
 import yaml
+from attrs import evolve, frozen
 from opentelemetry import trace
 
 import xorq as xo
-
-# Ensure custom Dask normalization handlers are registered
-import xorq.common.utils.dask_normalize  # noqa: F401
-import xorq.common.utils.pickle_utils  # noqa: F401
 
 # Helper functions for diff-builds subcommand
 from xorq.catalog import (
@@ -43,6 +41,13 @@ from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
 )
+from xorq.vendor.ibis import Expr
+
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
 
 
 def maybe_resolve_build_dirs(
@@ -56,11 +61,19 @@ def maybe_resolve_build_dirs(
         config_dir = config_path.parent
         # Adjust left_dir if token is not a literal directory and left_dir is relative
         token_path = Path(left)
-        if not token_path.is_dir() and left_dir is not None and not left_dir.is_absolute():
+        if (
+            not token_path.is_dir()
+            and left_dir is not None
+            and not left_dir.is_absolute()
+        ):
             left_dir = config_dir / left_dir
         # Adjust right_dir similarly
         token_path = Path(right)
-        if not token_path.is_dir() and right_dir is not None and not right_dir.is_absolute():
+        if (
+            not token_path.is_dir()
+            and right_dir is not None
+            and not right_dir.is_absolute()
+        ):
             right_dir = config_dir / right_dir
     except ValueError as e:
         print(f"Error: {e}")
@@ -83,11 +96,9 @@ def maybe_resolve_build_dirs(
 
 
 # === Server Recording Utilities ===
-from dataclasses import dataclass
-from typing import Optional, Tuple
 
 
-@dataclass(frozen=True)
+@frozen
 class ServerRecord:
     pid: int
     command: str
@@ -95,6 +106,10 @@ class ServerRecord:
     port: Optional[int]
     start_time: datetime
     node_hash: Optional[str] = None
+
+    def clone(self, **changes) -> "ServerRecord":
+        """Return a new ServerRecord with updated fields."""
+        return evolve(self, **changes)
 
 
 def maybe_make_server_record(data: dict) -> Optional[ServerRecord]:
@@ -282,9 +297,6 @@ def do_diff_builds(
     return run_diffs(left_dir, right_dir, keep_files)
 
 
-from xorq.vendor.ibis import Expr
-
-
 try:
     from enum import StrEnum
 except ImportError:
@@ -469,6 +481,7 @@ def unbind_and_serve_command(
     try:
         # initialize console and optional Prometheus metrics
         from xorq.flight.metrics import setup_console_metrics
+
         setup_console_metrics(prometheus_port=prometheus_port)
     except ImportError:
         logger.warning(
@@ -502,24 +515,18 @@ def unbind_and_serve_command(
         # Log the node being replaced and its dask hash
         try:
             import dask
+
             node_hash = dask.base.tokenize(found.to_expr())
             logger.info(f"Replacing node {type(found).__name__} with hash {node_hash}")
         except Exception:
             logger.info(f"Replacing node {type(found).__name__}")
             subtree_cons = find_all_sources(found)
-            if con_index is not None:
-                if con_index < 0 or con_index >= len(subtree_cons):
-                    raise ValueError(
-                        f"Invalid --con-index: {con_index}. Must be between 0 and {len(subtree_cons) - 1}"
-                    )
-                found_con = subtree_cons[con_index]
-            elif len(subtree_cons) == 1:
+            if len(subtree_cons) == 1:
                 found_con = subtree_cons[0]
             else:
                 raise ValueError(
                     f"Multiple sources found for expr hash {to_unbind_hash}: "
                     + ", ".join(f"[{i}]: {src}" for i, src in enumerate(subtree_cons))
-                    + ". Please specify --con-index to select one."
                 )
 
         import dask
@@ -828,13 +835,6 @@ def catalog_command(args):
         if revision is None:
             print(f"Revision {revision_id} not found for entry {entry_id}")
             return
-        # Prepare output data
-        output = {
-            "entry_id": entry_id,
-            "revision_id": revision_id,
-            "entry": entry,
-            "revision": revision,
-        }
         # Only show summary when not focusing on specific sections
         if args.full or not (args.plan or args.profiles or args.hashes):
             print("Summary:")
@@ -1365,7 +1365,7 @@ def parse_args(override=None):
         "-a", "--alias", help="Optional alias for this entry", default=None
     )
     # List catalog entries
-    catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
+    catalog_subparsers.add_parser("ls", help="List catalog entries")
 
     catalog_inspect = catalog_subparsers.add_parser(
         "inspect",
@@ -1414,9 +1414,7 @@ def parse_args(override=None):
         "diff-builds", help="Compare two build artifacts via git diff --no-index"
     )
     # Show top-level catalog information
-    catalog_info = catalog_subparsers.add_parser(
-        "info", help="Show catalog information"
-    )
+    catalog_subparsers.add_parser("info", help="Show catalog information")
     # Remove an entry or alias from the catalog
     catalog_rm = catalog_subparsers.add_parser(
         "rm", help="Remove a build entry or alias from the catalog"
@@ -1427,8 +1425,7 @@ def parse_args(override=None):
         "export", help="Export catalog and all builds to a target directory"
     )
     catalog_export.add_argument(
-        "output_path",
-        help="Directory path to export catalog.yaml and builds subfolder"
+        "output_path", help="Directory path to export catalog.yaml and builds subfolder"
     )
     catalog_diff_builds.add_argument(
         "left",
