@@ -55,7 +55,9 @@ def test_diff_builds_identical(tmp_path, capsys):
         d.mkdir()
         (d / "expr.yaml").write_text("foo: bar")
     # Run diff-builds
-    args = parse_args(["catalog", "diff-builds", str(tmp_path / "b1"), str(tmp_path / "b2")])
+    args = parse_args(
+        ["catalog", "diff-builds", str(tmp_path / "b1"), str(tmp_path / "b2")]
+    )
     with pytest.raises(SystemExit) as e:
         catalog_command(args)
     # No differences -> exit code 0
@@ -66,12 +68,15 @@ def test_diff_builds_no_files(tmp_path):
     # Empty builds: no expr.yaml
     for name in ("b1", "b2"):
         (tmp_path / name).mkdir()
-    args = parse_args(["catalog", "diff-builds", str(tmp_path / "b1"), str(tmp_path / "b2")])
+    args = parse_args(
+        ["catalog", "diff-builds", str(tmp_path / "b1"), str(tmp_path / "b2")]
+    )
     with pytest.raises(SystemExit) as e:
         catalog_command(args)
     # No files to diff -> exit code 2
     assert e.value.code == 2
-    
+
+
 def test_inspect_full_profiles(tmp_path, capsys):
     # Prepare a fake build directory with metadata.json and profiles.yaml
     build_dir = tmp_path / "b1"
@@ -104,6 +109,7 @@ def test_inspect_full_profiles(tmp_path, capsys):
     assert "Node hashes:" in out
     assert "No node hashes recorded." in out
 
+
 def test_inspect_print_nodes_only(tmp_path, capsys):
     # Prepare a fake build directory with metadata.json but no profiles
     build_dir = tmp_path / "b2"
@@ -123,7 +129,8 @@ def test_inspect_print_nodes_only(tmp_path, capsys):
     assert "No node hashes recorded." in out
     # Since expr.yaml is missing, expect an error loading the DAG
     assert "Error loading expression for DAG" in out
-    
+
+
 def test_rm_entry(tmp_path, capsys):
     # Add and then remove a build entry
     build_dir = tmp_path / "b1"
@@ -145,6 +152,7 @@ def test_rm_entry(tmp_path, capsys):
     out_ls = capsys.readouterr().out
     assert entry_id not in out_ls
 
+
 def test_rm_alias(tmp_path, capsys):
     # Add build with alias, then remove alias only
     build_dir = tmp_path / "b2"
@@ -165,13 +173,15 @@ def test_rm_alias(tmp_path, capsys):
     out_ls = capsys.readouterr().out
     assert "Aliases:" not in out_ls
 
+
 def test_rm_not_found(tmp_path, capsys):
     # Attempt to remove non-existent entry
-    args = parse_args(["catalog", "rm", "noexist"] )
+    args = parse_args(["catalog", "rm", "noexist"])
     catalog_command(args)
     out = capsys.readouterr().out
     assert "Entry noexist not found in catalog" in out
-    
+
+
 def test_info_empty_catalog(tmp_path, capsys):
     # On an empty catalog, info should show zero entries and aliases
     args = parse_args(["catalog", "info"])
@@ -180,6 +190,7 @@ def test_info_empty_catalog(tmp_path, capsys):
     assert "Catalog path:" in out
     assert "Entries: 0" in out
     assert "Aliases: 0" in out
+
 
 def test_info_after_add(tmp_path, capsys):
     # After adding one entry and one alias, info should update counts

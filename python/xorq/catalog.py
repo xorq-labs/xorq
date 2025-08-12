@@ -17,55 +17,72 @@ import xorq as xo
 @frozen
 class CatalogMetadata:
     """Catalog metadata."""
+
     catalog_id: str = field(validator=instance_of(str))
     created_at: str = field(validator=instance_of(str))
     updated_at: str = field(validator=instance_of(str))
     tool_version: str = field(validator=instance_of(str))
 
-    def with_updated_timestamp(self) -> 'CatalogMetadata':
+    def with_updated_timestamp(self) -> "CatalogMetadata":
         """Return new metadata with updated timestamp."""
         return self.clone(updated_at=datetime.now(timezone.utc).isoformat())
 
-    def clone(self, **kwargs) -> 'CatalogMetadata':
+    def clone(self, **kwargs) -> "CatalogMetadata":
         """Create a copy with specified changes."""
         return type(self)(**asdict(self) | kwargs)
 
+
 @frozen
 class Build:
-    """ Build information."""
+    """Build information."""
+
     build_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
     path: Optional[str] = field(default=None, validator=optional(instance_of(str)))
 
-    def clone(self, **kwargs) -> 'Build':
+    def clone(self, **kwargs) -> "Build":
         return type(self)(**asdict(self) | kwargs)
+
 
 @frozen
 class Revision:
-    """ Revision data."""
+    """Revision data."""
+
     revision_id: str = field(validator=instance_of(str))
     created_at: str = field(validator=instance_of(str))
     build: Optional[Build] = field(default=None, validator=optional(instance_of(Build)))
     expr_hashes: Optional[Dict[str, str]] = field(default=None)
-    node_hashes: Tuple[str, ...] = field(factory=tuple, validator=deep_iterable(instance_of(str), instance_of(tuple)))
-    meta_digest: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    node_hashes: Tuple[str, ...] = field(
+        factory=tuple, validator=deep_iterable(instance_of(str), instance_of(tuple))
+    )
+    meta_digest: Optional[str] = field(
+        default=None, validator=optional(instance_of(str))
+    )
     metadata: Optional[Dict[str, Any]] = field(default=None)
-    schema_fingerprint: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    schema_fingerprint: Optional[str] = field(
+        default=None, validator=optional(instance_of(str))
+    )
 
-    def clone(self, **kwargs) -> 'Revision':
+    def clone(self, **kwargs) -> "Revision":
         return type(self)(**asdict(self) | kwargs)
+
 
 @frozen
 class Entry:
     """Entry in the catalog."""
-    entry_id: str = field(validator=instance_of(str))
-    current_revision: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    history: Tuple[Revision, ...] = field(factory=tuple, validator=deep_iterable(instance_of(Revision), instance_of(tuple)))
 
-    def with_revision(self, revision: Revision) -> 'Entry':
+    entry_id: str = field(validator=instance_of(str))
+    current_revision: Optional[str] = field(
+        default=None, validator=optional(instance_of(str))
+    )
+    history: Tuple[Revision, ...] = field(
+        factory=tuple,
+        validator=deep_iterable(instance_of(Revision), instance_of(tuple)),
+    )
+
+    def with_revision(self, revision: Revision) -> "Entry":
         """Add a new revision to history."""
         return self.clone(
-            current_revision=revision.revision_id,
-            history=self.history + (revision,)
+            current_revision=revision.revision_id, history=self.history + (revision,)
         )
 
     def maybe_get_revision(self, revision_id: str) -> Optional[Revision]:
@@ -78,32 +95,41 @@ class Entry:
             return None
         return self.maybe_get_revision(self.current_revision)
 
-    def clone(self, **kwargs) -> 'Entry':
+    def clone(self, **kwargs) -> "Entry":
         return type(self)(**asdict(self) | kwargs)
+
 
 @frozen
 class Alias:
     entry_id: str = field(validator=instance_of(str))
-    revision_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    revision_id: Optional[str] = field(
+        default=None, validator=optional(instance_of(str))
+    )
 
-    def clone(self, **kwargs) -> 'Alias':
+    def clone(self, **kwargs) -> "Alias":
         return type(self)(**asdict(self) | kwargs)
+
 
 @frozen
 class XorqCatalog:
-    """ Xorq Catalog container."""
+    """Xorq Catalog container."""
+
     metadata: CatalogMetadata = field(validator=instance_of(CatalogMetadata))
     api_version: str = field(default="xorq.dev/v1", validator=instance_of(str))
     kind: str = field(default="XorqCatalog", validator=instance_of(str))
     aliases: Mapping[str, Alias] = field(factory=dict)
-    entries: Tuple[Entry, ...] = field(factory=tuple, validator=deep_iterable(instance_of(Entry), instance_of(tuple)))
+    entries: Tuple[Entry, ...] = field(
+        factory=tuple, validator=deep_iterable(instance_of(Entry), instance_of(tuple))
+    )
 
-    def with_entry(self, entry: Entry) -> 'XorqCatalog':
+    def with_entry(self, entry: Entry) -> "XorqCatalog":
         """Add or update an entry."""
-        existing_entries = tuple(e for e in self.entries if e.entry_id != entry.entry_id)
+        existing_entries = tuple(
+            e for e in self.entries if e.entry_id != entry.entry_id
+        )
         return self.clone(entries=existing_entries + (entry,))
 
-    def with_alias(self, name: str, alias: Alias) -> 'XorqCatalog':
+    def with_alias(self, name: str, alias: Alias) -> "XorqCatalog":
         """Add or update an alias."""
         new_aliases = dict(self.aliases)
         new_aliases[name] = alias
@@ -117,7 +143,7 @@ class XorqCatalog:
         """Get alias by name if it exists."""
         return self.aliases.get(name)
 
-    def with_updated_metadata(self) -> 'XorqCatalog':
+    def with_updated_metadata(self) -> "XorqCatalog":
         """Return catalog with updated timestamp."""
         return self.clone(metadata=self.metadata.with_updated_timestamp())
 
@@ -125,7 +151,7 @@ class XorqCatalog:
         """Get all entry IDs."""
         return tuple(e.entry_id for e in self.entries)
 
-    def clone(self, **kwargs) -> 'XorqCatalog':
+    def clone(self, **kwargs) -> "XorqCatalog":
         return type(self)(**asdict(self) | kwargs)
 
 
@@ -140,10 +166,16 @@ class Target:
 class ExportIndex:
     alias: Optional[str] = field(default=None, validator=optional(instance_of(str)))
     entry_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    revision_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    revision_id: Optional[str] = field(
+        default=None, validator=optional(instance_of(str))
+    )
     build_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    expr_digest: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    meta_digest: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    expr_digest: Optional[str] = field(
+        default=None, validator=optional(instance_of(str))
+    )
+    meta_digest: Optional[str] = field(
+        default=None, validator=optional(instance_of(str))
+    )
 
 
 def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
@@ -157,10 +189,15 @@ def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
     else:
         config_home = Path.home() / ".config"
     return config_home / "xorq" / "catalog.yaml"
+
+
 # Keep DEFAULT_CATALOG_PATH for backward compatibility
 DEFAULT_CATALOG_PATH = get_catalog_path()
 
-def do_save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = None) -> None:
+
+def do_save_catalog(
+    catalog: XorqCatalog, path: Optional[Union[str, Path]] = None
+) -> None:
     catalog_path = get_catalog_path(path)
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -168,6 +205,7 @@ def do_save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = Non
 
     with catalog_path.open("w") as f:
         yaml.safe_dump(catalog_dict, f, sort_keys=False)
+
 
 def do_write_tree(root: Path, files: Mapping[str, bytes]) -> None:
     """Write file tree to disk (side effect)."""
@@ -184,11 +222,14 @@ def make_default_catalog() -> XorqCatalog:
         catalog_id=str(uuid.uuid4()),
         created_at=now,
         updated_at=now,
-        tool_version=xo.__version__
+        tool_version=xo.__version__,
     )
     return XorqCatalog(metadata=metadata)
 
-def maybe_load_catalog(path: Optional[Union[str, Path]] = None) -> Optional[XorqCatalog]:
+
+def maybe_load_catalog(
+    path: Optional[Union[str, Path]] = None,
+) -> Optional[XorqCatalog]:
     """Load catalog from disk, return None if not found."""
     catalog_path = get_catalog_path(path)
     if not catalog_path.exists():
@@ -201,10 +242,12 @@ def maybe_load_catalog(path: Optional[Union[str, Path]] = None) -> Optional[Xorq
     except (yaml.YAMLError, KeyError, TypeError):
         return None
 
+
 def load_catalog_or_default(path: Optional[Union[str, Path]] = None) -> XorqCatalog:
     """Load catalog or create default if not found."""
     catalog = maybe_load_catalog(path)
     return catalog if catalog is not None else make_default_catalog()
+
 
 def maybe_resolve_target(target: str, catalog: XorqCatalog) -> Optional[Target]:
     """Parse and resolve a target string, return None if invalid."""
@@ -216,21 +259,14 @@ def maybe_resolve_target(target: str, catalog: XorqCatalog) -> Optional[Target]:
     # Try alias first
     alias = catalog.maybe_get_alias(base)
     if alias is not None:
-        return Target(
-            entry_id=alias.entry_id,
-            rev=rev,
-            alias=rev is None
-        )
+        return Target(entry_id=alias.entry_id, rev=rev, alias=rev is None)
 
     # Try entry ID
     if base in catalog.get_entry_ids():
-        return Target(
-            entry_id=base,
-            rev=rev,
-            alias=False
-        )
+        return Target(entry_id=base, rev=rev, alias=False)
 
     return None
+
 
 def maybe_resolve_build_dir(token: str, catalog: XorqCatalog) -> Optional[Path]:
     """Resolve build directory from token, return None if not found."""
@@ -270,6 +306,7 @@ def dump_yaml(obj: Any) -> str:
     """Dump object to YAML string."""
     return yaml.safe_dump(obj, sort_keys=False)
 
+
 def dump_json(obj: Any) -> str:
     """Dump object to JSON string."""
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
@@ -303,16 +340,18 @@ def _catalog_to_dict(catalog: XorqCatalog) -> Dict[str, Any]:
         "kind": catalog.kind,
         "metadata": asdict(catalog.metadata),
         "aliases": {name: asdict(alias) for name, alias in catalog.aliases.items()},
-        "entries": [_entry_to_dict(entry) for entry in catalog.entries]
+        "entries": [_entry_to_dict(entry) for entry in catalog.entries],
     }
+
 
 def _entry_to_dict(entry: Entry) -> Dict[str, Any]:
     """Convert entry to dictionary."""
     return {
         "entry_id": entry.entry_id,
         "current_revision": entry.current_revision,
-        "history": [_revision_to_dict(rev) for rev in entry.history]
+        "history": [_revision_to_dict(rev) for rev in entry.history],
     }
+
 
 def _revision_to_dict(revision: Revision) -> Dict[str, Any]:
     """Convert revision to dictionary."""
@@ -336,6 +375,7 @@ def _revision_to_dict(revision: Revision) -> Dict[str, Any]:
 
     return result
 
+
 def _dict_to_catalog(data: Dict[str, Any]) -> XorqCatalog:
     """Convert dictionary to catalog."""
     metadata = CatalogMetadata(**data["metadata"])
@@ -344,15 +384,18 @@ def _dict_to_catalog(data: Dict[str, Any]) -> XorqCatalog:
     for name, alias_data in data.get("aliases", {}).items():
         aliases[name] = Alias(**alias_data)
 
-    entries = tuple(_dict_to_entry(entry_data) for entry_data in data.get("entries", []))
+    entries = tuple(
+        _dict_to_entry(entry_data) for entry_data in data.get("entries", [])
+    )
 
     return XorqCatalog(
         api_version=data.get("apiVersion", "xorq.dev/v1"),
         kind=data.get("kind", "XorqCatalog"),
         metadata=metadata,
         aliases=aliases,
-        entries=entries
+        entries=entries,
     )
+
 
 def _dict_to_entry(data: Dict[str, Any]) -> Entry:
     """Convert dictionary to entry."""
@@ -361,8 +404,9 @@ def _dict_to_entry(data: Dict[str, Any]) -> Entry:
     return Entry(
         entry_id=data["entry_id"],
         current_revision=data.get("current_revision"),
-        history=history
+        history=history,
     )
+
 
 def _dict_to_revision(data: Dict[str, Any]) -> Revision:
     """Convert dictionary to revision."""
@@ -378,8 +422,9 @@ def _dict_to_revision(data: Dict[str, Any]) -> Revision:
         node_hashes=tuple(data.get("node_hashes", [])),
         meta_digest=data.get("meta_digest"),
         metadata=data.get("metadata"),
-        schema_fingerprint=data.get("schema_fingerprint")
+        schema_fingerprint=data.get("schema_fingerprint"),
     )
+
 
 def _maybe_find_build_by_id(build_id: str, catalog: XorqCatalog) -> Optional[Path]:
     """Find build directory by build ID."""
@@ -390,6 +435,7 @@ def _maybe_find_build_by_id(build_id: str, catalog: XorqCatalog) -> Optional[Pat
                 return Path(path) if path else None
     return None
 
+
 def _maybe_get_schema_fingerprint(revision: Revision) -> Optional[str]:
     """Extract schema fingerprint from revision."""
     if revision.schema_fingerprint:
@@ -398,22 +444,28 @@ def _maybe_get_schema_fingerprint(revision: Revision) -> Optional[str]:
         return revision.metadata.get("schema_fingerprint")
     return None
 
+
 def _maybe_get_read_set(revision: Revision) -> Optional[List[Any]]:
     """Extract read set from revision metadata."""
     if revision.metadata:
         return revision.metadata.get("read_set")
     return None
 
+
 def _get_file_map(root: Path) -> Dict[str, Path]:
     """Get mapping of relative paths to absolute paths."""
     files = [p for p in root.rglob("*") if p.is_file()]
     return {str(p.relative_to(root)): p for p in files}
 
+
 def _read_text_lines(path: Path) -> List[str]:
     """Read file as text lines."""
     return path.read_text().splitlines(keepends=True)
 
-def _compare_files(left_path: Optional[Path], right_path: Optional[Path], rel_path: str) -> Optional[List[str]]:
+
+def _compare_files(
+    left_path: Optional[Path], right_path: Optional[Path], rel_path: str
+) -> Optional[List[str]]:
     """Compare two files and return diff lines if different."""
     if left_path and right_path:
         if left_path.read_bytes() == right_path.read_bytes():
@@ -424,7 +476,7 @@ def _compare_files(left_path: Optional[Path], right_path: Optional[Path], rel_pa
             _read_text_lines(right_path),
             fromfile=f"a/{rel_path}",
             tofile=f"b/{rel_path}",
-            lineterm=""
+            lineterm="",
         )
         return list(diff) + ["\n"]
     elif left_path and not right_path:
@@ -438,6 +490,7 @@ def with_entry(entry: Entry, catalog: XorqCatalog) -> XorqCatalog:
     """Curried version of with_entry for composition."""
     return catalog.with_entry(entry)
 
+
 @curry
 def with_alias(name: str, alias: Alias, catalog: XorqCatalog) -> XorqCatalog:
     """Curried version of with_alias for composition."""
@@ -447,6 +500,7 @@ def with_alias(name: str, alias: Alias, catalog: XorqCatalog) -> XorqCatalog:
 def write_tree(root: Path, files: Mapping[str, bytes]) -> None:
     """Write file tree to disk."""
     do_write_tree(root, files)
+
 
 def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """Load catalog as raw dict; return minimal structure if not found."""
@@ -459,12 +513,16 @@ def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     data.setdefault("aliases", {})
     return data
 
-def save_catalog(catalog: Dict[str, Any], path: Optional[Union[str, Path]] = None) -> None:
+
+def save_catalog(
+    catalog: Dict[str, Any], path: Optional[Union[str, Path]] = None
+) -> None:
     """Save raw catalog dict to disk."""
     catalog_path = get_catalog_path(path)
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
     with catalog_path.open("w") as f:
         yaml.safe_dump(catalog, f, sort_keys=False)
+
 
 def resolve_target(target: str, catalog: Dict[str, Any]) -> Optional[Target]:
     """Resolve target string against raw catalog dict."""
@@ -493,6 +551,7 @@ def resolve_target(target: str, catalog: Dict[str, Any]) -> Optional[Target]:
             rev_id = rev
         return Target(entry_id=base, rev=rev_id, alias=False)
     return None
+
 
 def resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
     """Resolve build directory from raw catalog dict."""
