@@ -3298,8 +3298,12 @@ class Table(Expr, _FixedTextJupyterMixin):
             name = util.gen_name("sql_query")
             expr = self
 
+        from xorq.expr.api import _transform_expr
+
+        (expr, _) = _transform_expr(expr)
+
         schema = backend._get_sql_string_view_schema(name=name, table=expr, query=query)
-        node = ops.SQLStringView(child=self.op(), query=query, schema=schema)
+        node = ops.SQLStringView(child=expr.op(), query=query, schema=schema)
         return node.to_expr()
 
     def to_pandas(self, **kwargs) -> pd.DataFrame:
