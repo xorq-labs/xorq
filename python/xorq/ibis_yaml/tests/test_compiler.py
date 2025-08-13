@@ -110,7 +110,7 @@ def test_ibis_compiler_parquet_reader(build_dir):
 def test_compiler_sql(build_dir, parquet_dir):
     backend = xo.datafusion.connect()
     awards_players = deferred_read_parquet(
-        str(parquet_dir / "awards_players.parquet"),
+        parquet_dir / "awards_players.parquet",
         backend,
         table_name="awards_players",
     )
@@ -141,10 +141,10 @@ def test_compiler_sql(build_dir, parquet_dir):
     assert sql_text == expected_result
 
 
-def test_deferred_reads_yaml(build_dir):
+def test_deferred_reads_yaml(build_dir, parquet_dir):
     backend = xo.datafusion.connect()
     # Factor out the config path
-    config_path = xo.config.options.pins.get_path("awards_players")
+    config_path = parquet_dir / "awards_players.parquet"
     awards_players = deferred_read_parquet(
         config_path,
         backend,
@@ -199,14 +199,18 @@ def test_ibis_compiler_expr_schema_ref(t, build_dir):
     assert yaml_dict["expression"]["schema_ref"]
 
 
-def test_multi_engine_deferred_reads(build_dir):
+def test_multi_engine_deferred_reads(build_dir, parquet_dir):
     con0 = xo.connect()
     con1 = xo.connect()
     con2 = xo.duckdb.connect()
     con3 = xo.connect()
 
-    awards_players = xo.examples.awards_players.fetch(con0).into_backend(con1)
-    batting = xo.examples.batting.fetch(con2).into_backend(con1)
+    awards_players = deferred_read_parquet(
+        parquet_dir / "awards_players.parquet", con=con0
+    ).into_backend(con1)
+    batting = deferred_read_parquet(
+        parquet_dir / "batting.parquet", con=con2
+    ).into_backend(con1)
     expr = (
         awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
         .into_backend(con3)
@@ -220,14 +224,18 @@ def test_multi_engine_deferred_reads(build_dir):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_multi_engine_with_caching(build_dir):
+def test_multi_engine_with_caching(build_dir, parquet_dir):
     con0 = xo.connect()
     con1 = xo.connect()
     con2 = xo.duckdb.connect()
     con3 = xo.connect()
 
-    awards_players = xo.examples.awards_players.fetch(con0).into_backend(con1).cache()
-    batting = xo.examples.batting.fetch(con2).into_backend(con1).cache()
+    awards_players = deferred_read_parquet(
+        parquet_dir / "awards_players.parquet", con=con0
+    ).into_backend(con1)
+    batting = deferred_read_parquet(
+        parquet_dir / "batting.parquet", con=con2
+    ).into_backend(con1)
     expr = (
         awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
         .into_backend(con3)
@@ -256,7 +264,7 @@ def test_multi_engine_with_caching(build_dir):
     ),
 )
 def test_multi_engine_with_caching_with_parquet(
-    build_dir, tmp_path, environment_factory, cli_factory, monkeypatch
+    build_dir, tmp_path, environment_factory, cli_factory, monkeypatch, parquet_dir
 ):
     expected_cache_dir = tmp_path
     if environment_factory is not None:
@@ -272,9 +280,15 @@ def test_multi_engine_with_caching_with_parquet(
     storage = ParquetStorage(source=con1, relative_path=tmp_path)
 
     awards_players = (
-        xo.examples.awards_players.fetch(con0).into_backend(con1).cache(storage=storage)
+        deferred_read_parquet(parquet_dir / "awards_players.parquet", con=con0)
+        .into_backend(con1)
+        .cache(storage=storage)
     )
-    batting = xo.examples.batting.fetch(con1).into_backend(con2).cache(storage=storage)
+    batting = (
+        deferred_read_parquet(parquet_dir / "batting.parquet", con=con1)
+        .into_backend(con2)
+        .cache(storage=storage)
+    )
     expr = (
         awards_players.join(batting, predicates=["playerID", "yearID", "lgID"])
         .into_backend(con3)
@@ -396,6 +410,7 @@ def test_build_pandas_backend(build_dir, users_df):
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
+@pytest.mark.slow
 def test_build_file_stability_https(build_dir, snapshot):
     def with_profile_idx(con, idx):
         profile = con._profile
