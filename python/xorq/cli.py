@@ -485,7 +485,7 @@ def parse_args(override=None):
         help="Port to expose Prometheus metrics (default: disabled)",
     )
     serve_parser = subparsers.add_parser(
-        "serve", help="Serve a build via Flight Server"
+        "serve-flight-udxf", help="Serve a build via Flight Server"
     )
     serve_parser.add_argument(
         "build_path", help="Path to the build directory (output of xorq build)"
@@ -593,7 +593,8 @@ def main():
                         args.typ,
                     ),
                 )
-            case "serve":
+            case "serve-flight-udxf":
+                # Serve a Flight UDXF build
                 f, f_args = (
                     serve_command,
                     (
