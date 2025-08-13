@@ -59,9 +59,23 @@ def do_into_backend(expr, con=None):
     return expr.into_backend(con or xo.connect())
 
 
-def make_estimator_typ(fit, predict, return_type, name=None):
-    assert hasattr(fit, "__call__") and hasattr(predict, "__call__")
+def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=None):
+    def arbitrate_transform_predict(transform, predict):
+        match (transform, predict):
+            case [None, None]:
+                raise ValueError
+            case [other, None]:
+                return other, "transform"
+            case [None, other]:
+                return other, "predict"
+            case [other0, other1]:
+                raise ValueError(other0, other1)
+            case _:
+                raise ValueError
+
     assert isinstance(return_type, dt.DataType)
+    other, which = arbitrate_transform_predict(transform, predict)
+    assert hasattr(fit, "__call__") and hasattr(other, "__call__")
 
     def make_name(prefix, to_tokenize, n=32):
         tokenized = dask.base.tokenize(to_tokenize)
@@ -70,19 +84,19 @@ def make_estimator_typ(fit, predict, return_type, name=None):
     def wrapped_fit(self, *args, **kwargs):
         self._model = fit(*args, **kwargs)
 
-    def wrapped_predict(self, *args, **kwargs):
-        return predict(self._model, *args, **kwargs)
+    def wrapped_other(self, *args, **kwargs):
+        return other(self._model, *args, **kwargs)
 
-    name = name or make_name("estimator", (fit, predict))
+    name = name or make_name("estimator", (fit, other))
     typ = type(
         name,
         (BaseEstimator,),
         {
             "fit": wrapped_fit,
-            "predict": wrapped_predict,
+            which: wrapped_other,
             "return_type": return_type,
             "_fit": fit,
-            "_predict": predict,
+            f"_{which}": other,
         },
     )
     return typ
@@ -267,6 +281,37 @@ class Step:
             A new Step wrapping the estimator instance.
         """
         return cls.from_instance_name(instance, name, deep=deep)
+
+    @classmethod
+    def from_fit_transform(
+        cls, fit, transform, return_type, klass_name=None, name=None
+    ):
+        """
+        Create a Step from custom fit and transform functions.
+
+        Parameters
+        ----------
+        fit : callable
+            Function to fit the model.
+        transform : callable
+            Function to transform with.
+        return_type : DataType
+            The return type for the transformation.
+        klass_name : str, optional
+            Name for the generated estimator class.
+        name : str, optional
+            Name for the step.
+
+        Returns
+        -------
+        Step
+            A new Step with a dynamically created transform type.
+        """
+
+        typ = make_estimator_typ(
+            fit=fit, transform=transform, return_type=return_type, name=klass_name
+        )
+        return cls(typ=typ, name=name)
 
     @classmethod
     def from_fit_predict(cls, fit, predict, return_type, klass_name=None, name=None):
@@ -459,6 +504,14 @@ class FittedStep:
         else:
             expr = col.as_table()
         return expr
+
+    def mutate(self, expr, name=None):
+        if self.is_predict:
+            return self.predict_raw(expr, name=name)
+        elif self.is_transform:
+            return self.transform_raw(expr, name=name)
+        else:
+            raise ValueError
 
     @property
     def predicted(self):
