@@ -26,6 +26,7 @@ from xorq.expr.ml import (
 )
 from xorq.expr.relations import (
     CachedNode,
+    TagNode,
     register_and_transform_remote_tables,
 )
 from xorq.vendor.ibis.backends.sql.dialects import DataFusion
@@ -326,7 +327,8 @@ def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
 
     """
 
-    return SQLString(_cached_with_op(expr.unbind().op(), pretty))
+    unbound = _remove_tag_nodes(expr).unbind().op()
+    return SQLString(_cached_with_op(unbound, pretty))
 
 
 @tracer.start_as_current_span("_register_and_transform_cache_tables")
@@ -427,8 +429,21 @@ def execute(expr: ir.Expr, **kwargs: Any):
     return expr.__pandas_result__(df)
 
 
+@tracer.start_as_current_span("_remove_tag_nodes")
+def _remove_tag_nodes(expr):
+    def replacer(node, kwargs):
+        if isinstance(node, TagNode):
+            node = node.parent
+        if kwargs:
+            node = node.__recreate__(kwargs)
+        return node
+
+    return expr.op().replace(replacer).to_expr()
+
+
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr):
+    expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
     expr, created = register_and_transform_remote_tables(expr)
     expr, dt_to_read = _transform_deferred_reads(expr)
