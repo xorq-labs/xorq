@@ -306,9 +306,9 @@ def normalize_read(read):
         else:
             raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     elif isinstance(path, (list, tuple)) and all(isinstance(el, str) for el in path):
-        raise NotImplementedError
+        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     else:
-        raise NotImplementedError
+        raise NotImplementedError(f'Don\'t know how to deal with path "{path}"')
     tpls += tuple(
         (k, v)
         for k, v in read.read_kwargs

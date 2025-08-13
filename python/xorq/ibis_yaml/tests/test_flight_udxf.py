@@ -16,17 +16,17 @@ schema = xo.schema({"sum_price": "float64", "sum_carat": "float64"})
 return_type = xo.dtype("float64")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def con():
     return xo.connect()
 
 
-@pytest.fixture(scope="function")
-def diamonds(con):
-    return xo.examples.diamonds.fetch(backend=con)
+@pytest.fixture(scope="session")
+def diamonds(con, parquet_dir):
+    return xo.deferred_read_parquet(parquet_dir / "diamonds.parquet", con=con)
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def baseline(diamonds):
     expr = diamonds.pipe(do_agg).mutate(my_udf_on_expr).order_by("cut")
     return expr.execute()
