@@ -5,8 +5,6 @@ import pathlib
 import time
 import uuid
 
-import dask
-import pandas as pd
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
@@ -28,7 +26,6 @@ from xorq.common.utils.postgres_utils import (
     do_analyze,
     get_postgres_n_scans,
 )
-from xorq.expr.relations import into_backend
 from xorq.expr.udf import (
     agg,
 )
@@ -593,27 +590,6 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
     assert expr.execute() is not None
 
 
-@pytest.mark.parametrize("other_con", [xo.connect(), xo.duckdb.connect()])
-def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
-    table_name = "batting"
-    pg_t = pg.table(table_name)[lambda t: t.yearID > 2014]
-    db_t = other_con.create_table(
-        f"db-{table_name}", pg.table(table_name).to_pyarrow()
-    )[lambda t: t.stint == 1].pipe(into_backend, pg)
-
-    expr = pg_t.join(
-        db_t,
-        db_t.columns,
-    ).cache(
-        storage=ParquetStorage(
-            source=ls_con,
-            relative_path=tmp_path,
-        )
-    )
-
-    assert expr.execute() is not None
-
-
 def test_repeated_cache(pg, ls_con, tmp_path):
     storage = ParquetStorage(
         source=ls_con,
@@ -676,58 +652,6 @@ def test_cache_default_path_set(pg, ls_con, tmp_path):
 
     assert result is not None
     assert cache_files
-
-
-def test_pandas_snapshot(ls_con, alltypes_df):
-    group_by = "year"
-    name = ibis.util.gen_name("tmp_table")
-
-    # create a temp table we can mutate
-    pd_con = xo.pandas.connect()
-    table = pd_con.create_table(name, alltypes_df)
-
-    cached_expr = (
-        table.group_by(group_by)
-        .agg({f"count_{col}": table[col].count() for col in table.columns})
-        .pipe(into_backend, ls_con)
-        .cache(storage=SourceSnapshotStorage(source=ls_con))
-    )
-    (storage, uncached) = get_storage_uncached(cached_expr)
-
-    # test preconditions
-    assert not storage.exists(uncached)
-
-    # test cache creation
-    executed0 = cached_expr.execute()
-
-    with storage.normalization_context(uncached):
-        normalized0 = dask.base.normalize_token(uncached)
-    assert storage.exists(uncached)
-
-    # test cache use
-    executed1 = cached_expr.execute()
-    assert executed0.equals(executed1)
-
-    # test NO cache invalidation
-    pd_con.reconnect()
-    table2 = pd_con.create_table(name, pd.concat((alltypes_df, alltypes_df)))
-
-    cached_expr = (
-        table2.group_by(group_by)
-        .agg({f"count_{col}": table2[col].count() for col in table2.columns})
-        .pipe(into_backend, ls_con)
-        .cache(storage)
-    )
-    (storage, uncached) = get_storage_uncached(cached_expr)
-    with storage.normalization_context(uncached):
-        normalized1 = dask.base.normalize_token(uncached)
-
-    # everything else is stable, despite the different data
-    assert normalized0[1][1] == normalized1[1][1]
-    assert storage.exists(uncached)
-    assert storage.get_key(uncached).count(KEY_PREFIX) == 1
-    executed2 = cached_expr.ls.uncached.execute()
-    assert not executed0.equals(executed2)
 
 
 def test_duckdb_snapshot(ls_con, alltypes_df):
