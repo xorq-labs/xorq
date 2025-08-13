@@ -19,6 +19,7 @@ from attrs import evolve, frozen
 from opentelemetry import trace
 
 import xorq as xo
+import xorq.common.utils.pickle_utils  # noqa: F401
 
 # Helper functions for diff-builds subcommand
 from xorq.catalog import (
