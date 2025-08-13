@@ -42,6 +42,7 @@ def prep_template_tmpdir(template, tmpdir):
     return (tgz_path, project_path)
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_path_hexdigest(template, tmpdir, snapshot):
     tgz_path, project_path = prep_template_tmpdir(template, tmpdir)
@@ -50,6 +51,7 @@ def test_sdist_path_hexdigest(template, tmpdir, snapshot):
     snapshot.assert_match(actual, f"test_sdist_path_hexdigest-{template}")
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
@@ -62,6 +64,7 @@ def test_sdist_builder(template, tmpdir):
     assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
@@ -78,6 +81,7 @@ def test_sdist_builder_no_requirements(template, tmpdir):
     assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
@@ -101,6 +105,7 @@ def test_sdist_builder_no_requirements_fails(template, tmpdir):
         sdist_builder
 
 
+@pytest.mark.slow
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
