@@ -76,7 +76,11 @@ def uv_run_command(
 
 @tracer.start_as_current_span("cli.build_command")
 def build_command(
-    script_path, expr_name, builds_dir="builds", cache_dir=get_xorq_cache_dir()
+    script_path,
+    expr_name,
+    builds_dir="builds",
+    cache_dir=get_xorq_cache_dir(),
+    debug: bool = False,
 ):
     """
     Generate artifacts from an expression in a given Python script
@@ -107,7 +111,11 @@ def build_command(
 
     print(f"Building {expr_name} from {script_path}", file=sys.stderr)
 
-    build_manager = BuildManager(builds_dir, cache_dir=Path(cache_dir))
+    build_manager = BuildManager(
+        builds_dir,
+        cache_dir=Path(cache_dir),
+        debug=debug,
+    )
 
     vars_module = import_from_path(script_path, module_name="__main__")
 
@@ -408,6 +416,11 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for all generated parquet files cache",
     )
+    build_parser.add_argument(
+        "--debug",
+        action="store_true",
+        help="Output SQL files and other debug artifacts",
+    )
 
     run_parser = subparsers.add_parser(
         "run", help="Run a build from a builds directory"
@@ -554,7 +567,13 @@ def main():
             case "build":
                 f, f_args = (
                     build_command,
-                    (args.script_path, args.expr_name, args.builds_dir, args.cache_dir),
+                    (
+                        args.script_path,
+                        args.expr_name,
+                        args.builds_dir,
+                        args.cache_dir,
+                        args.debug,
+                    ),
                 )
             case "run":
                 f, f_args = (
