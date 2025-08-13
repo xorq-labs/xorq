@@ -22,8 +22,8 @@ def con():
 
 
 @pytest.fixture(scope="function")
-def diamonds(con):
-    return xo.examples.diamonds.fetch(backend=con)
+def diamonds(con, parquet_dir):
+    return xo.deferred_read_parquet(parquet_dir / "diamonds.parquet", con=con)
 
 
 @pytest.fixture(scope="function")
