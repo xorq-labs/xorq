@@ -14,12 +14,7 @@ from attr.validators import (
 )
 from sklearn.base import (
     BaseEstimator,
-)
-from sklearn.feature_extraction.text import (
-    TfidfVectorizer,
-)
-from sklearn.feature_selection import (
-    SelectKBest,
+    ClassifierMixin,
 )
 from sklearn.linear_model import (
     LinearRegression,
@@ -28,8 +23,8 @@ from sklearn.linear_model import (
 from sklearn.neighbors import (
     KNeighborsClassifier,
 )
-from sklearn.svm import (
-    LinearSVC,
+from toolz.curried import (
+    excepts as cexcepts,
 )
 
 import xorq as xo
@@ -391,15 +386,29 @@ class FittedStep:
             "storage": self.storage,
         }
         (deferred_transform, deferred_predict) = (None, None)
-        # this should be in lock step with Structer.from_instance_expr
         if self.is_transform:
-            f = deferred_fit_transform_sklearn_struct
-            if self.step.typ in (TfidfVectorizer,):
-                (kwargs["col"],) = kwargs.pop("features")
-                kwargs["return_type"] = dt.Array(dt.float64)
-                f = deferred_fit_transform_series_sklearn
-            elif self.step.typ in (SelectKBest,):
-                kwargs |= {"target": self.target}
+            match self.step.typ:
+                # FIXME: formalize registration of non-Structer handling
+                case type(__name__="TfidfVectorizer"):
+                    f = deferred_fit_transform_series_sklearn
+                    # features must be length 1
+                    (col,) = kwargs.pop("features")
+                    kwargs = kwargs | {
+                        "col": col,
+                        "return_type": dt.Array(dt.float64),
+                    }
+                case type(__name__="SelectKBest"):
+                    # SelectKBest is a Structer special case that needs target
+                    f = deferred_fit_transform_sklearn_struct
+                    kwargs = kwargs | {
+                        "target": self.target,
+                    }
+                case typ:
+                    # FIXME: create abstract class for BaseEstimator with get_step_f_kwargs
+                    if get_step_f_kwargs := getattr(typ, "get_step_f_kwargs", None):
+                        (f, kwargs) = get_step_f_kwargs(kwargs)
+                    else:
+                        f = deferred_fit_transform_sklearn_struct
             (deferred_model, model_udf, deferred_transform) = f(**kwargs)
         elif self.is_predict:
             predict_kwargs = {
@@ -446,38 +455,36 @@ class FittedStep:
 
     @property
     @functools.cache
+    @cexcepts(ValueError)
     def structer(self):
         return Structer.from_instance_expr(
             self.step.instance, self.expr, features=self.features
         )
 
+    def get_others(self, expr):
+        others = tuple(other for other in expr.columns if other not in self.features)
+        return others
+
     def transform_unpack(self, expr, retain_others=True, name="to_unpack"):
         struct_col = self.transform_raw(expr).name(name)
-        if retain_others and (
-            others := tuple(
-                other for other in expr.columns if other not in self.features
-            )
-        ):
-            expr = expr.select(*others, struct_col)
+        if retain_others:
+            expr = expr.select(*self.get_others(expr), struct_col)
         else:
             expr = struct_col.as_table()
         return expr.unpack(name)
 
-    def transform_raw(self, expr):
-        transformed = self.deferred_transform.on_expr(expr)
-        if self.dest_col is not None:
-            transformed = transformed.name(self.dest_col)
+    def transform_raw(self, expr, name=None):
+        # when you use expr.mutate, you want transform_raw
+        transformed = self.deferred_transform.on_expr(expr).name(
+            name or self.dest_col or "transformed"
+        )
         return transformed
 
     def transform(self, expr, retain_others=True):
-        if self.step.typ in (TfidfVectorizer,):
+        if self.structer is None:
             col = self.transform_raw(expr)
-            if retain_others and (
-                others := tuple(
-                    other for other in expr.columns if other not in self.features
-                )
-            ):
-                return expr.select(*others, col)
+            if retain_others:
+                return expr.select(*self.get_others(expr), col)
             else:
                 return col
         else:
@@ -791,7 +798,6 @@ step_typ_to_f = {
     LinearRegression: return_constant(dt.float),
     LogisticRegression: get_target_type,
     KNeighborsClassifier: get_target_type,
-    LinearSVC: get_target_type,
 }
 
 
@@ -800,6 +806,9 @@ def get_predict_return_type(step, expr, features, target):
         return return_type
     elif f := step_typ_to_f.get(step.typ):
         return_type = f(step, expr, features, target)
+        return return_type
+    elif ClassifierMixin in step.typ.mro():
+        return_type = get_target_type(step, expr, features, target)
         return return_type
     else:
         raise ValueError(f"Can't handle {step.typ.__name__}")
