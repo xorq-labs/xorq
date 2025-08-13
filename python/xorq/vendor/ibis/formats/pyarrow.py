@@ -41,7 +41,6 @@ _from_pyarrow_types = {
     pa.null(): dt.Null,
     pa.string(): dt.String,
     pa.large_binary(): dt.Binary,
-    pa.large_string(): dt.String,
     pa.binary(): dt.Binary,
     pa.binary_view(): dt.Binary,
     pa.string_view(): dt.String,
