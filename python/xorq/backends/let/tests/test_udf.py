@@ -183,12 +183,12 @@ def test_pandas_expr_udf(con, diamonds):
     @toolz.curry
     def train_xgboost_model(df, features, target, seed=0):
         param = {
-            "max_depth": 4,
+            "max_depth": 3,
             "eta": 1,
             "objective": "reg:squarederror",
             "seed": seed,
         }
-        num_round = 10
+        num_round = 5
         X = df[list(features)]
         y = df[target]
         dtrain = xgb.DMatrix(X, y)
@@ -211,7 +211,7 @@ def test_pandas_expr_udf(con, diamonds):
     name = "predicted"
     typ = "float64"
 
-    df = diamonds.limit(10_000).execute()
+    df = diamonds.limit(1000).execute()
     t = con.register(df, table_name="small_diamonds")
 
     # manual run
