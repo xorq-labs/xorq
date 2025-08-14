@@ -14,12 +14,7 @@ from attr.validators import (
 )
 from sklearn.base import (
     BaseEstimator,
-)
-from sklearn.feature_extraction.text import (
-    TfidfVectorizer,
-)
-from sklearn.feature_selection import (
-    SelectKBest,
+    ClassifierMixin,
 )
 from sklearn.linear_model import (
     LinearRegression,
@@ -28,8 +23,8 @@ from sklearn.linear_model import (
 from sklearn.neighbors import (
     KNeighborsClassifier,
 )
-from sklearn.svm import (
-    LinearSVC,
+from toolz.curried import (
+    excepts as cexcepts,
 )
 
 import xorq as xo
@@ -59,9 +54,23 @@ def do_into_backend(expr, con=None):
     return expr.into_backend(con or xo.connect())
 
 
-def make_estimator_typ(fit, predict, return_type, name=None):
-    assert hasattr(fit, "__call__") and hasattr(predict, "__call__")
+def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=None):
+    def arbitrate_transform_predict(transform, predict):
+        match (transform, predict):
+            case [None, None]:
+                raise ValueError
+            case [other, None]:
+                return other, "transform"
+            case [None, other]:
+                return other, "predict"
+            case [other0, other1]:
+                raise ValueError(other0, other1)
+            case _:
+                raise ValueError
+
     assert isinstance(return_type, dt.DataType)
+    other, which = arbitrate_transform_predict(transform, predict)
+    assert hasattr(fit, "__call__") and hasattr(other, "__call__")
 
     def make_name(prefix, to_tokenize, n=32):
         tokenized = dask.base.tokenize(to_tokenize)
@@ -70,19 +79,19 @@ def make_estimator_typ(fit, predict, return_type, name=None):
     def wrapped_fit(self, *args, **kwargs):
         self._model = fit(*args, **kwargs)
 
-    def wrapped_predict(self, *args, **kwargs):
-        return predict(self._model, *args, **kwargs)
+    def wrapped_other(self, *args, **kwargs):
+        return other(self._model, *args, **kwargs)
 
-    name = name or make_name("estimator", (fit, predict))
+    name = name or make_name("estimator", (fit, other))
     typ = type(
         name,
         (BaseEstimator,),
         {
             "fit": wrapped_fit,
-            "predict": wrapped_predict,
+            which: wrapped_other,
             "return_type": return_type,
             "_fit": fit,
-            "_predict": predict,
+            f"_{which}": other,
         },
     )
     return typ
@@ -230,7 +239,7 @@ class Step:
         )
 
     @classmethod
-    def from_instance_name(cls, instance, name=None):
+    def from_instance_name(cls, instance, name=None, deep=False):
         """
         Create a Step from an existing scikit-learn estimator instance.
 
@@ -246,11 +255,11 @@ class Step:
         Step
             A new Step wrapping the estimator instance.
         """
-        params_tuple = tuple(instance.get_params().items())
+        params_tuple = tuple(instance.get_params(deep=deep).items())
         return cls(typ=instance.__class__, name=name, params_tuple=params_tuple)
 
     @classmethod
-    def from_name_instance(cls, name, instance):
+    def from_name_instance(cls, name, instance, deep=False):
         """
         Create a Step from a name and estimator instance.
 
@@ -266,7 +275,38 @@ class Step:
         Step
             A new Step wrapping the estimator instance.
         """
-        return cls.from_instance_name(instance, name)
+        return cls.from_instance_name(instance, name, deep=deep)
+
+    @classmethod
+    def from_fit_transform(
+        cls, fit, transform, return_type, klass_name=None, name=None
+    ):
+        """
+        Create a Step from custom fit and transform functions.
+
+        Parameters
+        ----------
+        fit : callable
+            Function to fit the model.
+        transform : callable
+            Function to transform with.
+        return_type : DataType
+            The return type for the transformation.
+        klass_name : str, optional
+            Name for the generated estimator class.
+        name : str, optional
+            Name for the step.
+
+        Returns
+        -------
+        Step
+            A new Step with a dynamically created transform type.
+        """
+
+        typ = make_estimator_typ(
+            fit=fit, transform=transform, return_type=return_type, name=klass_name
+        )
+        return cls(typ=typ, name=name)
 
     @classmethod
     def from_fit_predict(cls, fit, predict, return_type, klass_name=None, name=None):
@@ -346,15 +386,29 @@ class FittedStep:
             "storage": self.storage,
         }
         (deferred_transform, deferred_predict) = (None, None)
-        # this should be in lock step with Structer.from_instance_expr
         if self.is_transform:
-            f = deferred_fit_transform_sklearn_struct
-            if self.step.typ in (TfidfVectorizer,):
-                (kwargs["col"],) = kwargs.pop("features")
-                kwargs["return_type"] = dt.Array(dt.float64)
-                f = deferred_fit_transform_series_sklearn
-            elif self.step.typ in (SelectKBest,):
-                kwargs |= {"target": self.target}
+            match self.step.typ:
+                # FIXME: formalize registration of non-Structer handling
+                case type(__name__="TfidfVectorizer"):
+                    f = deferred_fit_transform_series_sklearn
+                    # features must be length 1
+                    (col,) = kwargs.pop("features")
+                    kwargs = kwargs | {
+                        "col": col,
+                        "return_type": dt.Array(dt.float64),
+                    }
+                case type(__name__="SelectKBest"):
+                    # SelectKBest is a Structer special case that needs target
+                    f = deferred_fit_transform_sklearn_struct
+                    kwargs = kwargs | {
+                        "target": self.target,
+                    }
+                case typ:
+                    # FIXME: create abstract class for BaseEstimator with get_step_f_kwargs
+                    if get_step_f_kwargs := getattr(typ, "get_step_f_kwargs", None):
+                        (f, kwargs) = get_step_f_kwargs(kwargs)
+                    else:
+                        f = deferred_fit_transform_sklearn_struct
             (deferred_model, model_udf, deferred_transform) = f(**kwargs)
         elif self.is_predict:
             predict_kwargs = {
@@ -401,38 +455,36 @@ class FittedStep:
 
     @property
     @functools.cache
+    @cexcepts(ValueError)
     def structer(self):
         return Structer.from_instance_expr(
             self.step.instance, self.expr, features=self.features
         )
 
+    def get_others(self, expr):
+        others = tuple(other for other in expr.columns if other not in self.features)
+        return others
+
     def transform_unpack(self, expr, retain_others=True, name="to_unpack"):
         struct_col = self.transform_raw(expr).name(name)
-        if retain_others and (
-            others := tuple(
-                other for other in expr.columns if other not in self.features
-            )
-        ):
-            expr = expr.select(*others, struct_col)
+        if retain_others:
+            expr = expr.select(*self.get_others(expr), struct_col)
         else:
             expr = struct_col.as_table()
         return expr.unpack(name)
 
-    def transform_raw(self, expr):
-        transformed = self.deferred_transform.on_expr(expr)
-        if self.dest_col is not None:
-            transformed = transformed.name(self.dest_col)
+    def transform_raw(self, expr, name=None):
+        # when you use expr.mutate, you want transform_raw
+        transformed = self.deferred_transform.on_expr(expr).name(
+            name or self.dest_col or "transformed"
+        )
         return transformed
 
     def transform(self, expr, retain_others=True):
-        if self.step.typ in (TfidfVectorizer,):
+        if self.structer is None:
             col = self.transform_raw(expr)
-            if retain_others and (
-                others := tuple(
-                    other for other in expr.columns if other not in self.features
-                )
-            ):
-                return expr.select(*others, col)
+            if retain_others:
+                return expr.select(*self.get_others(expr), col)
             else:
                 return col
         else:
@@ -459,6 +511,14 @@ class FittedStep:
         else:
             expr = col.as_table()
         return expr
+
+    def mutate(self, expr, name=None):
+        if self.is_predict:
+            return self.predict_raw(expr, name=name)
+        elif self.is_transform:
+            return self.transform_raw(expr, name=name)
+        else:
+            raise ValueError
 
     @property
     def predicted(self):
@@ -642,7 +702,7 @@ class Pipeline:
         return FittedPipeline(fitted_steps, expr)
 
     @classmethod
-    def from_instance(cls, instance):
+    def from_instance(cls, instance, deep=False):
         """
         Create a Pipeline from an existing scikit-learn Pipeline.
 
@@ -668,8 +728,10 @@ class Pipeline:
         ... ])
         >>> xorq_pipe = Pipeline.from_instance(sklearn_pipe)
         """
+        # https://github.com/scikit-learn/scikit-learn/issues/18272#issuecomment-682180783
         steps = tuple(
-            Step.from_instance_name(step, name) for name, step in instance.steps
+            Step.from_instance_name(step, name, deep=deep)
+            for name, step in instance.steps
         )
         return cls(steps)
 
@@ -736,7 +798,6 @@ step_typ_to_f = {
     LinearRegression: return_constant(dt.float),
     LogisticRegression: get_target_type,
     KNeighborsClassifier: get_target_type,
-    LinearSVC: get_target_type,
 }
 
 
@@ -745,6 +806,9 @@ def get_predict_return_type(step, expr, features, target):
         return return_type
     elif f := step_typ_to_f.get(step.typ):
         return_type = f(step, expr, features, target)
+        return return_type
+    elif ClassifierMixin in step.typ.mro():
+        return_type = get_target_type(step, expr, features, target)
         return return_type
     else:
         raise ValueError(f"Can't handle {step.typ.__name__}")

@@ -1,5 +1,6 @@
 import cloudpickle
 import dask
+import pandas as pd
 import pyarrow as pa
 import toolz
 
@@ -8,6 +9,48 @@ import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.expr.ml.structer import Structer
 from xorq.expr.udf import make_pandas_expr_udf
+
+
+@toolz.curry
+def fit_sklearn(df, target=None, *, cls, params):
+    obj = cls(**dict(params))
+    obj.fit(df, target)
+    return obj
+
+
+@toolz.curry
+def fit_sklearn_series(df, col, cls, params):
+    model = cls(**dict(params))
+    model.fit(df[col])
+    return model
+
+
+@toolz.curry
+def transform_sklearn(model, df):
+    transformed = model.transform(df)
+    return transformed
+
+
+@toolz.curry
+def transform_sklearn_series(model, df, col):
+    return model.transform(df[col]).toarray().tolist()
+
+
+@toolz.curry
+def transform_sklearn_feature_names_out(model, df):
+    names = model.get_feature_names_out()
+    return pd.Series(
+        (
+            tuple({"key": key, "value": float(value)} for key, value in zip(names, row))
+            for row in model.transform(df).toarray()
+        )
+    )
+
+
+@toolz.curry
+def predict_sklearn(model, df):
+    predicted = model.predict(df)
+    return predicted
 
 
 @toolz.curry
@@ -23,6 +66,7 @@ def _deferred_fit_other(
 ):
     @toolz.curry
     def inner_fit(df, fit, target, features):
+        # fixme: use inspect to ensure that `fit`'s signature has `features` and `target`/`*args` as arg names
         args = (df[list(features)],) + ((df[target],) if target else ())
         obj = fit(*args)
         return obj
@@ -123,23 +167,12 @@ def deferred_fit_transform_sklearn(
     name_infix="transformed",
     storage=None,
 ):
-    @toolz.curry
-    def fit(df, target, cls, params):
-        obj = cls(**dict(params))
-        obj.fit(df, target)
-        return obj
-
-    @toolz.curry
-    def transform(model, df):
-        transformed = model.transform(df)
-        return transformed
-
     deferred_model, model_udaf, deferred_transform = _deferred_fit_other(
         expr=expr,
         target=target,
         features=features,
-        fit=fit(cls=cls, params=params),
-        other=transform,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=transform_sklearn,
         return_type=return_type,
         name_infix=name_infix,
         storage=storage,
@@ -158,23 +191,12 @@ def deferred_fit_predict_sklearn(
     name_infix="predicted",
     storage=None,
 ):
-    @toolz.curry
-    def fit(df, target, cls, params):
-        obj = cls(**dict(params))
-        obj.fit(df, target)
-        return obj
-
-    @toolz.curry
-    def predict(model, df):
-        predicted = model.predict(df)
-        return predicted
-
     deferred_model, model_udaf, deferred_predict = _deferred_fit_other(
         expr=expr,
         target=target,
         features=features,
-        fit=fit(cls=cls, params=params),
-        other=predict,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=predict_sklearn,
         return_type=return_type,
         name_infix=name_infix,
         storage=storage,
@@ -186,22 +208,12 @@ def deferred_fit_predict_sklearn(
 def deferred_fit_transform_series_sklearn(
     expr, col, cls, return_type, params=(), name="predicted", storage=None
 ):
-    @toolz.curry
-    def fit(df, cls, col, params):
-        model = cls(**dict(params))
-        model.fit(df[col])
-        return model
-
-    @toolz.curry
-    def transform(model, df, col):
-        return model.transform(df[col]).toarray().tolist()
-
     deferred_model, model_udaf, deferred_transform = _deferred_fit_other(
         expr=expr,
         target=None,
         features=(col,),
-        fit=fit(cls=cls, col=col, params=params),
-        other=transform(col=col),
+        fit=fit_sklearn_series(col=col, cls=cls, params=params),
+        other=transform_sklearn_series(col=col),
         return_type=return_type,
         name_infix=name,
         storage=storage,
@@ -216,6 +228,7 @@ def deferred_fit_transform_sklearn_struct(
     @toolz.curry
     def fit(df, *args, cls, params):
         instance = cls(**dict(params))
+        # if args exists, is likely (target,): see TfidfVectorizer
         instance.fit(df, *args)
         return instance
 

@@ -2,51 +2,57 @@ import functools
 
 import pandas as pd
 import xgboost as xgb
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.base import (
+    BaseEstimator,
+)
+from sklearn.metrics import (
+    classification_report,
+    confusion_matrix,
+    roc_auc_score,
+)
+from sklearn.preprocessing import (
+    OneHotEncoder,
+)
 
 import xorq as xo
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_csv
-from xorq.common.utils.toolz_utils import curry
 from xorq.expr.ml import (
-    deferred_fit_predict_sklearn,
-    deferred_fit_transform,
     train_test_splits,
 )
-
-
-def fit(
-    df,
-    cls=functools.partial(OneHotEncoder, handle_unknown="ignore", drop="first"),
-    features=slice(None),
-):
-    model = cls().fit(df[features])
-    return model
-
-
-@curry
-def transform(model, df, features=slice(None)):
-    names = model.get_feature_names_out()
-    return pd.Series(
-        (
-            tuple({"key": key, "value": float(value)} for key, value in zip(names, row))
-            for row in model.transform(df[features]).toarray()
-        )
-    )
-
-
-return_type = dt.Array(dt.Struct({"key": str, "value": float}))
-deferred_one_hot = deferred_fit_transform(
-    fit=fit,
-    transform=transform,
-    return_type=return_type,
+from xorq.expr.ml.fit_lib import (
+    transform_sklearn_feature_names_out,
+)
+from xorq.expr.ml.pipeline_lib import (
+    FittedPipeline,
+    Step,
+)
+from xorq.expr.ml.structer import (
+    ENCODED,
 )
 
 
-class XGBoostModelExplodeEncoded:
-    def __init__(self, encoded_col, num_boost_round=10, params=None):
+class OneHotStep(OneHotEncoder):
+    @functools.wraps(OneHotEncoder.transform)
+    def transform(self, *args, **kwargs):
+        transformed = transform_sklearn_feature_names_out(super(), *args, **kwargs)
+        return transformed
+
+    @classmethod
+    def get_step_f_kwargs(cls, kwargs):
+        from xorq.expr.ml.fit_lib import deferred_fit_transform_sklearn
+
+        f = deferred_fit_transform_sklearn
+        kwargs = kwargs | {
+            "return_type": dt.Array(dt.Struct({"key": str, "value": float})),
+            "target": None,
+        }
+        return (f, kwargs)
+
+
+class XGBoostModelExplodeEncoded(BaseEstimator):
+    def __init__(self, num_boost_round=10, params=None, encoded_col=ENCODED):
         self.encoded_col = encoded_col
         self.num_boost_round = num_boost_round
         self.params = params or {
@@ -57,6 +63,8 @@ class XGBoostModelExplodeEncoded:
         }
         self.model = None
 
+    return_type = dt.float64
+
     def do_explode_encoded(self, X):
         X = X.drop(columns=self.encoded_col).join(
             X[self.encoded_col].apply(
@@ -65,81 +73,73 @@ class XGBoostModelExplodeEncoded:
         )
         return X
 
-    def fit(self, X, y):
+    def make_dmatrix(self, X, y=None):
         X = self.do_explode_encoded(X)
-        dtrain = xgb.DMatrix(X, y)
+        dmatrix = xgb.DMatrix(X, y)
+        return dmatrix
+
+    def fit(self, X, y):
+        dtrain = self.make_dmatrix(X, y)
         self.model = xgb.train(
             self.params, dtrain, num_boost_round=self.num_boost_round
         )
         return self
 
     def predict(self, X):
-        X = self.do_explode_encoded(X)
-        dmatrix = xgb.DMatrix(X)
+        dmatrix = self.make_dmatrix(X)
         return self.model.predict(dmatrix)
 
 
-def make_pipeline_exprs(dataset_name, target_column, predicted_col):
-    ROW_NUMBER = "row_number"
-    ENCODED = "encoded"
+one_hot_step = Step(
+    OneHotStep,
+    "one_hot_step",
+    params_tuple=(("handle_unknown", "ignore"), ("drop", "first")),
+)
+xgbee_step = Step(
+    XGBoostModelExplodeEncoded,
+    name="xgbee_step",
+    params_tuple=(("encoded_col", ENCODED),),
+)
 
+
+def make_pipeline(dataset_name, target_column, predicted_col):
     con = xo.connect()
-    train_table, test_table = (
-        expr.drop(ROW_NUMBER)
-        for expr in (
-            deferred_read_csv(
-                path=xo.options.pins.get_path(dataset_name),
-                con=con,
-            )
-            .mutate(
-                **{
-                    target_column: (xo._[target_column] == "yes").cast("int"),
-                    ROW_NUMBER: xo.row_number(),
-                }
-            )
-            .pipe(
-                train_test_splits,
-                unique_key=ROW_NUMBER,
-                test_sizes=[0.5, 0.5],
-                num_buckets=2,
-                random_seed=42,
-            )
-        )
+    expr = deferred_read_csv(
+        path=xo.options.pins.get_path(dataset_name),
+        con=con,
+    ).mutate(
+        **{
+            target_column: (xo._[target_column] == "yes").cast("int"),
+        }
     )
-
-    deferred_encoder, model_udaf, deferred_encode = deferred_one_hot(
+    train_table, test_table = expr.pipe(
+        train_test_splits,
+        # FIXME: default unique_key to s.all()
+        unique_key=expr.columns,
+        test_sizes=[0.5, 0.5],
+        num_buckets=2,
+        random_seed=42,
+    )
+    pattern = f"^(?!{target_column}$)"
+    numeric_features = tuple(
+        train_table.select(s.all_of(s.numeric(), s.matches(pattern))).columns
+    )
+    fitted_one_hot_step = one_hot_step.fit(
         train_table,
         features=train_table.select(s.of_type(str)).columns,
+        dest_col=ENCODED,
     )
-    (encoded_train, encoded_test) = (
-        expr.mutate(**{ENCODED: deferred_encode.on_expr})
-        for expr in (train_table, test_table)
-    )
-
-    numeric_features = [
-        col
-        for col in encoded_train.select(s.numeric()).columns
-        if col != target_column and col != target_column + "_yes"
-    ]
-    deferred_model, model_udaf, deferred_predict = deferred_fit_predict_sklearn(
-        expr=encoded_train,
+    fitted_xgbee_step = xgbee_step.fit(
+        expr=train_table.mutate(fitted_one_hot_step.mutate),
+        features=numeric_features + (ENCODED,),
         target=target_column,
-        features=numeric_features + [ENCODED],
-        cls=functools.partial(XGBoostModelExplodeEncoded, encoded_col=ENCODED),
-        return_type=dt.float64,
-        name_infix="xgb_prediction",
+        dest_col=predicted_col,
     )
-    predictions = encoded_test.mutate(
-        **{predicted_col: deferred_predict.on_expr(encoded_test)}
-    ).drop(ENCODED)
-
-    return {
-        "encoded_train": encoded_train,
-        "encoded_test": encoded_test,
-        "predictions": predictions,
-        "encoder": deferred_encoder,
-        "model": deferred_model,
-    }
+    fitted_pipeline = FittedPipeline(
+        (fitted_one_hot_step, fitted_xgbee_step),
+        train_table,
+    )
+    return (train_table, test_table, fitted_pipeline)
 
 
 (dataset_name, target_column, predicted_col) = (
@@ -147,15 +147,21 @@ def make_pipeline_exprs(dataset_name, target_column, predicted_col):
     "deposit",
     "predicted",
 )
-results = make_pipeline_exprs(dataset_name, target_column, predicted_col)
-encoded_test = results["encoded_test"]
+train_table, test_table, fitted_pipeline = make_pipeline(
+    dataset_name, target_column, predicted_col
+)
+encoded_test = fitted_pipeline.transform(test_table)
+predicted_test = fitted_pipeline.predict(test_table)
 
 
 if __name__ == "__pytest_main__":
-    predictions_df = results["predictions"].execute()
+    predictions_df = predicted_test.execute()
     binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 
-    cm = confusion_matrix(predictions_df[target_column], binary_predictions)
+    cm = confusion_matrix(
+        predictions_df[target_column],
+        binary_predictions,
+    )
     print("\nConfusion Matrix:")
     print(f"TN: {cm[0, 0]}, FP: {cm[0, 1]}")
     print(f"FN: {cm[1, 0]}, TP: {cm[1, 1]}")
