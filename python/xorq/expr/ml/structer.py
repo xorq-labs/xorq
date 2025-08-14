@@ -14,6 +14,9 @@ from attr.validators import (
 import xorq.expr.datatypes as dt
 
 
+ENCODED = "encoded"
+
+
 @frozen
 class Structer:
     struct = field(validator=instance_of(dt.Struct))
@@ -61,15 +64,22 @@ def structer_from_instance(instance, expr, features=None):
 
 
 try:
-    from sklearn.feature_extraction.text import (
-        TfidfVectorizer,
-    )
     from sklearn.feature_selection import (
         SelectKBest,
+    )
+    from sklearn.impute import (
+        SimpleImputer,
     )
     from sklearn.preprocessing import (
         StandardScaler,
     )
+
+    @structer_from_instance.register(SimpleImputer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        typ = float
+        structer = Structer.from_names_typ(features, typ)
+        return structer
 
     @structer_from_instance.register(StandardScaler)
     def _(instance, expr, features=None):
@@ -85,13 +95,6 @@ try:
         if rest:
             raise ValueError
         structer = Structer.from_n_typ_prefix(n=instance.k, typ=typ)
-        return structer
-
-    @structer_from_instance.register(TfidfVectorizer)
-    def _(instance, expr, features=None):
-        features = features or tuple(expr.columns)
-        typ = dt.Array(dt.float64)
-        structer = Structer.from_names_typ(features, typ)
         return structer
 except ImportError:
     pass
