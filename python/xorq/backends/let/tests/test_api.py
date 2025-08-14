@@ -51,10 +51,10 @@ def test_read_postgres():
         f"{os.environ['POSTGRES_PORT']}/"
         f"{os.environ['POSTGRES_DATABASE']}"
     )
-    t = xo.read_postgres(uri, table_name="batting")
+    t = xo.read_postgres(uri, table_name="astronauts")
     res = xo.execute(t)
 
-    assert res is not None and len(res)
+    assert not res.empty
 
 
 @pytest.mark.parametrize(

@@ -302,45 +302,41 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
     assert_frame_equal(actual, expected)
 
 
-def test_duckdb_cache_parquet(con, pg, tmp_path):
-    name = "batting"
-    parquet_path = tmp_path.joinpath(name).with_suffix(".parquet")
-    pg.table(name).to_parquet(parquet_path)
+def test_duckdb_cache_parquet(con, parquet_dir, tmp_path):
+    parquet_path = parquet_dir / "astronauts.parquet"
     expr = (
         xo.duckdb.connect()
-        .read_parquet(parquet_path)[lambda t: t.yearID > 2000]
+        .read_parquet(parquet_path)[lambda t: t.number > 22]
         .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
 
-def test_duckdb_cache_csv(con, pg, tmp_path):
-    name = "batting"
-    csv_path = tmp_path.joinpath(name).with_suffix(".csv")
-    pg.table(name).to_csv(csv_path)
+def test_duckdb_cache_csv(con, csv_dir, tmp_path):
+    csv_path = csv_dir / "astronauts.csv"
     expr = (
         xo.duckdb.connect()
-        .read_csv(csv_path)[lambda t: t.yearID > 2000]
+        .read_csv(csv_path)[lambda t: t.number > 22]
         .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
 
-def test_duckdb_cache_arrow(con, pg, tmp_path):
-    name = "batting"
+def test_duckdb_cache_arrow(con, tmp_path):
+    name = "astronauts"
     expr = (
         xo.duckdb.connect()
-        .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
+        .create_table(name, con.table(name).to_pyarrow())[lambda t: t.number > 22]
         .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
 
 def test_cross_source_storage(pg):
-    name = "batting"
+    name = "astronauts"
     expr = (
         xo.duckdb.connect()
-        .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
+        .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.number > 22]
         .cache(storage=SourceStorage(source=pg))
     )
     expr.execute()
@@ -410,19 +406,19 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
     assert expr.execute() is not None
 
 
-def test_repeated_cache(pg, ls_con, tmp_path):
+def test_repeated_cache(con, ls_con, tmp_path):
     storage = ParquetStorage(
         source=ls_con,
         relative_path=tmp_path,
     )
     t = (
-        pg.table("batting")[lambda t: t.yearID > 2014]
+        con.table("batting")[lambda t: t.yearID > 2014]
         .cache(storage=storage)[lambda t: t.stint == 1]
         .cache(storage=storage)
     )
 
     actual = t.execute()
-    expected = pg.table("batting").filter([_.yearID > 2014, _.stint == 1]).execute()
+    expected = con.table("batting").filter([_.yearID > 2014, _.stint == 1]).execute()
 
     assert_frame_equal(actual, expected)
 
