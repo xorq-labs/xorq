@@ -4,6 +4,7 @@ import pdb
 import sys
 import traceback
 from functools import partial
+from itertools import islice
 from pathlib import Path
 
 from opentelemetry import trace
@@ -210,6 +211,7 @@ def unbind_and_serve_command(
     try:
         # initialize console and optional Prometheus metrics
         from xorq.flight.metrics import setup_console_metrics
+
         setup_console_metrics(prometheus_port=prometheus_port)
     except ImportError:
         logger.warning(
@@ -238,7 +240,7 @@ def unbind_and_serve_command(
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
-            (found_con,) = find_all_sources(found)
+            (found_con,) = islice(find_all_sources(found), 1)
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()
