@@ -167,7 +167,7 @@ test_data = pd.DataFrame({
 # Convert to xorq table
 test_table = xo.memtable(test_data)
 
-udxf = con.get_flight_udxf("penguin_health_analyzer")
+udxf = con.get_exchange("penguin_health_analyzer")
 
 # Get the results
 results = test_table.pipe(udxf).execute()
