@@ -1,3 +1,28 @@
+import sys
+
+
+if len(sys.argv) == 3 and sys.argv[1] == "catalog" and sys.argv[2] == "ls":
+    # Fast path for `xorq catalog ls`: minimal imports to speed up listing
+    from xorq.catalog import get_catalog_path, load_catalog
+
+    config_path = get_catalog_path()
+    catalog = load_catalog(path=config_path)
+    aliases = catalog.get("aliases", {})
+    if aliases:
+        print("Aliases:")
+        for al, mapping in aliases.items():
+            print(f"{al}\t{mapping['entry_id']}\t{mapping['revision_id']}")
+    print("Entries:")
+    for entry in catalog.get("entries", []):
+        ent_id = entry.get("entry_id")
+        curr_rev = entry.get("current_revision")
+        build_id = None
+        for rev in entry.get("history", []):
+            if rev.get("revision_id") == curr_rev:
+                build_id = rev.get("build", {}).get("build_id")
+                break
+        print(f"{ent_id}\t{curr_rev}\t{build_id}")
+    sys.exit(0)
 import argparse
 import json
 import os
@@ -6,7 +31,6 @@ import shutil
 
 # JSON handling
 import subprocess
-import sys
 import traceback
 import uuid
 from datetime import datetime, timezone
@@ -56,11 +80,19 @@ def maybe_resolve_build_dirs(
         config_dir = config_path.parent
         # Adjust left_dir if token is not a literal directory and left_dir is relative
         token_path = Path(left)
-        if not token_path.is_dir() and left_dir is not None and not left_dir.is_absolute():
+        if (
+            not token_path.is_dir()
+            and left_dir is not None
+            and not left_dir.is_absolute()
+        ):
             left_dir = config_dir / left_dir
         # Adjust right_dir similarly
         token_path = Path(right)
-        if not token_path.is_dir() and right_dir is not None and not right_dir.is_absolute():
+        if (
+            not token_path.is_dir()
+            and right_dir is not None
+            and not right_dir.is_absolute()
+        ):
             right_dir = config_dir / right_dir
     except ValueError as e:
         print(f"Error: {e}")
@@ -1455,8 +1487,7 @@ def parse_args(override=None):
         "export", help="Export catalog and all builds to a target directory"
     )
     catalog_export.add_argument(
-        "output_path",
-        help="Directory path to export catalog.yaml and builds subfolder"
+        "output_path", help="Directory path to export catalog.yaml and builds subfolder"
     )
     catalog_diff_builds.add_argument(
         "left",

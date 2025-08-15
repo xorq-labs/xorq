@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from functools import lru_cache, singledispatch
 from itertools import count
 from typing import Any, Callable, Dict, Tuple
@@ -18,7 +19,6 @@ from xorq.common.utils.graph_utils import (
     to_node,
 )
 from xorq.vendor.ibis.expr.operations.core import Node
-import sys
 
 
 __all__ = [

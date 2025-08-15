@@ -1,6 +1,6 @@
-import pytest
+
 import pandas as pd
-from pathlib import Path
+import pytest
 
 import xorq as xo
 from xorq.cli import lineage_command
