@@ -14,7 +14,7 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
-from xorq.expr.relations import CachedNode, Read, RemoteTable, into_backend
+from xorq.expr.relations import CachedNode, Read, RemoteTable, TagNode, into_backend
 from xorq.ibis_yaml.common import (
     TranslationContext,
     _translate_type,
@@ -68,7 +68,14 @@ def _tuple_to_yaml(tpl: tuple, context: TranslationContext) -> dict:
 
 @register_from_yaml_handler("tuple")
 def _tuple_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
-    return tuple(translate_from_yaml(value, context) for value in yaml_dict["values"])
+    # Reconstruct a Python tuple, preserving None entries directly
+    items = []
+    for value in yaml_dict.get("values", []):
+        if value is None:
+            items.append(None)
+        else:
+            items.append(translate_from_yaml(value, context))
+    return tuple(items)
 
 
 @translate_to_yaml.register(tm.IntervalUnit)
@@ -490,6 +497,43 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         storage=storage,
     )
     return op.to_expr()
+
+
+@translate_to_yaml.register(TagNode)
+def _tag_node_to_yaml(op: TagNode, context: any) -> dict:
+    """
+    YAML serialization for TagNode, preserving metadata and wrapped expression.
+    """
+    # Serialize all metadata values
+    metadata_yaml = {k: translate_to_yaml(v, context) for k, v in op.metadata.items()}
+    return freeze(
+        {
+            "op": "TagNode",
+            "metadata": metadata_yaml,
+            "expr": translate_to_yaml(op.parent, context),
+        }
+    )
+
+
+@register_from_yaml_handler("TagNode")
+def _tag_node_from_yaml(yaml_dict: dict, context: any) -> ir.Expr:
+    """
+    YAML deserialization for TagNode, reconstructing tag and metadata on expression.
+    """
+    # Deserialize metadata items, ensuring nested dicts become FrozenOrderedDict
+    metadata_items = {}
+    for k, v in yaml_dict.get("metadata", {}).items():
+        val = translate_from_yaml(v, context)
+        try:
+            # freeze dicts and lists into immutable structures
+            val = freeze(val)
+        except Exception:
+            pass
+        metadata_items[k] = val
+    # Reconstruct the inner expression and apply tag
+    expr = translate_from_yaml(yaml_dict["expr"], context)
+    # expr.tag accepts tag and additional metadata as kwargs
+    return expr.tag(**metadata_items)
 
 
 @translate_to_yaml.register(RemoteTable)

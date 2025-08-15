@@ -433,9 +433,9 @@ def execute(expr: ir.Expr, **kwargs: Any):
 def _remove_tag_nodes(expr):
     def replacer(node, kwargs):
         if isinstance(node, TagNode):
-            node = node.parent
+            return node.parent
         if kwargs:
-            node = node.__recreate__(kwargs)
+            return node.__recreate__(kwargs)
         return node
 
     return expr.op().replace(replacer).to_expr()

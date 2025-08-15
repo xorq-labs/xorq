@@ -460,6 +460,10 @@ def opaque_node_replacer(node, kwargs):
         # udf.ExprScalarUDF,
     )
     match node:
+        # Drop TagNode during normalization (metadata irrelevant for SQL hashing)
+        case rel.TagNode():
+            # Drop TagNode and recursively normalize its parent subtree
+            return node.parent.replace(opaque_node_replacer)
         case rel.CachedNode():
             new_node = xo.table(
                 node.schema,

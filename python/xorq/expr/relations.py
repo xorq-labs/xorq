@@ -124,6 +124,20 @@ class TagNode(ops.Relation):
     metadata: FrozenOrderedDict = FrozenOrderedDict()
     values = FrozenDict()
 
+    @classmethod
+    def __create__(cls, *args, **kwargs):  # coerce metadata dicts to FrozenOrderedDict
+        meta = kwargs.get("metadata")
+        if meta is not None and not isinstance(meta, FrozenOrderedDict):
+            kwargs["metadata"] = FrozenOrderedDict(meta)
+        return super().__create__(*args, **kwargs)
+
+    @classmethod
+    def __recreate__(cls, kwargs):  # coerce metadata on recreate
+        meta = kwargs.get("metadata")
+        if meta is not None and not isinstance(meta, FrozenOrderedDict):
+            kwargs["metadata"] = FrozenOrderedDict(meta)
+        return super().__recreate__(kwargs)
+
     @property
     def tag(self):
         return self.metadata.get("tag")
@@ -614,6 +628,9 @@ def register_and_transform_remote_tables(expr):
         return result.op()
 
     def replacer(node, kwargs):
+        # Drop any TagNode wrappers early
+        if isinstance(node, TagNode):  # remove tagging metadata
+            return node.parent
         kwargs = kwargs or {}
         if isinstance(node, Relation):
             updated = {}

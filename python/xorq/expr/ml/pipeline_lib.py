@@ -1,8 +1,10 @@
 import functools
 import pickle
+import sys
 from typing import Callable
 
 import dask
+import sklearn
 from attr import (
     field,
     frozen,
@@ -53,6 +55,43 @@ from xorq.expr.ml.structer import (
     Structer,
 )
 from xorq.vendor.ibis.expr.types.core import Expr
+
+
+def _collect_sklearn_meta(step, features, target, output_kind=None):
+    """Collect metadata from a fitted sklearn Step for tagging."""
+    # Model class name
+    cls = step.step.typ
+    model_class = f"{cls.__module__}.{cls.__name__}"
+    # Versions
+    sklearn_version = sklearn.__version__
+    xorq_version = xo.__version__
+    python_version = sys.version.split()[0]
+    # Step name
+    step_name = step.step.name or cls.__name__
+    # Features and target
+    feats = tuple(features) if features is not None else tuple()
+    payload = {
+        "model_class": model_class,
+        "sklearn_version": sklearn_version,
+        "xorq_version": xorq_version,
+        "python_version": python_version,
+        "step_name": step_name,
+        "features": feats,
+    }
+    if target is not None:
+        payload["target"] = target
+    # Parameters: convert to hashable tuple of (param, repr(value)) pairs
+    params = step.step.instance.get_params(deep=True)
+    params_items = tuple(sorted((k, repr(v)) for k, v in params.items()))
+    payload["parameters"] = params_items
+    # Return type, if defined on the step type
+    rt = getattr(step.step.typ, "return_type", None)
+    if rt is not None:
+        payload["return_type"] = repr(rt)
+    # Output kind
+    if output_kind:
+        payload["output_kind"] = output_kind
+    return payload, step_name
 
 
 def do_into_backend(expr, con=None):
@@ -449,16 +488,21 @@ class FittedStep:
         return col
 
     def predict(self, expr, retain_others=True, name=None):
+        # build table with prediction column
         col = self.predict_raw(expr, name=name)
         if retain_others and (
             others := tuple(
                 other for other in expr.columns if other not in self.features
             )
         ):
-            expr = expr.select(*others, col)
+            table = expr.select(*others, col)
         else:
-            expr = col.as_table()
-        return expr
+            table = col.as_table()
+        # attach sklearn provenance metadata to the result table
+        payload, label = _collect_sklearn_meta(
+            self, self.features, self.target, output_kind="predict"
+        )
+        return table.tag(label, **payload)
 
     @property
     def predicted(self):
