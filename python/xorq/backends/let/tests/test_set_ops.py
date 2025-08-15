@@ -8,12 +8,12 @@ from pytest import param
 
 import xorq as xo
 import xorq.vendor.ibis.expr.types as ir
+from xorq import _
 from xorq.tests.util import assert_frame_equal
-from xorq.vendor.ibis import _
 
 
 @pytest.fixture
-def union_subsets(alltypes, df):
+def union_subsets(alltypes, alltypes_df):
     cols_a, cols_b, cols_c = (alltypes.columns.copy() for _ in range(3))
 
     random.seed(89)
@@ -26,9 +26,9 @@ def union_subsets(alltypes, df):
     b = alltypes.filter((_.id >= 5205) & (_.id <= 5215))[cols_b]
     c = alltypes.filter((_.id >= 5213) & (_.id <= 5220))[cols_c]
 
-    da = df[(df.id >= 5200) & (df.id <= 5210)][cols_a]
-    db = df[(df.id >= 5205) & (df.id <= 5215)][cols_b]
-    dc = df[(df.id >= 5213) & (df.id <= 5220)][cols_c]
+    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)][cols_a]
+    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)][cols_b]
+    dc = alltypes_df[(alltypes_df.id >= 5213) & (alltypes_df.id <= 5220)][cols_c]
 
     return (a, b, c), (da, db, dc)
 
@@ -66,16 +66,16 @@ def test_union_mixed_distinct(union_subsets):
         param(True, id="distinct"),
     ],
 )
-def test_intersect(alltypes, df, distinct):
+def test_intersect(alltypes, alltypes_df, distinct):
     a = alltypes.filter((_.id >= 5200) & (_.id <= 5210))
     b = alltypes.filter((_.id >= 5205) & (_.id <= 5215))
     c = alltypes.filter((_.id >= 5195) & (_.id <= 5208))
 
     # Reset index to ensure simple RangeIndex, needed for computing `expected`
-    df = df.reset_index(drop=True)
-    da = df[(df.id >= 5200) & (df.id <= 5210)]
-    db = df[(df.id >= 5205) & (df.id <= 5215)]
-    dc = df[(df.id >= 5195) & (df.id <= 5208)]
+    df = alltypes_df.reset_index(drop=True)
+    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)]
+    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)]
+    dc = alltypes_df[(alltypes_df.id >= 5195) & (alltypes_df.id <= 5208)]
 
     expr = xo.intersect(a, b, c, distinct=distinct).order_by("id")
     result = expr.execute()
@@ -95,16 +95,16 @@ def test_intersect(alltypes, df, distinct):
         param(True, id="distinct"),
     ],
 )
-def test_difference(alltypes, df, distinct):
+def test_difference(alltypes, alltypes_df, distinct):
     a = alltypes.filter((_.id >= 5200) & (_.id <= 5210))
     b = alltypes.filter((_.id >= 5205) & (_.id <= 5215))
     c = alltypes.filter((_.id >= 5195) & (_.id <= 5202))
 
     # Reset index to ensure simple RangeIndex, needed for computing `expected`
-    df = df.reset_index(drop=True)
-    da = df[(df.id >= 5200) & (df.id <= 5210)]
-    db = df[(df.id >= 5205) & (df.id <= 5215)]
-    dc = df[(df.id >= 5195) & (df.id <= 5202)]
+    df = alltypes_df.reset_index(drop=True)
+    da = alltypes_df[(alltypes_df.id >= 5200) & (alltypes_df.id <= 5210)]
+    db = alltypes_df[(alltypes_df.id >= 5205) & (alltypes_df.id <= 5215)]
+    dc = alltypes_df[(alltypes_df.id >= 5195) & (alltypes_df.id <= 5202)]
 
     expr = xo.difference(a, b, c, distinct=distinct).order_by("id")
     result = expr.execute()

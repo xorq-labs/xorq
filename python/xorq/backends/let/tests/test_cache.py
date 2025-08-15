@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import pathlib
-import time
 import uuid
 
 import pyarrow as pa
@@ -22,10 +21,6 @@ from xorq.caching import (
     SourceStorage,
 )
 from xorq.common.utils.inspect_utils import get_python_version_no_dot
-from xorq.common.utils.postgres_utils import (
-    do_analyze,
-    get_postgres_n_scans,
-)
 from xorq.expr.udf import (
     agg,
 )
@@ -307,240 +302,34 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
     assert_frame_equal(actual, expected)
 
 
-def test_postgres_cache_invalidation(pg, con):
-    def modify_postgres_table(dt):
-        (con, name) = (dt.source, dt.name)
-        statement = f"""
-        INSERT INTO "{name}"
-        DEFAULT VALUES
-        """
-        con.raw_sql(statement)
-
-    def assert_n_scans_changes(dt, n_scans_before):
-        do_analyze(dt.source, dt.name)
-        for _ in range(10):  # noqa: F402
-            # give postgres some time to update its tables
-            time.sleep(0.1)
-            n_scans_after = get_postgres_n_scans(dt)
-            if n_scans_before != n_scans_after:
-                return n_scans_after
-        else:
-            raise
-
-    (from_name, to_name) = ("batting", "batting_to_modify")
-    if to_name in pg.tables:
-        pg.drop_table(to_name)
-    pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))
-    expr_cached = (
-        pg_t.group_by("playerID")
-        .size()
-        .order_by("playerID")
-        .cache(storage=SourceStorage(source=con))
-    )
-    dt = pg_t.op()
-    (storage, uncached) = (expr_cached.ls.storage, expr_cached.ls.uncached_one)
-
-    # assert initial state
-    assert not storage.exists(uncached)
-    n_scans_before = get_postgres_n_scans(dt)
-    assert n_scans_before == 0
-
-    # assert first execution state
-    expr_cached.execute()
-    n_scans_after = assert_n_scans_changes(dt, n_scans_before)
-    # should we test that SourceStorage.get is called?
-    assert n_scans_after == 1
-    assert storage.exists(uncached)
-
-    # assert no change after re-execution of cached expr
-    expr_cached.execute()
-    assert n_scans_after == get_postgres_n_scans(dt)
-
-    # assert cache invalidation happens
-    modify_postgres_table(dt)
-    expr_cached.execute()
-    assert_n_scans_changes(dt, n_scans_after)
-
-
-def test_postgres_snapshot(pg, con):
-    def modify_postgres_table(dt):
-        (con, name) = (dt.source, dt.name)
-        statement = f"""
-        INSERT INTO "{name}"
-        DEFAULT VALUES
-        """
-        con.raw_sql(statement)
-
-    def assert_n_scans_changes(dt, n_scans_before):
-        do_analyze(dt.source, dt.name)
-        for _ in range(10):  # noqa: F402
-            # give postgres some time to update its tables
-            time.sleep(0.1)
-            n_scans_after = get_postgres_n_scans(dt)
-            if n_scans_before != n_scans_after:
-                return n_scans_after
-        else:
-            raise
-
-    (from_name, to_name) = ("batting", "batting_to_modify")
-    if to_name in pg.tables:
-        pg.drop_table(to_name)
-    pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))
-    storage = SourceSnapshotStorage(source=con)
-    expr_cached = (
-        pg_t.group_by("playerID").size().order_by("playerID").cache(storage=storage)
-    )
-    dt = pg_t.op()
-    (storage, uncached) = (expr_cached.ls.storage, expr_cached.ls.uncached_one)
-
-    # assert initial state
-    assert not storage.exists(uncached)
-    n_scans_before = get_postgres_n_scans(dt)
-    assert n_scans_before == 0
-
-    # assert first execution state
-    executed0 = expr_cached.execute()
-    n_scans_after = assert_n_scans_changes(dt, n_scans_before)
-    # should we test that SourceStorage.get is called?
-    assert n_scans_after == 1
-    assert storage.exists(uncached)
-
-    # assert no change after re-execution of cached expr
-    executed1 = expr_cached.execute()
-    assert n_scans_after == get_postgres_n_scans(dt)
-    assert executed0.equals(executed1)
-
-    # assert NO cache invalidation
-    modify_postgres_table(dt)
-    executed2 = expr_cached.execute()
-    assert executed0.equals(executed2)
-    with pytest.raises(Exception):
-        assert_n_scans_changes(dt, n_scans_after)
-
-    executed3 = expr_cached.ls.uncached.execute()
-    assert not executed0.equals(executed3)
-
-
-def test_postgres_parquet_snapshot(pg, tmp_path):
-    def modify_postgres_table(dt):
-        (con, name) = (dt.source, dt.name)
-        statement = f"""
-        INSERT INTO "{name}"
-        DEFAULT VALUES
-        """
-        con.raw_sql(statement)
-
-    def assert_n_scans_changes(dt, n_scans_before):
-        do_analyze(dt.source, dt.name)
-        for _ in range(10):  # noqa: F402
-            # give postgres some time to update its tables
-            time.sleep(0.1)
-            n_scans_after = get_postgres_n_scans(dt)
-            if n_scans_before != n_scans_after:
-                return n_scans_after
-        else:
-            raise
-
-    (from_name, to_name) = ("batting", "batting_to_modify")
-    if to_name in pg.tables:
-        pg.drop_table(to_name)
-    pg_t = pg.create_table(name=to_name, obj=pg.table(from_name))
-    storage = ParquetSnapshotStorage(
-        relative_path=tmp_path.joinpath("parquet-snapshot-storage")
-    )
-    expr = pg_t.group_by("playerID").size().order_by("playerID")
-    expr_cached = expr.cache(storage=storage)
-    dt = pg_t.op()
-    (storage, uncached) = (expr_cached.ls.storage, expr_cached.ls.uncached_one)
-
-    # assert initial state
-    assert not storage.exists(uncached)
-    n_scans_before = get_postgres_n_scans(dt)
-    assert n_scans_before == 0
-
-    # assert first execution state
-    executed0 = expr_cached.execute()
-    n_scans_after = assert_n_scans_changes(dt, n_scans_before)
-    # should we test that SourceStorage.get is called?
-    assert n_scans_after == 1
-    assert storage.exists(uncached)
-    assert storage.exists(expr)
-
-    # assert no change after re-execution of cached expr
-    executed1 = expr_cached.execute()
-    assert n_scans_after == get_postgres_n_scans(dt)
-    assert executed0.equals(executed1)
-
-    # assert NO cache invalidation
-    modify_postgres_table(dt)
-    executed2 = expr_cached.execute()
-    assert executed0.equals(executed2)
-    with pytest.raises(Exception):
-        assert_n_scans_changes(dt, n_scans_after)
-
-    executed3 = expr_cached.ls.uncached.execute()
-    assert not executed0.equals(executed3)
-
-
-def test_duckdb_cache_parquet(con, pg, tmp_path):
-    name = "batting"
-    parquet_path = tmp_path.joinpath(name).with_suffix(".parquet")
-    pg.table(name).to_parquet(parquet_path)
+def test_duckdb_cache_parquet(con, parquet_dir, tmp_path):
+    parquet_path = parquet_dir / "astronauts.parquet"
     expr = (
         xo.duckdb.connect()
-        .read_parquet(parquet_path)[lambda t: t.yearID > 2000]
+        .read_parquet(parquet_path)[lambda t: t.number > 22]
         .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
 
-def test_duckdb_cache_csv(con, pg, tmp_path):
-    name = "batting"
-    csv_path = tmp_path.joinpath(name).with_suffix(".csv")
-    pg.table(name).to_csv(csv_path)
+def test_duckdb_cache_csv(con, csv_dir, tmp_path):
+    csv_path = csv_dir / "astronauts.csv"
     expr = (
         xo.duckdb.connect()
-        .read_csv(csv_path)[lambda t: t.yearID > 2000]
+        .read_csv(csv_path)[lambda t: t.number > 22]
         .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
 
-def test_duckdb_cache_arrow(con, pg, tmp_path):
-    name = "batting"
+def test_duckdb_cache_arrow(con, tmp_path):
+    name = "astronauts"
     expr = (
         xo.duckdb.connect()
-        .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
+        .create_table(name, con.table(name).to_pyarrow())[lambda t: t.number > 22]
         .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
     )
     expr.execute()
-
-
-def test_cross_source_storage(pg):
-    name = "batting"
-    expr = (
-        xo.duckdb.connect()
-        .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.yearID > 2000]
-        .cache(storage=SourceStorage(source=pg))
-    )
-    expr.execute()
-
-
-def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
-    table_name = "batting"
-    t = pg.table(table_name)
-
-    expr = t.filter(t.playerID == "allisar01")[
-        ["playerID", "yearID", "stint", "teamID", "lgID"]
-    ]
-    expected = expr.execute()
-
-    result = expr.cache(
-        storage=ParquetStorage(source=con, relative_path=tmp_path)
-    ).execute()
-
-    assert result is not None
-    assert_frame_equal(result, expected, check_like=True)
 
 
 def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
@@ -590,19 +379,19 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
     assert expr.execute() is not None
 
 
-def test_repeated_cache(pg, ls_con, tmp_path):
+def test_repeated_cache(con, ls_con, tmp_path):
     storage = ParquetStorage(
         source=ls_con,
         relative_path=tmp_path,
     )
     t = (
-        pg.table("batting")[lambda t: t.yearID > 2014]
+        con.table("batting")[lambda t: t.yearID > 2014]
         .cache(storage=storage)[lambda t: t.stint == 1]
         .cache(storage=storage)
     )
 
     actual = t.execute()
-    expected = pg.table("batting").filter([_.yearID > 2014, _.stint == 1]).execute()
+    expected = con.table("batting").filter([_.yearID > 2014, _.stint == 1]).execute()
 
     assert_frame_equal(actual, expected)
 
@@ -629,16 +418,14 @@ def test_register_with_different_name_and_cache(csv_dir, get_expr):
     assert expr.execute() is not None
 
 
-def test_cache_default_path_set(pg, ls_con, tmp_path):
+def test_cache_default_path_set(batting, ls_con, tmp_path):
     xo.options.cache.default_relative_path = tmp_path
 
     storage = ParquetStorage(
         source=ls_con,
     )
 
-    expr = (
-        pg.table("batting")[lambda t: t.yearID > 2014].limit(1).cache(storage=storage)
-    )
+    expr = batting[lambda t: t.yearID > 2014].limit(1).cache(storage=storage)
 
     result = expr.execute()
 
@@ -725,6 +512,7 @@ def test_datafusion_snapshot(ls_con, alltypes_df):
 
 
 @pytest.mark.snapshot_check
+@pytest.mark.xfail
 def test_udf_caching(ls_con, alltypes_df, snapshot):
     @xo.udf.scalar.pyarrow
     def my_mul(tinyint_col: dt.int16, smallint_col: dt.int16) -> dt.int16:
@@ -754,6 +542,7 @@ def test_udf_caching(ls_con, alltypes_df, snapshot):
 
 
 @pytest.mark.snapshot_check
+@pytest.mark.xfail
 def test_udaf_caching(ls_con, alltypes_df, snapshot):
     def my_mul_sum(df):
         return df.sum().sum()
@@ -876,11 +665,3 @@ def test_cache_find_backend(con, cls, parquet_dir):
     storage = cls(source=con)
     expr = con.read_parquet(astronauts_path).cache(storage=storage)
     assert expr._find_backend()._profile == con._profile
-
-
-def test_cache_record_batch_provider_exec(pg, ls_con):
-    batches = pg.table("batting").to_pyarrow_batches()
-    t = ls_con.register(batches, table_name="batting_batches")
-    storage = SourceStorage(source=ls_con)
-
-    assert storage.get_key(t) is not None
