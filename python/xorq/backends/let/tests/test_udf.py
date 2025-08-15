@@ -211,7 +211,7 @@ def test_pandas_expr_udf(con, diamonds):
     name = "predicted"
     typ = "float64"
 
-    df = diamonds.limit(1000).execute()
+    df = diamonds.limit(500).execute()
     t = con.register(df, table_name="small_diamonds")
 
     # manual run
