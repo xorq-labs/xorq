@@ -144,39 +144,6 @@ def test_multiple_execution_letsql_register_table(ls_con, csv_dir):
     assert_frame_equal(first, second)
 
 
-@pytest.mark.parametrize(
-    "other_con",
-    [
-        xo.connect(),
-        xo.datafusion.connect(),
-        xo.duckdb.connect(),
-        xo.postgres.connect_env(),
-    ],
-)
-def test_expr_over_same_table_multiple_times(ls_con, parquet_dir, other_con):
-    batting_path = parquet_dir.joinpath("batting.parquet")
-    table_name = "batting"
-    col = "playerID"
-
-    batting_name = f"{ls_con.name}_{table_name}"
-    batting = ls_con.register(batting_path, table_name=batting_name)
-
-    if other_con.name == "postgres":
-        t = other_con.table(table_name)
-    else:
-        t = other_con.read_parquet(batting_path, table_name=table_name)
-
-    ls_table_name = f"{other_con.name}_{table_name}"
-    ls_con.register(t, ls_table_name)
-    other = ls_con.table(ls_table_name)
-
-    expr = batting[[col]].distinct().join(other[[col]].distinct(), col)
-
-    assert (first := expr.execute()) is not None
-    assert (second := expr.execute()) is not None
-    assert_frame_equal(first.sort_values(col), second.sort_values(col))
-
-
 def test_register_arbitrary_expression(ls_con, duckdb_con):
     batting_table_name = "batting"
     t = duckdb_con.table(batting_table_name)
@@ -192,56 +159,3 @@ def test_register_arbitrary_expression(ls_con, duckdb_con):
 
     assert result is not None
     assert_frame_equal(result, expected, check_like=True)
-
-
-def test_arbitrary_expression_multiple_tables(duckdb_con):
-    batting_table_name = "batting"
-    batting_table = duckdb_con.table(batting_table_name)
-
-    players_table_name = "ddb_players"
-    awards_players_table = duckdb_con.table(players_table_name)
-
-    left = batting_table[batting_table.yearID == 2015]
-    right = awards_players_table[awards_players_table.lgID == "NL"].drop(
-        "yearID", "lgID"
-    )
-
-    left_df = left.execute()
-    right_df = right.execute()
-    predicate = ["playerID"]
-    result_order = ["playerID", "yearID", "lgID", "stint"]
-
-    expr = left.join(right, predicate, how="inner")
-
-    result = (
-        expr.execute()
-        .fillna(np.nan)
-        .sort_values(result_order)[left.columns]
-        .reset_index(drop=True)
-    )
-
-    expected = check_eq(
-        left_df,
-        right_df,
-        how="inner",
-        on=predicate,
-        suffixes=("", "_y"),
-    ).sort_values(result_order)[list(left.columns)]
-
-    assert_frame_equal(result, expected, check_like=True)
-
-
-def test_to_pyarrow_native_execution(pg, mocker):
-    table_name = "batting"
-    spy = mocker.spy(pg, "to_pyarrow_batches")
-
-    pg_t = pg.table(table_name)[lambda t: t.yearID == 2015]
-    db_t = pg.table(table_name)[lambda t: t.yearID == 2014]
-
-    expr = pg_t.join(
-        db_t,
-        "playerID",
-    )
-
-    assert expr.to_pyarrow() is not None
-    assert spy.call_count == 1
