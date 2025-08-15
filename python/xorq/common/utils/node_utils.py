@@ -45,7 +45,7 @@ def get_typs(maybe_typs):
     return typs
 
 
-def find_by_expr_hash(expr, to_replace_hash, typs=replace_typs):
+def find_by_expr_hash(expr, to_replace_hash, typs=None):
     typs = get_typs(typs)
     with patch_normalize_op_caching():
         (to_replace, *rest) = (
@@ -62,7 +62,7 @@ def find_by_expr_tag(expr, tag):
     yield from (node for node in walk_nodes(rel.Tag, expr) if node.tag == tag)
 
 
-def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=replace_typs):
+def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=None):
     typs = get_typs(typs)
     to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs)
     replaced = replace_nodes(
@@ -74,7 +74,7 @@ def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=replace_typs)
     return replaced.to_expr()
 
 
-def unbind_expr_hash(expr, to_replace_hash, typs=replace_typs):
+def unbind_expr_hash(expr, to_replace_hash, typs=None):
     typs = get_typs(typs)
     to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs)
     replace_with = ops.UnboundTable("unbound", to_replace.schema)
