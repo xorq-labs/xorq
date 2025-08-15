@@ -19,6 +19,7 @@ replace_typs = (
     ops.PhysicalTable,
     rel.CachedNode,
     rel.Read,
+    rel.Tag,
 )
 
 
@@ -55,6 +56,10 @@ def find_by_expr_hash(expr, to_replace_hash, typs=replace_typs):
     if rest:
         raise ValueError
     return to_replace
+
+
+def find_by_expr_tag(expr, tag):
+    yield from (node for node in walk_nodes(rel.Tag, expr) if node.tag == tag)
 
 
 def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=replace_typs):

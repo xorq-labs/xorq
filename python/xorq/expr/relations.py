@@ -16,7 +16,10 @@ from xorq.common.utils.rbr_utils import (
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Expr, Schema
-from xorq.vendor.ibis.common.collections import FrozenDict
+from xorq.vendor.ibis.common.collections import (
+    FrozenDict,
+    FrozenOrderedDict,
+)
 from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
@@ -113,6 +116,17 @@ def make_native_op(node):
         )
 
     return node.replace(replace_table).to_expr()
+
+
+class Tag(ops.Relation):
+    schema: Schema
+    parent: Any
+    metadata: FrozenOrderedDict = FrozenOrderedDict()
+    values = FrozenDict()
+
+    @property
+    def tag(self):
+        return self.metadata.get("tag")
 
 
 class CachedNode(ops.Relation):
