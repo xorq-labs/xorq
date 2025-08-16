@@ -55,7 +55,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -k 'slow'
+        run: uv run --no-sync pytest -vvvvv --import-mode=importlib --cov --cov-report=xml -k 'slow'
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
