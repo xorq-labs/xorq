@@ -55,7 +55,7 @@ jobs:
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest -vvv --import-mode=importlib --cov --cov-report=xml -k 'slow and penguins' -- python/xorq/ibis_yaml/tests/test_packager.py
+        run: uv run --no-sync pytest -vvv --import-mode=importlib --cov --cov-report=xml -k 'slow' -- python/xorq/ibis_yaml/tests/test_packager.py
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
