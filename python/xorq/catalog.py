@@ -292,23 +292,53 @@ def collect_semantic_tags(expr_path: Union[str, Path]) -> Dict[str, Set[str]]:
     build_dir = p if p.is_dir() else p.parent
     expr = load_expr(build_dir)
 
+    # semantic tag categories
     tags: Dict[str, Set[str]] = {cat: set() for cat in SEMANTIC_TAG_CATEGORIES}
+    # build graph of expr to detect only splits feeding the final expression
+    from xorq.common.utils.graph_utils import bfs
+    from xorq.vendor.ibis.expr.operations.core import Node
+
+    graph = bfs(expr)
+    # collect splits and other tags
+    split_nodes: list[Node] = []
     for tn in walk_nodes(rel.Tag, expr):
-        tagname = tn.tag
         ttype = tn.metadata.get("type")
+        tagname = tn.tag
         step = tn.metadata.get("step_name")
         if ttype == rel.TagType.SOURCE and tagname:
             tags["source"].add(tagname)
-        elif ttype == rel.TagType.SPLIT and tagname:
-            tags["splits"].add(tagname)
         elif ttype == rel.TagType.CACHE and tagname:
             tags["cache"].add(tagname)
         elif ttype == rel.TagType.TRANSFORM and step:
             tags["transforms"].add(step)
         elif ttype in (rel.TagType.PREDICT, rel.TagType.MODEL) and step:
             tags["model"].add(step)
+        elif ttype == rel.TagType.SPLIT and tagname:
+            split_nodes.append(tn)
         elif tagname:
             tags["generic"].add(tagname)
+
+    # helper to detect descendant relationship in graph (ancestor check)
+    def is_descendant(src: Node, tgt: Node) -> bool:
+        seen = {src}
+        stack = [src]
+        while stack:
+            node = stack.pop()
+            for child in graph.get(node, ()):  # type: ignore
+                if child is tgt:
+                    return True
+                if child not in seen:
+                    seen.add(child)
+                    stack.append(child)
+        return False
+
+    # include only those splits that feed into this expr (i.e. are ancestors of root)
+    root = expr.op() if hasattr(expr, "op") else expr
+    for tn in split_nodes:
+        if is_descendant(root, tn):
+            tags["splits"].add(tn.tag)
+
+    # filter out empty categories
     return {cat: items for cat, items in tags.items() if items}
 
 
