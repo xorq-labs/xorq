@@ -19,6 +19,7 @@ from xorq.expr.relations import (
     Read,
     RemoteTable,
     Tag,
+    TagType,
     into_backend,
 )
 from xorq.ibis_yaml.common import (
@@ -117,6 +118,18 @@ def _bool_from_yaml(yaml_dict: dict, context: TranslationContext) -> bool:
 @translate_to_yaml.register(int)
 def _int_to_yaml(dct: int, context: TranslationContext) -> dict:
     return freeze({"op": "int", "value": str(dct)})
+
+
+@translate_to_yaml.register(TagType)
+def _tagtype_to_yaml(value: TagType, context: TranslationContext) -> dict:
+    """Serialize TagType enum to YAML friendly dict."""
+    return freeze({"op": "TagType", "value": value.value})
+
+
+@register_from_yaml_handler("TagType")
+def _tagtype_from_yaml(yaml_dict: dict, context: TranslationContext) -> TagType:
+    """Deserialize TagType enum from YAML dict."""
+    return TagType(yaml_dict["value"])
 
 
 @register_from_yaml_handler("int")

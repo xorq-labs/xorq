@@ -3419,6 +3419,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             source=current_backend,
             storage=storage,
         )
+        # Return the cached table expression without additional tagging
         return op.to_expr()
 
     def tag(self, tag, **kwargs):

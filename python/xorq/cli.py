@@ -23,8 +23,11 @@ import xorq.common.utils.pickle_utils  # noqa: F401
 
 # Helper functions for diff-builds subcommand
 from xorq.catalog import (
+    collect_semantic_tags,
+    format_tag_breadcrumb,
     get_catalog_path,
     load_catalog,
+    print_tag_tree,
     resolve_build_dir,
     save_catalog,
 )
@@ -799,7 +802,48 @@ def catalog_command(args):
         print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
 
     elif args.subcommand == "ls":
-        # Load catalog from local catalog file
+        # List catalog entries, optionally with semantic tags
+        catalog = load_catalog(path=config_path)
+        if args.with_tags:
+            # Show a one-line breadcrumb of semantic tags per entry/alias
+            aliases = catalog.get("aliases", {}) or {}
+            entries = catalog.get("entries", []) or []
+            rows = []
+            for alias_name, mapping in aliases.items():
+                ent_id = mapping.get("entry_id")
+                rev_id = mapping.get("revision_id")
+                # find history for this revision
+                entry = next((e for e in entries if e.get("entry_id") == ent_id), None)
+                if not entry:
+                    continue
+                rev = next(
+                    (
+                        r
+                        for r in entry.get("history", [])
+                        if r.get("revision_id") == rev_id
+                    ),
+                    None,
+                )
+                if not rev or not rev.get("build"):
+                    continue
+                build_id = rev.get("build", {}).get("build_id")
+                # resolve build directory and collect tags
+                build_dir = resolve_build_dir(alias_name, catalog)
+                if not build_dir:
+                    continue
+                expr_path = build_dir / "expr.yaml"
+                tags = collect_semantic_tags(expr_path)
+                breadcrumb = format_tag_breadcrumb(tags)
+                # Truncate long tag breadcrumbs for listing
+                max_tag_len = 80
+                if len(breadcrumb) > max_tag_len:
+                    breadcrumb = breadcrumb[: max_tag_len - 3] + "..."
+                rows.append(("EXPR", alias_name, rev_id, build_id, breadcrumb))
+            # print table
+            headers = ("TYPE", "ENTRY", "REV", "HASH", "TAGS")
+            do_print_table(headers, tuple(rows))
+            return
+        # default listing
         catalog = load_catalog(path=config_path)
         aliases = catalog.get("aliases", {})
         if aliases:
@@ -816,6 +860,30 @@ def catalog_command(args):
                     build_id = rev.get("build", {}).get("build_id")
                     break
             print(f"{ent_id}\t{curr_rev}\t{build_id}")
+
+    elif args.subcommand == "tag-tree":
+        # Show hierarchical tree of semantic tags for a catalog entry
+        catalog = load_catalog(path=config_path)
+        from xorq.catalog import resolve_target
+
+        target = resolve_target(args.entry, catalog)
+        if not target:
+            print(f"Entry {args.entry} not found in catalog")
+            sys.exit(2)
+        build_dir = resolve_build_dir(args.entry, catalog)
+        if not build_dir or not build_dir.is_dir():
+            print(f"Build target not found: {args.entry}")
+            sys.exit(2)
+        expr_path = build_dir / "expr.yaml"
+        if not expr_path.exists():
+            print(f"Expression file not found: {expr_path}")
+            sys.exit(2)
+        tags = collect_semantic_tags(expr_path)
+        if not tags:
+            print(f"No semantic tags found for {args.entry}")
+            return
+        print_tag_tree(tags, args.entry)
+        return
 
     elif args.subcommand == "inspect":
         # Load catalog from local catalog file
@@ -1388,7 +1456,22 @@ def parse_args(override=None):
         "-a", "--alias", help="Optional alias for this entry", default=None
     )
     # List catalog entries
-    catalog_subparsers.add_parser("ls", help="List catalog entries")
+    catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
+    catalog_ls.add_argument(
+        "--with-tags",
+        action="store_true",
+        help="Show semantic tags breadcrumb in listing",
+    )
+
+    # Show a hierarchical tree of semantic tags for a catalog entry
+    catalog_tag_tree = catalog_subparsers.add_parser(
+        "tag-tree",
+        help="Show a hierarchical tree of semantic tags in a build",
+    )
+    catalog_tag_tree.add_argument(
+        "entry",
+        help="Entry ID, alias, or entry@revision to inspect tags",
+    )
 
     catalog_inspect = catalog_subparsers.add_parser(
         "inspect",

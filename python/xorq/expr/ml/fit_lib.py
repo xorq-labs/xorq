@@ -8,6 +8,7 @@ import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.expr.ml.structer import Structer
+from xorq.expr.relations import TagType
 from xorq.expr.udf import make_pandas_expr_udf
 
 
@@ -95,7 +96,12 @@ def _deferred_fit_other(
     )
     deferred_model = model_udaf.on_expr(expr)
     if storage:
-        deferred_model = deferred_model.as_table().cache(storage=storage)
+        # cache the fitted model and tag the cache node for MODEL metadata
+        deferred_model = (
+            deferred_model.as_table()
+            .cache(storage=storage)
+            .tag(f"model_{name_infix}", type=TagType.MODEL)
+        )
 
     deferred_predict = make_pandas_expr_udf(
         computed_kwargs_expr=deferred_model,

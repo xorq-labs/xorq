@@ -36,6 +36,7 @@ class TagType(Enum):
     SPLIT = "split"
     CACHE = "cache"
     JOIN = "join"
+    MODEL = "model"
 
 
 def replace_cache_table(node, kwargs):

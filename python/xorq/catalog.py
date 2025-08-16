@@ -4,7 +4,7 @@ import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Set, Tuple, Union
 
 import yaml
 from attrs import asdict, field, frozen
@@ -266,6 +266,68 @@ def maybe_resolve_target(target: str, catalog: XorqCatalog) -> Optional[Target]:
         return Target(entry_id=base, rev=rev, alias=False)
 
     return None
+
+
+# -- Semantic Tag extraction and rendering --
+
+SEMANTIC_TAG_CATEGORIES = ["source", "splits", "transforms", "model", "generic"]
+_SPLIT_TAGS = {"train", "test_predicted", "test", "validation"}
+_MODEL_OUTPUT_KINDS = {"predict", "score", "predict_proba", "decision_function"}
+
+
+def collect_semantic_tags(expr_path: Union[str, Path]) -> Dict[str, Set[str]]:
+    """Collect semantic tags from a built expression using graph utilities."""
+    import xorq.expr.relations as rel
+    from xorq.common.utils.graph_utils import walk_nodes
+    from xorq.ibis_yaml.compiler import load_expr
+
+    p = Path(expr_path)
+    build_dir = p if p.is_dir() else p.parent
+    expr = load_expr(build_dir)
+
+    tags: Dict[str, Set[str]] = {cat: set() for cat in SEMANTIC_TAG_CATEGORIES}
+    for tn in walk_nodes(rel.Tag, expr):
+        tagname = tn.tag
+        ttype = tn.metadata.get("type")
+        step = tn.metadata.get("step_name")
+        if ttype == rel.TagType.SOURCE and tagname:
+            tags["source"].add(tagname)
+        elif ttype == rel.TagType.SPLIT and tagname:
+            tags["splits"].add(tagname)
+        elif ttype == rel.TagType.TRANSFORM and step:
+            tags["transforms"].add(step)
+        elif ttype in (rel.TagType.PREDICT, rel.TagType.MODEL) and step:
+            tags["model"].add(step)
+        elif tagname:
+            tags["generic"].add(tagname)
+    return {cat: items for cat, items in tags.items() if items}
+
+
+def print_tag_tree(tags: Dict[str, Set[str]], title: str) -> None:
+    """Print a tree view of semantic tags under the given title."""
+    cats = [cat for cat in SEMANTIC_TAG_CATEGORIES if cat in tags]
+    print(f"Tags for {title}")
+    for i, cat in enumerate(cats):
+        is_last_cat = i == len(cats) - 1
+        prefix = "└──" if is_last_cat else "├──"
+        print(f"{prefix} {cat}")
+        items = sorted(tags[cat])
+        for j, item in enumerate(items):
+            is_last_item = j == len(items) - 1
+            indent = "    " if is_last_cat else "│   "
+            sub = "└──" if is_last_item else "├──"
+            print(f"{indent}{sub} {item}")
+
+
+def format_tag_breadcrumb(tags: Dict[str, Set[str]]) -> str:
+    """Format semantic tags as a one-line breadcrumb string."""
+    order = ["model", "transforms", "splits", "source", "generic"]
+    parts: List[str] = []
+    for cat in order:
+        if cat in tags:
+            for item in sorted(tags[cat]):
+                parts.append(f"{cat}/{item}")
+    return " → ".join(parts)
 
 
 def maybe_resolve_build_dir(token: str, catalog: XorqCatalog) -> Optional[Path]:
