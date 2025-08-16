@@ -7,6 +7,7 @@ import toolz
 
 import xorq as xo
 import xorq.vendor.ibis.expr.types as ir
+from xorq.expr.relations import TagType
 from xorq.vendor.ibis import literal
 
 
@@ -268,6 +269,8 @@ def train_test_splits(
     Split 2 size: 30
     Split 3 size: 50
     """
+    # calculate split boundaries and filter conditions
+    bounds = _calculate_bounds(test_sizes=test_sizes)
     conditions = calc_split_conditions(
         table=table,
         unique_key=unique_key,
@@ -275,7 +278,20 @@ def train_test_splits(
         num_buckets=num_buckets,
         random_seed=random_seed,
     )
-    return map(table.filter, conditions)
+    # build each split table, auto-tagged with split metadata
+    splits = []
+    for idx, ((lower, upper), cond) in enumerate(zip(bounds, conditions)):
+        split_percent = upper - lower
+        splits.append(
+            table.filter(cond).tag(
+                f"split_{idx}_{int(split_percent * 100)}pct",
+                type=TagType.SPLIT,
+                split_number=idx,
+                split_percent=split_percent,
+                random_seed=random_seed,
+            )
+        )
+    return tuple(splits)
 
 
 __all__ = [

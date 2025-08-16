@@ -18,6 +18,7 @@ from xorq.common.utils.inspect_utils import (
 )
 from xorq.expr.relations import (
     Read,
+    TagType,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis import Schema
@@ -155,7 +156,7 @@ def deferred_read_csv(
         read_kwargs = make_read_kwargs(
             method, path, table_name, schema=schema, **kwargs
         )
-    return Read(
+    expr = Read(
         method_name=method_name,
         name=table_name,
         schema=schema,
@@ -163,6 +164,12 @@ def deferred_read_csv(
         read_kwargs=read_kwargs,
         normalize_method=normalize_method,
     ).to_expr()
+    # auto-tag the read operation
+    return expr.tag(
+        f"read-csv-{Path(path).stem}",
+        type=TagType.SOURCE,
+        path=str(path),
+    )
 
 
 def deferred_read_parquet(
@@ -208,7 +215,7 @@ def deferred_read_parquet(
         table_name = gen_name(f"letsql-{method_name}")
     schema = xo.connect().read_parquet(path).schema()
     read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
-    return Read(
+    expr = Read(
         method_name=method_name,
         name=table_name,
         schema=schema,
@@ -216,6 +223,12 @@ def deferred_read_parquet(
         read_kwargs=read_kwargs,
         normalize_method=normalize_method,
     ).to_expr()
+    # auto-tag the read operation
+    return expr.tag(
+        f"read-parquet-{Path(path).stem}",
+        type=TagType.SOURCE,
+        path=str(path),
+    )
 
 
 def rbr_wrapper(reader, clean_up):
