@@ -2,6 +2,7 @@ import functools
 import itertools
 import operator
 from collections import defaultdict
+from enum import Enum
 from typing import Any, Callable
 
 import pyarrow as pa
@@ -24,6 +25,17 @@ from xorq.vendor.ibis.common.graph import Graph
 from xorq.vendor.ibis.expr import operations as ops
 from xorq.vendor.ibis.expr.format import fmt, render_schema
 from xorq.vendor.ibis.expr.operations import Node, Relation
+
+
+class TagType(Enum):
+    """Enumerated types for tagging expressions."""
+
+    SOURCE = "source"
+    TRANSFORM = "transform"
+    PREDICT = "predict"
+    SPLIT = "split"
+    CACHE = "cache"
+    JOIN = "join"
 
 
 def replace_cache_table(node, kwargs):
