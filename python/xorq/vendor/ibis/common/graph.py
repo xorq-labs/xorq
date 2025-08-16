@@ -121,18 +121,18 @@ def _recursive_lookup(obj: Any, dct: dict) -> Any:
         return dct.get(obj, obj)
     elif isinstance(obj, (tuple, list)):
         return tuple(_recursive_lookup(o, dct) for o in obj)
-    elif isinstance(obj, FrozenOrderedDict):
-        # hack: for Tag
-        return FrozenOrderedDict(
-            {
-                _recursive_lookup(k, dct): _recursive_lookup(v, dct)
-                for k, v in obj.items()
-            }
-        )
     elif isinstance(obj, dict):
-        return {
+        replaced = {
             _recursive_lookup(k, dct): _recursive_lookup(v, dct) for k, v in obj.items()
         }
+        if isinstance(obj, FrozenOrderedDict):
+            try:
+                # hack: for Tag
+                return FrozenOrderedDict(replaced)
+            except Exception:
+                # pandas executor tries to put series into FrozenOrderedDict
+                return replaced
+        return replaced
     else:
         return obj
 
