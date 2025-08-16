@@ -270,7 +270,14 @@ def maybe_resolve_target(target: str, catalog: XorqCatalog) -> Optional[Target]:
 
 # -- Semantic Tag extraction and rendering --
 
-SEMANTIC_TAG_CATEGORIES = ["source", "splits", "transforms", "model", "generic"]
+SEMANTIC_TAG_CATEGORIES = [
+    "source",
+    "splits",
+    "cache",
+    "transforms",
+    "model",
+    "generic",
+]
 _SPLIT_TAGS = {"train", "test_predicted", "test", "validation"}
 _MODEL_OUTPUT_KINDS = {"predict", "score", "predict_proba", "decision_function"}
 
@@ -294,6 +301,8 @@ def collect_semantic_tags(expr_path: Union[str, Path]) -> Dict[str, Set[str]]:
             tags["source"].add(tagname)
         elif ttype == rel.TagType.SPLIT and tagname:
             tags["splits"].add(tagname)
+        elif ttype == rel.TagType.CACHE and tagname:
+            tags["cache"].add(tagname)
         elif ttype == rel.TagType.TRANSFORM and step:
             tags["transforms"].add(step)
         elif ttype in (rel.TagType.PREDICT, rel.TagType.MODEL) and step:
@@ -321,7 +330,7 @@ def print_tag_tree(tags: Dict[str, Set[str]], title: str) -> None:
 
 def format_tag_breadcrumb(tags: Dict[str, Set[str]]) -> str:
     """Format semantic tags as a one-line breadcrumb string."""
-    order = ["model", "transforms", "splits", "source", "generic"]
+    order = ["model", "transforms", "cache", "splits", "source", "generic"]
     parts: List[str] = []
     for cat in order:
         if cat in tags:
