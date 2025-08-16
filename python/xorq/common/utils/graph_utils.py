@@ -47,10 +47,8 @@ def gen_children_of(node: Node) -> Tuple[Node, ...]:
 
         case rel.Read():
             gen = ()
-
         case _:
             raw_children = getattr(node, "__children__", ())
-            # return _filter_none(map(to_node, raw_children))
             gen = map(to_node, raw_children)
     yield from filter(None, gen)
 

@@ -14,18 +14,26 @@ batting = deferred_read_parquet(
     path=batting_url,
     con=con,
     table_name="batting",
-)
+).tag("read-batting")
 awards_players = deferred_read_parquet(
     path=awards_players_url,
     con=db,
     table_name="awards_players",
+).tag("read-players")
+
+
+left = batting.filter(batting.yearID == 2015).tag("batting-filtered").cache()
+right = (
+    awards_players.filter(awards_players.lgID == "NL")
+    .drop("yearID", "lgID")
+    .tag("players-filtered")
 )
-
-
-left = batting.filter(batting.yearID == 2015).cache()
-right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
-expr = left.join(
-    right.into_backend(con, "awards_players-filtered"),
-    ["playerID"],
-    how="semi",
-)[["playerID", "yearID", "stint", "teamID", "lgID"]].cache()
+expr = (
+    left.join(
+        right.into_backend(con, "awards_players-filtered"),
+        ["playerID"],
+        how="semi",
+    )[["playerID", "yearID", "stint", "teamID", "lgID"]]
+    .tag("joined")
+    .cache()
+)

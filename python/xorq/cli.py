@@ -190,7 +190,8 @@ def run_command(
 @tracer.start_as_current_span("cli.unbind_and_serve_command")
 def unbind_and_serve_command(
     expr_path,
-    to_unbind_hash,
+    to_unbind_hash=None,
+    to_unbind_tag=None,
     host=None,
     port=None,
     prometheus_port=None,
@@ -203,23 +204,24 @@ def unbind_and_serve_command(
         find_all_sources,
     )
     from xorq.common.utils.node_utils import (
-        find_by_expr_hash,
+        find_node,
     )
 
     logger.info(f"Loading expression from {expr_path}")
     try:
         # initialize console and optional Prometheus metrics
         from xorq.flight.metrics import setup_console_metrics
+
         setup_console_metrics(prometheus_port=prometheus_port)
     except ImportError:
         logger.warning(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
 
-    expr = load_expr(expr_path)
-
-    def expr_to_unbound(expr, to_unbind_hash):
+    def expr_to_unbound(expr, hash, tag, typs):
         """create an unbound expr that only needs to have a source of record batches fed in"""
+        import dask
+
         from xorq.common.utils.graph_utils import (
             replace_nodes,
             walk_nodes,
@@ -230,14 +232,15 @@ def unbind_and_serve_command(
         )
         from xorq.vendor.ibis.expr.operations import UnboundTable
 
+        found = find_node(expr, hash=hash, tag=tag, typs=typ)
+        to_unbind_hash = hash or dask.base.tokenize(found.to_expr())
         found_cons = find_all_sources(expr)
-        found = find_by_expr_hash(expr, to_unbind_hash, typs=typ)
-
         if len(found_cons) == 0:
             raise ValueError
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
+            # fixme: properly deal with this case
             (found_con,) = find_all_sources(found)
 
         unbound_table = UnboundTable("unbound", found.schema)
@@ -249,7 +252,10 @@ def unbind_and_serve_command(
         elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
         return elided
 
-    unbound_expr = expr_to_unbound(expr, to_unbind_hash)
+    expr = load_expr(expr_path)
+    unbound_expr = expr_to_unbound(
+        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+    )
     flight_url = xo.flight.FlightUrl(host=host, port=port)
     make_server = functools.partial(
         xo.flight.FlightServer,
@@ -453,7 +459,10 @@ def parse_args(override=None):
         "build_path", help="Path to the build directory (output of xorq build)"
     )
     serve_unbound_parser.add_argument(
-        "to_unbind_hash", help="hash of the expr to replace"
+        "--to_unbind_hash", default=None, help="hash of the expr to replace"
+    )
+    serve_unbound_parser.add_argument(
+        "--to_unbind_tag", default=None, help="tag of the expr to replace"
     )
     serve_unbound_parser.add_argument(
         "--host",
@@ -586,6 +595,7 @@ def main():
                     (
                         args.build_path,
                         args.to_unbind_hash,
+                        args.to_unbind_tag,
                         args.host,
                         args.port,
                         args.prometheus_port,

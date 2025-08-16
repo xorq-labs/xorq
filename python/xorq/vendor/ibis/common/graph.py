@@ -9,6 +9,7 @@ from collections.abc import Callable, Iterable, Iterator, KeysView, Mapping, Seq
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 
 from xorq.vendor.ibis.common.bases import Hashable
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.common.patterns import NoMatch, Pattern
 from xorq.vendor.ibis.common.typing import _ClassInfo
 from xorq.vendor.ibis.util import experimental, promote_list
@@ -121,9 +122,17 @@ def _recursive_lookup(obj: Any, dct: dict) -> Any:
     elif isinstance(obj, (tuple, list)):
         return tuple(_recursive_lookup(o, dct) for o in obj)
     elif isinstance(obj, dict):
-        return {
+        replaced = {
             _recursive_lookup(k, dct): _recursive_lookup(v, dct) for k, v in obj.items()
         }
+        if isinstance(obj, FrozenOrderedDict):
+            try:
+                # hack: for Tag
+                return FrozenOrderedDict(replaced)
+            except Exception:
+                # pandas executor tries to put series into FrozenOrderedDict
+                return replaced
+        return replaced
     else:
         return obj
 
@@ -164,6 +173,9 @@ def _apply_replacements(obj: Any, replacements: dict) -> tuple[Any, bool]:
             changed |= kchanged
             changed |= vchanged
             items[k] = v
+        if isinstance(obj, FrozenOrderedDict):
+            # hack: for Tag
+            items = FrozenOrderedDict(items)
         return items, changed
     else:
         return obj, False

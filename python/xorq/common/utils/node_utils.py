@@ -19,6 +19,8 @@ replace_typs = (
     ops.PhysicalTable,
     rel.CachedNode,
     rel.Read,
+    # can't use Tag for anything involving hashes: hash value is the same as parent
+    # rel.Tag,
 )
 
 
@@ -41,10 +43,12 @@ def get_typs(maybe_typs):
         case str():
             (module, attr) = maybe_typs.rsplit(".", 1)
             typs = (getattr(importlib.import_module(module), attr),)
+        case _:
+            raise ValueError
     return typs
 
 
-def find_by_expr_hash(expr, to_replace_hash, typs=replace_typs):
+def find_by_expr_hash(expr, to_replace_hash, typs=None):
     typs = get_typs(typs)
     with patch_normalize_op_caching():
         (to_replace, *rest) = (
@@ -57,7 +61,29 @@ def find_by_expr_hash(expr, to_replace_hash, typs=replace_typs):
     return to_replace
 
 
-def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=replace_typs):
+def find_by_expr_tag(expr, tag):
+    yield from (node for node in walk_nodes(rel.Tag, expr) if node.tag == tag)
+
+
+def find_node(expr, hash, tag, typs=None):
+    match [hash, tag]:
+        case [None, None]:
+            raise ValueError
+        case [_, None]:
+            if isinstance(typs, tuple) and rel.Tag in typs:
+                raise ValueError
+            return find_by_expr_hash(expr, hash, typs=typs)
+        case [None, _]:
+            (node, *rest) = find_by_expr_tag(expr, tag)
+            if rest:
+                raise ValueError
+            else:
+                return node
+        case _:
+            raise ValueError
+
+
+def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=None):
     typs = get_typs(typs)
     to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs)
     replaced = replace_nodes(
@@ -69,7 +95,7 @@ def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=replace_typs)
     return replaced.to_expr()
 
 
-def unbind_expr_hash(expr, to_replace_hash, typs=replace_typs):
+def unbind_expr_hash(expr, to_replace_hash, typs=None):
     typs = get_typs(typs)
     to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs)
     replace_with = ops.UnboundTable("unbound", to_replace.schema)

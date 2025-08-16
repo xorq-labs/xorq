@@ -3421,6 +3421,22 @@ class Table(Expr, _FixedTextJupyterMixin):
         )
         return op.to_expr()
 
+    def tag(self, tag, **kwargs):
+        from xorq.expr.relations import Tag
+        from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+
+        op = Tag(
+            schema=self.schema(),
+            parent=self.op(),
+            metadata=FrozenOrderedDict(
+                {
+                    "tag": tag,
+                    **kwargs,
+                }
+            ),
+        )
+        return op.to_expr()
+
     def pivot_longer(
         self,
         col: str | s.Selector,

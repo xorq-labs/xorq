@@ -14,7 +14,13 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
-from xorq.expr.relations import CachedNode, Read, RemoteTable, into_backend
+from xorq.expr.relations import (
+    CachedNode,
+    Read,
+    RemoteTable,
+    Tag,
+    into_backend,
+)
 from xorq.ibis_yaml.common import (
     TranslationContext,
     _translate_type,
@@ -32,6 +38,7 @@ from xorq.ibis_yaml.utils import (
     load_storage_from_yaml,
     translate_storage,
 )
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations.relations import Namespace
 
 
@@ -1750,3 +1757,66 @@ REVERSE_TYPE_REGISTRY = {
         nullable=yaml_dict.get("nullable", True),
     ),
 }
+
+
+@translate_to_yaml.register(FrozenOrderedDict)
+def _frozenordereddict_to_yaml(dct: dict, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "FrozenOrderedDict",
+        }
+        | {key: translate_to_yaml(value, context) for key, value in dct.items()}
+    )
+
+
+@register_from_yaml_handler("FrozenOrderedDict")
+def _frozenordereddict_from_yaml(
+    yaml_dict: dict, context: TranslationContext
+) -> FrozenOrderedDict:
+    dct = FrozenOrderedDict(
+        {
+            key: translate_from_yaml(value, context)
+            for key, value in toolz.dissoc(yaml_dict, "op").items()
+        }
+    )
+    return dct
+
+
+@translate_to_yaml.register(Tag)
+def _tag_to_yaml(op: Tag, context: any) -> dict:
+    schema_id = context.schema_registry.register_schema(op.schema)
+    # source should be called profile_name
+
+    return freeze(
+        {
+            "op": "Tag",
+            "schema_ref": schema_id,
+            # fixme: translate_to_yaml on Node should result in Node, not Expr
+            "parent": translate_to_yaml(op.parent, context),
+            "metadata": translate_to_yaml(op.metadata, context),
+        }
+    )
+
+
+@register_from_yaml_handler("Tag")
+def _tag_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
+    schema_ref = yaml_dict["schema_ref"]
+    try:
+        schema_def = context.definitions["schemas"][schema_ref]
+    except KeyError:
+        raise ValueError(f"Schema {schema_ref} not found in definitions")
+
+    schema = {
+        name: translate_from_yaml(dtype_yaml, context)
+        for name, dtype_yaml in schema_def.items()
+    }
+
+    # fixme: enable translation of nodes
+    parent_expr = translate_from_yaml(yaml_dict["parent"], context)
+    metadata = translate_from_yaml(yaml_dict["metadata"], context)
+    op = Tag(
+        schema=schema,
+        parent=parent_expr.op(),
+        metadata=metadata,
+    )
+    return op.to_expr()
