@@ -8,12 +8,12 @@ from xorq.caching import SourceStorage
     "name",
     (
         "diamonds",
-        "hn-data-small.parquet",
+        "astronauts",
     ),
 )
-def test_source_caching(name, pg):
+def test_source_caching(name, pg, parquet_dir):
     con = xo.connect()
-    example = xo.examples.get_table_from_name(name, con)
+    example = xo.deferred_read_parquet(parquet_dir / f"{name}.parquet", con)
     expr = example.cache(storage=SourceStorage(pg))
     assert not expr.ls.exists()
     actual = expr.execute()
