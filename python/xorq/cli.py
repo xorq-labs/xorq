@@ -12,7 +12,7 @@ import uuid
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Mapping, Optional, Tuple
 
 import yaml
 from attrs import evolve, frozen
@@ -882,8 +882,8 @@ def catalog_command(args):
         if not tags:
             print(f"No semantic tags found for {args.entry}")
             return
-        if args.hashes:
-            # Compute node hashes for each tag and show alongside items
+        if args.hashes or args.schema:
+            # Compute node hashes and/or schemas for each tag
             import dask.base as db
 
             import xorq.expr.relations as rel
@@ -895,13 +895,17 @@ def catalog_command(args):
             build_dir = p if p.is_dir() else p.parent
             expr = load_expr(build_dir)
             tag_hash: dict[str, str] = {}
+            tag_schema: dict[str, Mapping[str, Any]] = {}
             for tn in walk_nodes(rel.Tag, expr):
                 name = tn.tag
                 if name in {t for cats in tags.values() for t in cats}:
-                    h = db.tokenize(tn.to_expr())
-                    tag_hash[name] = h[: build_config.hash_length]
+                    if args.hashes:
+                        h = db.tokenize(tn.to_expr())
+                        tag_hash[name] = h[: build_config.hash_length]
+                    if args.schema:
+                        tag_schema[name] = tn.schema
 
-            # Print tree with hashes
+            # Print tree with optional hashes/schemas
             print(f"Tags for {args.entry}")
             cats = [cat for cat in SEMANTIC_TAG_CATEGORIES if cat in tags]
             for i, cat in enumerate(cats):
@@ -913,13 +917,18 @@ def catalog_command(args):
                     is_last_item = j == len(items) - 1
                     indent = "    " if is_last_cat else "│   "
                     sub = "└──" if is_last_item else "├──"
-                    h = tag_hash.get(item)
-                    if h:
-                        print(f"{indent}{sub} {item} ({h})")
-                    else:
-                        print(f"{indent}{sub} {item}")
+                    line = f"{indent}{sub} {item}"
+                    if args.hashes:
+                        h = tag_hash.get(item)
+                        if h:
+                            line += f" ({h})"
+                    print(line)
+                    if args.schema:
+                        schema = tag_schema.get(item) or {}
+                        for col, dtype in schema.items():
+                            print(f"{indent}    - {col}: {dtype}")
             return
-        # Default: just print tag tree without hashes
+        # Default: just print tag tree without hashes/schemas
         print_tag_tree(tags, args.entry)
         return
 
@@ -1512,6 +1521,11 @@ def parse_args(override=None):
         "--hashes",
         action="store_true",
         help="Show node hashes alongside each tag in the tree",
+    )
+    catalog_tag_tree.add_argument(
+        "--schema",
+        action="store_true",
+        help="Show node schemas alongside each tag in the tree",
     )
 
     catalog_inspect = catalog_subparsers.add_parser(
