@@ -882,6 +882,44 @@ def catalog_command(args):
         if not tags:
             print(f"No semantic tags found for {args.entry}")
             return
+        if args.hashes:
+            # Compute node hashes for each tag and show alongside items
+            import dask.base as db
+
+            import xorq.expr.relations as rel
+            from xorq.catalog import SEMANTIC_TAG_CATEGORIES
+            from xorq.common.utils.graph_utils import walk_nodes
+            from xorq.ibis_yaml.config import config as build_config
+
+            p = Path(expr_path)
+            build_dir = p if p.is_dir() else p.parent
+            expr = load_expr(build_dir)
+            tag_hash: dict[str, str] = {}
+            for tn in walk_nodes(rel.Tag, expr):
+                name = tn.tag
+                if name in {t for cats in tags.values() for t in cats}:
+                    h = db.tokenize(tn.to_expr())
+                    tag_hash[name] = h[: build_config.hash_length]
+
+            # Print tree with hashes
+            print(f"Tags for {args.entry}")
+            cats = [cat for cat in SEMANTIC_TAG_CATEGORIES if cat in tags]
+            for i, cat in enumerate(cats):
+                is_last_cat = i == len(cats) - 1
+                prefix = "└──" if is_last_cat else "├──"
+                print(f"{prefix} {cat}")
+                items = sorted(tags[cat])
+                for j, item in enumerate(items):
+                    is_last_item = j == len(items) - 1
+                    indent = "    " if is_last_cat else "│   "
+                    sub = "└──" if is_last_item else "├──"
+                    h = tag_hash.get(item)
+                    if h:
+                        print(f"{indent}{sub} {item} ({h})")
+                    else:
+                        print(f"{indent}{sub} {item}")
+            return
+        # Default: just print tag tree without hashes
         print_tag_tree(tags, args.entry)
         return
 
@@ -946,8 +984,6 @@ def catalog_command(args):
         if build_dir and (
             args.full or args.plan or args.schema or args.profiles or args.hashes
         ):
-            from xorq.ibis_yaml.compiler import load_expr
-
             try:
                 expr = load_expr(build_dir)
                 schema = expr.schema()
@@ -1471,6 +1507,11 @@ def parse_args(override=None):
     catalog_tag_tree.add_argument(
         "entry",
         help="Entry ID, alias, or entry@revision to inspect tags",
+    )
+    catalog_tag_tree.add_argument(
+        "--hashes",
+        action="store_true",
+        help="Show node hashes alongside each tag in the tree",
     )
 
     catalog_inspect = catalog_subparsers.add_parser(
