@@ -314,6 +314,31 @@ class BuildManager:
     def load_deferred_reads(self, expr_hash: str) -> Dict[str, Any]:
         return self.artifact_store.load_yaml(expr_hash, "deferred_reads.yaml")
 
+    @staticmethod
+    def validate_build(path) -> tuple:
+        """
+        Validate a build directory and extract build metadata for catalog.
+        Returns: build_id, meta_digest, metadata_preview
+        """
+        import hashlib
+        from pathlib import Path
+
+        build_path = Path(path)
+        if not build_path.exists() or not build_path.is_dir():
+            raise ValueError(f"Build path not found: {build_path}")
+        # The build_id is the directory name
+        build_id = build_path.name
+        # Compute meta_digest from metadata.json
+        meta_file = build_path / "metadata.json"
+        if not meta_file.exists():
+            raise ValueError(f"metadata.json not found in build path: {build_path}")
+        content = meta_file.read_bytes()
+        meta_hash = hashlib.sha1(content).hexdigest()
+        meta_digest = f"sha1:{meta_hash}"
+        # No expr_hashes or node-level hashes are stored here; calculate expr hash fresh when needed
+        metadata_preview: dict = {}
+        return build_id, meta_digest, metadata_preview
+
 
 def load_expr(expr_path, cache_dir=None):
     expr_path = Path(expr_path)
