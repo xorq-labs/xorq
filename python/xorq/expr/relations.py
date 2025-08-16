@@ -128,6 +128,18 @@ class Tag(ops.Relation):
     def tag(self):
         return self.metadata.get("tag")
 
+    def __dask_tokenize__(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_expr import (
+            normalize_seq_with_caller,
+        )
+
+        return normalize_seq_with_caller(
+            self.schema,
+            self.parent,
+            self.metadata,
+            caller="normalize_tag",
+        )
+
 
 class CachedNode(ops.Relation):
     schema: Schema
