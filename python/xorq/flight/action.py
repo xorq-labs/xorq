@@ -77,7 +77,7 @@ class ListExchangesAction(AbstractAction):
     @classmethod
     def do_action(cls, server, context, action):
         yield make_flight_result(
-            tuple(exchanger.command for exchanger in server.exchangers.values())
+            tuple(exchanger_command for exchanger_command in server.exchangers.keys())
         )
 
 
@@ -145,6 +145,7 @@ class GetExchangeAction(AbstractAction):
     def do_action(cls, server, context, action):
         exchange_name = loads(action.body)
         exchanger = server.exchangers.get(exchange_name)
+        breakpoint()
         yield make_flight_result(exchanger)
 
 
