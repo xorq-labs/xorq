@@ -643,7 +643,17 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         """
         path = normalize_filenames(path)
         table_name = table_name or gen_name("read_parquet")
-        kwargs.setdefault("file_extension", Path(path[0]).suffix)
+        first_path = Path(path[0])
+        kwargs.setdefault("file_extension", first_path.suffix)
+
+        try:
+            import pyarrow.parquet as pq
+
+            schema = pq.read_schema(first_path)
+            if pa.large_string() in schema.types:
+                kwargs.setdefault("schema", schema)
+        except ImportError:
+            pass
 
         # Our other backends support overwriting views / tables when reregistering
         self.con.deregister_table(table_name)
