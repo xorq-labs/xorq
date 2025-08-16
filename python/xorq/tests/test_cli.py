@@ -14,7 +14,7 @@ from xorq.cli import (
     build_command,
 )
 from xorq.common.utils.node_utils import (
-    find_by_expr_hash,
+    find_node,
 )
 from xorq.common.utils.process_utils import (
     Popened,
@@ -526,40 +526,81 @@ def pipeline_https_build(tmp_path, fixture_dir):
     return serve_dir
 
 
+def peek_port(popened):
+    def do_match(buf):
+        (*_, line) = remove_ansi_escape(buf.decode("ascii").strip()).rsplit("\n", 1)
+        match = re.match(".*on grpc://localhost:(\\d+)$", line)
+        return match
+
+    popened.popen.poll()
+    if popened.popen.returncode:
+        raise Exception(popened.stderr)
+    buf = popened.stdout_peeker.peek_line_until(do_match)
+    (as_string,) = do_match(buf).groups()
+    port = int(as_string)
+    return port
+
+
+def hit_server(port, expr):
+    client = FlightClient(port=port)
+    (_, rbr) = client.do_exchange("default", expr)
+    df = rbr.read_pandas()
+    return df
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("serve_hash", serve_hashes)
-def test_serve_unbound(serve_hash, pipeline_https_build):
-    def peek_port(popened):
-        def do_match(buf):
-            (*_, line) = remove_ansi_escape(buf.decode("ascii").strip()).rsplit("\n", 1)
-            match = re.match(".*on grpc://localhost:(\\d+)$", line)
-            return match
-
-        buf = popened.stdout_peeker.peek_line_until(do_match)
-        (as_string,) = do_match(buf).groups()
-        port = int(as_string)
-        return port
-
-    def hit_server(port, expr):
-        client = FlightClient(port=port)
-        (_, rbr) = client.do_exchange("default", expr)
-        df = rbr.read_pandas()
-        return df
-
+def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
         "9a56179702c49336749e3d4795cb2e4e": "xorq.vendor.ibis.expr.operations.DropColumns",
         "656c8362e81d2a1a84d767270157d970": "xorq.vendor.ibis.expr.operations.Filter",
     }
     expr = load_expr(pipeline_https_build)
     typ = lookup.get(serve_hash)
-    subexpr = find_by_expr_hash(expr, serve_hash, typs=typ).to_expr()
+    subexpr = find_node(expr, hash=serve_hash, tag=None, typs=typ).to_expr()
 
     serve_args = (
         "xorq",
         "serve-unbound",
         str(pipeline_https_build),
+        "--to_unbind_hash",
         serve_hash,
     ) + (("--typ", typ) if typ else ())
+    serve_popened = Popened(serve_args, deferred=False)
+    port = peek_port(serve_popened)
+    actual = hit_server(port=port, expr=subexpr)
+    expected = expr.execute()
+    (actual, expected) = (
+        df.sort_values(list(df.columns), ignore_index=True) for df in (actual, expected)
+    )
+    assert actual.equals(expected)
+
+    serve_popened.popen.terminate()
+
+
+serve_tags = (
+    "read-batting",
+    "read-players",
+    "batting-filtered",
+    "players-filtered",
+    # this needs the fix for finding the correct source
+    # "joined",
+)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize("serve_tag", serve_tags)
+def test_serve_unbound_tag(serve_tag, pipeline_https_build):
+    expr = load_expr(pipeline_https_build)
+    subexpr = find_node(expr, hash=None, tag=serve_tag).to_expr()
+
+    serve_args = (
+        "xorq",
+        "serve-unbound",
+        str(pipeline_https_build),
+        "--to_unbind_tag",
+        serve_tag,
+    )
     serve_popened = Popened(serve_args, deferred=False)
     port = peek_port(serve_popened)
     actual = hit_server(port=port, expr=subexpr)
