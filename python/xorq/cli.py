@@ -887,7 +887,6 @@ def catalog_command(args):
             import dask.base as db
 
             import xorq.expr.relations as rel
-            from xorq.catalog import SEMANTIC_TAG_CATEGORIES
             from xorq.common.utils.graph_utils import walk_nodes
             from xorq.ibis_yaml.config import config as build_config
 
@@ -907,7 +906,7 @@ def catalog_command(args):
 
             # Print tree with optional hashes/schemas
             print(f"Tags for {args.entry}")
-            cats = [cat for cat in SEMANTIC_TAG_CATEGORIES if cat in tags]
+            cats = list(tags)
             for i, cat in enumerate(cats):
                 is_last_cat = i == len(cats) - 1
                 prefix = "└──" if is_last_cat else "├──"

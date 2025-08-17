@@ -271,7 +271,7 @@ def maybe_resolve_target(target: str, catalog: XorqCatalog) -> Optional[Target]:
 def collect_semantic_tags(expr_path: Union[str, Path]) -> Dict[str, Set[str]]:
     """Collect semantic tags from a built expression using graph utilities."""
     import xorq.expr.relations as rel
-    from xorq.common.utils.graph_utils import bfs, walk_nodes
+    from xorq.common.utils.graph_utils import walk_nodes
     from xorq.ibis_yaml.compiler import load_expr
     from xorq.vendor.ibis.expr.operations.core import Node
 
@@ -281,7 +281,6 @@ def collect_semantic_tags(expr_path: Union[str, Path]) -> Dict[str, Set[str]]:
 
     tags: Dict[str, Set[str]] = {}
     split_nodes: list[Node] = []
-    graph = bfs(expr)
 
     for tn in walk_nodes(rel.Tag, expr):
         ttype = tn.metadata.get("type")
