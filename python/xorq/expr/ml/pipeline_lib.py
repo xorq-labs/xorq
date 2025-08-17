@@ -1,6 +1,5 @@
 import functools
 import pickle
-from typing import Callable
 
 import dask
 from attr import (
@@ -12,17 +11,7 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from sklearn.base import (
-    BaseEstimator,
-    ClassifierMixin,
-)
-from sklearn.linear_model import (
-    LinearRegression,
-    LogisticRegression,
-)
-from sklearn.neighbors import (
-    KNeighborsClassifier,
-)
+from dask.utils import Dispatch
 from toolz.curried import (
     excepts as cexcepts,
 )
@@ -55,6 +44,8 @@ def do_into_backend(expr, con=None):
 
 
 def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=None):
+    from sklearn.base import BaseEstimator
+
     def arbitrate_transform_predict(transform, predict):
         match (transform, predict):
             case [None, None]:
@@ -160,6 +151,8 @@ class Step:
     params_tuple = field(validator=instance_of(tuple), default=(), converter=tuple)
 
     def __attrs_post_init__(self):
+        from sklearn.base import BaseEstimator
+
         assert BaseEstimator in self.typ.mro()
         if self.name is None:
             object.__setattr__(self, "name", f"{self.typ.__name__.lower()}_{id(self)}")
@@ -794,35 +787,38 @@ def get_target_type(step, expr, features, target):
     return expr[target].type()
 
 
-step_typ_to_f = {
-    LinearRegression: return_constant(dt.float),
-    LogisticRegression: get_target_type,
-    KNeighborsClassifier: get_target_type,
-}
+registry = Dispatch()
 
 
 def get_predict_return_type(step, expr, features, target):
     if return_type := getattr(step.typ, "return_type", None):
         return return_type
-    elif f := step_typ_to_f.get(step.typ):
-        return_type = f(step, expr, features, target)
-        return return_type
-    elif ClassifierMixin in step.typ.mro():
-        return_type = get_target_type(step, expr, features, target)
-        return return_type
     else:
-        raise ValueError(f"Can't handle {step.typ.__name__}")
+        return registry(step, expr, features, target)
 
 
-def register(typ, f, clobber=False):
-    if not isinstance(typ, type):
-        raise ValueError
-    if not isinstance(f, Callable):
-        raise ValueError
-    # FIXME: check that signature matches
-    if typ in step_typ_to_f and not clobber:
-        raise ValueError
-    step_typ_to_f[typ] = f
+@registry.register(object)
+def raise_on_unregistered(step, expr, features, target):
+    raise ValueError(f"Can't handle {step.typ.__name__}")
 
 
-get_predict_return_type.register = register
+@registry.register_lazy("sklearn")
+def lazy_register_sklearn():
+    from sklearn.base import (
+        ClassifierMixin,
+    )
+    from sklearn.linear_model import (
+        LinearRegression,
+        LogisticRegression,
+    )
+    from sklearn.neighbors import (
+        KNeighborsClassifier,
+    )
+
+    registry.register(LinearRegression, return_constant(dt.float))
+    registry.register(LogisticRegression, get_target_type)
+    registry.register(KNeighborsClassifier, get_target_type)
+    registry.register(ClassifierMixin, get_target_type)
+
+
+get_predict_return_type.register = registry.register
