@@ -258,16 +258,17 @@ def test_get_object_metadata_gcs():
 
 
 @pytest.mark.parametrize(
-    "other_con",
+    "get_con",
     [
-        xo.connect(),
-        xo.datafusion.connect(),
-        xo.duckdb.connect(),
-        xo.postgres.connect_env(),
+        lambda: xo.connect(),
+        lambda: xo.datafusion.connect(),
+        lambda: xo.duckdb.connect(),
+        lambda: xo.postgres.connect_env(),
     ],
 )
-def test_expr_over_same_table_multiple_times(parquet_dir, other_con):
+def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
     ls_con = xo.connect()
+    other_con = get_con()
     astronauts_path = parquet_dir.joinpath("astronauts.parquet")
     table_name = "astronauts"
     col = "id"

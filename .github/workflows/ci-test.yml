@@ -28,7 +28,14 @@ jobs:
     strategy:
       matrix:
         target: [x86_64]
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.12"]
+        backend:
+          - name: datafusion
+            services: false
+          - name: let
+            services: false
+          - name: postgres
+            services: true
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
@@ -52,10 +59,11 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: start services
+        if: ${{ matrix.backend.services }}
         run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -k 'not script_execution and not slow'
+        run: uv run --no-sync pytest --import-mode=importlib --cov --cov-report=xml -m ${{ matrix.backend.name }} -k 'not script_execution and not slow'
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres

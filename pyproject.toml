@@ -40,7 +40,7 @@ dependencies = [
     "cryptography>=45.0.3",
     "strenum>=0.4.15 ; python_version <= '3.10'",
     "uv>=0.7.20",
-    "rich>=13.9.4"
+    "rich>=13.9.4",
 ]
 requires-python = ">=3.10"
 authors = [
@@ -210,6 +210,13 @@ markers = [
     "gcs",
     "snapshot_check",
     "slow",
+    "datafusion: Apache Datafusion tests",
+    "duckdb: DuckDB tests",
+    "let",
+    "pandas",
+    "postgres",
+    "trino",
+    "core"
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"
