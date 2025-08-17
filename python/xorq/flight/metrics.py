@@ -88,8 +88,18 @@ def setup_console_metrics(
         else:
             prom_reader = PrometheusMetricReader()
             readers.append(prom_reader)
-            prometheus_client.start_http_server(prometheus_port)
-            logger.info(f"Prometheus metrics available at :{prometheus_port}")
+            try:
+                import errno
+
+                prometheus_client.start_http_server(prometheus_port)
+                logger.info(f"Prometheus metrics available at :{prometheus_port}")
+            except OSError as e:
+                if e.errno == errno.EADDRINUSE:
+                    logger.warning(
+                        f"Prometheus port {prometheus_port} already in use; metrics endpoint disabled"
+                    )
+                else:
+                    raise
     # include resource attributes for backend grouping
     import socket
 
