@@ -1,4 +1,3 @@
-import functools
 import operator
 
 import pandas as pd
@@ -10,6 +9,7 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
+from dask.utils import Dispatch
 
 import xorq.expr.datatypes as dt
 
@@ -58,12 +58,16 @@ class Structer:
         return structer_from_instance(instance, expr, features=features)
 
 
-@functools.singledispatch
-def structer_from_instance(instance, expr, features=None):
+structer_from_instance = Dispatch()
+
+
+@structer_from_instance.register(object)
+def register_object(instance, expr, features=None):
     raise ValueError(f"can't handle type {instance.__class__}")
 
 
-try:
+@structer_from_instance.register_lazy("sklearn")
+def lazy_register_sklearn():
     from sklearn.feature_selection import (
         SelectKBest,
     )
@@ -96,5 +100,3 @@ try:
             raise ValueError
         structer = Structer.from_n_typ_prefix(n=instance.k, typ=typ)
         return structer
-except ImportError:
-    pass
