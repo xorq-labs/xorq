@@ -803,15 +803,15 @@ def catalog_command(args):
         if serve_meta is None or serve_meta.get("unbind", {}).get("type") != "split":
             cfg_dir = config_path.parent
             build_dir = cfg_dir / build_path_str
-            split_tags = collect_semantic_tags(build_dir / "expr.yaml").get(
-                "split", set()
-            )
-            if split_tags:
-                default_tag = sorted(split_tags)[-1]
-                entry.setdefault("meta", {})["serve"] = {
-                    "kind": "UNBIND_VARIANT",
-                    "unbind": {"type": "split", "tag": default_tag},
-                }
+            expr_file = build_dir / "expr.yaml"
+            if expr_file.exists():
+                split_tags = collect_semantic_tags(expr_file).get("split", set())
+                if split_tags:
+                    default_tag = sorted(split_tags)[-1]
+                    entry.setdefault("meta", {})["serve"] = {
+                        "kind": "UNBIND_VARIANT",
+                        "unbind": {"type": "split", "tag": default_tag},
+                    }
         # Save updated catalog to local catalog file
         save_catalog(catalog, path=config_path)
         print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
@@ -819,11 +819,36 @@ def catalog_command(args):
     elif args.subcommand == "ls":
         # List catalog entries, optionally with semantic tags
         catalog = load_catalog(path=config_path)
-        if args.with_tags:
-            # Show one-line breadcrumb of semantic tags and unbind split tag per entry/alias
+        # Show cache status table for entries/aliases if requested (top-level)
+        if args.cache_status:
+            # Prepare storage and catalog entries
+            from xorq.caching import ParquetSnapshotStorage
+
+            catalog = load_catalog(path=config_path)
             aliases = catalog.get("aliases", {}) or {}
             entries = catalog.get("entries", []) or []
-            rows = []
+            storage = ParquetSnapshotStorage()
+            rows: list[tuple[str, ...]] = []
+            for name, mapping in aliases.items():
+                ent_id = mapping.get("entry_id")
+                rev = mapping.get("revision_id")
+                # resolve build directory and expression
+                build_dir = resolve_build_dir(name, catalog)
+                if not build_dir:
+                    continue
+                expr = load_expr(build_dir)
+                key = storage.get_key(expr)
+                exists = storage.exists(expr)
+                rows.append((name, rev, key, str(exists)))
+            headers = ("ENTRY", "REV", "CACHE-HASH", "CACHED")
+            do_print_table(headers, tuple(rows))
+            return
+        if getattr(args, "with_tags", False):
+            # Show one-line breadcrumb of semantic tags per entry/alias
+            aliases = catalog.get("aliases", {}) or {}
+            entries = catalog.get("entries", []) or []
+            rows: list[tuple[str, ...]] = []
+            storage = None
             for alias_name, mapping in aliases.items():
                 ent_id = mapping.get("entry_id")
                 rev_id = mapping.get("revision_id")
@@ -831,14 +856,7 @@ def catalog_command(args):
                 entry = next((e for e in entries if e.get("entry_id") == ent_id), None)
                 if not entry:
                     continue
-                rev = next(
-                    (
-                        r
-                        for r in entry.get("history", [])
-                        if r.get("revision_id") == rev_id
-                    ),
-                    None,
-                )
+                rev = next((r for r in entry.get("history", []) if r.get("revision_id") == rev_id), None)
                 if not rev or not rev.get("build"):
                     continue
                 build_id = rev.get("build", {}).get("build_id")
@@ -849,24 +867,32 @@ def catalog_command(args):
                 expr_path = build_dir / "expr.yaml"
                 tags = collect_semantic_tags(expr_path)
                 breadcrumb = format_tag_breadcrumb(tags)
-                # Truncate long tag breadcrumbs for listing
-                max_tag_len = 80
-                if len(breadcrumb) > max_tag_len:
-                    breadcrumb = breadcrumb[: max_tag_len - 3] + "..."
-                # Determine persisted or default split unbind tag
+                # Truncate long tag breadcrumbs
+                if len(breadcrumb) > 80:
+                    breadcrumb = breadcrumb[:77] + "..."
+                # Determine split unbind tag
                 serve_meta = entry.get("meta", {}).get("serve", {})
-                if (
-                    serve_meta.get("kind") == "UNBIND_VARIANT"
-                    and serve_meta.get("unbind", {}).get("type") == "split"
-                ):
+                if serve_meta.get("kind") == "UNBIND_VARIANT" and serve_meta.get("unbind", {}).get("type") == "split":
                     unbind_tag = serve_meta["unbind"]["tag"]
                 else:
-                    # default to the first split tag (sorted) if no persisted unbind
                     split_tags = sorted(tags.get("split", []))
                     unbind_tag = split_tags[0] if split_tags else ""
-                rows.append((alias_name, rev_id, build_id, unbind_tag, breadcrumb))
+                # Build row with or without cache status
+                if args.cache_status:
+                    # nested cache flag not needed when top-level cache-status used
+                    if storage is None:
+                        from xorq.caching import ParquetSnapshotStorage
+
+                        storage = ParquetSnapshotStorage()
+                    expr = load_expr(build_dir)
+                    cached = storage.exists(expr)
+                    rows.append((alias_name, rev_id, build_id, unbind_tag, breadcrumb, str(cached)))
+                else:
+                    rows.append((alias_name, rev_id, build_id, unbind_tag, breadcrumb))
             # print table
-            headers = ("ENTRY", "REV", "HASH", "UNBIND-TAG", "TAGS")
+            headers: tuple[str, ...] = ("ENTRY", "REV", "HASH", "UNBIND-TAG", "TAGS")
+            if args.cache_status:
+                headers += ("CACHED",)
             do_print_table(headers, tuple(rows))
             return
         # default listing
@@ -888,7 +914,6 @@ def catalog_command(args):
             print(f"{ent_id}\t{curr_rev}\t{build_id}")
 
     elif args.subcommand == "tag-tree":
-        # Show hierarchical tree of semantic tags for a catalog entry
         catalog = load_catalog(path=config_path)
         from xorq.catalog import resolve_target
 
@@ -1386,7 +1411,6 @@ def cache_command(args):
     Cache a built expression output to Parquet using a CachedNode.
     """
     from xorq.caching import ParquetSnapshotStorage
-    from xorq.common.utils.caching_utils import find_backend
 
     # Resolve build target
     catalog = load_catalog()
@@ -1396,21 +1420,49 @@ def cache_command(args):
         sys.exit(2)
     expr = load_expr(build_dir)
     # Setup Parquet storage at given cache directory
-    base_path = Path(args.cache_dir)
+
     storage = ParquetSnapshotStorage()
     # Materialize and cache the expression (execute to write Parquet files)
     cached_expr = expr.cache(storage=storage)
-    cached_expr.execute()
-
-    #key = storage.cache.get_key(expr)
-    key = cached_expr.ls.get_keys()[-1]
+    key = cached_expr.ls.op.parent.to_expr().ls.get_key()
     print(f"Cache key: {key}")
+
+    cached_expr.execute()
 
     # Report cache files written
     cache_path = storage.cache.storage.path
     print(f"Cache written to: {cache_path}")
     for pq_file in sorted(cache_path.rglob("*.parquet")):
         print(f"  {pq_file.relative_to(cache_path)}")
+
+
+def cache_lookup_command(args):
+    """
+    Lookup and display cached output for a build entry or alias.
+    """
+    import pandas as pd
+
+    # Resolve build target and load expression
+    catalog = load_catalog()
+    build_dir = resolve_build_dir(args.target, catalog)
+    if build_dir is None or not build_dir.is_dir():
+        print(f"Build target not found: {args.target}")
+        sys.exit(2)
+    expr = load_expr(build_dir)
+
+    # Access snapshot storage for cache key and files
+    from xorq.caching import ParquetSnapshotStorage
+
+    storage = ParquetSnapshotStorage()
+    key = storage.get_key(expr)
+    loc = storage.get_loc(key)
+    if not loc.exists():
+        print(f"No cached output for {args.target}")
+        sys.exit(1)
+
+    # Read and print cached DataFrame
+    df = pd.read_parquet(loc)
+    print(df.to_csv(index=False), end="")
 
 
 def profile_command(args):
@@ -1499,6 +1551,15 @@ def parse_args(override=None):
         choices=["csv", "json", "parquet"],
         default="parquet",
         help="Output format (default: parquet)",
+    )
+
+    # Lookup and print cached output for a catalog entry or alias
+    cache_lookup_parser = subparsers.add_parser(
+        "cache-lookup", help="Lookup and display cached output for a build entry or alias"
+    )
+    cache_lookup_parser.add_argument(
+        "target",
+        help="Entry ID, alias, or entry@revision to lookup cached output",
     )
 
     build_parser = subparsers.add_parser(
@@ -1720,6 +1781,11 @@ def parse_args(override=None):
         "--with-tags",
         action="store_true",
         help="Show semantic tags breadcrumb in listing",
+    )
+    catalog_ls.add_argument(
+        "--cache-status",
+        action="store_true",
+        help="Show cache key and whether each expression is cached on disk",
     )
 
     # Show a hierarchical tree of semantic tags for a catalog entry
@@ -1993,6 +2059,11 @@ def main():
             case "catalog":
                 f, f_args = (
                     catalog_command,
+                    (args,),
+                )
+            case "cache-lookup":
+                f, f_args = (
+                    cache_lookup_command,
                     (args,),
                 )
             case "ps":
