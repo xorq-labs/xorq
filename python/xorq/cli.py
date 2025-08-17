@@ -784,6 +784,7 @@ def catalog_command(args):
             }
             if metadata_preview:
                 revision["metadata"] = metadata_preview
+
             entry = {
                 "entry_id": entry_id,
                 "created_at": now,
@@ -796,6 +797,20 @@ def catalog_command(args):
                     "entry_id": entry_id,
                     "revision_id": revision_id,
                     "updated_at": now,
+                }
+        # Auto-default to the last split tag for base entries with no explicit serve.unbind
+        serve_meta = entry.get("meta", {}).get("serve")
+        if serve_meta is None or serve_meta.get("unbind", {}).get("type") != "split":
+            cfg_dir = config_path.parent
+            build_dir = cfg_dir / build_path_str
+            split_tags = collect_semantic_tags(build_dir / "expr.yaml").get(
+                "split", set()
+            )
+            if split_tags:
+                default_tag = sorted(split_tags)[-1]
+                entry.setdefault("meta", {})["serve"] = {
+                    "kind": "UNBIND_VARIANT",
+                    "unbind": {"type": "split", "tag": default_tag},
                 }
         # Save updated catalog to local catalog file
         save_catalog(catalog, path=config_path)
@@ -817,7 +832,11 @@ def catalog_command(args):
                 if not entry:
                     continue
                 rev = next(
-                    (r for r in entry.get("history", []) if r.get("revision_id") == rev_id),
+                    (
+                        r
+                        for r in entry.get("history", [])
+                        if r.get("revision_id") == rev_id
+                    ),
                     None,
                 )
                 if not rev or not rev.get("build"):
@@ -952,11 +971,19 @@ def catalog_command(args):
         base_rev = target.rev
         # Find base entry and its revision
         base_entry = next(
-            (e for e in catalog.get("entries", []) if e.get("entry_id") == base_entry_id),
+            (
+                e
+                for e in catalog.get("entries", [])
+                if e.get("entry_id") == base_entry_id
+            ),
             None,
         )
         base_history = next(
-            (r for r in base_entry.get("history", []) if r.get("revision_id") == base_rev),
+            (
+                r
+                for r in base_entry.get("history", [])
+                if r.get("revision_id") == base_rev
+            ),
             None,
         )
         # Confirm build directory and tags
@@ -967,7 +994,9 @@ def catalog_command(args):
         expr_path = build_dir / "expr.yaml"
         tags = collect_semantic_tags(expr_path).get("split", [])
         if args.tag not in tags:
-            print(f"Split tag '{args.tag}' not found; available split tags: {', '.join(tags)}")
+            print(
+                f"Split tag '{args.tag}' not found; available split tags: {', '.join(tags)}"
+            )
             sys.exit(2)
         # Check alias uniqueness
         if args.alias in (catalog.get("aliases") or {}):
@@ -1012,10 +1041,11 @@ def catalog_command(args):
 
     elif args.subcommand == "start":
         # Start a persisted unbind variant as a daemonized server
-        from xorq.catalog import resolve_target
         import re
         import socket
         import time
+
+        from xorq.catalog import resolve_target
 
         catalog = load_catalog(path=config_path)
         target = resolve_target(args.entry, catalog)
@@ -1024,11 +1054,21 @@ def catalog_command(args):
             sys.exit(2)
         entry_id = target.entry_id
         # Find entry object
-        entry = next((e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id), None)
+        entry = next(
+            (e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id),
+            None,
+        )
         serve_meta = entry.get("meta", {}).get("serve", {})
-        if serve_meta.get("kind") != "UNBIND_VARIANT" or serve_meta.get("unbind", {}).get("type") != "split":
+        if (
+            serve_meta.get("kind") != "UNBIND_VARIANT"
+            or serve_meta.get("unbind", {}).get("type") != "split"
+        ):
             print(f"❌ Entry '{args.entry}' has no persisted unbind.")
-            print("💡 Create one: xorq catalog set-unbind-point {base} --tag <split-name> --alias <new-entry>".format(base=args.entry))
+            print(
+                "💡 Create one: xorq catalog set-unbind-point {base} --tag <split-name> --alias <new-entry>".format(
+                    base=args.entry
+                )
+            )
             sys.exit(2)
         tag = serve_meta["unbind"]["tag"]
         # Determine log file path
@@ -1040,11 +1080,19 @@ def catalog_command(args):
             log_file = str(log_dir / f"{args.entry}.log")
         # Construct serve-unbound command
         cmd = [
-            sys.executable, "-m", "xorq.cli", "serve-unbound", args.entry,
-            "--to_unbind_tag", tag,
-            "--host", args.host,
-            "--port", str(args.port),
-            "--prometheus-port", str(args.metrics_port),
+            sys.executable,
+            "-m",
+            "xorq.cli",
+            "serve-unbound",
+            args.entry,
+            "--to_unbind_tag",
+            tag,
+            "--host",
+            args.host,
+            "--port",
+            str(args.port),
+            "--prometheus-port",
+            str(args.metrics_port),
         ]
         # Open log file
         logf = open(log_file, "a+")
@@ -1068,7 +1116,39 @@ def catalog_command(args):
         print(f"   metrics: http://{args.host}:{args.metrics_port}")
         print(f"   pid:     {pid}")
         print(f"   log:     {log_file}")
-        print(f"✅ started and ready")
+        print("✅ started and ready")
+
+    elif args.subcommand == "stop":
+        # Stop a running catalog server
+        import signal
+
+        from xorq.catalog import resolve_target
+
+        catalog = load_catalog(path=config_path)
+        target = resolve_target(args.entry, catalog)
+        if target is None:
+            print(f"Entry '{args.entry}' not found in catalog")
+            sys.exit(2)
+        entry_id = target.entry_id
+        record_dir = Path(get_xorq_cache_dir()) / "servers"
+        # Only consider currently running servers
+        recs = filter_running(get_server_records(record_dir))
+        rec = next(
+            (r for r in recs if r.target == args.entry or r.target == entry_id), None
+        )
+        if not rec:
+            print(f"No running server found for entry '{args.entry}'")
+            sys.exit(1)
+        try:
+            os.kill(rec.pid, signal.SIGTERM)
+        except Exception as e:
+            print(f"Error stopping pid {rec.pid}: {e}")
+            sys.exit(1)
+        rec_file = record_dir / f"{rec.pid}.json"
+        if rec_file.exists():
+            rec_file.unlink()
+        print(f"✅ stopped {args.entry} (pid {rec.pid})")
+        sys.exit(0)
 
     elif args.subcommand == "inspect":
         # Load catalog from local catalog file
@@ -1305,7 +1385,7 @@ def cache_command(args):
     """
     Cache a built expression output to Parquet using a CachedNode.
     """
-    from xorq.caching import ParquetStorage
+    from xorq.caching import ParquetSnapshotStorage
     from xorq.common.utils.caching_utils import find_backend
 
     # Resolve build target
@@ -1314,16 +1394,19 @@ def cache_command(args):
     if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
         print(f"Build target not found: {args.target}")
         sys.exit(2)
-    # Load expression
     expr = load_expr(build_dir)
-    # Determine backend for caching
-    con, _ = find_backend(expr.op(), use_default=True)
     # Setup Parquet storage at given cache directory
     base_path = Path(args.cache_dir)
-    storage = ParquetStorage(source=con, relative_path=Path("."), base_path=base_path)
-    # Attach cache node
+    storage = ParquetSnapshotStorage()
+    # Materialize and cache the expression (execute to write Parquet files)
     cached_expr = expr.cache(storage=storage)
-    # Report cache files
+    cached_expr.execute()
+
+    #key = storage.cache.get_key(expr)
+    key = cached_expr.ls.get_keys()[-1]
+    print(f"Cache key: {key}")
+
+    # Report cache files written
     cache_path = storage.cache.storage.path
     print(f"Cache written to: {cache_path}")
     for pq_file in sorted(cache_path.rglob("*.parquet")):
@@ -1696,14 +1779,14 @@ def parse_args(override=None):
     catalog_start.add_argument(
         "--port",
         type=int,
-        default=0,
-        help="Port to bind the server (default: random)",
+        default=7876,
+        help="Port to bind the server (default: 7876)",
     )
     catalog_start.add_argument(
         "--metrics-port",
         type=int,
-        default=0,
-        help="Port for Prometheus metrics (default: random)",
+        default=9464,
+        help="Prometheus port for metrics (default: 9464)",
     )
     catalog_start.add_argument(
         "--timeout",
@@ -1726,6 +1809,15 @@ def parse_args(override=None):
         "--log-file",
         default=None,
         help="Path to server log file (default: ~/.config/xorq/serve/<entry>.log)",
+    )
+    # Stop a running catalog server
+    catalog_stop = catalog_subparsers.add_parser(
+        "stop",
+        help="Stop a running catalog server",
+    )
+    catalog_stop.add_argument(
+        "entry",
+        help="Entry ID or alias of unbind variant to stop",
     )
     catalog_inspect = catalog_subparsers.add_parser(
         "inspect",
