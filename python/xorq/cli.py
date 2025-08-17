@@ -1184,13 +1184,6 @@ def cache_command(args):
     storage = ParquetStorage(source=con, relative_path=Path("."), base_path=base_path)
     # Attach cache node
     cached_expr = expr.cache(storage=storage)
-    # Execute to materialize cache
-    try:
-        for _ in cached_expr.to_pyarrow_batches():
-            pass
-    except Exception as e:
-        print(f"Error during caching execution: {e}")
-        sys.exit(1)
     # Report cache files
     cache_path = storage.cache.storage.path
     print(f"Cache written to: {cache_path}")

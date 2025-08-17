@@ -35,7 +35,6 @@ class TagType(Enum):
     PREDICT = "predict"
     SPLIT = "split"
     CACHE = "cache"
-    JOIN = "join"
     UDF = "UDF"
 
 
