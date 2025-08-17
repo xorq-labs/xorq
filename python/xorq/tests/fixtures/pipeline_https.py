@@ -33,7 +33,7 @@ expr = (
         right.into_backend(con, "awards_players-filtered"),
         ["playerID"],
         how="semi",
-    )[["playerID", "yearID", "stint", "teamID", "lgID"]]
-    .tag("joined")
+    )
+    .tag("joined")[["playerID", "yearID", "stint", "teamID", "lgID"]]
     .cache()
 )
