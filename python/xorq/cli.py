@@ -240,8 +240,8 @@ def unbind_and_serve_command(
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
-            # fixme: properly deal with this case
-            (found_con,) = find_all_sources(found)
+            found_con = found.to_expr()._find_backend()
+            assert found_con
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()

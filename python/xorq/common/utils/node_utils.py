@@ -27,7 +27,7 @@ replace_typs = (
 @toolz.curry
 def do_replace_dct(node, kwargs, *, replace_dct):
     if (replaced := replace_dct.get(node)) is not None:
-        return replaced.__recreate__(kwargs) if kwargs else replaced
+        return replaced
     elif kwargs:
         return node.__recreate__(kwargs)
     else:

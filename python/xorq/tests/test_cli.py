@@ -584,7 +584,7 @@ serve_tags = (
     "batting-filtered",
     "players-filtered",
     # this needs the fix for finding the correct source
-    # "joined",
+    "joined",
 )
 
 
