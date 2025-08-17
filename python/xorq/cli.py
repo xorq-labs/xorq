@@ -805,23 +805,19 @@ def catalog_command(args):
         # List catalog entries, optionally with semantic tags
         catalog = load_catalog(path=config_path)
         if args.with_tags:
-            # Show a one-line breadcrumb of semantic tags per entry/alias
+            # Show one-line breadcrumb of semantic tags and unbind split tag per entry/alias
             aliases = catalog.get("aliases", {}) or {}
             entries = catalog.get("entries", []) or []
             rows = []
             for alias_name, mapping in aliases.items():
                 ent_id = mapping.get("entry_id")
                 rev_id = mapping.get("revision_id")
-                # find history for this revision
+                # find entry and revision
                 entry = next((e for e in entries if e.get("entry_id") == ent_id), None)
                 if not entry:
                     continue
                 rev = next(
-                    (
-                        r
-                        for r in entry.get("history", [])
-                        if r.get("revision_id") == rev_id
-                    ),
+                    (r for r in entry.get("history", []) if r.get("revision_id") == rev_id),
                     None,
                 )
                 if not rev or not rev.get("build"):
@@ -838,9 +834,20 @@ def catalog_command(args):
                 max_tag_len = 80
                 if len(breadcrumb) > max_tag_len:
                     breadcrumb = breadcrumb[: max_tag_len - 3] + "..."
-                rows.append(("EXPR", alias_name, rev_id, build_id, breadcrumb))
+                # Determine persisted or default split unbind tag
+                serve_meta = entry.get("meta", {}).get("serve", {})
+                if (
+                    serve_meta.get("kind") == "UNBIND_VARIANT"
+                    and serve_meta.get("unbind", {}).get("type") == "split"
+                ):
+                    unbind_tag = serve_meta["unbind"]["tag"]
+                else:
+                    # default to the first split tag (sorted) if no persisted unbind
+                    split_tags = sorted(tags.get("split", []))
+                    unbind_tag = split_tags[0] if split_tags else ""
+                rows.append((alias_name, rev_id, build_id, unbind_tag, breadcrumb))
             # print table
-            headers = ("TYPE", "ENTRY", "REV", "HASH", "TAGS")
+            headers = ("ENTRY", "REV", "HASH", "UNBIND-TAG", "TAGS")
             do_print_table(headers, tuple(rows))
             return
         # default listing
@@ -930,6 +937,138 @@ def catalog_command(args):
         # Default: just print tag tree without hashes/schemas
         print_tag_tree(tags, args.entry)
         return
+
+    elif args.subcommand == "set-unbind-point":
+        # Persist a split unbind variant as a new catalog entry
+        from xorq.catalog import resolve_target
+
+        catalog = load_catalog(path=config_path)
+        # Resolve base entry
+        target = resolve_target(args.base_entry, catalog)
+        if target is None:
+            print(f"Entry '{args.base_entry}' not found in catalog")
+            sys.exit(2)
+        base_entry_id = target.entry_id
+        base_rev = target.rev
+        # Find base entry and its revision
+        base_entry = next(
+            (e for e in catalog.get("entries", []) if e.get("entry_id") == base_entry_id),
+            None,
+        )
+        base_history = next(
+            (r for r in base_entry.get("history", []) if r.get("revision_id") == base_rev),
+            None,
+        )
+        # Confirm build directory and tags
+        build_dir = resolve_build_dir(args.base_entry, catalog)
+        if not build_dir or not build_dir.is_dir():
+            print(f"Build for entry '{args.base_entry}' not found")
+            sys.exit(2)
+        expr_path = build_dir / "expr.yaml"
+        tags = collect_semantic_tags(expr_path).get("split", [])
+        if args.tag not in tags:
+            print(f"Split tag '{args.tag}' not found; available split tags: {', '.join(tags)}")
+            sys.exit(2)
+        # Check alias uniqueness
+        if args.alias in (catalog.get("aliases") or {}):
+            print(f"Alias '{args.alias}' already exists")
+            sys.exit(2)
+        # Create new entry variant
+        now = datetime.now(timezone.utc).isoformat()
+        new_entry_id = str(uuid.uuid4())
+        revision_id = "r1"
+        # Copy build info and base metadata digest/preview
+        revision = {
+            "revision_id": revision_id,
+            "created_at": now,
+            "build": base_history.get("build", {}),
+            "meta_digest": base_history.get("meta_digest"),
+        }
+        if base_history.get("metadata") is not None:
+            revision["metadata"] = base_history.get("metadata")
+        new_entry = {
+            "entry_id": new_entry_id,
+            "created_at": now,
+            "current_revision": revision_id,
+            "history": [revision],
+            "meta": {
+                "serve": {
+                    "kind": "UNBIND_VARIANT",
+                    "parent_entry": base_entry_id,
+                    "unbind": {"type": "split", "tag": args.tag},
+                }
+            },
+        }
+        catalog.setdefault("entries", []).append(new_entry)
+        catalog.setdefault("aliases", {})[args.alias] = {
+            "entry_id": new_entry_id,
+            "revision_id": revision_id,
+            "updated_at": now,
+        }
+        save_catalog(catalog, path=config_path)
+        print(f"✅ created entry '{args.alias}'")
+        print(f"   parent: {args.base_entry}")
+        print(f"   unbind: tag={args.tag}")
+
+    elif args.subcommand == "start":
+        # Start a persisted unbind variant as a daemonized server
+        from xorq.catalog import resolve_target
+        import re
+        import socket
+        import time
+
+        catalog = load_catalog(path=config_path)
+        target = resolve_target(args.entry, catalog)
+        if target is None:
+            print(f"Entry '{args.entry}' not found in catalog")
+            sys.exit(2)
+        entry_id = target.entry_id
+        # Find entry object
+        entry = next((e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id), None)
+        serve_meta = entry.get("meta", {}).get("serve", {})
+        if serve_meta.get("kind") != "UNBIND_VARIANT" or serve_meta.get("unbind", {}).get("type") != "split":
+            print(f"❌ Entry '{args.entry}' has no persisted unbind.")
+            print("💡 Create one: xorq catalog set-unbind-point {base} --tag <split-name> --alias <new-entry>".format(base=args.entry))
+            sys.exit(2)
+        tag = serve_meta["unbind"]["tag"]
+        # Determine log file path
+        log_file = args.log_file
+        if not log_file:
+            config_home = Path(os.getenv("XDG_CONFIG_HOME", "~/.config")).expanduser()
+            log_dir = config_home / "xorq" / "serve"
+            log_dir.mkdir(parents=True, exist_ok=True)
+            log_file = str(log_dir / f"{args.entry}.log")
+        # Construct serve-unbound command
+        cmd = [
+            sys.executable, "-m", "xorq.cli", "serve-unbound", args.entry,
+            "--to_unbind_tag", tag,
+            "--host", args.host,
+            "--port", str(args.port),
+            "--prometheus-port", str(args.metrics_port),
+        ]
+        # Open log file
+        logf = open(log_file, "a+")
+        # Spawn detached process
+        proc = subprocess.Popen(cmd, stdout=logf, stderr=logf, start_new_session=True)
+        pid = proc.pid
+        # Wait for readiness if requested
+        m = re.match(r"^(\d+)(?:s)?$", args.timeout)
+        secs = int(m.group(1)) if m else float(args.timeout)
+        if args.wait:
+            deadline = datetime.now().timestamp() + secs
+            while datetime.now().timestamp() < deadline:
+                try:
+                    with socket.create_connection((args.host, args.port), timeout=1):
+                        break
+                except Exception:
+                    time.sleep(0.1)
+        print(f"🎯 entry:   {args.entry}")
+        print(f"   unbind:  {tag} (persisted)")
+        print(f"   addr:    grpc://{args.host}:{args.port}")
+        print(f"   metrics: http://{args.host}:{args.metrics_port}")
+        print(f"   pid:     {pid}")
+        print(f"   log:     {log_file}")
+        print(f"✅ started and ready")
 
     elif args.subcommand == "inspect":
         # Load catalog from local catalog file
@@ -1520,6 +1659,74 @@ def parse_args(override=None):
         help="Show node schemas alongside each tag in the tree",
     )
 
+    # Persist split unbind variant for a catalog entry
+    catalog_set_unbind = catalog_subparsers.add_parser(
+        "set-unbind-point",
+        help="Create a persisted split unbind variant for a catalog entry",
+    )
+    catalog_set_unbind.add_argument(
+        "base_entry",
+        help="Entry ID, alias, or entry@revision to base on",
+    )
+    catalog_set_unbind.add_argument(
+        "--tag",
+        required=True,
+        help="Split tag to unbind at",
+    )
+    catalog_set_unbind.add_argument(
+        "--alias",
+        required=True,
+        help="Alias for new unbind variant",
+    )
+
+    # Start a persisted unbind variant as a daemonized server
+    catalog_start = catalog_subparsers.add_parser(
+        "start",
+        help="Start a persisted unbind variant as a daemonized server",
+    )
+    catalog_start.add_argument(
+        "entry",
+        help="Entry ID or alias of unbind variant to start",
+    )
+    catalog_start.add_argument(
+        "--host",
+        default="localhost",
+        help="Host to bind the server (default: localhost)",
+    )
+    catalog_start.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help="Port to bind the server (default: random)",
+    )
+    catalog_start.add_argument(
+        "--metrics-port",
+        type=int,
+        default=0,
+        help="Port for Prometheus metrics (default: random)",
+    )
+    catalog_start.add_argument(
+        "--timeout",
+        default="10s",
+        help="Timeout for readiness probe (default: 10s)",
+    )
+    catalog_start.add_argument(
+        "--detach/--no-detach",
+        dest="detach",
+        default=True,
+        help="Daemonize the server (default: detached)",
+    )
+    catalog_start.add_argument(
+        "--wait/--no-wait",
+        dest="wait",
+        default=True,
+        help="Wait for readiness before returning (default: wait)",
+    )
+    catalog_start.add_argument(
+        "--log-file",
+        default=None,
+        help="Path to server log file (default: ~/.config/xorq/serve/<entry>.log)",
+    )
     catalog_inspect = catalog_subparsers.add_parser(
         "inspect",
         help="Inspect a catalog entry",
