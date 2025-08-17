@@ -3419,8 +3419,17 @@ class Table(Expr, _FixedTextJupyterMixin):
             source=current_backend,
             storage=storage,
         )
-        # Return the cached table expression without additional tagging
-        return op.to_expr()
+        # Tag the cache step so it shows up under semantic tags (category "cache").
+        from xorq.expr.relations import TagType
+
+        expr = op.to_expr()
+        # Use the cache node's auto-generated name as the tag
+        name = getattr(op, "name", None) or ""
+        return expr.tag(
+            name,
+            type=TagType.CACHE,
+            step_name=name,
+        )
 
     def tag(self, tag, **kwargs):
         from xorq.expr.relations import Tag
