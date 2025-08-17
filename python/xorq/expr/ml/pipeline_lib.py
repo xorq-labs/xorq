@@ -89,7 +89,7 @@ def _collect_sklearn_meta(step, features, target, output_kind=None):
     if output_kind == "transform":
         payload["type"] = TagType.TRANSFORM
     else:
-        payload["type"] = TagType.MODEL
+        payload["type"] = TagType.PREDICT
     # Output kind for informational purposes
     if output_kind:
         payload["output_kind"] = output_kind

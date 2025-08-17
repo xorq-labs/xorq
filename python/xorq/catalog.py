@@ -268,83 +268,50 @@ def maybe_resolve_target(target: str, catalog: XorqCatalog) -> Optional[Target]:
     return None
 
 
-# -- Semantic Tag extraction and rendering --
-
-SEMANTIC_TAG_CATEGORIES = [
-    "source",
-    "splits",
-    "cache",
-    "transforms",
-    "model",
-    "generic",
-]
-_SPLIT_TAGS = {"train", "test_predicted", "test", "validation"}
-_MODEL_OUTPUT_KINDS = {"predict", "score", "predict_proba", "decision_function"}
-
-
 def collect_semantic_tags(expr_path: Union[str, Path]) -> Dict[str, Set[str]]:
     """Collect semantic tags from a built expression using graph utilities."""
     import xorq.expr.relations as rel
-    from xorq.common.utils.graph_utils import walk_nodes
+    from xorq.common.utils.graph_utils import bfs, walk_nodes
     from xorq.ibis_yaml.compiler import load_expr
+    from xorq.vendor.ibis.expr.operations.core import Node
 
     p = Path(expr_path)
     build_dir = p if p.is_dir() else p.parent
     expr = load_expr(build_dir)
 
-    # semantic tag categories
-    tags: Dict[str, Set[str]] = {cat: set() for cat in SEMANTIC_TAG_CATEGORIES}
-    # build graph of expr to detect only splits feeding the final expression
-    from xorq.common.utils.graph_utils import bfs
-    from xorq.vendor.ibis.expr.operations.core import Node
-
-    graph = bfs(expr)
-    # collect splits and other tags
+    tags: Dict[str, Set[str]] = {}
     split_nodes: list[Node] = []
+    graph = bfs(expr)
+
     for tn in walk_nodes(rel.Tag, expr):
         ttype = tn.metadata.get("type")
         tagname = tn.tag
         step = tn.metadata.get("step_name")
+
         if ttype == rel.TagType.SOURCE and tagname:
-            tags["source"].add(tagname)
+            tags.setdefault(rel.TagType.SOURCE.value, set()).add(tagname)
         elif ttype == rel.TagType.CACHE and tagname:
-            tags["cache"].add(tagname)
+            tags.setdefault(rel.TagType.CACHE.value, set()).add(tagname)
         elif ttype == rel.TagType.TRANSFORM and step:
-            tags["transforms"].add(step)
-        elif ttype in (rel.TagType.PREDICT, rel.TagType.MODEL) and step:
-            tags["model"].add(step)
+            tags.setdefault(rel.TagType.TRANSFORM.value, set()).add(step)
+        elif ttype == rel.TagType.PREDICT and step:
+            tags.setdefault(rel.TagType.PREDICT.value, set()).add(step)
         elif ttype == rel.TagType.SPLIT and tagname:
-            split_nodes.append(tn)
+            tags.setdefault(rel.TagType.SPLIT.value, set()).add(tagname)
+        elif ttype == rel.TagType.UDF and tagname:
+            tags.setdefault(rel.TagType.UDF.value, set()).add(tagname)
         elif tagname:
-            tags["generic"].add(tagname)
+            tags.setdefault("generic", set()).add(tagname)
 
-    # helper to detect descendant relationship in graph (ancestor check)
-    def is_descendant(src: Node, tgt: Node) -> bool:
-        seen = {src}
-        stack = [src]
-        while stack:
-            node = stack.pop()
-            for child in graph.get(node, ()):  # type: ignore
-                if child is tgt:
-                    return True
-                if child not in seen:
-                    seen.add(child)
-                    stack.append(child)
-        return False
-
-    # include only those splits that feed into this expr (i.e. are ancestors of root)
-    root = expr.op() if hasattr(expr, "op") else expr
-    for tn in split_nodes:
-        if is_descendant(root, tn):
-            tags["splits"].add(tn.tag)
-
-    # filter out empty categories
-    return {cat: items for cat, items in tags.items() if items}
+    return tags
 
 
 def print_tag_tree(tags: Dict[str, Set[str]], title: str) -> None:
     """Print a tree view of semantic tags under the given title."""
-    cats = [cat for cat in SEMANTIC_TAG_CATEGORIES if cat in tags]
+
+    # FIXME: Get enum values in order, then add any others alphabetically
+    cats = tags
+
     print(f"Tags for {title}")
     for i, cat in enumerate(cats):
         is_last_cat = i == len(cats) - 1
@@ -360,12 +327,10 @@ def print_tag_tree(tags: Dict[str, Set[str]], title: str) -> None:
 
 def format_tag_breadcrumb(tags: Dict[str, Set[str]]) -> str:
     """Format semantic tags as a one-line breadcrumb string."""
-    order = ["model", "transforms", "cache", "splits", "source", "generic"]
     parts: List[str] = []
-    for cat in order:
-        if cat in tags:
-            for item in sorted(tags[cat]):
-                parts.append(f"{cat}/{item}")
+    for cat in tags:  # Use natural dict order (insertion order in Python 3.7+)
+        for item in sorted(tags[cat]):
+            parts.append(f"{cat}/{item}")
     return " → ".join(parts)
 
 

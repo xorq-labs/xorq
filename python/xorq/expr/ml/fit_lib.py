@@ -96,10 +96,11 @@ def _deferred_fit_other(
     )
     deferred_model = model_udaf.on_expr(expr)
     if storage:
-        # cache the fitted model for MODEL metadata
         deferred_model = deferred_model.as_table().cache(storage=storage)
-    # tag the model aggregation node for MODEL metadata
-    deferred_model = deferred_model.tag(f"model_{name_infix}", type=TagType.MODEL)
+
+    deferred_model = deferred_model.as_table().tag(
+        f"model_{name_infix}", type=TagType.UDF
+    )
 
     deferred_predict = make_pandas_expr_udf(
         computed_kwargs_expr=deferred_model,
