@@ -10,7 +10,6 @@ from urllib.parse import unquote_plus
 
 import sqlglot as sg
 import sqlglot.expressions as sge
-from pandas.api.types import is_float_dtype
 
 import xorq.common.exceptions as com
 import xorq.common.exceptions as exc
@@ -110,6 +109,7 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             return True
 
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
+        from pandas.api.types import is_float_dtype
         from psycopg2.extras import execute_batch
 
         schema = op.schema
