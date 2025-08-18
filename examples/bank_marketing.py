@@ -65,38 +65,49 @@ def compute_evaluation_metrics(df):
 
     return {
         "confusion_matrix": {
-            "tn": int(tn), "fp": int(fp),
-            "fn": int(fn), "tp": int(tp)
+            "tn": int(tn),
+            "fp": int(fp),
+            "fn": int(fn),
+            "tp": int(tp),
         },
         "metrics": {
             "accuracy": float(accuracy),
             "precision": float(precision),
             "recall": float(recall),
             "f1": float(f1),
-            "auc": float(auc)
+            "auc": float(auc),
         },
         "n_samples": len(actual),
     }
+
 
 # Create the aggregation UDF
 evaluation_udaf = udf.agg.pandas_df(
     fn=compute_evaluation_metrics,
     schema=xo.schema({"actual": int, "predicted": float}),
-    return_type=dt.Struct({
-        "confusion_matrix": dt.Struct({
-            "tn": dt.int64, "fp": dt.int64, "fn": dt.int64, "tp": dt.int64
-        }),
-        "metrics": dt.Struct({
-            "accuracy": dt.float64, "precision": dt.float64,
-            "recall": dt.float64, "f1": dt.float64, "auc": dt.float64
-        }),
-        "n_samples": dt.int64,
-    }),
+    return_type=dt.Struct(
+        {
+            "confusion_matrix": dt.Struct(
+                {"tn": dt.int64, "fp": dt.int64, "fn": dt.int64, "tp": dt.int64}
+            ),
+            "metrics": dt.Struct(
+                {
+                    "accuracy": dt.float64,
+                    "precision": dt.float64,
+                    "recall": dt.float64,
+                    "f1": dt.float64,
+                    "auc": dt.float64,
+                }
+            ),
+            "n_samples": dt.int64,
+        }
+    ),
     name="evaluate_classification",
 )
 
 
 # ===== ORIGINAL PIPELINE CLASSES (UNCHANGED) =====
+
 
 class OneHotStep(OneHotEncoder):
     @functools.wraps(OneHotEncoder.transform)
@@ -214,12 +225,12 @@ def make_pipeline(dataset_name, target_column, predicted_col, make_storage=None)
     return (train_table, test_table, fitted_pipeline)
 
 
-
-def create_cached_evaluation(test_predictions, target_column, predicted_col, storage=None):
+def create_cached_evaluation(
+    test_predictions, target_column, predicted_col, storage=None
+):
     # Prepare evaluation input
     eval_input = test_predictions.select(
-        actual=xo._[target_column],
-        predicted=xo._[predicted_col]
+        actual=xo._[target_column], predicted=xo._[predicted_col]
     )
     evaluation_expr = eval_input.agg(
         evaluation_udaf.on_expr(eval_input).name("evaluation_result")
@@ -302,7 +313,7 @@ if __name__ == "__pytest_main__":
     print("\nClassification Report:")
     print(classification_report(predictions_df[target_column], binary_predictions))
 
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
 
     # NEW: Cached evaluation
     print("=== CACHED EVALUATION (NEW) ===")
