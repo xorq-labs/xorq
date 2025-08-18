@@ -488,6 +488,19 @@ css = [
 ]
 
 [[package]]
+name = "boring-semantic-layer"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "attrs" },
+    { name = "ibis-framework", extra = ["duckdb"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/17/98/6ff5a6206a33d20a85f7edb8c6eafea5a1d12865b0f9336efa8fbed73fb7/boring_semantic_layer-0.1.4.tar.gz", hash = "sha256:537a739babfb0184ac7662cc8c80cf4eb6e0c3c84ab24c102747e485b84a34d9", size = 427662, upload-time = "2025-07-25T20:52:47.408Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/0a/fd/5fbaca3ab7be5c722a9b60b7a0781aa2b1181b2e82ad70dfe33463447522/boring_semantic_layer-0.1.4-py3-none-any.whl", hash = "sha256:5cfe5df5f87b7080109e53818860bea4fe046d37f4628fc9cad8b6ec2ac47ed1", size = 25514, upload-time = "2025-07-25T20:52:46.032Z" },
+]
+
+[[package]]
 name = "boto3"
 version = "1.40.1"
 source = { registry = "https://pypi.org/simple" }
@@ -1566,6 +1579,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/95/02/868f297791d26937956466d68a5135411e69a6e6f0bd4e1569a99c70cc76/ibis_framework-10.8.0.tar.gz", hash = "sha256:3cf330c1f786b9d5c425f96df79cc09af7f55c63fd923bd749547c4b1bd03ae4", size = 1238317, upload-time = "2025-07-28T21:28:41.159Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/b5/6c/5e45e5946be73214c9a7e9be09476407ddd55aa9edc58056775ec591549c/ibis_framework-10.8.0-py3-none-any.whl", hash = "sha256:17014772b8ba3a69336601af097e3f968e8cbef6e90c0b416e60c459ea1a0aae", size = 1941834, upload-time = "2025-07-28T21:28:38.757Z" },
+]
+
+[package.optional-dependencies]
+duckdb = [
+    { name = "duckdb" },
+    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "numpy", version = "2.3.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "packaging" },
+    { name = "pandas" },
+    { name = "pyarrow" },
+    { name = "pyarrow-hotfix" },
+    { name = "rich" },
 ]
 
 [[package]]
@@ -5060,6 +5085,7 @@ source = { editable = "." }
 dependencies = [
     { name = "atpublic" },
     { name = "attrs", marker = "python_full_version < '4'" },
+    { name = "boring-semantic-layer" },
     { name = "cityhash", marker = "python_full_version < '4'" },
     { name = "cloudpickle" },
     { name = "cryptography" },
@@ -5170,6 +5196,7 @@ requires-dist = [
     { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.5.0" },
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.0.0,<26" },
+    { name = "boring-semantic-layer", specifier = ">=0.1.4" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
     { name = "cloudpickle", specifier = ">=3.1.1" },
     { name = "cryptography", specifier = ">=45.0.3" },

@@ -40,7 +40,8 @@ dependencies = [
     "cryptography>=45.0.3",
     "strenum>=0.4.15 ; python_version <= '3.10'",
     "uv>=0.7.20",
-    "rich>=13.9.4"
+    "rich>=13.9.4",
+    "boring-semantic-layer>=0.1.4",
 ]
 requires-python = ">=3.10"
 authors = [
