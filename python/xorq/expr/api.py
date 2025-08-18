@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
 import pyarrow as pa
-import pyarrow.dataset as ds
 from opentelemetry import trace
 
 import xorq.vendor.ibis.expr.types as ir
@@ -151,6 +150,8 @@ def memtable(
           1     2  baz
 
     """
+
+    import pyarrow.dataset as ds
 
     if isinstance(data, ds.InMemoryDataset):
         data = data.to_table()

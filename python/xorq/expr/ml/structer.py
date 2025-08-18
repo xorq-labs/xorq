@@ -1,6 +1,5 @@
 import operator
 
-import pandas as pd
 import toolz
 from attr import (
     field,
@@ -35,6 +34,8 @@ class Structer:
     @classmethod
     @toolz.curry
     def convert_array(cls, struct, array):
+        import pandas as pd
+
         self = cls(struct)
         return (
             pd.DataFrame(array, columns=struct.fields)

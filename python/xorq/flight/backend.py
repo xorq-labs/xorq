@@ -1,9 +1,10 @@
+from __future__ import annotations
+
 from contextlib import contextmanager
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Iterable, Mapping
+from typing import TYPE_CHECKING, Any, Iterable, Mapping
 
-import pandas as pd
 import pyarrow as pa
 import toolz
 
@@ -31,6 +32,10 @@ from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
 
+if TYPE_CHECKING:
+    import pandas as pd
+
+
 class Backend(SQLBackend):
     @property
     def name(self):
@@ -50,6 +55,8 @@ class Backend(SQLBackend):
         temp: bool = False,
         overwrite: bool = False,
     ) -> ir.Table:
+        import pandas as pd
+
         if isinstance(obj, pd.DataFrame):
             obj = pa.Table.from_pandas(obj)
         if isinstance(obj, pa.Table):
@@ -110,6 +117,8 @@ class Backend(SQLBackend):
         source: pd.DataFrame | pa.Table | pa.RecordBatchReader,
         table_name: str | None = None,
     ) -> ir.Table:
+        import pandas as pd
+
         table_name = table_name or util.gen_name("read_in_memory")
 
         if isinstance(source, pa.Table):
@@ -143,6 +152,8 @@ class Backend(SQLBackend):
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
+        import pandas as pd
+
         if isinstance(source, pd.DataFrame):
             source = pa.Table.from_pandas(source)
             source = pa.RecordBatchReader.from_batches(
