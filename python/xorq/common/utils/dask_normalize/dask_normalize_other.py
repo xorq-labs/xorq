@@ -1,6 +1,5 @@
 import dask
 import numpy as np
-import pandas as pd
 import pyarrow as pa
 
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
@@ -8,26 +7,39 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 )
 
 
-# preemptively cause registration of numpy, pandas
-dask.base.normalize_token.dispatch(np.dtype)
-dask.base.normalize_token.dispatch(pd.DataFrame)
+def lazy_register_pandas():
+    import pandas as pd
+
+    @dask.base.normalize_token.register(pd._libs.interval.Interval)
+    def normalize_interval(interval):
+        objs = (interval.left, interval.right, interval.closed)
+        return normalize_seq_with_caller(*objs)
+
+    @dask.base.normalize_token.register(pd._libs.tslibs.timestamps.Timestamp)
+    def normalize_timestamp(timestamp):
+        objs = (str(timestamp),)
+        return normalize_seq_with_caller(*objs)
+
+
+def safe_lazy_register(toplevel, function):
+    if existing := dask.base.normalize_token._lazy.get(toplevel):
+
+        def do_both():
+            existing()
+            function()
+
+        to_register = do_both
+    else:
+        to_register = function
+    dask.base.normalize_token.register_lazy(toplevel, to_register)
+
+
+safe_lazy_register("pandas", lazy_register_pandas)
 
 
 @dask.base.normalize_token.register(dict)
 def normalize_dict(dct):
     return normalize_seq_with_caller(*sorted(dct.items()))
-
-
-@dask.base.normalize_token.register(pd._libs.interval.Interval)
-def normalize_interval(interval):
-    objs = (interval.left, interval.right, interval.closed)
-    return normalize_seq_with_caller(*objs)
-
-
-@dask.base.normalize_token.register(pd._libs.tslibs.timestamps.Timestamp)
-def normalize_timestamp(timestamp):
-    objs = (str(timestamp),)
-    return normalize_seq_with_caller(*objs)
 
 
 @dask.base.normalize_token.register(np.random.RandomState)
