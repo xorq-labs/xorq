@@ -12,6 +12,8 @@ from attrs.validators import deep_iterable, instance_of, optional
 from toolz import curry
 
 import xorq as xo
+from xorq.ibis_yaml.compiler import load_expr as _load_expr
+from xorq.vendor.ibis import Expr
 
 
 @frozen
@@ -154,6 +156,99 @@ class XorqCatalog:
     def clone(self, **kwargs) -> "XorqCatalog":
         return type(self)(**asdict(self) | kwargs)
 
+    @classmethod
+    def load(cls, path: Optional[Union[str, Path]] = None) -> "XorqCatalog":
+        """Load catalog like the CLI does, or create a default if none exists.
+        Supports the legacy raw dict format (entries+aliases) written by xorq CLI.
+        """
+        raw = load_catalog(path)
+        entries_raw = raw.get("entries", []) or []
+        raw_aliases = raw.get("aliases", {}) or {}
+        # Clean alias data to only the fields known to Alias
+        aliases_clean: dict[str, dict[str, Optional[str]]] = {
+            name: {"entry_id": a.get("entry_id"), "revision_id": a.get("revision_id")}
+            for name, a in raw_aliases.items()
+        }
+        if entries_raw or aliases_clean:
+            # Build a full catalog dict and delegate to _dict_to_catalog
+            metadata_dict = asdict(make_default_catalog().metadata)
+            full = {
+                "metadata": metadata_dict,
+                "apiVersion": raw.get("apiVersion", "xorq.dev/v1"),
+                "kind": raw.get("kind", "XorqCatalog"),
+                "entries": entries_raw,
+                "aliases": aliases_clean,
+            }
+            return _dict_to_catalog(full)
+        # No catalog file (or empty), fall back to complete loader or default
+        return load_catalog_or_default(path)
+
+    def list_aliases(self, *, with_tags: bool = True) -> List[Mapping[str, Any]]:
+        """
+        List aliases with optional semantic tags, similar to 'xorq catalog ls --with-tags'.
+        Returns a list of mappings with keys:
+        'alias', 'revision', 'build_id', 'unbind_tag', 'tags' (Dict[str, Set[str]]),
+        and 'breadcrumb' (formatted tag breadcrumb).
+        """
+        infos: List[Mapping[str, Any]] = []
+        for name, alias in self.aliases.items():
+            entry = self.maybe_get_entry(alias.entry_id)
+            rev = (
+                entry.maybe_get_revision(alias.revision_id)
+                if entry and alias.revision_id
+                else None
+            )
+            if rev is None or rev.build is None:
+                continue
+            build_id = rev.build.build_id
+            # Determine unbind tag from metadata or default split tag
+            unbind_tag = ""
+            meta = getattr(entry, "metadata", {}) or getattr(entry, "meta", {})
+            serve_meta = meta.get("serve", {})
+            if (
+                serve_meta.get("kind") == "UNBIND_VARIANT"
+                and serve_meta.get("unbind", {}).get("type") == "split"
+            ):
+                unbind_tag = serve_meta.get("unbind", {}).get("tag", "")
+            else:
+                # fallback to first split tag
+                tags0: Dict[str, Set[str]] = {}
+                build_dir0 = maybe_resolve_build_dir(name, self)
+                if build_dir0:
+                    tags0 = collect_semantic_tags(build_dir0 / "expr.yaml")
+                split_tags = sorted(tags0.get("split", []))
+                unbind_tag = split_tags[0] if split_tags else ""
+
+            # Collect tags and breadcrumb if requested
+            tags_dict: Dict[str, Set[str]] = {}
+            breadcrumb = ""
+            if with_tags:
+                build_dir = maybe_resolve_build_dir(name, self)
+                if build_dir:
+                    tags_dict = collect_semantic_tags(build_dir / "expr.yaml")
+                    breadcrumb = format_tag_breadcrumb(tags_dict)
+
+            infos.append(
+                {
+                    "alias": name,
+                    "revision": alias.revision_id,
+                    "build_id": build_id,
+                    "unbind_tag": unbind_tag,
+                    "tags": tags_dict,
+                    "breadcrumb": breadcrumb,
+                }
+            )
+        return infos
+
+    def load_expr(self, target: str) -> Expr:
+        """
+        Load expression for given catalog target (alias, entry ID, or 'alias@revision').
+        """
+        build_dir = maybe_resolve_build_dir(target, self)
+        if build_dir is None or not build_dir.is_dir():
+            raise ValueError(f"Build directory not found for target: {target}")
+        return _load_expr(build_dir)
+
 
 @frozen
 class Target:
@@ -236,10 +331,9 @@ def maybe_load_catalog(
         return None
 
     try:
-        with catalog_path.open() as f:
-            data = yaml.safe_load(f)
-            return _dict_to_catalog(data) if data else None
-    except (yaml.YAMLError, KeyError, TypeError):
+        # Delegate to classmethod load to support both legacy raw and typed catalog formats
+        return XorqCatalog.load(path)
+    except Exception:
         return None
 
 
@@ -273,14 +367,12 @@ def collect_semantic_tags(expr_path: Union[str, Path]) -> Dict[str, Set[str]]:
     import xorq.expr.relations as rel
     from xorq.common.utils.graph_utils import walk_nodes
     from xorq.ibis_yaml.compiler import load_expr
-    from xorq.vendor.ibis.expr.operations.core import Node
 
     p = Path(expr_path)
     build_dir = p if p.is_dir() else p.parent
     expr = load_expr(build_dir)
 
     tags: Dict[str, Set[str]] = {}
-    split_nodes: list[Node] = []
 
     for tn in walk_nodes(rel.Tag, expr):
         ttype = tn.metadata.get("type")
@@ -335,14 +427,17 @@ def format_tag_breadcrumb(tags: Dict[str, Set[str]]) -> str:
 
 def maybe_resolve_build_dir(token: str, catalog: XorqCatalog) -> Optional[Path]:
     """Resolve build directory from token, return None if not found."""
-    # Try existing directory first
+    # Try an explicit directory literal
     path = Path(token)
     if path.exists() and path.is_dir():
         return path
 
-    # Try build ID lookup
+    # Next, try a known build ID lookup
     build_path = _maybe_find_build_by_id(token, catalog)
     if build_path is not None:
+        # If stored as relative, interpret under the CLI config dir
+        if not build_path.is_absolute():
+            build_path = get_catalog_path().parent / build_path
         return build_path
 
     # Try alias/entry resolution
@@ -364,7 +459,12 @@ def maybe_resolve_build_dir(token: str, catalog: XorqCatalog) -> Optional[Path]:
         return None
 
     build_path = revision.build.path
-    return Path(build_path) if build_path else None
+    if not build_path:
+        return None
+    pth = Path(build_path)
+    if not pth.is_absolute():
+        pth = get_catalog_path().parent / pth
+    return pth
 
 
 def dump_yaml(obj: Any) -> str:
@@ -445,12 +545,16 @@ def _dict_to_catalog(data: Dict[str, Any]) -> XorqCatalog:
     """Convert dictionary to catalog."""
     metadata = CatalogMetadata(**data["metadata"])
 
-    aliases = {}
+    # Only keep fields known to Alias (entry_id, revision_id); ignore extras like updated_at
+    aliases: dict[str, Alias] = {}
     for name, alias_data in data.get("aliases", {}).items():
-        aliases[name] = Alias(**alias_data)
+        aliases[name] = Alias(
+            entry_id=alias_data.get("entry_id"),
+            revision_id=alias_data.get("revision_id"),
+        )
 
     entries = tuple(
-        _dict_to_entry(entry_data) for entry_data in data.get("entries", [])
+        _dict_to_entry(entry_data) for entry_data in data.get("entries", []) or []
     )
 
     return XorqCatalog(
