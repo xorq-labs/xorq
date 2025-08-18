@@ -820,7 +820,7 @@ def catalog_command(args):
         # List catalog entries, optionally with semantic tags
         catalog = load_catalog(path=config_path)
         # Show cache status table for entries/aliases if requested (top-level)
-        if args.cache_status:
+        if getattr(args, "cache_status", False):
             # Prepare storage and catalog entries
             from xorq.caching import ParquetSnapshotStorage
 
@@ -848,7 +848,6 @@ def catalog_command(args):
             aliases = catalog.get("aliases", {}) or {}
             entries = catalog.get("entries", []) or []
             rows: list[tuple[str, ...]] = []
-            storage = None
             for alias_name, mapping in aliases.items():
                 ent_id = mapping.get("entry_id")
                 rev_id = mapping.get("revision_id")
@@ -856,7 +855,14 @@ def catalog_command(args):
                 entry = next((e for e in entries if e.get("entry_id") == ent_id), None)
                 if not entry:
                     continue
-                rev = next((r for r in entry.get("history", []) if r.get("revision_id") == rev_id), None)
+                rev = next(
+                    (
+                        r
+                        for r in entry.get("history", [])
+                        if r.get("revision_id") == rev_id
+                    ),
+                    None,
+                )
                 if not rev or not rev.get("build"):
                     continue
                 build_id = rev.get("build", {}).get("build_id")
@@ -872,23 +878,16 @@ def catalog_command(args):
                     breadcrumb = breadcrumb[:77] + "..."
                 # Determine split unbind tag
                 serve_meta = entry.get("meta", {}).get("serve", {})
-                if serve_meta.get("kind") == "UNBIND_VARIANT" and serve_meta.get("unbind", {}).get("type") == "split":
+                if (
+                    serve_meta.get("kind") == "UNBIND_VARIANT"
+                    and serve_meta.get("unbind", {}).get("type") == "split"
+                ):
                     unbind_tag = serve_meta["unbind"]["tag"]
                 else:
                     split_tags = sorted(tags.get("split", []))
                     unbind_tag = split_tags[0] if split_tags else ""
-                # Build row with or without cache status
-                if args.cache_status:
-                    # nested cache flag not needed when top-level cache-status used
-                    if storage is None:
-                        from xorq.caching import ParquetSnapshotStorage
-
-                        storage = ParquetSnapshotStorage()
-                    expr = load_expr(build_dir)
-                    cached = storage.exists(expr)
-                    rows.append((alias_name, rev_id, build_id, unbind_tag, breadcrumb, str(cached)))
-                else:
-                    rows.append((alias_name, rev_id, build_id, unbind_tag, breadcrumb))
+                # Build row for tag listing (cache-status handled top-level)
+                rows.append((alias_name, rev_id, build_id, unbind_tag, breadcrumb))
             # print table
             headers: tuple[str, ...] = ("ENTRY", "REV", "HASH", "UNBIND-TAG", "TAGS")
             if args.cache_status:
@@ -1555,7 +1554,8 @@ def parse_args(override=None):
 
     # Lookup and print cached output for a catalog entry or alias
     cache_lookup_parser = subparsers.add_parser(
-        "cache-lookup", help="Lookup and display cached output for a build entry or alias"
+        "cache-lookup",
+        help="Lookup and display cached output for a build entry or alias",
     )
     cache_lookup_parser.add_argument(
         "target",
