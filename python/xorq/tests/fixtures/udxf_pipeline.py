@@ -2,7 +2,7 @@ import operator
 
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 from xorq import make_pandas_udf
 
 

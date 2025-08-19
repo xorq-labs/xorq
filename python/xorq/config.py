@@ -188,7 +188,7 @@ def _backend_init():
     if (backend := options.backend) is not None:
         return backend
 
-    import xorq as xo
+    import xorq.api as xo
 
     options.backend = con = xo.connect()
     return con

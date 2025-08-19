@@ -8,7 +8,7 @@ from pathlib import Path
 
 from opentelemetry import trace
 
-import xorq as xo
+import xorq.api as xo
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir

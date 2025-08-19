@@ -117,7 +117,7 @@ class Expr(Immutable, Coercible):
         return console.render(rich_object, options=options)
 
     def __repr__(self):
-        import xorq as xo
+        import xorq.api as xo
 
         if xo.options.interactive:
             return _capture_rich_renderable(self)
@@ -157,7 +157,7 @@ class Expr(Immutable, Coercible):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> t1 = xo.table(dict(a="int"), name="t")
         >>> t2 = xo.table(dict(a="int"), name="t")
         >>> t1.equals(t2)
@@ -242,7 +242,7 @@ class Expr(Immutable, Coercible):
         --------
         Open the visualization of an expression in default browser:
 
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> import xorq.vendor.ibis.expr.operations as ops
         >>> left = ibis.table(dict(a="int64", b="string"), name="left")
         >>> right = ibis.table(dict(b="string", c="int64", d="string"), name="right")
@@ -294,7 +294,7 @@ class Expr(Immutable, Coercible):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = False
         >>> t = xo.table([("a", "int64"), ("b", "string")], name="t")
         >>> f = lambda a: (a + 1).name("a")
@@ -423,8 +423,8 @@ class Expr(Immutable, Coercible):
 
         Examples
         -------
-        >>> import xorq as xo
-        >>> from xorq import _
+        >>> import xorq.api as xo
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> ls_con = xo.connect()
         >>> pg_con = xo.postgres.connect_examples()
@@ -491,7 +491,7 @@ class Expr(Immutable, Coercible):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> t = xo.examples.penguins.fetch()
         >>> t.execute()
                species     island  bill_length_mm  ...  body_mass_g     sex  year
@@ -820,7 +820,7 @@ def _binop(op_class: type[ops.Binary], left: ir.Value, right: ir.Value) -> ir.Va
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> import xorq.vendor.ibis.expr.operations as ops
     >>> expr = _binop(ops.TimeAdd, ibis.time("01:00"), ibis.interval(hours=1))
     >>> expr

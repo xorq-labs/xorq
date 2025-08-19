@@ -1,7 +1,7 @@
 import pytest
 
-import xorq as xo
-from xorq import _
+import xorq.api as xo
+from xorq.api import _
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,

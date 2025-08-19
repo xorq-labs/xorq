@@ -105,7 +105,7 @@ def memtable(
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> xo.options.interactive = False
     >>> t = xo.memtable([{"a": 1}, {"a": 2}])
     >>> t
@@ -396,7 +396,7 @@ def execute(expr: ir.Expr, **kwargs: Any):
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> t = xo.examples.penguins.fetch()
     >>> t.execute()
            species     island  bill_length_mm  ...  body_mass_g     sex  year

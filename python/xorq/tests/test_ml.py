@@ -8,9 +8,9 @@ import pytest
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LinearRegression
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
-from xorq import memtable
+from xorq.api import memtable
 from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import (
     deferred_read_parquet,

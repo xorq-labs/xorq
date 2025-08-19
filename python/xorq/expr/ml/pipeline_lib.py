@@ -16,7 +16,7 @@ from toolz.curried import (
     excepts as cexcepts,
 )
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.caching import (
     ParquetStorage,

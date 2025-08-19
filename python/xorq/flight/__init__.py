@@ -15,7 +15,7 @@ from attrs.validators import (
     optional,
 )
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.backend import Backend

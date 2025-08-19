@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Callable, Iterable, Iterator, List, Tuple, Uni
 
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
@@ -123,7 +123,7 @@ def calc_split_conditions(
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> unique_key = "key"
     >>> table = xo.memtable({unique_key: range(100), "value": range(100, 200)})
     >>> test_sizes = [0.2, 0.3, 0.5]
@@ -209,7 +209,7 @@ def calc_split_column(
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> unique_key = "key"
     >>> table = xo.memtable({unique_key: range(100), "value": range(100, 200)})
     >>> test_sizes = [0.2, 0.3, 0.5]
@@ -283,7 +283,7 @@ def train_test_splits(
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> table = xo.memtable({"key": range(100), "value": range(100,200)})
     >>> unique_key = "key"
     >>> test_sizes = [0.2, 0.3, 0.5]

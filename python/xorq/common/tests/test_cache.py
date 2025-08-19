@@ -1,6 +1,6 @@
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 import xorq.backends.let
 from xorq.caching import ParquetStorage
 

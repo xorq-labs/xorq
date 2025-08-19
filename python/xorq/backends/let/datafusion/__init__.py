@@ -14,7 +14,7 @@ import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 
-import xorq as xo
+import xorq.api as xo
 import xorq.common.exceptions as com
 import xorq.expr.datatypes as dt
 import xorq.internal as df

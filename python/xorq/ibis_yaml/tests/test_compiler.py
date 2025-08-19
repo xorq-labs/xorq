@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 import yaml
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis as ibis
 from xorq.caching import ParquetStorage
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (

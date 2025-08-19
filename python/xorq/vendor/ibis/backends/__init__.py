@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.common.exceptions as exc
 import xorq.vendor.ibis.config
 import xorq.vendor.ibis.expr.operations as ops

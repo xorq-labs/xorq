@@ -9,7 +9,7 @@ import dask
 import pyarrow as pa
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils import classproperty

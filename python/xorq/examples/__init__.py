@@ -1,4 +1,4 @@
-import xorq as xo
+import xorq.api as xo
 from xorq.examples.core import (
     get_name_to_suffix,
     get_table_from_name,

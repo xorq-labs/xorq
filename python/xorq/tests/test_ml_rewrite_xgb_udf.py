@@ -3,8 +3,8 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-import xorq as xo
-from xorq import _
+import xorq.api as xo
+from xorq.api import _
 
 
 def test_predicate_collection(prediction_expr):

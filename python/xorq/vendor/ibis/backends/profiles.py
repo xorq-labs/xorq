@@ -16,7 +16,7 @@ from attr.validators import (
     optional,
 )
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.inspect_utils import get_arguments
 
 
@@ -44,7 +44,7 @@ class Profiles:
     Examples
     --------
     Creating a Profiles collection:
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> from xorq.vendor.ibis.backends.profiles import Profile, Profiles
     >>> profiles = Profiles()
     >>> # Or with a custom directory

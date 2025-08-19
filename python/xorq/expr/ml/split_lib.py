@@ -4,7 +4,7 @@ from typing import Iterable, Iterator, Tuple
 
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.vendor.ibis import literal
 

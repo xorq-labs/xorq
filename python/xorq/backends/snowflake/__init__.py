@@ -121,7 +121,7 @@ class Backend(IbisSnowflakeBackend):
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                import xorq as xo
+                import xorq.api as xo
 
                 table = xo.memtable(obj)
             else:

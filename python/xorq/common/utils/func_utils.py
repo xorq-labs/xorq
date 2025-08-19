@@ -3,7 +3,7 @@ import itertools
 
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 
 
 count = itertools.count()

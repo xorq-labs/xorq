@@ -1,7 +1,7 @@
 import pyarrow as pa
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.backends.let.datafusion.provider import IbisTableProvider
 
 

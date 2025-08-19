@@ -7,7 +7,7 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (

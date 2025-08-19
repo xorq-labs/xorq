@@ -3,7 +3,7 @@ from typing import Any, Tuple
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
-from xorq import Expr
+from xorq.vendor.ibis import Expr
 from xorq.vendor.ibis.expr.operations.core import Node
 
 

@@ -155,7 +155,7 @@ def make_pandas_expr_udf(
     >>> from sklearn.neighbors import KNeighborsClassifier
     >>> from xorq.expr.udf import make_pandas_expr_udf, agg
     >>> import xorq.expr.datatypes as dt
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>>
     >>> # Load penguins dataset
     >>> penguins = xo.examples.penguins.fetch(backend=xo.connect())
@@ -364,7 +364,7 @@ def make_pandas_udf(
     >>> import pandas as pd
     >>> from xorq.expr.udf import make_pandas_udf
     >>> import xorq.expr.datatypes as dt
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>>
     >>> # Load penguins dataset
     >>> penguins = xo.examples.penguins.fetch(backend=xo.connect())
@@ -555,7 +555,7 @@ class agg(_agg):
         >>> import pyarrow.compute as pc
         >>> from xorq.expr.udf import agg
         >>> import xorq.expr.datatypes as dt
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>>
         >>> # Load penguins dataset
         >>> penguins = xo.examples.penguins.fetch(backend=xo.connect())
@@ -661,7 +661,7 @@ class agg(_agg):
         >>> from sklearn.neighbors import KNeighborsClassifier
         >>> from xorq.expr.udf import agg
         >>> import xorq.expr.datatypes as dt
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>>
         >>> # Load penguins dataset
         >>> penguins = xo.examples.penguins.fetch(backend=xo.connect())
@@ -879,7 +879,7 @@ def pyarrow_udwf(
 
     >>> from xorq.expr.udf import pyarrow_udwf
     >>> import pyarrow as pa
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> import xorq.expr.datatypes as dt
     >>> from xorq.vendor import ibis
     >>>

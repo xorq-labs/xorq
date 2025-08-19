@@ -3,7 +3,7 @@ import pathlib
 
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles, parse_env_vars
 

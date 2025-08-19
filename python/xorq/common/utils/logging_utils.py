@@ -51,7 +51,7 @@ def log_initial_state(hash_diffs=False, cwd=None):
                 **git_state,
             )
         else:
-            import xorq as xo
+            import xorq.api as xo
 
             logger.info("xorq version", version=xo.__version__)
     except Exception:

@@ -3,7 +3,7 @@ import operator
 import pytest
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import (
     ParquetSnapshotStorage,
     ParquetStorage,

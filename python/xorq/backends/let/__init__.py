@@ -189,7 +189,7 @@ class Backend(DataFusionBackend):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> con = xo.connect()
 
         """

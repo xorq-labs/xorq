@@ -64,7 +64,7 @@ def normalize_pyarrow_table(table: pa.Table):
 
 @dask.base.normalize_token.register(pa.Schema)
 def normalize_pyarrow_schema(schema: pa.Schema):
-    from xorq import Schema
+    from xorq.vendor.ibis import Schema
 
     return normalize_seq_with_caller(
         Schema.from_pyarrow(schema).to_pandas(),
