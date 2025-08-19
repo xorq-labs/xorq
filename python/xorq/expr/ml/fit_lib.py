@@ -1,6 +1,5 @@
 import cloudpickle
 import dask
-import pandas as pd
 import pyarrow as pa
 import toolz
 
@@ -38,6 +37,8 @@ def transform_sklearn_series(model, df, col):
 
 @toolz.curry
 def transform_sklearn_feature_names_out(model, df):
+    import pandas as pd
+
     names = model.get_feature_names_out()
     return pd.Series(
         (

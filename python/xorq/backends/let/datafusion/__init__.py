@@ -7,11 +7,9 @@ import json
 import typing
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
 import pyarrow as pa
-import pyarrow.dataset as ds
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -55,6 +53,10 @@ from xorq.vendor.ibis.formats.pyarrow import (
     PyArrowType,
 )
 from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filenames
+
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _compile_pyarrow_udwf(udwf_node):
@@ -308,6 +310,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
     def _compile_pyarrow_expr_udf(self, udf_node):
         def extract_computed_arg(expr):
             # user can do Scalar.to_table() if they want to cache it
+            import pandas as pd
+
             value = xo.execute(expr)
             if isinstance(value, pd.DataFrame):
                 if value.shape != (1, 1):
@@ -473,6 +477,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         """
         import pandas as pd
+        import pyarrow.dataset as ds
 
         table_name = table_name or gen_name("register")
         table_ident = str(sg.to_identifier(table_name, quoted=self.compiler.quoted))
@@ -487,7 +492,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             self.con.deregister_table(table_ident)
             self.con.register_record_batches(table_ident, [[source]])
             return self.table(table_name)
-        elif isinstance(source, pa.dataset.Dataset):
+        elif isinstance(source, ds.Dataset):
             self.con.deregister_table(table_ident)
             self.con.register_dataset(table_ident, source)
             return self.table(table_name)
@@ -572,6 +577,8 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         if batches := op.data.to_pyarrow(schema).to_batches():
             self.con.register_record_batches(name, [batches])
         else:
+            import pyarrow.dataset as ds
+
             empty_dataset = ds.dataset([], schema=schema.to_pyarrow())
             self.con.register_dataset(name=name, dataset=empty_dataset)
 
