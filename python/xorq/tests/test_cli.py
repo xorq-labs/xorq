@@ -1,8 +1,6 @@
 import re
 import shutil
 import sys
-import threading
-import time
 from itertools import chain
 from pathlib import Path
 
@@ -18,7 +16,6 @@ from xorq.common.utils.node_utils import (
 )
 from xorq.common.utils.process_utils import (
     Popened,
-    non_blocking_subprocess_run,
     remove_ansi_escape,
     subprocess_run,
 )
@@ -227,7 +224,7 @@ def test_run_command(tmp_path, fixture_dir, output_format):
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "host,port,cache_dir", [(None, None, None), ("0.0.0.0", "5000", "cache")]
+    "host,port,cache_dir", [(None, None, None), ("localhost", "5000", "cache")]
 )
 def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
     target_dir = tmp_path / "build"
@@ -260,28 +257,18 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
             )
         )
 
-        serve_args = ["xorq", "serve-flight-udxf", str(expression_path), *optional_args]
+        serve_args = ("xorq", "serve-flight-udxf", str(expression_path), *optional_args)
 
-        process = non_blocking_subprocess_run(serve_args)
-        is_running = False
+        serve_process = Popened(serve_args)
+        port = peek_port(serve_process)
 
-        def check_if_still_running():
-            time.sleep(1)
-            nonlocal is_running
-            if port and host:
-                flight_con = xo.flight.connect(host=host, port=int(port))
+        flight_con = xo.flight.connect(host=host, port=int(port))
+        assert (
+            serve_process.popen.poll() is None
+            and "diamonds_exchange_command" in flight_con.list_udxfs()
+        )
+        serve_process.popen.terminate()
 
-                udxf_name = "diamonds_exchange_command"
-                assert udxf_name in flight_con.list_udxfs()
-
-            is_running = process.poll() is None
-
-        checker_thread = threading.Thread(target=check_if_still_running)
-        checker_thread.start()
-        checker_thread.join()
-        process.terminate()
-
-        assert is_running
     else:
         raise AssertionError("No expression hash")
 
