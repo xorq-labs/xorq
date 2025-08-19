@@ -9,6 +9,7 @@ import dask
 import toolz
 import yaml
 
+import xorq
 import xorq.api as xo
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
@@ -226,7 +227,7 @@ class BuildManager:
 
     def _make_metadata(self) -> str:
         metadata = {
-            "current_library_version": xo.__version__,
+            "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
         }
         if lu._git_is_present():
