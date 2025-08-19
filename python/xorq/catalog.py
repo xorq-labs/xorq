@@ -17,7 +17,9 @@ import xorq as xo
 class CatalogMetadata:
     """Catalog metadata."""
 
+    # FIXME: make uuid
     catalog_id: str = field(validator=instance_of(str))
+    # FIXME: make datetime.datetime
     created_at: str = field(validator=instance_of(str))
     updated_at: str = field(validator=instance_of(str))
     tool_version: str = field(validator=instance_of(str))
@@ -36,6 +38,7 @@ class Build:
     """Build information."""
 
     build_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    # FIXME: make Path
     path: Optional[str] = field(default=None, validator=optional(instance_of(str)))
 
     def clone(self, **kwargs) -> "Build":
@@ -46,6 +49,7 @@ class Build:
 class Revision:
     """Revision data."""
 
+    # FIXME: make int
     revision_id: str = field(validator=instance_of(str))
     created_at: str = field(validator=instance_of(str))
     build: Optional[Build] = field(default=None, validator=optional(instance_of(Build)))
