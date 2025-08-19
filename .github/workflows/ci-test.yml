@@ -32,14 +32,26 @@ jobs:
         backend:
           - name: datafusion
             services: false
+            extras:
+              - --extra datafusion
           - name: let
             services: false
+            extras:
+              - --extra duckdb
           - name: pyiceberg
             services: false
+            extras:
+              - --extra pyiceberg
           - name: postgres
             services: true
+            extras:
+              - --extra postgres
           - name: core
             services: true
+            extras:
+              - --extra examples
+              - --extra postgres
+              - --extra pyiceberg
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
@@ -59,7 +71,7 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --locked --extra examples --extra postgres --extra pyiceberg --group dev --group test
+        run: uv sync --locked ${{ join(matrix.backend.extras, ' ') }} --group dev --group test
         working-directory: ${{ github.workspace }}
 
       - name: start services
