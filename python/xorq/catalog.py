@@ -252,59 +252,6 @@ def load_catalog_or_default(path: Optional[Union[str, Path]] = None) -> XorqCata
     return catalog if catalog is not None else make_default_catalog()
 
 
-def maybe_resolve_target(target: str, catalog: XorqCatalog) -> Optional[Target]:
-    """Parse and resolve a target string, return None if invalid."""
-    if "@" in target:
-        base, rev = target.split("@", 1)
-    else:
-        base, rev = target, None
-
-    # Try alias first
-    alias = catalog.maybe_get_alias(base)
-    if alias is not None:
-        return Target(entry_id=alias.entry_id, rev=rev, alias=rev is None)
-
-    # Try entry ID
-    if base in catalog.get_entry_ids():
-        return Target(entry_id=base, rev=rev, alias=False)
-
-    return None
-
-
-def maybe_resolve_build_dir(token: str, catalog: XorqCatalog) -> Optional[Path]:
-    """Resolve build directory from token, return None if not found."""
-    # Try existing directory first
-    path = Path(token)
-    if path.exists() and path.is_dir():
-        return path
-
-    # Try build ID lookup
-    build_path = _maybe_find_build_by_id(token, catalog)
-    if build_path is not None:
-        return build_path
-
-    # Try alias/entry resolution
-    target = maybe_resolve_target(token, catalog)
-    if target is None:
-        return None
-
-    entry = catalog.maybe_get_entry(target.entry_id)
-    if entry is None:
-        return None
-
-    # Determine which revision to use
-    revision_id = target.rev or entry.current_revision
-    if revision_id is None:
-        return None
-
-    revision = entry.maybe_get_revision(revision_id)
-    if revision is None or revision.build is None:
-        return None
-
-    build_path = revision.build.path
-    return Path(build_path) if build_path else None
-
-
 def dump_yaml(obj: Any) -> str:
     """Dump object to YAML string."""
     return yaml.safe_dump(obj, sort_keys=False)
@@ -315,6 +262,7 @@ def dump_json(obj: Any) -> str:
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
 
 
+# save this
 def unified_dir_diff(left_root: Path, right_root: Path) -> Tuple[bool, str]:
     """Compare two directories and return unified diff."""
     left_files = _get_file_map(left_root)
