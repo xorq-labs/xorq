@@ -11,7 +11,7 @@ import pandas as pd
 import toolz
 import xgboost as xgb
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python

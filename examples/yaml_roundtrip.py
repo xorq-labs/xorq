@@ -1,4 +1,4 @@
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import into_backend
 from xorq.ibis_yaml.compiler import BuildManager

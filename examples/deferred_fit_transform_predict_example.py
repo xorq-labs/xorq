@@ -3,7 +3,7 @@ import xgboost as xgb
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import deferred_read_parquet

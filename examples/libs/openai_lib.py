@@ -9,7 +9,7 @@ import pandas as pd
 import toolz
 from openai import OpenAI
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.toolz_utils import curry
 from xorq.flight.utils import (
     schema_concat,

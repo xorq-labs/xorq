@@ -5,7 +5,7 @@ import sys
 import pandas as pd
 import xgboost as xgb
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.import_utils import import_from_gist
 from xorq.flight.exchanger import make_udxf
