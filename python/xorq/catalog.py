@@ -164,22 +164,6 @@ class Target:
     alias: bool = field(default=False, validator=instance_of(bool))
 
 
-@frozen
-class ExportIndex:
-    alias: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    entry_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    revision_id: Optional[str] = field(
-        default=None, validator=optional(instance_of(str))
-    )
-    build_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    expr_digest: Optional[str] = field(
-        default=None, validator=optional(instance_of(str))
-    )
-    meta_digest: Optional[str] = field(
-        default=None, validator=optional(instance_of(str))
-    )
-
-
 def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
     """Return the catalog file path, using XDG_CONFIG_HOME if set or default to ~/.config."""
     if path:
