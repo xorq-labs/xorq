@@ -2,7 +2,7 @@ import pandas as pd
 import pytest
 from adbc_driver_manager._lib import OperationalError
 
-import xorq as xo
+import xorq.api as xo
 
 
 def test_read_csv(pg):

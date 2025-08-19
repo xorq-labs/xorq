@@ -3,7 +3,7 @@ import dask
 import pyarrow as pa
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.expr.ml.structer import Structer

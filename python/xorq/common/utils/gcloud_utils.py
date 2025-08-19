@@ -11,7 +11,7 @@ from attr.validators import (
 from google.cloud import storage
 from toolz import curry
 
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import CacheStorage
 
 

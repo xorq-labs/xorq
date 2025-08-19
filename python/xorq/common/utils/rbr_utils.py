@@ -6,7 +6,7 @@ import pyarrow.compute as pc
 import toolz
 from opentelemetry import trace
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.otel_utils import (
     tracer,
 )

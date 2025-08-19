@@ -1,7 +1,7 @@
 import functools
 import pathlib
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,

@@ -8,7 +8,7 @@ import pyarrow as pa
 import toolz
 from opentelemetry import trace
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -482,7 +482,7 @@ def flight_udxf(
     Basic sentiment analysis:
 
     >>> import pandas as pd
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> from xorq.common.utils.toolz_utils import curry
     >>>
     >>> @curry

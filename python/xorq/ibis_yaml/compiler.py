@@ -9,7 +9,7 @@ import dask
 import toolz
 import yaml
 
-import xorq as xo
+import xorq.api as xo
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
@@ -183,7 +183,12 @@ class YamlExpressionTranslator:
 
 
 class BuildManager:
-    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path | str = None, debug: bool = False):
+    def __init__(
+        self,
+        build_dir: pathlib.Path,
+        cache_dir: pathlib.Path | str = None,
+        debug: bool = False,
+    ):
         """
         build_dir: root directory where build artifacts are stored
         cache_dir: optional directory for parquet cache files
@@ -269,11 +274,13 @@ class BuildManager:
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
         # write SQL plan and deferred-read artifacts if debug enabled
-        if getattr(self, 'debug', False):
+        if getattr(self, "debug", False):
             sql_plans, deferred_reads = generate_sql_plans(expr)
             updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
             self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
-            updated_deferred_reads = self._process_deferred_reads(deferred_reads, expr_hash)
+            updated_deferred_reads = self._process_deferred_reads(
+                deferred_reads, expr_hash
+            )
             self.artifact_store.save_yaml(
                 updated_deferred_reads, expr_hash, "deferred_reads.yaml"
             )

@@ -2,7 +2,7 @@ import numpy as np
 import pyarrow as pa
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.udf import pyarrow_udwf
 from xorq.internal import WindowEvaluator
 from xorq.vendor import ibis

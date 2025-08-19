@@ -1,6 +1,6 @@
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.datatypes import Int64, LargeString, String
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis

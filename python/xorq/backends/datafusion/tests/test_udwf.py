@@ -3,7 +3,7 @@ import pyarrow as pa
 from datafusion import udwf
 from datafusion.user_defined import WindowEvaluator
 
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.relations import into_backend
 
 

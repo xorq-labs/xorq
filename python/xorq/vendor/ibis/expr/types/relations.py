@@ -302,7 +302,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> heavy_gentoo = t.filter(t.species == "Gentoo", t.body_mass_g > 6200)
@@ -331,7 +331,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> t = xo.table(dict(a="int"), name="t")
         >>> s = t.as_table()
         >>> t is s
@@ -354,7 +354,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> t = xo.table(dict(a="string", b="float"), name="t")
         >>> "a" in t
         True
@@ -384,7 +384,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.schema()
@@ -514,7 +514,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> t = xo.examples.penguins.fetch(deferred=False)
 
         Because the console_width is too small, only 2 columns are shown even though
@@ -568,7 +568,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False).head()
         >>> t
@@ -702,7 +702,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.island
@@ -759,7 +759,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.columns
@@ -777,7 +777,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.schema()
@@ -817,8 +817,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
-        >>> from xorq import _
+        >>> import xorq.api as xo
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> t = xo.memtable(
         ...     {
@@ -930,8 +930,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
-        >>> from xorq import _
+        >>> import xorq.api as xo
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> t = xo.memtable(
         ...     {
@@ -1031,7 +1031,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> import xorq.examples as ex
         >>> import xorq.expr.selectors as s
         >>> xo.options.interactive = True
@@ -1224,7 +1224,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.memtable({"x": [1, 2, 3, 4], "y": ["a", "b", "c", "d"]})
         >>> t
@@ -1283,7 +1283,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
         >>> t
@@ -1343,7 +1343,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.memtable({"a": [1, 1, 2], "b": ["c", "a", "a"]})
         >>> t
@@ -1399,7 +1399,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.memtable(
         ...     {
@@ -1450,7 +1450,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         You can also use the deferred API to get the same result
 
-        >>> from xorq import _
+        >>> from xorq.api import _
         >>> t.order_by(_.b.desc())
         ┏━━━━━━━┳━━━━━━━━┳━━━━━━━┓
         ┃ a     ┃ b      ┃ c     ┃
@@ -1608,7 +1608,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t1 = xo.memtable({"a": [1, 2]})
         >>> t1
@@ -1679,7 +1679,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t1 = xo.memtable({"a": [1, 2]})
         >>> t1
@@ -1737,7 +1737,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t1 = xo.memtable({"a": [1, 2]})
         >>> t1
@@ -1806,9 +1806,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> import xorq.expr.selectors as s
-        >>> from xorq import _
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False).select("species", "year", "bill_length_mm")
         >>> t
@@ -1915,7 +1915,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
@@ -2000,7 +2000,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         You can do the same thing with a named expression, and using the
         deferred API
 
-        >>> from xorq import _
+        >>> from xorq.api import _
         >>> t.select((_.year + 1).name("next_year")).head()
         ┏━━━━━━━━━━━┓
         ┃ next_year ┃
@@ -2047,7 +2047,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Projection + aggregation across multiple columns
 
-        >>> from xorq import _
+        >>> from xorq.api import _
         >>> t.select(s.across(s.numeric() & ~s.cols("year"), _.mean())).head()
         ┏━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━┓
         ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ body_mass_g ┃
@@ -2217,7 +2217,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
@@ -2307,7 +2307,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
@@ -2381,7 +2381,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.memtable({"a": ["foo", "bar", "bar"]})
         >>> t
@@ -2422,7 +2422,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.memtable({"a": ["foo", "bar", "baz"]})
         >>> t
@@ -2474,7 +2474,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t
@@ -2539,7 +2539,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.sex
@@ -2670,7 +2670,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.info()
@@ -2734,7 +2734,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> import xorq.expr.selectors as s
         >>> xo.options.interactive = True
         >>> p = xo.examples.penguins.fetch(deferred=False)
@@ -2888,8 +2888,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
-        >>> from xorq import _
+        >>> import xorq.api as xo
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> movies = xo.examples.ml_latest_small_movies.fetch()
         >>> movies.head()
@@ -3103,9 +3103,9 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> import xorq.expr.selectors as s
-        >>> from xorq import _
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> t.count()
@@ -3180,7 +3180,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> expr = t.alias("pingüinos").sql('SELECT * FROM "pingüinos" LIMIT 5')
@@ -3217,8 +3217,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
-        >>> from xorq import _
+        >>> import xorq.api as xo
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(table_name="penguins", deferred=False)
         >>> expr = t.sql(
@@ -3348,7 +3348,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         Examples
         --------
         Using ParquetStorage:
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> from xorq.caching import ParquetStorage
         >>> from pathlib import Path
         >>> pg = xo.postgres.connect_examples()
@@ -3361,7 +3361,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Using SourceStorage with PostgreSQL:
         >>> from xorq.caching import SourceStorage
-        >>> from xorq import _
+        >>> from xorq.api import _
         >>> ddb = xo.duckdb.connect()
         >>> path = xo.config.options.pins.get_path("batting")
         >>> right = (ddb.read_parquet(path, table_name="batting")
@@ -3479,9 +3479,9 @@ class Table(Expr, _FixedTextJupyterMixin):
         --------
         Basic usage
 
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> import xorq.expr.selectors as s
-        >>> from xorq import _
+        >>> from xorq.api import _
         >>> xo.options.interactive = True
         >>> relig_income = xo.examples.relig_income_raw.fetch()
         >>> relig_income
@@ -4263,7 +4263,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> import xorq.expr.selectors as s
         >>> t = xo.memtable(dict(a=[1], b=[1], c=[1], d=["a"], e=["a"], f=["a"]))
@@ -4484,7 +4484,7 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> from xorq import examples
         >>> xo.options.interactive = True
         >>> t = examples.penguins.fetch()

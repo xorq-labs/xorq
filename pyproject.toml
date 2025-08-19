@@ -180,6 +180,7 @@ extend-select = ["I", "ICN"]
 
 [tool.ruff.lint.per-file-ignores]
 "python/xorq/__init__.py" = ["I001"]
+"python/xorq/api.py" = ["I001"]
 
 [tool.ruff.lint.flake8-import-conventions.extend-aliases]
 "xorq" = "xo"

@@ -2,7 +2,7 @@ from typing import Any, Dict
 
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops

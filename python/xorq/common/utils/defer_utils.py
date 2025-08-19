@@ -6,7 +6,7 @@ from typing import Callable
 import pyarrow as pa
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.let import Backend
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (

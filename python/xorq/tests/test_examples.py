@@ -4,7 +4,7 @@ import runpy
 import pytest
 from pytest import param
 
-import xorq as xo
+import xorq.api as xo
 
 
 KEY_PREFIX = xo.config.options.cache.key_prefix

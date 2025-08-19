@@ -1,7 +1,7 @@
 import pandas as pd
 import pyarrow as pa
 
-import xorq as xo
+import xorq.api as xo
 import xorq.flight.exchanger as E
 from xorq.flight import FlightServer
 from xorq.flight.action import (

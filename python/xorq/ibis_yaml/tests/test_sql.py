@@ -1,4 +1,4 @@
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.relations import gen_name_namespace, into_backend
 from xorq.ibis_yaml.sql import find_tables, generate_sql_plans
 

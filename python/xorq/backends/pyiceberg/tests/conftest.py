@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 
 
 QUOTES_TABLE_NAME = "quotes"

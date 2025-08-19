@@ -8,7 +8,7 @@ import urllib.request
 import dask
 import sqlglot as sg
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dat
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations.relations as ir

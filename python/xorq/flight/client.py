@@ -9,7 +9,7 @@ from pyarrow.flight import (
     FlightClient as _FlightClient,
 )
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
 )
