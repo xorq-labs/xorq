@@ -14,6 +14,7 @@ import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+import xorq
 import xorq.api as xo
 import xorq.common.exceptions as com
 import xorq.expr.datatypes as dt
@@ -209,7 +210,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     @property
     def version(self):
-        return xo.__version__
+        return xorq.__version__
 
     def do_connect(self, config: SessionConfig | None = None) -> None:
         if config is None:
