@@ -1,7 +1,7 @@
 import argparse
 
 import xorq.api as xo
-from xorq import _
+from xorq.api import _
 
 
 csv_name = "iris"

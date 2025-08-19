@@ -1,5 +1,5 @@
 import xorq.api as xo
-from xorq import _
+from xorq.api import _
 from xorq.caching import ParquetStorage
 
 
