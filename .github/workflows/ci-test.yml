@@ -46,6 +46,7 @@ jobs:
             services: true
             extras:
               - --extra postgres
+              - --extra examples
           - name: core
             services: true
             extras:
