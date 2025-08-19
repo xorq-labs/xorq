@@ -107,12 +107,12 @@ def pg_batting(pg):
     return pg.table("batting")
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def parquet_batting(parquet_dir):
     return parquet_dir / "batting.parquet"
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def ls_batting(parquet_batting):
     return xo.connect().read_parquet(parquet_batting)
 
@@ -453,9 +453,9 @@ def test_union_mixed_distinct(ls_con, union_subsets):
         lambda t: t.yearID.between(2013, 2016),
     ],
 )
-def test_join_non_trivial_filters(pg, duckdb_con, left_filter):
+def test_join_non_trivial_filters(ls_batting, duckdb_con, left_filter):
     awards_players = duckdb_con.table("ddb_players")
-    batting = pg.table("batting").into_backend(duckdb_con)
+    batting = ls_batting.into_backend(duckdb_con)
 
     left = batting[left_filter]
     right = awards_players[awards_players.lgID == "NL"].drop("yearID", "lgID")
@@ -712,12 +712,12 @@ def test_no_registration_same_table_name(ls_con, pg_batting):
 
 
 @pytest.mark.parametrize("other_con", [xo.connect(), xo.duckdb.connect()])
-def test_multi_engine_cache(pg, ls_con, tmp_path, other_con):
+def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, other_con):
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID > 2014]
-    db_t = other_con.create_table(
-        f"db-{table_name}", pg.table(table_name).to_pyarrow()
-    )[lambda t: t.stint == 1].pipe(into_backend, pg)
+    db_t = other_con.create_table(f"db-{table_name}", ls_batting.to_pyarrow())[
+        lambda t: t.stint == 1
+    ].into_backend(pg)
 
     expr = pg_t.join(
         db_t,

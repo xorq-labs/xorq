@@ -34,6 +34,8 @@ jobs:
             services: false
           - name: let
             services: false
+          - name: pyiceberg
+            services: false
           - name: postgres
             services: true
           - name: core

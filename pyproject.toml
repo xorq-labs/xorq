@@ -216,6 +216,7 @@ markers = [
     "pandas",
     "postgres",
     "trino",
+    "pyiceberg",
     "core"
 ]
 consider_namespace_packages = true
