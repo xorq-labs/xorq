@@ -15,6 +15,7 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    file_digest,
     normalize_read_path_md5sum,
 )
 from xorq.common.utils.graph_utils import (
@@ -314,21 +315,21 @@ class BuildManager:
         Validate a build directory and extract build metadata for catalog.
         Returns: build_id, meta_digest, metadata_preview
         """
-        import hashlib
-        from pathlib import Path
 
-        build_path = Path(path)
-        if not build_path.exists() or not build_path.is_dir():
-            raise ValueError(f"Build path not found: {build_path}")
+        def validate(path):
+            build_path = Path(path)
+            meta_file = build_path / "metadata.json"
+            if not build_path.exists() or not build_path.is_dir():
+                raise ValueError(f"Build path not found: {build_path}")
+            if not meta_file.exists():
+                raise ValueError(f"metadata.json not found in build path: {build_path}")
+            return meta_file
+
+        meta_file = validate(path)
         # The build_id is the directory name
-        build_id = build_path.name
+        build_id = meta_file.parent.name
         # Compute meta_digest from metadata.json
-        meta_file = build_path / "metadata.json"
-        if not meta_file.exists():
-            raise ValueError(f"metadata.json not found in build path: {build_path}")
-        content = meta_file.read_bytes()
-        meta_hash = hashlib.sha1(content).hexdigest()
-        meta_digest = f"sha1:{meta_hash}"
+        meta_digest = f"sha1:{file_digest(meta_file)}"
         # No expr_hashes or node-level hashes are stored here; calculate expr hash fresh when needed
         metadata_preview: dict = {}
         return build_id, meta_digest, metadata_preview
