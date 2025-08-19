@@ -36,6 +36,8 @@ jobs:
             services: false
           - name: postgres
             services: true
+          - name: core
+            services: true
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
