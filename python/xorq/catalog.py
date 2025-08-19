@@ -9,7 +9,6 @@ from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 import yaml
 from attrs import asdict, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
-from toolz import curry
 
 import xorq as xo
 
@@ -483,23 +482,6 @@ def _compare_files(
         return [f"--- a/{rel_path}\n+++ /dev/null\n"]
     else:
         return [f"--- /dev/null\n+++ b/{rel_path}\n"]
-
-
-@curry
-def with_entry(entry: Entry, catalog: XorqCatalog) -> XorqCatalog:
-    """Curried version of with_entry for composition."""
-    return catalog.with_entry(entry)
-
-
-@curry
-def with_alias(name: str, alias: Alias, catalog: XorqCatalog) -> XorqCatalog:
-    """Curried version of with_alias for composition."""
-    return catalog.with_alias(name, alias)
-
-
-def write_tree(root: Path, files: Mapping[str, bytes]) -> None:
-    """Write file tree to disk."""
-    do_write_tree(root, files)
 
 
 def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
