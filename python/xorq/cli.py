@@ -26,6 +26,7 @@ from xorq.catalog import (
     get_catalog_path,
     load_catalog,
     resolve_build_dir,
+    resolve_target,
     save_catalog,
 )
 from xorq.common.utils import classproperty
@@ -806,7 +807,6 @@ def catalog_command(args):
     elif args.subcommand == "inspect":
         # Load catalog from local catalog file
         catalog = load_catalog(path=config_path)
-        from xorq.catalog import resolve_target
 
         target = resolve_target(args.entry, catalog)
         if target is None:
