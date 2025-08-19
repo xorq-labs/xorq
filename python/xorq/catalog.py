@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
 import yaml
-from attrs import asdict, field, frozen
+from attrs import evolve, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
 
 import xorq as xo
@@ -25,11 +25,11 @@ class CatalogMetadata:
 
     def with_updated_timestamp(self) -> "CatalogMetadata":
         """Return new metadata with updated timestamp."""
-        return self.clone(updated_at=datetime.now(timezone.utc).isoformat())
+        return self.evolve(updated_at=datetime.now(timezone.utc).isoformat())
 
-    def clone(self, **kwargs) -> "CatalogMetadata":
+    def evolve(self, **kwargs) -> "CatalogMetadata":
         """Create a copy with specified changes."""
-        return type(self)(**asdict(self) | kwargs)
+        return evolve(self, **kwargs)
 
 
 @frozen
@@ -40,8 +40,9 @@ class Build:
     # FIXME: make Path
     path: Optional[str] = field(default=None, validator=optional(instance_of(str)))
 
-    def clone(self, **kwargs) -> "Build":
-        return type(self)(**asdict(self) | kwargs)
+    def evolve(self, **kwargs) -> "Build":
+        """Create a copy with specified changes."""
+        return evolve(self, **kwargs)
 
 
 @frozen
@@ -64,8 +65,9 @@ class Revision:
         default=None, validator=optional(instance_of(str))
     )
 
-    def clone(self, **kwargs) -> "Revision":
-        return type(self)(**asdict(self) | kwargs)
+    def evolve(self, **kwargs) -> "Revision":
+        """Create a copy with specified changes."""
+        return evolve(self, **kwargs)
 
 
 @frozen
@@ -83,7 +85,7 @@ class Entry:
 
     def with_revision(self, revision: Revision) -> "Entry":
         """Add a new revision to history."""
-        return self.clone(
+        return self.evolve(
             current_revision=revision.revision_id, history=self.history + (revision,)
         )
 
@@ -97,8 +99,9 @@ class Entry:
             return None
         return self.maybe_get_revision(self.current_revision)
 
-    def clone(self, **kwargs) -> "Entry":
-        return type(self)(**asdict(self) | kwargs)
+    def evolve(self, **kwargs) -> "Entry":
+        """Create a copy with specified changes."""
+        return evolve(self, **kwargs)
 
 
 @frozen
@@ -108,8 +111,9 @@ class Alias:
         default=None, validator=optional(instance_of(str))
     )
 
-    def clone(self, **kwargs) -> "Alias":
-        return type(self)(**asdict(self) | kwargs)
+    def evolve(self, **kwargs) -> "Alias":
+        """Create a copy with specified changes."""
+        return evolve(self, **kwargs)
 
 
 @frozen
@@ -129,13 +133,13 @@ class XorqCatalog:
         existing_entries = tuple(
             e for e in self.entries if e.entry_id != entry.entry_id
         )
-        return self.clone(entries=existing_entries + (entry,))
+        return self.evolve(entries=existing_entries + (entry,))
 
     def with_alias(self, name: str, alias: Alias) -> "XorqCatalog":
         """Add or update an alias."""
         new_aliases = dict(self.aliases)
         new_aliases[name] = alias
-        return self.clone(aliases=new_aliases)
+        return self.evolve(aliases=new_aliases)
 
     def maybe_get_entry(self, entry_id: str) -> Optional[Entry]:
         """Get entry by ID if it exists."""
@@ -147,14 +151,15 @@ class XorqCatalog:
 
     def with_updated_metadata(self) -> "XorqCatalog":
         """Return catalog with updated timestamp."""
-        return self.clone(metadata=self.metadata.with_updated_timestamp())
+        return self.evolve(metadata=self.metadata.with_updated_timestamp())
 
     def get_entry_ids(self) -> Tuple[str, ...]:
         """Get all entry IDs."""
         return tuple(e.entry_id for e in self.entries)
 
-    def clone(self, **kwargs) -> "XorqCatalog":
-        return type(self)(**asdict(self) | kwargs)
+    def evolve(self, **kwargs) -> "XorqCatalog":
+        """Create a copy with specified changes."""
+        return evolve(self, **kwargs)
 
 
 @frozen
