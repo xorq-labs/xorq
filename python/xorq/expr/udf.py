@@ -2,7 +2,6 @@ import functools
 from typing import Any
 
 import cloudpickle
-import pandas as pd
 import pyarrow as pa
 import toolz
 
@@ -30,6 +29,8 @@ def property_wrap_fn(fn):
 
 
 def arrays_to_df(names, *arrays):
+    import pandas as pd
+
     return pd.DataFrame(
         {name: array.to_pandas() for (name, array) in zip(names, arrays)}
     )

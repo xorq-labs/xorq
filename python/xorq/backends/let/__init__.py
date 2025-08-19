@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import urllib.parse
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import pandas as pd
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from sqlglot import exp, parse_one
@@ -15,6 +14,10 @@ from xorq.expr.relations import replace_cache_table
 from xorq.internal import SessionConfig, WindowUDF
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
+
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 def _get_datafusion_table(con, table_name, database="public"):

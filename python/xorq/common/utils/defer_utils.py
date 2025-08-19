@@ -3,7 +3,6 @@ from itertools import chain
 from pathlib import Path
 from typing import Callable
 
-import pandas as pd
 import pyarrow as pa
 import toolz
 
@@ -40,6 +39,8 @@ def make_read_kwargs(f, *args, **kwargs):
 
 @toolz.curry
 def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
+    import pandas as pd
+
     path = normalize_filenames(path)
     gen = pd.read_csv(path[0], chunksize=chunksize, **kwargs)
     df = next(gen)
@@ -50,6 +51,8 @@ def infer_csv_schema_pandas(path, chunksize=DEFAULT_CHUNKSIZE, **kwargs):
 
 def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **kwargs):
     """Deferred and streaming csv reading via pandas"""
+    import pandas as pd
+
     if dtype is not None:
         raise Exception("pass `dtype` as pyarrow `schema`")
     if chunksize is None:

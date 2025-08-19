@@ -2,7 +2,6 @@ import operator
 from random import Random
 from typing import Iterable, Iterator, Tuple
 
-import pandas as pd
 import toolz
 
 import xorq as xo
@@ -44,6 +43,8 @@ def _calculate_bounds(
         raise ValueError("test size should be a float between 0 and 1.")
 
     try:
+        import pandas as pd
+
         pd._testing.assert_almost_equal(sum(test_sizes), 1)
     except AssertionError:
         raise ValueError("Test sizes must sum to 1")
