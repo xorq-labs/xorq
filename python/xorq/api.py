@@ -90,6 +90,3 @@ def __getattr__(name):
     from xorq.vendor import ibis
 
     return load_backend(name) or ibis.load_backend(name)
-
-
-__version__ = importlib_metadata.version(__package__)
