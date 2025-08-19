@@ -1,5 +1,4 @@
 import difflib
-import json
 import os
 import uuid
 from datetime import datetime, timezone
@@ -198,244 +197,6 @@ def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
 DEFAULT_CATALOG_PATH = get_catalog_path()
 
 
-def do_save_catalog(
-    catalog: XorqCatalog, path: Optional[Union[str, Path]] = None
-) -> None:
-    catalog_path = get_catalog_path(path)
-    catalog_path.parent.mkdir(parents=True, exist_ok=True)
-
-    catalog_dict = _catalog_to_dict(catalog.with_updated_metadata())
-
-    with catalog_path.open("w") as f:
-        yaml.safe_dump(catalog_dict, f, sort_keys=False)
-
-
-def do_write_tree(root: Path, files: Mapping[str, bytes]) -> None:
-    """Write file tree to disk (side effect)."""
-    for rel_path, data in files.items():
-        full_path = root / rel_path
-        full_path.parent.mkdir(parents=True, exist_ok=True)
-        full_path.write_bytes(data)
-
-
-def make_default_catalog() -> XorqCatalog:
-    """Create a new default catalog."""
-    now = datetime.now(timezone.utc).isoformat()
-    metadata = CatalogMetadata(
-        catalog_id=str(uuid.uuid4()),
-        created_at=now,
-        updated_at=now,
-        tool_version=xo.__version__,
-    )
-    return XorqCatalog(metadata=metadata)
-
-
-def maybe_load_catalog(
-    path: Optional[Union[str, Path]] = None,
-) -> Optional[XorqCatalog]:
-    """Load catalog from disk, return None if not found."""
-    catalog_path = get_catalog_path(path)
-    if not catalog_path.exists():
-        return None
-
-    try:
-        with catalog_path.open() as f:
-            data = yaml.safe_load(f)
-            return _dict_to_catalog(data) if data else None
-    except (yaml.YAMLError, KeyError, TypeError):
-        return None
-
-
-def load_catalog_or_default(path: Optional[Union[str, Path]] = None) -> XorqCatalog:
-    """Load catalog or create default if not found."""
-    catalog = maybe_load_catalog(path)
-    return catalog if catalog is not None else make_default_catalog()
-
-
-def dump_yaml(obj: Any) -> str:
-    """Dump object to YAML string."""
-    return yaml.safe_dump(obj, sort_keys=False)
-
-
-def dump_json(obj: Any) -> str:
-    """Dump object to JSON string."""
-    return json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-
-
-# save this
-def unified_dir_diff(left_root: Path, right_root: Path) -> Tuple[bool, str]:
-    """Compare two directories and return unified diff."""
-    left_files = _get_file_map(left_root)
-    right_files = _get_file_map(right_root)
-    all_paths = sorted(set(left_files) | set(right_files))
-
-    chunks = []
-    different = False
-
-    for rel_path in all_paths:
-        left_path = left_files.get(rel_path)
-        right_path = right_files.get(rel_path)
-
-        diff_result = _compare_files(left_path, right_path, rel_path)
-        if diff_result is not None:
-            different = True
-            chunks.extend(diff_result)
-
-    return different, "".join(chunks)
-
-
-def _catalog_to_dict(catalog: XorqCatalog) -> Dict[str, Any]:
-    """Convert catalog to dictionary for serialization."""
-    return {
-        "apiVersion": catalog.api_version,
-        "kind": catalog.kind,
-        "metadata": asdict(catalog.metadata),
-        "aliases": {name: asdict(alias) for name, alias in catalog.aliases.items()},
-        "entries": [_entry_to_dict(entry) for entry in catalog.entries],
-    }
-
-
-def _entry_to_dict(entry: Entry) -> Dict[str, Any]:
-    """Convert entry to dictionary."""
-    return {
-        "entry_id": entry.entry_id,
-        "current_revision": entry.current_revision,
-        "history": [_revision_to_dict(rev) for rev in entry.history],
-    }
-
-
-def _revision_to_dict(revision: Revision) -> Dict[str, Any]:
-    """Convert revision to dictionary."""
-    result = {
-        "revision_id": revision.revision_id,
-        "created_at": revision.created_at,
-    }
-
-    if revision.build:
-        result["build"] = asdict(revision.build)
-    if revision.expr_hashes:
-        result["expr_hashes"] = revision.expr_hashes
-    if revision.node_hashes:
-        result["node_hashes"] = list(revision.node_hashes)
-    if revision.meta_digest:
-        result["meta_digest"] = revision.meta_digest
-    if revision.metadata:
-        result["metadata"] = revision.metadata
-    if revision.schema_fingerprint:
-        result["schema_fingerprint"] = revision.schema_fingerprint
-
-    return result
-
-
-def _dict_to_catalog(data: Dict[str, Any]) -> XorqCatalog:
-    """Convert dictionary to catalog."""
-    metadata = CatalogMetadata(**data["metadata"])
-
-    aliases = {}
-    for name, alias_data in data.get("aliases", {}).items():
-        aliases[name] = Alias(**alias_data)
-
-    entries = tuple(
-        _dict_to_entry(entry_data) for entry_data in data.get("entries", [])
-    )
-
-    return XorqCatalog(
-        api_version=data.get("apiVersion", "xorq.dev/v1"),
-        kind=data.get("kind", "XorqCatalog"),
-        metadata=metadata,
-        aliases=aliases,
-        entries=entries,
-    )
-
-
-def _dict_to_entry(data: Dict[str, Any]) -> Entry:
-    """Convert dictionary to entry."""
-    history = tuple(_dict_to_revision(rev_data) for rev_data in data.get("history", []))
-
-    return Entry(
-        entry_id=data["entry_id"],
-        current_revision=data.get("current_revision"),
-        history=history,
-    )
-
-
-def _dict_to_revision(data: Dict[str, Any]) -> Revision:
-    """Convert dictionary to revision."""
-    build = None
-    if "build" in data:
-        build = Build(**data["build"])
-
-    return Revision(
-        revision_id=data["revision_id"],
-        created_at=data["created_at"],
-        build=build,
-        expr_hashes=data.get("expr_hashes"),
-        node_hashes=tuple(data.get("node_hashes", [])),
-        meta_digest=data.get("meta_digest"),
-        metadata=data.get("metadata"),
-        schema_fingerprint=data.get("schema_fingerprint"),
-    )
-
-
-def _maybe_find_build_by_id(build_id: str, catalog: XorqCatalog) -> Optional[Path]:
-    """Find build directory by build ID."""
-    for entry in catalog.entries:
-        for revision in entry.history:
-            if revision.build and revision.build.build_id == build_id:
-                path = revision.build.path
-                return Path(path) if path else None
-    return None
-
-
-def _maybe_get_schema_fingerprint(revision: Revision) -> Optional[str]:
-    """Extract schema fingerprint from revision."""
-    if revision.schema_fingerprint:
-        return revision.schema_fingerprint
-    if revision.metadata:
-        return revision.metadata.get("schema_fingerprint")
-    return None
-
-
-def _maybe_get_read_set(revision: Revision) -> Optional[List[Any]]:
-    """Extract read set from revision metadata."""
-    if revision.metadata:
-        return revision.metadata.get("read_set")
-    return None
-
-
-def _get_file_map(root: Path) -> Dict[str, Path]:
-    """Get mapping of relative paths to absolute paths."""
-    files = [p for p in root.rglob("*") if p.is_file()]
-    return {str(p.relative_to(root)): p for p in files}
-
-
-def _read_text_lines(path: Path) -> List[str]:
-    """Read file as text lines."""
-    return path.read_text().splitlines(keepends=True)
-
-
-def _compare_files(
-    left_path: Optional[Path], right_path: Optional[Path], rel_path: str
-) -> Optional[List[str]]:
-    """Compare two files and return diff lines if different."""
-    if left_path and right_path:
-        if left_path.read_bytes() == right_path.read_bytes():
-            return None
-
-        diff = difflib.unified_diff(
-            _read_text_lines(left_path),
-            _read_text_lines(right_path),
-            fromfile=f"a/{rel_path}",
-            tofile=f"b/{rel_path}",
-            lineterm="",
-        )
-        return list(diff) + ["\n"]
-    elif left_path and not right_path:
-        return [f"--- a/{rel_path}\n+++ /dev/null\n"]
-    else:
-        return [f"--- /dev/null\n+++ b/{rel_path}\n"]
-
-
 def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """Load catalog as raw dict; return minimal structure if not found."""
     catalog_path = get_catalog_path(path)
@@ -522,3 +283,69 @@ def resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
                             pth = cfg_dir / pth
                         return pth
     return None
+
+
+def unified_dir_diff(left_root: Path, right_root: Path) -> Tuple[bool, str]:
+    """Compare two directories and return unified diff."""
+    left_files = _get_file_map(left_root)
+    right_files = _get_file_map(right_root)
+    all_paths = sorted(set(left_files) | set(right_files))
+
+    chunks = []
+    different = False
+
+    for rel_path in all_paths:
+        left_path = left_files.get(rel_path)
+        right_path = right_files.get(rel_path)
+
+        diff_result = _compare_files(left_path, right_path, rel_path)
+        if diff_result is not None:
+            different = True
+            chunks.extend(diff_result)
+
+    return different, "".join(chunks)
+
+
+def make_default_catalog() -> XorqCatalog:
+    """Create a new default catalog."""
+    now = datetime.now(timezone.utc).isoformat()
+    metadata = CatalogMetadata(
+        catalog_id=str(uuid.uuid4()),
+        created_at=now,
+        updated_at=now,
+        tool_version=xo.__version__,
+    )
+    return XorqCatalog(metadata=metadata)
+
+
+def _get_file_map(root: Path) -> Dict[str, Path]:
+    """Get mapping of relative paths to absolute paths."""
+    files = [p for p in root.rglob("*") if p.is_file()]
+    return {str(p.relative_to(root)): p for p in files}
+
+
+def _read_text_lines(path: Path) -> List[str]:
+    """Read file as text lines."""
+    return path.read_text().splitlines(keepends=True)
+
+
+def _compare_files(
+    left_path: Optional[Path], right_path: Optional[Path], rel_path: str
+) -> Optional[List[str]]:
+    """Compare two files and return diff lines if different."""
+    if left_path and right_path:
+        if left_path.read_bytes() == right_path.read_bytes():
+            return None
+
+        diff = difflib.unified_diff(
+            _read_text_lines(left_path),
+            _read_text_lines(right_path),
+            fromfile=f"a/{rel_path}",
+            tofile=f"b/{rel_path}",
+            lineterm="",
+        )
+        return list(diff) + ["\n"]
+    elif left_path and not right_path:
+        return [f"--- a/{rel_path}\n+++ /dev/null\n"]
+    else:
+        return [f"--- /dev/null\n+++ b/{rel_path}\n"]
