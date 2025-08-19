@@ -4,7 +4,7 @@ import pandas as pd
 import toolz
 import xgboost as xgb
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.toolz_utils import curry

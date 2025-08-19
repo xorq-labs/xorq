@@ -1,4 +1,4 @@
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.lineage_utils import build_column_trees, print_tree
 

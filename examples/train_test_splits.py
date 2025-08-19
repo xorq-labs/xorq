@@ -1,6 +1,6 @@
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 from xorq import memtable
 
 

@@ -6,7 +6,7 @@ import pandas as pd
 import requests
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.toolz_utils import curry
 
 

@@ -1,7 +1,7 @@
 import pandas as pd
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 from xorq.flight import FlightServer
 from xorq.flight.exchanger import make_udxf
 
