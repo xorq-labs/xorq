@@ -183,7 +183,7 @@ def normalize_duckdb_databasetable(dt):
     scan_line = plan.split("\n")[1]
     execution_plan_name = r"\s*│\s*(\w+)\s*│\s*"
     match re.match(execution_plan_name, scan_line).group(1):
-        case "ARROW_SCAN":
+        case "ARROW_SCAN" | "PANDAS_SCAN":
             return normalize_memory_databasetable(dt)
         case "READ_PARQUET" | "READ_CSV" | "SEQ_SCAN":
             return normalize_duckdb_file_read(dt)
