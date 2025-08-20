@@ -211,8 +211,11 @@ def save_catalog(
         yaml.safe_dump(catalog, f, sort_keys=False)
 
 
-def resolve_target(target: str, catalog: Dict[str, Any]) -> Optional[Target]:
+def resolve_target(
+    target: str, catalog: Optional[Dict[str, Any]] = None
+) -> Optional[Target]:
     """Resolve target string against raw catalog dict."""
+    catalog = catalog or load_catalog()
     if "@" in target:
         base, rev = target.split("@", 1)
     else:

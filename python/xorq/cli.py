@@ -18,7 +18,6 @@ from xorq.catalog import (
     catalog_command,
     do_save_server_record,
     lineage_command,
-    load_catalog,
     make_server_record,
     profile_command,
     ps_command,
@@ -215,7 +214,7 @@ def unbind_and_serve_command(
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
-    build_dir = resolve_build_dir(expr_path, load_catalog())
+    build_dir = resolve_build_dir(expr_path)
     if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
         print(f"Build target not found: {expr_path}")
         sys.exit(2)
@@ -340,8 +339,7 @@ def serve_command(
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
-    catalog = load_catalog()
-    build_dir = resolve_build_dir(expr_path, catalog)
+    build_dir = resolve_build_dir(expr_path)
     if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
         print(f"Build target not found: {expr_path}")
         sys.exit(2)
