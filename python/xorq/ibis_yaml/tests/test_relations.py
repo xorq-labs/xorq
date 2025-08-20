@@ -37,7 +37,7 @@ def test_aggregation(compiler, t):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Aggregate"
-    node_ref = expression["by"][0]["node_ref"]
+    node_ref = expression["by"]["a"]["node_ref"]
     assert yaml_dict["definitions"]["nodes"][node_ref]["name"] == "a"
     assert expression["metrics"]["avg_c"]["op"] == "Mean"
 
