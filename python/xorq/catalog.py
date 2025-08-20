@@ -1,5 +1,6 @@
 import difflib
 import json
+import operator
 import os
 import shutil
 import subprocess
@@ -9,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 
+import toolz
 import yaml
 from attrs import evolve, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
@@ -52,11 +54,41 @@ class Build:
 
     build_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
     # FIXME: make Path
-    path: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    path: Optional[Path] = field(
+        default=None,
+        validator=optional(instance_of(Path)),
+        converter=toolz.curried.excepts(Exception, Path),
+    )
 
     def evolve(self, **kwargs) -> "Build":
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
+
+    to_dict = operator.methodcaller("__getstate__")
+
+
+def convert_datetime(value):
+    match value:
+        case None:
+            return datetime.now()
+        case str():
+            return datetime.fromisoformat(value)
+        case datetime():
+            return value
+        case _:
+            raise ValueError
+
+
+def convert_build(value):
+    match value:
+        case None:
+            return None
+        case dict():
+            return Build(**value)
+        case Build():
+            return value
+        case _:
+            raise ValueError
 
 
 @frozen
@@ -65,8 +97,14 @@ class Revision:
 
     # FIXME: make int
     revision_id: str = field(validator=instance_of(str))
-    created_at: str = field(validator=instance_of(datetime), factory=datetime.now)
-    build: Optional[Build] = field(default=None, validator=optional(instance_of(Build)))
+    created_at: str = field(
+        validator=instance_of(datetime),
+        factory=datetime.now,
+        converter=convert_datetime,
+    )
+    build: Optional[Build] = field(
+        default=None, validator=optional(instance_of(Build)), converter=convert_build
+    )
     expr_hashes: Optional[Dict[str, str]] = field(default=None)
     node_hashes: Tuple[str, ...] = field(
         factory=tuple, validator=deep_iterable(instance_of(str), instance_of(tuple))
@@ -82,6 +120,13 @@ class Revision:
     def evolve(self, **kwargs) -> "Revision":
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
+
+    def to_dict(self):
+        raise NotImplementedError
+
+    @classmethod
+    def from_dict(cls, dct):
+        return cls(**dct)
 
 
 @frozen
@@ -117,6 +162,17 @@ class Entry:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
+    @classmethod
+    def from_dict(cls, dct):
+        dct = dct.copy()
+        created_at = dct.pop("created_at", None)
+        history = tuple(Revision.from_dict(rev) for rev in dct.get("history", ()))
+        if created_at is not None:
+            assert datetime.fromisoformat(created_at) == min(
+                rev.created_at for rev in history
+            )
+        return cls(**dct | {"history": history})
+
 
 @frozen
 class Alias:
@@ -124,23 +180,34 @@ class Alias:
     revision_id: Optional[str] = field(
         default=None, validator=optional(instance_of(str))
     )
+    updated_at: str = field(
+        validator=optional(instance_of(datetime)),
+        default=None,
+        converter=convert_datetime,
+    )
 
     def evolve(self, **kwargs) -> "Alias":
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
+
+    @classmethod
+    def from_dict(cls, dct):
+        return cls(**dct)
 
 
 @frozen
 class XorqCatalog:
     """Xorq Catalog container."""
 
-    metadata: CatalogMetadata = field(validator=instance_of(CatalogMetadata))
-    api_version: str = field(default="xorq.dev/v1", validator=instance_of(str))
-    kind: str = field(default="XorqCatalog", validator=instance_of(str))
     aliases: Mapping[str, Alias] = field(factory=dict)
     entries: Tuple[Entry, ...] = field(
         validator=deep_iterable(instance_of(Entry), instance_of(tuple)),
         factory=tuple,
+    )
+    api_version: str = field(default="xorq.dev/v1", validator=instance_of(str))
+    kind: str = field(default="XorqCatalog", validator=instance_of(str))
+    metadata: CatalogMetadata = field(
+        validator=optional(instance_of(CatalogMetadata)), default=None
     )
 
     def with_entry(self, entry: Entry) -> "XorqCatalog":
@@ -176,12 +243,37 @@ class XorqCatalog:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
+    def resolve_target(self, target: str):
+        pass
+
+    @classmethod
+    def from_dict(cls, dct):
+        aliases = dct.get("aliases", {})
+        entries = dct.get("entries", ())
+        return cls(
+            **dct
+            | {
+                "aliases": {k: Alias.from_dict(v) for k, v in aliases.items()},
+                "entries": tuple(Entry.from_dict(el) for el in entries),
+            }
+        )
+
+    @classmethod
+    def from_path(cls, path):
+        with Path(path).open() as fh:
+            dct = yaml.safe_load(fh)
+        return cls.from_dict(dct)
+
 
 @frozen
 class Target:
     entry_id: str = field(validator=instance_of(str))
     rev: Optional[str] = field(default=None, validator=optional(instance_of(str)))
     alias: bool = field(default=False, validator=instance_of(bool))
+
+    @classmethod
+    def from_str(cls, catalog: XorqCatalog = None):
+        pass
 
 
 def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
@@ -192,13 +284,10 @@ def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
 def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """Load catalog as raw dict; return minimal structure if not found."""
     catalog_path = get_catalog_path(path)
-    if not catalog_path.exists():
-        return {"entries": [], "aliases": {}}
-    with catalog_path.open() as f:
-        data = yaml.safe_load(f) or {}
-    data.setdefault("entries", [])
-    data.setdefault("aliases", {})
-    return data
+    catalog = (
+        XorqCatalog.from_path(catalog_path) if catalog_path.exists() else XorqCatalog()
+    )
+    return catalog
 
 
 def save_catalog(
