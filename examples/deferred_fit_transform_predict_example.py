@@ -18,7 +18,7 @@ from xorq.ml import (
 
 
 m = import_python(
-    xo.options.pins.get_path("hackernews_lib", version="20250604T223424Z-2e578")
+    xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
 )
 
 
