@@ -157,6 +157,8 @@ def run_command(
         Path to write output. Defaults to os.devnull
     output_format : str, optional
         Output format, either "csv", "json", or "parquet". Defaults to "parquet"
+    cache_dir : Path, optional
+        Directory where the parquet cache files will be generated
     limit : int, optional
         Limit number of rows to output. Defaults to None (no limit).
 
@@ -601,7 +603,13 @@ def main():
             case "run":
                 f, f_args = (
                     run_command,
-                    (args.build_path, args.output_path, args.format, args.cache_dir),
+                    (
+                        args.build_path,
+                        args.output_path,
+                        args.format,
+                        args.cache_dir,
+                        args.limit,
+                    ),
                 )
             case "serve-unbound":
                 f, f_args = (
@@ -614,7 +622,6 @@ def main():
                         args.port,
                         args.prometheus_port,
                         args.cache_dir,
-                        args.limit,
                         args.typ,
                     ),
                 )
