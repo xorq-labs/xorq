@@ -140,7 +140,11 @@ def build_command(
 
 @tracer.start_as_current_span("cli.run_command")
 def run_command(
-    expr_path, output_path=None, output_format="parquet", cache_dir=get_xorq_cache_dir()
+    expr_path,
+    output_path=None,
+    output_format="parquet",
+    cache_dir=get_xorq_cache_dir(),
+    limit=None,
 ):
     """
     Execute an artifact
@@ -153,6 +157,8 @@ def run_command(
         Path to write output. Defaults to os.devnull
     output_format : str, optional
         Output format, either "csv", "json", or "parquet". Defaults to "parquet"
+    limit : int, optional
+        Limit number of rows to output. Defaults to None (no limit).
 
     Returns
     -------
@@ -175,6 +181,8 @@ def run_command(
     expr_path = Path(expr_path)
     build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
     expr = build_manager.load_expr(expr_path.name)
+    if limit is not None:
+        expr = expr.limit(limit)
 
     match output_format:
         case "csv":
@@ -451,6 +459,12 @@ def parse_args(override=None):
         default="parquet",
         help="Output format (default: parquet)",
     )
+    run_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of rows to output",
+    )
 
     serve_unbound_parser = subparsers.add_parser(
         "serve-unbound", help="Serve an an unbound expr via Flight Server"
@@ -600,6 +614,7 @@ def main():
                         args.port,
                         args.prometheus_port,
                         args.cache_dir,
+                        args.limit,
                         args.typ,
                     ),
                 )
