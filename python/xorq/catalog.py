@@ -142,6 +142,13 @@ class Entry:
         factory=tuple,
     )
 
+    @property
+    def created_at(self):
+        return min(
+            (revision.created_at for revision in self.history),
+            default=None,
+        )
+
     def with_revision(self, revision: Revision) -> "Entry":
         """Add a new revision to history."""
         return self.evolve(
@@ -634,21 +641,23 @@ def catalog_command(args):
     elif args.subcommand == "ls":
         # Load catalog from local catalog file
         catalog = load_catalog(path=config_path)
-        aliases = catalog.get("aliases", {})
-        if aliases:
+        if aliases := catalog.aliases:
             print("Aliases:")
-            for al, mapping in aliases.items():
-                print(f"{al}\t{mapping['entry_id']}\t{mapping['revision_id']}")
+            print(
+                "\n".join(
+                    f"{al}\t{mapping.entry_id}\t{mapping.revision_id}"
+                    for al, mapping in aliases.items()
+                )
+            )
         print("Entries:")
-        for entry in catalog.get("entries", []):
-            ent_id = entry.get("entry_id")
-            curr_rev = entry.get("current_revision")
+        for entry in catalog.entries:
+            curr_rev = entry.current_revision
             build_id = None
-            for rev in entry.get("history", []):
-                if rev.get("revision_id") == curr_rev:
-                    build_id = rev.get("build", {}).get("build_id")
+            for rev in entry.history:
+                if rev.revision_id == curr_rev:
+                    build_id = rev.build.build_id
                     break
-            print(f"{ent_id}\t{curr_rev}\t{build_id}")
+            print(f"{entry.entry_id}\t{curr_rev}\t{build_id}")
 
     elif args.subcommand == "inspect":
         # Load catalog from local catalog file
@@ -661,47 +670,47 @@ def catalog_command(args):
         entry_id = target.entry_id
         revision_id = args.revision or target.rev
         # Find entry
-        entry = next(
-            (e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id),
-            None,
-        )
-        if entry is None:
+        if (
+            entry := next(
+                (entry for entry in catalog.entries if entry.entry_id == entry_id), None
+            )
+        ) is None:
             print(f"Entry {entry_id} not found in catalog")
             return
         # Determine revision
         if not revision_id:
-            revision_id = entry.get("current_revision")
-        revision = next(
-            (
-                r
-                for r in entry.get("history", [])
-                if r.get("revision_id") == revision_id
-            ),
-            None,
-        )
-        if revision is None:
+            revision_id = entry.current_revision
+        if (
+            revision := next(
+                (
+                    revision
+                    for revision in entry.history
+                    if revision.revision_id == revision_id
+                ),
+                None,
+            )
+        ) is None:
             print(f"Revision {revision_id} not found for entry {entry_id}")
             return
         # Only show summary when not focusing on specific sections
         if args.full or not (args.plan or args.profiles or args.hashes):
             print("Summary:")
             print(f"  {'Entry ID':<13}: {entry_id}")
-            entry_created = entry.get("created_at")
-            if entry_created:
+            if entry_created := entry.created_at:
                 print(f"  Entry Created: {entry_created}")
             print(f"  {'Revision ID':<13}: {revision_id}")
-            revision_created = revision.get("created_at")
+            revision_created = revision.created_at
             if revision_created:
                 print(f"  Revision Created: {revision_created}")
-            expr_hash = (revision.get("expr_hashes") or {}).get("expr") or revision.get(
-                "build", {}
-            ).get("build_id")
+            expr_hash = (revision.expr_hashes or {}).get(
+                "expr"
+            ) or revision.build.build_id
             print(f"  {'Expr Hash':<13}: {expr_hash}")
-            meta_digest = revision.get("meta_digest")
+            meta_digest = revision.meta_digest
             if meta_digest:
                 print(f"  {'Meta Digest':<13}: {meta_digest}")
         # Resolve build directory path (handle relative paths)
-        bp = revision.get("build", {}).get("path")
+        bp = revision.build.path
         build_dir = Path(bp) if bp else None
         if build_dir and not build_dir.is_absolute():
             build_dir = config_dir / build_dir
