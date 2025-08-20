@@ -3006,7 +3006,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         ...     view,
         ...     [
         ...         movie_tags.movieId != view.movieId,
-        ...         (_.tag.lower(), lambda t: t.tag.lower()),
+        ...         (_["tag"].lower(), lambda t: t["tag"].lower()),
         ...     ],
         ... ).head().order_by(("movieId", "movieId_right"))
         ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┓
@@ -3184,7 +3184,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         >>> xo.options.interactive = True
         >>> t = xo.examples.penguins.fetch(deferred=False)
         >>> expr = t.alias("pingüinos").sql('SELECT * FROM "pingüinos" LIMIT 5')
-        >>> expr
+        >>> expr # quartodoc: +SKIP
         ┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━┳━━━┓
         ┃ species ┃ island    ┃ bill_length_mm ┃ bill_depth_mm ┃ flipper_length_mm ┃ … ┃
         ┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━╇━━━┩
