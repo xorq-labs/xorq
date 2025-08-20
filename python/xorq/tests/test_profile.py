@@ -542,7 +542,7 @@ class TestCheckForExposedSecrets:
         )
 
         # Override the profile directory for testing
-        monkeypatch.setattr("xorq.options.profiles.profile_dir", tmp_path)
+        monkeypatch.setattr("xorq.api.options.profiles.profile_dir", tmp_path)
 
         with pytest.raises(ValueError) as excinfo:
             profile.save()
