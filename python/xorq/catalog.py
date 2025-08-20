@@ -272,8 +272,23 @@ class Target:
     alias: bool = field(default=False, validator=instance_of(bool))
 
     @classmethod
-    def from_str(cls, catalog: XorqCatalog = None):
-        pass
+    def from_str(cls, target: str, catalog: XorqCatalog = None):
+        catalog = catalog or load_catalog()
+        (base, rev) = target.split("@", 1) if "@" in target else (target, None)
+        if base == "entry" and catalog.entries:
+            entry, *_ = catalog.entries
+            return Target(
+                entry_id=entry.entry_id, rev=rev or entry.current_revision, alias=False
+            )
+        if alias := catalog.aliases.get(base):
+            return Target(
+                entry_id=alias.entry_id, rev=rev or alias.revision_id, alias=True
+            )
+        if entry := next(
+            (entry for entry in catalog.entries if entry.entry_id == base), None
+        ):
+            return Target(entry_id=base, rev=rev or entry.current_revision, alias=False)
+        return None
 
 
 def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
@@ -300,36 +315,7 @@ def save_catalog(
         yaml.safe_dump(catalog, f, sort_keys=False)
 
 
-def resolve_target(
-    target: str, catalog: Optional[Dict[str, Any]] = None
-) -> Optional[Target]:
-    """Resolve target string against raw catalog dict."""
-    catalog = catalog or load_catalog()
-    if "@" in target:
-        base, rev = target.split("@", 1)
-    else:
-        base, rev = target, None
-    # Special case: generic 'entry' resolves to the single entry if only one exists
-    entries = catalog.get("entries", [])
-    if base == "entry" and entries:
-        entry_data = entries[0]
-        rev_id = rev if rev is not None else entry_data.get("current_revision")
-        return Target(entry_id=entry_data.get("entry_id"), rev=rev_id, alias=False)
-    alias_map = catalog.get("aliases", {})
-    if base in alias_map:
-        alias_data = alias_map[base]
-        entry_id = alias_data.get("entry_id")
-        rev_id = rev if rev is not None else alias_data.get("revision_id")
-        return Target(entry_id=entry_id, rev=rev_id, alias=True)
-    entry_ids = [e.get("entry_id") for e in entries]
-    if base in entry_ids:
-        if rev is None:
-            entry_data = next(e for e in entries if e.get("entry_id") == base)
-            rev_id = entry_data.get("current_revision")
-        else:
-            rev_id = rev
-        return Target(entry_id=base, rev=rev_id, alias=False)
-    return None
+resolve_target = Target.from_str
 
 
 def resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
