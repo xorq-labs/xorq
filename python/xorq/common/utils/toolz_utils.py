@@ -348,3 +348,14 @@ class Compose(object):
 
     def __reduce__(self):
         return (self.__class__._restore_compose, (self.first, self.funcs))
+
+
+# Backwards-compatibility stubs for legacy pickles referencing module-level functions
+def _compose_reduce(self):
+    """Legacy pickle reducer alias for Compose.__reduce__."""
+    return Compose.__reduce__(self)
+
+
+def _restore_compose(first, funcs):
+    """Legacy pickle restore alias for Compose._restore_compose."""
+    return Compose._restore_compose(first, funcs)
