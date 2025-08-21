@@ -326,6 +326,10 @@ class XorqCatalog:
             dct = yaml.safe_load(fh)
         return cls.from_dict(dct) if dct else cls()
 
+    @classmethod
+    def from_default(cls):
+        return cls.from_path(get_catalog_path())
+
 
 @frozen
 class Target:
