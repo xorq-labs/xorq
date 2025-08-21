@@ -8,6 +8,7 @@ import pytest
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
+import xorq.expr.selectors as s
 from xorq.api import memtable
 from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import (
@@ -178,6 +179,27 @@ def test_train_test_splits_must_sum_one():
     table = memtable({"key": [1, 2, 3], "value": [4, 5, 6]})
     with pytest.raises(ValueError, match="Test sizes must sum to 1"):
         next(xo.train_test_splits(table, "key", [0.1, 0.5]))
+
+
+def test_train_test_splits_with_all_selector():
+    N = 50
+    table = memtable({"k": range(N), "v": range(N)})
+    splits = list(
+        xo.train_test_splits(
+            table, test_sizes=0.2, unique_key=s.all(), num_buckets=N, random_seed=0
+        )
+    )
+    assert len(splits) == 2
+    train_table, test_table = splits
+    assert train_table.union(test_table).join(table, how="anti").count().execute() == 0
+
+    splits2 = list(
+        xo.train_test_splits(
+            table, test_sizes=0.2, unique_key=s.all(), num_buckets=N, random_seed=0
+        )
+    )
+    for s1, s2 in zip(splits, splits2):
+        assert_frame_equal(s1.execute(), s2.execute())
 
 
 @pytest.mark.parametrize(
