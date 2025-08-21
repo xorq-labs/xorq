@@ -5,7 +5,6 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 import toolz
-import xgboost as xgb
 
 import xorq as xo
 import xorq.expr.datatypes as dt
@@ -17,6 +16,7 @@ from xorq.vendor.ibis.selectors import of_type
 
 
 pc = pytest.importorskip("pyarrow.compute")
+xgb = pytest.importorskip("xgboost")
 
 
 @udf.agg.pyarrow
