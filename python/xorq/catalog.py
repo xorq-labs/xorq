@@ -23,12 +23,18 @@ from xorq.ibis_yaml.compiler import (
 )
 
 
-# Keep DEFAULT_CATALOG_PATH for backward compatibility
-DEFAULT_CATALOG_PATH = (
-    Path(os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config"))
-    .joinpath("xorq", "catalog.yaml")
-    .absolute()
-)
+def get_default_catalog_path():
+    # dynamically retrieve: tests need to monkeypatch XDG_CONFIG_HOME
+    return (
+        Path(os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config"))
+        .joinpath("xorq", "catalog.yaml")
+        .absolute()
+    )
+
+
+def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
+    """Return the catalog file path, using XDG_CONFIG_HOME if set or default to ~/.config."""
+    return Path(path) if path else get_default_catalog_path()
 
 
 get_now_utc = functools.partial(datetime.now, timezone.utc)
@@ -328,7 +334,7 @@ class XorqCatalog:
 
     @classmethod
     def from_default(cls):
-        return cls.from_path(get_catalog_path())
+        pass
 
 
 @frozen
@@ -357,11 +363,6 @@ class Target:
         return None
 
 
-def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
-    """Return the catalog file path, using XDG_CONFIG_HOME if set or default to ~/.config."""
-    return Path(path) if path else DEFAULT_CATALOG_PATH
-
-
 def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     """Load catalog as raw dict; return minimal structure if not found."""
     catalog_path = get_catalog_path(path)
@@ -382,7 +383,7 @@ def resolve_build_dir(
             path = Path(path)
             # If stored path is relative, interpret relative to catalog config directory
             if not path.is_absolute():
-                path = DEFAULT_CATALOG_PATH.parent.joinpath(path)
+                path = get_default_catalog_path().parent.joinpath(path)
             return path
         else:
             return None

@@ -1,4 +1,5 @@
 from xorq.catalog import (
+    XorqCatalog,
     load_catalog,
     resolve_build_dir,
     unified_dir_diff,
@@ -7,23 +8,25 @@ from xorq.catalog import (
 
 def test_load_and_save_catalog(tmp_path):
     cat = load_catalog(path=str(tmp_path / "catalog.yaml"))
-    assert "entries" in cat and isinstance(cat["entries"], list)
+    assert hasattr(cat, "entries") and isinstance(cat.entries, tuple)
     cat.save(path=str(tmp_path / "catalog.yaml"))
     cat2 = load_catalog(path=str(tmp_path / "catalog.yaml"))
-    assert cat2["entries"] == cat["entries"]
+    assert cat2.entries == cat.entries
 
 
 def test_resolve_target_alias_and_entry():
-    catalog = {
-        "aliases": {"foo": {"entry_id": "e1", "revision_id": "r1"}},
-        "entries": [
-            {
-                "entry_id": "e1",
-                "current_revision": "r1",
-                "history": [{"revision_id": "r1"}],
-            }
-        ],
-    }
+    catalog = XorqCatalog.from_dict(
+        {
+            "aliases": {"foo": {"entry_id": "e1", "revision_id": "r1"}},
+            "entries": [
+                {
+                    "entry_id": "e1",
+                    "current_revision": "r1",
+                    "history": [{"revision_id": "r1"}],
+                }
+            ],
+        }
+    )
     t = catalog.resolve_target("foo")
     assert t.entry_id == "e1"
     assert t.rev == "r1"
@@ -50,7 +53,7 @@ def test_resolve_build_dir_by_build_id(tmp_path):
         "current_revision": "r1",
         "history": [{"revision_id": "r1", "build": {"build_id": "b1", "path": str(d)}}],
     }
-    cat = {"aliases": {}, "entries": [entry]}
+    cat = XorqCatalog.from_dict({"aliases": {}, "entries": [entry]})
     p = resolve_build_dir("b1", cat)
     assert p == d
 
