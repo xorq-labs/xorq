@@ -39,9 +39,10 @@ def remove_unexpected_tables(dirty):
         raise ValueError
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def pg():
     conn = xo.postgres.connect_env()
+    remove_unexpected_tables(conn)
     yield conn
     remove_unexpected_tables(conn)
 

@@ -8,10 +8,10 @@ from xorq.caching import (
 
 
 @pytest.fixture
-def cached_two(ls_con, batting, tmp_path):
-    parquet_storage = ParquetStorage(source=ls_con, relative_path=tmp_path)
+def cached_two(con, pg, tmp_path):
+    parquet_storage = ParquetStorage(source=con, relative_path=tmp_path)
     return (
-        batting[lambda t: t.yearID > 2014]
+        pg.table("batting")[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
         .cache(storage=parquet_storage)
     )

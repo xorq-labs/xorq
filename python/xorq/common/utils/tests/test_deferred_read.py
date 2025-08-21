@@ -6,7 +6,6 @@ import dask
 import duckdb
 import pandas as pd
 import pytest
-from adbc_driver_manager import ProgrammingError
 from attr import (
     field,
     frozen,
@@ -32,13 +31,15 @@ from xorq.tests.util import assert_frame_equal
 
 @frozen
 class PinsResource:
-    name = field(validator=in_(xo.options.pins.get_board().pin_list()))
+    name = field()
     suffix = field(validator=optional(in_((".csv", ".parquet"))), default=None)
 
     def __attrs_post_init__(self):
         if self.suffix is None:
             object.__setattr__(self, "suffix", self.path.suffix)
         if self.path.suffix != self.suffix:
+            raise ValueError
+        if self.name not in xo.options.pins.get_board().pin_list():
             raise ValueError
 
     @property
@@ -135,13 +136,16 @@ def test_deferred_read_to_sql(con, pins_resource, request):
 
 
 @pytest.mark.parametrize(
-    "con,pins_resource",
+    "get_con,pins_resource",
     itertools.product(
-        (xo.pandas.connect(), xo.postgres.connect_env()),
+        (lambda: xo.pandas.connect(), lambda: xo.postgres.connect_env()),
         ("iris_csv", "astronauts_parquet"),
     ),
 )
-def test_deferred_read(con, pins_resource, request):
+def test_deferred_read(get_con, pins_resource, request):
+    from adbc_driver_manager import ProgrammingError
+
+    con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
     assert pins_resource.table_name not in con.tables
     t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
@@ -160,13 +164,14 @@ def test_deferred_read(con, pins_resource, request):
 
 
 @pytest.mark.parametrize(
-    "con,pins_resource",
+    "get_con,pins_resource",
     itertools.product(
-        (xo.postgres.connect_env(),),
+        (lambda: xo.postgres.connect_env(),),
         ("iris_csv", "astronauts_parquet"),
     ),
 )
-def test_deferred_read_temporary(con, pins_resource, request):
+def test_deferred_read_temporary(get_con, pins_resource, request):
+    con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
     t = pins_resource.deferred_reader(pins_resource.path, con, None, temporary=True)
     table_name = t.op().name
@@ -177,17 +182,24 @@ def test_deferred_read_temporary(con, pins_resource, request):
 
 
 @pytest.mark.parametrize(
-    "con,pins_resource,filter_",
+    "get_con,pins_resource,filter_",
     (
         (con, pins_resource, filter_)
-        for con in (xo.pandas.connect(), xo.postgres.connect_env(), xo.duckdb.connect())
+        for con in (
+            lambda: xo.pandas.connect(),
+            lambda: xo.postgres.connect_env(),
+            lambda: xo.duckdb.connect(),
+        )
         for (pins_resource, filter_) in (
             ("iris_csv", filter_sepal_length),
             ("astronauts_parquet", filter_field21),
         )
     ),
 )
-def test_cached_deferred_read(con, pins_resource, filter_, request, tmp_path):
+def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path):
+    from adbc_driver_manager import ProgrammingError
+
+    con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
     storage = ParquetStorage(source=xo.connect(), relative_path=tmp_path)
 
@@ -244,10 +256,11 @@ def test_cached_deferred_read(con, pins_resource, filter_, request, tmp_path):
 
 
 @pytest.mark.parametrize(
-    "con",
-    (xo.pandas.connect(), xo.postgres.connect_env()),
+    "get_con",
+    (lambda: xo.pandas.connect(), lambda: xo.postgres.connect_env()),
 )
-def test_cached_csv_mutate(con, iris_csv, tmp_path):
+def test_cached_csv_mutate(get_con, iris_csv, tmp_path):
+    con = get_con()
     target_path = ensure_tmp_csv(iris_csv.name, tmp_path)
     storage = ParquetStorage(source=xo.connect(), relative_path=tmp_path)
     # make sure the con is "clean"

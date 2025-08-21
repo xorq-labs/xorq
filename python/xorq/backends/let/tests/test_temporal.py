@@ -30,9 +30,9 @@ from xorq.tests.util import (
         ),
     ],
 )
-def test_date_extract(alltypes, df, attr, expr_fn):
+def test_date_extract(alltypes, alltypes_df, attr, expr_fn):
     expr = getattr(expr_fn(alltypes.timestamp_col), attr)()
-    expected = getattr(df.timestamp_col.dt, attr).astype("int32")
+    expected = getattr(alltypes_df.timestamp_col.dt, attr).astype("int32")
 
     result = expr.name(attr).execute()
 
@@ -52,12 +52,14 @@ def test_date_extract(alltypes, df, attr, expr_fn):
         "second",
     ],
 )
-def test_timestamp_extract(alltypes, df, attr):
+def test_timestamp_extract(alltypes, alltypes_df, attr):
     method = getattr(alltypes.timestamp_col, attr)
     expr = method().name(attr)
     result = xo.execute(expr)
     expected = (
-        getattr(df.timestamp_col.dt, attr.replace("_", "")).astype("int32").rename(attr)
+        getattr(alltypes_df.timestamp_col.dt, attr.replace("_", ""))
+        .astype("int32")
+        .rename(attr)
     )
     assert_series_equal(result, expected)
 
@@ -117,34 +119,42 @@ def test_timestamp_extract_literal(con, func, expected):
     assert con.execute(func(value).name("tmp")) == expected
 
 
-def test_timestamp_extract_microseconds(alltypes, df):
+def test_timestamp_extract_microseconds(alltypes, alltypes_df):
     expr = alltypes.timestamp_col.microsecond().name("microsecond")
     result = expr.execute()
-    expected = df.timestamp_col.dt.microsecond.astype("int32").rename("microsecond")
-    assert_series_equal(result, expected)
-
-
-def test_timestamp_extract_milliseconds(alltypes, df):
-    expr = alltypes.timestamp_col.millisecond().name("millisecond")
-    result = expr.execute()
-    expected = (
-        (df.timestamp_col.dt.microsecond // 1_000).astype("int32").rename("millisecond")
+    expected = alltypes_df.timestamp_col.dt.microsecond.astype("int32").rename(
+        "microsecond"
     )
     assert_series_equal(result, expected)
 
 
-def test_timestamp_extract_epoch_seconds(alltypes, df):
-    expr = alltypes.timestamp_col.epoch_seconds().name("tmp")
+def test_timestamp_extract_milliseconds(alltypes, alltypes_df):
+    expr = alltypes.timestamp_col.millisecond().name("millisecond")
     result = expr.execute()
-
-    expected = df.timestamp_col.astype("datetime64[s]").astype("int64").astype("int32")
+    expected = (
+        (alltypes_df.timestamp_col.dt.microsecond // 1_000)
+        .astype("int32")
+        .rename("millisecond")
+    )
     assert_series_equal(result, expected)
 
 
-def test_timestamp_extract_week_of_year(alltypes, df):
+def test_timestamp_extract_epoch_seconds(alltypes, alltypes_df):
+    expr = alltypes.timestamp_col.epoch_seconds().name("tmp")
+    result = expr.execute()
+
+    expected = (
+        alltypes_df.timestamp_col.astype("datetime64[s]")
+        .astype("int64")
+        .astype("int32")
+    )
+    assert_series_equal(result, expected)
+
+
+def test_timestamp_extract_week_of_year(alltypes, alltypes_df):
     expr = alltypes.timestamp_col.week_of_year().name("tmp")
     result = expr.execute()
-    expected = df.timestamp_col.dt.isocalendar().week.astype("int32")
+    expected = alltypes_df.timestamp_col.dt.isocalendar().week.astype("int32")
     assert_series_equal(result, expected)
 
 
@@ -187,17 +197,17 @@ TIMESTAMP_PANDAS_UNITS = {
         ),
     ],
 )
-def test_timestamp_truncate(alltypes, df, unit):
+def test_timestamp_truncate(alltypes, alltypes_df, unit):
     expr = alltypes.timestamp_col.truncate(unit).name("tmp")
 
     unit = PANDAS_UNITS.get(unit, unit)
 
     try:
         ts_unit = TIMESTAMP_PANDAS_UNITS.get(unit, unit)
-        expected = df.timestamp_col.dt.floor(ts_unit)
+        expected = alltypes_df.timestamp_col.dt.floor(ts_unit)
     except ValueError:
         unit = PANDAS_UNITS.get(unit, unit)
-        expected = df.timestamp_col.dt.to_period(unit).dt.to_timestamp()
+        expected = alltypes_df.timestamp_col.dt.to_period(unit).dt.to_timestamp()
 
     result = expr.execute()
     assert_series_equal(result, expected)
@@ -218,7 +228,7 @@ timestamp_value = pd.Timestamp("2018-01-01 18:18:18")
         "ne",
     ],
 )
-def test_timestamp_comparison_filter(con, alltypes, df, func_name):
+def test_timestamp_comparison_filter(con, alltypes, alltypes_df, func_name):
     ts = pd.Timestamp("20100302", tz="UTC").to_pydatetime()
 
     comparison_fn = getattr(operator, func_name)
@@ -226,8 +236,8 @@ def test_timestamp_comparison_filter(con, alltypes, df, func_name):
         comparison_fn(alltypes.timestamp_col.cast("timestamp('UTC')"), ts)
     )
 
-    col = df.timestamp_col.dt.tz_localize("UTC")
-    expected = df[comparison_fn(col, ts)]
+    col = alltypes_df.timestamp_col.dt.tz_localize("UTC")
+    expected = alltypes_df[comparison_fn(col, ts)]
     result = con.execute(expr)
 
     assert_frame_equal(result, expected)
@@ -244,7 +254,7 @@ def test_timestamp_comparison_filter(con, alltypes, df, func_name):
         "ne",
     ],
 )
-def test_timestamp_comparison_filter_numpy(con, alltypes, df, func_name):
+def test_timestamp_comparison_filter_numpy(con, alltypes, alltypes_df, func_name):
     ts = np.datetime64("2010-03-02 00:00:00.000123")
 
     comparison_fn = getattr(operator, func_name)
@@ -254,8 +264,8 @@ def test_timestamp_comparison_filter_numpy(con, alltypes, df, func_name):
 
     ts = pd.Timestamp(ts.item(), tz="UTC")
 
-    col = df.timestamp_col.dt.tz_localize("UTC")
-    expected = df[comparison_fn(col, ts)]
+    col = alltypes_df.timestamp_col.dt.tz_localize("UTC")
+    expected = alltypes_df[comparison_fn(col, ts)]
     result = con.execute(expr)
 
     assert_frame_equal(result, expected)
@@ -270,12 +280,12 @@ def test_interval_add_cast_scalar(alltypes):
     assert_series_equal(result, expected.astype(result.dtype))
 
 
-def test_interval_add_cast_column(alltypes, df):
+def test_interval_add_cast_column(alltypes, alltypes_df):
     timestamp_date = alltypes.timestamp_col.date()
     delta = alltypes.bigint_col.cast("interval('D')")
     expr = alltypes["id", (timestamp_date + delta).name("tmp")]
     result = expr.execute().sort_values("id").reset_index().tmp
-    df = df.sort_values("id").reset_index(drop=True)
+    df = alltypes_df.sort_values("id").reset_index(drop=True)
     expected = (
         df["timestamp_col"]
         .dt.normalize()
@@ -310,16 +320,16 @@ def test_day_of_week_scalar(con, date, expected_index, expected_day):
     assert result_day.lower() == expected_day.lower()
 
 
-def test_day_of_week_column(alltypes, df):
+def test_day_of_week_column(alltypes, alltypes_df):
     expr = alltypes.timestamp_col.day_of_week
 
     result_index = expr.index().name("tmp").execute()
-    expected_index = df.timestamp_col.dt.dayofweek.astype("int16")
+    expected_index = alltypes_df.timestamp_col.dt.dayofweek.astype("int16")
 
     assert_series_equal(result_index, expected_index, check_names=False)
 
     result_day = expr.full_name().name("tmp").execute()
-    expected_day = df.timestamp_col.dt.day_name()
+    expected_day = alltypes_df.timestamp_col.dt.day_name()
 
     assert_series_equal(result_day, expected_day, check_names=False)
 
@@ -340,7 +350,7 @@ def test_day_of_week_column(alltypes, df):
     ],
 )
 def test_day_of_week_column_group_by(
-    alltypes, df, day_of_week_expr, day_of_week_pandas
+    alltypes, alltypes_df, day_of_week_expr, day_of_week_pandas
 ):
     expr = alltypes.group_by("string_col").aggregate(
         day_of_week_result=day_of_week_expr
@@ -350,7 +360,7 @@ def test_day_of_week_column_group_by(
 
     result = expr.execute().sort_values("string_col")
     expected = (
-        df.groupby("string_col")
+        alltypes_df.groupby("string_col")
         .timestamp_col.apply(day_of_week_pandas)
         .reset_index()
         .rename(columns={"timestamp_col": "day_of_week_result"})
@@ -367,7 +377,7 @@ def test_date_scalar_from_iso(con):
     assert result.strftime("%Y-%m-%d") == "2022-02-24"
 
 
-def test_date_column_from_iso(con, alltypes, df):
+def test_date_column_from_iso(con, alltypes, alltypes_df):
     expr = (
         alltypes.year.cast("string")
         + "-"
@@ -377,7 +387,12 @@ def test_date_column_from_iso(con, alltypes, df):
     expr = xo.date(expr)
 
     result = con.execute(expr.name("tmp"))
-    golden = df.year.astype(str) + "-" + df.month.astype(str).str.rjust(2, "0") + "-13"
+    golden = (
+        alltypes_df.year.astype(str)
+        + "-"
+        + alltypes_df.month.astype(str).str.rjust(2, "0")
+        + "-13"
+    )
     actual = result.map(datetime.date.isoformat)
     assert_series_equal(golden.rename("tmp"), actual.rename("tmp"))
 
@@ -416,7 +431,7 @@ def build_date_col(t):
         param(lambda _: DATE, build_date_col, id="date_column"),
     ],
 )
-def test_timestamp_date_comparison(alltypes, df, left_fn, right_fn):
+def test_timestamp_date_comparison(alltypes, alltypes_df, left_fn, right_fn):
     left = left_fn(alltypes)
     right = right_fn(alltypes)
     expr = left == right
@@ -424,11 +439,11 @@ def test_timestamp_date_comparison(alltypes, df, left_fn, right_fn):
     expected = (
         pd.to_datetime(
             (
-                df.year.astype(str)
+                alltypes_df.year.astype(str)
                 .add("-")
-                .add(df.month.astype(str).str.rjust(2, "0"))
+                .add(alltypes_df.month.astype(str).str.rjust(2, "0"))
                 .add("-")
-                .add(df.int_col.add(1).astype(str).str.rjust(2, "0"))
+                .add(alltypes_df.int_col.add(1).astype(str).str.rjust(2, "0"))
             ),
             format="%Y-%m-%d",
             exact=True,
@@ -532,7 +547,7 @@ def test_now_from_projection(alltypes):
         "D",
     ],
 )
-def test_integer_to_interval_date(con, alltypes, df, unit):
+def test_integer_to_interval_date(con, alltypes, alltypes_df, unit):
     interval = alltypes.int_col.as_interval(unit=unit)
     array = alltypes.date_string_col.split("/")
     month, day, year = array[0], array[1], array[2]
@@ -547,13 +562,13 @@ def test_integer_to_interval_date(con, alltypes, df, unit):
         resolution = f"{interval.type().resolution}s"
         return pd.offsets.DateOffset(**{resolution: x})
 
-    offset = df.int_col.apply(convert_to_offset)
+    offset = alltypes_df.int_col.apply(convert_to_offset)
     with warnings.catch_warnings():
         warnings.simplefilter(
             "ignore", category=(UserWarning, pd.errors.PerformanceWarning)
         )
         expected = (
-            pd.to_datetime(df.date_string_col)
+            pd.to_datetime(alltypes_df.date_string_col)
             .add(offset)
             .map(lambda ts: ts.normalize().date(), na_action="ignore")
         )
@@ -591,7 +606,9 @@ def test_integer_to_interval_date(con, alltypes, df, unit):
         ),
     ],
 )
-def test_integer_to_interval_timestamp(con, alltypes, df, unit, displacement_type):
+def test_integer_to_interval_timestamp(
+    con, alltypes, alltypes_df, unit, displacement_type
+):
     interval = alltypes.int_col.as_interval(unit=unit)
     expr = (alltypes.timestamp_col + interval).name("tmp")
 
@@ -604,8 +621,8 @@ def test_integer_to_interval_timestamp(con, alltypes, df, unit, displacement_typ
         # PerformanceWarning, because We use DateOffset addition
         warnings.simplefilter("ignore", category=pd.errors.PerformanceWarning)
         result = con.execute(expr)
-        offset = df.int_col.apply(convert_to_offset)
-        expected = df.timestamp_col + offset
+        offset = alltypes_df.int_col.apply(convert_to_offset)
+        expected = alltypes_df.timestamp_col + offset
 
     expected = default_series_rename(expected)
     assert_series_equal(result, expected.astype(result.dtype))

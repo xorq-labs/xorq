@@ -255,3 +255,54 @@ def test_get_object_metadata_gcs():
         "gs://cloud-samples-data/bigquery/us-states/us-states.parquet",
     )
     assert isinstance(metadata, dict)
+
+
+@pytest.mark.parametrize(
+    "get_con",
+    [
+        lambda: xo.connect(),
+        lambda: xo.datafusion.connect(),
+        lambda: xo.duckdb.connect(),
+        lambda: xo.postgres.connect_env(),
+    ],
+)
+def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
+    ls_con = xo.connect()
+    other_con = get_con()
+    astronauts_path = parquet_dir.joinpath("astronauts.parquet")
+    table_name = "astronauts"
+    col = "id"
+
+    astronauts_name = f"{ls_con.name}_{table_name}"
+    astronauts = ls_con.register(astronauts_path, table_name=astronauts_name)
+
+    if other_con.name == "postgres":
+        t = other_con.table(table_name)
+    else:
+        t = other_con.read_parquet(astronauts_path, table_name=table_name)
+
+    ls_table_name = f"{other_con.name}_{table_name}"
+    ls_con.register(t, ls_table_name)
+    other = ls_con.table(ls_table_name)
+
+    expr = astronauts[[col]].distinct().join(other[[col]].distinct(), col)
+
+    assert (first := expr.execute()) is not None
+    assert (second := expr.execute()) is not None
+    assert_frame_equal(first.sort_values(col), second.sort_values(col))
+
+
+def test_read_postgres():
+    import os
+
+    uri = (
+        f"postgres://{os.environ['POSTGRES_USER']}:"
+        f"{os.environ['POSTGRES_PASSWORD']}@"
+        f"{os.environ['POSTGRES_HOST']}:"
+        f"{os.environ['POSTGRES_PORT']}/"
+        f"{os.environ['POSTGRES_DATABASE']}"
+    )
+    t = xo.read_postgres(uri, table_name="astronauts")
+    res = xo.execute(t)
+
+    assert not res.empty

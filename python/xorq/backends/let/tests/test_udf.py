@@ -1,7 +1,6 @@
 import operator
 import pickle
 
-import pandas as pd
 import pyarrow as pa
 import pytest
 import toolz
@@ -180,11 +179,16 @@ def test_udf_pandas_df(ls_con, batting):
     assert from_builtin.equals(from_pd)
 
 
-def test_pandas_expr_udf():
+def test_pandas_expr_udf(con, diamonds):
     @toolz.curry
     def train_xgboost_model(df, features, target, seed=0):
-        param = {"max_depth": 4, "eta": 1, "objective": "binary:logistic", "seed": seed}
-        num_round = 10
+        param = {
+            "max_depth": 3,
+            "eta": 1,
+            "objective": "reg:squarederror",
+            "seed": seed,
+        }
+        num_round = 5
         X = df[list(features)]
         y = df[target]
         dtrain = xgb.DMatrix(X, y)
@@ -195,23 +199,22 @@ def test_pandas_expr_udf():
         return model.predict(xgb.DMatrix(df))
 
     features = (
-        "emp_length",
-        "dti",
-        "annual_inc",
-        "loan_amnt",
-        "fico_range_high",
-        "cr_age_days",
+        "carat",
+        "depth",
+        "table",
+        "x",
+        "y",
+        "z",
     )
-    target = "event_occurred"
+    target = "price"
     train_fn = train_xgboost_model(features=features, target=target)
     name = "predicted"
     typ = "float64"
 
-    con = xo.connect()
-    t = con.read_parquet(xo.config.options.pins.get_path("lending-club"))
+    df = diamonds.limit(500).execute()
+    t = con.register(df, table_name="small_diamonds")
 
     # manual run
-    df = xo.execute(t)
     model = train_fn(df)
     from_pd = df.assign(
         **{name: predict_xgboost_model(model, df[list(features)])}
@@ -232,7 +235,8 @@ def test_pandas_expr_udf():
         return_type=dt.dtype(typ),
         name=name,
     )
+
     expr = t.mutate(predict_expr_udf.on_expr(t).name(name))
     from_ls = con.execute(expr)
 
-    pd._testing.assert_frame_equal(from_ls, from_pd)
+    assert_frame_equal(from_ls, from_pd)
