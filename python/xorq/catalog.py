@@ -356,9 +356,7 @@ def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
     return catalog
 
 
-def save_catalog(
-    catalog: Dict[str, Any], path: Optional[Union[str, Path]] = None
-) -> None:
+def save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = None) -> None:
     """Save raw catalog dict to disk."""
     catalog_path = get_catalog_path(path)
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
