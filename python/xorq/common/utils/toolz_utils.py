@@ -5,6 +5,8 @@ from functools import (
 from importlib import (
     import_module,
 )
+from operator import attrgetter
+from types import MethodType
 
 from cloudpickle import (
     dumps,
@@ -258,3 +260,80 @@ def _restore_curry(cls, func, args, kwargs, userdict, is_decorated):
     obj = cls(func, *args, **(kwargs or {}))
     obj.__dict__.update(userdict)
     return obj
+
+
+class Compose(object):
+    """A composition of functions
+
+    See Also:
+        compose
+    """
+
+    __slots__ = ("first", "funcs")
+
+    def __init__(self, funcs):
+        funcs = tuple(reversed(funcs))
+        self.first = funcs[0]
+        self.funcs = funcs[1:]
+
+    def __call__(self, *args, **kwargs):
+        ret = self.first(*args, **kwargs)
+        for f in self.funcs:
+            ret = f(ret)
+        return ret
+
+    def __getstate__(self):
+        return self.first, self.funcs
+
+    def __setstate__(self, state):
+        self.first, self.funcs = state
+
+    @instanceproperty(classval=__doc__)
+    def __doc__(self):
+        def composed_doc(*fs):
+            """Generate a docstring for the composition of fs."""
+            if not fs:
+                return "*args, **kwargs"
+
+            return "{f}({g})".format(f=fs[0].__name__, g=composed_doc(*fs[1:]))
+
+        try:
+            pieces = tuple(reversed((self.first,) + self.funcs))
+            return "lambda *args, **kwargs: " + composed_doc(*pieces)
+        except AttributeError:
+            return "A composition of functions"
+
+    @property
+    def __name__(self):
+        try:
+            pieces = tuple(reversed((self.first,) + self.funcs))
+            return "_of_".join(f.__name__ for f in pieces)
+        except AttributeError:
+            return type(self).__name__
+
+    def __repr__(self):
+        pieces = tuple(reversed((self.first,) + self.funcs))
+        return f"{type(self).__name__}{pieces!r}"
+
+    def __eq__(self, other):
+        if isinstance(other, Compose):
+            return (self.first, self.funcs) == (other.first, other.funcs)
+        return NotImplemented
+
+    def __ne__(self, other):
+        eq = self.__eq__(other)
+        return NotImplemented if eq is NotImplemented else not eq
+
+    def __hash__(self):
+        return hash(self.first) ^ hash(self.funcs)
+
+    def __get__(self, obj, objtype=None):
+        return self if obj is None else MethodType(self, obj)
+
+    @instanceproperty
+    def __signature__(self):
+        base = inspect.signature(self.first)
+        last = inspect.signature(self.funcs[-1])
+        return base.replace(return_annotation=last.return_annotation)
+
+    __wrapped__ = instanceproperty(attrgetter("first"))
