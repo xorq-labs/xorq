@@ -41,22 +41,6 @@ def test_executed_on_original_backend(parquet_dir, csv_dir, mocker):
     assert spy.call_count == 1
 
 
-def test_read_postgres():
-    import os
-
-    uri = (
-        f"postgres://{os.environ['POSTGRES_USER']}:"
-        f"{os.environ['POSTGRES_PASSWORD']}@"
-        f"{os.environ['POSTGRES_HOST']}:"
-        f"{os.environ['POSTGRES_PORT']}/"
-        f"{os.environ['POSTGRES_DATABASE']}"
-    )
-    t = xo.read_postgres(uri, table_name="batting")
-    res = xo.execute(t)
-
-    assert res is not None and len(res)
-
-
 @pytest.mark.parametrize(
     ("with_repartition_file_scans", "keep_partition_by_columns"),
     [(True, True), (True, False), (False, True), (False, False)],

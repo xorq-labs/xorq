@@ -16,10 +16,10 @@ from xorq.tests.util import assert_series_equal, default_series_rename
         ("float_col", 2.2),
     ],
 )
-def test_floating_scalar_parameter(alltypes, df, column, raw_value):
+def test_floating_scalar_parameter(alltypes, alltypes_df, column, raw_value):
     value = xo.param(dt.double)
     expr = (alltypes[column] + value).name("tmp")
-    expected = df[column] + raw_value
+    expected = alltypes_df[column] + raw_value
     result = expr.execute(params={value: raw_value})
     expected = default_series_rename(expected)
     assert_series_equal(result, expected, check_dtype=False)

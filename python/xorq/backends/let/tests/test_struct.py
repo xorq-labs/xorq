@@ -65,13 +65,18 @@ def test_literal(con, field):
     assert_series_equal(result, expected.astype(dtype))
 
 
-def test_struct_column(alltypes, df):
+def test_struct_column(alltypes, alltypes_df):
     t = alltypes
     expr = t.select(s=xo.struct(dict(a=t.string_col, b=1, c=t.bigint_col)))
     assert expr.s.type() == dt.Struct(dict(a=dt.string, b=dt.int8, c=dt.int64))
     result = xo.execute(expr)
     expected = pd.DataFrame(
-        {"s": [dict(a=a, b=1, c=c) for a, c in zip(df.string_col, df.bigint_col)]}
+        {
+            "s": [
+                dict(a=a, b=1, c=c)
+                for a, c in zip(alltypes_df.string_col, alltypes_df.bigint_col)
+            ]
+        }
     )
     assert_frame_equal(result, expected)
 

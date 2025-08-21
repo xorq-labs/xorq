@@ -36,10 +36,10 @@ def is_text_type(x):
     return isinstance(x, str)
 
 
-def test_string_col_is_unicode(alltypes, df):
+def test_string_col_is_unicode(alltypes, alltypes_df):
     dtype = alltypes.string_col.type()
     assert dtype == dt.String(nullable=dtype.nullable)
-    assert df.string_col.map(is_text_type).all()
+    assert alltypes_df.string_col.map(is_text_type).all()
     result = alltypes.string_col.execute()
     assert result.map(is_text_type).all()
 
@@ -294,11 +294,11 @@ def test_string_col_is_unicode(alltypes, df):
         ),
     ],
 )
-def test_string(alltypes, df, result_func, expected_func):
+def test_string(alltypes, alltypes_df, result_func, expected_func):
     expr = result_func(alltypes).name("tmp")
     result = expr.execute()
 
-    expected = expected_func(df)
+    expected = expected_func(alltypes_df)
     assert_series_equal(result, expected)
 
 
@@ -308,7 +308,7 @@ def test_re_replace_global(con):
     assert result == "cbc"
 
 
-def test_substr_with_null_values(alltypes, df):
+def test_substr_with_null_values(alltypes, alltypes_df):
     table = alltypes.mutate(
         substr_col_null=xo.case()
         .when(alltypes["bool_col"], alltypes["string_col"])
@@ -318,7 +318,7 @@ def test_substr_with_null_values(alltypes, df):
     )
     result = table.execute()
 
-    expected = df.copy()
+    expected = alltypes_df.copy()
     mask = ~expected["bool_col"]
     expected["substr_col_null"] = expected["string_col"]
     expected.loc[mask, "substr_col_null"] = None

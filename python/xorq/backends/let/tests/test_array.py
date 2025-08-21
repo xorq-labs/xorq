@@ -25,12 +25,12 @@ def flatten_data():
     }
 
 
-def test_array_column(alltypes, df):
+def test_array_column(alltypes, alltypes_df):
     expr = xo.array([alltypes["double_col"], alltypes["double_col"]])
     assert isinstance(expr, ir.ArrayColumn)
 
     result = expr.execute()
-    expected = df.apply(
+    expected = alltypes_df.apply(
         lambda row: [row["double_col"], row["double_col"]],
         axis=1,
     )
