@@ -337,3 +337,14 @@ class Compose(object):
         return base.replace(return_annotation=last.return_annotation)
 
     __wrapped__ = instanceproperty(attrgetter("first"))
+
+    @classmethod
+    def _restore_compose(cls, first, funcs):
+        """Internal restore for pickle reduction."""
+        comp = cls.__new__(cls)
+        comp.first = first
+        comp.funcs = funcs
+        return comp
+
+    def __reduce__(self):
+        return (self.__class__._restore_compose, (self.first, self.funcs))
