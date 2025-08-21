@@ -127,8 +127,6 @@ def elide_downstream_cached_node(expr, downstream_of):
     )
 
     def elide_cached_node(node, kwargs):
-        if isinstance(node, rel.CachedNode):
-            print(node)
         if node in cns:
             while isinstance(node, rel.CachedNode):
                 node = node.parent.op()
