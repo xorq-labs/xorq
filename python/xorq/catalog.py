@@ -72,7 +72,6 @@ class Build:
             "path": str(self.path) if self.path else None,
         }
         return dct
-        # to_dict = operator.methodcaller("__getstate__")
 
     @classmethod
     def from_dict(cls, dct):
@@ -259,9 +258,7 @@ class XorqCatalog:
 
     def with_alias(self, name: str, alias: Alias) -> "XorqCatalog":
         """Add or update an alias."""
-        new_aliases = dict(self.aliases)
-        new_aliases[name] = alias
-        return self.evolve(aliases=new_aliases)
+        return self.evolve(aliases=self.aliases | {name: alias})
 
     def maybe_get_entry(self, entry_id: str) -> Optional[Entry]:
         """Get entry by ID if it exists."""
@@ -284,7 +281,7 @@ class XorqCatalog:
         return evolve(self, **kwargs)
 
     def resolve_target(self, target: str):
-        pass
+        raise NotImplementedError
 
     def to_dict(self):
         dct = self.__getstate__()
