@@ -269,7 +269,7 @@ class XorqCatalog:
     def from_path(cls, path):
         with Path(path).open() as fh:
             dct = yaml.safe_load(fh)
-        return cls.from_dict(dct)
+        return cls.from_dict(dct) if dct else cls()
 
 
 @frozen
