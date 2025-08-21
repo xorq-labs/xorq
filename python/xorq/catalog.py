@@ -47,6 +47,8 @@ class CatalogMetadata:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
+    to_dict = operator.methodcaller("__getstate__")
+
 
 @frozen
 class Build:
@@ -64,7 +66,13 @@ class Build:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
-    to_dict = operator.methodcaller("__getstate__")
+    def to_dict(self):
+        dct = self.__getstate__()
+        dct = dct | {
+            "path": str(self.path) if self.path else None,
+        }
+        return dct
+        # to_dict = operator.methodcaller("__getstate__")
 
     @classmethod
     def from_dict(cls, dct):
@@ -111,7 +119,9 @@ class Revision:
     )
     expr_hashes: Optional[Dict[str, str]] = field(default=None)
     node_hashes: Tuple[str, ...] = field(
-        factory=tuple, validator=deep_iterable(instance_of(str), instance_of(tuple))
+        factory=tuple,
+        validator=deep_iterable(instance_of(str), instance_of(tuple)),
+        converter=tuple,
     )
     meta_digest: Optional[str] = field(
         default=None, validator=optional(instance_of(str))
@@ -126,7 +136,12 @@ class Revision:
         return evolve(self, **kwargs)
 
     def to_dict(self):
-        raise NotImplementedError
+        dct = self.__getstate__()
+        dct = dct | {
+            "created_at": dct["created_at"].isoformat(),
+            "build": self.build.to_dict() if self.build else None,
+        }
+        return dct
 
     @classmethod
     def from_dict(cls, dct):
@@ -173,6 +188,13 @@ class Entry:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
+    def to_dict(self):
+        dct = self.__getstate__()
+        dct = dct | {
+            "history": tuple(revision.to_dict() for revision in self.history),
+        }
+        return dct
+
     @classmethod
     def from_dict(cls, dct):
         dct = dct.copy()
@@ -200,6 +222,13 @@ class Alias:
     def evolve(self, **kwargs) -> "Alias":
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
+
+    def to_dict(self):
+        dct = self.__getstate__()
+        dct = dct | {
+            "updated_at": self.updated_at.isoformat(),
+        }
+        return dct
 
     @classmethod
     def from_dict(cls, dct):
@@ -256,6 +285,20 @@ class XorqCatalog:
 
     def resolve_target(self, target: str):
         pass
+
+    def to_dict(self):
+        dct = self.__getstate__()
+        dct = dct | {
+            "aliases": {name: alias.to_dict() for name, alias in self.aliases.items()},
+            "entries": tuple(entry.to_dict() for entry in self.entries),
+            "metadata": self.metadata.to_dict() if self.metadata else self.metadata,
+        }
+        return dct
+
+    def to_yaml(self, path):
+        dct = self.to_dict()
+        with path.open("wt") as fh:
+            yaml.safe_dump(dct, fh, sort_keys=False)
 
     @classmethod
     def from_dict(cls, dct):
@@ -322,8 +365,7 @@ def save_catalog(
     """Save raw catalog dict to disk."""
     catalog_path = get_catalog_path(path)
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
-    with catalog_path.open("w") as f:
-        yaml.safe_dump(catalog, f, sort_keys=False)
+    catalog.to_yaml(catalog_path)
 
 
 resolve_target = Target.from_str
@@ -588,7 +630,11 @@ def catalog_command(args):
         # If alias exists, append a new revision to that entry
         if alias and (mapping := catalog.aliases.get(alias)):
             entry = next(
-                (entry for entry in catalog.entries if entry.entry_id == mapping.entry_id),
+                (
+                    entry
+                    for entry in catalog.entries
+                    if entry.entry_id == mapping.entry_id
+                ),
                 None,
             )
             # Determine next revision number
@@ -599,7 +645,9 @@ def catalog_command(args):
             revision = {
                 "revision_id": revision_id,
                 "created_at": now,
-                "build": Build.from_dict({"build_id": build_id, "path": build_path_str}),
+                "build": Build.from_dict(
+                    {"build_id": build_id, "path": build_path_str}
+                ),
                 # expr_hash recalculated fresh when inspecting
                 "meta_digest": meta_digest,
             }
@@ -624,19 +672,26 @@ def catalog_command(args):
             }
             if metadata_preview:
                 revision["metadata"] = metadata_preview
-            entry = Entry.from_dict({
-                "entry_id": entry_id,
-                "created_at": now,
-                "current_revision": revision_id,
-                "history": [revision],
-            })
+            entry = Entry.from_dict(
+                {
+                    "entry_id": entry_id,
+                    "created_at": now,
+                    "current_revision": revision_id,
+                    "history": [revision],
+                }
+            )
             catalog = catalog.with_entry(entry)
             if alias:
-                catalog = catalog.with_alias(alias, Alias.from_dict({
-                    "entry_id": entry_id,
-                    "revision_id": revision_id,
-                    "updated_at": now,
-                }))
+                catalog = catalog.with_alias(
+                    alias,
+                    Alias.from_dict(
+                        {
+                            "entry_id": entry_id,
+                            "revision_id": revision_id,
+                            "updated_at": now,
+                        }
+                    ),
+                )
         # Save updated catalog to local catalog file
         save_catalog(catalog, path=config_path)
         print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
@@ -792,7 +847,7 @@ def catalog_command(args):
         catalog = load_catalog(path=config_path)
         token = args.entry
         # Remove alias if present
-        if (popped := catalog.aliases.pop(token, None)):
+        if popped := catalog.aliases.pop(token, None):
             # Save updated catalog
             save_catalog(catalog, path=config_path)
             print(f"Removed alias {token}")
