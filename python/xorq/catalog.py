@@ -66,6 +66,10 @@ class Build:
 
     to_dict = operator.methodcaller("__getstate__")
 
+    @classmethod
+    def from_dict(cls, dct):
+        return cls(**dct)
+
 
 def convert_datetime(value):
     match value:
@@ -582,11 +586,10 @@ def catalog_command(args):
         catalog = load_catalog(path=config_path)
         now = datetime.now(timezone.utc).isoformat()
         # If alias exists, append a new revision to that entry
-        if alias and alias in (catalog.get("aliases") or {}):
-            mapping = catalog["aliases"][alias]
-            entry_id = mapping["entry_id"]
+        if alias and (mapping := catalog.aliases.get(alias)):
             entry = next(
-                e for e in catalog.get("entries", []) if e.get("entry_id") == entry_id
+                (entry for entry in catalog.entries if entry.entry_id == mapping.entry_id),
+                None,
             )
             # Determine next revision number
             existing = [r.get("revision_id", "r0") for r in entry.get("history", [])]
@@ -596,7 +599,7 @@ def catalog_command(args):
             revision = {
                 "revision_id": revision_id,
                 "created_at": now,
-                "build": {"build_id": build_id, "path": build_path_str},
+                "build": Build.from_dict({"build_id": build_id, "path": build_path_str}),
                 # expr_hash recalculated fresh when inspecting
                 "meta_digest": meta_digest,
             }
@@ -621,19 +624,19 @@ def catalog_command(args):
             }
             if metadata_preview:
                 revision["metadata"] = metadata_preview
-            entry = {
+            entry = Entry.from_dict({
                 "entry_id": entry_id,
                 "created_at": now,
                 "current_revision": revision_id,
                 "history": [revision],
-            }
-            catalog.setdefault("entries", []).append(entry)
+            })
+            catalog = catalog.with_entry(entry)
             if alias:
-                catalog.setdefault("aliases", {})[alias] = {
+                catalog = catalog.with_alias(alias, Alias.from_dict({
                     "entry_id": entry_id,
                     "revision_id": revision_id,
                     "updated_at": now,
-                }
+                }))
         # Save updated catalog to local catalog file
         save_catalog(catalog, path=config_path)
         print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
@@ -779,11 +782,9 @@ def catalog_command(args):
         # Show top-level catalog info
         # Load catalog from local catalog file
         catalog = load_catalog(path=config_path)
-        entries = catalog.get("entries", []) or []
-        aliases = catalog.get("aliases", {}) or {}
         print(f"Catalog path: {config_path}")
-        print(f"Entries: {len(entries)}")
-        print(f"Aliases: {len(aliases)}")
+        print(f"Entries: {len(catalog.entries)}")
+        print(f"Aliases: {len(catalog.aliases)}")
         return
     elif args.subcommand == "rm":
         # Remove an entry or alias from the catalog
@@ -791,12 +792,7 @@ def catalog_command(args):
         catalog = load_catalog(path=config_path)
         token = args.entry
         # Remove alias if present
-        aliases = catalog.get("aliases", {}) or {}
-        if token in aliases:
-            aliases.pop(token, None)
-            # If no aliases remain, clean up key
-            if not aliases:
-                catalog.pop("aliases", None)
+        if (popped := catalog.aliases.pop(token, None)):
             # Save updated catalog
             save_catalog(catalog, path=config_path)
             print(f"Removed alias {token}")
