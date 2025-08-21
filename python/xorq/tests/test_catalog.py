@@ -1,8 +1,6 @@
 from xorq.catalog import (
     load_catalog,
     resolve_build_dir,
-    resolve_target,
-    save_catalog,
     unified_dir_diff,
 )
 
@@ -10,7 +8,7 @@ from xorq.catalog import (
 def test_load_and_save_catalog(tmp_path):
     cat = load_catalog(path=str(tmp_path / "catalog.yaml"))
     assert "entries" in cat and isinstance(cat["entries"], list)
-    save_catalog(cat, path=str(tmp_path / "catalog.yaml"))
+    cat.save(path=str(tmp_path / "catalog.yaml"))
     cat2 = load_catalog(path=str(tmp_path / "catalog.yaml"))
     assert cat2["entries"] == cat["entries"]
 
@@ -26,11 +24,11 @@ def test_resolve_target_alias_and_entry():
             }
         ],
     }
-    t = resolve_target("foo", catalog)
+    t = catalog.resolve_target("foo")
     assert t.entry_id == "e1"
     assert t.rev == "r1"
     assert t.alias is True
-    t2 = resolve_target("e1@r1", catalog)
+    t2 = catalog.resolve_target("e1@r1")
     assert t2.entry_id == "e1"
     assert t2.rev == "r1"
     assert t2.alias is False

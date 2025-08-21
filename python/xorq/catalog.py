@@ -303,6 +303,11 @@ class XorqCatalog:
         with path.open("wt") as fh:
             yaml.safe_dump(dct, fh, sort_keys=False)
 
+    def save(self, path):
+        catalog_path = get_catalog_path(path)
+        catalog_path.parent.mkdir(parents=True, exist_ok=True)
+        self.to_yaml(catalog_path)
+
     @classmethod
     def from_dict(cls, dct):
         aliases = dct.get("aliases", {})
@@ -360,13 +365,6 @@ def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
         XorqCatalog.from_path(catalog_path) if catalog_path.exists() else XorqCatalog()
     )
     return catalog
-
-
-def save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = None) -> None:
-    """Save raw catalog dict to disk."""
-    catalog_path = get_catalog_path(path)
-    catalog_path.parent.mkdir(parents=True, exist_ok=True)
-    catalog.to_yaml(catalog_path)
 
 
 def resolve_build_dir(
@@ -692,7 +690,7 @@ def catalog_command(args):
                     ),
                 )
         # Save updated catalog to local catalog file
-        save_catalog(catalog, path=config_path)
+        catalog.save(path=config_path)
         print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
 
     elif args.subcommand == "ls":
@@ -863,13 +861,13 @@ def catalog_command(args):
             aliases = toolz.dissoc(catalog.aliases, *others)
             # Save updated catalog
             catalog = catalog.evolve(entries=entries, aliases=aliases)
-            save_catalog(catalog, path=config_path)
+            catalog.save(path=config_path)
             print(f"Removed entry {token}")
             return
         elif catalog.aliases.pop(token, None):
             # Remove alias if present
             # Save updated catalog
-            save_catalog(catalog, path=config_path)
+            catalog.save(path=config_path)
             print(f"Removed alias {token}")
             return
         else:
@@ -1020,9 +1018,6 @@ def profile_command(args):
     else:
         print(f"Unknown profile subcommand: {sub}")
         sys.exit(2)
-
-
-# === Server Recording Utilities ===
 
 
 @frozen
