@@ -846,34 +846,37 @@ def catalog_command(args):
         # Load catalog from local catalog file
         catalog = load_catalog(path=config_path)
         token = args.entry
-        # Remove alias if present
-        if popped := catalog.aliases.pop(token, None):
+        # Remove entry if present
+        entry = next(
+            (entry for entry in catalog.entries if entry.entry_id == token),
+            None,
+        )
+        if entry:
+            entries = tuple(
+                entry for entry in catalog.entries if entry.entry_id != token
+            )
+            # Remove entry and any related aliases
+            others = tuple(
+                name
+                for name, value in catalog.aliases.items()
+                if value.entry_id == token
+            )
+            aliases = toolz.dissoc(catalog.aliases, *others)
+            # Save updated catalog
+            catalog = catalog.evolve(entries=entries, aliases=aliases)
+            save_catalog(catalog, path=config_path)
+            print(f"Removed entry {token}")
+            return
+        elif catalog.aliases.pop(token, None):
+            # Remove alias if present
             # Save updated catalog
             save_catalog(catalog, path=config_path)
             print(f"Removed alias {token}")
             return
-        # Remove entry if present
-        entries = catalog.get("entries", [])
-        for i, entry in enumerate(entries):
-            if entry.get("entry_id") == token:
-                # Remove entry and any related aliases
-                entries.pop(i)
-                # Clean aliases pointing to this entry
-                to_remove = [
-                    a for a, m in aliases.items() if m.get("entry_id") == token
-                ]
-                for a in to_remove:
-                    aliases.pop(a, None)
-                # Clean empty aliases dict
-                if not aliases:
-                    catalog.pop("aliases", None)
-                # Save updated catalog
-                save_catalog(catalog, path=config_path)
-                print(f"Removed entry {token}")
-                return
-        # Not found
-        print(f"Entry {token} not found in catalog")
-        return
+        else:
+            # Not found
+            print(f"Entry {token} not found in catalog")
+            return
     elif args.subcommand == "export":
         # Export catalog.yaml and all builds to a target directory
         export_dir = Path(args.output_path)
