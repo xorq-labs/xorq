@@ -23,9 +23,11 @@ from xorq.ibis_yaml.compiler import (
 
 
 # Keep DEFAULT_CATALOG_PATH for backward compatibility
-DEFAULT_CATALOG_PATH = Path(
-    os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config")
-).joinpath("xorq", "catalog.yaml")
+DEFAULT_CATALOG_PATH = (
+    Path(os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config"))
+    .joinpath("xorq", "catalog.yaml")
+    .absolute()
+)
 
 
 @frozen
