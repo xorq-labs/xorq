@@ -1,4 +1,5 @@
 import difflib
+import functools
 import json
 import operator
 import os
@@ -30,6 +31,9 @@ DEFAULT_CATALOG_PATH = (
 )
 
 
+get_now_utc = functools.partial(datetime.now, timezone.utc)
+
+
 @frozen
 class CatalogMetadata:
     """Catalog metadata."""
@@ -37,13 +41,13 @@ class CatalogMetadata:
     # FIXME: make uuid
     catalog_id: str = field(validator=instance_of(str), factory=uuid.uuid4)
     # FIXME: make datetime.datetime
-    created_at: str = field(validator=instance_of(datetime), factory=datetime.now)
-    updated_at: str = field(validator=instance_of(datetime), factory=datetime.now)
+    created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
+    updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
     tool_version: str = field(validator=instance_of(str), default=xo.__version__)
 
     def with_updated_timestamp(self) -> "CatalogMetadata":
         """Return new metadata with updated timestamp."""
-        return self.evolve(updated_at=datetime.now(timezone.utc).isoformat())
+        return self.evolve(updated_at=get_now_utc().isoformat())
 
     def evolve(self, **kwargs) -> "CatalogMetadata":
         """Create a copy with specified changes."""
@@ -83,7 +87,7 @@ class Build:
 def convert_datetime(value):
     match value:
         case None:
-            return datetime.now()
+            return get_now_utc()
         case str():
             return datetime.fromisoformat(value)
         case datetime():
@@ -112,7 +116,7 @@ class Revision:
     revision_id: str = field(validator=instance_of(str))
     created_at: str = field(
         validator=instance_of(datetime),
-        factory=datetime.now,
+        factory=get_now_utc,
         converter=convert_datetime,
     )
     build: Optional[Build] = field(
@@ -620,7 +624,7 @@ def catalog_command(args):
         build_path_str = str(Path("catalog-builds") / build_id)
         # Load existing catalog (empty if not exists)
         catalog = load_catalog(path=config_path)
-        now = datetime.now(timezone.utc).isoformat()
+        now = get_now_utc().isoformat()
         # If alias exists, append a new revision to that entry
         if alias and (mapping := catalog.aliases.get(alias)):
             entry = next(
@@ -632,6 +636,7 @@ def catalog_command(args):
                 None,
             )
             # Determine next revision number
+            # FIXME: use XorqCatalog
             existing = [r.get("revision_id", "r0") for r in entry.get("history", [])]
             nums = [int(r[1:]) for r in existing if r.startswith("r")]
             next_num = max(nums, default=0) + 1
@@ -986,7 +991,7 @@ class ServerRecord:
     port: Optional[int] = field(validator=optional(instance_of(int)), default=None)
     start_time: datetime = field(
         validator=instance_of(datetime),
-        factory=datetime.now,
+        factory=get_now_utc,
         converter=convert_datetime,
     )
     node_hash: Optional[str] = field(validator=optional(instance_of(str)), default=None)
@@ -1059,7 +1064,7 @@ def format_server_table(
 ) -> Tuple[Tuple[str, ...], Tuple[Tuple[str, ...], ...]]:
     headers = ("TARGET", "STATE", "COMMAND", "HASH", "PID", "PORT", "UPTIME")
     rows: list[tuple[str, ...]] = []
-    now = datetime.now()
+    now = get_now_utc()
     for rec in records:
         state = "running"
         try:
