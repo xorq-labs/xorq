@@ -182,6 +182,13 @@ def test_aggregation_roundtrip(t, compiler):
     assert roundtrip_expr.schema() == expr.schema()
 
 
+def test_aggregation_with_alias_roundtrip(t, compiler):
+    expr = t.group_by(t.a.name("cust_id")).aggregate(count=t.a.count())
+    yaml_dict = compiler.to_yaml(expr)
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.schema() == expr.schema()
+
+
 def test_table_perserves_namespace(compiler):
     expr = ibis.table({"b": "int64"}, name="t2", database="db", catalog="catalog")
     yaml_dict = compiler.to_yaml(expr)

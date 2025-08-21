@@ -986,7 +986,10 @@ def _aggregate_to_yaml(op: ops.Aggregate, context: TranslationContext) -> dict:
         {
             "op": "Aggregate",
             "parent": translate_to_yaml(op.parent, context),
-            "by": [translate_to_yaml(group, context) for group in op.groups.values()],
+            "by": {
+                name: translate_to_yaml(group, context)
+                for name, group in op.groups.items()
+            },
             "metrics": {
                 name: translate_to_yaml(metric, context)
                 for name, metric in op.metrics.items()
@@ -998,20 +1001,32 @@ def _aggregate_to_yaml(op: ops.Aggregate, context: TranslationContext) -> dict:
 @register_from_yaml_handler("Aggregate")
 def _aggregate_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     parent = translate_from_yaml(yaml_dict["parent"], context)
-    groups = tuple(
-        translate_from_yaml(group, context) for group in yaml_dict.get("by", [])
-    )
+    by = yaml_dict.get("by", {})
+    if isinstance(by, dict):
+        group_mapping = {
+            name: translate_from_yaml(expr, context) for name, expr in by.items()
+        }
+    else:
+        exprs = [translate_from_yaml(expr, context) for expr in by]
+        group_mapping = {expr.get_name(): expr for expr in exprs}
 
     metrics = {
         name: translate_from_yaml(metric, context)
         for name, metric in yaml_dict.get("metrics", {}).items()
     }
 
-    result = (
-        parent.group_by(list(groups)).aggregate(metrics)
-        if groups
-        else parent.aggregate(metrics)
-    )
+    if group_mapping:
+        result = parent.group_by(list(group_mapping.values())).aggregate(metrics)
+        rename_map = {
+            alias: expr.get_name()
+            for alias, expr in group_mapping.items()
+            if alias != expr.get_name()
+        }
+        if rename_map:
+            result = result.rename(rename_map)
+    else:
+        result = parent.aggregate(metrics)
+
     return result
 
 
