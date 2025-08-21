@@ -4,6 +4,9 @@ import yaml
 from xorq.cli import catalog_command, parse_args
 
 
+LS_BASELINE = "Entries:\n"
+
+
 @pytest.fixture(autouse=True)
 def isolate_catalog(tmp_path, monkeypatch):
     """Redirect catalog file to a temporary location for each test."""
@@ -19,7 +22,7 @@ def test_ls_empty_catalog(capsys):
     catalog_command(args)
     out = capsys.readouterr().out
     # No aliases, just Entries header
-    assert "Entries:" in out
+    assert out == LS_BASELINE
 
 
 def test_add_and_ls_and_inspect(tmp_path, capsys):
