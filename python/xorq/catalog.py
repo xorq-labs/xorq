@@ -922,8 +922,37 @@ def ps_command(cache_dir: str) -> None:
         for row in rows:
             print(fmt.format(*row))
 
-    record_dir = Path(cache_dir) / "servers"
-    headers, rows = format_server_table(filter_running(get_server_records(record_dir)))
+    def format_server_table(
+        records: Tuple[ServerRecord, ...],
+    ) -> Tuple[Tuple[str, ...], Tuple[Tuple[str, ...], ...]]:
+        headers = ("TARGET", "STATE", "COMMAND", "HASH", "PID", "PORT", "UPTIME")
+        rows: list[tuple[str, ...]] = []
+        now = get_now_utc()
+        for rec in records:
+            state = "running"
+            try:
+                delta = now - rec.start_time
+                hours, rem = divmod(int(delta.total_seconds()), 3600)
+                minutes, _ = divmod(rem, 60)
+                uptime = f"{hours}h{minutes}m"
+            except Exception:
+                uptime = ""
+            rows.append(
+                (
+                    rec.target,
+                    state,
+                    rec.command,
+                    rec.node_hash or "",
+                    str(rec.pid),
+                    str(rec.port) if rec.port is not None else "",
+                    uptime,
+                )
+            )
+        return headers, tuple(rows)
+
+    headers, rows = format_server_table(
+        ServerRecord.load_records(Path(cache_dir) / "servers")
+    )
     do_print_table(headers, rows)
 
 
@@ -1042,63 +1071,33 @@ class ServerRecord:
         path.write_text(json.dumps(self.to_json_dict()))
         return path
 
+    @property
+    def running(self):
+        try:
+            os.kill(self.pid, 0)
+            return True
+        except Exception:
+            return False
+
     @classmethod
     def from_dict(cls, dct):
-        pass
+        return cls(**dct)
 
+    @classmethod
+    def from_path(cls, path):
+        return cls.from_dict(json.loads(path.read_text()))
 
-def get_server_records(record_dir: Path) -> Tuple[ServerRecord, ...]:
-    if not record_dir.exists():
-        return ()
-    records: list[ServerRecord] = []
-    for f in record_dir.glob("*.json"):
-        try:
-            data = json.loads(f.read_text())
-            rec = ServerRecord(**data)
-            records.append(rec)
-        except Exception:
-            continue
-    return tuple(records)
-
-
-def filter_running(records: Tuple[ServerRecord, ...]) -> Tuple[ServerRecord, ...]:
-    running: list[ServerRecord] = []
-    for rec in records:
-        try:
-            os.kill(rec.pid, 0)
-            running.append(rec)
-        except Exception:
-            continue
-    return tuple(running)
-
-
-def format_server_table(
-    records: Tuple[ServerRecord, ...],
-) -> Tuple[Tuple[str, ...], Tuple[Tuple[str, ...], ...]]:
-    headers = ("TARGET", "STATE", "COMMAND", "HASH", "PID", "PORT", "UPTIME")
-    rows: list[tuple[str, ...]] = []
-    now = get_now_utc()
-    for rec in records:
-        state = "running"
-        try:
-            delta = now - rec.start_time
-            hours, rem = divmod(int(delta.total_seconds()), 3600)
-            minutes, _ = divmod(rem, 60)
-            uptime = f"{hours}h{minutes}m"
-        except Exception:
-            uptime = ""
-        rows.append(
-            (
-                rec.target,
-                state,
-                rec.command,
-                rec.node_hash or "",
-                str(rec.pid),
-                str(rec.port) if rec.port is not None else "",
-                uptime,
-            )
+    @classmethod
+    def load_records(cls, record_dir: Path, only_running=True):
+        if not record_dir.exists():
+            return tuple()
+        # FIXME: remove json files of records that aren't running
+        records = tuple(
+            map(toolz.excepts(Exception, cls.from_path), record_dir.glob("*.json"))
         )
-    return headers, tuple(rows)
+        if only_running:
+            records = tuple(record for record in records if record.running)
+        return records
 
 
 def get_diff_file_list(
