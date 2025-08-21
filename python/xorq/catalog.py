@@ -283,7 +283,7 @@ class XorqCatalog:
         return evolve(self, **kwargs)
 
     def resolve_target(self, target: str):
-        raise NotImplementedError
+        return Target.from_str(target, self)
 
     def to_dict(self):
         dct = self.__getstate__()
@@ -365,9 +365,6 @@ def save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = None) 
     catalog.to_yaml(catalog_path)
 
 
-resolve_target = Target.from_str
-
-
 def resolve_build_dir(
     token: str, catalog: Optional[XorqCatalog] = None
 ) -> Optional[Path]:
@@ -411,7 +408,7 @@ def resolve_build_dir(
         return path
 
     # Match on entry@revision targets
-    t = resolve_target(token, catalog)
+    t = catalog.resolve_target(token)
     if t is None:
         return None
     path = get_entry_revision_target(t, catalog)
@@ -718,7 +715,7 @@ def catalog_command(args):
         # Load catalog from local catalog file
         catalog = load_catalog(path=config_path)
 
-        target = resolve_target(args.entry, catalog)
+        target = catalog.resolve_target(args.entry)
         if target is None:
             print(f"Entry {args.entry} not found in catalog")
             return
