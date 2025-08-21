@@ -16,7 +16,6 @@ from xorq.catalog import (
     ServerRecord,
     cache_command,
     catalog_command,
-    do_save_server_record,
     lineage_command,
     profile_command,
     ps_command,
@@ -302,7 +301,7 @@ def unbind_and_serve_command(
         port=flight_url.port,
         node_hash=to_unbind_hash,
     )
-    do_save_server_record(rec, Path(cache_dir) / "servers")
+    rec.save(Path(cache_dir) / "servers")
     server.wait()
 
 
@@ -383,7 +382,7 @@ def serve_command(
         target=orig_target,
         port=server.flight_url.port,
     )
-    do_save_server_record(rec, Path(cache_dir) / "servers")
+    rec.save(Path(cache_dir) / "servers")
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_path.stem}' on {location}")
     server.serve(block=True)

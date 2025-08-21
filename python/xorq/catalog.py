@@ -909,6 +909,19 @@ def catalog_command(args):
 
 def ps_command(cache_dir: str) -> None:
     """List active xorq servers."""
+
+    def do_print_table(
+        headers: Tuple[str, ...], rows: Tuple[Tuple[str, ...], ...]
+    ) -> None:
+        if rows:
+            widths = [max(len(cell) for cell in col) for col in zip(headers, *rows)]
+        else:
+            widths = [len(h) for h in headers]
+        fmt = "  ".join(f"{{:<{w}}}" for w in widths)
+        print(fmt.format(*headers))
+        for row in rows:
+            print(fmt.format(*row))
+
     record_dir = Path(cache_dir) / "servers"
     headers, rows = format_server_table(filter_running(get_server_records(record_dir)))
     do_print_table(headers, rows)
@@ -1086,22 +1099,6 @@ def format_server_table(
             )
         )
     return headers, tuple(rows)
-
-
-def do_print_table(headers: Tuple[str, ...], rows: Tuple[Tuple[str, ...], ...]) -> None:
-    if rows:
-        widths = [max(len(cell) for cell in col) for col in zip(headers, *rows)]
-    else:
-        widths = [len(h) for h in headers]
-    fmt = "  ".join(f"{{:<{w}}}" for w in widths)
-    print(fmt.format(*headers))
-    for row in rows:
-        print(fmt.format(*row))
-
-
-def do_save_server_record(record: ServerRecord, record_dir: Path) -> Path:
-    """Side effect: save a ServerRecord to JSON file in record_dir."""
-    return record.save(record_dir)
 
 
 def get_diff_file_list(
