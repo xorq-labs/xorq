@@ -3,7 +3,6 @@ import os
 import pdb
 import sys
 import traceback
-from datetime import datetime
 from functools import partial
 from pathlib import Path
 
@@ -301,7 +300,6 @@ def unbind_and_serve_command(
         command="serve-unbound",
         target=orig_target,
         port=flight_url.port,
-        start_time=datetime.now(),
         node_hash=to_unbind_hash,
     )
     do_save_server_record(rec, Path(cache_dir) / "servers")
@@ -384,7 +382,6 @@ def serve_command(
         command="serve-flight-udxf",
         target=orig_target,
         port=server.flight_url.port,
-        start_time=datetime.now(),
     )
     do_save_server_record(rec, Path(cache_dir) / "servers")
     location = server.flight_url.to_location()
