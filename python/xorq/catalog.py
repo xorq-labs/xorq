@@ -368,7 +368,9 @@ def save_catalog(catalog: XorqCatalog, path: Optional[Union[str, Path]] = None) 
 resolve_target = Target.from_str
 
 
-def resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
+def resolve_build_dir(
+    token: str, catalog: Optional[XorqCatalog] = None
+) -> Optional[Path]:
     """Resolve build directory from raw catalog dict."""
 
     def get_next_absolute_path(paths):
@@ -384,22 +386,20 @@ def resolve_build_dir(token: str, catalog: Dict[str, Any]) -> Optional[Path]:
 
     def get_explicit_build_entry(token, catalog):
         # Match on explicit build_id entries
-        builds = (
-            rev.get("build", {})
-            for entry in catalog.get("entries", [])
-            for rev in entry.get("history", [])
-        )
-        paths = (
-            build.get("path") for build in builds if build.get("build_id") == token
+        paths = tuple(
+            rev.build.path
+            for entry in catalog.entries
+            for rev in entry.history
+            if rev.build.build_id == token
         )
         return get_next_absolute_path(paths)
 
     def get_entry_revision_target(t, catalog):
         gen = (
-            rev.get("build", {}).get("path")
-            for entry in catalog.get("entries", [])
-            for rev in entry.get("history", [])
-            if (entry.get("entry_id") == t.entry_id and rev.get("revision_id") == t.rev)
+            rev.build.path
+            for entry in catalog.entries
+            for rev in entry.history
+            if entry.entry_id == t.entry_id and rev.revision_id == t.rev
         )
         return get_next_absolute_path(gen)
 
@@ -983,36 +983,53 @@ def profile_command(args):
 
 @frozen
 class ServerRecord:
-    pid: int
-    command: str
-    target: str
-    port: Optional[int]
-    start_time: datetime
-    node_hash: Optional[str] = None
+    pid: int = field(validator=instance_of(int))
+    command: str = field(validator=instance_of(str))
+    target: str = field(validator=instance_of(str))
+    port: Optional[int] = field(validator=optional(instance_of(int)), default=None)
+    start_time: datetime = field(
+        validator=instance_of(datetime),
+        factory=datetime.now,
+        converter=convert_datetime,
+    )
+    node_hash: Optional[str] = field(validator=optional(instance_of(str)), default=None)
 
     def clone(self, **changes) -> "ServerRecord":
         """Return a new ServerRecord with updated fields."""
         return evolve(self, **changes)
 
+    def to_dict(self):
+        return self.__getstate__()
 
-def maybe_make_server_record(data: dict) -> Optional[ServerRecord]:
-    try:
-        pid = data["pid"]
-        command = data["command"]
-        target = data.get("target", "")
-        port = data.get("port")
-        node_hash = data.get("to_unbind_hash")
-        start_time = datetime.fromisoformat(data["start_time"])
-        return ServerRecord(
-            pid=pid,
-            command=command,
-            target=target,
-            port=port,
-            start_time=start_time,
-            node_hash=node_hash,
+    def to_json_dict(self):
+        data = toolz.dissoc(
+            self.to_dict(),
+            "node_hash",
         )
-    except Exception:
-        return None
+        data = (
+            data
+            | {
+                "start_time": self.start_time.isoformat(),
+            }
+            | toolz.valfilter(
+                bool,
+                {
+                    "to_unbind_hash": self.node_hash,
+                },
+            )
+        )
+        return data
+
+    def save(self, record_dir: Path) -> Path:
+        """Side effect: save a ServerRecord to JSON file in record_dir."""
+        record_dir.mkdir(parents=True, exist_ok=True)
+        path = record_dir / f"{self.pid}.json"
+        path.write_text(json.dumps(self.to_json_dict()))
+        return path
+
+    @classmethod
+    def from_dict(cls, dct):
+        pass
 
 
 def get_server_records(record_dir: Path) -> Tuple[ServerRecord, ...]:
@@ -1022,11 +1039,10 @@ def get_server_records(record_dir: Path) -> Tuple[ServerRecord, ...]:
     for f in record_dir.glob("*.json"):
         try:
             data = json.loads(f.read_text())
+            rec = ServerRecord(**data)
+            records.append(rec)
         except Exception:
             continue
-        rec = maybe_make_server_record(data)
-        if rec is not None:
-            records.append(rec)
     return tuple(records)
 
 
@@ -1081,40 +1097,9 @@ def do_print_table(headers: Tuple[str, ...], rows: Tuple[Tuple[str, ...], ...]) 
         print(fmt.format(*row))
 
 
-def make_server_record(
-    pid: int,
-    command: str,
-    target: str,
-    port: Optional[int] = None,
-    start_time: Optional[datetime] = None,
-    node_hash: Optional[str] = None,
-) -> ServerRecord:
-    """Factory: create a ServerRecord with optional start_time."""
-    ts = start_time or datetime.now()
-    return ServerRecord(
-        pid=pid,
-        command=command,
-        target=target,
-        port=port,
-        start_time=ts,
-        node_hash=node_hash,
-    )
-
-
-def do_save_server_record(record: ServerRecord, record_dir: Path) -> None:
+def do_save_server_record(record: ServerRecord, record_dir: Path) -> Path:
     """Side effect: save a ServerRecord to JSON file in record_dir."""
-    record_dir.mkdir(parents=True, exist_ok=True)
-    path = record_dir / f"{record.pid}.json"
-    data: dict = {
-        "pid": record.pid,
-        "command": record.command,
-        "target": record.target,
-        "port": record.port,
-        "start_time": record.start_time.isoformat(),
-    }
-    if record.node_hash is not None:
-        data["to_unbind_hash"] = record.node_hash
-    path.write_text(json.dumps(data))
+    return record.save(record_dir)
 
 
 def get_diff_file_list(

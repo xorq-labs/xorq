@@ -14,11 +14,11 @@ import xorq.common.utils.pickle_utils  # noqa: F401
 
 # Helper functions for diff-builds subcommand
 from xorq.catalog import (
+    ServerRecord,
     cache_command,
     catalog_command,
     do_save_server_record,
     lineage_command,
-    make_server_record,
     profile_command,
     ps_command,
     resolve_build_dir,
@@ -296,7 +296,7 @@ def unbind_and_serve_command(
         unbound_expr, make_server=make_server
     )
     # Record server metadata
-    rec = make_server_record(
+    rec = ServerRecord(
         pid=os.getpid(),
         command="serve-unbound",
         target=orig_target,
@@ -379,7 +379,7 @@ def serve_command(
         host=host,
     )
     # Record server metadata
-    rec = make_server_record(
+    rec = ServerRecord(
         pid=os.getpid(),
         command="serve-flight-udxf",
         target=orig_target,
