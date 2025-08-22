@@ -235,3 +235,9 @@ class Backend(IbisSnowflakeBackend):
         snowflake_adbc = SnowflakeADBC(self, password)
         snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         return self.table(table_name)
+
+
+def connect(*args, **kwargs):
+    con = Backend()
+    con.do_connect(*args, **kwargs)
+    return con
