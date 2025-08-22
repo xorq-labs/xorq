@@ -8,14 +8,15 @@ from typing import TYPE_CHECKING, Callable
 import pyarrow as pa
 import toolz
 
-import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.let import connect as xo_connect
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_stat,
 )
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
+from xorq.config import _backend_init
 from xorq.expr.relations import (
     Read,
 )
@@ -63,7 +64,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
     if chunksize is None:
         raise ValueError("chunksize must not be `None`")
     if schema is not None:
-        schema = xo.schema(schema)
+        schema = ibis.schema(schema)
         dtype = {col: typ.to_pandas() for col, typ in schema.items()}
         schema = schema.to_pyarrow()
     # schema is always nullable (this is good)
@@ -147,7 +148,7 @@ def deferred_read_csv(
     method = getattr(con, method_name)
 
     if con is None:
-        con = xo.config._backend_init()
+        con = _backend_init()
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
     if schema is None:
@@ -211,10 +212,10 @@ def deferred_read_parquet(
     deferred_read_parquet.method_name = method_name = "read_parquet"
     method = getattr(con, method_name)
     if con is None:
-        con = xo.config._backend_init()
+        con = _backend_init()
     if table_name is None:
         table_name = gen_name(f"letsql-{method_name}")
-    schema = xo.connect().read_parquet(path).schema()
+    schema = xo_connect().read_parquet(path).schema()
     read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
     return Read(
         method_name=method_name,

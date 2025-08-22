@@ -8,13 +8,13 @@ import urllib.request
 import dask
 import sqlglot as sg
 
-import xorq.api as xo
 import xorq.expr.datatypes as dat
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations.relations as ir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_seq_with_caller,
 )
+from xorq.expr import api
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.operations.udf import (
     AggUDF,
@@ -31,7 +31,7 @@ def expr_is_bound(expr):
 def unbound_expr_to_default_sql(expr):
     if expr_is_bound(expr):
         raise ValueError
-    default_sql = xo.to_sql(expr)
+    default_sql = api.to_sql(expr)
     return str(default_sql)
 
 
@@ -43,7 +43,7 @@ def normalize_inmemorytable(dt):
         # in memory: so we can assume it's reasonable to hash the data
         tuple(
             dask.base.tokenize(el.serialize().to_pybytes())
-            for el in xo.to_pyarrow_batches(dt.to_expr())
+            for el in api.to_pyarrow_batches(dt.to_expr())
         ),
         caller="normalize_inmemorytable",
     )
@@ -59,7 +59,7 @@ def normalize_memory_databasetable(dt):
         # in memory: so we can assume it's reasonable to hash the data
         tuple(
             dask.base.tokenize(el.serialize().to_pybytes())
-            for el in xo.to_pyarrow_batches(dt.to_expr())
+            for el in api.to_pyarrow_batches(dt.to_expr())
         ),
         caller="normalize_memory_databasetable",
     )
@@ -294,7 +294,7 @@ def normalize_read(read):
                 )
             )
         elif path.startswith(("s3", "gs", "gcs")):
-            metadata = xo.get_object_metadata(
+            metadata = api.get_object_metadata(
                 path, **{k: v for k, v in read_kwargs.items() if k != "path"}
             )
             tpls = tuple(
@@ -461,22 +461,22 @@ def opaque_node_replacer(node, kwargs):
     )
     match node:
         case rel.CachedNode():
-            new_node = xo.table(
+            new_node = api.table(
                 node.schema,
                 name=dask.base.tokenize(node.parent),
             ).op()
         case rel.Read():
-            new_node = xo.table(
+            new_node = api.table(
                 node.schema,
                 name=dask.base.tokenize(node),
             ).op()
         case rel.RemoteTable():
-            new_node = xo.table(
+            new_node = api.table(
                 node.schema,
                 name=dask.base.tokenize(node.remote_expr),
             ).op()
         case rel.FlightUDXF() | rel.FlightExpr():
-            new_node = xo.table(
+            new_node = api.table(
                 node.schema,
                 name=dask.base.tokenize(node),
             ).op()
