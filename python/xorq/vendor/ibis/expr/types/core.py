@@ -117,9 +117,9 @@ class Expr(Immutable, Coercible):
         return console.render(rich_object, options=options)
 
     def __repr__(self):
-        import xorq.api as xo
+        from xorq.config import options
 
-        if xo.options.interactive:
+        if options.interactive:
             return _capture_rich_renderable(self)
         else:
             return self._noninteractive_repr()
