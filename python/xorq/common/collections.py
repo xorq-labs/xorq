@@ -2,14 +2,16 @@ from __future__ import annotations
 
 from typing import Dict
 
-from xorq.expr.relations import (
-    CachedNode,
-    Read,
-)
 from xorq.vendor.ibis.expr.operations import relations as ops
 
 
+# FIXME: create unique function for finding all backends
 def _find_backend(value):
+    from xorq.expr.relations import (
+        CachedNode,
+        Read,
+    )
+
     node_types = (
         ops.UnboundTable,
         ops.DatabaseTable,
