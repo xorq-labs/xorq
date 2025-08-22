@@ -277,6 +277,35 @@ class XorqCatalog:
         """Get alias by name if it exists."""
         return self.aliases.get(name)
 
+    def maybe_get_revision(self, build_id: str) -> Optional[Revision]:
+        """Get revision by build_id if it exists."""
+        gen = (
+            rev
+            for entry in self.entries
+            for rev in entry.history
+            if rev.build.build_id == build_id
+        )
+        first = next(gen, None)
+        rest = tuple(gen)
+        if rest:
+            # unclear what to do if multiple revisions share the same build_id
+            raise ValueError
+        return first
+
+    def maybe_get_revision_by_token(self, token: str) -> Optional[Revision]:
+        """Get revision by token if it exists."""
+        t = self.resolve_target(token)
+        if t is None:
+            return None
+        else:
+            gen = (
+                rev
+                for entry in self.entries
+                for rev in entry.history
+                if rev.build.build_id == t.build_id and rev.revision_id == t.rev
+            )
+            return next(gen, None)
+
     def with_updated_metadata(self) -> "XorqCatalog":
         """Return catalog with updated timestamp."""
         return self.evolve(metadata=self.metadata.with_updated_timestamp())
@@ -325,9 +354,12 @@ class XorqCatalog:
 
     @classmethod
     def from_path(cls, path):
-        with Path(path).open() as fh:
-            dct = yaml.safe_load(fh)
-        return cls.from_dict(dct) if dct else cls()
+        if path.exists():
+            with Path(path).open() as fh:
+                dct = yaml.safe_load(fh)
+            return cls.from_dict(dct) if dct else cls()
+        else:
+            return cls()
 
     @classmethod
     def from_default(cls):
@@ -344,29 +376,16 @@ class Target:
     def from_str(cls, target: str, catalog: XorqCatalog = None):
         catalog = catalog or load_catalog()
         (base, rev) = target.split("@", 1) if "@" in target else (target, None)
-        if base == "entry" and catalog.entries:
-            entry, *_ = catalog.entries
-            return Target(
-                entry_id=entry.entry_id, rev=rev or entry.current_revision, alias=False
-            )
         if alias := catalog.aliases.get(base):
             return Target(
                 entry_id=alias.entry_id, rev=rev or alias.revision_id, alias=True
             )
-        if entry := next(
-            (entry for entry in catalog.entries if entry.entry_id == base), None
-        ):
+        if entry := catalog.maybe_get_entry(base):
             return Target(entry_id=base, rev=rev or entry.current_revision, alias=False)
         return None
 
 
-def load_catalog(path: Optional[Union[str, Path]] = None) -> Dict[str, Any]:
-    """Load catalog as raw dict; return minimal structure if not found."""
-    catalog_path = get_catalog_path(path)
-    catalog = (
-        XorqCatalog.from_path(catalog_path) if catalog_path.exists() else XorqCatalog()
-    )
-    return catalog
+load_catalog = toolz.compose(XorqCatalog.from_path, get_catalog_path)
 
 
 def resolve_build_dir(
@@ -374,50 +393,20 @@ def resolve_build_dir(
 ) -> Optional[Path]:
     """Resolve build directory from raw catalog dict."""
 
-    def get_next_absolute_path(paths):
-        path = next(filter(None, paths), None)
-        if path:
-            path = Path(path)
-            # If stored path is relative, interpret relative to catalog config directory
-            if not path.is_absolute():
-                path = get_default_catalog_path().parent.joinpath(path)
-            return path
-        else:
-            return None
-
-    def get_explicit_build_entry(token, catalog):
-        # Match on explicit build_id entries
-        paths = tuple(
-            rev.build.path
-            for entry in catalog.entries
-            for rev in entry.history
-            if rev.build.build_id == token
-        )
-        return get_next_absolute_path(paths)
-
-    def get_entry_revision_target(t, catalog):
-        gen = (
-            rev.build.path
-            for entry in catalog.entries
-            for rev in entry.history
-            if entry.entry_id == t.entry_id and rev.revision_id == t.rev
-        )
-        return get_next_absolute_path(gen)
+    def absolutify(path):
+        if not path.is_absolute():
+            path = get_default_catalog_path().parent.joinpath(path)
+        return path
 
     path = Path(token)
     if path.exists() and path.is_dir():
         return path
-    path = get_explicit_build_entry(token, catalog)
-    if path:
-        return path
-
-    # Match on entry@revision targets
-    t = catalog.resolve_target(token)
-    if t is None:
-        return None
-    path = get_entry_revision_target(t, catalog)
-    if path:
-        return path
+    for revision in (
+        catalog.maybe_get_revision(build_id=token),
+        catalog.maybe_get_revision_by_token(token),
+    ):
+        if revision.build and revision.build.path:
+            return absolutify(revision.build.path)
     return None
 
 
