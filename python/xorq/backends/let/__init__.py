@@ -10,7 +10,6 @@ from sqlglot import exp, parse_one
 
 from xorq.backends.let.datafusion import Backend as DataFusionBackend
 from xorq.common.collections import SourceDict
-from xorq.expr.relations import replace_cache_table
 from xorq.internal import SessionConfig, WindowUDF
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
@@ -198,6 +197,8 @@ class Backend(DataFusionBackend):
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
     ):
+        from xorq.expr.relations import replace_cache_table
+
         op = expr.op()
         out = op.map_clear(replace_cache_table)
 
