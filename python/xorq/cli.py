@@ -17,7 +17,6 @@ from xorq.catalog import (
     cache_command,
     catalog_command,
     lineage_command,
-    profile_command,
     ps_command,
     resolve_build_dir,
 )
@@ -831,11 +830,6 @@ def main():
             case "cache":
                 f, f_args = (
                     cache_command,
-                    (args,),
-                )
-            case "profile":
-                f, f_args = (
-                    profile_command,
                     (args,),
                 )
             case "catalog":
