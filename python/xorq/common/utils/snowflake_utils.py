@@ -10,10 +10,8 @@ from attr.validators import (
     optional,
 )
 
-import xorq.api as xo
-from xorq.backends.snowflake import (
-    Backend as SnowflakeBackend,
-)
+from xorq.backends.snowflake import Backend as SnowflakeBackend
+from xorq.backends.snowflake import connect
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
@@ -52,7 +50,7 @@ def make_connection(
     schema,
     **kwargs,
 ):
-    con = xo.snowflake.connect(
+    con = connect(
         database=f"{database}/{schema}",
         **{
             **make_credential_defaults(),
