@@ -8,7 +8,7 @@ from pytest import param
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
-from xorq import _
+from xorq.api import _
 from xorq.tests.util import assert_frame_equal
 
 

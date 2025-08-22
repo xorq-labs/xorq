@@ -1,4 +1,4 @@
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import ParquetStorage, SourceStorage
 from xorq.tests.util import assert_frame_equal
 

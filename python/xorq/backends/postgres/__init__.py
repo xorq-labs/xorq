@@ -7,12 +7,12 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
 
-import xorq.api as xo
 import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
+from xorq.expr.api import read_parquet
 from xorq.expr.relations import replace_cache_table
 from xorq.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
 from xorq.vendor.ibis.expr import types as ir
@@ -134,7 +134,7 @@ class Backend(IbisPostgresBackend):
                 )
             else:
                 table_name = gen_name("ls-read-parquet")
-        record_batches = xo.read_parquet(path).to_pyarrow_batches()
+        record_batches = read_parquet(path).to_pyarrow_batches()
         return self.read_record_batches(
             record_batches=record_batches,
             table_name=table_name,
@@ -209,5 +209,10 @@ class Backend(IbisPostgresBackend):
             },
             **kwargs,
         }
-        con = xo.postgres.connect(**dct)
-        return con
+        return connect(**dct)
+
+
+def connect(**kwargs):
+    con = Backend()
+    Backend.connect(**kwargs)
+    return con
