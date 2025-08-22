@@ -455,6 +455,15 @@ def memtable(
           1     2  baz
 
     """
+    import pyarrow as pa
+    import pyarrow.dataset as ds
+
+    if isinstance(data, ds.InMemoryDataset):
+        data = data.to_table()
+
+    if isinstance(data, pa.RecordBatch):
+        data = data.to_pandas()
+
     if columns is not None and schema is not None:
         raise NotImplementedError(
             "passing `columns` and schema` is ambiguous; "

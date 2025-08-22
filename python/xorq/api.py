@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from xorq import examples
+
 from xorq import udf
 from xorq.udf import *  # noqa: F403
 from xorq import config
@@ -16,6 +16,8 @@ from xorq import ml
 from xorq.ml import *  # noqa: F403
 from xorq.backends.let import Backend
 from xorq.internal import SessionConfig
+
+from xorq import examples  # FIXME: the position of examples is because
 
 try:
     import importlib.metadata as importlib_metadata

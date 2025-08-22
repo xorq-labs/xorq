@@ -1,11 +1,11 @@
 import functools
 import pathlib
 
-import xorq.api as xo
 from xorq.common.utils.defer_utils import (
     deferred_read_csv,
     deferred_read_parquet,
 )
+from xorq.config import options
 
 
 whitelist = [
@@ -23,7 +23,7 @@ whitelist = [
 
 @functools.cache
 def get_name_to_suffix() -> dict[str, str]:
-    board = xo.options.pins.get_board()
+    board = options.pins.get_board()
     dct = {
         name: pathlib.Path(board.pin_meta(name).file).suffix
         for name in board.pin_list()
@@ -47,5 +47,5 @@ def get_table_from_name(name, backend, table_name=None, deferred=True, **kwargs)
                 method = backend.read_csv
         case _:
             raise ValueError
-    path = xo.config.options.pins.get_path(name)
+    path = options.pins.get_path(name)
     return method(path, table_name=table_name or name, **kwargs)

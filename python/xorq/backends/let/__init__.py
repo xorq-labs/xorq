@@ -209,3 +209,9 @@ class Backend(DataFusionBackend):
 
     def register_udwf(self, func: WindowUDF):
         self.con.register_udwf(func)
+
+
+def connect(config: SessionConfig | None = None):
+    con = Backend()
+    con.do_connect(config)
+    return con

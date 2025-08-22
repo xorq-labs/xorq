@@ -28,7 +28,6 @@ from xorq.common.utils.aws_utils import (
     make_s3_connection,
 )
 from xorq.expr import Expr
-from xorq.expr.api import memtable as api_memtable
 from xorq.expr.pyaggregator import PyAggregator, make_struct_type
 from xorq.expr.udf import ExprScalarUDF
 from xorq.internal import (
@@ -809,7 +808,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                table = api_memtable(obj, schema=schema)
+                table = ibis.memtable(obj, schema=schema)
             else:
                 table = obj
 
