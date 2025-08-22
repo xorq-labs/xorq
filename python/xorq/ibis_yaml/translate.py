@@ -552,13 +552,10 @@ def warn_on_local_path(items: dict) -> None:
     items = dict(items)
     if path := next((items[k] for k in ("path", "source") if k in items), None):
         paths = normalize_filenames(path)
-        try:
-            if any(map(try_is_local_path, paths)):
-                warnings.warn(
-                    "The Read op path is using a local filesystem path, running the build may not work in other environments."
-                )
-        except TypeError:
-            pass
+        if any(map(try_is_local_path, paths)):
+            warnings.warn(
+                "The Read op path is using a local filesystem path, running the build may not work in other environments."
+            )
 
 
 @translate_to_yaml.register(Read)
