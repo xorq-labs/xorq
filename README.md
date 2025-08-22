@@ -121,7 +121,7 @@ DataFusion under the hood for efficient computation.
 
 ## 📌 Learn More
 
-* [Why Xorq?]([https://docs.xorq.dev/intro/why_xorq](https://docs.xorq.dev/#why-xorq))
+* [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 * [Caching Guide](https://docs.xorq.dev/core_concepts/caching)
 * [Backend Profiles](https://docs.xorq.dev/api_reference/backend_configuration/profiles_api)
 * [Scikit-learn Template](https://github.com/xorq-labs/xorq-template-sklearn)
