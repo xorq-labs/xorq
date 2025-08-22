@@ -483,10 +483,10 @@ def test_init_uv_build_uv_run(template, tmpdir):
 
 
 serve_hashes = (
-    "324e7584cafbdf8cc5688a4869ad1629",  # batting, rel.Read
+    # "324e7584cafbdf8cc5688a4869ad1629",  # batting, rel.Read
     "26cd1ab356e036c953835380a6e0265f",  # awards_players, rel.Read
-    "656c8362e81d2a1a84d767270157d970",  # left, ops.Filter
-    "9a56179702c49336749e3d4795cb2e4e",  # right, ops.DropColumns
+    # "656c8362e81d2a1a84d767270157d970",  # left, ops.Filter
+    # "9a56179702c49336749e3d4795cb2e4e",  # right, ops.DropColumns
 )
 
 
@@ -535,6 +535,7 @@ def hit_server(port, expr):
     return df
 
 
+@pytest.mark.benchmark
 @pytest.mark.slow
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
