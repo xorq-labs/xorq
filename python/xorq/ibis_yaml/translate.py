@@ -542,17 +542,16 @@ def _remotetable_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 def warn_on_local_path(items: dict) -> None:
     from urllib.parse import urlparse
 
-    def try_is_local_path(any: str | Path) -> bool:
-        try:
-            parsed = urlparse(any)
-            return not parsed.scheme or parsed.scheme in ("file",)
-        except ValueError | AttributeError:
-            return False
+    def is_local_path(any: str | Path) -> bool:
+        parsed = urlparse(any)
+        return not parsed.scheme or parsed.scheme in ("file",)
 
-    items = dict(items)
-    if path := next((items[k] for k in ("path", "source") if k in items), None):
+    if path := next(
+        (v for k, v in dict(items).items() if k in ("path", "source")), None
+    ):
+        f = toolz.excepts((ValueError, AttributeError), is_local_path)
         paths = normalize_filenames(path)
-        if any(map(try_is_local_path, paths)):
+        if any(map(f, paths)):
             warnings.warn(
                 "The Read op path is using a local filesystem path, running the build may not work in other environments."
             )
