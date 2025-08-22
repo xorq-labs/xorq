@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 from xorq import examples
 from xorq import udf
 from xorq.udf import *  # noqa: F403
@@ -47,10 +49,9 @@ from xorq import flight  # noqa: E402
 
 def __getattr__(name):
     from xorq.vendor import ibis
-    import xorq.api as xo
 
     backend = load_backend(name) or ibis.load_backend(name)
 
-    setattr(xo, name, backend)
+    setattr(sys.modules[__name__], name, backend)
 
     return backend
