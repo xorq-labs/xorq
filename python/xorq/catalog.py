@@ -1,7 +1,6 @@
 import difflib
 import functools
 import json
-import operator
 import os
 import shutil
 import subprocess
@@ -40,6 +39,10 @@ def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
 get_now_utc = functools.partial(datetime.now, timezone.utc)
 
 
+def to_dict(self):
+    return self.__getstate__()
+
+
 @frozen
 class CatalogMetadata:
     """Catalog metadata."""
@@ -59,7 +62,7 @@ class CatalogMetadata:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
-    to_dict = operator.methodcaller("__getstate__")
+    to_dict = to_dict
 
 
 @frozen
@@ -149,7 +152,6 @@ class Revision:
     def to_dict(self):
         dct = self.__getstate__()
         dct = dct | {
-            "created_at": dct["created_at"].isoformat(),
             "build": self.build.to_dict() if self.build else None,
         }
         return dct
@@ -234,12 +236,7 @@ class Alias:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
-    def to_dict(self):
-        dct = self.__getstate__()
-        dct = dct | {
-            "updated_at": self.updated_at.isoformat(),
-        }
-        return dct
+    to_dict = to_dict
 
     @classmethod
     def from_dict(cls, dct):
@@ -1050,17 +1047,11 @@ class ServerRecord:
             self.to_dict(),
             "node_hash",
         )
-        data = (
-            data
-            | {
-                "start_time": self.start_time.isoformat(),
-            }
-            | toolz.valfilter(
-                bool,
-                {
-                    "to_unbind_hash": self.node_hash,
-                },
-            )
+        data = data | toolz.valfilter(
+            bool,
+            {
+                "to_unbind_hash": self.node_hash,
+            },
         )
         return data
 
