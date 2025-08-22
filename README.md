@@ -121,11 +121,10 @@ DataFusion under the hood for efficient computation.
 
 ## 📌 Learn More
 
-* [Why Xorq?](https://docs.xorq.dev/intro/why_xorq)
+* [Why Xorq?]([https://docs.xorq.dev/intro/why_xorq](https://docs.xorq.dev/#why-xorq))
 * [Caching Guide](https://docs.xorq.dev/core_concepts/caching)
-* [Profiles + Remote Backends](https://docs.xorq.dev/core_concepts/profiles_guide)
-* [Scikit-learn Pipelines](examples/pipelines_example.py)
-
+* [Backend Profiles](https://docs.xorq.dev/api_reference/backend_configuration/profiles_api)
+* [Scikit-learn Template](https://github.com/xorq-labs/xorq-template-sklearn)
 ## 🧪 Status
 
 Xorq is pre-1.0 and evolving fast. Expect breaking changes.
