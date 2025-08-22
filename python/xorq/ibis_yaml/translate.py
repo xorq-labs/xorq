@@ -8,7 +8,6 @@ from typing import Any, Callable
 
 import toolz
 
-import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
@@ -567,7 +566,7 @@ def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
     source = context.profiles[yaml_dict["profile"]]
     read_kwargs = tuple(
-        (k, xo.schema(v)) if k == "schema" else (k, v)
+        (k, ibis.schema(v)) if k == "schema" else (k, v)
         for k, v in yaml_dict.get("read_kwargs", ())
     )
     read_op = Read(
