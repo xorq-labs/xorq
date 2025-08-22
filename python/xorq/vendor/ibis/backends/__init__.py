@@ -15,11 +15,11 @@ from typing import TYPE_CHECKING, Any, ClassVar, NamedTuple
 
 import toolz
 
-import xorq.api as xo
 import xorq.common.exceptions as exc
 import xorq.vendor.ibis.config
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
+from xorq.loader import load_backend
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.profiles import Profile
@@ -1445,12 +1445,12 @@ def connect(resource: Path | str, **kwargs: Any) -> BaseBackend:
     if scheme == "file":
         path = parsed.netloc + parsed.path
         if path.endswith(".duckdb"):
-            return xo.duckdb.connect(path, **kwargs)
+            return load_backend("duckdb").connect(path, **kwargs)
         elif path.endswith((".sqlite", ".db")):
-            return xo.sqlite.connect(path, **kwargs)
+            return load_backend("sqlite").connect(path, **kwargs)
         elif path.endswith((".parquet", ".csv", ".csv.gz")):
             # Load parquet/csv/csv.gz files with duckdb by default
-            con = xo.duckdb.connect(**kwargs)
+            con = load_backend("duckdb").connect(**kwargs)
             con.register(path)
             return con
         else:
@@ -1460,7 +1460,7 @@ def connect(resource: Path | str, **kwargs: Any) -> BaseBackend:
     scheme = scheme.replace("postgresql", "postgres")
 
     try:
-        backend = getattr(xo, scheme)
+        backend = load_backend(scheme)
     except AttributeError:
         raise ValueError(f"Don't know how to connect to {resource!r}") from None
 
