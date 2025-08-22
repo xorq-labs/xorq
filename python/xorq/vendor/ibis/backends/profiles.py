@@ -16,8 +16,9 @@ from attr.validators import (
     optional,
 )
 
-import xorq.api as xo
 from xorq.common.utils.inspect_utils import get_arguments
+from xorq.config import options
+from xorq.loader import _load_entry_points, load_backend
 
 
 compiled_env_var_re = re.compile(r"^(?:\${(.*)}$)|(?:\$(.*))$")
@@ -90,7 +91,7 @@ class Profiles:
 
     def __attrs_post_init__(self):
         if self.profile_dir is None:
-            object.__setattr__(self, "profile_dir", xo.options.profiles.profile_dir)
+            object.__setattr__(self, "profile_dir", options.profiles.profile_dir)
         if not self.profile_dir.exists():
             self.profile_dir.mkdir(exist_ok=True, parents=True)
 
@@ -186,7 +187,7 @@ class Profile:
     @con_name.validator
     def validate_con_name(self, attr, value):
         assert next(
-            (ep for ep in xo._load_entry_points() if ep.name == value),
+            (ep for ep in _load_entry_points() if ep.name == value),
             None,
         )
 
@@ -210,7 +211,7 @@ class Profile:
     def get_con(self, **kwargs):
         """Create a connection using this profile's parameters."""
         _kwargs = dict(self.kwargs_tuple) | kwargs
-        connect = getattr(xo.load_backend(self.con_name), "connect")
+        connect = getattr(load_backend(self.con_name), "connect")
         con = connect(**_kwargs)
         return con
 
@@ -387,7 +388,7 @@ class Profile:
 
     @classmethod
     def get_path(cls, name, profile_dir=None):
-        profile_dir = profile_dir or xo.options.profiles.profile_dir
+        profile_dir = profile_dir or options.profiles.profile_dir
         profile_dir.mkdir(exist_ok=True, parents=True)
         path = profile_dir.joinpath(name).with_suffix(".yaml")
         return path
