@@ -15,7 +15,6 @@ import sqlglot as sg
 import sqlglot.expressions as sge
 
 import xorq
-import xorq.api as xo
 import xorq.common.exceptions as com
 import xorq.expr.datatypes as dt
 import xorq.internal as df
@@ -29,6 +28,7 @@ from xorq.common.utils.aws_utils import (
     make_s3_connection,
 )
 from xorq.expr import Expr
+from xorq.expr.api import memtable as api_memtable
 from xorq.expr.pyaggregator import PyAggregator, make_struct_type
 from xorq.expr.udf import ExprScalarUDF
 from xorq.internal import (
@@ -313,7 +313,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             # user can do Scalar.to_table() if they want to cache it
             import pandas as pd
 
-            value = xo.execute(expr)
+            value = expr.execute()
             if isinstance(value, pd.DataFrame):
                 if value.shape != (1, 1):
                     raise ValueError
@@ -620,7 +620,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             )
 
         if schema := kwargs.get("schema"):
-            if isinstance(schema, xo.Schema):
+            if isinstance(schema, ibis.Schema):
                 kwargs["schema"] = schema.to_pyarrow()
 
         # Our other backends support overwriting views / tables when re-registering
@@ -809,7 +809,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                table = xo.memtable(obj, schema=schema)
+                table = api_memtable(obj, schema=schema)
             else:
                 table = obj
 
@@ -903,7 +903,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self._import_pyarrow()
         import pyarrow.parquet as pq
 
-        with xo.to_pyarrow_batches(expr, params=params) as batch_reader:
+        with expr.to_pyarrow_batches(params=params) as batch_reader:
             with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
                 for batch in batch_reader:
                     writer.write_batch(batch)

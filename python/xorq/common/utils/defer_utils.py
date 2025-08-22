@@ -1,14 +1,15 @@
+from __future__ import annotations
+
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import pyarrow as pa
 import toolz
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.let import Backend
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_stat,
 )
@@ -24,6 +25,10 @@ from xorq.vendor.ibis.util import (
     gen_name,
     normalize_filenames,
 )
+
+
+if TYPE_CHECKING:
+    from xorq.backends.let import Backend
 
 
 DEFAULT_CHUNKSIZE = 10_000
