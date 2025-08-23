@@ -9,11 +9,12 @@ from opentelemetry import trace
 from xorq.common.utils.otel_utils import (
     tracer,
 )
+from xorq.common.utils.toolz_utils import compose
 
 
 @toolz.curry
 def excepts_print_exc(func, exc=Exception, handler=toolz.functoolz.return_none):
-    _handler = toolz.compose(handler, toolz.curried.do(traceback.print_exception))
+    _handler = compose(handler, toolz.curried.do(traceback.print_exception))
     return toolz.excepts(exc, func, _handler)
 
 

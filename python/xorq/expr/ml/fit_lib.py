@@ -54,6 +54,13 @@ def predict_sklearn(model, df):
     return predicted
 
 
+def wrap_dump(fun):
+    def f(*args, **kwargs):
+        return cloudpickle.dumps(fun(*args, **kwargs))
+
+    return f
+
+
 @toolz.curry
 def _deferred_fit_other(
     expr,
@@ -87,9 +94,7 @@ def _deferred_fit_other(
     schema = expr.select(features).schema()
     fit_schema = schema | (ibis.schema({target: expr[target].type()}) if target else {})
     model_udaf = udf.agg.pandas_df(
-        fn=toolz.compose(
-            cloudpickle.dumps, inner_fit(fit=fit, target=target, features=features)
-        ),
+        fn=wrap_dump(inner_fit(fit=fit, target=target, features=features)),
         schema=fit_schema,
         return_type=dt.binary,
         name=make_name(f"fit_{name_infix}", (fit, other)),

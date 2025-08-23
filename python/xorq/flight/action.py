@@ -106,7 +106,7 @@ class AddExchangeAction(AbstractAction):
     def do_action(cls, server, context, action):
         exchange_class = loads(action.body)
         # HACK: stopgap until alias / command is specifiable via do-action
-        server.exchangers[exchange_class.command] = exchange_class
+        # server.exchangers[exchange_class.command] = exchange_class
         server.exchangers["default"] = exchange_class
         yield make_flight_result(None)
 

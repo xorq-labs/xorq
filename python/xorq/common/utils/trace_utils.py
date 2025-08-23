@@ -25,10 +25,6 @@ from attr.validators import (
     is_callable,
     optional,
 )
-from toolz import (
-    compose,
-    identity,
-)
 from toolz.curried import (
     map as cmap,
 )
@@ -39,6 +35,7 @@ from xorq.common.utils.func_utils import (
 from xorq.common.utils.otel_utils import (
     otel_config,
 )
+from xorq.common.utils.toolz_utils import compose, identity
 
 
 default_log_path = (
