@@ -29,9 +29,7 @@ if TYPE_CHECKING:
 
     import xorq.vendor.ibis.expr.types as ir
 
-
 EMPTY = inspect.Parameter.empty
-
 
 _udf_name_cache: MutableMapping[type[ops.Node], Iterable[int]] = (
     collections.defaultdict(itertools.count)
@@ -65,9 +63,37 @@ class ScalarUDF(ops.Value):
             return rlz.highest_precedence_shape(args)
 
 
+def restore_udf(name, bases, meta, state):
+    fields = {
+        name: Argument(pattern=rlz.ValueOf(value.dtype), typehint=value.dtype)
+        for name, value in state.items()
+        if value is not None
+    }
+    cls = type(name, bases, fields | meta)
+    return cls(**state)
+
+
 @public
 class AggUDF(ops.Reduction):
     where: Optional[ops.Value[dt.Boolean]] = None
+
+    def __reduce__(self):
+        state = dict(zip(self.__argnames__, self.__args__))
+
+        cls = type(self)
+        meta = {
+            k: getattr(cls, k)
+            for k in (
+                "dtype",
+                "__input_type__",
+                "__func__",
+                "__config__",
+                "__udf_namespace__",
+                "__module__",
+                "__func_name__",
+            )
+        }
+        return restore_udf, (meta["__func_name__"], (AggUDF,), meta, state)
 
 
 def _wrap(
