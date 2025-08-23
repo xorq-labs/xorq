@@ -276,13 +276,25 @@ class _SourceStorage(CacheStorage):
         return self.source.table(key).op()
 
     def _put(self, key, value):
-        if self.source.name == "postgres":
-            self.source.read_record_batches(
-                value.to_expr().to_pyarrow_batches(),
-                key,
-            )
+        if (
+            not isinstance(value, RemoteTable)
+            and self.source == value.to_expr()._find_backend()
+        ):
+            if self.source.name == "pandas":
+                self.source.create_table(key, xo.to_pyarrow(value.to_expr()))
+            else:
+                # source.create_table will keep data remote
+                self.source.create_table(key, value.to_expr())
         else:
-            self.source.create_table(key, xo.to_pyarrow(value.to_expr()))
+            if self.source.name == "postgres":
+                # postgres is special case: read_record_batches will create durable table in out-of-core fashion
+                self.source.read_record_batches(
+                    value.to_expr().to_pyarrow_batches(),
+                    key,
+                )
+            else:
+                # fall back to slurping the data
+                self.source.create_table(key, xo.to_pyarrow(value.to_expr()))
         return self._get(key)
 
     def _drop(self, key):
