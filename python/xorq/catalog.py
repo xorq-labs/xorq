@@ -13,7 +13,6 @@ import toolz
 import yaml
 from attrs import evolve, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
-from toolz import curry
 
 import xorq as xo
 from xorq.ibis_yaml.compiler import (
@@ -48,7 +47,9 @@ class CatalogMetadata:
     """Catalog metadata."""
 
     # FIXME: make uuid
-    catalog_id: str = field(validator=instance_of(str), factory=uuid.uuid4)
+    catalog_id: str = field(
+        validator=instance_of(str), factory=lambda: str(uuid.uuid4())
+    )
     # FIXME: make datetime.datetime
     created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
     updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
@@ -63,6 +64,14 @@ class CatalogMetadata:
         return evolve(self, **kwargs)
 
     to_dict = to_dict
+
+    @classmethod
+    def from_dict(cls, dct: dict) -> "CatalogMetadata":
+        """Create CatalogMetadata from dict, converting timestamps."""
+        data = dct.copy()
+        data["created_at"] = convert_datetime(data.get("created_at"))
+        data["updated_at"] = convert_datetime(data.get("updated_at"))
+        return cls(**data)
 
 
 @frozen
@@ -307,8 +316,12 @@ class XorqCatalog:
             return next(gen, None)
 
     def with_updated_metadata(self) -> "XorqCatalog":
-        """Return catalog with updated timestamp."""
-        return self.evolve(metadata=self.metadata.with_updated_timestamp())
+        """Return catalog with updated timestamp, initializing metadata if absent."""
+        if self.metadata is None:
+            new_metadata = CatalogMetadata()
+        else:
+            new_metadata = self.metadata.with_updated_timestamp()
+        return self.evolve(metadata=new_metadata)
 
     def get_entry_ids(self) -> Tuple[str, ...]:
         """Get all entry IDs."""
@@ -344,11 +357,15 @@ class XorqCatalog:
     def from_dict(cls, dct):
         aliases = dct.get("aliases", {})
         entries = dct.get("entries", ())
+        metadata = dct.get("metadata")
+        if metadata is not None:
+            metadata = CatalogMetadata.from_dict(metadata)
         return cls(
             **dct
             | {
                 "aliases": {k: Alias.from_dict(v) for k, v in aliases.items()},
                 "entries": tuple(Entry.from_dict(el) for el in entries),
+                "metadata": metadata,
             }
         )
 
@@ -522,6 +539,27 @@ def maybe_resolve_build_dirs(
     return left_dir, right_dir
 
 
+def get_diff_file_list(
+    left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool
+) -> tuple[str, ...]:
+    default = ("expr.yaml",)
+    if files is not None:
+        return tuple(files)
+    if all_flag:
+        default_files = (
+            "expr.yaml",
+            "deferred_reads.yaml",
+            "profiles.yaml",
+            "sql.yaml",
+            "metadata.json",
+        )
+        sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {
+            p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")
+        }
+        return default_files + tuple(sorted(sqls))
+    return default
+
+
 def do_diff_builds(
     left: str,
     right: str,
@@ -571,84 +609,221 @@ def _do_unknown(args):
     print(f"Unknown catalog subcommand: {args.subcommand}")
 
 
-def do_catalog_add(args):
-    """Side effect: add a build into the local catalog."""
-    config_path, config_dir = _get_catalog_paths()
-    build_path = Path(args.build_path).resolve()
-    alias = args.alias
-    build_id, meta_digest, metadata_preview = BuildManager.validate_build(build_path)
-    config_dir.mkdir(parents=True, exist_ok=True)
-    builds_dir = config_dir / "catalog-builds"
-    builds_dir.mkdir(parents=True, exist_ok=True)
-    target_dir = builds_dir / build_id
-    temp_dir = builds_dir / f".{build_id}.tmp"
+@frozen
+class AddBuildRequest:
+    build_path: Path = field(converter=Path)
+    alias: Optional[str] = field(default=None)
+
+    def __attrs_post_init__(self):
+        if not self.build_path.exists():
+            raise ValueError(f"Build path does not exist: {self.build_path}")
+
+
+@frozen
+class BuildInfo:
+    """Validated build information."""
+
+    build_id: str = field()
+    meta_digest: str = field()
+    source_path: Path = field()
+    metadata_preview: Optional[dict] = field(default=None)
+
+
+@frozen
+class CatalogPaths:
+    config_path: Path = field()
+    config_dir: Path = field()
+    builds_dir: Path = field()
+
+    @classmethod
+    def create(cls) -> "CatalogPaths":
+        config_path, config_dir = _get_catalog_paths()
+        builds_dir = config_dir / "catalog-builds"
+        return cls(
+            config_path=config_path, config_dir=config_dir, builds_dir=builds_dir
+        )
+
+
+@frozen
+class AddBuildResult:
+    entry_id: str = field()
+    revision_id: str = field()
+    build_id: str = field()
+
+
+def validate_build(request: AddBuildRequest) -> BuildInfo:
+    build_id, meta_digest, metadata_preview = BuildManager.validate_build(
+        request.build_path.resolve()
+    )
+    return BuildInfo(
+        build_id=build_id,
+        meta_digest=meta_digest,
+        metadata_preview=metadata_preview,
+        source_path=request.build_path.resolve(),
+    )
+
+
+def make_build_object(build_info: BuildInfo) -> Build:
+    build_path_str = str(Path("catalog-builds") / build_info.build_id)
+    return Build.from_dict({"build_id": build_info.build_id, "path": build_path_str})
+
+
+def make_revision(
+    build_info: BuildInfo,
+    revision_id: str,
+    timestamp: str,
+) -> Revision:
+    build_obj = make_build_object(build_info)
+    revision_data = {
+        "revision_id": revision_id,
+        "created_at": timestamp,
+        "build": build_obj,
+        "meta_digest": build_info.meta_digest,
+    }
+    if build_info.metadata_preview:
+        revision_data["metadata"] = build_info.metadata_preview
+
+    return Revision.from_dict(revision_data)
+
+
+def maybe_find_existing_entry(catalog: XorqCatalog, alias: str) -> Optional[Entry]:
+    if not alias:
+        return None
+    alias_obj = catalog.maybe_get_alias(alias)
+    if not alias_obj:
+        return None
+    return catalog.maybe_get_entry(alias_obj.entry_id)
+
+
+def compute_next_revision_id(entry: Entry) -> str:
+    existing = [rev.revision_id for rev in entry.history]
+    nums = [int(r[1:]) for r in existing if r.startswith("r") and r[1:].isdigit()]
+    next_num = max(nums, default=0) + 1
+    return f"r{next_num}"
+
+
+def create_new_entry(build_info: BuildInfo, timestamp: str) -> Tuple[Entry, str]:
+    entry_id = str(uuid.uuid4())
+    revision_id = "r1"
+    revision = make_revision(build_info, revision_id, timestamp)
+
+    entry_data = {
+        "entry_id": entry_id,
+        "current_revision": revision_id,
+        "history": (revision.to_dict(),),
+    }
+    entry = Entry.from_dict(entry_data)
+    return entry, revision_id
+
+
+def update_existing_entry(
+    entry: Entry,
+    build_info: BuildInfo,
+    timestamp: str,
+) -> Tuple[Entry, str]:
+    revision_id = compute_next_revision_id(entry)
+    revision = make_revision(build_info, revision_id, timestamp)
+    updated_entry = entry.with_revision(revision)
+    return updated_entry, revision_id
+
+
+def update_catalog_with_entry(
+    catalog: XorqCatalog,
+    entry: Entry,
+    revision_id: str,
+    alias: Optional[str],
+    timestamp: str,
+) -> XorqCatalog:
+    updated_catalog = catalog.with_entry(entry)
+
+    if alias:
+        alias_obj = Alias.from_dict(
+            {
+                "entry_id": entry.entry_id,
+                "revision_id": revision_id,
+                "updated_at": timestamp,
+            }
+        )
+        updated_catalog = updated_catalog.with_alias(alias, alias_obj)
+
+    return updated_catalog.with_updated_metadata()
+
+
+def process_catalog_update(
+    catalog: XorqCatalog,
+    build_info: BuildInfo,
+    alias: Optional[str],
+    timestamp: str,
+) -> Tuple[XorqCatalog, str, str]:
+    existing_entry = maybe_find_existing_entry(catalog, alias)
+
+    if existing_entry:
+        entry, revision_id = update_existing_entry(
+            existing_entry, build_info, timestamp
+        )
+    else:
+        entry, revision_id = create_new_entry(build_info, timestamp)
+
+    updated_catalog = update_catalog_with_entry(
+        catalog, entry, revision_id, alias, timestamp
+    )
+
+    return updated_catalog, entry.entry_id, revision_id
+
+
+def do_ensure_directories(paths: CatalogPaths) -> None:
+    paths.config_dir.mkdir(parents=True, exist_ok=True)
+    paths.builds_dir.mkdir(parents=True, exist_ok=True)
+
+
+def do_copy_build_safely(build_info: BuildInfo, paths: CatalogPaths) -> None:
+    target_dir = paths.builds_dir / build_info.build_id
+    temp_dir = paths.builds_dir / f".{build_info.build_id}.tmp"
+
     if temp_dir.exists():
         shutil.rmtree(temp_dir)
+
     try:
-        shutil.copytree(build_path, temp_dir)
+        shutil.copytree(build_info.source_path, temp_dir)
         if target_dir.exists():
             shutil.rmtree(target_dir)
         os.replace(str(temp_dir), str(target_dir))
     except Exception:
         shutil.rmtree(temp_dir, ignore_errors=True)
         raise
-    build_path_str = str(Path("catalog-builds") / build_id)
-    catalog = load_catalog(path=config_path)
-    now = get_now_utc().isoformat()
-    if alias and (mapping := catalog.aliases.get(alias)):
-        entry = next(
-            (e for e in catalog.entries if e.entry_id == mapping.entry_id),
-            None,
-        )
-        existing = [r.get("revision_id", "r0") for r in entry.get("history", [])]
-        nums = [int(r[1:]) for r in existing if r.startswith("r")]
-        next_num = max(nums, default=0) + 1
-        revision_id = f"r{next_num}"
-        revision = {
-            "revision_id": revision_id,
-            "created_at": now,
-            "build": Build.from_dict({"build_id": build_id, "path": build_path_str}),
-            "meta_digest": meta_digest,
-        }
-        if metadata_preview:
-            revision["metadata"] = metadata_preview
-        entry.setdefault("history", []).append(revision)
-        entry["current_revision"] = revision_id
-        mapping["revision_id"] = revision_id
-        mapping["updated_at"] = now
-    else:
-        entry_id = str(uuid.uuid4())
-        revision_id = "r1"
-        revision = {
-            "revision_id": revision_id,
-            "created_at": now,
-            "build": {"build_id": build_id, "path": build_path_str},
-            "meta_digest": meta_digest,
-        }
-        if metadata_preview:
-            revision["metadata"] = metadata_preview
-        entry = Entry.from_dict(
-            {
-                "entry_id": entry_id,
-                "created_at": now,
-                "current_revision": revision_id,
-                "history": [revision],
-            }
-        )
-        catalog = catalog.with_entry(entry)
-        if alias:
-            catalog = catalog.with_alias(
-                alias,
-                Alias.from_dict(
-                    {
-                        "entry_id": entry_id,
-                        "revision_id": revision_id,
-                        "updated_at": now,
-                    }
-                ),
-            )
+
+
+def do_save_catalog(catalog: XorqCatalog, config_path: Path) -> None:
     catalog.save(path=config_path)
-    print(f"Added build {build_id} as entry {entry_id} revision {revision_id}")
+
+
+def do_print_result(result: AddBuildResult) -> None:
+    print(
+        f"Added build {result.build_id} as entry {result.entry_id} revision {result.revision_id}"
+    )
+
+
+def do_catalog_add(args) -> None:
+    """Add a build to the catalog."""
+    request = AddBuildRequest(build_path=args.build_path, alias=args.alias)
+    paths = CatalogPaths.create()
+    timestamp = get_now_utc().isoformat()
+
+    build_info = validate_build(request)
+
+    do_ensure_directories(paths)
+    do_copy_build_safely(build_info, paths)
+
+    catalog = load_catalog(path=paths.config_path)
+    updated_catalog, entry_id, revision_id = process_catalog_update(
+        catalog, build_info, request.alias, timestamp
+    )
+
+    do_save_catalog(updated_catalog, paths.config_path)
+    result = AddBuildResult(
+        entry_id=entry_id, revision_id=revision_id, build_id=build_info.build_id
+    )
+    do_print_result(result)
 
 
 def do_catalog_ls(args):
@@ -674,21 +849,6 @@ def do_catalog_ls(args):
         print(f"{entry.entry_id}\t{curr_rev}\t{build_id}")
 
 
-@curry
-def maybe_resolve_target(entry_name: str, catalog) -> Optional[Any]:
-    return catalog.resolve_target(entry_name)
-
-
-@curry
-def maybe_get_entry(entry_id: str, entries) -> Optional[Any]:
-    return next((e for e in entries if e.entry_id == entry_id), None)
-
-
-@curry
-def maybe_get_revision(revision_id: str, history) -> Optional[Any]:
-    return next((r for r in history if r.revision_id == revision_id), None)
-
-
 def compute_build_dir(
     build_path: Optional[Union[str, Path]], config_dir: Path
 ) -> Optional[Path]:
@@ -701,7 +861,6 @@ def compute_build_dir(
 
 
 def do_catalog_info(args):
-    """Show top-level catalog info."""
     config_path, _ = _get_catalog_paths()
     catalog = load_catalog(path=config_path)
     print(f"Catalog path: {config_path}")
@@ -710,7 +869,6 @@ def do_catalog_info(args):
 
 
 def do_catalog_rm(args):
-    """Remove an entry or alias from the catalog."""
     config_path, _ = _get_catalog_paths()
     catalog = load_catalog(path=config_path)
     token = args.entry
@@ -734,7 +892,6 @@ def do_catalog_rm(args):
 
 
 def do_catalog_export(args):
-    """Export catalog and builds to a target directory."""
     config_path, config_dir = _get_catalog_paths()
     export_dir = Path(args.output_path)
     if export_dir.exists() and not export_dir.is_dir():
@@ -756,7 +913,6 @@ def do_catalog_export(args):
 
 
 def do_catalog_diff_builds(args):
-    """Compare two build artifacts via git diff --no-index."""
     code = do_diff_builds(args.left, args.right, args.files, args.all)
     sys.exit(code)
 
@@ -874,25 +1030,3 @@ def cache_command(args):
     print(f"Cache written to: {cache_path}")
     for pq_file in sorted(cache_path.rglob("*.parquet")):
         print(f"  {pq_file.relative_to(cache_path)}")
-
-
-def get_diff_file_list(
-    left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool
-) -> tuple[str, ...]:
-    default = ("expr.yaml",)
-    if files is not None:
-        return tuple(files)
-    if all_flag:
-        # Exclude node_hashes.yaml as node hashes are not used here
-        default_files = (
-            "expr.yaml",
-            "deferred_reads.yaml",
-            "profiles.yaml",
-            "sql.yaml",
-            "metadata.json",
-        )
-        sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {
-            p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")
-        }
-        return default_files + tuple(sorted(sqls))
-    return default
