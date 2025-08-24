@@ -15,9 +15,6 @@ from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
 )
 from xorq.common.utils.toolz_utils import (
-    Compose as XoCompose,
-)
-from xorq.common.utils.toolz_utils import (
     curry as xo_curry,
 )
 
@@ -83,7 +80,7 @@ dask.base.normalize_token.register(types.CodeType, normalize_code)
 dask.base.normalize_token.register(property, normalize_code)
 
 
-@dask.base.normalize_token.register((toolz.functoolz.Compose, XoCompose))
+@dask.base.normalize_token.register(toolz.functoolz.Compose)
 def normalize_toolz_compose(composed):
     return normalize_seq_with_caller(
         toolz.functoolz.Compose,
