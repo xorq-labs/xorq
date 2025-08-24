@@ -47,9 +47,8 @@ class CatalogMetadata:
     """Catalog metadata."""
 
     # FIXME: make uuid
-    catalog_id: str = field(
-        validator=instance_of(str), factory=lambda: str(uuid.uuid4())
-    )
+    catalog_id: str = field(validator=instance_of(str), factory=uuid.uuid4)
+
     # FIXME: make datetime.datetime
     created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
     updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
@@ -57,7 +56,7 @@ class CatalogMetadata:
 
     def with_updated_timestamp(self) -> "CatalogMetadata":
         """Return new metadata with updated timestamp."""
-        return self.evolve(updated_at=get_now_utc().isoformat())
+        return self.evolve(updated_at=get_now_utc())
 
     def evolve(self, **kwargs) -> "CatalogMetadata":
         """Create a copy with specified changes."""
@@ -67,7 +66,6 @@ class CatalogMetadata:
 
     @classmethod
     def from_dict(cls, dct: dict) -> "CatalogMetadata":
-        """Create CatalogMetadata from dict, converting timestamps."""
         data = dct.copy()
         data["created_at"] = convert_datetime(data.get("created_at"))
         data["updated_at"] = convert_datetime(data.get("updated_at"))
