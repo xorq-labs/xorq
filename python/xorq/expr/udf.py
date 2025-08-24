@@ -75,6 +75,16 @@ def wrap_model(value, model_key="model"):
 unwrap_model = cloudpickle.loads
 
 
+def restore_expr_scalar_udf(name, bases, meta, state):
+    fields = {
+        name: Argument(pattern=rlz.ValueOf(value.dtype), typehint=value.dtype)
+        for name, value in state.items()
+        if value is not None
+    }
+    cls = type(name, bases, fields | meta)
+    return cls(**state)
+
+
 class ExprScalarUDF(ScalarUDF):
     @property
     def computed_kwargs_expr(self):
@@ -92,6 +102,29 @@ class ExprScalarUDF(ScalarUDF):
     def on_expr(self, e, **kwargs):
         # rebind deferred_model (computed_kwargs_expr) to a new expr
         return type(self)(*(e[c] for c in self.schema), **kwargs)
+
+    def __reduce__(self):
+        state = dict(zip(self.__argnames__, self.__args__))
+
+        cls = type(self)
+        meta = {
+            k: getattr(cls, k)
+            for k in (
+                "dtype",
+                "__input_type__",
+                "__func__",
+                "__config__",
+                "__udf_namespace__",
+                "__module__",
+                "__func_name__",
+            )
+        }
+        return restore_expr_scalar_udf, (
+            meta["__func_name__"],
+            (ExprScalarUDF,),
+            meta,
+            state,
+        )
 
 
 @toolz.curry
