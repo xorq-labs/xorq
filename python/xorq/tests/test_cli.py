@@ -627,3 +627,48 @@ def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
     assert actual.equals(expected)
 
     serve_popened.popen.terminate()
+
+
+@pytest.mark.slow
+def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
+    from xorq.tests.conftest import array_types_df
+
+    serve_tag = "full"
+
+    builds_dir = tmp_path / "builds"
+    script_path = fixture_dir / "pipeline_pandas_udf.py"
+
+    import contextlib
+    import io
+
+    # Capture print output
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        build_command(script_path, "expr", str(builds_dir))
+
+    serve_args = (
+        "xorq",
+        "serve-unbound",
+        str(output.getvalue().strip()),
+        "--to_unbind_tag",
+        serve_tag,
+    )
+    serve_popened = Popened(serve_args, deferred=False)
+    port = peek_port(serve_popened)
+
+    flight_backend = xo.flight.connect(port=port)
+    f = flight_backend.get_exchange("default")
+    actual = (
+        xo.connect()
+        .register(array_types_df)
+        .select("x")
+        .pipe(f)
+        .execute()
+        .iloc[0, 0]
+        .astype(int)
+    )
+    expected = array_types_df["x"].explode().sum()
+    assert actual == expected
+
+    serve_popened.popen.terminate()
