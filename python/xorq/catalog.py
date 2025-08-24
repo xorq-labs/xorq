@@ -24,7 +24,7 @@ from xorq.ibis_yaml.compiler import (
 def get_default_catalog_path():
     # dynamically retrieve: tests need to monkeypatch XDG_CONFIG_HOME
     return (
-        Path(os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config"))
+        Path(os.Path.home().joinpath(".config"))
         .joinpath("xorq", "catalog.yaml")
         .absolute()
     )
@@ -48,7 +48,6 @@ class CatalogMetadata:
 
     # FIXME: make uuid
     catalog_id: str = field(validator=instance_of(str), factory=uuid.uuid4)
-
     # FIXME: make datetime.datetime
     created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
     updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
@@ -314,12 +313,8 @@ class XorqCatalog:
             return next(gen, None)
 
     def with_updated_metadata(self) -> "XorqCatalog":
-        """Return catalog with updated timestamp, initializing metadata if absent."""
-        if self.metadata is None:
-            new_metadata = CatalogMetadata()
-        else:
-            new_metadata = self.metadata.with_updated_timestamp()
-        return self.evolve(metadata=new_metadata)
+        """Return catalog with updated timestamp"""
+        return self.evolve(metadata=self.metadata.with_updated_timestamp())
 
     def get_entry_ids(self) -> Tuple[str, ...]:
         """Get all entry IDs."""
@@ -337,7 +332,7 @@ class XorqCatalog:
         dct = dct | {
             "aliases": {name: alias.to_dict() for name, alias in self.aliases.items()},
             "entries": tuple(entry.to_dict() for entry in self.entries),
-            "metadata": self.metadata.to_dict() if self.metadata else self.metadata,
+            "metadata": self.metadata.to_dict(),
         }
         return dct
 
@@ -356,8 +351,6 @@ class XorqCatalog:
         aliases = dct.get("aliases", {})
         entries = dct.get("entries", ())
         metadata = dct.get("metadata")
-        if metadata is not None:
-            metadata = CatalogMetadata.from_dict(metadata)
         return cls(
             **dct
             | {
@@ -624,7 +617,6 @@ class BuildInfo:
     build_id: str = field()
     meta_digest: str = field()
     source_path: Path = field()
-    metadata_preview: Optional[dict] = field(default=None)
 
 
 @frozen
@@ -650,13 +642,10 @@ class AddBuildResult:
 
 
 def validate_build(request: AddBuildRequest) -> BuildInfo:
-    build_id, meta_digest, metadata_preview = BuildManager.validate_build(
-        request.build_path.resolve()
-    )
+    build_id, meta_digest = BuildManager.validate_build(request.build_path.resolve())
     return BuildInfo(
         build_id=build_id,
         meta_digest=meta_digest,
-        metadata_preview=metadata_preview,
         source_path=request.build_path.resolve(),
     )
 
@@ -678,8 +667,6 @@ def make_revision(
         "build": build_obj,
         "meta_digest": build_info.meta_digest,
     }
-    if build_info.metadata_preview:
-        revision_data["metadata"] = build_info.metadata_preview
 
     return Revision.from_dict(revision_data)
 

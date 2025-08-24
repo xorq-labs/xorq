@@ -330,9 +330,7 @@ class BuildManager:
         build_id = meta_file.parent.name
         # Compute meta_digest from metadata.json
         meta_digest = f"sha1:{file_digest(meta_file)}"
-        # No expr_hashes or node-level hashes are stored here; calculate expr hash fresh when needed
-        metadata_preview: dict = {}
-        return build_id, meta_digest, metadata_preview
+        return build_id, meta_digest
 
 
 def load_expr(expr_path, cache_dir=None):
