@@ -244,7 +244,7 @@ def unbind_and_serve_command(
         found = find_by_expr_hash(expr, to_unbind_hash, typs=typ)
 
         if len(found_cons) == 0:
-            raise ValueError()
+            raise ValueError
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
