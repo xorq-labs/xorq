@@ -291,7 +291,7 @@ def flight_serve_unbound(
     server = (make_server or FlightServer)(**kwargs)
     server.exchangers += (unbound_expr_exchanger,)
     server.serve()
-    return server, do_exchange(server, "default")
+    return server, do_exchange(server, unbound_expr_exchanger.command)
 
 
 @toolz.curry
