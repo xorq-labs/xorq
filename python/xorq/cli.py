@@ -240,47 +240,15 @@ def unbind_and_serve_command(
         )
         from xorq.vendor.ibis.expr.operations import UnboundTable
 
-        def log_replacement(to_unbind_hash, found):
-            # Log the node being replaced and its dask hash
-            import dask
-
-            found_con = None
-            try:
-                node_hash = dask.base.tokenize(found.to_expr())
-                logger.info(
-                    f"Replacing node {type(found).__name__} with hash {node_hash}"
-                )
-            except Exception:
-                logger.info(f"Replacing node {type(found).__name__}")
-                subtree_cons = find_all_sources(found)
-                if len(subtree_cons) == 1:
-                    found_con = subtree_cons[0]
-                else:
-                    raise ValueError(
-                        f"Multiple sources found for expr hash {to_unbind_hash}: "
-                        + ", ".join(
-                            f"[{i}]: {src}" for i, src in enumerate(subtree_cons)
-                        )
-                    )
-                node_hash = dask.base.tokenize(found.to_expr())
-            logger.info(
-                f"Unbinding with node {type(found).__name__} with hash {node_hash}"
-            )
-            return found_con
-
         found_cons = find_all_sources(expr)
         found = find_by_expr_hash(expr, to_unbind_hash, typs=typ)
 
         if len(found_cons) == 0:
-            raise ValueError(
-                f"No sources found to unbind for expression hash: {to_unbind_hash}"
-            )
+            raise ValueError()
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
             (found_con,) = find_all_sources(found)
-        maybe_found_con = log_replacement(to_unbind_hash, found)
-        found_con = maybe_found_con or found_con
 
         unbound_table = UnboundTable("unbound", found.schema)
         replace_with = unbound_table.to_expr().into_backend(found_con).op()
