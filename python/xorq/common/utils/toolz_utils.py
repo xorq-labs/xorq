@@ -5,8 +5,6 @@ from functools import (
 from importlib import (
     import_module,
 )
-from operator import attrgetter
-from types import MethodType
 
 from cloudpickle import (
     dumps,
@@ -20,106 +18,6 @@ from toolz.functoolz import (
     is_valid_args,
     no_default,
 )
-
-
-def identity(x):
-    return x
-
-
-def compose(*funcs):
-    if not funcs:
-        return identity
-    if len(funcs) == 1:
-        return funcs[0]
-    else:
-        return Compose(funcs)
-
-
-class Compose(object):
-    """A composition of functions
-
-    See Also:
-        compose
-    """
-
-    __slots__ = "first", "funcs"
-
-    def __init__(self, funcs):
-        funcs = tuple(reversed(funcs))
-        self.first = funcs[0]
-        self.funcs = funcs[1:]
-
-    def __call__(self, *args, **kwargs):
-        ret = self.first(*args, **kwargs)
-        for f in self.funcs:
-            ret = f(ret)
-        return ret
-
-    def __getstate__(self):
-        return self.first, self.funcs
-
-    def __setstate__(self, state):
-        self.first, self.funcs = state
-
-    @instanceproperty(classval=__doc__)
-    def __doc__(self):
-        def composed_doc(*fs):
-            """Generate a docstring for the composition of fs."""
-            if not fs:
-                # Argument name for the docstring.
-                return "*args, **kwargs"
-
-            return "{f}({g})".format(f=fs[0].__name__, g=composed_doc(*fs[1:]))
-
-        try:
-            return "lambda *args, **kwargs: " + composed_doc(
-                *reversed((self.first,) + self.funcs)
-            )
-        except AttributeError:
-            # One of our callables does not have a `__name__`, whatever.
-            return "A composition of functions"
-
-    @property
-    def __name__(self):
-        try:
-            return "_of_".join(
-                (f.__name__ for f in reversed((self.first,) + self.funcs))
-            )
-        except AttributeError:
-            return type(self).__name__
-
-    def __repr__(self):
-        return "{.__class__.__name__}{!r}".format(
-            self, tuple(reversed((self.first,) + self.funcs))
-        )
-
-    def __eq__(self, other):
-        if isinstance(other, Compose):
-            return other.first == self.first and other.funcs == self.funcs
-        return NotImplemented
-
-    def __ne__(self, other):
-        equality = self.__eq__(other)
-        return NotImplemented if equality is NotImplemented else not equality
-
-    def __hash__(self):
-        return hash(self.first) ^ hash(self.funcs)
-
-    # Mimic the descriptor behavior of python functions.
-    # i.e. let Compose be called as a method when bound to a class.
-    # adapted from
-    # docs.python.org/3/howto/descriptor.html#functions-and-methods
-    def __get__(self, obj, objtype=None):
-        return self if obj is None else MethodType(self, obj)
-
-    # introspection with Signature is only possible from py3.3+
-    @instanceproperty
-    def __signature__(self):
-        base = inspect.signature(self.first)
-        last = inspect.signature(self.funcs[-1])
-        return base.replace(return_annotation=last.return_annotation)
-
-    __wrapped__ = instanceproperty(attrgetter("first"))
 
 
 class curry(object):

@@ -2,10 +2,10 @@ import operator
 
 import pandas as pd
 import pytest
+import toolz
 
 import xorq.api as xo
 from xorq.caching import ParquetStorage
-from xorq.common.utils.toolz_utils import compose
 from xorq.expr.udf import make_pandas_udf
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 from xorq.tests.util import assert_frame_equal
@@ -53,7 +53,9 @@ def do_agg(expr):
     )
 
 
-my_udf_on_expr = compose(operator.methodcaller("name", field_name), my_udf.on_expr)
+my_udf_on_expr = toolz.compose(
+    operator.methodcaller("name", field_name), my_udf.on_expr
+)
 
 
 def test_flight_expr(con, diamonds, baseline):
