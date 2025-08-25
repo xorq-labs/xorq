@@ -47,9 +47,7 @@ class CatalogMetadata:
     """Catalog metadata."""
 
     # FIXME: make uuid
-    catalog_id: str = field(
-        validator=instance_of(str), factory=uuid.uuid4, converter=str
-    )
+    catalog_id: str = field(validator=instance_of(str), factory=uuid.uuid4)
     # FIXME: make datetime.datetime
     created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
     updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
@@ -263,7 +261,7 @@ class XorqCatalog:
     api_version: str = field(default="xorq.dev/v1", validator=instance_of(str))
     kind: str = field(default="XorqCatalog", validator=instance_of(str))
     metadata: CatalogMetadata = field(
-        validator=optional(instance_of(CatalogMetadata)), default=None
+        factory=CatalogMetadata, validator=instance_of(CatalogMetadata)
     )
 
     def with_entry(self, entry: Entry) -> "XorqCatalog":
@@ -299,9 +297,8 @@ class XorqCatalog:
         return next(gen, None)
 
     def with_updated_metadata(self) -> "XorqCatalog":
-        """Return catalog with updated timestamp, initializing metadata if necessary."""
-        metadata = self.metadata or CatalogMetadata()
-        return self.evolve(metadata=metadata.with_updated_timestamp())
+        """Return catalog with updated timestamp."""
+        return self.evolve(metadata=self.metadata.with_updated_timestamp())
 
     def get_entry_ids(self) -> Tuple[str, ...]:
         """Get all entry IDs."""
@@ -319,9 +316,7 @@ class XorqCatalog:
         dct = dct | {
             "aliases": {name: alias.to_dict() for name, alias in self.aliases.items()},
             "entries": tuple(entry.to_dict() for entry in self.entries),
-            "metadata": self.metadata.to_dict()
-            if self.metadata
-            else None,  # why should this be None?
+            "metadata": self.metadata.to_dict(),
         }
         return dct
 
@@ -339,9 +334,7 @@ class XorqCatalog:
     def from_dict(cls, dct):
         aliases = dct.get("aliases", {})
         entries = dct.get("entries", ())
-        metadata = dct.get("metadata")
-        if isinstance(metadata, dict):
-            metadata = CatalogMetadata.from_dict(metadata)
+        metadata = CatalogMetadata.from_dict(dct["metadata"])
         return cls(
             **dct
             | {
