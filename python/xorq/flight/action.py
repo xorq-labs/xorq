@@ -5,17 +5,13 @@ from abc import (
 
 import pyarrow as pa
 import pyarrow.flight as paf
-import toolz
 from cloudpickle import dumps, loads
 
 from xorq.common.utils import classproperty
 
 
-make_flight_result = toolz.compose(
-    paf.Result,
-    pa.py_buffer,
-    dumps,
-)
+def make_flight_result(any):
+    return paf.Result(pa.py_buffer(dumps(any)))
 
 
 class AbstractAction(ABC):
@@ -77,7 +73,7 @@ class ListExchangesAction(AbstractAction):
     @classmethod
     def do_action(cls, server, context, action):
         yield make_flight_result(
-            tuple(exchanger.command for exchanger in server.exchangers.values())
+            tuple(exchanger_command for exchanger_command in server.exchangers.keys())
         )
 
 

@@ -17,6 +17,7 @@ from xorq.vendor.ibis.expr.operations.udf import (
     ScalarUDF,
     _make_udf_name,
     _wrap,
+    restore_udf,
     scalar,
 )
 from xorq.vendor.ibis.expr.operations.udf import (
@@ -92,6 +93,29 @@ class ExprScalarUDF(ScalarUDF):
     def on_expr(self, e, **kwargs):
         # rebind deferred_model (computed_kwargs_expr) to a new expr
         return type(self)(*(e[c] for c in self.schema), **kwargs)
+
+    def __reduce__(self):
+        state = dict(zip(self.__argnames__, self.__args__))
+
+        cls = type(self)
+        meta = {
+            k: getattr(cls, k)
+            for k in (
+                "dtype",
+                "__input_type__",
+                "__func__",
+                "__config__",
+                "__udf_namespace__",
+                "__module__",
+                "__func_name__",
+            )
+        }
+        return restore_udf, (
+            meta["__func_name__"],
+            (ExprScalarUDF,),
+            meta,
+            state,
+        )
 
 
 @toolz.curry
