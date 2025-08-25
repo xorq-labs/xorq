@@ -15,6 +15,7 @@ from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.otel_utils import tracer
+from xorq.config import _backend_init
 from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import (
     BuildManager,
@@ -251,7 +252,7 @@ def unbind_and_serve_command(
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
-            found_con = found.to_expr()._find_backend()
+            found_con = _backend_init()
             assert found_con
 
         unbound_table = UnboundTable("unbound", found.schema)
