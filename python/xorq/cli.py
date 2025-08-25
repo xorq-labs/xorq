@@ -14,7 +14,6 @@ import xorq.common.utils.pickle_utils  # noqa: F401
 # Helper functions for diff-builds subcommand
 from xorq.catalog import (
     ServerRecord,
-    cache_command,
     catalog_command,
     lineage_command,
     ps_command,
@@ -729,11 +728,6 @@ def main():
                 f, f_args = (
                     lineage_command,
                     (args.target,),
-                )
-            case "cache":
-                f, f_args = (
-                    cache_command,
-                    (args,),
                 )
             case "catalog":
                 f, f_args = (

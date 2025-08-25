@@ -977,29 +977,3 @@ def ps_command(cache_dir: str) -> None:
         ServerRecord.load_records(Path(cache_dir) / "servers")
     )
     do_print_table(headers, rows)
-
-
-def cache_command(args):
-    from xorq.caching import ParquetStorage
-    from xorq.common.utils.caching_utils import find_backend
-
-    catalog = load_catalog()
-    build_dir = resolve_build_dir(args.target, catalog)
-    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
-        print(f"Build target not found: {args.target}")
-        sys.exit(2)
-    expr = load_expr(build_dir)
-    con, _ = find_backend(expr.op(), use_default=True)
-    base_path = Path(args.cache_dir)
-    storage = ParquetStorage(source=con, relative_path=Path("."), base_path=base_path)
-    cached_expr = expr.cache(storage=storage)
-    try:
-        for _ in cached_expr.to_pyarrow_batches():
-            pass
-    except Exception as e:
-        print(f"Error during caching execution: {e}")
-        sys.exit(1)
-    cache_path = storage.cache.storage.path
-    print(f"Cache written to: {cache_path}")
-    for pq_file in sorted(cache_path.rglob("*.parquet")):
-        print(f"  {pq_file.relative_to(cache_path)}")
