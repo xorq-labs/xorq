@@ -1,6 +1,6 @@
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.examples import Example, get_name_to_suffix
 from xorq.examples.core import whitelist
 

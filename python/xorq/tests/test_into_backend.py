@@ -10,7 +10,7 @@ import pyarrow as pa
 import pytest
 from pytest import param
 
-import xorq as xo
+import xorq.api as xo
 from xorq.backends.conftest import get_storage_uncached
 from xorq.caching import ParquetStorage, SourceSnapshotStorage, SourceStorage
 from xorq.expr.relations import into_backend, register_and_transform_remote_tables

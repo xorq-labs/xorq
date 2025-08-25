@@ -3,8 +3,8 @@ import random
 import pytest
 from pytest import param
 
-import xorq as xo
-from xorq import _
+import xorq.api as xo
+from xorq.api import _
 
 
 @pytest.fixture

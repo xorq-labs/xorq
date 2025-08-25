@@ -7,10 +7,10 @@ import pyarrow as pa
 import pyarrow.dataset as ds
 import pytest
 
-import xorq as xo
-from xorq import Schema
+import xorq.api as xo
 from xorq.caching import ParquetStorage
 from xorq.tests.util import assert_frame_equal
+from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.common.collections import FrozenDict
 
 

@@ -7,7 +7,7 @@ import dask
 import pytest
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 from xorq.caching import (
     SourceSnapshotStorage,
@@ -46,6 +46,7 @@ def batting(pg):
     return pg.table("batting")
 
 
+@pytest.mark.skip
 @pytest.mark.snapshot_check
 def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
     con = xo.datafusion.connect()

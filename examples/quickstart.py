@@ -11,7 +11,7 @@ import pandas as pd
 import toolz
 import xgboost as xgb
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
@@ -27,7 +27,7 @@ HACKERNEWS_DATA_NAME = "hn-fetcher-input-small"
 
 # import HackerNews library from pinned path
 hackernews_lib = import_python(
-    xo.options.pins.get_path("hackernews_lib", version="20250604T223424Z-2e578")
+    xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
 )
 
 

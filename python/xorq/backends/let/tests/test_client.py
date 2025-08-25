@@ -2,7 +2,7 @@ import pyarrow as pa
 import pytest
 from pytest import param
 
-import xorq as xo
+import xorq.api as xo
 from xorq.tests.util import (
     assert_frame_equal,
 )

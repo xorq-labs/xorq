@@ -202,7 +202,7 @@ For more information on available backends, visit https://ibis-project.org/insta
 """
         )
 
-    import xorq as xo
+    import xorq.api as xo
 
     options.default_backend = con = xo.duckdb.connect(":memory:")
     return con

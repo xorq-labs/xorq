@@ -1,6 +1,6 @@
 import pyarrow as pa
 
-import xorq as xo
+import xorq.api as xo
 from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
 from xorq.caching import SourceStorage
 from xorq.tests.util import assert_frame_equal

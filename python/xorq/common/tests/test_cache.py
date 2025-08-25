@@ -1,7 +1,6 @@
 import pytest
 
-import xorq as xo
-import xorq.backends.let
+import xorq.api as xo
 from xorq.caching import ParquetStorage
 
 
@@ -36,5 +35,5 @@ def test_default_connection(tmp_path, parquet_dir):
     get_node = storage.get(t)
     assert get_node is not None
     assert get_node.source.name == con.name
-    assert xorq.options.backend is not None
+    assert xo.options.backend is not None
     assert get_node.to_expr().execute is not None

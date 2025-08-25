@@ -2,7 +2,7 @@ import operator
 
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import SourceStorage

@@ -5,7 +5,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 
 
 expected_tables = (

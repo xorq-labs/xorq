@@ -6,7 +6,7 @@ import pandas as pd
 import pytest
 from pytest import param
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.types as ir
 from xorq.tests.conftest import TEST_TABLES
 

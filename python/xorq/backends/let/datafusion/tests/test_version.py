@@ -1,9 +1,10 @@
-import xorq as xo
+import xorq
+import xorq.api as xo
 from xorq.backends.let.datafusion import Backend
 
 
 def test_version():
-    assert xo.__version__ == Backend().version
+    assert xorq.__version__ == Backend().version
 
 
 def test_context_name():
