@@ -17,6 +17,7 @@ from xorq.vendor.ibis.expr.operations.udf import (
     ScalarUDF,
     _make_udf_name,
     _wrap,
+    restore_udf,
     scalar,
 )
 from xorq.vendor.ibis.expr.operations.udf import (
@@ -73,16 +74,6 @@ def wrap_model(value, model_key="model"):
 
 
 unwrap_model = cloudpickle.loads
-
-
-def restore_expr_scalar_udf(name, bases, meta, state):
-    fields = {
-        name: Argument(pattern=rlz.ValueOf(value.dtype), typehint=value.dtype)
-        for name, value in state.items()
-        if value is not None
-    }
-    cls = type(name, bases, fields | meta)
-    return cls(**state)
 
 
 class ExprScalarUDF(ScalarUDF):
@@ -152,7 +143,7 @@ class ExprScalarUDF(ScalarUDF):
                 "__func_name__",
             )
         }
-        return restore_expr_scalar_udf, (
+        return restore_udf, (
             meta["__func_name__"],
             (ExprScalarUDF,),
             meta,
