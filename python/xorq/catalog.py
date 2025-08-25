@@ -285,38 +285,21 @@ class XorqCatalog:
         """Get alias by name if it exists."""
         return self.aliases.get(name)
 
-    def maybe_get_revision(self, build_id: str) -> Optional[Revision]:
-        """Get revision by build_id if it exists."""
+    def maybe_get_revision_by_token(self, token: str) -> Optional[Revision]:
+        """Get revision by entry@revision token if it exists."""
+        t = self.resolve_target(token)
+        if t is None:
+            return None
         gen = (
             rev
             for entry in self.entries
             for rev in entry.history
-            if rev.build.build_id == build_id
+            if entry.entry_id == t.entry_id and rev.revision_id == t.rev
         )
-        first = next(gen, None)
-        rest = tuple(gen)
-        if rest:
-            # unclear what to do if multiple revisions share the same build_id
-            raise ValueError
-        return first
-
-    def maybe_get_revision_by_token(self, token: str) -> Optional[Revision]:
-        """Get revision by token if it exists."""
-        t = self.resolve_target(token)
-        if t is None:
-            return None
-        else:
-            gen = (
-                rev
-                for entry in self.entries
-                for rev in entry.history
-                if rev.build.build_id == t.build_id and rev.revision_id == t.rev
-            )
-            return next(gen, None)
+        return next(gen, None)
 
     def with_updated_metadata(self) -> "XorqCatalog":
         """Return catalog with updated timestamp, initializing metadata if necessary."""
-        # Ensure metadata is initialized before updating the timestamp
         metadata = self.metadata or CatalogMetadata()
         return self.evolve(metadata=metadata.with_updated_timestamp())
 
@@ -336,7 +319,9 @@ class XorqCatalog:
         dct = dct | {
             "aliases": {name: alias.to_dict() for name, alias in self.aliases.items()},
             "entries": tuple(entry.to_dict() for entry in self.entries),
-            "metadata": self.metadata.to_dict() if self.metadata else None,
+            "metadata": self.metadata.to_dict()
+            if self.metadata
+            else None,  # why should this be None?
         }
         return dct
 
@@ -484,12 +469,9 @@ def resolve_build_dir(
     path = Path(token)
     if path.exists() and path.is_dir():
         return path
-    for revision in (
-        catalog.maybe_get_revision(build_id=token),
-        catalog.maybe_get_revision_by_token(token),
-    ):
-        if revision.build and revision.build.path:
-            return absolutify(revision.build.path)
+    revision = catalog.maybe_get_revision_by_token(token)
+    if revision and revision.build and revision.build.path:
+        return absolutify(revision.build.path)
     return None
 
 
