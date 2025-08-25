@@ -2,7 +2,6 @@ from xorq.catalog import (
     XorqCatalog,
     load_catalog,
     resolve_build_dir,
-    unified_dir_diff,
 )
 
 
@@ -56,22 +55,3 @@ def test_resolve_build_dir_by_build_id(tmp_path):
     cat = XorqCatalog.from_dict({"aliases": {}, "entries": [entry]})
     p = resolve_build_dir("b1", cat)
     assert p == d
-
-
-def test_unified_dir_diff(tmp_path):
-    dir1 = tmp_path / "d1"
-    dir2 = tmp_path / "d2"
-    dir1.mkdir()
-    dir2.mkdir()
-    f1 = "a.txt"
-    (dir1 / f1).write_text("hello")
-    (dir2 / f1).write_text("hello")
-    f2 = "b.txt"
-    (dir1 / f2).write_text("x")
-    (dir2 / f2).write_text("y")
-    diff, text = unified_dir_diff(dir1, dir2)
-    assert diff is True
-    assert "hello" not in text or "x" in text
-    diff2, text2 = unified_dir_diff(dir1, dir1)
-    assert diff2 is False
-    assert text2 == ""

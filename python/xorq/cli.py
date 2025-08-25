@@ -603,28 +603,6 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for server state records",
     )
-    # Connection profile commands
-    profile_parser = subparsers.add_parser("profile", help="Manage connection profiles")
-    profile_subparsers = profile_parser.add_subparsers(
-        dest="subcommand", help="Profile commands"
-    )
-    profile_subparsers.required = True
-    # Add profile
-    profile_add = profile_subparsers.add_parser("add", help="Add a connection profile")
-    profile_add.add_argument("alias", help="Profile alias name")
-    profile_add.add_argument(
-        "--con-name",
-        required=True,
-        help="Connection backend name (e.g. 'postgres', 'duckdb')",
-    )
-    profile_add.add_argument(
-        "-p",
-        "--param",
-        action="append",
-        default=[],
-        metavar="KEY=VALUE",
-        help="Connection parameter KEY=VALUE",
-    )
     # Catalog commands
     catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
     catalog_subparsers = catalog_parser.add_subparsers(
@@ -642,52 +620,6 @@ def parse_args(override=None):
     # List catalog entries
     catalog_subparsers.add_parser("ls", help="List catalog entries")
 
-    catalog_inspect = catalog_subparsers.add_parser(
-        "inspect",
-        help="Inspect a catalog entry",
-        description="Inspect build catalog entries with optional detail sections",
-    )
-    catalog_inspect.add_argument(
-        "entry", help="Entry ID, alias, or entry@revision to inspect"
-    )
-    catalog_inspect.add_argument(
-        "-r",
-        "--revision",
-        help="Revision ID to inspect (overrides alias)",
-        default=None,
-    )
-    catalog_inspect.add_argument(
-        "--schema", action="store_true", help="Show schema section"
-    )
-    catalog_inspect.add_argument(
-        "--plan", action="store_true", help="Show plan section"
-    )
-    catalog_inspect.add_argument(
-        "--profiles", action="store_true", help="Show profiles section"
-    )
-    catalog_inspect.add_argument(
-        "--hashes", dest="hashes", action="store_true", help="Show node hashes section"
-    )
-    catalog_inspect.add_argument(
-        "--full", action="store_true", help="Show all available sections"
-    )
-    # Deprecated flags (ignored)
-    catalog_inspect.add_argument(
-        "--pretty", dest="pretty", action="store_true", help=argparse.SUPPRESS
-    )
-    catalog_inspect.add_argument(
-        "--no-pretty", dest="pretty", action="store_false", help=argparse.SUPPRESS
-    )
-    # Deprecated/removed: --caches is now redundant and no longer supported
-    # Note: JSON/YAML output, raw names, color toggles, and --print-nodes removed
-    catalog_inspect.set_defaults(
-        full=False, schema=False, plan=False, profiles=False, hashes=False, pretty=None
-    )
-    # diff-builds: compare two build artifacts via git diff --no-index
-    # diff-builds: compare two build artifacts via git diff --no-index
-    catalog_diff_builds = catalog_subparsers.add_parser(
-        "diff-builds", help="Compare two build artifacts via git diff --no-index"
-    )
     # Show top-level catalog information
     catalog_subparsers.add_parser("info", help="Show catalog information")
     # Remove an entry or alias from the catalog
@@ -701,6 +633,9 @@ def parse_args(override=None):
     )
     catalog_export.add_argument(
         "output_path", help="Directory path to export catalog.yaml and builds subfolder"
+    )
+    catalog_diff_builds = catalog_subparsers.add_parser(
+        "diff-builds", help="Compare two build artifacts via git diff --no-index"
     )
     catalog_diff_builds.add_argument(
         "left",

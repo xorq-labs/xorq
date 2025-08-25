@@ -24,7 +24,7 @@ from xorq.ibis_yaml.compiler import (
 def get_default_catalog_path():
     # dynamically retrieve: tests need to monkeypatch XDG_CONFIG_HOME
     return (
-        Path(os.Path.home().joinpath(".config"))
+        Path(os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config"))
         .joinpath("xorq", "catalog.yaml")
         .absolute()
     )
@@ -47,7 +47,9 @@ class CatalogMetadata:
     """Catalog metadata."""
 
     # FIXME: make uuid
-    catalog_id: str = field(validator=instance_of(str), factory=uuid.uuid4)
+    catalog_id: str = field(
+        validator=instance_of(str), factory=uuid.uuid4, converter=str
+    )
     # FIXME: make datetime.datetime
     created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
     updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
@@ -313,8 +315,10 @@ class XorqCatalog:
             return next(gen, None)
 
     def with_updated_metadata(self) -> "XorqCatalog":
-        """Return catalog with updated timestamp"""
-        return self.evolve(metadata=self.metadata.with_updated_timestamp())
+        """Return catalog with updated timestamp, initializing metadata if necessary."""
+        # Ensure metadata is initialized before updating the timestamp
+        metadata = self.metadata or CatalogMetadata()
+        return self.evolve(metadata=metadata.with_updated_timestamp())
 
     def get_entry_ids(self) -> Tuple[str, ...]:
         """Get all entry IDs."""
@@ -332,7 +336,7 @@ class XorqCatalog:
         dct = dct | {
             "aliases": {name: alias.to_dict() for name, alias in self.aliases.items()},
             "entries": tuple(entry.to_dict() for entry in self.entries),
-            "metadata": self.metadata.to_dict(),
+            "metadata": self.metadata.to_dict() if self.metadata else None,
         }
         return dct
 
@@ -351,6 +355,8 @@ class XorqCatalog:
         aliases = dct.get("aliases", {})
         entries = dct.get("entries", ())
         metadata = dct.get("metadata")
+        if isinstance(metadata, dict):
+            metadata = CatalogMetadata.from_dict(metadata)
         return cls(
             **dct
             | {

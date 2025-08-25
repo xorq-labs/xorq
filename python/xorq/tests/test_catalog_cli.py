@@ -1,5 +1,4 @@
 import pytest
-import yaml
 
 from xorq.cli import catalog_command, parse_args
 
@@ -23,32 +22,6 @@ def test_ls_empty_catalog(capsys):
     out = capsys.readouterr().out
     # No aliases, just Entries header
     assert out == LS_BASELINE
-
-
-def test_add_and_ls_and_inspect(tmp_path, capsys):
-    # Create minimal build directory
-    build_dir = tmp_path / "build1"
-    build_dir.mkdir()
-    # metadata.json is required
-    (build_dir / "metadata.json").write_text("{}")
-    # Add build to catalog
-    args = parse_args(["catalog", "add", str(build_dir)])
-    catalog_command(args)
-    out_add = capsys.readouterr().out
-    assert "Added build build1 as entry" in out_add
-    # ls shows the entry
-    args = parse_args(["ls"])
-    catalog_command(args)
-    out_ls = capsys.readouterr().out
-    assert "build1" in out_ls
-    # inspect shows summary and metadata
-    # Extract entry_id from add output (fifth token)
-    entry_id = out_add.split()[5]
-    args = parse_args(["catalog", "inspect", entry_id])
-    catalog_command(args)
-    out_inspect = capsys.readouterr().out
-    assert "Summary:" in out_inspect
-    assert "Expr Hash    : build1" in out_inspect
 
 
 def test_diff_builds_identical(tmp_path, capsys):
@@ -78,60 +51,6 @@ def test_diff_builds_no_files(tmp_path):
         catalog_command(args)
     # No files to diff -> exit code 2
     assert e.value.code == 2
-
-
-def test_inspect_full_profiles(tmp_path, capsys):
-    # Prepare a fake build directory with metadata.json and profiles.yaml
-    build_dir = tmp_path / "b1"
-    build_dir.mkdir()
-    # metadata.json is required by validate_build
-    (build_dir / "metadata.json").write_text("{}")
-    # Create a profiles.yaml file
-    profiles = {
-        "pg": {"host": "localhost", "port": 5432},
-        "duckdb": {"path": "db.duckdb"},
-    }
-    (build_dir / "profiles.yaml").write_text(yaml.safe_dump(profiles))
-    # Add the build to the catalog
-    args = parse_args(["catalog", "add", str(build_dir)])
-    catalog_command(args)
-    out_add = capsys.readouterr().out
-    # Extract entry_id (6th token)
-    entry_id = out_add.split()[5]
-    # Inspect with --full to show profiles and expression DAG
-    args = parse_args(["catalog", "inspect", entry_id, "--full"])
-    catalog_command(args)
-    out = capsys.readouterr().out
-    # Since expr.yaml is missing, expect an error loading the DAG
-    assert "Error loading expression for DAG" in out
-    # Should print Profiles section and our two profiles
-    assert "Profiles:" in out
-    assert "pg: {'host': 'localhost', 'port': 5432}" in out
-    assert "duckdb: {'path': 'db.duckdb'}" in out
-    # Should include Node hashes section even if empty
-    assert "Node hashes:" in out
-    assert "No node hashes recorded." in out
-
-
-def test_inspect_print_nodes_only(tmp_path, capsys):
-    # Prepare a fake build directory with metadata.json but no profiles
-    build_dir = tmp_path / "b2"
-    build_dir.mkdir()
-    (build_dir / "metadata.json").write_text("{}")
-    # Add the build to the catalog
-    args = parse_args(["catalog", "add", str(build_dir)])
-    catalog_command(args)
-    out_add = capsys.readouterr().out
-    entry_id = out_add.split()[5]
-    # Inspect with --hashes only
-    args = parse_args(["catalog", "inspect", entry_id, "--hashes"])
-    catalog_command(args)
-    out = capsys.readouterr().out
-    # Should print Node hashes section with no recorded hashes
-    assert "Node hashes:" in out
-    assert "No node hashes recorded." in out
-    # Since expr.yaml is missing, expect an error loading the DAG
-    assert "Error loading expression for DAG" in out
 
 
 def test_rm_entry(tmp_path, capsys):
