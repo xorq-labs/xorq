@@ -276,11 +276,31 @@ class _SourceStorage(CacheStorage):
         return self.source.table(key).op()
 
     def _put(self, key, value):
-        if self.source.name == "postgres":
-            self.source.read_record_batches(
-                value.to_expr().to_pyarrow_batches(),
-                key,
-            )
+        def is_remote(value):
+            name = value.to_expr()._find_backend().name
+            # FIXME: add pyiceberg, trino
+            return name in ("postgres", "snowflake")
+
+        def is_single_backend(storage, value):
+            from xorq.common.utils.graph_utils import find_all_sources
+
+            return (storage.source,) == find_all_sources(value.to_expr())
+
+        if is_remote(value):
+            if is_single_backend(self, value):
+                from xorq.expr.api import _transform_expr
+
+                # must transform for Read ops: create_table expects a vanilla ibis expr
+                (transformed, _) = _transform_expr(value.to_expr())
+                self.source.create_table(key, transformed)
+            else:
+                assert hasattr(self.source, "read_record_batches")
+                # read_record_batches will create durable table in out-of-core fashion
+                # works for snowflake and postgres
+                self.source.read_record_batches(
+                    value.to_expr().to_pyarrow_batches(),
+                    key,
+                )
         else:
             self.source.create_table(key, xo.to_pyarrow(value.to_expr()))
         return self._get(key)
