@@ -53,18 +53,8 @@ class FlightClient:
             if v
         }
         scheme = "grpc+tls" if bytes_kwargs else "grpc"
-        generic_options = [
-            ("grpc.max_metadata_size", 262144),  # 256KB
-            ("grpc.max_send_message_length", 100 * 1024 * 1024),  # 100MB
-            ("grpc.max_receive_message_length", 100 * 1024 * 1024),  # 100MB
-            ("grpc.keepalive_time_ms", 60000),
-        ]
-
         self._client = _FlightClient(
-            f"{scheme}://{host}:{port}",
-            generic_options=generic_options,
-            **bytes_kwargs,
-            **kwargs,
+            f"{scheme}://{host}:{port}", **bytes_kwargs, **kwargs
         )
         self._wait_on_healthcheck()
 
