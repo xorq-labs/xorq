@@ -10,8 +10,6 @@ from opentelemetry import trace
 
 import xorq as xo
 import xorq.common.utils.pickle_utils  # noqa: F401
-
-# Helper functions for diff-builds subcommand
 from xorq.catalog import (
     ServerRecord,
     catalog_command,
@@ -568,7 +566,6 @@ def parse_args(override=None):
         choices=tuple(InitTemplates),
         default=InitTemplates.cached_fetcher,
     )
-    # Top-level lineage command
     lineage_parser = subparsers.add_parser(
         "lineage",
         help="Print lineage trees of all columns for a build",
@@ -577,21 +574,6 @@ def parse_args(override=None):
         "target",
         help="Build target: alias, entry_id, build_id, or path to build dir",
     )
-    # Cache a built expression to Parquet via CachedNode
-    cache_parser = subparsers.add_parser(
-        "cache", help="Cache a build's expression output to Parquet"
-    )
-    cache_parser.add_argument(
-        "target",
-        help="Build target: alias, entry_id, build_id, or path to build dir",
-    )
-    cache_parser.add_argument(
-        "--cache-dir",
-        required=False,
-        default=get_xorq_cache_dir(),
-        help="Directory to store parquet cache files",
-    )
-    # List running servers
     ps_parser = subparsers.add_parser(
         "ps",
         help="List running xorq servers",
@@ -602,7 +584,6 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for server state records",
     )
-    # Catalog commands
     catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
     catalog_subparsers = catalog_parser.add_subparsers(
         dest="subcommand", help="Catalog commands"
@@ -616,23 +597,13 @@ def parse_args(override=None):
     catalog_add.add_argument(
         "-a", "--alias", help="Optional alias for this entry", default=None
     )
-    # List catalog entries
     catalog_subparsers.add_parser("ls", help="List catalog entries")
 
-    # Show top-level catalog information
     catalog_subparsers.add_parser("info", help="Show catalog information")
-    # Remove an entry or alias from the catalog
     catalog_rm = catalog_subparsers.add_parser(
         "rm", help="Remove a build entry or alias from the catalog"
     )
     catalog_rm.add_argument("entry", help="Entry ID or alias to remove")
-    # Export catalog and builds to a directory
-    catalog_export = catalog_subparsers.add_parser(
-        "export", help="Export catalog and all builds to a target directory"
-    )
-    catalog_export.add_argument(
-        "output_path", help="Directory path to export catalog.yaml and builds subfolder"
-    )
     catalog_diff_builds = catalog_subparsers.add_parser(
         "diff-builds", help="Compare two build artifacts via git diff --no-index"
     )
