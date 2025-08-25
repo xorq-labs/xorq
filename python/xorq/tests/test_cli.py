@@ -631,7 +631,9 @@ def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
 
 @pytest.mark.slow
 def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
-    from xorq.tests.conftest import array_types_df
+    import pandas as pd
+
+    df = pd.DataFrame([float(v) for v in range(10)], columns=["x"])
 
     serve_tag = "full"
 
@@ -660,15 +662,9 @@ def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
     flight_backend = xo.flight.connect(port=port)
     f = flight_backend.get_exchange("default")
     actual = (
-        xo.connect()
-        .register(array_types_df)
-        .select("x")
-        .pipe(f)
-        .execute()
-        .iloc[0, 0]
-        .astype(int)
+        xo.connect().register(df).select("x").pipe(f).execute().iloc[0, 0].astype(int)
     )
-    expected = array_types_df["x"].explode().sum()
+    expected = df["x"].sum()
     assert actual == expected
 
     serve_popened.popen.terminate()
