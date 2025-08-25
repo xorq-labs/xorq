@@ -246,7 +246,7 @@ def unbind_and_serve_command(
 
         found = find_node(expr, hash=hash, tag=tag, typs=typ)
         to_unbind_hash = hash or dask.base.tokenize(found.to_expr())
-        found_cons = find_all_sources(expr)
+        found_cons = find_all_sources(found.to_expr())
         if len(found_cons) == 0:
             raise ValueError
         elif len(found_cons) == 1:
