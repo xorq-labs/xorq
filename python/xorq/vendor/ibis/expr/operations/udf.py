@@ -29,7 +29,9 @@ if TYPE_CHECKING:
 
     import xorq.vendor.ibis.expr.types as ir
 
+
 EMPTY = inspect.Parameter.empty
+
 
 _udf_name_cache: MutableMapping[type[ops.Node], Iterable[int]] = (
     collections.defaultdict(itertools.count)

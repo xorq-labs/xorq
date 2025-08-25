@@ -5,13 +5,17 @@ from abc import (
 
 import pyarrow as pa
 import pyarrow.flight as paf
+import toolz
 from cloudpickle import dumps, loads
 
 from xorq.common.utils import classproperty
 
 
-def make_flight_result(any):
-    return paf.Result(pa.py_buffer(dumps(any)))
+make_flight_result = toolz.compose(
+    paf.Result,
+    pa.py_buffer,
+    dumps,
+)
 
 
 class AbstractAction(ABC):
