@@ -1,13 +1,9 @@
 import importlib
 
-import dask
 import toolz
 
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
-    patch_normalize_op_caching,
-)
 from xorq.common.utils.graph_utils import (
     bfs,
     replace_nodes,
@@ -50,12 +46,11 @@ def get_typs(maybe_typs):
 
 def find_by_expr_hash(expr, to_replace_hash, typs=None):
     typs = get_typs(typs)
-    with patch_normalize_op_caching():
-        (to_replace, *rest) = (
-            node
-            for node in walk_nodes(typs, expr)
-            if dask.base.tokenize(node.to_expr()) == to_replace_hash
-        )
+    (to_replace, *rest) = (
+        node
+        for node in walk_nodes(typs, expr)
+        if node.to_expr().ls.tokenized == to_replace_hash
+    )
     if rest:
         raise ValueError
     return to_replace
