@@ -46,18 +46,6 @@ def batting(pg):
     return pg.table("batting")
 
 
-@pytest.mark.skip
-@pytest.mark.snapshot_check
-def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
-    con = xo.datafusion.connect()
-    typ = type(con)
-    t = con.register(alltypes_df, "t")
-    with patch_normalize_token(type(con)) as mocks:
-        actual = dask.base.tokenize(t)
-    mocks[typ].assert_not_called()
-    snapshot.assert_match(actual, "datafusion_memory_key.txt")
-
-
 @pytest.mark.snapshot_check
 def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     path = pathlib.Path(tmp_path).joinpath("data.parquet")
@@ -79,6 +67,17 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
     )
     actual = hashlib.md5(to_hash.encode(), usedforsecurity=False).hexdigest()
     snapshot.assert_match(actual, "datafusion_key.txt")
+
+
+@pytest.mark.snapshot_check
+def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
+    con = xo.datafusion.connect()
+    typ = type(con)
+    t = con.register(alltypes_df, "t")
+    with patch_normalize_token(type(con)) as mocks:
+        actual = dask.base.tokenize(t)
+    mocks[typ].assert_not_called()
+    snapshot.assert_match(actual, "datafusion_memory_key.txt")
 
 
 @pytest.mark.snapshot_check
