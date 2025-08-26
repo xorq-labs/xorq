@@ -1,20 +1,19 @@
+from __future__ import annotations
+
 from functools import partial
 from itertools import chain
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 import pyarrow as pa
 import toolz
 
-import xorq as xo
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.let import Backend
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
-    normalize_read_path_stat,
-)
+from xorq.backends.let import connect as xo_connect
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
+from xorq.config import _backend_init
 from xorq.expr.relations import (
     Read,
 )
@@ -26,6 +25,10 @@ from xorq.vendor.ibis.util import (
 )
 
 
+if TYPE_CHECKING:
+    from xorq.backends.let import Backend
+
+
 DEFAULT_CHUNKSIZE = 10_000
 
 
@@ -35,6 +38,20 @@ def make_read_kwargs(f, *args, **kwargs):
     kwargs = read_kwargs.pop("kwargs", {})
     tpl = tuple(read_kwargs.items()) + tuple(kwargs.items())
     return tpl
+
+
+def normalize_read_path_stat(path):
+    stat = path.stat()
+    tpls = tuple(
+        (attrname, getattr(stat, attrname))
+        for attrname in (
+            "st_mtime",
+            "st_size",
+            # mtime, size <?-?> md5sum
+            "st_ino",
+        )
+    )
+    return tpls
 
 
 @toolz.curry
@@ -58,7 +75,7 @@ def read_csv_rbr(*args, schema=None, chunksize=DEFAULT_CHUNKSIZE, dtype=None, **
     if chunksize is None:
         raise ValueError("chunksize must not be `None`")
     if schema is not None:
-        schema = xo.schema(schema)
+        schema = ibis.schema(schema)
         dtype = {col: typ.to_pandas() for col, typ in schema.items()}
         schema = schema.to_pyarrow()
     # schema is always nullable (this is good)
@@ -142,7 +159,7 @@ def deferred_read_csv(
     method = getattr(con, method_name)
 
     if con is None:
-        con = xo.config._backend_init()
+        con = _backend_init()
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
     if schema is None:
@@ -206,10 +223,10 @@ def deferred_read_parquet(
     deferred_read_parquet.method_name = method_name = "read_parquet"
     method = getattr(con, method_name)
     if con is None:
-        con = xo.config._backend_init()
+        con = _backend_init()
     if table_name is None:
         table_name = gen_name(f"letsql-{method_name}")
-    schema = xo.connect().read_parquet(path).schema()
+    schema = xo_connect().read_parquet(path).schema()
     read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
     return Read(
         method_name=method_name,

@@ -5,7 +5,7 @@ import re
 import pandas as pd
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.conftest import (
     get_storage_uncached,

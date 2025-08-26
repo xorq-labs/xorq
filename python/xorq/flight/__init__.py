@@ -15,7 +15,7 @@ from attrs.validators import (
     optional,
 )
 
-import xorq as xo
+from xorq.backends.let import connect as xo_connect
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.backend import Backend
@@ -137,7 +137,7 @@ class FlightServer:
         verify_client=False,
         root_certificates=None,
         auth: BasicAuth = None,
-        make_connection=xo.connect,
+        make_connection=xo_connect,
         exchangers=(),
     ):
         required_scheme = (

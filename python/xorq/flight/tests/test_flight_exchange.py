@@ -4,7 +4,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.flight.exchanger import make_udxf
 from xorq.flight.tests.conftest import (
     do_agg,

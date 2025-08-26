@@ -3,11 +3,11 @@ import dask
 import pyarrow as pa
 import toolz
 
-import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.expr.ml.structer import Structer
 from xorq.expr.udf import make_pandas_expr_udf
+from xorq.vendor import ibis
 
 
 @toolz.curry
@@ -85,7 +85,7 @@ def _deferred_fit_other(
 
     features = tuple(features or expr.schema())
     schema = expr.select(features).schema()
-    fit_schema = schema | (xo.schema({target: expr[target].type()}) if target else {})
+    fit_schema = schema | (ibis.schema({target: expr[target].type()}) if target else {})
     model_udaf = udf.agg.pandas_df(
         fn=toolz.compose(
             cloudpickle.dumps, inner_fit(fit=fit, target=target, features=features)

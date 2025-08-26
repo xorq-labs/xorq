@@ -21,7 +21,6 @@ from attr.validators import (
 from opentelemetry import trace
 from public import public
 
-import xorq as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.caching_utils import (
@@ -36,6 +35,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
 )
 from xorq.common.utils.otel_utils import tracer
+from xorq.config import _backend_init, options
 from xorq.expr.relations import (
     Read,
     RemoteTable,
@@ -76,7 +76,7 @@ class Cache:
     storage = field(validator=instance_of(CacheStorage))
     key_prefix = field(
         validator=instance_of(str),
-        factory=functools.partial(xorq.options.get, "cache.key_prefix"),
+        factory=functools.partial(options.get, "cache.key_prefix"),
     )
 
     def exists(self, expr):
@@ -134,7 +134,7 @@ class Cache:
 class ModificationTimeStrategy(CacheStrategy):
     key_prefix = field(
         validator=instance_of(str),
-        factory=functools.partial(xorq.options.get, "cache.key_prefix"),
+        factory=functools.partial(options.get, "cache.key_prefix"),
     )
 
     def get_key(self, expr: ir.Expr):
@@ -221,11 +221,11 @@ class SnapshotStrategy(CacheStrategy):
 class _ParquetStorage(CacheStorage):
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=xorq.config._backend_init,
+        factory=_backend_init,
     )
     relative_path = field(
         validator=instance_of(Path),
-        factory=functools.partial(xorq.options.get, "cache.default_relative_path"),
+        factory=functools.partial(options.get, "cache.default_relative_path"),
     )
     base_path = field(
         validator=optional(instance_of(Path)),
@@ -251,7 +251,7 @@ class _ParquetStorage(CacheStorage):
 
     def _put(self, key, value):
         loc = self.get_loc(key)
-        xo.to_parquet(value.to_expr(), loc)
+        value.to_expr().to_parquet(loc)
         return self._get(key)
 
     def _drop(self, key):
@@ -266,7 +266,7 @@ class _ParquetStorage(CacheStorage):
 class _SourceStorage(CacheStorage):
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=xorq.config._backend_init,
+        factory=_backend_init,
     )
 
     def key_exists(self, key):
@@ -302,7 +302,7 @@ class _SourceStorage(CacheStorage):
                     key,
                 )
         else:
-            self.source.create_table(key, xo.to_pyarrow(value.to_expr()))
+            self.source.create_table(key, value.to_expr().to_pyarrow())
         return self._get(key)
 
     def _drop(self, key):
@@ -346,11 +346,11 @@ class ParquetSnapshotStorage:
 
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=xorq.config._backend_init,
+        factory=_backend_init,
     )
     relative_path = field(
         validator=instance_of(Path),
-        factory=functools.partial(xorq.options.get, "cache.default_relative_path"),
+        factory=functools.partial(options.get, "cache.default_relative_path"),
     )
     base_path = field(
         validator=optional(instance_of(Path)),
@@ -410,11 +410,11 @@ class ParquetStorage:
 
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=xorq.config._backend_init,
+        factory=_backend_init,
     )
     relative_path = field(
         validator=instance_of(Path),
-        factory=functools.partial(xorq.options.get, "cache.default_relative_path"),
+        factory=functools.partial(options.get, "cache.default_relative_path"),
     )
     base_path = field(
         validator=optional(instance_of(Path)),
@@ -454,7 +454,7 @@ class SourceStorage:
 
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=xorq.config._backend_init,
+        factory=_backend_init,
     )
     cache = field(validator=instance_of(Cache), init=False)
 
@@ -486,7 +486,7 @@ class SourceSnapshotStorage:
 
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
-        factory=xorq.config._backend_init,
+        factory=_backend_init,
     )
     cache = field(validator=instance_of(Cache), init=False)
 
@@ -502,8 +502,8 @@ class SourceSnapshotStorage:
 class GCStorage:
     bucket_name = field(validator=instance_of(str))
     source = field(
-        validator=instance_of(xo.vendor.ibis.backends.BaseBackend),
-        factory=xo.config._backend_init,
+        validator=instance_of(ibis.backends.BaseBackend),
+        factory=_backend_init,
     )
     cache = field(validator=instance_of(Cache), init=False)
 

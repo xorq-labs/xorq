@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.relations import into_backend
 from xorq.ml import make_quickgrove_udf, rewrite_quickgrove_expr
 

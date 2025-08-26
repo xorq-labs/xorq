@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.cli import (
     InitTemplates,
     build_command,

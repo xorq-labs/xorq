@@ -5,7 +5,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.ml.pipeline_lib import (
     Pipeline,
 )

@@ -32,18 +32,15 @@ from xorq.vendor.ibis.backends.sql.dialects import DataFusion
 from xorq.vendor.ibis.expr import api
 from xorq.vendor.ibis.expr.api import *  # noqa: F403
 from xorq.vendor.ibis.expr.sql import SQLString
-from xorq.vendor.ibis.expr.types import Table
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Sequence
+    from collections.abc import Sequence
     from io import TextIOWrapper
     from pathlib import Path
 
     import pandas as pd
     import pyarrow as pa
-
-    from xorq.vendor.ibis.expr.schema import SchemaLike
 
 
 __all__ = (
@@ -66,100 +63,6 @@ __all__ = (
     "get_object_metadata",
     *api.__all__,
 )
-
-
-def memtable(
-    data,
-    *,
-    columns: Iterable[str] | None = None,
-    schema: SchemaLike | None = None,
-    name: str | None = None,
-) -> Table:
-    """Construct an ibis table expression from in-memory data.
-
-    Parameters
-    ----------
-    data
-        A table-like object (`pandas.DataFrame`, `pyarrow.Table`, or
-        `polars.DataFrame`), or any data accepted by the `pandas.DataFrame`
-        constructor (e.g. a list of dicts).
-
-        Note that ibis objects (e.g. `MapValue`) may not be passed in as part
-        of `data` and will result in an error.
-
-        Do not depend on the underlying storage type (e.g., pyarrow.Table),
-        it's subject to change across non-major releases.
-    columns
-        Optional [](`typing.Iterable`) of [](`str`) column names. If provided,
-        must match the number of columns in `data`.
-    schema
-        Optional [`Schema`](./schemas.qmd#ibis.expr.schema.Schema).
-        The functions use `data` to infer a schema if not passed.
-    name
-        Optional name of the table.
-
-    Returns
-    -------
-    Table
-        A table expression backed by in-memory data.
-
-    Examples
-    --------
-    >>> import xorq as xo
-    >>> xo.options.interactive = False
-    >>> t = xo.memtable([{"a": 1}, {"a": 2}])
-    >>> t
-    InMemoryTable
-      data:
-        PandasDataFrameProxy:
-             a
-          0  1
-          1  2
-
-    >>> t = xo.memtable([{"a": 1, "b": "foo"}, {"a": 2, "b": "baz"}])
-    >>> t
-    InMemoryTable
-      data:
-        PandasDataFrameProxy:
-             a    b
-          0  1  foo
-          1  2  baz
-
-    Create a table literal without column names embedded in the data and pass
-    `columns`
-
-    >>> t = xo.memtable([(1, "foo"), (2, "baz")], columns=["a", "b"])
-    >>> t
-    InMemoryTable
-      data:
-        PandasDataFrameProxy:
-             a    b
-          0  1  foo
-          1  2  baz
-
-    Create a table literal without column names embedded in the data. Ibis
-    generates column names if none are provided.
-
-    >>> t = xo.memtable([(1, "foo"), (2, "baz")])
-    >>> t
-    InMemoryTable
-      data:
-        PandasDataFrameProxy:
-             col0 col1
-          0     1  foo
-          1     2  baz
-
-    """
-
-    import pyarrow.dataset as ds
-
-    if isinstance(data, ds.InMemoryDataset):
-        data = data.to_table()
-
-    if isinstance(data, pa.RecordBatch):
-        data = data.to_pandas()
-
-    return api.memtable(data, columns=columns, schema=schema, name=name)
 
 
 def read_csv(
@@ -396,7 +299,7 @@ def execute(expr: ir.Expr, **kwargs: Any):
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> t = xo.examples.penguins.fetch()
     >>> t.execute()
            species     island  bill_length_mm  ...  body_mass_g     sex  year

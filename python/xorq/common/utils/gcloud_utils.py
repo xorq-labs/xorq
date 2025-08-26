@@ -11,8 +11,9 @@ from attr.validators import (
 from google.cloud import storage
 from toolz import curry
 
-import xorq as xo
 from xorq.caching import CacheStorage
+from xorq.config import _backend_init
+from xorq.vendor.ibis.backends import BaseBackend
 
 
 @curry
@@ -47,8 +48,8 @@ def rbr_to_fs(fs, path, rbr, **kwargs):
 class _GCStorage(CacheStorage):
     bucket_name: str = field(validator=instance_of(str))
     source = field(
-        validator=instance_of(xo.vendor.ibis.backends.BaseBackend),
-        factory=xo.config._backend_init,
+        validator=instance_of(BaseBackend),
+        factory=_backend_init,
     )
     fs: gcsfs.GCSFileSystem = field(init=False)
 

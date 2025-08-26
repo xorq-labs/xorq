@@ -2,7 +2,6 @@ from typing import Any, Dict
 
 import toolz
 
-import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
@@ -17,6 +16,7 @@ from xorq.ibis_yaml.common import (
     translate_to_yaml,
 )
 from xorq.ibis_yaml.utils import freeze
+from xorq.vendor import ibis
 from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.expr.schema import Schema
 
@@ -202,7 +202,7 @@ def make_op_kwargs(op):
 
 
 def kwargs_to_schema(kwargs):
-    schema = xo.schema(
+    schema = ibis.schema(
         {
             argname: typ
             for (argname, typ) in (

@@ -5,7 +5,7 @@ import toolz
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.preprocessing import StandardScaler
 
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_sklearn_struct,

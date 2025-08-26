@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.aws_utils import (
     connection_is_set,
     make_s3_credentials_defaults,

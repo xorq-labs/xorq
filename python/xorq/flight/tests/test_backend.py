@@ -5,8 +5,8 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import xorq as xo
-from xorq import _
+import xorq.api as xo
+from xorq.api import _
 from xorq.common.utils.tls_utils import TLSKwargs
 from xorq.flight import FlightServer
 from xorq.flight.exchanger import make_udxf

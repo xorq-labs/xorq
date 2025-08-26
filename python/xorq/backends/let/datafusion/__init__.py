@@ -14,7 +14,7 @@ import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
 
-import xorq as xo
+import xorq
 import xorq.common.exceptions as com
 import xorq.expr.datatypes as dt
 import xorq.internal as df
@@ -209,7 +209,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
     @property
     def version(self):
-        return xo.__version__
+        return xorq.__version__
 
     def do_connect(self, config: SessionConfig | None = None) -> None:
         if config is None:
@@ -312,7 +312,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             # user can do Scalar.to_table() if they want to cache it
             import pandas as pd
 
-            value = xo.execute(expr)
+            value = expr.execute()
             if isinstance(value, pd.DataFrame):
                 if value.shape != (1, 1):
                     raise ValueError
@@ -619,7 +619,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
             )
 
         if schema := kwargs.get("schema"):
-            if isinstance(schema, xo.Schema):
+            if isinstance(schema, ibis.Schema):
                 kwargs["schema"] = schema.to_pyarrow()
 
         # Our other backends support overwriting views / tables when re-registering
@@ -808,7 +808,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                table = xo.memtable(obj, schema=schema)
+                table = ibis.memtable(obj, schema=schema)
             else:
                 table = obj
 
@@ -902,7 +902,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         self._import_pyarrow()
         import pyarrow.parquet as pq
 
-        with xo.to_pyarrow_batches(expr, params=params) as batch_reader:
+        with expr.to_pyarrow_batches(params=params) as batch_reader:
             with pq.ParquetWriter(path, batch_reader.schema, **kwargs) as writer:
                 for batch in batch_reader:
                     writer.write_batch(batch)

@@ -13,7 +13,7 @@ from xorq_feature_utils import (
     FeatureView,
 )
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.logging_utils import get_logger
 from xorq.flight import Backend as FlightBackend

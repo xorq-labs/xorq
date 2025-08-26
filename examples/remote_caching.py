@@ -1,5 +1,5 @@
-import xorq as xo
-from xorq import _
+import xorq.api as xo
+from xorq.api import _
 from xorq.caching import SourceStorage
 
 

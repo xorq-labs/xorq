@@ -14,7 +14,7 @@ from sklearn.preprocessing import (
     OneHotEncoder,
 )
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.common.utils.defer_utils import deferred_read_csv

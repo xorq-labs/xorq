@@ -3,7 +3,7 @@ import pathlib
 
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.backends.profiles import Profile, Profiles, parse_env_vars
 
@@ -542,7 +542,7 @@ class TestCheckForExposedSecrets:
         )
 
         # Override the profile directory for testing
-        monkeypatch.setattr("xorq.options.profiles.profile_dir", tmp_path)
+        monkeypatch.setattr("xorq.api.options.profiles.profile_dir", tmp_path)
 
         with pytest.raises(ValueError) as excinfo:
             profile.save()

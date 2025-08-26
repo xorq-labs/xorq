@@ -9,10 +9,10 @@ from pyarrow.flight import (
     FlightClient as _FlightClient,
 )
 
-import xorq as xo
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
 )
+from xorq.vendor import ibis
 
 
 executor = ThreadPoolExecutor()
@@ -240,9 +240,9 @@ class FlightClient:
 
         def get_output_schema(command, reader):
             (dct,) = self.do_action("query-exchange", command, options=self._options)
-            assert dct["schema-in-condition"](xo.schema(reader.schema))
+            assert dct["schema-in-condition"](ibis.schema(reader.schema))
             output_schema = dct["calc-schema-out"](
-                xo.schema(reader.schema)
+                ibis.schema(reader.schema)
             ).to_pyarrow()
             return output_schema
 

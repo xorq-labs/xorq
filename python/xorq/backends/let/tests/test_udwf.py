@@ -1,7 +1,7 @@
 import numpy as np
 import pyarrow as pa
 
-import xorq as xo
+import xorq.api as xo
 from xorq.internal import WindowEvaluator, udwf
 
 

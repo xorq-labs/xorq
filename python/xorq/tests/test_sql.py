@@ -1,6 +1,6 @@
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 
 
 @pytest.mark.parametrize("file_format", ["parquet", "csv"])

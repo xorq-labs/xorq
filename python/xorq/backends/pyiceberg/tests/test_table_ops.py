@@ -1,8 +1,8 @@
 import pyarrow as pa
 import pytest
 
-from xorq import Schema
 from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
+from xorq.vendor.ibis import Schema
 
 
 def test_create_table_from_expr(iceberg_con, quotes_table):

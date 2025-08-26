@@ -4,7 +4,7 @@ import pandas.testing as tm
 import pyarrow as pa
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
 from xorq import udf

@@ -4,7 +4,7 @@ import pytest
 import sqlglot as sg
 import sqlglot.expressions as sge
 
-import xorq as xo
+import xorq.api as xo
 from xorq.vendor.ibis.util import gen_name
 
 

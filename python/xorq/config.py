@@ -2,12 +2,14 @@ import ast
 import pathlib
 from typing import Any, Optional, Union
 
+from xorq.backends.let import connect
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
 )
 from xorq.vendor import ibis
 from xorq.vendor.ibis.config import Config
+from xorq.vendor.ibis.config import Options as IbisOptions
 
 
 env_config = EnvConfigable.subclass_from_env_file(
@@ -146,11 +148,7 @@ class Pins(Config):
         return path
 
 
-class Profiles(Config):
-    profile_dir: pathlib.Path = pathlib.Path(env_config.XORQ_PROFILE_DIR).expanduser()
-
-
-class Options(Config):
+class Options(IbisOptions):
     """xorq configuration options
 
     Attributes
@@ -168,7 +166,6 @@ class Options(Config):
     repr: Repr = Repr()
     sql: SQL = SQL()
     pins: Pins = Pins()
-    profiles: Profiles = Profiles()
     debug: bool = bool(ast.literal_eval(env_config.XORQ_DEBUG or 0))
 
     @property
@@ -188,7 +185,5 @@ def _backend_init():
     if (backend := options.backend) is not None:
         return backend
 
-    import xorq as xo
-
-    options.backend = con = xo.connect()
+    options.backend = con = connect()
     return con

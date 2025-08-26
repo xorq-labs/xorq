@@ -9,9 +9,9 @@ import dask
 import pyarrow as pa
 import toolz
 
-import xorq as xo
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.backends.let import connect as xo_connect
 from xorq.common.utils import classproperty
 from xorq.common.utils.func_utils import (
     return_constant,
@@ -25,6 +25,7 @@ from xorq.common.utils.rbr_utils import (
     excepts_print_exc,
     make_filtered_reader,
 )
+from xorq.vendor import ibis
 
 
 def schemas_equal(s0, s1):
@@ -219,7 +220,7 @@ class PandasUDFExchanger(AbstractExchanger):
     def calc_schema_out(self):
         def f(schema_in):
             # FIXME: what to send if schema_in does not match schema_in_required?
-            field_schema = xo.schema({self.name: self.typ})
+            field_schema = ibis.schema({self.name: self.typ})
             if self.append:
                 schema_out = schema_in | field_schema
             else:
@@ -248,7 +249,7 @@ class PandasUDFExchanger(AbstractExchanger):
 
 
 class UnboundExprExchanger(AbstractExchanger):
-    def __init__(self, unbound_expr, make_connection=xo.connect):
+    def __init__(self, unbound_expr, make_connection=xo_connect):
         self.get_one_unbound(unbound_expr)
         self.unbound_expr = self.set_one_unbound_name(unbound_expr)
         self.make_connection = make_connection
@@ -325,7 +326,7 @@ def make_udxf(
 
     if isinstance(maybe_schema_in, pa.Schema):
         raise ValueError
-    elif isinstance(maybe_schema_in, xo.Schema):
+    elif isinstance(maybe_schema_in, ibis.Schema):
         schema_in_required = maybe_schema_in
         schema_in_condition = toolz.curried.operator.eq(schema_in_required)
     elif isinstance(maybe_schema_in, Callable):
@@ -337,7 +338,7 @@ def make_udxf(
     out_schema = None
     if isinstance(maybe_schema_out, pa.Schema):
         raise ValueError
-    elif isinstance(maybe_schema_out, xo.Schema):
+    elif isinstance(maybe_schema_out, ibis.Schema):
         calc_schema_out = return_constant(maybe_schema_out)
         out_schema = maybe_schema_out
     elif isinstance(maybe_schema_out, Callable):

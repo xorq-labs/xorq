@@ -121,9 +121,9 @@ class Backend(IbisSnowflakeBackend):
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                import xorq as xo
+                from xorq.expr import api
 
-                table = xo.memtable(obj)
+                table = api.memtable(obj)
             else:
                 table = obj
 
@@ -235,3 +235,9 @@ class Backend(IbisSnowflakeBackend):
         snowflake_adbc = SnowflakeADBC(self, password)
         snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         return self.table(table_name)
+
+
+def connect(*args, **kwargs):
+    con = Backend()
+    con.do_connect(*args, **kwargs)
+    return con

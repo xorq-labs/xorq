@@ -7,7 +7,7 @@ import dask
 import pytest
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 from xorq.caching import (
     SourceSnapshotStorage,

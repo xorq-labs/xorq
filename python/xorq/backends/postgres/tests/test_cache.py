@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import (
     ParquetSnapshotStorage,
     SourceSnapshotStorage,

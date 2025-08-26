@@ -2,8 +2,8 @@ import operator
 
 import toolz
 
-import xorq as xo
-from xorq import make_pandas_udf
+import xorq.api as xo
+from xorq.api import make_pandas_udf
 
 
 field_name = "price_per_carat"
