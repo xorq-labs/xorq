@@ -13,11 +13,13 @@ import toolz
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
-from xorq.expr import api
-from xorq.vendor.ibis import literal
 from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.vendor.ibis.common.patterns import pattern, replace
+from xorq.vendor.ibis.expr.api import (
+    case,
+    literal,
+)
 from xorq.vendor.ibis.expr.operations.udf import InputType, ScalarUDF
 from xorq.vendor.ibis.expr.rules import ValueOf
 from xorq.vendor.ibis.util import Namespace
@@ -223,9 +225,9 @@ def calc_split_column(
         num_buckets=num_buckets,
         random_seed=random_seed,
     )
-    col = api.case()
+    col = case()
     for i, condition in enumerate(conditions):
-        col = col.when(condition, api.literal(i, "int64"))
+        col = col.when(condition, literal(i, "int64"))
     col = col.end().name(name)
     return col
 
