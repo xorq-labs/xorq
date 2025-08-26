@@ -275,13 +275,6 @@ class UnboundExprExchanger(AbstractExchanger):
         return replace_nodes(set_name, expr).to_expr()
 
     @property
-    def op_hash(self):
-        import xorq.common.utils.dask_normalize.dask_normalize_utils as DNU
-
-        with DNU.patch_normalize_op_caching():
-            return dask.base.tokenize(self.unbound_expr)
-
-    @property
     def exchange_f(self):
         return functools.partial(
             streaming_expr_exchange, self.unbound_expr, self.make_connection
@@ -303,7 +296,7 @@ class UnboundExprExchanger(AbstractExchanger):
 
     @property
     def command(self):
-        return f"execute-unbound-expr-{self.op_hash}"
+        return f"execute-unbound-expr-{self.unbound_expr.ls.tokenized}"
 
     @property
     def query_result(self):
