@@ -6,7 +6,6 @@ import pyarrow.compute as pc
 import toolz
 from opentelemetry import trace
 
-import xorq as xo
 from xorq.common.utils.otel_utils import (
     tracer,
 )
@@ -157,5 +156,5 @@ class ReaderSplitter:
 
     @classmethod
     def gen_splits(cls, expr, split_key):
-        rbr = xo.to_pyarrow_batches(expr.order_by(split_key))
+        rbr = expr.order_by(split_key).to_pyarrow_batches()
         yield from cls(rbr, split_key)

@@ -1,7 +1,7 @@
 import pytest
 from pytest import param
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis as ibis
 
 

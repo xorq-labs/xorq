@@ -9,7 +9,7 @@ import pyarrow.compute as pc
 import pytest
 import toolz
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.backends.conftest import (
     get_storage_uncached,

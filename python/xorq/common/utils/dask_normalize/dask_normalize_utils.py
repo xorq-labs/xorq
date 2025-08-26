@@ -75,20 +75,6 @@ def gen_batches(path, size=2**20):
         yield from gen
 
 
-def normalize_read_path_stat(path):
-    stat = path.stat()
-    tpls = tuple(
-        (attrname, getattr(stat, attrname))
-        for attrname in (
-            "st_mtime",
-            "st_size",
-            # mtime, size <?-?> md5sum
-            "st_ino",
-        )
-    )
-    return tpls
-
-
 def manual_file_digest(path, digest=hashlib.md5, size=2**20):
     from contextlib import closing
     from tarfile import ExFileObject

@@ -11,7 +11,7 @@ import pandas as pd
 import pytest
 from pytest import param
 
-import xorq as xo
+import xorq.api as xo
 from xorq.tests.util import assert_series_equal, default_series_rename
 from xorq.vendor import ibis
 from xorq.vendor.ibis import _

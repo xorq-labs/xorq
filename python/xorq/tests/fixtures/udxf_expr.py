@@ -1,6 +1,6 @@
 import operator
 
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.udf import make_pandas_udf
 
 

@@ -9,7 +9,7 @@ from cryptography.exceptions import (
     InvalidSignature,
 )
 
-import xorq as xo
+import xorq.api as xo
 from xorq.common.utils.tls_utils import (
     TLSCert,
     TLSKwargs,

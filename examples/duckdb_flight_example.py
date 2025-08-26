@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pyarrow as pa
 
-import xorq as xo
+import xorq.api as xo
 from xorq.flight import (
     FlightServer,
     FlightUrl,

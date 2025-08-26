@@ -9,7 +9,7 @@ import dask
 import toolz
 import yaml
 
-import xorq as xo
+import xorq
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
@@ -23,6 +23,8 @@ from xorq.common.utils.graph_utils import (
     replace_nodes,
     walk_nodes,
 )
+from xorq.config import _backend_init
+from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
 from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import SchemaRegistry, TranslationContext
@@ -183,7 +185,12 @@ class YamlExpressionTranslator:
 
 
 class BuildManager:
-    def __init__(self, build_dir: pathlib.Path, cache_dir: pathlib.Path | str = None, debug: bool = False):
+    def __init__(
+        self,
+        build_dir: pathlib.Path,
+        cache_dir: pathlib.Path | str = None,
+        debug: bool = False,
+    ):
         """
         build_dir: root directory where build artifacts are stored
         cache_dir: optional directory for parquet cache files
@@ -221,7 +228,7 @@ class BuildManager:
 
     def _make_metadata(self) -> str:
         metadata = {
-            "current_library_version": xo.__version__,
+            "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
         }
         if lu._git_is_present():
@@ -269,11 +276,13 @@ class BuildManager:
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
         # write SQL plan and deferred-read artifacts if debug enabled
-        if getattr(self, 'debug', False):
+        if getattr(self, "debug", False):
             sql_plans, deferred_reads = generate_sql_plans(expr)
             updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
             self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
-            updated_deferred_reads = self._process_deferred_reads(deferred_reads, expr_hash)
+            updated_deferred_reads = self._process_deferred_reads(
+                deferred_reads, expr_hash
+            )
             self.artifact_store.save_yaml(
                 updated_deferred_reads, expr_hash, "deferred_reads.yaml"
             )
@@ -363,8 +372,8 @@ def replace_deferred_reads(loaded):
     def deferred_read_to_memtable(dr):
         assert dr.values.get(IS_INMEMORY)
         path = next(v for k, v in dr.read_kwargs if k == "path")
-        df = xo.read_parquet(path).execute()
-        mt = xo.memtable(df, schema=dr.schema, name=dr.name)
+        df = read_parquet(path).execute()
+        mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
         return mt
 
     drs = tuple(dr for dr in loaded.op().find(Read) if dr.values.get(IS_INMEMORY))
@@ -376,7 +385,7 @@ def replace_deferred_reads(loaded):
 
 
 def replace_memtables(build_dir, expr):
-    def memtable_to_read_op(builds_dir, mt, con=xo.config._backend_init()):
+    def memtable_to_read_op(builds_dir, mt, con=_backend_init()):
         memtables_dir = Path(builds_dir).joinpath("memtables")
         memtables_dir.mkdir(parents=True, exist_ok=True)
         df = mt.to_expr().execute()
@@ -385,7 +394,7 @@ def replace_memtables(build_dir, expr):
         )
         df.to_parquet(parquet_path)
         # FIXME: enable Path
-        dr = xo.deferred_read_parquet(parquet_path, con, table_name=mt.name)
+        dr = deferred_read_parquet(parquet_path, con, table_name=mt.name)
         op = dr.op()
         args = dict(zip(op.__argnames__, op.__args__))
         args["values"] = {IS_INMEMORY: True}
@@ -402,7 +411,7 @@ def replace_memtables(build_dir, expr):
 
 
 def replace_database_tables(build_dir, expr):
-    def database_table_to_read_op(builds_dir, mt, con=xo.config._backend_init()):
+    def database_table_to_read_op(builds_dir, mt, con=_backend_init()):
         import pyarrow.parquet as pq
 
         database_tables_dir = Path(builds_dir).joinpath("database_tables")
@@ -413,7 +422,7 @@ def replace_database_tables(build_dir, expr):
         )
         pq.write_table(df, parquet_path)
         # we normalize based on content so we can reproducible hash
-        dr = xo.deferred_read_parquet(
+        dr = deferred_read_parquet(
             parquet_path,
             con,
             table_name=mt.name,

@@ -986,7 +986,7 @@ class Value(Expr):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> xo.options.interactive = True
         >>> t = xo.memtable({"values": [1, 2, 1, 2, 3, 2, 4]})
         >>> t

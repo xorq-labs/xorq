@@ -1,6 +1,6 @@
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 
 
 def test_register_read_csv(csv_dir):
@@ -50,7 +50,7 @@ def test_with_config(
 ):
     import pandas as pd
 
-    from xorq import SessionConfig
+    from xorq.api import SessionConfig
 
     session_config = (
         SessionConfig()

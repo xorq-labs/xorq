@@ -1,7 +1,7 @@
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import ParquetStorage
 from xorq.expr.ml.pipeline_lib import Step

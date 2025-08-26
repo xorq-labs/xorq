@@ -1,7 +1,7 @@
 import pandas as pd
 
-import xorq as xo
-from xorq import memtable
+import xorq.api as xo
+from xorq.api import memtable
 
 
 name = "split"

@@ -1,7 +1,7 @@
 import pandas as pd
 import xgboost as xgb
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.toolz_utils import curry
 from xorq.expr import udf

@@ -10,14 +10,16 @@ from typing import TYPE_CHECKING, Callable, Iterable, Iterator, List, Tuple, Uni
 
 import toolz
 
-import xorq as xo
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
-from xorq.vendor.ibis import literal
 from xorq.vendor.ibis.common.annotations import Argument
 from xorq.vendor.ibis.common.collections import FrozenDict
 from xorq.vendor.ibis.common.patterns import pattern, replace
+from xorq.vendor.ibis.expr.api import (
+    case,
+    literal,
+)
 from xorq.vendor.ibis.expr.operations.udf import InputType, ScalarUDF
 from xorq.vendor.ibis.expr.rules import ValueOf
 from xorq.vendor.ibis.util import Namespace
@@ -123,7 +125,7 @@ def calc_split_conditions(
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> unique_key = "key"
     >>> table = xo.memtable({unique_key: range(100), "value": range(100, 200)})
     >>> test_sizes = [0.2, 0.3, 0.5]
@@ -209,7 +211,7 @@ def calc_split_column(
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> unique_key = "key"
     >>> table = xo.memtable({unique_key: range(100), "value": range(100, 200)})
     >>> test_sizes = [0.2, 0.3, 0.5]
@@ -223,9 +225,9 @@ def calc_split_column(
         num_buckets=num_buckets,
         random_seed=random_seed,
     )
-    col = xo.case()
+    col = case()
     for i, condition in enumerate(conditions):
-        col = col.when(condition, xo.literal(i, "int64"))
+        col = col.when(condition, literal(i, "int64"))
     col = col.end().name(name)
     return col
 
@@ -283,7 +285,7 @@ def train_test_splits(
 
     Examples
     --------
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> table = xo.memtable({"key": range(100), "value": range(100,200)})
     >>> unique_key = "key"
     >>> test_sizes = [0.2, 0.3, 0.5]

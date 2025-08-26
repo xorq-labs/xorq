@@ -10,7 +10,6 @@ from sqlglot import exp, parse_one
 
 from xorq.backends.let.datafusion import Backend as DataFusionBackend
 from xorq.common.collections import SourceDict
-from xorq.expr.relations import replace_cache_table
 from xorq.internal import SessionConfig, WindowUDF
 from xorq.vendor.ibis.expr import schema as sch
 from xorq.vendor.ibis.expr import types as ir
@@ -189,7 +188,7 @@ class Backend(DataFusionBackend):
 
         Examples
         --------
-        >>> import xorq as xo
+        >>> import xorq.api as xo
         >>> con = xo.connect()
 
         """
@@ -198,6 +197,8 @@ class Backend(DataFusionBackend):
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
     ):
+        from xorq.expr.relations import replace_cache_table
+
         op = expr.op()
         out = op.map_clear(replace_cache_table)
 
@@ -209,3 +210,9 @@ class Backend(DataFusionBackend):
 
     def register_udwf(self, func: WindowUDF):
         self.con.register_udwf(func)
+
+
+def connect(config: SessionConfig | None = None):
+    con = Backend()
+    con.do_connect(config)
+    return con

@@ -4,9 +4,11 @@ from typing import Iterable, Iterator, Tuple
 
 import toolz
 
-import xorq as xo
 import xorq.vendor.ibis.expr.types as ir
-from xorq.vendor.ibis import literal
+from xorq.vendor.ibis.expr.api import (
+    case,
+    literal,
+)
 
 
 def _calculate_bounds(
@@ -197,9 +199,9 @@ def calc_split_column(
         num_buckets=num_buckets,
         random_seed=random_seed,
     )
-    col = xo.case()
+    col = case()
     for i, condition in enumerate(conditions):
-        col = col.when(condition, xo.literal(i, "int64"))
+        col = col.when(condition, literal(i, "int64"))
     col = col.end().name(name)
     return col
 

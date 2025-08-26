@@ -8,7 +8,7 @@ import pandas as pd
 import pyarrow as pa
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.flight.action as A
 import xorq.flight.exchanger as E

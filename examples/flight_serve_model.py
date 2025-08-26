@@ -1,6 +1,6 @@
 from sklearn.feature_extraction.text import TfidfVectorizer
 
-import xorq as xo
+import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import ParquetStorage
 from xorq.common.utils.defer_utils import deferred_read_parquet
@@ -12,7 +12,7 @@ from xorq.expr.ml import (
 
 
 m = import_python(
-    xo.options.pins.get_path("hackernews_lib", version="20250604T223424Z-2e578")
+    xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
 )
 
 

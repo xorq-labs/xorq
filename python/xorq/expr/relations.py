@@ -8,7 +8,7 @@ import pyarrow as pa
 import toolz
 from opentelemetry import trace
 
-import xorq as xo
+from xorq.backends.let import connect as xo_connect
 from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -217,7 +217,7 @@ class FlightExpr(ops.DatabaseTable):
             input_expr=input_expr,
             unbound_expr=roundtrip_cloudpickle(unbound_expr),
             make_server=make_server or FlightServer,
-            make_connection=make_connection or xo.connect,
+            make_connection=make_connection or xo_connect,
             **kwargs,
         )
 
@@ -361,7 +361,7 @@ class FlightUDXF(ops.DatabaseTable):
             input_expr=input_expr,
             udxf=udxf,
             make_server=make_server or make_mtls_server,
-            make_connection=make_connection or xo.connect,
+            make_connection=make_connection or xo_connect,
             **kwargs,
         )
 
@@ -482,7 +482,7 @@ def flight_udxf(
     Basic sentiment analysis:
 
     >>> import pandas as pd
-    >>> import xorq as xo
+    >>> import xorq.api as xo
     >>> from xorq.common.utils.toolz_utils import curry
     >>>
     >>> @curry
@@ -609,10 +609,7 @@ def register_and_transform_remote_tables(expr):
     batches_table = {}
     for arg, count in counts.items():
         ex = arg.remote_expr
-        if not ex.op().find((RemoteTable, CachedNode, Read)):
-            batches = ex.to_pyarrow_batches()  # execute in native backend
-        else:
-            batches = xo.to_pyarrow_batches(ex)
+        batches = ex.to_pyarrow_batches()
         schema = ex.as_table().schema().to_pyarrow()
         replicas = SafeTee.tee(batches, count)
         batches_table[arg] = (schema, list(replicas))

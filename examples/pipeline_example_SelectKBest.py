@@ -7,7 +7,7 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import make_pipeline
 from sklearn.svm import LinearSVC
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.ml.pipeline_lib
 
 

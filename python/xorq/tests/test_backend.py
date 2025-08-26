@@ -2,7 +2,7 @@ import pickle
 
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 
 
 @pytest.mark.parametrize(
