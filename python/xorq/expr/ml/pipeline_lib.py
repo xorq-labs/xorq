@@ -28,7 +28,6 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.func_utils import (
     return_constant,
 )
-from xorq.expr import api
 from xorq.expr.ml.fit_lib import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
@@ -779,6 +778,8 @@ class FittedPipeline:
     def score(self, X, y, **kwargs):
         import numpy as np
         import pandas as pd
+
+        from xorq.expr import api
 
         df = pd.DataFrame(np.array(X), columns=self.features).assign(**{self.target: y})
         expr = api.register(df, "t")
