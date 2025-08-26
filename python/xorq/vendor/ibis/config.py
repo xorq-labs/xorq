@@ -1,12 +1,18 @@
 from __future__ import annotations
 
 import contextlib
+import pathlib
 from collections.abc import Callable  # noqa: TCH003
 from typing import Annotated, Any, Optional
 
 from public import public
 
 import xorq.common.exceptions as com
+from xorq.common.utils.env_utils import (
+    EnvConfigable,
+    env_templates_dir,
+)
+from xorq.loader import load_backend
 from xorq.vendor.ibis.common.grounds import Annotable
 from xorq.vendor.ibis.common.patterns import Between
 
@@ -127,6 +133,15 @@ class Repr(Config):
     interactive: Interactive = Interactive()
 
 
+env_config = EnvConfigable.subclass_from_env_file(
+    env_templates_dir.joinpath(".env.xorq.template")
+).from_env()
+
+
+class Profiles(Config):
+    profile_dir: pathlib.Path = pathlib.Path(env_config.XORQ_PROFILE_DIR).expanduser()
+
+
 class Options(Config):
     """Ibis configuration options.
 
@@ -172,6 +187,7 @@ class Options(Config):
     impala: Optional[Config] = None
     pandas: Optional[Config] = None
     pyspark: Optional[Config] = None
+    profiles: Profiles = Profiles()
 
 
 def _default_backend() -> Any:
@@ -202,9 +218,7 @@ For more information on available backends, visit https://ibis-project.org/insta
 """
         )
 
-    import xorq.api as xo
-
-    options.default_backend = con = xo.duckdb.connect(":memory:")
+    options.default_backend = con = load_backend("duckdb").connect(":memory:")
     return con
 
 

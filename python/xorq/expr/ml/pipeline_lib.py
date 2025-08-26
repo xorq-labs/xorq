@@ -16,8 +16,8 @@ from toolz.curried import (
     excepts as cexcepts,
 )
 
-import xorq.api as xo
 import xorq.expr.datatypes as dt
+from xorq.backends.let import connect
 from xorq.caching import (
     ParquetStorage,
     SourceStorage,
@@ -28,6 +28,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.func_utils import (
     return_constant,
 )
+from xorq.expr import api
 from xorq.expr.ml.fit_lib import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
@@ -40,7 +41,7 @@ from xorq.vendor.ibis.expr.types.core import Expr
 
 
 def do_into_backend(expr, con=None):
-    return expr.into_backend(con or xo.connect())
+    return expr.into_backend(con or connect())
 
 
 def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=None):
@@ -780,7 +781,7 @@ class FittedPipeline:
         import pandas as pd
 
         df = pd.DataFrame(np.array(X), columns=self.features).assign(**{self.target: y})
-        expr = xo.register(df, "t")
+        expr = api.register(df, "t")
         return self.score_expr(expr, **kwargs)
 
 

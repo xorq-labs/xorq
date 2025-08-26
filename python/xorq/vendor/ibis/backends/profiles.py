@@ -17,8 +17,8 @@ from attr.validators import (
 )
 
 from xorq.common.utils.inspect_utils import get_arguments
-from xorq.config import options
 from xorq.loader import _load_entry_points, load_backend
+from xorq.vendor.ibis.config import options
 
 
 compiled_env_var_re = re.compile(r"^(?:\${(.*)}$)|(?:\$(.*))$")

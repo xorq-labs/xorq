@@ -8,7 +8,7 @@ from pathlib import Path
 
 from opentelemetry import trace
 
-import xorq.api as xo
+import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
@@ -24,6 +24,7 @@ from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
 )
+from xorq.loader import load_backend
 from xorq.vendor.ibis import Expr
 
 
@@ -266,13 +267,13 @@ def unbind_and_serve_command(
     unbound_expr = expr_to_unbound(
         expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
     )
-    flight_url = xo.flight.FlightUrl(host=host, port=port)
+    flight_url = xorq.flight.FlightUrl(host=host, port=port)
     make_server = functools.partial(
-        xo.flight.FlightServer,
+        xorq.flight.FlightServer,
         flight_url=flight_url,
     )
     logger.info(f"Serving expression from '{expr_path}' on {flight_url.to_location()}")
-    server, _ = xo.expr.relations.flight_serve_unbound(
+    server, _ = xorq.expr.relations.flight_serve_unbound(
         unbound_expr, make_server=make_server
     )
     server.wait()
@@ -336,7 +337,7 @@ def serve_command(
 
     server = FlightServer.from_udxf(
         expr,
-        make_connection=partial(xo.duckdb.connect, str(db_path)),
+        make_connection=partial(load_backend("duckdb").connect, str(db_path)),
         port=port,
         host=host,
     )
