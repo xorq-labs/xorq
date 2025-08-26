@@ -138,7 +138,7 @@ class ModificationTimeStrategy(CacheStrategy):
     )
 
     def get_key(self, expr: ir.Expr):
-        return dask.base.tokenize(expr)
+        return expr.ls.tokenized
 
 
 @frozen
@@ -192,7 +192,7 @@ class SnapshotStrategy(CacheStrategy):
         # can we cache this?
         with self.normalization_context(expr):
             replaced = self.replace_remote_table(expr)
-            tokenized = dask.tokenize.tokenize(replaced)
+            tokenized = replaced.ls.tokenized
             return "-".join(("snapshot", tokenized))
 
     @staticmethod
