@@ -134,3 +134,8 @@ def patch_normalize_op_caching():
     cached_attr = functools.cache(getattr(mod, attr))
     with patch.object(mod, attr, cached_attr):
         yield
+
+
+def patched_tokenize(expr):
+    with patch_normalize_op_caching():
+        return dask.base.tokenize(expr)

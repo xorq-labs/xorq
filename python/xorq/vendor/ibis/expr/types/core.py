@@ -780,6 +780,14 @@ class LETSQLAccessor:
         else:
             return self.expr
 
+    @property
+    def tokenized(self):
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+            patched_tokenize,
+        )
+
+        return patched_tokenize(self.expr)
+
     def get_key(self):
         if self.is_cached:
             return self.storage.get_key(self.uncached_one)
