@@ -5,7 +5,7 @@ title: 'Multi-Engine'
 Move data between different engines within a single expression using `into_backend()`.
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 
 # Connect to engines
 pg = xo.postgres.connect_env()

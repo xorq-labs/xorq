@@ -18,8 +18,8 @@ pip install 'xorq[duckdb,examples]'
 Xorq leverage Ibis for working with data, for example:
 
 ```{python}
-import xorq as xo 
-from xorq import _
+import xorq.api as xo 
+from xorq.api import _
 
 penguins = xo.examples.penguins.fetch(backend=xo.pandas.connect())
 
@@ -105,7 +105,7 @@ UDXF are functions that spin an ephemeral Flight Server for the execution throug
 ```{python}
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 
 penguins = xo.examples.penguins.fetch(deferred=False)
 
@@ -148,8 +148,8 @@ expr.pipe(my_udxf).execute()
 For persisting connections Xorq provides the [Profiles API](../../api_reference/backend_configuration/profiles_api.qmd), a Profile is a representation of a database connection that can be saved and loaded:
 
 ```{python}
-import xorq as xo
-from xorq import _  # column references
+import xorq.api as xo
+from xorq.api import _  # column references
 from xorq.vendor.ibis.backends.profiles import Profile
 
 # Create a Profile from pandas connection
@@ -249,7 +249,7 @@ For this command, we'll use the following `expr.py` file:
 ```python
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 
 penguins = xo.examples.penguins.fetch(deferred=False)
 

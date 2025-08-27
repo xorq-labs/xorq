@@ -83,7 +83,7 @@ workflow. Let's walk through the key components:
 ```python
 import sklearn
 from sklearn.linear_model import LogisticRegression
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import ParquetStorage
 from xorq.expr.ml.pipeline_lib import Pipeline
 
@@ -201,7 +201,7 @@ xorq serve --port 8001
 Then connect and execute expressions:
 
 ```python
-import xorq as xo
+import xorq.api as xo
 
 # Connect to Flight server
 client = xo.flight.client.FlightClient(port=8001)

@@ -24,7 +24,7 @@ User-Defined Exchange Functions (UDXFs) are a specialized type of user-defined f
 ### Basic Syntax
 
 ```python
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.relations import flight_udxf
 
 # Define your processing function

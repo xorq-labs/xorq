@@ -29,7 +29,7 @@ We'll use the same `penguins_analysis.py` script as in the previous examples:
 
 # penguins_analysis.py
 import pandas as pd
-import xorq as xo
+import xorq.api as xo
 
 def analyze_penguin_health(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -145,7 +145,7 @@ Once your penguin health analysis server is running, you can test it from anothe
 ```python
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 from xorq.flight import FlightUrl
 
 # Connect to the running server

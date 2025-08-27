@@ -341,7 +341,7 @@ class ParquetSnapshotStorage:
         The backend to use for execution. Defaults to xorq's default backend.
     path : Path
         The directory where Parquet files will be stored. Defaults to
-        xorq.options.cache.default_path.
+        xorq.config.options.cache.default_path.
     """
 
     source = field(
@@ -403,7 +403,7 @@ class ParquetStorage:
         The backend to use for execution. Defaults to xorq's default backend.
     relative_path : Path
         The relative directory where Parquet files will be stored. Defaults to
-        xorq.options.cache.default_path.
+        xorq.config.options.cache.default_path.
     base_path : Path
         The base path where Parquet files will be stored.
     """

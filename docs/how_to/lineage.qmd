@@ -18,7 +18,7 @@ Data lineage tracks how data flows through your computational pipeline, showing:
 First, import the necessary lineage utilities:
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.lineage_utils import build_column_trees, print_tree
 ```

@@ -94,8 +94,8 @@ def read_csv(
 
     Examples
     --------
-    >>> import xorq
-    >>> xorq.options.interactive = True
+    >>> import xorq.api as xo
+    >>> xo.options.interactive = True
     >>> lines = '''a,b
     ... 1,d
     ... 2,
@@ -103,7 +103,7 @@ def read_csv(
     ... '''
     >>> with open("/tmp/lines.csv", mode="w") as f:
     ...     nbytes = f.write(lines)  # nbytes is unused
-    >>> t = xorq.read_csv("/tmp/lines.csv")
+    >>> t = xo.read_csv("/tmp/lines.csv")
     >>> t
     ┏━━━━━━━┳━━━━━━━━┓
     ┃ a     ┃ b      ┃
@@ -151,9 +151,9 @@ def read_parquet(
 
     Examples
     --------
-    >>> import xorq
+    >>> import xorq.api as xo
     >>> import pandas as pd
-    >>> xorq.options.interactive = True
+    >>> xo.options.interactive = True
     >>> df = pd.DataFrame({"a": [1, 2, 3], "b": list("ghi")})
     >>> df
        a  b
@@ -161,7 +161,7 @@ def read_parquet(
     1  2  h
     2  3  i
     >>> df.to_parquet("/tmp/data.parquet")
-    >>> t = xorq.read_parquet("/tmp/data.parquet")
+    >>> t = xo.read_parquet("/tmp/data.parquet")
     >>> t
     ┏━━━━━━━┳━━━━━━━━┓
     ┃ a     ┃ b      ┃

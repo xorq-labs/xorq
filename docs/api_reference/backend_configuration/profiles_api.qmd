@@ -23,7 +23,7 @@ A `Profile` is an immutable representation of database connection settings that 
 ```{python}
 #| eval: false
 
-import xorq as xo 
+import xorq.api as xo 
 from xorq.vendor.ibis.backends.profiles import Profile
 
 # Create a new profile
