@@ -56,3 +56,8 @@ def with_lock(lock, f):
             return f(*args, **kwargs)
 
     return wrapper
+
+
+@toolz.curry
+def if_not_none(f, value):
+    return value if value is None else f(value)

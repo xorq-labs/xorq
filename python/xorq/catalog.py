@@ -15,6 +15,9 @@ from attrs import evolve, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
 
 import xorq as xo
+from xorq.common.utils.func_utils import (
+    if_not_none,
+)
 from xorq.ibis_yaml.compiler import (
     BuildManager,
     load_expr,
@@ -38,65 +41,29 @@ def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
 get_now_utc = functools.partial(datetime.now, timezone.utc)
 
 
-def to_dict(self):
-    return self.__getstate__()
+@toolz.curry
+def to_dict(self, **kwargs):
+    dct = self.__getstate__()
+    dct = dct | {k: v(dct[k]) for k, v in kwargs.items()}
+    return dct
 
 
-@frozen
-class CatalogMetadata:
-    """Catalog metadata."""
-
-    # FIXME: make uuid
-    catalog_id: str = field(validator=instance_of(str), factory=uuid.uuid4)
-    # FIXME: make datetime.datetime
-    created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
-    updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
-    tool_version: str = field(validator=instance_of(str), default=xo.__version__)
-
-    def with_updated_timestamp(self) -> "CatalogMetadata":
-        """Return new metadata with updated timestamp."""
-        return self.evolve(updated_at=get_now_utc())
-
-    def evolve(self, **kwargs) -> "CatalogMetadata":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
-
-    to_dict = to_dict
-
-    @classmethod
-    def from_dict(cls, dct: dict) -> "CatalogMetadata":
-        data = dct.copy()
-        data["created_at"] = convert_datetime(data.get("created_at"))
-        data["updated_at"] = convert_datetime(data.get("updated_at"))
-        return cls(**data)
+@toolz.curry
+def from_dict(cls, dct: dict, **kwargs):
+    modifications = {k: v(dct.get(k)) for k, v in kwargs.items()}
+    return cls(**dct | modifications)
 
 
-@frozen
-class Build:
-    """Build information."""
-
-    build_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
-    # FIXME: make Path
-    path: Optional[Path] = field(
-        default=None,
-        validator=optional(instance_of(Path)),
-        converter=toolz.curried.excepts(Exception, Path),
-    )
-
-    def evolve(self, **kwargs) -> "Build":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
-
-    def to_dict(self):
-        dct = self.__getstate__()
-        dct = dct | {
-            "path": str(self.path) if self.path else None,
-        }
-        return dct
-
-    @classmethod
-    def from_dict(cls, dct):
-        return cls(**dct)
+def convert_uuid(value):
+    match value:
+        case None:
+            return uuid.uuid4()
+        case str():
+            return uuid.UUID(value)
+        case uuid.UUID():
+            return value
+        case _:
+            raise ValueError
 
 
 def convert_datetime(value):
@@ -121,6 +88,53 @@ def convert_build(value):
             return value
         case _:
             raise ValueError
+
+
+@frozen
+class CatalogMetadata:
+    """Catalog metadata."""
+
+    # FIXME: make uuid
+    catalog_id: str = field(
+        validator=instance_of(uuid.UUID), factory=uuid.uuid4, converter=convert_uuid
+    )
+    created_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
+    updated_at: str = field(validator=instance_of(datetime), factory=get_now_utc)
+    tool_version: str = field(validator=instance_of(str), default=xo.__version__)
+
+    def with_updated_timestamp(self) -> "CatalogMetadata":
+        """Return new metadata with updated timestamp."""
+        return self.evolve(updated_at=get_now_utc())
+
+    def evolve(self, **kwargs) -> "CatalogMetadata":
+        """Create a copy with specified changes."""
+        return evolve(self, **kwargs)
+
+    to_dict = to_dict(catalog_id=str)
+
+    from_dict = classmethod(
+        from_dict(created_at=convert_datetime, updated_at=convert_datetime)
+    )
+
+
+@frozen
+class Build:
+    """Build information."""
+
+    build_id: Optional[str] = field(default=None, validator=optional(instance_of(str)))
+    path: Optional[Path] = field(
+        default=None,
+        validator=optional(instance_of(Path)),
+        converter=toolz.curried.excepts(Exception, Path),
+    )
+
+    def evolve(self, **kwargs) -> "Build":
+        """Create a copy with specified changes."""
+        return evolve(self, **kwargs)
+
+    to_dict = to_dict(path=if_not_none(str))
+
+    from_dict = classmethod(from_dict)
 
 
 @frozen
@@ -155,16 +169,9 @@ class Revision:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
-    def to_dict(self):
-        dct = self.__getstate__()
-        dct = dct | {
-            "build": self.build.to_dict() if self.build else None,
-        }
-        return dct
+    to_dict = to_dict(build=if_not_none(Build.to_dict))
 
-    @classmethod
-    def from_dict(cls, dct):
-        return cls(**dct)
+    from_dict = classmethod(from_dict)
 
 
 @frozen
@@ -207,23 +214,24 @@ class Entry:
         """Create a copy with specified changes."""
         return evolve(self, **kwargs)
 
-    def to_dict(self):
-        dct = self.__getstate__()
-        dct = dct | {
-            "history": tuple(revision.to_dict() for revision in self.history),
-        }
-        return dct
+    to_dict = to_dict(
+        history=toolz.compose(tuple, functools.partial(map, Revision.to_dict))
+    )
 
     @classmethod
     def from_dict(cls, dct):
         dct = dct.copy()
         created_at = dct.pop("created_at", None)
-        history = tuple(Revision.from_dict(rev) for rev in dct.get("history", ()))
+        obj = from_dict(
+            cls,
+            dct,
+            history=toolz.compose(tuple, functools.partial(map, Revision.from_dict)),
+        )
         if created_at is not None:
             assert datetime.fromisoformat(created_at) == min(
-                rev.created_at for rev in history
+                rev.created_at for rev in obj.history
             )
-        return cls(**dct | {"history": history})
+        return obj
 
 
 @frozen
@@ -244,9 +252,7 @@ class Alias:
 
     to_dict = to_dict
 
-    @classmethod
-    def from_dict(cls, dct):
-        return cls(**dct)
+    from_dict = classmethod(from_dict)
 
 
 @frozen
@@ -257,12 +263,18 @@ class XorqCatalog:
     entries: Tuple[Entry, ...] = field(
         validator=deep_iterable(instance_of(Entry), instance_of(tuple)),
         factory=tuple,
+        converter=tuple,
     )
     api_version: str = field(default="xorq.dev/v1", validator=instance_of(str))
     kind: str = field(default="XorqCatalog", validator=instance_of(str))
     metadata: CatalogMetadata = field(
-        factory=CatalogMetadata, validator=instance_of(CatalogMetadata)
+        factory=CatalogMetadata,
+        validator=optional(instance_of(CatalogMetadata)),
     )
+
+    def __attrs_post_init__(self):
+        if self.metadata is None:
+            object.__setattr__(self, "metadata", CatalogMetadata())
 
     def with_entry(self, entry: Entry) -> "XorqCatalog":
         """Add or update an entry."""
@@ -311,14 +323,11 @@ class XorqCatalog:
     def resolve_target(self, target: str):
         return Target.from_str(target, self)
 
-    def to_dict(self):
-        dct = self.__getstate__()
-        dct = dct | {
-            "aliases": {name: alias.to_dict() for name, alias in self.aliases.items()},
-            "entries": tuple(entry.to_dict() for entry in self.entries),
-            "metadata": self.metadata.to_dict(),
-        }
-        return dct
+    to_dict = to_dict(
+        aliases=toolz.curried.valmap(Alias.to_dict),
+        entries=toolz.compose(tuple, functools.partial(map, Entry.to_dict)),
+        metadata=CatalogMetadata.to_dict,
+    )
 
     def to_yaml(self, path):
         dct = self.to_dict()
@@ -330,19 +339,13 @@ class XorqCatalog:
         catalog_path.parent.mkdir(parents=True, exist_ok=True)
         self.to_yaml(catalog_path)
 
-    @classmethod
-    def from_dict(cls, dct):
-        aliases = dct.get("aliases", {})
-        entries = dct.get("entries", ())
-        metadata = CatalogMetadata.from_dict(dct["metadata"])
-        return cls(
-            **dct
-            | {
-                "aliases": {k: Alias.from_dict(v) for k, v in aliases.items()},
-                "entries": tuple(Entry.from_dict(el) for el in entries),
-                "metadata": metadata,
-            }
+    from_dict = classmethod(
+        from_dict(
+            aliases=toolz.curried.valmap(Alias.from_dict),
+            entries=toolz.compose(tuple, functools.partial(map, Entry.from_dict)),
+            metadata=if_not_none(CatalogMetadata.from_dict),
         )
+    )
 
     @classmethod
     def from_path(cls, path):
@@ -394,8 +397,7 @@ class ServerRecord:
         """Return a new ServerRecord with updated fields."""
         return evolve(self, **changes)
 
-    def to_dict(self):
-        return self.__getstate__()
+    to_dict = to_dict
 
     def to_json_dict(self):
         data = toolz.dissoc(
@@ -425,9 +427,7 @@ class ServerRecord:
         except Exception:
             return False
 
-    @classmethod
-    def from_dict(cls, dct):
-        return cls(**dct)
+    from_dict = classmethod(from_dict)
 
     @classmethod
     def from_path(cls, path):
