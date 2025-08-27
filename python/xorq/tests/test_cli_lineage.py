@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-import xorq as xo
+import xorq.api as xo
 from xorq.cli import lineage_command
 from xorq.ibis_yaml.compiler import BuildManager
 
