@@ -99,11 +99,11 @@ def calc_split_conditions(
 
     Examples
     --------
-    >>> import xorq as ls
+    >>> import xorq.api as xo
     >>> unique_key = "key"
-    >>> table = ls.memtable({unique_key: range(100), "value": range(100, 200)})
+    >>> table = xo.memtable({unique_key: range(100), "value": range(100, 200)})
     >>> test_sizes = [0.2, 0.3, 0.5]
-    >>> col = ls.expr.ml.calc_split_conditions(table, unique_key, test_sizes, num_buckets=10, random_seed=42)
+    >>> col = xo.expr.ml.calc_split_conditions(table, unique_key, test_sizes, num_buckets=10, random_seed=42)
     """
 
     if not (isinstance(num_buckets, int)):
@@ -185,11 +185,11 @@ def calc_split_column(
 
     Examples
     --------
-    >>> import xorq as ls
+    >>> import xorq.api as xo
     >>> unique_key = "key"
-    >>> table = ls.memtable({unique_key: range(100), "value": range(100, 200)})
+    >>> table = xo.memtable({unique_key: range(100), "value": range(100, 200)})
     >>> test_sizes = [0.2, 0.3, 0.5]
-    >>> col = ls.expr.ml.calc_split_column(table, unique_key, test_sizes, num_buckets=10, random_seed=42, name="my-split")
+    >>> col = xo.expr.ml.calc_split_column(table, unique_key, test_sizes, num_buckets=10, random_seed=42, name="my-split")
     """
 
     conditions = calc_split_conditions(
@@ -259,11 +259,11 @@ def train_test_splits(
 
     Examples
     --------
-    >>> import xorq as ls
-    >>> table = ls.memtable({"key": range(100), "value": range(100,200)})
+    >>> import xorq.api as xo
+    >>> table = xo.memtable({"key": range(100), "value": range(100,200)})
     >>> unique_key = "key"
     >>> test_sizes = [0.2, 0.3, 0.5]
-    >>> splits = ls.train_test_splits(table, unique_key, test_sizes, num_buckets=10, random_seed=42)
+    >>> splits = xo.train_test_splits(table, unique_key, test_sizes, num_buckets=10, random_seed=42)
     >>> for i, split_table in enumerate(splits):
     ...     print(f"Split {i+1} size: {split_table.count().execute()}")
     ...     print(split_table.execute())

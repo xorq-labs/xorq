@@ -19,8 +19,8 @@ Let's explore these capabilities using practical examples.
 First, let's set up our environment and create connections to different backends:
 
 ```{python}
-import xorq as xo
-from xorq import _  # Column reference accessor
+import xorq.api as xo
+from xorq.api import _  # Column reference accessor
 from xorq.caching import ParquetStorage, SourceStorage
 from pathlib import Path
 import pandas as pd
