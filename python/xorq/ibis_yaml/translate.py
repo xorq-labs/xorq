@@ -4,6 +4,8 @@ import datetime
 import decimal
 import functools
 import operator
+import warnings
+from pathlib import Path
 from typing import Any, Callable
 
 import toolz
@@ -39,6 +41,7 @@ from xorq.ibis_yaml.utils import (
 )
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations.relations import Namespace
+from xorq.vendor.ibis.util import normalize_filenames
 
 
 def should_register_node(node_dict):
@@ -535,12 +538,32 @@ def _remotetable_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
     return remote_table_expr
 
 
+def warn_on_local_path(items: dict) -> None:
+    from urllib.parse import urlparse
+
+    def is_local_path(any: str | Path) -> bool:
+        parsed = urlparse(any)
+        return not parsed.scheme or parsed.scheme in ("file",)
+
+    if path := next(
+        (v for k, v in dict(items).items() if k in ("path", "source")), None
+    ):
+        f = toolz.excepts((ValueError, AttributeError), is_local_path)
+        paths = normalize_filenames(path)
+        if any(map(f, paths)):
+            warnings.warn(
+                "The Read op path is using a local filesystem path, running the build may not work in other environments."
+            )
+
+
 @translate_to_yaml.register(Read)
 def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
     schema_id = context.schema_registry.register_schema(op.schema)
     profile_hash_name = (
         op.source._profile.hash_name if hasattr(op.source, "_profile") else None
     )
+
+    warn_on_local_path(op.read_kwargs)
 
     return freeze(
         {
