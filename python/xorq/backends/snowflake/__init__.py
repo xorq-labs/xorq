@@ -8,6 +8,7 @@ import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+import xorq.vendor.ibis.expr.api as api
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.logging_utils import get_logger
@@ -121,8 +122,6 @@ class Backend(IbisSnowflakeBackend):
 
         if obj is not None:
             if not isinstance(obj, ir.Expr):
-                from xorq.expr import api
-
                 table = api.memtable(obj)
             else:
                 table = obj

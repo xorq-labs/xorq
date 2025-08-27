@@ -49,7 +49,7 @@ class Renderer(qd.MdRenderer):
                             ```{python}
                             #| echo: false
                             
-                            import xorq as xo
+                            import xorq.api as xo
                             xo.options.interactive = True
                             ```
                             """
