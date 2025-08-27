@@ -221,9 +221,9 @@ def deferred_read_parquet(
     """
 
     deferred_read_parquet.method_name = method_name = "read_parquet"
-    method = getattr(con, method_name)
     if con is None:
         con = _backend_init()
+    method = getattr(con, method_name)
     if table_name is None:
         table_name = gen_name(f"letsql-{method_name}")
     schema = xo_connect().read_parquet(path).schema()
