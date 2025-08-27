@@ -119,3 +119,4 @@ def test_replace_computed_kwargs_expr(parquet_dir):
     assert walk_nodes(Tag, predicted)
     removed = xo.expr.api._remove_tag_nodes(predicted)
     assert not walk_nodes(Tag, removed)
+    assert not walk_nodes(Tag, predicted.ls.untagged)
