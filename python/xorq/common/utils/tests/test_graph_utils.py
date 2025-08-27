@@ -81,3 +81,41 @@ def test_find_all_sources():
     actual = set(con._profile for con in created_sources)
     expected = set(con._profile for con in found_sources)
     assert actual == expected
+
+
+def test_replace_computed_kwargs_expr(parquet_dir):
+    from sklearn.linear_model import LinearRegression
+
+    import xorq.expr.datatypes as dt
+    import xorq.expr.selectors as s
+    from xorq.common.utils.graph_utils import (
+        walk_nodes,
+    )
+    from xorq.expr.relations import (
+        Tag,
+    )
+    from xorq.ml import (
+        deferred_fit_predict_sklearn,
+    )
+
+    deferred_linear_regression = deferred_fit_predict_sklearn(
+        cls=LinearRegression, return_type=dt.float64
+    )
+
+    t = xo.deferred_read_parquet(parquet_dir / "diamonds.parquet", xo.connect())
+    train_table, test_table = (
+        el.tag(tag)
+        for el, tag in zip(
+            xo.train_test_splits(
+                t, unique_key=tuple(t.columns), test_sizes=0.5, random_seed=42
+            ),
+            ("train", "test"),
+        )
+    )
+    target = "price"
+    features = tuple(c for c in t.select(s.numeric()).columns if c != target)
+    (*_, predict_expr_udf) = deferred_linear_regression(train_table, target, features)
+    predicted = test_table.mutate(predict_expr_udf.on_expr(test_table))
+    assert walk_nodes(Tag, predicted)
+    removed = xo.expr.api._remove_tag_nodes(predicted)
+    assert not walk_nodes(Tag, removed)
