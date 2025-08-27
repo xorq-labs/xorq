@@ -56,7 +56,7 @@ Xorq supports four types of storage, each optimized for different use cases:
 **SourceStorage** provides automatic cache invalidation when upstream data changes:
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import SourceStorage
 
 # Connect to source database

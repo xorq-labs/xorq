@@ -20,7 +20,7 @@ This guide covers the essential I/O operations in Xorq, including reading variou
 The most common way to read Parquet files in Xorq is using the `read_parquet()` method:
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 
 # Create a connection
 con = xo.connect()
@@ -73,7 +73,7 @@ You can register existing pandas DataFrames with Xorq backends:
 
 ```{python}
 import pandas as pd
-import xorq as xo
+import xorq.api as xo
 
 # Create a pandas DataFrame
 df = pd.DataFrame({
@@ -108,7 +108,7 @@ Xorq can work directly with PyArrow tables:
 
 ```{python}
 import pyarrow as pa
-import xorq as xo
+import xorq.api as xo
 
 # Create a PyArrow table
 pa_table = pa.table({

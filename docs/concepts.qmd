@@ -23,7 +23,7 @@ Xorq supports two main types of cache storage:
 - Supports both remote (Snowflake, Postgres) and in-process (pandas, DuckDB) backends
 
 ```python
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import SourceStorage
 
 # Connect to source database
@@ -101,7 +101,7 @@ The core of xorq's multi-engine capability is the `into_backend` operator, which
 - Automatic optimization of data placement
 
 ```python
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.relations import into_backend
 
 # Connect to different engines
@@ -166,10 +166,10 @@ xorq provides a powerful system for extending query engines with custom User-Def
 ### 1. Scalar UDF with Model Integration
 
 ```python
-import xorq as xo
+import xorq.api as xo
 from xorq.expr.ml import make_quickgrove_udf
 from pathlib import Path
-from xorq import _
+from xorq.api import _
 
 t = xo.examples.diamonds.fetch()
 

@@ -56,7 +56,7 @@ Xorq supports multiple backends for different use cases. Here's how to configure
 The embedded backend uses Xorq's modified DataFusion engine optimized for Arrow UDF execution.
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 
 # Connect to embedded backend
 con = xo.connect()
@@ -68,7 +68,7 @@ print(f"Connected to: {con}")
 Good for local development and small datasets.
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 
 # Connect to pandas backend
 pandas_con = xo.pandas.connect()
@@ -84,7 +84,7 @@ table = pandas_con.create_table("my_table", df)
 For production workloads with PostgreSQL databases.
 
 ```python
-import xorq as xo
+import xorq.api as xo
 
 # Method 1: Using environment variables
 # Set these environment variables:
@@ -110,7 +110,7 @@ batting_table = pg_con.table("batting")
 For analytical workloads with DuckDB's columnar engine.
 
 ```python
-import xorq as xo
+import xorq.api as xo
 
 # Connect to DuckDB (in-memory)
 duck_con = xo.duckdb.connect()
@@ -121,7 +121,7 @@ duck_con = xo.duckdb.connect()
 For cloud data warehouse operations.
 
 ```python
-import xorq as xo
+import xorq.api as xo
 
 # Connect to Snowflake
 snow_con = xo.snowflake.connect(
@@ -140,7 +140,7 @@ snow_con = xo.snowflake.connect(
 ### Simple Data Processing
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 
 # Connect to embedded backend
 con = xo.connect()
@@ -160,7 +160,7 @@ print(result)
 ### Machine Learning Pipeline
 
 ```{python}
-import xorq as xo
+import xorq.api as xo
 from sklearn.neighbors import KNeighborsClassifier
 from xorq.expr.ml.pipeline_lib import Step
 
@@ -195,7 +195,7 @@ print(result)
 ### Caching and Performance
 
 ```python
-import xorq as xo
+import xorq.api as xo
 from xorq.caching import SourceStorage
 
 con = xo.connect()
