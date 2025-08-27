@@ -329,17 +329,17 @@ def test_deferred_read_kwargs(pg):
     assert hash0 != hash1
 
 
-def test_deferred_read_parquet_multiple_paths():
-    path = xo.config.options.pins.get_path("lending-club")
+def test_deferred_read_parquet_multiple_paths(parquet_dir):
+    path = str(parquet_dir / "astronauts.parquet")
     expr = deferred_read_parquet((path, path), xo.connect())
     assert not expr.execute().empty
 
 
-def test_deferred_read_csv_multiple_paths():
-    path = xo.config.options.pins.get_path("iris")
+def test_deferred_read_csv_multiple_paths(csv_dir):
+    path = str(csv_dir / "astronauts.csv")
     con = xo.connect()
 
-    t = con.read_csv(path, table_name="iris")
+    t = con.read_csv(path)
 
     expr = deferred_read_csv((path, path), con, schema=t.schema())
 
