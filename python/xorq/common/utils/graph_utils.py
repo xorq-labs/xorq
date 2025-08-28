@@ -107,9 +107,8 @@ def replace_nodes(replacer, expr):
                 computed_kwargs_expr = (
                     op.computed_kwargs_expr.op().replace(process_node).to_expr()
                 )
-                return do_recreate(
-                    op, _kwargs, computed_kwargs_expr=computed_kwargs_expr
-                )
+                with_cke = op.with_computed_kwargs_expr(computed_kwargs_expr)
+                return do_recreate(with_cke, _kwargs)
             case rel.Read():
                 return op
             case _:
