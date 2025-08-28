@@ -105,16 +105,15 @@ class ExprScalarUDF(ScalarUDF):
             )
         }
         meta = {
-            name: getattr(self, name)
+            name: getattr(self.__class__, name)
             for name in (
                 "dtype",
                 "__input_type__",
                 "__func_name__",
                 "__udf_namespace__",
                 "__module__",
+                "__func__",
             )
-        } | {
-            "__func__": staticmethod(self.__func__),
         }
         config = FrozenDict(
             self.__config__ | {"computed_kwargs_expr": computed_kwargs_expr}
