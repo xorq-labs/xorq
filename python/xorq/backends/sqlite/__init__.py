@@ -28,7 +28,7 @@ class Backend(IbisSQLiteBackend):
 
         table_name = table_name or gen_name("read_record_batches")
 
-        if ":memory:" in self.database:
+        if self.is_in_memory():
             self._into_memory_record_batches(record_batches, table_name)
         else:
             sqlite_adbc = SQLiteADBC(self)
@@ -48,6 +48,9 @@ class Backend(IbisSQLiteBackend):
         with self.begin() as cur:
             cur.execute(create_stmt)
             cur.executemany(insert_stmt, data)
+
+    def is_in_memory(self):
+        return ":memory:" in self.uri
 
     def read_parquet(
         self,
