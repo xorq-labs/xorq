@@ -93,6 +93,39 @@ class ExprScalarUDF(ScalarUDF):
         # rebind deferred_model (computed_kwargs_expr) to a new expr
         return type(self)(*(e[c] for c in self.schema), **kwargs)
 
+    def with_computed_kwargs_expr(self, computed_kwargs_expr):
+        # we must create a new typ to set __config__
+        # from xorq.ibis_yaml.udf import make_op_kwargs
+        kwargs = dict(zip(self.argnames, self.args))
+        fields = {
+            argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
+            for (argname, typ) in (
+                (argname, arg.dtype) for argname, arg in kwargs.items()
+            )
+        }
+        meta = {
+            name: getattr(self, name)
+            for name in (
+                "dtype",
+                "__input_type__",
+                "__func_name__",
+                "__udf_namespace__",
+                "__module__",
+            )
+        } | {
+            "__func__": staticmethod(self.__func__),
+        }
+        config = FrozenDict(
+            self.__config__ | {"computed_kwargs_expr": computed_kwargs_expr}
+        )
+        new_typ = type(
+            self.__class__.__name__,
+            self.__class__.__bases__,
+            fields | meta | {"__config__": config},
+        )
+        new_op = new_typ(**kwargs)
+        return new_op
+
 
 @toolz.curry
 def make_pandas_expr_udf(

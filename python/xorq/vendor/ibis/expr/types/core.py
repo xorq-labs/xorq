@@ -756,6 +756,14 @@ class LETSQLAccessor:
         return bool(self.cached_nodes)
 
     @property
+    def untagged(self):
+        from xorq.expr.api import (
+            _remove_tag_nodes,
+        )
+
+        return _remove_tag_nodes(self.expr)
+
+    @property
     def uncached(self):
         from xorq.expr.relations import (
             legacy_replace_cache_table,
