@@ -25,7 +25,7 @@ class SQLiteADBC:
 
     @property
     def uri(self):
-        return self.con.database
+        return self.con.uri
 
     def get_conn(self, **kwargs):
         return adbc_driver_sqlite.dbapi.connect(self.uri)
