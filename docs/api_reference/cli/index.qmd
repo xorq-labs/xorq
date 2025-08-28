@@ -6,5 +6,9 @@ title: CLI Commands
 |--------------------|--------------------------------------------------------------------------------------|
 | [init](init.qmd)   | Create a Xorq project.                                                               |
 | [build](build.qmd) | Compile a Xorq expression into a reusable artifact that can be executed later.       |
+| [uv-build](uv-build.qmd) | Build a Xorq expression using uv for dependency management.                    |
 | [run](run.qmd)     | Executes a built expression artifact and outputs the results in your desired format. |
+| [uv-run](uv-run.qmd) | Run a built expression artifact using uv for dependency management.              |
 | [serve](serve.qmd) | Deploys UDXF nodes to a Flight Server, enabling remote execution and  data serving.  |
+| [serve-flight-udxf](serve-flight-udxf.qmd) | Serve a build via Flight Server for UDXF execution.                        |
+| [serve-unbound](serve-unbound.qmd) | Serve an unbound expression via Flight Server.                               |
