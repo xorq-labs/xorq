@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq import udf
 from xorq.caching import SourceStorage

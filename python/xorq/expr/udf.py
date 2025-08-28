@@ -130,9 +130,8 @@ class ExprScalarUDF(ScalarUDF):
     def __reduce__(self):
         state = dict(zip(self.__argnames__, self.__args__))
 
-        cls = type(self)
         meta = {
-            k: getattr(cls, k)
+            k: getattr(self.__class__, k)
             for k in (
                 "dtype",
                 "__input_type__",
@@ -144,8 +143,8 @@ class ExprScalarUDF(ScalarUDF):
             )
         }
         return restore_udf, (
-            meta["__func_name__"],
-            (ExprScalarUDF,),
+            self.__class__.__name__,
+            self.__class__.__bases__,
             meta,
             state,
         )

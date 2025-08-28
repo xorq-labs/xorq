@@ -82,9 +82,8 @@ class AggUDF(ops.Reduction):
     def __reduce__(self):
         state = dict(zip(self.__argnames__, self.__args__))
 
-        cls = type(self)
         meta = {
-            k: getattr(cls, k)
+            k: getattr(self.__class__, k)
             for k in (
                 "dtype",
                 "__input_type__",
@@ -95,7 +94,12 @@ class AggUDF(ops.Reduction):
                 "__func_name__",
             )
         }
-        return restore_udf, (meta["__func_name__"], (AggUDF,), meta, state)
+        return restore_udf, (
+            self.__class__.__name__,
+            self.__class__.__bases__,
+            meta,
+            state,
+        )
 
 
 def _wrap(
