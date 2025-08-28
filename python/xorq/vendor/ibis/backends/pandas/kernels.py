@@ -496,7 +496,7 @@ elementwise = {
     ops.MapKeys: safe_keys,
     ops.MapValues: safe_values,
     ops.Round: lambda x, digits=0: round(x, digits),
-    ops.Hash: hash,
+    ops.Hash: hash,  # TODO investigate how duckdb hash works
 }
 
 
