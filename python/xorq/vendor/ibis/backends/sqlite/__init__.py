@@ -92,7 +92,8 @@ class Backend(SQLBackend, UrlFromPath):
         """
         _init_sqlite3()
 
-        self.con = sqlite3.connect(":memory:" if database is None else database)
+        self.database = ":memory:" if database is None else database
+        self.con = sqlite3.connect(self.database)
 
         self._post_connect(type_map)
 
