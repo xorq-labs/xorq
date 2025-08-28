@@ -197,7 +197,7 @@ def normalize_sqlite_database_table(dt):
     if dt.source.name != "sqlite":
         raise ValueError
 
-    if ":memory:" in dt.source.database:
+    if dt.source.is_in_memory():
         return normalize_memory_databasetable(dt)
     else:
         return normalize_seq_with_caller(
@@ -403,6 +403,8 @@ def normalize_backend(con):
         con_details = (con.catalog.name,) + tuple(
             catalog_params[k] for k in ("type", "uri", "warehouse")
         )
+    elif name == "sqlite":
+        return id(con.con) if con.is_in_memory() else con.uri
     else:
         raise ValueError
     return normalize_seq_with_caller(
