@@ -3270,7 +3270,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         subsequent `.sql` calls. Use the [`alias`](#ibis.expr.types.relations.Table.alias) method
         to assign a name to an expression.
 
-        >>> expr.alias("b").sql("SELECT * FROM b WHERE avg_bill_length > 40") # doctest: +SKIP
+        >>> expr.alias("b").sql("SELECT * FROM b WHERE avg_bill_length > 40") # quartodoc: +SKIP # doctest: +SKIP
         ┏━━━━━━━━┳━━━━━━━━━━━━━━━━━┓
         ┃ island ┃ avg_bill_length ┃
         ┡━━━━━━━━╇━━━━━━━━━━━━━━━━━┩

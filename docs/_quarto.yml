@@ -142,7 +142,7 @@ format:
     include-in-header: "style/google.html"
 
 quartodoc:
-  package: xorq
+  package: xorq.api
   title: Python API
   sidebar: reference/_sidebar.yml
   render_interlinks: true
@@ -156,43 +156,43 @@ quartodoc:
         - name: read_csv
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: read_parquet
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: memtable
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: to_sql
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: execute
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: to_pyarrow_batches
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: to_pyarrow
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: to_parquet
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: to_csv
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
         - name: to_json
           dynamic: true
           signature_name: full
-          package: xorq
+          package: xorq.api
 
     - title: Data Operations
       desc:

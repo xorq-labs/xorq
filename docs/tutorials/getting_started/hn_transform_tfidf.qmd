@@ -35,7 +35,7 @@ Then import the necessary modules:
 ```{python}
 #| eval: false
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
@@ -336,7 +336,7 @@ CachedNode[r6, strategy=modification_time, parquet=True, source=let-126580202190
 #| eval: false
 #| code-fold: true
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 
 from sklearn.feature_extraction.text import TfidfVectorizer

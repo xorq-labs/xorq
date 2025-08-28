@@ -65,10 +65,11 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://www.letsql.com/"
-Repository = "https://github.com/letsql/xorq.git"
-Issues = "https://github.com/letsql/xorq/issues"
-Changelog = "https://github.com/letsql/xorq/blob/main/CHANGELOG.md"
+Homepage = "https://www.xorq.dev/"
+Repository = "https://github.com/xorq-labs/xorq/"
+Issues = "https://github.com/xorq-labs/xorq/issues"
+Changelog = "https://github.com/xorq-labs/xorq/blob/main/CHANGELOG.md"
+Documentation = "https://docs.xorq.dev/"
 
 [project.optional-dependencies]
 pyiceberg = [
