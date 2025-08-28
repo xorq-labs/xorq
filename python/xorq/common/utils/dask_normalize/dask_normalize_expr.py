@@ -43,14 +43,14 @@ def normalize_inmemorytable(dt):
         # in memory: so we can assume it's reasonable to hash the data
         tuple(
             dask.base.tokenize(el.serialize().to_pybytes())
-            for el in api.to_pyarrow_batches(dt.to_expr())
+            for el in dt.to_expr().to_pyarrow_batches()
         ),
         caller="normalize_inmemorytable",
     )
 
 
 def normalize_memory_databasetable(dt):
-    if dt.source.name not in ("pandas", "let", "datafusion", "duckdb"):
+    if dt.source.name not in ("pandas", "let", "datafusion", "duckdb", "sqlite"):
         raise ValueError
     return normalize_seq_with_caller(
         # we are normalizing the data, we don't care about the connection
@@ -59,7 +59,7 @@ def normalize_memory_databasetable(dt):
         # in memory: so we can assume it's reasonable to hash the data
         tuple(
             dask.base.tokenize(el.serialize().to_pybytes())
-            for el in api.to_pyarrow_batches(dt.to_expr())
+            for el in dt.to_expr().to_pyarrow_batches()
         ),
         caller="normalize_memory_databasetable",
     )
@@ -189,6 +189,27 @@ def normalize_duckdb_databasetable(dt):
             return normalize_duckdb_file_read(dt)
         case _:
             raise NotImplementedError(scan_line)
+
+
+def normalize_sqlite_database_table(dt):
+    from xorq.common.utils.sqlite_utils import get_sqlite_stats
+
+    if dt.source.name != "sqlite":
+        raise ValueError
+
+    if ":memory:" in dt.source.database:
+        return normalize_memory_databasetable(dt)
+    else:
+        return normalize_seq_with_caller(
+            dt.name,
+            dt.schema,
+            dt.source,
+            dt.namespace,
+            get_sqlite_stats(dt),
+            caller="normalize_pyiceberg_databasetable",
+        )
+
+    pass
 
 
 def normalize_duckdb_file_read(dt):
@@ -338,6 +359,7 @@ def normalize_databasetable(dt):
         "trino": normalize_remote_databasetable,
         "bigquery": normalize_bigquery_databasetable,
         "pyiceberg": normalize_pyiceberg_database_table,
+        "sqlite": normalize_sqlite_database_table,
     }
     f = dct[dt.source.name]
     return f(dt)
