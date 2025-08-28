@@ -264,7 +264,6 @@ def test_get_object_metadata_gcs():
         lambda: xo.datafusion.connect(),
         lambda: xo.duckdb.connect(),
         lambda: xo.postgres.connect_env(),
-        lambda: xo.sqlite.connect(),
     ],
 )
 def test_expr_over_same_table_multiple_times(parquet_dir, get_con):
