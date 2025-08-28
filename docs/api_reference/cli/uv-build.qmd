@@ -18,7 +18,7 @@ xorq uv-build <script_path> [options]
 
 - **-e, --expr-name**: Name of the expression variable in the Python script (default: `expr`).
 - **--builds-dir**: Directory where generated artifacts are written (default: `builds`).
-- **--cache-dir**: Directory for parquet cache files (default: system cache dir).
+- **--cache-dir**: Directory for parquet cache files.
 
 ## Example
 
