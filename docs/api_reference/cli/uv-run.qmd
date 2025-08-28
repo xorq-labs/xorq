@@ -1,0 +1,36 @@
+---
+title: 'uv-run'
+---
+
+The `xorq uv-run` command executes a built expression in an isolated uv environment using the packaged sdist. It mirrors `xorq run` while ensuring the runtime matches the packaged dependencies.
+
+## Usage
+
+```bash
+xorq uv-run <build_path> [options]
+```
+
+## Arguments
+
+- **build_path**: Path to the compiled build directory or file produced by `xorq build`/`uv-build`.
+
+## Options
+
+- **--cache-dir**: Directory for parquet cache files (default: system cache dir).
+- **-o, --output-path**: Output file path. Use `-` to write to stdout.
+- **-f, --format**: Output format. One of `csv`, `json`, `parquet` (default: `parquet`).
+
+## Examples
+
+```bash
+# Run and preview results
+xorq uv-run builds/7061dd65ff3c
+
+# Save to parquet
+xorq uv-run builds/7061dd65ff3c -o results.parquet
+
+# Stream JSON to stdout
+xorq uv-run builds/7061dd65ff3c -f json -o -
+```
+
+

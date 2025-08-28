@@ -1,0 +1,35 @@
+---
+title: 'serve-flight-udxf'
+---
+
+The `xorq serve-flight-udxf` command serves expressions that contain UDXF (User-Defined Exchange Functions) over Apache Arrow Flight.
+
+It loads the built expression, detects UDXF nodes, constructs a Flight server with `FlightServer.from_udxf()`, and serves until stopped.
+
+## Usage
+
+```bash
+xorq serve-flight-udxf <build_path> [options]
+```
+
+## Arguments
+
+- **build_path**: Path to the build directory produced by `xorq build`/`uv-build`.
+
+## Options
+
+- **--host**: Host to bind (default: `localhost`).
+- **--port**: Port to bind (default: random).
+- **--duckdb-path**: Path to DuckDB database file used for caching.
+- **--prometheus-port**: Expose Prometheus metrics if metrics packages are installed.
+- **--cache-dir**: Directory for parquet cache files.
+
+## Example
+
+```bash
+xorq serve-flight-udxf builds/f02d28198715 --host 0.0.0.0 --port 8080
+```
+
+This starts a Flight server hosting the UDXF endpoint(s) embedded in the built expression.
+
+

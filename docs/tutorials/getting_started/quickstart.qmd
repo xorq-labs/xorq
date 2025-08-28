@@ -194,8 +194,8 @@ cat builds/7061dd65ff3c/*.sql
 Start a Flight server:
 
 ```bash
-# Start server
-xorq serve --port 8001
+# Start server (UDXF)
+xorq serve-flight-udxf --port 8001
 ```
 
 Then connect and execute expressions:

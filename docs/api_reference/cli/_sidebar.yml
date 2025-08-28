@@ -4,6 +4,9 @@ website:
     - api_reference/cli/init.qmd
     - api_reference/cli/build.qmd
     - api_reference/cli/run.qmd
-    - api_reference/cli/serve.qmd
+    - api_reference/cli/uv-build.qmd
+    - api_reference/cli/uv-run.qmd
+    - api_reference/cli/serve-unbound.qmd
+    - api_reference/cli/serve-flight-udxf.qmd
     id: cli-reference
   - id: dummy-sidebar-cli
