@@ -1,0 +1,31 @@
+---
+title: 'uv-build'
+---
+
+The `xorq uv-build` command builds an expression in an isolated, reproducible environment using uv tooling. It mirrors `xorq build` but executes via the packaged sdist to ensure dependency fidelity.
+
+## Usage
+
+```bash
+xorq uv-build <script_path> [options]
+```
+
+## Arguments
+
+- **script_path**: Path to the Python script that defines the expression variable.
+
+## Options
+
+- **-e, --expr-name**: Name of the expression variable in the Python script (default: `expr`).
+- **--builds-dir**: Directory where generated artifacts are written (default: `builds`).
+- **--cache-dir**: Directory for parquet cache files (default: system cache dir).
+
+## Example
+
+```bash
+xorq uv-build examples/penguins_example/expr.py -e expr --builds-dir builds
+```
+
+This writes the build artifacts to the specified `builds` directory and prints the build path to stdout.
+
+

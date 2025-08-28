@@ -240,9 +240,9 @@ Serve your pipeline as an Arrow Flight endpoint:
 xorq serve-unbound builds/5704ffbeade4 b2370a29c19df8e1e639c63252dacd0e
 ```
 
-### `xorq serve`
+### `xorq serve-flight-udxf`
 
-The [`xorq serve`](../../api_reference/cli/serve.qmd) command serves expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. 
+The [`xorq serve-flight-udxf`](../../api_reference/cli/serve-flight-udxf.qmd) command serves expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. 
 
 For this command, we'll use the following `expr.py` file:
 
@@ -303,7 +303,7 @@ builds/cb63fef71027
 Now we can serve the expression:
 
 ```bash
-xorq serve builds/cb63fef71027
+xorq serve-flight-udxf builds/cb63fef71027
 ```
 
 ## Summary
