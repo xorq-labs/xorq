@@ -187,7 +187,9 @@ class FlightClient:
                 loads,
                 (
                     result.body.to_pybytes()
-                    for result in self._client.do_action(action, options=options)
+                    for result in self._client.do_action(
+                        action, options=options or self._options
+                    )
                 ),
             )
 
@@ -196,12 +198,16 @@ class FlightClient:
 
     def do_action_one(self, action_type, action_body=None, options=None):
         return next(
-            self._do_action(action_type, action_body=action_body, options=options)
+            self._do_action(
+                action_type, action_body=action_body, options=options or self._options
+            )
         )
 
     def do_action(self, action_type, action_body=None, options=None):
         return tuple(
-            self._do_action(action_type, action_body=action_body, options=options)
+            self._do_action(
+                action_type, action_body=action_body, options=options or self._options
+            )
         )
 
     def do_exchange_batches(self, command, reader):
