@@ -15,6 +15,7 @@ import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    file_digest,
     normalize_read_path_md5sum,
 )
 from xorq.common.utils.graph_utils import (
@@ -322,6 +323,29 @@ class BuildManager:
 
     def load_deferred_reads(self, expr_hash: str) -> Dict[str, Any]:
         return self.artifact_store.load_yaml(expr_hash, "deferred_reads.yaml")
+
+    @staticmethod
+    def validate_build(path) -> tuple:
+        """
+        Validate a build directory and extract build metadata for catalog.
+        Returns: build_id, meta_digest, metadata_preview
+        """
+
+        def validate(path):
+            build_path = Path(path)
+            meta_file = build_path / "metadata.json"
+            if not build_path.exists() or not build_path.is_dir():
+                raise ValueError(f"Build path not found: {build_path}")
+            if not meta_file.exists():
+                raise ValueError(f"metadata.json not found in build path: {build_path}")
+            return meta_file
+
+        meta_file = validate(path)
+        # The build_id is the directory name
+        build_id = meta_file.parent.name
+        # Compute meta_digest from metadata.json
+        meta_digest = f"sha1:{file_digest(meta_file)}"
+        return build_id, meta_digest
 
 
 def load_expr(expr_path, cache_dir=None):

@@ -1,3 +1,4 @@
+import itertools
 import logging
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -31,6 +32,7 @@ class FlightClient:
         cert_chain=None,
         private_key=None,
         tls_root_certs=None,
+        healthcheck_n_tries=20,
         **kwargs,
     ):
         """
@@ -56,7 +58,7 @@ class FlightClient:
         self._client = _FlightClient(
             f"{scheme}://{host}:{port}", **bytes_kwargs, **kwargs
         )
-        self._wait_on_healthcheck()
+        self._wait_on_healthcheck(healthcheck_n_tries)
 
         if username and password:
             token_pair = self._client.authenticate_basic_token(
@@ -66,15 +68,15 @@ class FlightClient:
         else:
             self._options = None
 
-    def _wait_on_healthcheck(self):
-        while True:
+    def _wait_on_healthcheck(self, n_tries=None, sleep_n=1):
+        for attempt_i in itertools.islice(itertools.count(), n_tries):
             try:
                 self.do_action(
                     "healthcheck",
                     options=pa.flight.FlightCallOptions(timeout=1),
                 )
                 logger.info("done healthcheck")
-                break
+                return
             except pa.ArrowIOError as e:
                 if "Deadline" in str(e):
                     logger.info("Server is not ready, waiting...")
@@ -90,13 +92,13 @@ class FlightClient:
                 else:
                     pass
             except pa.flight.FlightUnauthenticatedError:
-                break
+                return
             except Exception:
                 pass
             finally:
-                n_seconds = 1
-                logger.info(f"Flight server unavailable, sleeping {n_seconds} seconds")
-                time.sleep(n_seconds)
+                logger.info(f"Flight server unavailable, sleeping {sleep_n} seconds")
+                time.sleep(sleep_n)
+        raise RuntimeError(f"failed to connect after {attempt_i} attempts")
 
     # FIXME: rename to execute_table, add execute that return pd.DataFrame
     def execute(self, expr, **kwargs):
@@ -187,7 +189,9 @@ class FlightClient:
                 loads,
                 (
                     result.body.to_pybytes()
-                    for result in self._client.do_action(action, options=options)
+                    for result in self._client.do_action(
+                        action, options=options or self._options
+                    )
                 ),
             )
 
@@ -196,12 +200,16 @@ class FlightClient:
 
     def do_action_one(self, action_type, action_body=None, options=None):
         return next(
-            self._do_action(action_type, action_body=action_body, options=options)
+            self._do_action(
+                action_type, action_body=action_body, options=options or self._options
+            )
         )
 
     def do_action(self, action_type, action_body=None, options=None):
         return tuple(
-            self._do_action(action_type, action_body=action_body, options=options)
+            self._do_action(
+                action_type, action_body=action_body, options=options or self._options
+            )
         )
 
     def do_exchange_batches(self, command, reader):
