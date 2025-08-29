@@ -244,14 +244,15 @@ def unbind_and_serve_command(
         from xorq.vendor.ibis.expr.operations import UnboundTable
 
         found = find_node(expr, hash=hash, tag=tag, typs=typ)
-        to_unbind_hash = hash or dask.base.tokenize(found.to_expr())
-        found_cons = find_all_sources(expr)
+        found_expr = found.to_expr()
+        to_unbind_hash = hash or dask.base.tokenize(found_expr)
+        found_cons = find_all_sources(found_expr)
         if len(found_cons) == 0:
             raise ValueError
         elif len(found_cons) == 1:
             (found_con,) = found_cons
         else:
-            found_con = found.to_expr()._find_backend()
+            found_con = found_expr._find_backend()
             assert found_con
 
         unbound_table = UnboundTable("unbound", found.schema)

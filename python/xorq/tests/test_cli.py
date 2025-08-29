@@ -265,7 +265,7 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
         flight_con = xo.flight.connect(host=host, port=int(port))
         assert (
             serve_process.popen.poll() is None
-            and "diamonds_exchange_command" in flight_con.list_udxfs()
+            and "diamonds_exchange_command" in flight_con.list_exchanges()
         )
         serve_process.popen.terminate()
 
@@ -596,5 +596,73 @@ def test_serve_unbound_tag(serve_tag, pipeline_https_build):
         df.sort_values(list(df.columns), ignore_index=True) for df in (actual, expected)
     )
     assert actual.equals(expected)
+
+    serve_popened.popen.terminate()
+
+
+@pytest.mark.slow
+def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
+    batting_url = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
+    serve_tag = "read-batting"
+    expr = load_expr(pipeline_https_build)
+
+    serve_args = (
+        "xorq",
+        "serve-unbound",
+        str(pipeline_https_build),
+        "--to_unbind_tag",
+        serve_tag,
+    )
+    serve_popened = Popened(serve_args, deferred=False)
+    port = peek_port(serve_popened)
+
+    flight_backend = xo.flight.connect(port=port)
+    f = flight_backend.get_exchange("default")
+    actual = xo.deferred_read_parquet(batting_url).pipe(f).execute()
+
+    expected = expr.execute()
+    (actual, expected) = (
+        df.sort_values(list(df.columns), ignore_index=True) for df in (actual, expected)
+    )
+    assert actual.equals(expected)
+
+    serve_popened.popen.terminate()
+
+
+@pytest.mark.slow
+def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
+    import pandas as pd
+
+    df = pd.DataFrame([float(v) for v in range(10)], columns=["x"])
+
+    serve_tag = "full"
+
+    builds_dir = tmp_path / "builds"
+    script_path = fixture_dir / "pipeline_pandas_udf.py"
+
+    import contextlib
+    import io
+
+    # Capture print output
+    output = io.StringIO()
+
+    with contextlib.redirect_stdout(output):
+        build_command(script_path, "expr", str(builds_dir))
+
+    serve_args = (
+        "xorq",
+        "serve-unbound",
+        str(output.getvalue().strip()),
+        "--to_unbind_tag",
+        serve_tag,
+    )
+    serve_popened = Popened(serve_args, deferred=False)
+    port = peek_port(serve_popened)
+
+    flight_backend = xo.flight.connect(port=port)
+    f = flight_backend.get_exchange("default")
+    actual = xo.connect().register(df).select("x").pipe(f).execute()
+
+    assert not actual.empty
 
     serve_popened.popen.terminate()

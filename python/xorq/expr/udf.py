@@ -17,6 +17,7 @@ from xorq.vendor.ibis.expr.operations.udf import (
     ScalarUDF,
     _make_udf_name,
     _wrap,
+    reduce_udf,
     scalar,
 )
 from xorq.vendor.ibis.expr.operations.udf import (
@@ -95,36 +96,15 @@ class ExprScalarUDF(ScalarUDF):
 
     def with_computed_kwargs_expr(self, computed_kwargs_expr):
         # we must create a new typ to set __config__
-        # from xorq.ibis_yaml.udf import make_op_kwargs
-        kwargs = dict(zip(self.argnames, self.args))
-        fields = {
-            argname: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
-            for (argname, typ) in (
-                (argname, arg.dtype) for argname, arg in kwargs.items()
-            )
-        }
-        meta = {
-            name: getattr(self, name)
-            for name in (
-                "dtype",
-                "__input_type__",
-                "__func_name__",
-                "__udf_namespace__",
-                "__module__",
-            )
-        } | {
-            "__func__": staticmethod(self.__func__),
-        }
-        config = FrozenDict(
-            self.__config__ | {"computed_kwargs_expr": computed_kwargs_expr}
+        restore_udf, (name, bases, type_kwargs, ctor_kwargs) = self.__reduce__()
+        new_config = FrozenDict(
+            type_kwargs["__config__"] | {"computed_kwargs_expr": computed_kwargs_expr}
         )
-        new_typ = type(
-            self.__class__.__name__,
-            self.__class__.__bases__,
-            fields | meta | {"__config__": config},
-        )
-        new_op = new_typ(**kwargs)
+        new_type_kwargs = type_kwargs | {"__config__": new_config}
+        new_op = restore_udf(name, bases, new_type_kwargs, ctor_kwargs)
         return new_op
+
+    __reduce__ = reduce_udf
 
 
 @toolz.curry

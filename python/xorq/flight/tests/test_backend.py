@@ -89,7 +89,7 @@ def test_backend_get_flight_udxf():
     con = xo.connect()
     backend = xo.flight.connect(**flight_url.client_kwargs, tls_kwargs=tls_kwargs)
 
-    f = backend.get_flight_udxf(dummy_udxf.command)
+    f = backend.get_exchange(dummy_udxf.command)
     dummy_table = con.register(pd.DataFrame({"dummy": [21, 0, 21]}), table_name="dummy")
     expr = dummy_table.filter(dummy_table.dummy >= 0).pipe(f).filter(_.row_count == 42)
 
