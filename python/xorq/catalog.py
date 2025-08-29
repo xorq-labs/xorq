@@ -408,6 +408,7 @@ class ServerRecord:
             bool,
             {
                 "to_unbind_hash": self.node_hash,
+                "start_time": self.start_time.isoformat(),
             },
         )
         return data
