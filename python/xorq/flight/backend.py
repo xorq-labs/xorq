@@ -24,6 +24,7 @@ from xorq.flight.action import (
     VersionAction,
 )
 from xorq.flight.client import FlightClient
+from xorq.flight.exchanger import UnboundExprExchanger, make_udxf
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends.sql import SQLBackend
@@ -218,8 +219,19 @@ class Backend(SQLBackend):
         batches = make_filtered_reader(batches)
         return batches
 
-    def get_flight_udxf(self, command):
-        udxf = self.con.do_action_one(GetExchangeAction.name, action_body=command)
+    def get_exchange(self, command):
+        exchanger = self.con.do_action_one(GetExchangeAction.name, action_body=command)
+
+        if isinstance(exchanger, UnboundExprExchanger):
+            exchanger = make_udxf(
+                exchanger.exchange_f,  # process_df no wraps
+                exchanger.schema_in_required,  # maybe_schema_in
+                exchanger.calc_schema_out,  # maybe_schema_out
+                name=exchanger.command,  # name
+                description=exchanger.description,  # description
+                command=exchanger.command,  # command
+                do_wraps=False,  #
+            )
 
         @toolz.curry
         def flight_udxf(
@@ -239,7 +251,7 @@ class Backend(SQLBackend):
             return (
                 FlightUDXF.from_expr(
                     input_expr=expr,
-                    udxf=udxf,
+                    udxf=exchanger,
                     make_server=make_server,
                     **kwargs,
                 )
@@ -249,5 +261,5 @@ class Backend(SQLBackend):
 
         return flight_udxf
 
-    def list_udxfs(self):
+    def list_exchanges(self):
         return self.con.do_action_one(ListExchangesAction.name)

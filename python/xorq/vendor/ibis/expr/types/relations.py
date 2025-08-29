@@ -3401,18 +3401,15 @@ class Table(Expr, _FixedTextJupyterMixin):
             maybe_prevent_cross_source_caching,
         )
         from xorq.common.utils.caching_utils import find_backend
-        from xorq.config import _backend_init
         from xorq.expr.relations import CachedNode
 
-        try:
-            current_backend, _ = find_backend(self.op(), use_default=True)
-        except com.XorqError as e:
-            if "Multiple backends found" in e.args[0]:
-                current_backend = _backend_init()
-            else:
-                raise e
+        if storage:
+            expr = maybe_prevent_cross_source_caching(self, storage)
+        else:
+            expr = self
+
+        current_backend, _ = find_backend(expr.op(), use_default=True)
         storage = storage or SourceStorage(source=current_backend)
-        expr = maybe_prevent_cross_source_caching(self, storage)
         op = CachedNode(
             schema=expr.schema(),
             parent=expr,

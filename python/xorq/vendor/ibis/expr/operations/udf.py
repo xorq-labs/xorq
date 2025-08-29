@@ -65,9 +65,43 @@ class ScalarUDF(ops.Value):
             return rlz.highest_precedence_shape(args)
 
 
+udf_meta_names = (
+    "dtype",
+    "__input_type__",
+    "__func__",
+    "__config__",
+    "__udf_namespace__",
+    "__module__",
+    "__func_name__",
+)
+
+
+def restore_udf(name, bases, type_kwargs, ctor_kwargs):
+    cls = type(name, bases, type_kwargs)
+    return cls(**ctor_kwargs)
+
+
+def reduce_udf(self, udf_meta_names=udf_meta_names):
+    ctor_kwargs = dict(zip(self.argnames, self.args))
+    fields = {
+        name: Argument(pattern=rlz.ValueOf(value.dtype), typehint=value.dtype)
+        for name, value in ctor_kwargs.items()
+        if value is not None
+    }
+    meta = {k: getattr(self.__class__, k) for k in udf_meta_names}
+    return restore_udf, (
+        self.__class__.__name__,
+        self.__class__.__bases__,
+        fields | meta,
+        ctor_kwargs,
+    )
+
+
 @public
 class AggUDF(ops.Reduction):
     where: Optional[ops.Value[dt.Boolean]] = None
+
+    __reduce__ = reduce_udf
 
 
 def _wrap(
