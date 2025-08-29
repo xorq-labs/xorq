@@ -20,4 +20,4 @@ def test_connect(auth, verify_client):
     ) as _:
         con = xo.flight.connect(**flight_url.client_kwargs, tls_kwargs=tls_kwargs)
         assert con is not None
-        con.list_tables()
+        assert con.list_exchanges()

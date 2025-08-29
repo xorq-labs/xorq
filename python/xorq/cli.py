@@ -10,6 +10,13 @@ from opentelemetry import trace
 
 import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.catalog import (
+    ServerRecord,
+    catalog_command,
+    lineage_command,
+    ps_command,
+    resolve_build_dir,
+)
 from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
@@ -218,6 +225,14 @@ def unbind_and_serve_command(
         find_node,
     )
 
+    # Preserve original target token for server listing
+    orig_target = expr_path
+    # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
+    build_dir = resolve_build_dir(expr_path)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+    expr_path = Path(build_dir)
     logger.info(f"Loading expression from {expr_path}")
     try:
         # initialize console and optional Prometheus metrics
@@ -277,6 +292,15 @@ def unbind_and_serve_command(
     server, _ = xorq.expr.relations.flight_serve_unbound(
         unbound_expr, make_server=make_server
     )
+    # Record server metadata
+    rec = ServerRecord(
+        pid=os.getpid(),
+        command="serve-unbound",
+        target=orig_target,
+        port=flight_url.port,
+        node_hash=to_unbind_hash,
+    )
+    rec.save(Path(cache_dir) / "servers")
     server.wait()
 
 
@@ -308,6 +332,14 @@ def serve_command(
         Path to the dir to store the parquet cache files
     """
 
+    # Preserve original target token for server listing
+    orig_target = expr_path
+    # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
+    build_dir = resolve_build_dir(expr_path)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+    expr_path = build_dir
     span = trace.get_current_span()
     params = {
         "build_path": expr_path,
@@ -342,6 +374,14 @@ def serve_command(
         port=port,
         host=host,
     )
+    # Record server metadata
+    rec = ServerRecord(
+        pid=os.getpid(),
+        command="serve-flight-udxf",
+        target=orig_target,
+        port=server.flight_url.port,
+    )
+    rec.save(Path(cache_dir) / "servers")
     location = server.flight_url.to_location()
     logger.info(f"Serving expression '{expr_path.stem}' on {location}")
     server.serve(block=True)
@@ -370,6 +410,8 @@ def parse_args(override=None):
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
+    ls_parser = subparsers.add_parser("ls", help="List catalog entries")
+    ls_parser.set_defaults(subcommand="ls")
 
     uv_build_parser = subparsers.add_parser(
         "uv-build",
@@ -474,7 +516,8 @@ def parse_args(override=None):
         "serve-unbound", help="Serve an an unbound expr via Flight Server"
     )
     serve_unbound_parser.add_argument(
-        "build_path", help="Path to the build directory (output of xorq build)"
+        "build_path",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
     )
     serve_unbound_parser.add_argument(
         "--to_unbind_hash", default=None, help="hash of the expr to replace"
@@ -515,7 +558,8 @@ def parse_args(override=None):
         "serve-flight-udxf", help="Serve a build via Flight Server"
     )
     serve_parser.add_argument(
-        "build_path", help="Path to the build directory (output of xorq build)"
+        "build_path",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
     )
     serve_parser.add_argument(
         "--host",
@@ -561,6 +605,66 @@ def parse_args(override=None):
         "--template",
         choices=tuple(InitTemplates),
         default=InitTemplates.cached_fetcher,
+    )
+    lineage_parser = subparsers.add_parser(
+        "lineage",
+        help="Print lineage trees of all columns for a build",
+    )
+    lineage_parser.add_argument(
+        "target",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
+    ps_parser = subparsers.add_parser(
+        "ps",
+        help="List running xorq servers",
+    )
+    ps_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for server state records",
+    )
+    catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
+    catalog_subparsers = catalog_parser.add_subparsers(
+        dest="subcommand", help="Catalog commands"
+    )
+    catalog_subparsers.required = True
+
+    catalog_add = catalog_subparsers.add_parser(
+        "add", help="Add a build to the catalog"
+    )
+    catalog_add.add_argument("build_path", help="Path to the build directory")
+    catalog_add.add_argument(
+        "-a", "--alias", help="Optional alias for this entry", default=None
+    )
+    catalog_subparsers.add_parser("ls", help="List catalog entries")
+
+    catalog_subparsers.add_parser("info", help="Show catalog information")
+    catalog_rm = catalog_subparsers.add_parser(
+        "rm", help="Remove a build entry or alias from the catalog"
+    )
+    catalog_rm.add_argument("entry", help="Entry ID or alias to remove")
+    catalog_diff_builds = catalog_subparsers.add_parser(
+        "diff-builds", help="Compare two build artifacts via git diff --no-index"
+    )
+    catalog_diff_builds.add_argument(
+        "left",
+        help="Left build target: alias, entry_id, build_id, or path to build dir",
+    )
+    catalog_diff_builds.add_argument(
+        "right",
+        help="Right build target: alias, entry_id, build_id, or path to build dir",
+    )
+    catalog_diff_builds.add_argument(
+        "--all",
+        action="store_true",
+        help="Diff all known build files plus all .sql files",
+    )
+    catalog_diff_builds.add_argument(
+        "--files",
+        nargs="+",
+        help="Explicit list of relative files to diff (overrides --all)",
+        default=None,
     )
 
     args = parser.parse_args(override)
@@ -644,6 +748,21 @@ def main():
                 f, f_args = (
                     init_command,
                     (args.path, args.template),
+                )
+            case "lineage":
+                f, f_args = (
+                    lineage_command,
+                    (args.target,),
+                )
+            case "catalog":
+                f, f_args = (
+                    catalog_command,
+                    (args,),
+                )
+            case "ps":
+                f, f_args = (
+                    ps_command,
+                    (args.cache_dir,),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
