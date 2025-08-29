@@ -421,6 +421,21 @@ rowwise = {
     ops.Strftime: lambda row: row["arg"].strftime(row["format_str"]),
 }
 
+
+def custom_hash(**kwargs):
+    import xorq.api as xo
+
+    arg = kwargs["arg"].to_frame()
+    col_name, *rest = arg.columns
+    return (
+        xo.connect()
+        .register(arg)
+        .select(xo._[col_name].hash().name(col_name))
+        .execute()
+        .squeeze()
+    )
+
+
 serieswise = {
     ops.Between: lambda arg, lower_bound, upper_bound: arg.between(
         lower_bound, upper_bound
@@ -478,6 +493,7 @@ serieswise = {
         str.maketrans(from_str, to_str)
     ),
     ops.Uppercase: lambda arg: arg.str.upper(),
+    ops.Hash: custom_hash,
 }
 
 elementwise = {
@@ -496,7 +512,6 @@ elementwise = {
     ops.MapKeys: safe_keys,
     ops.MapValues: safe_values,
     ops.Round: lambda x, digits=0: round(x, digits),
-    ops.Hash: hash,  # TODO investigate how duckdb hash works
 }
 
 

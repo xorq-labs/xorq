@@ -47,6 +47,9 @@ jobs:
             extras:
               - --extra postgres
               - --extra examples
+          - name: pandas
+            services: false
+            extras: []
           - name: core
             services: true
             extras:
