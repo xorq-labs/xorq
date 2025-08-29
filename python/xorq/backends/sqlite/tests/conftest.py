@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 import xorq.api as xo
@@ -16,6 +14,6 @@ def astronauts_parquet_path(parquet_dir):
 
 
 @pytest.fixture(scope="session")
-def persistent_sqlite_con():
-    path = Path(__file__).parent.joinpath("lite.db").resolve()
+def persistent_sqlite_con(tmp_path_factory):
+    path = tmp_path_factory.mktemp("database").joinpath("lite.db").resolve()
     return xo.sqlite.connect(str(path))
