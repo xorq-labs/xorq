@@ -13,6 +13,7 @@ from xorq_feature_utils import (
     FeatureView,
 )
 
+import xorq
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.logging_utils import get_logger
@@ -37,7 +38,9 @@ TABLE_BATCH = "weather_history"
 CITIES = ["London", "Tokyo", "New York", "Lahore"]
 
 
-data_dir = xo.common.utils.caching_utils.get_xorq_cache_dir().joinpath("weather-flight")
+data_dir = xorq.common.utils.caching_utils.get_xorq_cache_dir().joinpath(
+    "weather-flight"
+)
 data_dir.mkdir(parents=True, exist_ok=True)
 
 
