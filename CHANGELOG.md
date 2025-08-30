@@ -5,6 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.1] - 2025-08-30
+### Details
+#### Added
+- Add xorq app by @hussainsultan in [#1163](https://github.com/xorq-labs/xorq/pull/1163)
+- Add CLI section in 10_minutes by @mesejo in [#1158](https://github.com/xorq-labs/xorq/pull/1158)
+- Add Tag(Node) class, Expr.tag method by @dlovell in [#1205](https://github.com/xorq-labs/xorq/pull/1205)
+- Add limit option to run by @hussainsultan in [#1203](https://github.com/xorq-labs/xorq/pull/1203)
+- Support group by alias in aggregate by @hussainsultan in [#1224](https://github.com/xorq-labs/xorq/pull/1224)
+- Add runner per backend by @mesejo in [#1210](https://github.com/xorq-labs/xorq/pull/1210)
+- LETSQLAccessor: add property `tokenized` by @dlovell in [#1238](https://github.com/xorq-labs/xorq/pull/1238)
+- Add listing and fetching of UnboundExprExchanger by @mesejo in [#1207](https://github.com/xorq-labs/xorq/pull/1207)
+- Add catalog by @dlovell in [#1249](https://github.com/xorq-labs/xorq/pull/1249)
+
+#### Changed
+- Make xorq cli app to use all deps by @hussainsultan in [#1164](https://github.com/xorq-labs/xorq/pull/1164)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.12.7 by @renovate[bot] in [#1168](https://github.com/xorq-labs/xorq/pull/1168)
+- Update dependency ruff to v0.12.7 by @renovate[bot] in [#1167](https://github.com/xorq-labs/xorq/pull/1167)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.8.4 by @renovate[bot] in [#1171](https://github.com/xorq-labs/xorq/pull/1171)
+- Update bitnami/minio docker tag to v2025.7.23 by @renovate[bot] in [#1169](https://github.com/xorq-labs/xorq/pull/1169)
+- Properly configure pin setup-python by @mesejo in [#1177](https://github.com/xorq-labs/xorq/pull/1177)
+- Update dependency coverage to v7.10.2 by @renovate[bot] in [#1170](https://github.com/xorq-labs/xorq/pull/1170)
+- Update dependency pytest-codspeed to v4 by @renovate[bot] in [#1173](https://github.com/xorq-labs/xorq/pull/1173)
+- Make deferred read and sql outputs optional in BuildManager by @hussainsultan in [#1199](https://github.com/xorq-labs/xorq/pull/1199)
+- Improve speed of ibis_yaml package by @mesejo in [#1202](https://github.com/xorq-labs/xorq/pull/1202)
+- Move into_backend tests to test_into_backend.py by @mesejo in [#1178](https://github.com/xorq-labs/xorq/pull/1178)
+- Bank marketing uses pipeline lib by @dlovell in [#1204](https://github.com/xorq-labs/xorq/pull/1204)
+- Use local files for reducing execution time by @mesejo in [#1206](https://github.com/xorq-labs/xorq/pull/1206)
+- Delay sklearn import by @dlovell in [#1215](https://github.com/xorq-labs/xorq/pull/1215)
+- Delay pandas import by @dlovell in [#1219](https://github.com/xorq-labs/xorq/pull/1219)
+- Use peek_port in test_serve_command by @mesejo in [#1221](https://github.com/xorq-labs/xorq/pull/1221)
+- Reduce combinations and outdated workflows by @mesejo in [#1230](https://github.com/xorq-labs/xorq/pull/1230)
+- Update penguins hexdigest by @mesejo in [#1236](https://github.com/xorq-labs/xorq/pull/1236)
+- Move from xorq to xorq.api by @mesejo in [#1222](https://github.com/xorq-labs/xorq/pull/1222)
+- Warn when a Read op targets a local file by @mesejo in [#1195](https://github.com/xorq-labs/xorq/pull/1195)
+- Update project urls by @mesejo in [#1248](https://github.com/xorq-labs/xorq/pull/1248)
+- Update CLI references with new commands by @sanajitjana in [#1245](https://github.com/xorq-labs/xorq/pull/1245)
+- Disable weather_flight example temporarily by @mesejo in [#1251](https://github.com/xorq-labs/xorq/pull/1251)
+- Update google-site-verification by @mesejo in [#1253](https://github.com/xorq-labs/xorq/pull/1253)
+
+#### Fixed
+- Update dependency datafusion to v48 by @renovate[bot] in [#1174](https://github.com/xorq-labs/xorq/pull/1174)
+- Update dependency fsspec to >=2024.6.1,<2025.7.1 by @renovate[bot] in [#1172](https://github.com/xorq-labs/xorq/pull/1172)
+- Update dependency pyarrow to v21 by @renovate[bot] in [#1175](https://github.com/xorq-labs/xorq/pull/1175)
+- Ensure preserve_index=False in RecordBatch.from_pandas by @mesejo in [#1160](https://github.com/xorq-labs/xorq/pull/1160)
+- Xorq serve inference by @dlovell in [#1176](https://github.com/xorq-labs/xorq/pull/1176)
+- Fix riscv issuee in nix run by @hussainsultan in [#1185](https://github.com/xorq-labs/xorq/pull/1185)
+- Fix pyarrow 21.0.0 build on darwin by @hussainsultan in [#1192](https://github.com/xorq-labs/xorq/pull/1192)
+- Read_record_batches schema mismatch by @mesejo in [#1190](https://github.com/xorq-labs/xorq/pull/1190)
+- Pointing to main of xorq-weather-lib by @mesejo in [#1188](https://github.com/xorq-labs/xorq/pull/1188)
+- Register with table_name default value by @mesejo in [#1182](https://github.com/xorq-labs/xorq/pull/1182)
+- Update flake inputs by @dlovell in [#1191](https://github.com/xorq-labs/xorq/pull/1191)
+- .sql on deferred_read_* nodes by @mesejo in [#1184](https://github.com/xorq-labs/xorq/pull/1184)
+- Rename serve cmd by @hussainsultan in [#1200](https://github.com/xorq-labs/xorq/pull/1200)
+- Better serve-unbound con detection by @dlovell in [#1212](https://github.com/xorq-labs/xorq/pull/1212)
+- Wrong arg limit in serve_unbound_parser by @mesejo in [#1226](https://github.com/xorq-labs/xorq/pull/1226)
+- Use item accessor (square brackets) for tag column by @mesejo in [#1227](https://github.com/xorq-labs/xorq/pull/1227)
+- Fix readme broken links by @hussainsultan in [#1234](https://github.com/xorq-labs/xorq/pull/1234)
+- SourceStorage._put: don't pull local by @dlovell in [#1235](https://github.com/xorq-labs/xorq/pull/1235)
+- Update reference by @mesejo in [#1243](https://github.com/xorq-labs/xorq/pull/1243)
+- Allow None for the con in deferred_read_parquet by @mesejo
+- Fix CLI command docs reference by @mesejo in [#1250](https://github.com/xorq-labs/xorq/pull/1250)
+- Replace computed kwargs expr by @dlovell in [#1247](https://github.com/xorq-labs/xorq/pull/1247)
+
+#### Removed
+- Remove spurious riscv64 entry by @dlovell in [#1165](https://github.com/xorq-labs/xorq/pull/1165)
+- Remove bind value in FlightURL by @mesejo in [#1181](https://github.com/xorq-labs/xorq/pull/1181)
+- Remove row_number hack for gen_splits by @hussainsultan in [#1193](https://github.com/xorq-labs/xorq/pull/1193)
+- Remove print in elide_cache_node by @mesejo in [#1228](https://github.com/xorq-labs/xorq/pull/1228)
+
+### New Contributors
+* @sanajitjana made their first contribution in [#1245](https://github.com/xorq-labs/xorq/pull/1245)
+
 ## [0.3.0] - 2025-07-28
 ### Details
 #### Added
