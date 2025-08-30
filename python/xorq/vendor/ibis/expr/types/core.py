@@ -799,7 +799,7 @@ class LETSQLAccessor:
     @property
     def cache_path(self):
         # FIXME: what to do for non-ParquetStorage
-        return self.get_path()
+        return self.get_cache_path()
 
     @property
     def cached_dt(self):
@@ -816,7 +816,7 @@ class LETSQLAccessor:
     #     else:
     #         return None
 
-    def get_path(self):
+    def get_cache_path(self):
         if self.is_cached:
             cn = self.op
             return cn.storage.get_loc(cn.storage.get_key(cn.parent))
