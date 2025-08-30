@@ -423,15 +423,23 @@ rowwise = {
 
 
 def custom_hash(**kwargs):
-    import xorq.api as xo
+    import pyarrow as pa
 
-    arg = kwargs["arg"].to_frame()
-    col_name, *rest = arg.columns
+    from xorq.internal import SessionContext
+
+    arg = kwargs["arg"]
+    table_name = f"table_{arg.name}"
+
+    table = pa.Table.from_arrays(
+        arrays=[arg],  # List of array-like objects
+        names=[arg.name],  # Column names
+    )
+
+    ctx = SessionContext()
+    ctx.register_record_batches(table_name, [table.to_batches()])
     return (
-        xo.connect()
-        .register(arg)
-        .select(xo._[col_name].hash().name(col_name))
-        .execute()
+        ctx.sql(f"select hash_int({arg.name}) as col_name from {table_name}")
+        .to_pandas()
         .squeeze()
     )
 
