@@ -882,11 +882,11 @@ xgboost==3.0.3
     # via xorq
 xorq-datafusion==0.2.3
     # via xorq
-xorq-feature-utils @ git+https://github.com/xorq-labs/xorq-feature-utils@cbd61a83b647422c329214f2739f86d8aedf920f
+xorq-feature-utils @ git+https://github.com/xorq-labs/xorq-feature-utils@02c282dd1c70ff9c237a5a57c6216ea7011c1bca
     # via xorq
 xorq-hash-cache==0.1.0
     # via xorq-weather-lib
-xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib@b8d9bfbed5467e2fa7aa8d9a3dd8ec4d62b609e1
+xorq-weather-lib @ git+https://github.com/xorq-labs/xorq-weather-lib@41bd5d61b4e7848e17e5a2f8743513224606c9bf
     # via xorq
 xxhash==3.5.0 ; python_full_version < '4'
     # via pins

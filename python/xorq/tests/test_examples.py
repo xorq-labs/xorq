@@ -14,7 +14,6 @@ NON_TESTABLE = (
     "mcp_flight_server.py",
     "duckdb_flight_example.py",
     "complex_cached_expr.py",
-    "weather_flight.py",
 )
 
 file_path = pathlib.Path(__file__).absolute()
