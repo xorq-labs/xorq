@@ -513,7 +513,7 @@ def pipeline_https_build(tmp_path, fixture_dir):
     return serve_dir
 
 
-def peek_port(popened):
+def peek_port(popened, timeout=60):
     def do_match(buf):
         (*_, line) = remove_ansi_escape(buf.decode("ascii").strip()).rsplit("\n", 1)
         match = re.match(".*on grpc://localhost:(\\d+)$", line)
@@ -522,7 +522,7 @@ def peek_port(popened):
     popened.popen.poll()
     if popened.popen.returncode:
         raise Exception(popened.stderr)
-    buf = popened.stdout_peeker.peek_line_until(do_match)
+    buf = popened.stdout_peeker.peek_line_until(do_match, timeout=timeout)
     (as_string,) = do_match(buf).groups()
     port = int(as_string)
     return port
