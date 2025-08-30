@@ -796,6 +796,33 @@ class LETSQLAccessor:
 
         return patched_tokenize(self.expr)
 
+    @property
+    def cache_path(self):
+        # FIXME: what to do for non-ParquetStorage
+        return self.get_cache_path()
+
+    @property
+    def cached_dt(self):
+        if self.exists():
+            return self.storage.cache.get(self.expr)
+        else:
+            return None
+
+    # def get_path(self):
+    #     if self.is_cached:
+    #         return self.storage.root_path.joinpath(
+    #             self.storage.get_key(self.uncached_one)
+    #         )
+    #     else:
+    #         return None
+
+    def get_cache_path(self):
+        if self.is_cached:
+            cn = self.op
+            return cn.storage.get_loc(cn.storage.get_key(cn.parent))
+        else:
+            return None
+
     def get_key(self):
         if self.is_cached:
             return self.storage.get_key(self.uncached_one)
