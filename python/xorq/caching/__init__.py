@@ -34,6 +34,9 @@ from xorq.common.utils.dask_normalize.dask_normalize_expr import (
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
 )
+from xorq.common.utils.defer_utils import (
+    deferred_read_parquet,
+)
 from xorq.common.utils.otel_utils import tracer
 from xorq.config import _backend_init, options
 from xorq.expr.relations import (
@@ -246,7 +249,11 @@ class _ParquetStorage(CacheStorage):
         return self.get_loc(key).exists()
 
     def _get(self, key):
-        op = self.source.read_parquet(self.get_loc(key), key).op()
+        op = deferred_read_parquet(
+            path=self.get_loc(key),
+            con=self.source,
+            table_name=key,
+        ).op()
         return op
 
     def _put(self, key, value):
