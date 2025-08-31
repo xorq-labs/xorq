@@ -22,6 +22,9 @@ from opentelemetry import trace
 from public import public
 
 import xorq.common.utils.dask_normalize  # noqa: F401
+from xorq.common.utils.func_utils import (
+    if_not_none,
+)
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.caching_utils import (
     get_xorq_cache_dir,
@@ -226,10 +229,12 @@ class _ParquetStorage(CacheStorage):
     relative_path = field(
         validator=instance_of(Path),
         factory=functools.partial(options.get, "cache.default_relative_path"),
+        converter=Path,
     )
     base_path = field(
         validator=optional(instance_of(Path)),
         default=None,
+        converter=if_not_none(Path),
     )
 
     @property
@@ -351,10 +356,12 @@ class ParquetSnapshotStorage:
     relative_path = field(
         validator=instance_of(Path),
         factory=functools.partial(options.get, "cache.default_relative_path"),
+        converter=Path,
     )
     base_path = field(
         validator=optional(instance_of(Path)),
         default=None,
+        converter=if_not_none(Path),
     )
     cache = field(validator=instance_of(Cache), init=False)
 
@@ -415,10 +422,12 @@ class ParquetStorage:
     relative_path = field(
         validator=instance_of(Path),
         factory=functools.partial(options.get, "cache.default_relative_path"),
+        converter=Path,
     )
     base_path = field(
         validator=optional(instance_of(Path)),
         default=None,
+        converter=if_not_none(Path),
     )
     cache = field(validator=instance_of(Cache), init=False)
 
