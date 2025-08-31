@@ -3,8 +3,6 @@ import itertools
 
 import toolz
 
-from xorq.config import options
-
 
 count = itertools.count()
 
@@ -42,6 +40,8 @@ def log_excepts(f, exception=Exception):
 
 @toolz.curry
 def maybe_log_excepts(f, exception=Exception, debug=None):
+    from xorq.config import options
+
     if options.debug or debug:
         return log_excepts(f, exception=exception)
     else:

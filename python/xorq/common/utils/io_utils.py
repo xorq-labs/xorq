@@ -1,6 +1,7 @@
 import io
 import itertools
 from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -10,6 +11,10 @@ from attr import (
 )
 from attr.validators import (
     instance_of,
+)
+
+from xorq.common.utils.func_utils import (
+    return_constant,
 )
 
 
@@ -72,16 +77,34 @@ class Peeker:
             return self._buffered()
         return buf
 
-    def peek_line(self, n=1):
+    @staticmethod
+    def make_timed_out(timeout):
+        if timeout is None:
+            return return_constant(False)
+        else:
+
+            def timed_out(timeout=timeout, then=datetime.now()):
+                return (datetime.now() - then).total_seconds() > timeout
+
+            return timed_out
+
+    def peek_line(self, n=1, timed_out=return_constant(False)):
+        buf = b""
         for n_chars in itertools.count(1):
-            if (buf := self.peek(n_chars)).count(b"\n") >= n:
+            if (buf := self.peek(n_chars)).count(b"\n") >= n or timed_out():
                 break
         return buf
 
-    def peek_line_until(self, condition):
+    def peek_line_until(self, condition, timeout=None):
+        timed_out = self.make_timed_out(timeout)
         for n_lines in itertools.count(1):
-            if condition(buf := self.peek_line(n=n_lines)):
+            if (
+                condition(buf := self.peek_line(n=n_lines, timed_out=timed_out))
+                or timed_out()
+            ):
                 break
+        if not condition(buf):
+            raise TimeoutError
         return buf
 
     def read(self, size=None):
