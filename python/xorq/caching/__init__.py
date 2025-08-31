@@ -441,6 +441,10 @@ class ParquetStorage:
 
     __getattr__ = chained_getattr
 
+    @property
+    def root_path(self):
+        return self.cache.storage.path
+
 
 @public
 @frozen
