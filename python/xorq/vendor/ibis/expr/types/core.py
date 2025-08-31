@@ -799,6 +799,36 @@ class LETSQLAccessor:
         # NOTE: this should almost certainly not be functools.cache'd: it can obscure filesystem / source table changes within the same process run
         return patched_tokenize(self.expr)
 
+    def get_cache_path(self):
+        from xorq.caching import ParquetStorage
+
+        if self.is_cached and isinstance(self.storage, ParquetStorage):
+            cn = self.op
+            return cn.storage.get_loc(cn.storage.get_key(cn.parent))
+        else:
+            return None
+
+    def get_cache_paths(self):
+        if self.has_cached:
+            return tuple(
+                filter(
+                    None, (op.to_expr().ls.get_cache_path() for op in self.cached_nodes)
+                )
+            )
+        else:
+            return None
+
+    @property
+    def cache_path(self):
+        return self.get_cache_path()
+
+    @property
+    def cached_dt(self):
+        if self.exists():
+            return self.storage.cache.get(self.expr)
+        else:
+            return None
+
     def get_key(self):
         if self.is_cached:
             return self.storage.get_key(self.uncached_one)
