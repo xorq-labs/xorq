@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import functools
 import os
 import webbrowser
 from typing import TYPE_CHECKING, Any, NoReturn
@@ -683,17 +684,17 @@ class Expr(Immutable, Coercible):
 
     @property
     def ls(self):
-        return LETSQLAccessor(self)
+        return LETSQLAccessor(self.op())
 
 
 @frozen
 class LETSQLAccessor:
-    expr = field(validator=instance_of(Expr))
+    op = field(validator=instance_of(ops.Node))
     node_types = (ops.DatabaseTable, ops.SQLQueryResult)
 
     @property
-    def op(self):
-        return self.expr.op()
+    def expr(self):
+        return self.op.to_expr()
 
     @property
     def cached_nodes(self):
@@ -756,6 +757,7 @@ class LETSQLAccessor:
         return bool(self.cached_nodes)
 
     @property
+    @functools.cache
     def untagged(self):
         from xorq.expr.api import (
             _remove_tag_nodes,
@@ -794,6 +796,7 @@ class LETSQLAccessor:
             patched_tokenize,
         )
 
+        # NOTE: this should almost certainly not be functools.cache'd: it can obscure filesystem / source table changes within the same process run
         return patched_tokenize(self.expr)
 
     def get_key(self):
