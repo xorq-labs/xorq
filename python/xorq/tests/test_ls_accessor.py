@@ -1,6 +1,9 @@
+from pathlib import Path
+
 import pytest
 
 import xorq.api as xo
+import xorq.vendor.ibis.expr.operations.relations as rel
 from xorq.backends.let import Backend
 from xorq.caching import (
     ParquetStorage,
@@ -116,3 +119,56 @@ def test_exists(cached_two):
     (path,) = storage.path.iterdir()
     path.unlink()
     assert not cached_two.ls.exists()
+
+
+def test_cache_properties(parquet_dir, tmp_path):
+    con = xo.connect()
+    storage = ParquetStorage(
+        source=con, relative_path="./tmp-cache", base_path=tmp_path
+    )
+    t = xo.deferred_read_parquet(
+        parquet_dir.joinpath("batting.parquet"),
+        con=con,
+        table_name="t",
+    )
+    expr = (
+        t.cache(storage)
+        .mutate(a=1)
+        .cache(storage)
+        .mutate(b=2)
+        .cache(storage)
+        .mutate(b=3)
+        .cache()
+    )
+    assert not any(p.exists() for p in expr.ls.get_cache_paths())
+    expr.execute()
+    assert all(p.exists() for p in expr.ls.get_cache_paths())
+    (ssn, psn0, psn1, psn2) = expr.ls.cached_nodes
+    (ss, ps, *rest) = expr.ls.storages
+    assert (ps,) == tuple(set(rest))
+    p = storage.cache.storage.path
+
+    # downstream is still cached even if upstream caches don't exist
+    (*to_remove, last) = sorted(
+        storage.cache.storage.path.iterdir(), key=lambda p: p.stat().st_ctime
+    )
+    for p in to_remove:
+        p.unlink()
+    assert all(
+        (
+            psn0.to_expr().ls.exists(),
+            not psn1.to_expr().ls.exists(),
+            not psn2.to_expr().ls.exists(),
+        )
+    )
+
+    # cached_dt differs based on type of Storage
+    assert isinstance(psn0.to_expr().ls.cached_dt, xo.expr.relations.Read)
+    assert isinstance(ssn.to_expr().ls.cached_dt, rel.DatabaseTable)
+    assert all(
+        isinstance(psn.to_expr().ls.cache_path, Path) for psn in (psn0, psn1, psn2)
+    )
+    assert psn0.to_expr().ls.cache_path.exists()
+    assert not psn1.to_expr().ls.cache_path.exists()
+    assert not psn2.to_expr().ls.cache_path.exists()
+    assert ssn.to_expr().ls.cache_path is None
