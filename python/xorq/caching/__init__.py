@@ -22,9 +22,6 @@ from opentelemetry import trace
 from public import public
 
 import xorq.common.utils.dask_normalize  # noqa: F401
-from xorq.common.utils.func_utils import (
-    if_not_none,
-)
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.caching_utils import (
     get_xorq_cache_dir,
@@ -36,6 +33,12 @@ from xorq.common.utils.dask_normalize.dask_normalize_expr import (
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     patch_normalize_token,
+)
+from xorq.common.utils.defer_utils import (
+    deferred_read_parquet,
+)
+from xorq.common.utils.func_utils import (
+    if_not_none,
 )
 from xorq.common.utils.otel_utils import tracer
 from xorq.config import _backend_init, options
@@ -251,7 +254,11 @@ class _ParquetStorage(CacheStorage):
         return self.get_loc(key).exists()
 
     def _get(self, key):
-        op = self.source.read_parquet(self.get_loc(key), key).op()
+        op = deferred_read_parquet(
+            path=self.get_loc(key),
+            con=self.source,
+            table_name=key,
+        ).op()
         return op
 
     def _put(self, key, value):
@@ -262,8 +269,6 @@ class _ParquetStorage(CacheStorage):
     def _drop(self, key):
         path = self.get_loc(key)
         path.unlink()
-        # FIXME: what to do if table is not registered?
-        self.source.drop_table(key)
 
 
 # named with underscore prefix until we swap out SourceStorage
