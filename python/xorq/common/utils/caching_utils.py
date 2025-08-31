@@ -10,6 +10,7 @@ from xorq.vendor.ibis.expr import operations as ops
 
 
 def get_xorq_cache_dir() -> pathlib.Path:
+    # NOTE: modifying env var XORQ_CACHE_DIR won't have any impact after first import
     if path := env_config.XORQ_CACHE_DIR:
         return Path(path).expanduser()
 
