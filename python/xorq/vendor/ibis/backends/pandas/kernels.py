@@ -421,6 +421,29 @@ rowwise = {
     ops.Strftime: lambda row: row["arg"].strftime(row["format_str"]),
 }
 
+
+def custom_hash(**kwargs):
+    import pyarrow as pa
+
+    from xorq.internal import SessionContext
+
+    arg = kwargs["arg"]
+    table_name = f"table_{arg.name}"
+
+    table = pa.Table.from_arrays(
+        arrays=[arg],  # List of array-like objects
+        names=[arg.name],  # Column names
+    )
+
+    ctx = SessionContext()
+    ctx.register_record_batches(table_name, [table.to_batches()])
+    return (
+        ctx.sql(f"select hash_int({arg.name}) as col_name from {table_name}")
+        .to_pandas()
+        .squeeze()
+    )
+
+
 serieswise = {
     ops.Between: lambda arg, lower_bound, upper_bound: arg.between(
         lower_bound, upper_bound
@@ -478,6 +501,7 @@ serieswise = {
         str.maketrans(from_str, to_str)
     ),
     ops.Uppercase: lambda arg: arg.str.upper(),
+    ops.Hash: custom_hash,
 }
 
 elementwise = {
@@ -510,6 +534,7 @@ elementwise_decimal = {
     ops.Log2: safe_decimal(lambda x: x.ln() / decimal.Decimal(2).ln()),
     ops.Sign: safe_decimal(lambda x: math.copysign(1, x)),
     ops.Log: safe_decimal(lambda x, base: x.ln() / decimal.Decimal(base).ln()),
+    ops.Multiply: safe_decimal(lambda left, right: left * right),
 }
 
 

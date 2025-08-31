@@ -38,8 +38,15 @@ class Backend(IbisPandasBackend):
 
     def read_record_batches(
         self,
-        record_batches: pa.RecordBatchReader,
+        record_batches: pa.RecordBatchReader
+        | list[pa.RecordBatch]
+        | tuple[pa.RecordBatch],
         table_name: str | None = None,
     ):
+        if isinstance(record_batches, (list, tuple)):
+            record_batches = pa.RecordBatchReader.from_batches(
+                record_batches[0].schema, record_batches
+            )
+
         self.dictionary[table_name] = record_batches.read_pandas()
         return self.table(table_name)
