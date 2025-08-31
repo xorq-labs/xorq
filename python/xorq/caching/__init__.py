@@ -320,12 +320,9 @@ class _SourceStorage(CacheStorage):
 
 
 def chained_getattr(self, attr):
-    if hasattr(self.cache, attr):
-        return getattr(self.cache, attr)
-    if hasattr(self.cache.storage, attr):
-        return getattr(self.cache.storage, attr)
-    if hasattr(self.cache.strategy, attr):
-        return getattr(self.cache.strategy, attr)
+    for obj in (self.cache, self.cache.storage, self.cache.strategy):
+        if hasattr(obj, attr):
+            return getattr(obj, attr)
     else:
         return object.__getattribute__(self, attr)
 
