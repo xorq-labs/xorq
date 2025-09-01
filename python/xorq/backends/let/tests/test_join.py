@@ -7,30 +7,7 @@ from pytest import param
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.schema as sch
-from xorq.tests.util import assert_frame_equal
-
-
-def _pandas_semi_join(left, right, on, **_):
-    assert len(on) == 1, str(on)
-    inner = pd.merge(left, right, how="inner", on=on)
-    filt = left.loc[:, on[0]].isin(inner.loc[:, on[0]])
-    return left.loc[filt, :]
-
-
-def _pandas_anti_join(left, right, on, **_):
-    inner = pd.merge(left, right, how="left", indicator=True, on=on)
-    return inner[inner["_merge"] == "left_only"]
-
-
-IMPLS = {
-    "semi": _pandas_semi_join,
-    "anti": _pandas_anti_join,
-}
-
-
-def check_eq(left, right, how, **kwargs):
-    impl = IMPLS.get(how, pd.merge)
-    return impl(left, right, how=how, **kwargs)
+from xorq.tests.util import assert_frame_equal, check_eq
 
 
 @pytest.mark.parametrize(

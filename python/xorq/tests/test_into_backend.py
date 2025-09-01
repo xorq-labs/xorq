@@ -14,7 +14,7 @@ import xorq.api as xo
 from xorq.backends.conftest import get_storage_uncached
 from xorq.caching import ParquetStorage, SourceSnapshotStorage, SourceStorage
 from xorq.expr.relations import into_backend, register_and_transform_remote_tables
-from xorq.tests.util import assert_frame_equal
+from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 from xorq.vendor.ibis import _
 
@@ -69,29 +69,6 @@ def trino_table():
         .table("orders")
         .cast({"orderdate": "date"})
     )
-
-
-def _pandas_semi_join(left, right, on, **_):
-    assert len(on) == 1, str(on)
-    inner = pd.merge(left, right, how="inner", on=on)
-    filt = left.loc[:, on[0]].isin(inner.loc[:, on[0]])
-    return left.loc[filt, :]
-
-
-def _pandas_anti_join(left, right, on, **_):
-    inner = pd.merge(left, right, how="left", indicator=True, on=on)
-    return inner[inner["_merge"] == "left_only"]
-
-
-IMPLS = {
-    "semi": _pandas_semi_join,
-    "anti": _pandas_anti_join,
-}
-
-
-def check_eq(left, right, how, **kwargs):
-    impl = IMPLS.get(how, pd.merge)
-    return impl(left, right, how=how, **kwargs)
 
 
 @pytest.fixture(scope="function")
