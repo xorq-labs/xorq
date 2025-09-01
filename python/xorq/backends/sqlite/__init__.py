@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 import sqlglot as sg
 
-from xorq.expr.api import read_parquet
+from xorq.expr.api import read_csv, read_parquet
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
 from xorq.vendor.ibis.expr import types as ir
@@ -61,4 +61,15 @@ class Backend(IbisSQLiteBackend):
     ) -> ir.Table:
         table_name = table_name or gen_name("xo_read_parquet")
         record_batches = read_parquet(path).to_pyarrow_batches()
+        return self.read_record_batches(record_batches, table_name, mode, **kwargs)
+
+    def read_csv(
+        self,
+        path: str | Path,
+        table_name: str | None = None,
+        mode: str = "create",
+        **kwargs: Any,
+    ) -> ir.Table:
+        table_name = table_name or gen_name("xo_read_csv")
+        record_batches = read_csv(path).to_pyarrow_batches()
         return self.read_record_batches(record_batches, table_name, mode, **kwargs)
