@@ -1,4 +1,8 @@
+from operator import methodcaller
+
+import dask
 import pyarrow.parquet as pq
+import pytest
 
 import xorq.api as xo
 from xorq.caching import SourceStorage
@@ -73,3 +77,39 @@ def test_can_be_cached(sqlite_con, astronauts_parquet_path):
     )
 
     assert_frame_equal(expected, actual)
+
+
+@pytest.mark.parametrize("collect", ["to_pyarrow", "to_pyarrow_batches", "execute"])
+def test_can_collect(sqlite_con, astronauts_parquet_path, collect):
+    astronauts = sqlite_con.read_parquet(astronauts_parquet_path)
+    expr = (
+        astronauts.filter(xo._.number == 104)
+        .select(xo._.id, xo._.number, xo._.nationwide_number, xo._.name)
+        .mutate(add_1=xo._.number + 1, clean_name=xo._.name.strip())
+    )
+    assert methodcaller(collect)(expr) is not None
+
+
+def test_can_outo_backend_and_tokenize(sqlite_con, astronauts_parquet_path):
+    ddb = xo.duckdb.connect()
+
+    astronauts = sqlite_con.read_parquet(astronauts_parquet_path)
+    expr = (
+        astronauts.filter(xo._.number == 104)
+        .select(xo._.id, xo._.number, xo._.nationwide_number, xo._.name)
+        .mutate(add_1=xo._.number + 1, clean_name=xo._.name.strip())
+        .into_backend(ddb, name="ddb_astronauts")
+    )
+
+    assert dask.base.tokenize(expr) is not None
+    assert not expr.execute().empty
+
+
+@pytest.mark.parametrize("file_format", ["csv", "parquet"])
+def test_can_deferred_read(sqlite_con, file_format, request):
+    read = methodcaller(
+        f"deferred_read_{file_format}",
+        request.getfixturevalue(f"astronauts_{file_format}_path"),
+        con=sqlite_con,
+    )(xo)
+    assert not read.execute().empty
