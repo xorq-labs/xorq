@@ -24,6 +24,7 @@ from xorq.flight import (
 from xorq.flight.action import AddExchangeAction
 from xorq.flight.exchanger import EchoExchanger, PandasUDFExchanger
 from xorq.flight.tests.conftest import do_agg, field_name, my_udf, return_type
+from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal
 
 
@@ -43,12 +44,16 @@ def make_flight_url(port, scheme="grpc", auth=None):
     return flight_url
 
 
+def make_connection_from_name(backend_name):
+    return load_backend(backend_name).connect if backend_name else xo.connect
+
+
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, 5005, id="duckdb"),
-        pytest.param(xo.datafusion.connect, 5005, id="datafusion"),
-        pytest.param(xo.connect, 5005, id="xorq"),
+        pytest.param("duckdb", 5005, id="duckdb"),
+        pytest.param("datafusion", 5005, id="datafusion"),
+        pytest.param("", 5005, id="xorq"),
     ],
 )
 def test_port_in_use(connection, port):
@@ -57,7 +62,7 @@ def test_port_in_use(connection, port):
     with pytest.raises(OSError, match="Address already in use"):
         with FlightServer(
             flight_url=flight_url,
-            make_connection=connection,
+            make_connection=make_connection_from_name(connection),
         ) as _:
             # entering the above context releases the port
             # so we won't raise until we enter the second context and try to use it
@@ -104,9 +109,9 @@ def test_list_exchanges():
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, None, id="duckdb"),
-        pytest.param(xo.datafusion.connect, None, id="datafusion"),
-        pytest.param(xo.connect, None, id="xorq"),
+        pytest.param("duckdb", None, id="duckdb"),
+        pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("", None, id="xorq"),
     ],
 )
 def test_register_and_list_tables(connection, port):
@@ -115,7 +120,7 @@ def test_register_and_list_tables(connection, port):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        make_connection=connection,
+        make_connection=make_connection_from_name(connection),
     ) as main:
         con = main.con
         assert con.version is not None
@@ -190,9 +195,9 @@ def test_failed_auth(tls_kwargs):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, None, id="duckdb"),
-        pytest.param(xo.datafusion.connect, None, id="datafusion"),
-        pytest.param(xo.connect, None, id="xorq"),
+        pytest.param("duckdb", None, id="duckdb"),
+        pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("", None, id="xorq"),
     ],
 )
 def test_into_backend_flight_server(connection, port, parquet_dir):
@@ -202,7 +207,7 @@ def test_into_backend_flight_server(connection, port, parquet_dir):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        make_connection=connection,
+        make_connection=make_connection_from_name(connection),
     ) as main:
         con = main.con
         t = batting.filter(batting.yearID == 2015).into_backend(con, "xo_batting")
@@ -218,9 +223,9 @@ def test_into_backend_flight_server(connection, port, parquet_dir):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, None, id="duckdb"),
-        pytest.param(xo.datafusion.connect, None, id="datafusion"),
-        pytest.param(xo.connect, None, id="xorq"),
+        pytest.param("duckdb", None, id="duckdb"),
+        pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("", None, id="xorq"),
     ],
 )
 def test_read_parquet(connection, port, parquet_dir):
@@ -228,7 +233,7 @@ def test_read_parquet(connection, port, parquet_dir):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        make_connection=connection,
+        make_connection=make_connection_from_name(connection),
     ) as main:
         con = main.con
         batting = con.read_parquet(parquet_dir / "batting.parquet")
@@ -238,9 +243,9 @@ def test_read_parquet(connection, port, parquet_dir):
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param(xo.duckdb.connect, None, id="duckdb"),
-        pytest.param(xo.datafusion.connect, None, id="datafusion"),
-        pytest.param(xo.connect, None, id="xorq"),
+        pytest.param("duckdb", None, id="duckdb"),
+        pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("", None, id="xorq"),
     ],
 )
 def test_exchange(connection, port):
@@ -252,7 +257,7 @@ def test_exchange(connection, port):
     with FlightServer(
         flight_url=flight_url,
         verify_client=False,
-        make_connection=connection,
+        make_connection=make_connection_from_name(connection),
     ) as main:
         client = main.client
         udf_exchanger = PandasUDFExchanger(
@@ -305,16 +310,16 @@ def test_exchange(connection, port):
 @pytest.mark.parametrize(
     "connection",
     (
-        xo.duckdb.connect,
-        xo.datafusion.connect,
-        xo.connect,
+        "duckdb",
+        "datafusion",
+        "",
     ),
 )
 def test_reentry(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     with FlightServer(
         verify_client=False,
-        make_connection=connection,
+        make_connection=make_connection_from_name(connection),
     ) as server:
         fut, rbr = server.client.do_exchange_batches(
             EchoExchanger.command,
@@ -334,16 +339,16 @@ def test_reentry(connection):
 @pytest.mark.parametrize(
     "connection",
     (
-        xo.duckdb.connect,
-        xo.datafusion.connect,
-        xo.connect,
+        "duckdb",
+        "datafusion",
+        "",
     ),
 )
 def test_serve_close(connection):
     df_in = pd.DataFrame({"a": [1], "b": [2], "c": [100]})
     server = FlightServer(
         verify_client=False,
-        make_connection=connection,
+        make_connection=make_connection_from_name(connection),
     )
 
     server.serve()

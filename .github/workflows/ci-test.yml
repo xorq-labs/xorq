@@ -34,10 +34,13 @@ jobs:
             services: false
             extras:
               - --extra datafusion
-          - name: let
+          - name: duckdb
             services: false
             extras:
               - --extra duckdb
+          - name: let
+            services: false
+            extras: []
           - name: pyiceberg
             services: false
             extras:
