@@ -445,7 +445,17 @@ class FittedStep:
     @property
     @functools.cache
     def model(self):
-        return pickle.loads(self.deferred_model.execute())
+        # add a test that uses a non-cached model
+        import pandas as pd
+
+        match obj := self.deferred_model.execute():
+            case pd.DataFrame():
+                ((obj,),) = obj.values
+            case bytes():
+                pass
+            case _:
+                raise ValueError
+        return pickle.loads(obj)
 
     @property
     @functools.cache
