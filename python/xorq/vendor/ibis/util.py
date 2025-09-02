@@ -17,6 +17,7 @@ import textwrap
 import types
 import uuid
 import warnings
+from pathlib import Path
 from types import ModuleType
 from typing import TYPE_CHECKING, Any, Generic, TypeVar
 from uuid import uuid4
@@ -29,7 +30,6 @@ from xorq.vendor.ibis.common.typing import Coercible
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Sequence
     from numbers import Real
-    from pathlib import Path
 
     import xorq.vendor.ibis.expr.types as ir
 
@@ -512,6 +512,13 @@ def normalize_filename(source: str | Path) -> str:
 
 
 def normalize_filenames(source_list):
+    def _maybe_glob_pattern(maybe_pattern):
+        return (
+            not isinstance(maybe_pattern, Path)
+            and not os.path.exists(maybe_pattern)
+            and re.search(r"^(?:.+)://", maybe_pattern) is None
+        )
+
     # Promote to list
     source_list = promote_list(source_list)
 
@@ -528,10 +535,6 @@ def normalize_filenames(source_list):
         raise ValueError("At least one path is required")
 
     return paths
-
-
-def _maybe_glob_pattern(path):
-    return not os.path.exists(path) and re.search(r"^(?:.+)://", path) is None
 
 
 def gen_name(namespace: str) -> str:
