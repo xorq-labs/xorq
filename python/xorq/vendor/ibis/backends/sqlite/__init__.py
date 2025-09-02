@@ -61,6 +61,8 @@ class Backend(SQLBackend, UrlFromPath):
         self,
         database: str | Path | None = None,
         type_map: dict[str, str | dt.DataType] | None = None,
+        check_same_thread: bool = False,
+        **kwargs: Any,
     ) -> None:
         """Create an Ibis client connected to a SQLite database.
 
@@ -93,7 +95,9 @@ class Backend(SQLBackend, UrlFromPath):
         _init_sqlite3()
 
         self.uri = ":memory:" if database is None else database
-        self.con = sqlite3.connect(self.uri)
+        self.con = sqlite3.connect(
+            self.uri, check_same_thread=check_same_thread, **kwargs
+        )
 
         self._post_connect(type_map)
 
