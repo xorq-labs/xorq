@@ -109,9 +109,10 @@ def test_list_exchanges():
 @pytest.mark.parametrize(
     "connection,port",
     [
-        pytest.param("duckdb", None, id="duckdb"),
-        pytest.param("datafusion", None, id="datafusion"),
-        pytest.param("", None, id="xorq"),
+        pytest.param(xo.duckdb.connect, None, id="duckdb"),
+        pytest.param(xo.datafusion.connect, None, id="datafusion"),
+        pytest.param(xo.sqlite.connect, None, id="sqlite"),
+        pytest.param(xo.connect, None, id="xorq"),
     ],
 )
 def test_register_and_list_tables(connection, port):
