@@ -28,7 +28,7 @@ jobs:
     strategy:
       matrix:
         target: ["x86_64"]
-        python-version: ["3.11"]
+        python-version: ["3.12"]
     steps:
       - uses: actions/checkout@v4
 
@@ -44,27 +44,17 @@ jobs:
       - name: build package
         run: uv build
 
-      - name: create test virtual environment
-        run: python -m venv .venv-test
-
-      - name: Install and test wheel in virtual environment
-        run: |
-          source .venv-test/bin/activate
-          python -m pip install dist/*.whl
-          python -m pip install pytest pytest-cov
-          mkdir test-directory
-          cd test-directory
-          python -c "import pathlib; print(f'cwd: {pathlib.Path.cwd()}')"
-          python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
-
-      # need to cd into python because otherwise pytest confuses the package name
-      # using pytest as opposed to python -m pytest to avoid adding the local dir to sys.path
-      # https://blog.ganssle.io/articles/2019/08/test-as-installed.html
-      - name: test
-        run: |
-          source .venv-test/bin/activate
+      - name: test wheel
+        run: | 
           cd python
-          pytest --import-mode=importlib xorq/tests/test_examples.py -v --cov --cov-report=xml -m library
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with ../dist/*.whl -- python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with ../dist/*.whl --with pytest --with pytest-cov -- pytest --import-mode=importlib --cov --cov-report=xml -m "library or let"
+
+      - name: test source distribution
+        run: | 
+          cd python
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with ../dist/*.tar.gz -- python -c "import xorq; print(f'Successfully imported {xorq.__name__} version {xorq.__version__}')"
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with ../dist/*.tar.gz --with pytest --with pytest-cov -- pytest --import-mode=importlib --cov --cov-report=xml -m "library or let"
 
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5.4.3

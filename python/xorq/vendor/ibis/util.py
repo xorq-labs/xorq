@@ -524,7 +524,7 @@ def normalize_filenames(source_list):
 
     paths = []
     for path in source_list:
-        if _maybe_glob_pattern(path):
+        if not isinstance(path, Path) and _maybe_glob_pattern(path):
             paths.extend(glob.glob(path))
         else:
             paths.append(path)

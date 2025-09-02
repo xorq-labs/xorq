@@ -14,6 +14,7 @@ import xorq.api as xo
 from xorq.backends.conftest import get_storage_uncached
 from xorq.caching import ParquetStorage, SourceSnapshotStorage, SourceStorage
 from xorq.expr.relations import into_backend, register_and_transform_remote_tables
+from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 from xorq.vendor.ibis import _
@@ -529,13 +530,13 @@ def test_join_with_trivial_predicate(
 
 
 @pytest.mark.parametrize(
-    "new_con",
+    "backend_name",
     [
-        xo.connect(),
-        xo.duckdb.connect(),
+        "",
+        "duckdb",
     ],
 )
-def test_multiple_pipes(pg, new_con):
+def test_multiple_pipes(pg, backend_name):
     """This test address the issue reported on bug #69
     link: https://github.com/letsql/letsql/issues/69
 
@@ -544,6 +545,7 @@ def test_multiple_pipes(pg, new_con):
     In this test (and the rest) ls_con is a clean (no tables) letsql connection
     """
 
+    new_con = load_backend(backend_name).connect() if backend_name else xo.connect()
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID == 2015]
     db_t = new_con.create_table(f"db-{table_name}", pg_t.to_pyarrow())[
@@ -688,8 +690,9 @@ def test_no_registration_same_table_name(ls_con, pg_batting):
     assert expr.execute() is not None
 
 
-@pytest.mark.parametrize("other_con", [xo.connect(), xo.duckdb.connect()])
-def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, other_con):
+@pytest.mark.parametrize("backend_name", ["", "duckdb"])
+def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
+    other_con = load_backend(backend_name).connect() if backend_name else xo.connect()
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID > 2014]
     db_t = other_con.create_table(f"db-{table_name}", ls_batting.to_pyarrow())[
