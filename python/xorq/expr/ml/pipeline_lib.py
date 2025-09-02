@@ -633,7 +633,7 @@ class Pipeline:
         (*_, last_step) = self.steps
         return last_step if hasattr(last_step.instance, "predict") else None
 
-    def fit(self, expr, features=None, target=None):
+    def fit(self, expr, features=None, target=None, storage=None):
         """
         Fit the pipeline to training data.
 
@@ -649,6 +649,8 @@ class Pipeline:
             excluding the target.
         target : str, optional
             Target column name. Required if pipeline has a prediction step.
+        storage : Storage, optional
+            Storage backend for caching fitted models.
 
         Returns
         -------
@@ -679,6 +681,7 @@ class Pipeline:
                 transformed,
                 features=features,
                 target=target,
+                storage=storage,
             )
             fitted_steps += (fitted_step,)
             transformed = fitted_step.transform(transformed)
@@ -690,6 +693,7 @@ class Pipeline:
                 transformed,
                 features=features,
                 target=target,
+                storage=storage,
             )
             fitted_steps += (fitted_step,)
             # transformed = fitted_step.transform(transformed)
