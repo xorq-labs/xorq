@@ -445,7 +445,6 @@ class FittedStep:
     @property
     @functools.cache
     def model(self):
-        # add a test that uses a non-cached model
         import pandas as pd
 
         match obj := self.deferred_model.execute():
