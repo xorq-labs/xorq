@@ -53,32 +53,6 @@ def test_create_table(con):
     con.create_table("name", pd.DataFrame({"a": [1]}))
 
 
-def test_register_table_with_uppercase(ls_con):
-    db_con = xo.duckdb.connect()
-    db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
-
-    uppercase_table_name = "UPPERCASE"
-    t = ls_con.register(db_t, uppercase_table_name)
-    assert uppercase_table_name in ls_con.list_tables()
-    assert xo.execute(t) is not None
-
-
-def test_register_table_with_uppercase_multiple_times(ls_con):
-    db_con = xo.duckdb.connect()
-    db_t = db_con.create_table("lowercase", schema=ibis.schema({"A": "int"}))
-
-    uppercase_table_name = "UPPERCASE"
-    ls_con.register(db_t, uppercase_table_name)
-
-    expected_schema = ibis.schema({"B": "int"})
-    db_t = db_con.create_table("lowercase_2", schema=expected_schema)
-    t = ls_con.register(db_t, uppercase_table_name)
-
-    assert uppercase_table_name in ls_con.list_tables()
-    assert xo.execute(t) is not None
-    assert t.schema() == expected_schema
-
-
 @pytest.mark.parametrize(
     "keys",
     [

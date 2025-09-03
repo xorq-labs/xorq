@@ -5,8 +5,6 @@ import pickle
 import numpy as np
 import pandas as pd
 import pytest
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.linear_model import LinearRegression
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
@@ -22,6 +20,10 @@ from xorq.ml import (
     make_quickgrove_udf,
 )
 from xorq.tests.util import assert_frame_equal
+
+
+sk_linear_model = pytest.importorskip("sklearn.linear_model")
+sk_feature_extraction_text = pytest.importorskip("sklearn.feature_extraction.text")
 
 
 def test_train_test_splits_intersections():
@@ -400,7 +402,7 @@ def make_data():
 
 
 deferred_linear_regression = deferred_fit_predict_sklearn(
-    cls=LinearRegression, return_type=dt.float64
+    cls=sk_linear_model.LinearRegression, return_type=dt.float64
 )
 
 
@@ -445,7 +447,7 @@ def test_deferred_fit_predict_linear_regression_multi_into_backend():
 
 
 def test_deferred_fit_transform_series_sklearn():
-    cls = TfidfVectorizer
+    cls = sk_feature_extraction_text.TfidfVectorizer
     transform_key = "transformed"
     col = "title"
     deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
