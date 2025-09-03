@@ -53,6 +53,9 @@ def make_connection_from_name(backend_name):
     [
         pytest.param("duckdb", 5005, id="duckdb"),
         pytest.param("datafusion", 5005, id="datafusion"),
+        pytest.param(
+            lambda: xo.sqlite.connect(check_same_thread=False), 5005, id="sqlite"
+        ),
         pytest.param("", 5005, id="xorq"),
     ],
 )
@@ -111,7 +114,9 @@ def test_list_exchanges():
     [
         pytest.param(xo.duckdb.connect, None, id="duckdb"),
         pytest.param(xo.datafusion.connect, None, id="datafusion"),
-        pytest.param(xo.sqlite.connect, None, id="sqlite"),
+        pytest.param(
+            lambda: xo.sqlite.connect(check_same_thread=False), None, id="sqlite"
+        ),
         pytest.param(xo.connect, None, id="xorq"),
     ],
 )
@@ -198,6 +203,9 @@ def test_failed_auth(tls_kwargs):
     [
         pytest.param("duckdb", None, id="duckdb"),
         pytest.param("datafusion", None, id="datafusion"),
+        pytest.param(
+            lambda: xo.sqlite.connect(check_same_thread=False), None, id="sqlite"
+        ),
         pytest.param("", None, id="xorq"),
     ],
 )
@@ -226,6 +234,9 @@ def test_into_backend_flight_server(connection, port, parquet_dir):
     [
         pytest.param("duckdb", None, id="duckdb"),
         pytest.param("datafusion", None, id="datafusion"),
+        pytest.param(
+            lambda: xo.sqlite.connect(check_same_thread=False), None, id="sqlite"
+        ),
         pytest.param("", None, id="xorq"),
     ],
 )
@@ -246,6 +257,9 @@ def test_read_parquet(connection, port, parquet_dir):
     [
         pytest.param("duckdb", None, id="duckdb"),
         pytest.param("datafusion", None, id="datafusion"),
+        pytest.param(
+            lambda: xo.sqlite.connect(check_same_thread=False), None, id="sqlite"
+        ),
         pytest.param("", None, id="xorq"),
     ],
 )
