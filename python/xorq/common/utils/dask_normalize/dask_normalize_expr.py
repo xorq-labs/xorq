@@ -206,7 +206,7 @@ def normalize_sqlite_database_table(dt):
             dt.source,
             dt.namespace,
             get_sqlite_stats(dt),
-            caller="normalize_pyiceberg_databasetable",
+            caller="normalize_sqlite_database_table",
         )
 
     pass

@@ -50,7 +50,7 @@ class Backend(IbisSQLiteBackend):
             cur.executemany(insert_stmt, data)
 
     def is_in_memory(self):
-        return ":memory:" in self.uri
+        return "memory" in self.uri
 
     def read_parquet(
         self,
