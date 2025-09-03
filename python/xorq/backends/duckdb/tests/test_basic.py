@@ -2,11 +2,6 @@ import numpy as np
 import pytest
 
 import xorq.api as xo
-from xorq.backends.conftest import (
-    con_cache_find_backend,
-    con_cross_source_snapshot,
-    con_snapshot,
-)
 from xorq.caching import (
     ParquetSnapshotStorage,
     ParquetStorage,
@@ -50,20 +45,20 @@ def test_duckdb_cache_arrow(con, tmp_path):
     expr.execute()
 
 
-def test_duckdb_snapshot(con, alltypes_df):
-    con_snapshot(alltypes_df, con, xo.duckdb.connect())
+def test_duckdb_snapshot(con_snapshot):
+    con_snapshot(xo.duckdb.connect())
 
 
-def test_cross_source_snapshot(con, alltypes_df):
-    con_cross_source_snapshot(alltypes_df, con, xo.duckdb.connect())
+def test_cross_source_snapshot(con_cross_source_snapshot):
+    con_cross_source_snapshot(xo.duckdb.connect())
 
 
 @pytest.mark.parametrize(
     "cls",
     [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
 )
-def test_cache_find_backend(cls, parquet_dir):
-    con_cache_find_backend(cls, parquet_dir, xo.duckdb.connect())
+def test_cache_find_backend(cls, con_cache_find_backend):
+    con_cache_find_backend(cls, xo.duckdb.connect())
 
 
 def test_register_table_with_uppercase(con):
