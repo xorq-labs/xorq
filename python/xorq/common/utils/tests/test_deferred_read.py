@@ -3,7 +3,6 @@ import itertools
 import pathlib
 
 import dask
-import duckdb
 import pandas as pd
 import pytest
 from attr import (
@@ -27,6 +26,9 @@ from xorq.common.utils.inspect_utils import (
     get_partial_arguments,
 )
 from xorq.tests.util import assert_frame_equal
+
+
+duckdb = pytest.importorskip("duckdb")
 
 
 @frozen

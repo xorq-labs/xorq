@@ -4,7 +4,10 @@ import os
 import _pytest
 import pytest
 
+import xorq.api as xo
 from xorq.backends import _get_backend_names
+from xorq.caching import ParquetSnapshotStorage, SourceSnapshotStorage
+from xorq.vendor import ibis
 
 
 snowflake_credentials_varnames = (
@@ -14,6 +17,8 @@ snowflake_credentials_varnames = (
 have_snowflake_credentials = all(
     os.environ.get(varname) for varname in snowflake_credentials_varnames
 )
+
+KEY_PREFIX = xo.config.options.cache.key_prefix
 
 
 def _get_backend_from_parts(parts: tuple[str, ...]) -> str | None:
@@ -102,3 +107,66 @@ def get_storage_uncached(expr):
     storage = expr.ls.storage
     uncached = expr.ls.uncached_one
     return (storage, uncached)
+
+
+def con_snapshot(alltypes_df, ls_con, df_con):
+    group_by = "year"
+    name = ibis.util.gen_name("tmp_table")
+    # create a temp table we can mutate
+    table = df_con.create_table(name, alltypes_df)
+    cached_expr = (
+        table.group_by(group_by)
+        .agg({f"count_{col}": table[col].count() for col in table.columns})
+        .cache(storage=SourceSnapshotStorage(source=ls_con))
+    )
+    (storage, uncached) = get_storage_uncached(cached_expr)
+    # test preconditions
+    assert not storage.exists(uncached)
+    # test cache creation
+    executed0 = cached_expr.execute()
+    assert storage.exists(uncached)
+    # test cache use
+    executed1 = cached_expr.execute()
+    assert executed0.equals(executed1)
+    # test NO cache invalidation
+    df_con.insert(name, alltypes_df)
+    executed2 = cached_expr.execute()
+    executed3 = cached_expr.ls.uncached.execute()
+    assert executed0.equals(executed2)
+    assert not executed0.equals(executed3)
+    assert storage.get_key(uncached).count(KEY_PREFIX) == 1
+
+
+def con_cross_source_snapshot(alltypes_df, con, expr_con):
+    group_by = "year"
+    name = ibis.util.gen_name("tmp_table")
+    # create a temp table we can mutate
+    table = expr_con.create_table(name, alltypes_df)
+    storage = ParquetSnapshotStorage(source=con)
+    expr = table.group_by(group_by).agg(
+        {f"count_{col}": table[col].count() for col in table.columns}
+    )
+    cached_expr = expr.cache(storage=storage)
+    # test preconditions
+    assert not storage.exists(expr)  # the expr is not cached
+    assert storage.source is not expr_con  # the cache is cross source
+    # test cache creation
+    df = cached_expr.execute()
+    assert not df.empty
+    assert storage.exists(expr)
+    # test cache use
+    executed1 = cached_expr.execute()
+    assert df.equals(executed1)
+    # test NO cache invalidation
+    expr_con.insert(name, alltypes_df)
+    executed2 = cached_expr.execute()
+    executed3 = cached_expr.ls.uncached.execute()
+    assert df.equals(executed2)
+    assert not df.equals(executed3)
+
+
+def con_cache_find_backend(cls, parquet_dir, conn):
+    astronauts_path = parquet_dir / "astronauts.parquet"
+    storage = cls(source=conn)
+    expr = conn.read_parquet(astronauts_path).cache(storage=storage)
+    assert expr._find_backend()._profile == conn._profile

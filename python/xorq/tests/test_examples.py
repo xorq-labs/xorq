@@ -8,7 +8,10 @@ import xorq.api as xo
 
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
-LIBRARY_SCRIPTS = ("pandas_example",)
+LIBRARY_SCRIPTS = (
+    "pandas_example",
+    "flight_dummy_exchanger",
+)
 GCS_SCRIPTS = ("gcstorage_example",)
 NON_TESTABLE = (
     "mcp_flight_server.py",
