@@ -1,11 +1,6 @@
 import pytest
 
 import xorq.api as xo
-from xorq.backends.conftest import (
-    con_cache_find_backend,
-    con_cross_source_snapshot,
-    con_snapshot,
-)
 from xorq.caching import (
     ParquetSnapshotStorage,
     ParquetStorage,
@@ -36,17 +31,17 @@ def test_register_with_different_name_and_cache(csv_dir, get_expr):
     assert expr.execute() is not None
 
 
-def test_datafusion_snapshot(ls_con, alltypes_df):
-    con_snapshot(alltypes_df, ls_con, xo.datafusion.connect())
+def test_datafusion_snapshot(con_snapshot):
+    con_snapshot(xo.datafusion.connect())
 
 
-def test_cross_source_snapshot(ls_con, alltypes_df):
-    con_cross_source_snapshot(alltypes_df, ls_con, xo.datafusion.connect())
+def test_cross_source_snapshot(con_cross_source_snapshot):
+    con_cross_source_snapshot(xo.datafusion.connect())
 
 
 @pytest.mark.parametrize(
     "cls",
     [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
 )
-def test_cache_find_backend(cls, parquet_dir):
-    con_cache_find_backend(cls, parquet_dir, xo.datafusion.connect())
+def test_cache_find_backend(cls, parquet_dir, con_cache_find_backend):
+    con_cache_find_backend(cls, xo.datafusion.connect())
