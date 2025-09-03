@@ -1,9 +1,4 @@
 import pytest
-import sklearn
-from sklearn.datasets import load_iris
-from sklearn.model_selection import train_test_split
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
 from xorq.caching import (
@@ -13,6 +8,13 @@ from xorq.caching import (
 from xorq.expr.ml.pipeline_lib import (
     Pipeline,
 )
+
+
+sklearn = pytest.importorskip("sklearn")
+load_iris = sklearn.datasets.load_iris
+train_test_split = sklearn.model_selection.train_test_split
+KNeighborsClassifier = sklearn.neighbors.KNeighborsClassifier
+StandardScaler = sklearn.preprocessing.StandardScaler
 
 
 def make_pipeline():
