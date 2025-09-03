@@ -330,7 +330,12 @@ class FlightUDXF(ops.DatabaseTable):
     @classmethod
     def validate_schema(cls, input_expr, udxf):
         if not udxf.schema_in_condition(input_expr.schema()):
-            raise ValueError
+            schema_in_required = getattr(udxf, "schema_in_required", None)
+            raise ValueError(
+                "Schema validation failed"
+                if schema_in_required is None
+                else f"Schema validation failed, expected: {schema_in_required} found: {input_expr.schema()}"
+            )
         schema_out = udxf.calc_schema_out(input_expr.schema())
         return schema_out
 
