@@ -1,11 +1,3 @@
-from xorq.expr.relations import FlightExpr
-from xorq.expr.relations import FlightExpr
-from xorq.expr.relations import FlightExpr
-from xorq.expr.relations import FlightUDXF
-from xorq.expr.relations import FlightUDXF
-import pytest
-from xorq.expr.relations import FlightUDXF, FlightExpr
-
 import xorq.vendor.ibis as ibis
 
 
@@ -91,24 +83,3 @@ def test_limit(compiler, t):
     assert expression["n"] == 10
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
-
-    def test_flightudxf_validate_schema_fail():
-        import xorq.vendor.ibis as ibis
-        schema = ibis.schema({"x": "int64"})
-        input_expr = ibis.table(schema, name="t")
-
-        class DummyUDXF:
-            schema_in_required = "required_schema"
-            @staticmethod
-            def schema_in_condition(sch):
-                return False
-            @staticmethod
-            def calc_schema_out(sch):
-                return None
-
-        try:
-            FlightUDXF.validate_schema(input_expr, DummyUDXF)
-        except ValueError as e:
-            assert "Schema validation failed" in str(e)
-        else:
-            assert False, "Expected ValueError for schema_in_condition=False"
