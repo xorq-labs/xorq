@@ -5,7 +5,12 @@ import pyarrow.parquet as pq
 import pytest
 
 import xorq.api as xo
-from xorq.caching import SourceStorage
+from xorq.caching import (
+    ParquetSnapshotStorage,
+    ParquetStorage,
+    SourceSnapshotStorage,
+    SourceStorage,
+)
 from xorq.tests.util import assert_frame_equal
 
 
@@ -113,3 +118,19 @@ def test_can_deferred_read(sqlite_con, file_format, request):
         con=sqlite_con,
     )(xo)
     assert not read.execute().empty
+
+
+def test_sqlite_snapshot(con_snapshot):
+    con_snapshot(xo.sqlite.connect())
+
+
+def test_cross_source_snapshot(con_cross_source_snapshot):
+    con_cross_source_snapshot(xo.sqlite.connect())
+
+
+@pytest.mark.parametrize(
+    "cls",
+    [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
+)
+def test_cache_find_backend(cls, con_cache_find_backend):
+    con_cache_find_backend(cls, xo.sqlite.connect())
