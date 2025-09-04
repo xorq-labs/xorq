@@ -1490,6 +1490,14 @@ def _max_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return args[0].max()
 
 
+@register_from_yaml_handler("Any")
+def _any_reduction_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
+    arg, *rest = (translate_from_yaml(arg, context) for arg in yaml_dict["args"])
+    if rest:
+        raise ValueError
+    return arg.any()
+
+
 @register_from_yaml_handler("Abs")
 def _abs_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
@@ -1857,3 +1865,24 @@ def _tag_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         metadata=metadata,
     )
     return op.to_expr()
+
+
+@translate_to_yaml.register(ops.First)
+def _first_reduction_to_yaml(op: ops.First, context: Any) -> dict:
+    return freeze(
+        {
+            "op": "First",
+            "arg": translate_to_yaml(op.arg, context),
+            "order_by": translate_to_yaml(op.order_by, context),
+            "include_null": translate_to_yaml(op.include_null, context),
+        }
+    )
+
+
+@register_from_yaml_handler("First")
+def _first_reduction_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+    order_by = translate_from_yaml(yaml_dict["order_by"], context)
+    include_null = translate_from_yaml(yaml_dict["include_null"], context)
+
+    return arg.first(order_by=order_by, include_null=include_null)
