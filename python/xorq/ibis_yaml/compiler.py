@@ -2,6 +2,7 @@ import contextlib
 import json
 import operator
 import pathlib
+import sys
 from pathlib import Path
 from typing import Any, Dict
 
@@ -231,13 +232,12 @@ class BuildManager:
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
+            "git_state": lu.get_git_state(hash_diffs=False)
+            if lu._git_is_present()
+            else None,
+            "sys-version_info": tuple(sys.version_info),
         }
-        if lu._git_is_present():
-            git_state = lu.get_git_state(hash_diffs=False)
-            metadata["git_state"] = git_state
-
         metadata_json = json.dumps(metadata, indent=2)
-
         return metadata_json
 
     def _process_deferred_reads(
