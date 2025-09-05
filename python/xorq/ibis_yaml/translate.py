@@ -1467,95 +1467,62 @@ def _repeat_from_yaml(
 
 
 _reduction_registry = {
-    "Any": ir.BooleanColumn.any,
-    "All": ir.BooleanColumn.all,
-    "Max": ir.Column.max,
-    "Min": ir.Column.min,
-    "Sum": ir.NumericColumn.sum,
-    "Mean": ir.NumericColumn.mean,
-    "Count": ir.Column.count,
-    "Variance": ir.NumericColumn.var,
-    "StandardDev": ir.NumericColumn.std,
-    "BitAnd": ir.IntegerColumn.bit_and,
-    "BitOr": ir.IntegerColumn.bit_or,
-    "BitXor": ir.IntegerColumn.bit_xor,
-    "First": ir.Column.first,
-    "Last": ir.Column.last,
-    "CountDistinct": ir.Column.nunique,
-    "Median": ir.Column.median,
-    "ApproxMedian": ir.Column.approx_median,
-    "CountStar": ir.Table.count,
+    ops.Any: ir.BooleanColumn.any,
+    ops.All: ir.BooleanColumn.all,
+    ops.Max: ir.Column.max,
+    ops.Min: ir.Column.min,
+    ops.Sum: ir.NumericColumn.sum,
+    ops.Mean: ir.NumericColumn.mean,
+    ops.Count: ir.Column.count,
+    ops.Variance: ir.NumericColumn.var,
+    ops.StandardDev: ir.NumericColumn.std,
+    ops.BitAnd: ir.IntegerColumn.bit_and,
+    ops.BitOr: ir.IntegerColumn.bit_or,
+    ops.BitXor: ir.IntegerColumn.bit_xor,
+    ops.First: ir.Column.first,
+    ops.Last: ir.Column.last,
+    ops.CountDistinct: ir.Column.nunique,
+    ops.Median: ir.Column.median,
+    ops.ApproxMedian: ir.Column.approx_median,
+    ops.CountStar: ir.Table.count,
 }
 
 
 def _reduction_to_yaml(op: ops.Reduction, context: Any) -> dict:
     return freeze(
         {
+            argname: translate_to_yaml(arg, context)
+            for argname, arg in zip(op.argnames, op.args)
+        }
+        | {
             "op": op.__class__.__name__,
-            "arg": translate_to_yaml(op.arg, context),
-            "where": translate_to_yaml(op.where, context),
         }
     )
 
 
-_generic_reduction_ops = (
-    ops.Min,
-    ops.Max,
-    ops.Any,
-    ops.All,
-    ops.Sum,
-    ops.Mean,
-    ops.Count,
-    ops.BitAnd,
-    ops.BitOr,
-    ops.BitXor,
-    ops.CountDistinct,
-    ops.Median,
-    ops.ApproxMedian,
-    ops.CountStar,
-)
-
-for op in _generic_reduction_ops:
+for op in _reduction_registry:
     translate_to_yaml.register(op, _reduction_to_yaml)
 
 
+@functools.cache
+def stringify_reduction_registry():
+    return {op.__name__: fun for op, fun in _reduction_registry.items()}
+
+
 @register_from_yaml_handler(
-    *(op.__name__ for op in _generic_reduction_ops),
+    *(name for name in stringify_reduction_registry()),
 )
 def _reduction_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["arg"], context)
-    where = (
-        translate_from_yaml(yaml_dict["where"], context) if yaml_dict["where"] else None
-    )
 
-    return _reduction_registry[yaml_dict["op"]](arg, where=where)
+    kwargs = {
+        name: translate_from_yaml(value, context)
+        for name, value in yaml_dict.items()
+        if name not in ("op", "arg")
+        and value is not None  # FIXME: find why schema_ref is inserted
+    }
 
-
-@translate_to_yaml.register(ops.Variance)
-@translate_to_yaml.register(ops.StandardDev)
-def _variance_base_to_yaml(op: ops.VarianceBase, context: Any) -> dict:
-    return freeze(
-        {
-            "op": op.__class__.__name__,
-            "arg": translate_to_yaml(op.arg, context),
-            "how": translate_to_yaml(op.how, context),
-            "where": translate_to_yaml(op.where, context),
-        }
-    )
-
-
-@register_from_yaml_handler(
-    "Variance",
-    "StandardDev",
-)
-def _variance_base_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    arg = translate_from_yaml(yaml_dict["arg"], context)
-    where = (
-        translate_from_yaml(yaml_dict["where"], context) if yaml_dict["where"] else None
-    )
-    how = translate_from_yaml(yaml_dict["how"], context) if yaml_dict["how"] else None
-
-    return _reduction_registry[yaml_dict["op"]](arg, how=how, where=where)
+    return stringify_reduction_registry()[yaml_dict["op"]](arg, **kwargs)
 
 
 @register_from_yaml_handler("Abs")
@@ -1912,31 +1879,3 @@ def _tag_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         metadata=metadata,
     )
     return op.to_expr()
-
-
-@translate_to_yaml.register(ops.First)
-@translate_to_yaml.register(ops.Last)
-def _first_and_last_reduction_to_yaml(op: ops.First, context: Any) -> dict:
-    return freeze(
-        {
-            "op": op.__class__.__name__,
-            "arg": translate_to_yaml(op.arg, context),
-            "order_by": translate_to_yaml(op.order_by, context),
-            "include_null": translate_to_yaml(op.include_null, context),
-            "where": translate_to_yaml(op.where, context),
-        }
-    )
-
-
-@register_from_yaml_handler("First", "Last")
-def _first_and_last_reduction_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
-    arg = translate_from_yaml(yaml_dict["arg"], context)
-    order_by = translate_from_yaml(yaml_dict["order_by"], context)
-    include_null = translate_from_yaml(yaml_dict["include_null"], context)
-    where = (
-        translate_from_yaml(yaml_dict["where"], context) if yaml_dict["where"] else None
-    )
-
-    return _reduction_registry[yaml_dict["op"]](
-        arg, order_by=order_by, include_null=include_null, where=where
-    )
