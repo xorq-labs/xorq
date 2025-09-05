@@ -399,7 +399,7 @@ def test_build_pandas_backend(build_dir, users_df):
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_build_file_stability_https(build_dir, snapshot):
     def with_profile_idx(con, idx):
         profile = con._profile

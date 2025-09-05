@@ -74,7 +74,7 @@ def test_build_command(tmp_path, fixture_dir):
     assert builds_dir.exists()
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_build_command_with_udtf(tmp_path, fixture_dir):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "udxf_expr.py"
@@ -94,7 +94,7 @@ def test_build_command_with_udtf(tmp_path, fixture_dir):
     assert builds_dir.exists()
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "pipeline.ipynb"
@@ -115,7 +115,7 @@ def test_build_command_on_notebook(monkeypatch, tmp_path, fixture_dir, capsys):
     assert builds_dir.exists()
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_build_command_with_cache_dir(tmp_path, fixture_dir):
     builds_dir = tmp_path / "builds"
     cache_dir = tmp_path / "cache"
@@ -139,7 +139,7 @@ def test_build_command_with_cache_dir(tmp_path, fixture_dir):
     assert builds_dir.exists()
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_run_command_default(tmp_path, fixture_dir):
     target_dir = tmp_path / "build"
     script_path = fixture_dir / "pipeline.py"
@@ -183,7 +183,7 @@ def test_run_command_default(tmp_path, fixture_dir):
         raise AssertionError("No expression hash")
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
 def test_run_command(tmp_path, fixture_dir, output_format):
     target_dir = tmp_path / "build"
@@ -222,7 +222,7 @@ def test_run_command(tmp_path, fixture_dir, output_format):
         raise AssertionError("No expression hash")
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 @pytest.mark.parametrize(
     "host,port,cache_dir", [(None, None, None), ("localhost", "5000", "cache")]
 )
@@ -273,7 +273,7 @@ def test_serve_command(tmp_path, fixture_dir, cache_dir, host, port):
         raise AssertionError("No expression hash")
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 @pytest.mark.parametrize("output_format", ["csv", "json", "parquet"])
 def test_run_command_stdout(tmp_path, fixture_dir, output_format):
     target_dir = tmp_path / "build"
@@ -315,7 +315,7 @@ def test_run_command_stdout(tmp_path, fixture_dir, output_format):
         ("missing", "Expression missing not found"),
     ],
 )
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_build_command_bad_expr_name(tmp_path, fixture_dir, expression, message):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "pipeline.py"
@@ -338,7 +338,7 @@ def test_build_command_bad_expr_name(tmp_path, fixture_dir, expression, message)
     ("example", "expr_name"),
     build_run_examples_expr_names,
 )
-@pytest.mark.slow
+@pytest.mark.slow(level=2)
 def test_examples(
     example,
     expr_name,
@@ -436,7 +436,7 @@ def test_init_command_path_exists(template, tmpdir):
     assert returncode != 0
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=2)
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
 )
@@ -490,7 +490,7 @@ serve_hashes = (
 )
 
 
-@pytest.fixture(scope="function")
+@pytest.fixture(scope="session")
 def pipeline_https_build(tmp_path, fixture_dir):
     builds_dir = tmp_path / "builds"
     script_path = fixture_dir / "pipeline_https.py"
@@ -535,7 +535,7 @@ def hit_server(port, expr):
     return df
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
@@ -575,7 +575,7 @@ serve_tags = (
 )
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 @pytest.mark.parametrize("serve_tag", serve_tags)
 def test_serve_unbound_tag(serve_tag, pipeline_https_build):
     expr = load_expr(pipeline_https_build)
@@ -600,7 +600,7 @@ def test_serve_unbound_tag(serve_tag, pipeline_https_build):
     serve_popened.popen.terminate()
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
     batting_url = "https://storage.googleapis.com/letsql-pins/batting/20240711T171118Z-431ef/batting.parquet"
     serve_tag = "read-batting"
@@ -629,7 +629,7 @@ def test_serve_unbound_tag_get_exchange(pipeline_https_build, parquet_dir):
     serve_popened.popen.terminate()
 
 
-@pytest.mark.slow
+@pytest.mark.slow(level=1)
 def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
     import pandas as pd
 
