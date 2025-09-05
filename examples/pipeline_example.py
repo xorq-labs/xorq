@@ -16,7 +16,6 @@ from xorq.expr.ml.pipeline_lib import (
 )
 
 
-UNIQUE_KEY = "unique_key"
 STRUCTED = "structed"
 ORIGINAL_ROW = "original_row"
 PREDICTED = "predicted"
@@ -101,12 +100,7 @@ sklearn_pipeline = sklearn.pipeline.Pipeline(steps)
 target = "species"
 iris = xo.examples.iris.fetch()
 features = tuple(iris.drop(target).schema())
-(train, test) = (
-    expr.drop(UNIQUE_KEY)
-    for expr in train_test_splits(
-        iris.mutate(**{UNIQUE_KEY: xo.row_number()}), UNIQUE_KEY, 0.2
-    )
-)
+(train, test) = train_test_splits(iris, 0.2)
 
 
 test_predicted_manual = make_manual_expr(

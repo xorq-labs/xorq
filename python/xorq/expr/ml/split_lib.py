@@ -6,12 +6,12 @@ import toolz
 
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.types as ir
+from xorq.vendor.ibis.common.selectors import (
+    Selector,
+)
 from xorq.vendor.ibis.expr.api import (
     case,
     literal,
-)
-from xorq.vendor.ibis.common.selectors import (
-    Selector,
 )
 
 

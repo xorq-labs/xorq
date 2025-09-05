@@ -155,10 +155,22 @@ def test_train_test_splits_deterministic_with_seed():
     test_sizes = [0.4, 0.6]
 
     splits1 = list(
-        xo.train_test_splits(table, "key", test_sizes, random_seed=123, num_buckets=10)
+        xo.train_test_splits(
+            table,
+            test_sizes=test_sizes,
+            unique_key="key",
+            random_seed=123,
+            num_buckets=10,
+        )
     )
     splits2 = list(
-        xo.train_test_splits(table, "key", test_sizes, random_seed=123, num_buckets=10)
+        xo.train_test_splits(
+            table,
+            test_sizes=test_sizes,
+            unique_key="key",
+            random_seed=123,
+            num_buckets=10,
+        )
     )
 
     for s1, s2 in zip(splits1, splits2):
@@ -172,13 +184,13 @@ def test_train_test_splits_invalid_test_sizes():
     with pytest.raises(
         ValueError, match="test size should be a float between 0 and 1."
     ):
-        next(xo.train_test_splits(table, "key", [-0.1, 0.5]))
+        next(xo.train_test_splits(table, [-0.1, 0.5], "key"))
 
 
 def test_train_test_splits_must_sum_one():
     table = memtable({"key": [1, 2, 3], "value": [4, 5, 6]})
     with pytest.raises(ValueError, match="Test sizes must sum to 1"):
-        next(xo.train_test_splits(table, "key", [0.1, 0.5]))
+        next(xo.train_test_splits(table, [0.1, 0.5], "key"))
 
 
 def test_train_test_splits_with_all_selector():
