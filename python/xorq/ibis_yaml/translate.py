@@ -1467,24 +1467,24 @@ def _repeat_from_yaml(
 
 
 _reduction_registry = {
-    ops.Any: ir.BooleanColumn.any,
-    ops.All: ir.BooleanColumn.all,
-    ops.Max: ir.Column.max,
-    ops.Min: ir.Column.min,
-    ops.Sum: ir.NumericColumn.sum,
-    ops.Mean: ir.NumericColumn.mean,
-    ops.Count: ir.Column.count,
-    ops.Variance: ir.NumericColumn.var,
-    ops.StandardDev: ir.NumericColumn.std,
-    ops.BitAnd: ir.IntegerColumn.bit_and,
-    ops.BitOr: ir.IntegerColumn.bit_or,
-    ops.BitXor: ir.IntegerColumn.bit_xor,
-    ops.First: ir.Column.first,
-    ops.Last: ir.Column.last,
-    ops.CountDistinct: ir.Column.nunique,
-    ops.Median: ir.Column.median,
-    ops.ApproxMedian: ir.Column.approx_median,
-    ops.CountStar: ir.Table.count,
+    "Any": ir.BooleanColumn.any,
+    "All": ir.BooleanColumn.all,
+    "Max": ir.Column.max,
+    "Min": ir.Column.min,
+    "Sum": ir.NumericColumn.sum,
+    "Mean": ir.NumericColumn.mean,
+    "Count": ir.Column.count,
+    "Variance": ir.NumericColumn.var,
+    "StandardDev": ir.NumericColumn.std,
+    "BitAnd": ir.IntegerColumn.bit_and,
+    "BitOr": ir.IntegerColumn.bit_or,
+    "BitXor": ir.IntegerColumn.bit_xor,
+    "First": ir.Column.first,
+    "Last": ir.Column.last,
+    "CountDistinct": ir.Column.nunique,
+    "Median": ir.Column.median,
+    "ApproxMedian": ir.Column.approx_median,
+    "CountStar": ir.Table.count,
 }
 
 
@@ -1501,16 +1501,14 @@ def _reduction_to_yaml(op: ops.Reduction, context: Any) -> dict:
 
 
 for op in _reduction_registry:
-    translate_to_yaml.register(op, _reduction_to_yaml)
+    if not (op_class := getattr(ops, op, None)):
+        raise ValueError
 
-
-@functools.cache
-def stringify_reduction_registry():
-    return {op.__name__: fun for op, fun in _reduction_registry.items()}
+    translate_to_yaml.register(op_class, _reduction_to_yaml)
 
 
 @register_from_yaml_handler(
-    *(name for name in stringify_reduction_registry()),
+    *(name for name in _reduction_registry),
 )
 def _reduction_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["arg"], context)
@@ -1522,7 +1520,7 @@ def _reduction_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Exp
         and value is not None  # FIXME: find why schema_ref is inserted
     }
 
-    return stringify_reduction_registry()[yaml_dict["op"]](arg, **kwargs)
+    return _reduction_registry[yaml_dict["op"]](arg, **kwargs)
 
 
 @register_from_yaml_handler("Abs")
