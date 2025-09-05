@@ -491,8 +491,8 @@ serve_hashes = (
 
 
 @pytest.fixture(scope="session")
-def pipeline_https_build(tmp_path, fixture_dir):
-    builds_dir = tmp_path / "builds"
+def pipeline_https_build(tmp_path_factory, fixture_dir):
+    builds_dir = tmp_path_factory.mktemp("builds")
     script_path = fixture_dir / "pipeline_https.py"
 
     build_args = [
