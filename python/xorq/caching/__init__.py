@@ -263,7 +263,10 @@ class _ParquetStorage(CacheStorage):
 
     def _put(self, key, value):
         loc = self.get_loc(key)
-        value.to_expr().to_parquet(loc)
+        # move from temp location upon success to prevent empty files on failure
+        tmp_loc = loc.with_name(loc.name + ".tmp")
+        value.to_expr().to_parquet(tmp_loc)
+        tmp_loc.rename(loc)
         return self._get(key)
 
     def _drop(self, key):
