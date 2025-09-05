@@ -1439,12 +1439,6 @@ def _view_from_yaml(yaml_dict: dict, context: any) -> ir.Expr:
     return underlying
 
 
-@register_from_yaml_handler("Mean")
-def _mean_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
-    return args[0].mean()
-
-
 @register_from_yaml_handler("Add", "Subtract", "Multiply", "Divide")
 def _binary_arithmetic_from_yaml(
     yaml_dict: dict, context: TranslationContext
@@ -1472,30 +1466,61 @@ def _repeat_from_yaml(
     return ops.Repeat(arg, times).to_expr()
 
 
-@register_from_yaml_handler("Sum")
-def _sum_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
-    return args[0].sum()
+_reduction_registry = {
+    "Any": ir.BooleanColumn.any,
+    "All": ir.BooleanColumn.all,
+    "Max": ir.Column.max,
+    "Min": ir.Column.min,
+    "Sum": ir.NumericColumn.sum,
+    "Mean": ir.NumericColumn.mean,
+    "Count": ir.Column.count,
+    "Variance": ir.NumericColumn.var,
+    "StandardDev": ir.NumericColumn.std,
+    "BitAnd": ir.IntegerColumn.bit_and,
+    "BitOr": ir.IntegerColumn.bit_or,
+    "BitXor": ir.IntegerColumn.bit_xor,
+    "First": ir.Column.first,
+    "Last": ir.Column.last,
+    "CountDistinct": ir.Column.nunique,
+    "Median": ir.Column.median,
+    "ApproxMedian": ir.Column.approx_median,
+    "CountStar": ir.Table.count,
+}
 
 
-@register_from_yaml_handler("Min")
-def _min_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
-    return args[0].min()
+def _reduction_to_yaml(op: ops.Reduction, context: Any) -> dict:
+    return freeze(
+        {
+            argname: translate_to_yaml(arg, context)
+            for argname, arg in zip(op.argnames, op.args)
+        }
+        | {
+            "op": op.__class__.__name__,
+        }
+    )
 
 
-@register_from_yaml_handler("Max")
-def _max_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
-    return args[0].max()
-
-
-@register_from_yaml_handler("Any")
-def _any_reduction_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
-    arg, *rest = (translate_from_yaml(arg, context) for arg in yaml_dict["args"])
-    if rest:
+for op in _reduction_registry:
+    if not (op_class := getattr(ops, op, None)):
         raise ValueError
-    return arg.any()
+
+    translate_to_yaml.register(op_class, _reduction_to_yaml)
+
+
+@register_from_yaml_handler(
+    *(name for name in _reduction_registry),
+)
+def _reduction_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+
+    kwargs = {
+        name: translate_from_yaml(value, context)
+        for name, value in yaml_dict.items()
+        if name not in ("op", "arg")
+        and value is not None  # FIXME: find why schema_ref is inserted
+    }
+
+    return _reduction_registry[yaml_dict["op"]](arg, **kwargs)
 
 
 @register_from_yaml_handler("Abs")
@@ -1508,12 +1533,6 @@ def _abs_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 def _mod_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     (col, modulus) = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
     return col.mod(modulus)
-
-
-@register_from_yaml_handler("Count")
-def _count_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    arg = translate_from_yaml(yaml_dict["args"][0], context)
-    return arg.count()
 
 
 @register_from_yaml_handler("JoinReference")
@@ -1683,13 +1702,6 @@ def _cast_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 def _hash_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
     return ops.Hash(arg).to_expr()
-
-
-@register_from_yaml_handler("CountStar")
-def _count_star_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    arg = translate_from_yaml(yaml_dict["args"][0], context)
-
-    return ops.CountStar(arg).to_expr()
 
 
 @register_from_yaml_handler("StringSQLLike")
@@ -1865,24 +1877,3 @@ def _tag_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         metadata=metadata,
     )
     return op.to_expr()
-
-
-@translate_to_yaml.register(ops.First)
-def _first_reduction_to_yaml(op: ops.First, context: Any) -> dict:
-    return freeze(
-        {
-            "op": "First",
-            "arg": translate_to_yaml(op.arg, context),
-            "order_by": translate_to_yaml(op.order_by, context),
-            "include_null": translate_to_yaml(op.include_null, context),
-        }
-    )
-
-
-@register_from_yaml_handler("First")
-def _first_reduction_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
-    arg = translate_from_yaml(yaml_dict["arg"], context)
-    order_by = translate_from_yaml(yaml_dict["order_by"], context)
-    include_null = translate_from_yaml(yaml_dict["include_null"], context)
-
-    return arg.first(order_by=order_by, include_null=include_null)
