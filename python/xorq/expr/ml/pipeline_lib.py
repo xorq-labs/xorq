@@ -682,7 +682,7 @@ class Pipeline:
 
         if not target and self.predict_step:
             raise ValueError("Can't infer target for a prediction step")
-        features = features or tuple(col for col in expr.features if col != target)
+        features = features or tuple(col for col in expr.columns if col != target)
         fitted_steps = ()
         transformed = expr
         for step in self.transform_steps:
