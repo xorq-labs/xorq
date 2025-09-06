@@ -61,7 +61,7 @@ def pytest_ignore_collect(collection_path, config):
     expr = _pytest.mark.expression.Expression.compile(mark_expr)
     # we check the "backend" marker as well since if that's passed
     # any file matching a backend should be skipped
-    keep = expr.evaluate(lambda s: s in (backend, "backend"))
+    keep = expr.evaluate(lambda s, **_kw: s in (backend, "backend"))
     return not keep
 
 
