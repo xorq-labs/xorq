@@ -190,6 +190,12 @@ let
       --feature-gates otelcol.printInitialConfig
   '';
 
+  xorq-psql = pkgs.writeShellScriptBin "xorq-psql" ''
+    set -eux
+
+    ${pkgs.postgresql}/bin/psql "''${@}"
+  '';
+
   xorq-commands = {
     inherit
       xorq-cachix-use xorq-cachix-push
@@ -202,6 +208,7 @@ let
       xorq-install-docker xorq-sudo-usermod-aG-docker xorq-docker-compose-up xorq-newgrp-docker-compose-up
       xorq-colima-start
       xorq-docker xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
+      xorq-psql
       ;
   };
 
