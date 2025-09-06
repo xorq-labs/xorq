@@ -269,9 +269,11 @@ def _transform_deferred_reads(expr):
                 {
                     "engine": node.source.name,
                     "method_name": node.method_name,
-                    "path": read_kwargs.get("path")
-                    or read_kwargs.get("source")
-                    or read_kwargs.get("source_list"),
+                    "path": str(
+                        read_kwargs.get("path")
+                        or read_kwargs.get("source")
+                        or read_kwargs.get("source_list")
+                    ),
                 },
             )
             if node.source.name == "pandas":
