@@ -152,6 +152,35 @@ def test_udf_agg_pandas_df(ls_con, alltypes):
     assert actual2.equals(expected)
 
 
+def test_udf_agg_pandas_df_no_name():
+    import xorq.api as xo
+
+    @xo.udf.agg.pandas_df(
+        schema=xo.schema({"a": int}),
+        return_type=xo.expr.datatypes.Int64(),
+    )
+    def my_agg(df):
+        return df.a.sum()
+
+    @xo.udf.agg.pandas_df(
+        schema=xo.schema({"a": int}),
+        return_type=xo.expr.datatypes.Int64(),
+        name="my_agg",  # the name clashes with the previous one
+    )
+    def my_agg_plus_one(df):
+        return df.a.sum() + 1
+
+    t = xo.memtable({"a": [1, 2]})
+    expr = t.pipe(my_agg.on_expr)
+    assert expr.execute() == 3
+
+    expr = t.pipe(my_agg_plus_one.on_expr)
+    assert expr.execute() == 4
+
+    expr = t.mutate(my_agg=my_agg(t.a), my_agg_plus_one=my_agg_plus_one(t.a))
+    assert not expr.execute().empty
+
+
 def test_udf_pandas_df(ls_con, batting):
     typ = "int64"
     name = "my_least"
