@@ -776,7 +776,7 @@ class agg(_agg):
         make_pandas_expr_udf : For using trained models in prediction UDFs
         make_pandas_udf : For scalar pandas operations
         """
-        name = name if name is not None else _make_udf_name(fn)
+        name = name if name is not None else fn.__name__
         bases = (cls._base,)
         fields = {
             arg_name: Argument(pattern=rlz.ValueOf(typ), typehint=typ)
@@ -797,9 +797,8 @@ class agg(_agg):
             **fields,
             **meta,
         }
-
         node = type(
-            name,
+            _make_udf_name(fn.__name__),
             bases,
             kwds,
         )

@@ -25,7 +25,7 @@ def explode_sum(df):
 
 
 expr = data.tag("full")
-expr = explode_sum.on_expr(expr).as_table().rename({"explode_sum": "explode_sum(x)"})
+expr = explode_sum.on_expr(expr).name("explode_sum").as_table()
 
 
 @curry
