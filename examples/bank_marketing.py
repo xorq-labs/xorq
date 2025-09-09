@@ -70,11 +70,21 @@ class XGBoostModelExplodeEncoded(BaseEstimator):
     return_type = dt.float64
 
     def do_explode_encoded(self, X):
-        X = X.drop(columns=self.encoded_col).join(
-            X[self.encoded_col].apply(
-                lambda lst: pd.Series({dct["key"]: dct["value"] for dct in lst})
+        def explode_series(series):
+            (keys, values) = (
+                [tuple(dct[which] for dct in lst) for lst in series]
+                for which in ("key", "value")
             )
-        )
+            (columns, *rest) = keys
+            assert all(el == columns for el in rest)
+            df = pd.DataFrame(
+                values,
+                index=series.index,
+                columns=columns,
+            )
+            return df
+
+        X = X.drop(columns=self.encoded_col).join(explode_series(X[self.encoded_col]))
         return X
 
     def make_dmatrix(self, X, y=None):
