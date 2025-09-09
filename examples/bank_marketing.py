@@ -129,8 +129,6 @@ def make_pipeline(dataset_name, target_column, predicted_col, con=None, storage=
     )
     train_table, test_table = expr.pipe(
         train_test_splits,
-        # FIXME: default unique_key to s.all()
-        unique_key=expr.columns,
         test_sizes=[0.5, 0.5],
         num_buckets=2,
         random_seed=42,
