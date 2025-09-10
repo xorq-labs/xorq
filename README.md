@@ -47,8 +47,8 @@ full walk-through using the Penguins dataset.
 
 ## From `scikit-learn` to multi-engine manifest
 
-The manifest is a collection of YAML files that captures the expression graph,
-UDxF:
+The manifest is a collection of YAML files that captures the expression graph and
+UDxF contracts, including function definitions, schemas, and metadata.
 
 Once you xorq build your pipeline, you get:
 
