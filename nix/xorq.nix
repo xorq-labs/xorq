@@ -174,8 +174,14 @@ let
             prev.poetry-core
           ];
         });
+        feast = prev.feast.overrideAttrs (compose [
+          (addResolved final [
+            "setuptools"
+          ])
+        ]);
       };
       pyprojectOverrides-editable = final: prev: {
+        # hash-cache = prev.hash-cache.overrideAttrs (addResolved final [ "hatchling" ]);
         xorq = prev.xorq.overrideAttrs (old: {
           nativeBuildInputs =
             (old.nativeBuildInputs or [ ])

@@ -22,7 +22,7 @@ dependencies = [
     "pyarrow-hotfix>=0.4,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "geoarrow-types>=0.2,<1 ; python_version >= '3.10' and python_version < '4.0'",
     "pythran>=0.17.0 ; sys_platform == 'darwin'",
-    "atpublic>=5.1",
+    "atpublic>=3.0",
     "parsy>=2",
     "python-dateutil>=2.8.2",
     "pytz>=2022.7",
@@ -30,7 +30,7 @@ dependencies = [
     "toolz>=0.11",
     "typing-extensions>=4.3.0",
     "pyyaml>=6.0.2",
-    "cloudpickle>=3.1.1",
+    "cloudpickle>=3.0",
     "envyaml>=1.10.211231",
     "xorq-datafusion==0.2.3",
     "opentelemetry-sdk>=1.32.1",
@@ -41,6 +41,7 @@ dependencies = [
     "strenum>=0.4.15 ; python_version <= '3.10'",
     "uv>=0.7.20",
     "rich>=13.9.4",
+    "feast",
 ]
 requires-python = ">=3.10"
 authors = [
@@ -74,6 +75,10 @@ Documentation = "https://docs.xorq.dev/"
 [project.optional-dependencies]
 pyiceberg = [
     "pyiceberg[sql-sqlite,sql-postgres]>=0.9.0",
+]
+ducklake = [
+    "duckdb>=1.3.0",
+    "xorq-hash-cache",
 ]
 duckdb = [
     "duckdb>=1.1.3",
@@ -294,9 +299,12 @@ topo_order = false
 sort_commits = "oldest"
 
 [tool.uv.sources]
-xorq-hash-cache = { git = "https://github.com/xorq-labs/xorq-hash-cache", branch = "main" }
+xorq-hash-cache = { git = "https://github.com/xorq-labs/xorq-hash-cache", branch = "master" }
 xorq-weather-lib = { git = "https://github.com/xorq-labs/xorq-weather-lib", branch = "main" }
 xorq-feature-utils = { git = "https://github.com/xorq-labs/xorq-feature-utils", branch = "main" }
+feast = { git = "https://github.com/xorq-labs/feast", branch = "chore/deps/loosen-pyarrow" }
 
 [tool.hatch.metadata]
 allow-direct-references = true
+xorq-datafusion = { git = "https://github.com/xorq-labs/xorq-datafusion", branch = "chore/loosen-pyarrow-version" }
+feast = { git = "https://github.com/xorq-labs/feast", branch = "chore/deps/loosen-pyarrow" }
