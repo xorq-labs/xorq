@@ -20,7 +20,7 @@
 contracts + unbound I/O) captured as YAML that compiles to DuckDB, Snowflake,
 DataFusion, etc.
 - 📚 Compute catalog: Versioned registry that stores and
-operates on  manifests (run, cache, diff, serve-unbound).
+operates on manifests (run, cache, diff, serve-unbound).
 - 🔁 Deterministic builds & caching: Content hashes of the plan power
 reproducible runs and cheap replays.
 - 🧩 Portable UDXFs: Schema-in/out functions packaged once via Arrow Flight; reusable across
