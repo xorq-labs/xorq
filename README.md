@@ -7,17 +7,28 @@
 
 </div>
 
-> **✨ Xorq is an opinionated framework for cataloging, sharing, and shipping
-> multi-engine compute as diffable artifacts for your data in flight. ✨**
+> **Xorq is a multi‑engine batch transformation framework.**
+> It ships a **compute catalog**—versioned Python/Ibis expressions you can run across
+> DuckDB, Snowflake, DataFusion, and more.
 
-Xorq helps teams build **declarative, reusable ML pipelines** across Python and
-SQL engines like DuckDB, Snowflake, and DataFusion. It offers:
+---
 
-* 🧠 **Multi-engine, declarative expressions** using pandas-style syntax and Ibis.
-* 📦 **Expression Format** for Python in YAML, enabling repeatable compute.
-* ⚡ **Portable UDFs and UDAFs** with automatic serialization.
-* 🔁 **Shift-left with caching** using expr hash for naming things.
-* 🔍 **Column-level lineage and observability** out of the box.
+## What Xorq is
+
+- 🧠 **Compute catalog:** A registry of declarative transformations as
+  diffable, addressable manifest (`expr.yaml`).
+- 🔁 **Deterministic builds & caching:** Content‑addressed (expr‑hash) naming
+  for repeatable runs and cheap replays/backfills.
+- 🧩 **Portable UDXFs:** User‑Defined (Aggregate) Functions serialized once,
+  reused across engines.
+- 🔬 **Lineage & schema checks:** Column‑level lineage and compile‑time
+  relational integrity.
+- 🤖 **Scikit‑learn integration:** Treat estimators/pipelines as compute—**fit** as an aggregate step, **predict** as a scalar step—parameters are serialized into the catalog for portable batch scoring.
+
+> **Not an orchestrator.** Use Xorq from Airflow, Dagster, Prefect, GitHub
+> Actions, etc.
+> **Not streaming/online.** Xorq focuses on **batch** transformations.
+
 
 ## 🔧 Quickstart
 
@@ -28,20 +39,26 @@ xorq init -t penguins
 
 Then follow the [Quickstart Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart) for a full walk-through using the Penguins dataset.
 
-## 🚀 Why Xorq?
+## Core concepts
 
-ML pipelines are brittle, inconsistent, and hard to reuse. Xorq gives you:
+- Expression Format: Python expressions captured as YAML (expr.yaml) for reproducible, engine‑portable compute.
+- Deferred reads: Source metadata captured in deferred_reads.yaml.
+- Profiles: Pluggable backends (e.g., DuckDB, Snowflake, DataFusion) selected at run time.
+- UDxFs: User‑Defined Exchange Functions (UDF/UDAF) packaged for cross‑engine reuse.
 
-| Pain                  | How Xorq Helps          |
-| --------------------- | ----------------------- |
-| Mixing pandas and SQL | Unified declarative API |
-| Wasted computation    | Transparent caching     |
-| Manual deployment     | Xorq serve any expr     |
-| Debugging lineage     | Visual lineage trees    |
-| Engine lock-in        | Portable UDxFs          |
-| Repro issues          | Compile-time schema and relational integrity validation |
+## 📸 Expression Format for Compute
 
-## 📸 Example Output
+Xorq makes it easy to bring your scikit-learn Pipeline and automatically
+converts it into a deferred Xorq expression.
+
+```python
+(train, test) = xo.test_train_split(...)
+sklearn_pipeline = make_pipeline(...)
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+# still no work done: deferred fit expression
+fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
+expr = test_predicted = fitted_pipeline.predict(test[features])
+```
 
 Once you `xorq build` your pipeline, you get:
 
@@ -49,75 +66,54 @@ Once you `xorq build` your pipeline, you get:
 * `deferred_reads.yaml`: source metadata
 * SQL and metadata files for inspection and CI
 
-Here is a sample (abbreviated) output:
+Conceptual shape (what the catalog captures) when converting to a YAML manifest:
 
 ```bash
-❯ cat deferred_reads.yaml
-reads:
- penguins-36877e5b81573dffe4e988965ce3950b:
-   engine: pandas
-   profile_name: 08f39a9ca2742d208a09d0ee9c7756c0_1
-   relations:
-   - penguins-36877e5b81573dffe4e988965ce3950b
-   options:
-     method_name: read_csv
-     name: penguins
-     read_kwargs:
-     - source: /Users/hussainsultan/Library/Caches/pins-py/gs_d3037fb8920d01eb3b262ab08d52335c89ba62aa41299e5236f01807aa8b726d/penguins/20250206T212843Z-8f28a/penguins.csv
-     - table_name: penguins
-   sql_file: 8b5f90115b97.sql
-and similarly expr.yaml (just a snippet):
-
 predicted:
-  op: ExprScalarUDF
-  class_name: _predicted_e1d43fe620d0175d76276
+  op: ExprScalarUDF            # predict(...)
   kwargs:
-    op: dict
-    bill_length_mm:
-      node_ref: ecb7ceed7bab79d4e96ed0ce037f4dbd
-    bill_depth_mm:
-      node_ref: 26ca5f78d58daed6adf20dd2eba92d41
-    flipper_length_mm:
-      node_ref: 916dc998f8de70812099b2191256f4c1
-    body_mass_g:
-      node_ref: e094d235b0c1b297da5c194a5c4c331f
+    bill_length_mm: ...        # features
+    bill_depth_mm: ...
+    flipper_length_mm: ...
+    body_mass_g: ...
   meta:
-    op: dict
-    dtype:
-      op: DataType
-      type: String
-      nullable:
-        op: bool
-        value: true
-    __input_type__:
-      op: InputType
-      name: PYARROW
     __config__:
-      op: dict
       computed_kwargs_expr:
-        op: AggUDF
-        class_name: _fit_predicted_e1d43fe620d0175d7
+        op: AggUDF             # fit(...)
         kwargs:
-          op: dict
-          bill_length_mm:
-            node_ref: ecb7ceed7bab79d4e96ed0ce037f4dbd
-          bill_depth_mm:
-            node_ref: 26ca5f78d58daed6adf20dd2eba92d41
-          flipper_length_mm:
-            node_ref: 916dc998f8de70812099b2191256f4c1
-          body_mass_g:
-            node_ref: e094d235b0c1b297da5c194a5c4c331f
-          species:
-            node_ref: a9fa43a2d8772c7eca4a7e2067107bfc
+          bill_length_mm: ...
+          bill_depth_mm: ...
+          flipper_length_mm: ...
+          body_mass_g: ...
+          species: ...         # target
+
 ```
 Please note that this is still in beta and the spec is subject to change.
 
 ## How Xorq works
 
-![Xorq Architecture](docs/images/how-xorq-works.png)
-
 Xorq uses Apache Arrow for zero-copy data transfer and leverages Ibis and
 DataFusion under the hood for efficient computation.
+
+![Xorq Architecture](docs/images/how-xorq-works-2.png)
+
+## Use cases
+
+A generic catalog that can be used to build new workloads:
+
+- Lineage‑preserving, multi-engine feature stores (offline, reproducible)
+- Composable data products (ship datasets as compute artifacts)
+- Governed sharing of compute (catalog entries as the contract between teams)
+- ML/data pipeline development (deterministic builds)
+
+
+Also great for:
+
+- Generating SQL from high-level DSLs (e.g. Semantic Layers)
+- Batch model scoring across engines (same expr, different backends)
+- Cross‑warehouse migrations (portability via Ibis + UDxFs)
+- Data CI (compile‑time schema/lineage checks in PRs)
+
 
 ## 📌 Learn More
 
@@ -125,6 +121,7 @@ DataFusion under the hood for efficient computation.
 * [Caching Guide](https://docs.xorq.dev/core_concepts/caching)
 * [Backend Profiles](https://docs.xorq.dev/api_reference/backend_configuration/profiles_api)
 * [Scikit-learn Template](https://github.com/xorq-labs/xorq-template-sklearn)
+
 ## 🧪 Status
 
 Xorq is pre-1.0 and evolving fast. Expect breaking changes.
