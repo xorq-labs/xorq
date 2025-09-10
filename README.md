@@ -16,11 +16,10 @@
 
 ## What Xorq gives you
 
-- 🧭 Multi-engine manifest: A single, typed plan (Ibis graph + UDXF
-contracts + unbound I/O) captured as YAML that compiles to DuckDB, Snowflake,
-DataFusion, etc.
-- 📚 Compute catalog: Versioned registry that stores and
-operates on manifests (run, cache, diff, serve-unbound).
+- 🧭 Multi-engine manifest: A single, typed plan (Ibis Expression graph + UDFs)
+captured as YAML artifact that compiles to DuckDB, Snowflake, DataFusion, etc.
+- 📚 Compute catalog: Versioned registry that stores and operates on manifests
+(run, cache, diff, serve-unbound).
 - 🔁 Deterministic builds & caching: Content hashes of the plan power
 reproducible runs and cheap replays.
 - 🧩 Portable UDXFs: Schema-in/out functions packaged once via Arrow Flight; reusable across
@@ -29,8 +28,7 @@ engines (embedded DataFusion included for portability/local runs).
 - 🤖 Scikit-learn integration: fit (aggregate) and predict (scalar) are
 serialized into the manifest for portable batch scoring.
 
-> **Not an orchestrator.** Use Xorq from Airflow, Dagster, Prefect, GitHub
-> Actions, etc.
+> **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
 > **Not streaming/online.** Xorq focuses on **batch** transformations.
 
 
