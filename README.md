@@ -7,23 +7,27 @@
 
 </div>
 
-> **Xorq is a multi‑engine batch transformation framework.**
-> It ships a **compute catalog**—versioned expression format (Python/Ibis) you
-> can run across DuckDB, Snowflake, DataFusion, and more.
+> **Xorq is a multi‑engine batch transformation framework built on Ibis,
+> DataFusion and Arrow.**
+> It ships a compute catalog and a multi-engine manifest you can run
+> across DuckDB, Snowflake, DataFusion, and more.
 
 ---
 
-## What Xorq is
+## What Xorq gives you
 
-- 🧠 **Compute catalog:** A registry of declarative transformations as
-  diffable, addressable manifest (`expr.yaml`).
-- 🔁 **Deterministic builds & caching:** Content‑addressed (expr‑hash) naming
-  for repeatable runs and cheap replays/backfills.
-- 🧩 **Portable UDXFs:** User‑Defined (Aggregate) Functions serialized once,
-  reused across engines.
-- 🔬 **Lineage & schema checks:** Column‑level lineage and compile‑time
-  relational integrity.
-- 🤖 **Scikit‑learn integration:** Treat estimators/pipelines as compute—**fit** as an aggregate step, **predict** as a scalar step—parameters are serialized into the catalog for portable batch scoring.
+- 🧭 Multi-engine manifest: A single, typed plan (Ibis graph + UDXF
+contracts + unbound I/O) captured as YAML that compiles to DuckDB, Snowflake,
+DataFusion, etc.
+- 📚 Compute catalog: Versioned registry that stores and
+operates on  manifests (run, cache, diff, serve-unbound).
+- 🔁 Deterministic builds & caching: Content hashes of the plan power
+reproducible runs and cheap replays.
+- 🧩 Portable UDXFs: Schema-in/out functions packaged once via Arrow Flight; reusable across
+engines (embedded DataFusion included for portability/local runs).
+- 🔬 Lineage & schema checks: Column-level lineage and compile-time integrity.
+- 🤖 Scikit-learn integration: fit (aggregate) and predict (scalar) are
+serialized into the manifest for portable batch scoring.
 
 > **Not an orchestrator.** Use Xorq from Airflow, Dagster, Prefect, GitHub
 > Actions, etc.
@@ -37,16 +41,11 @@ pip install xorq[examples]
 xorq init -t penguins
 ```
 
-Then follow the [Quickstart Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart) for a full walk-through using the Penguins dataset.
+Then follow the [Quickstart
+Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart) for a
+full walk-through using the Penguins dataset.
 
-## Core concepts
-
-- Expression Format: Python expressions captured as YAML (expr.yaml) for reproducible, engine‑portable compute.
-- Deferred reads: Source metadata captured in deferred_reads.yaml.
-- Profiles: Pluggable backends (e.g., DuckDB, Snowflake, DataFusion) selected at run time.
-- UDxFs: User‑Defined Exchange Functions (UDF/UDAF) packaged for cross‑engine reuse.
-
-## Compute Catalog & Manifest
+## From `scikit-learn` to multi-engine manifest
 
 The manifest is a collection of YAML files that captures the expression graph,
 UDxF:
@@ -61,7 +60,11 @@ Xorq makes it easy to bring your scikit-learn Pipeline and automatically
 converts it into a deferred Xorq expression.
 
 ```python
-(train, test) = xo.test_train_split(...)
+import xorq.api as xo
+from xorq.expr.ml.pipeline_lib import Pipeline
+
+
+(train, test) = xo.test_train_splits(...)
 sklearn_pipeline = make_pipeline(...)
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 # still no work done: deferred fit expression
@@ -89,8 +92,11 @@ predicted:
           flipper_length_mm: ...
           body_mass_g: ...
           species: ...         # target
-
 ```
+The YAML format serializes the Expression graph and all its nodes, including
+UDFs as pickled entries.
+
+## From manifest to catalog
 
 Once an expression is built, we can then catalog it and share across teams.
 
@@ -98,7 +104,7 @@ The compute catalog is a versioned registry of compute manifest. It can be
 stored in Git, S3, GCS, or a database.
 
 ```bash
-❯ xorq catalog add builds/{build-hash} --alias penguin_model
+❯ xorq catalog add builds/{build-hash} --alias penguins-model
 ```
 
 ```
@@ -112,6 +118,33 @@ dbf90860-88b3-4b6c-830a-8518b3296e7c    r1      52f987594254
 You can then run, serve or cache the catalog entry, including unbinding nodes
 that depend on external state (e.g. source tables). This is useful to serve a
 trained pipeline with new data.
+
+### Serve the same expression with new inputs (serve-unbound)
+
+We can unbind an expression by replacing a node in expression graph with the hash:
+
+```bash
+xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
+```
+- `builds/7061dd65ff3c`: Your built pipeline directory
+- `--host localhost --port 8001`: Server configuration
+- `--cache-dir penguins_example`: Directory for caching results
+- `b2370a29c19df8e1e639c63252dacd0e`: The specific node hash to serve
+
+To learn more on how to find the node hash, check out the [Serve Unbound](https://docs.xorq.dev/tutorials/getting_started/quickstart#finding-the-node-hash).
+
+### Compose with the served expression:
+
+```python
+import xorq.api as xo
+
+client = xo.flight.connect("localhost", 8001)
+f = client.get_exchange("default") # currently all expressions get the default name
+
+new_expr = expr.pipe(f)
+
+new_expr.execute()
+```
 
 ## How Xorq works
 
