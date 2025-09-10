@@ -30,7 +30,7 @@
 > **Not streaming/online.** Xorq focuses on **batch** transformations.
 
 
-## 🔧 Quickstart
+## Quickstart
 
 ```bash
 pip install xorq[examples]
@@ -46,7 +46,7 @@ Then follow the [Quickstart Tutorial](https://docs.xorq.dev/tutorials/getting_st
 - Profiles: Pluggable backends (e.g., DuckDB, Snowflake, DataFusion) selected at run time.
 - UDxFs: User‑Defined Exchange Functions (UDF/UDAF) packaged for cross‑engine reuse.
 
-## 📸 Expression Format for Compute
+## Expression Format for Compute
 
 Xorq makes it easy to bring your scikit-learn Pipeline and automatically
 converts it into a deferred Xorq expression.
@@ -57,7 +57,7 @@ sklearn_pipeline = make_pipeline(...)
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 # still no work done: deferred fit expression
 fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
-expr = test_predicted = fitted_pipeline.predict(test[features])
+expr = fitted_pipeline.predict(test[features])
 ```
 
 Once you `xorq build` your pipeline, you get:
@@ -88,7 +88,8 @@ predicted:
           species: ...         # target
 
 ```
-Please note that this is still in beta and the spec is subject to change.
+
+Once an expression is built, we can then catalog it and share across teams.
 
 ## How Xorq works
 
@@ -115,18 +116,18 @@ Also great for:
 - Data CI (compile‑time schema/lineage checks in PRs)
 
 
-## 📌 Learn More
+## Learn More
 
 * [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 * [Caching Guide](https://docs.xorq.dev/core_concepts/caching)
 * [Backend Profiles](https://docs.xorq.dev/api_reference/backend_configuration/profiles_api)
 * [Scikit-learn Template](https://github.com/xorq-labs/xorq-template-sklearn)
 
-## 🧪 Status
+## Status
 
 Xorq is pre-1.0 and evolving fast. Expect breaking changes.
 
-## 🤝 Get Involved
+## Get Involved
 
 * [Website](https://www.xorq.dev)
 * [Discord](https://discord.gg/8Kma9DhcJG)
