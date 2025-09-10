@@ -100,7 +100,7 @@ UDFs as pickled entries.
 
 Once an expression is built, we can then catalog it and share across teams.
 
-The compute catalog is a versioned registry of compute manifest. It can be
+The compute catalog is a versioned registry of compute manifests. It can be
 stored in Git, S3, GCS, or a database.
 
 ```bash
