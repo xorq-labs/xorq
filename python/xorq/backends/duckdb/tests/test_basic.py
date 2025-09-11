@@ -1,3 +1,4 @@
+import dask
 import numpy as np
 import pytest
 
@@ -8,6 +9,7 @@ from xorq.caching import (
     SourceSnapshotStorage,
     SourceStorage,
 )
+from xorq.conftest import array_types_df
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 
@@ -146,3 +148,12 @@ def test_register_arbitrary_expression(con, duckdb_con):
 
     assert result is not None
     assert_frame_equal(result, expected, check_like=True)
+
+
+def test_array_filter_cached(con, duckdb_con):
+    t = duckdb_con.create_table("array_types", array_types_df)
+    uncached = t.mutate(filtered=t.x.filter(xo._ > 1))
+    expr = uncached.cache(SourceStorage(source=con))
+
+    assert dask.base.tokenize(uncached)
+    assert not expr.execute().empty
