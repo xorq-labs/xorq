@@ -11,6 +11,7 @@ import sqlglot as sg
 import xorq.expr.datatypes as dat
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations.relations as ir
+from xorq.backends.let import Backend
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_seq_with_caller,
 )
@@ -28,10 +29,10 @@ def expr_is_bound(expr):
     return bool(backends)
 
 
-def unbound_expr_to_default_sql(expr):
+def unbound_expr_to_default_sql(expr, compiler=None):
     if expr_is_bound(expr):
         raise ValueError
-    default_sql = api.to_sql(expr)
+    default_sql = api.to_sql(expr, compiler=compiler)
     return str(default_sql)
 
 
@@ -524,12 +525,13 @@ def opaque_node_replacer(node, kwargs):
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    return normalize_op(expr.op())
+    return normalize_op(expr.op(), backend=expr._find_backend(use_default=True))
 
 
-def normalize_op(op):
+def normalize_op(op, backend=None):
     sql = unbound_expr_to_default_sql(
-        op.replace(opaque_node_replacer).to_expr().unbind()
+        op.replace(opaque_node_replacer).to_expr().unbind(),
+        getattr(backend, "compiler", Backend.compiler),
     )
     reads = op.find(rel.Read)
     dts = op.find((ir.DatabaseTable, rel.FlightExpr, rel.FlightUDXF))

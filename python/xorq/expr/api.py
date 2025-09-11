@@ -10,6 +10,7 @@ import pyarrow as pa
 from opentelemetry import trace
 
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends.let import Backend
 from xorq.common.utils.caching_utils import find_backend
 from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_csv,
@@ -203,18 +204,14 @@ def read_postgres(
 
 
 @functools.cache
-def _cached_with_op(op, pretty):
-    from xorq.config import _backend_init
-
-    con = _backend_init()
-
+def _cached_with_op(op, pretty, compiler):
     expr = op.to_expr()
-    sg_expr = con.compiler.to_sqlglot(expr)
+    sg_expr = compiler.to_sqlglot(expr)
     sql = sg_expr.sql(dialect=DataFusion, pretty=pretty)
     return sql
 
 
-def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
+def to_sql(expr: ir.Expr, compiler=Backend.compiler, pretty: bool = True) -> SQLString:
     """Return the formatted SQL string for an expression.
 
     Parameters
@@ -232,7 +229,7 @@ def to_sql(expr: ir.Expr, pretty: bool = True) -> SQLString:
     """
 
     unbound = _remove_tag_nodes(expr).unbind().op()
-    return SQLString(_cached_with_op(unbound, pretty))
+    return SQLString(_cached_with_op(unbound, pretty, compiler))
 
 
 @tracer.start_as_current_span("_register_and_transform_cache_tables")
