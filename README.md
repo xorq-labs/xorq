@@ -29,10 +29,8 @@ reproducible runs and cheap replays.
 - 🤖 Scikit-learn integration: model fitting pipeline captured in the predict
 pipeline manifest for portable batch scoring and model training lineage
 
-serialized into the manifest for portable batch scoring.
-
 > **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
-> **Not streaming/online.** Xorq focuses on **batch**, **out-of-core** transformations.
+> **Not streaming/online.** Xorq focuses on **batch** and **out-of-core** transformations.
 
 
 ## Quickstart
