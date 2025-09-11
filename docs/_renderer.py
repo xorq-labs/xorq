@@ -20,7 +20,6 @@ class Renderer(qd.MdRenderer):
         prompt = ">>> "
         continuation = "..."
 
-        skip_doctest = "doctest: +SKIP"
         expect_failure = "quartodoc: +EXPECTED_FAILURE"
         quartodoc_skip_doctest = "quartodoc: +SKIP"
 
@@ -28,7 +27,7 @@ class Renderer(qd.MdRenderer):
             return line.startswith((prompt, continuation))
 
         def should_skip(line):
-            return quartodoc_skip_doctest in line or skip_doctest in line
+            return True
 
         for chunk in toolz.partitionby(chunker, lines):
             first, *rest = chunk
@@ -60,13 +59,6 @@ class Renderer(qd.MdRenderer):
 
                 # if we expect failures, don't fail the notebook execution and
                 # render the error message
-                if expect_failure in first or any(
-                    expect_failure in line for line in rest
-                ):
-                    assert start and end, (
-                        "expected failure should never occur alongside a skipped doctest example"
-                    )
-                    result.append("#| error: true")
 
                 # remove the quartodoc markers from the rendered code
                 result.append(
