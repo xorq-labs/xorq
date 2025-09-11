@@ -2,7 +2,7 @@ from datetime import timedelta
 
 import pandas as pd
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.feature_utils import (
     EVENT_TIMESTAMP,

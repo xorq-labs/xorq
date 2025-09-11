@@ -17,7 +17,7 @@ from attrs.validators import (
     optional,
 )
 
-import xorq as xo
+import xorq.api as xo
 from xorq.flight import Backend as FlightBackend
 from xorq.flight.client import FlightClient
 from xorq.vendor.ibis.expr.datatypes import (
