@@ -44,7 +44,7 @@ from feast.types import (
     ValueType,
 )
 
-import xorq as xo
+import xorq.api as xo
 import xorq.expr.datatypes as dt
 
 
@@ -271,9 +271,9 @@ class FeastFileSource:
     def expr(self):
         match self.path.suffix:
             case ".parquet":
-                return xo.deferred_read_parquet(xo.connect(), self.path)
+                return xo.deferred_read_parquet(self.path, xo.connect())
             case ".csv":
-                return xo.deferred_read_csv(xo.connect(), self.path)
+                return xo.deferred_read_csv(self.path, xo.connect())
             case _:
                 raise ValueError(
                     f"don't know how to deal with suffix {self.path.suffix}"
