@@ -24,13 +24,14 @@ captured as a YAML artifact that can execute in DuckDB, Snowflake, DataFusion, e
 (run, cache, diff, serve-unbound).
 - 🔁 Deterministic builds & caching: Content hashes of the plan power
 reproducible runs and cheap replays.
-- 🧩 Portable UDXFs: Arbitrary python logic with schema-in/out contracts
+- 🧩 Portable UDxFs: Arbitrary python logic with schema-in/out contracts portable via Arrow Flight.
 - 🔬 Lineage & schema checks: Column-level lineage and compile-time integrity.
-- 🤖 Scikit-learn integration: model fitting pipeline captured in the predict
+- 🤖 Scikit-learn integration: Model fitting pipeline captured in the predict
 pipeline manifest for portable batch scoring and model training lineage
 
 > **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
-> **Not streaming/online.** Xorq focuses on **batch** and **out-of-core** transformations.
+
+> **Not streaming/online.** Xorq focuses on **batch**,**out-of-core** transformations.
 
 
 ## Quickstart
@@ -47,7 +48,8 @@ full walk-through using the Penguins dataset.
 ## From `scikit-learn` to multi-engine manifest
 
 The manifest is a collection of YAML files that captures the expression graph and
-UDxF contracts, including function definitions, schemas, and metadata.
+UDxF contracts, including function definitions, schemas, and supporting files
+like memtables serialized to disk.
 
 Once you xorq build your pipeline, you get:
 
@@ -71,7 +73,7 @@ fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
 expr = fitted_pipeline.predict(test[features])
 ```
 
-Conceptual shape (what the catalog captures) when converting to a YAML manifest:
+Here's a commented snippet from a YAML manifest
 
 ```bash
 predicted:
@@ -120,15 +122,15 @@ trained pipeline with new data.
 
 ### Serve the same expression with new inputs (serve-unbound)
 
-We can unbind an expression by replacing a node in expression graph with the hash:
+We can rerun an expression with new inputs by replacing an arbitrary node in the expression defined by its node-hash.
 
 ```bash
 xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
 ```
-- `builds/7061dd65ff3c`: Your built pipeline directory
+- `builds/7061dd65ff3c`: Your built expression manifest
 - `--host localhost --port 8001`: Server configuration
 - `--cache-dir penguins_example`: Directory for caching results
-- `b2370a29c19df8e1e639c63252dacd0e`: The specific node hash to serve
+- `b2370a29c19df8e1e639c63252dacd0e`: The node-hash that represents the expression input to replace
 
 To learn more on how to find the node hash, check out the [Serve Unbound](https://docs.xorq.dev/tutorials/getting_started/quickstart#finding-the-node-hash).
 
@@ -138,7 +140,7 @@ To learn more on how to find the node hash, check out the [Serve Unbound](https:
 import xorq.api as xo
 
 client = xo.flight.connect("localhost", 8001)
-f = client.get_exchange("default") # currently all expressions get the default name
+f = client.get_exchange("default") # currently all expressions get the default name in addition to their hash
 
 new_expr = expr.pipe(f)
 
@@ -147,7 +149,7 @@ new_expr.execute()
 
 ## How Xorq works
 
-Xorq uses Apache Arrow for zero-copy data transfer and leverages Ibis and
+Xorq uses Apache Arrow Flight RPC for zero-copy data transfer and leverages Ibis and
 DataFusion under the hood for efficient computation.
 
 ![Xorq Architecture](docs/images/how-xorq-works-2.png)
