@@ -47,9 +47,8 @@ full walk-through using the Penguins dataset.
 
 ## From `scikit-learn` to multi-engine manifest
 
-The manifest is a collection of YAML files that captures the expression graph and
-UDxF contracts, including function definitions, schemas, and supporting files
-like memtables serialized to disk.
+The manifest is a collection of YAML files that captures the expression graph
+and supporting files like memtables serialized to disk.
 
 Once you xorq build your pipeline, you get:
 
@@ -122,13 +121,14 @@ trained pipeline with new data.
 
 ### Serve the same expression with new inputs (serve-unbound)
 
-We can rerun an expression with new inputs by replacing an arbitrary node in the expression defined by its node-hash.
+We can rerun an expression with new inputs by replacing an arbitrary node in
+the expression defined by its node-hash.
 
 ```bash
 xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
 ```
 - `builds/7061dd65ff3c`: Your built expression manifest
-- `--host localhost --port 8001`: Server configuration
+- `--host localhost --port 8001`: Where to serve the UDxF from
 - `--cache-dir penguins_example`: Directory for caching results
 - `b2370a29c19df8e1e639c63252dacd0e`: The node-hash that represents the expression input to replace
 
