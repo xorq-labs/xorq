@@ -1,6 +1,8 @@
 <div align="center">
 
-![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png)
+![Xorq Logo](docs/images/Xorq_WordMark_RGB_Midnight.png#gh-light-mode-only)
+![Xorq Logo](docs/images/Xorq_WordMark_RGB_BlueSky.png#gh-dark-mode-only)
+
 ![License](https://img.shields.io/github/license/xorq-labs/xorq)
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
