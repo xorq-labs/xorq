@@ -171,7 +171,7 @@ xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir 
 - `--cache-dir penguins_example`: Directory for caching results
 - `b2370a29c19df8e1e639c63252dacd0e`: The node-hash that represents the expression input to replace
 
-To learn more on how to find the node hash, check out the [Serve Unbound](https://docs.xorq.dev/tutorials/getting_started/quickstart#finding-the-node-hash).
+To learn more on how to find the node hash, check out the [`serve-unbound`](https://docs.xorq.dev/tutorials/getting_started/quickstart#finding-the-node-hash) documentation.
 
 ### Compose with the served expression:
 
