@@ -211,18 +211,18 @@ DataFusion under the hood for efficient computation.
 
 A generic catalog that can be used to build new workloads:
 
+- ML/data pipeline development (deterministic builds, caching, replicable envs)
 - Lineage‑preserving, multi-engine feature stores (offline, reproducible)
 - Composable data products (ship datasets as compute artifacts)
 - Governed sharing of compute (catalog entries as the contract between teams)
-- ML/data pipeline development (deterministic builds)
 
 
 Also great for:
 
 - Generating SQL from high-level DSLs (e.g. Semantic Layers)
-- Batch model scoring across engines (same expr, different backends)
 - Cross‑warehouse migrations (portability via Ibis + UDxFs)
 - Data CI (compile‑time schema/lineage checks in PRs)
+- ML Experiment Tracking (versioned manifests with cached results)
 
 
 ## Learn More
