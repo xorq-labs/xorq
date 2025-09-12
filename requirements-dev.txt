@@ -880,7 +880,7 @@ websocket-client==1.8.0
     # via jupyter-server
 xgboost==3.0.3
     # via xorq
-xorq-datafusion==0.2.3
+xorq-datafusion==0.2.4
     # via xorq
 xorq-feature-utils @ git+https://github.com/xorq-labs/xorq-feature-utils@02c282dd1c70ff9c237a5a57c6216ea7011c1bca
     # via xorq
