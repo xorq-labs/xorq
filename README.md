@@ -18,15 +18,15 @@
 
 ## What Xorq gives you
 
-| # | Capability | What it means |
-|---|---|---|
-| 1️⃣ | **Multi-engine manifest** | A single, typed plan (YAML manifest) that executes as SQL on DuckDB, Snowflake, and embedded DataFusion. |
-| 2️⃣ | **Deterministic builds & caching** | One hash for everything—computed from **expression inputs**; for YAML-only builds, we hash the **expression**. The hash names `builds/<hash>/` and keys the cache. |
-| 3️⃣ | **Lineage & schemas** | Compile-time schema checks with end-to-end, column-level lineage. |
-| 4️⃣ | **Compute catalog** | Versioned registry to run, cache, diff, and serve-unbound manifests. |
-| 5️⃣ | **Portable UDxFs** | Arbitrary Python logic with schema-in/out contracts, portable via Arrow Flight. |
-| 6️⃣ | **`scikit-learn` integration** | Fit/predict pipelines serialize to a manifest for portable batch scoring with training lineage. |
-| 7️⃣ | **Templates with `uv`** | `xorq init` ships a templates in **replicaple environments**—no “works on my machine.” |
+| Feature | Description |
+|---|---|
+|**Multi-engine manifest** | A single, typed plan (YAML manifest) that executes as SQL on DuckDB, Snowflake, and embedded DataFusion. |
+|**Deterministic builds & caching** | One hash for everything—computed from **expression inputs**; for YAML-only builds, we hash the **expression**. The hash names `builds/<hash>/` and keys the cache. |
+|**Lineage & schemas** | Compile-time schema checks with end-to-end, column-level lineage. |
+|**Compute catalog** | Versioned registry to run, cache, diff, and serve-unbound manifests. |
+|**Portable UDxFs** | Arbitrary Python logic with schema-in/out contracts, portable via Arrow Flight. |
+|**`scikit-learn` integration** | Fit/predict pipelines serialize to a manifest for portable batch scoring with training lineage. |
+|**Templates with `uv`** | `xorq init` ships a templates in **replicaple environments**—no “works on my machine.” |
 
 > [!NOTE]
 > **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
