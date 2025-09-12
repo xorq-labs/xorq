@@ -152,7 +152,9 @@ def test_register_arbitrary_expression(con, duckdb_con):
 
 def test_array_filter_cached(con, duckdb_con):
     t = duckdb_con.create_table("array_types", array_types_df)
-    uncached = t.mutate(filtered=t.x.filter(xo._ > 1))
+    uncached = t.mutate(filtered=t.x.filter(xo._ > 1)).into_backend(
+        con, name="array_types"
+    )
     expr = uncached.cache(SourceStorage(source=con))
 
     assert dask.base.tokenize(uncached)
