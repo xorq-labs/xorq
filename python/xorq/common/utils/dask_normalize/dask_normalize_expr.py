@@ -7,6 +7,7 @@ import urllib.request
 
 import dask
 import sqlglot as sg
+import toolz
 
 import xorq.expr.datatypes as dat
 import xorq.expr.relations as rel
@@ -526,14 +527,13 @@ def opaque_node_replacer(node, kwargs):
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    def get_compiler():
-        try:
-            backend = expr._find_backend(use_default=True)
-        except XorqError:
-            backend = Backend
-        return getattr(backend, "compiler", Backend.compiler)
+    get_compiler = toolz.excepts(
+        (XorqError, AttributeError),
+        lambda e: e._find_backend(use_default=True).compiler,
+        lambda _: Backend.compiler,
+    )
 
-    return normalize_op(expr.op(), compiler=get_compiler())
+    return normalize_op(expr.op(), compiler=get_compiler(expr))
 
 
 def normalize_op(op, compiler=None):
