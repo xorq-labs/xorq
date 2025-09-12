@@ -30,6 +30,7 @@
 
 > [!NOTE]
 > **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
+
 > **Batch focus.** Not streaming/online—**batch**, **out-of-core** transformations.
 
 
