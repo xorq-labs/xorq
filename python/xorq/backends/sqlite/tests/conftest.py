@@ -1,3 +1,4 @@
+import pandas as pd
 import pytest
 
 import xorq.api as xo
@@ -22,3 +23,19 @@ def astronauts_csv_path(csv_dir):
 def persistent_sqlite_con(tmp_path_factory):
     path = tmp_path_factory.mktemp("database").joinpath("lite.db").resolve()
     return xo.sqlite.connect(str(path))
+
+
+@pytest.fixture(scope="session")
+def df():
+    return pd.DataFrame(
+        list(
+            zip(
+                *[
+                    [0, 1.5, 2.3, 3, 4, 5, 6],
+                    [7, 4, 3, 8, 9, 1, 6],
+                    ["A", "A", "A", "A", "B", "B", "B"],
+                ]
+            )
+        ),
+        columns=["a", "b", "c"],
+    )

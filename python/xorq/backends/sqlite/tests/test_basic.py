@@ -134,3 +134,10 @@ def test_cross_source_snapshot(con_cross_source_snapshot):
 )
 def test_cache_find_backend(cls, con_cache_find_backend):
     con_cache_find_backend(cls, xo.sqlite.connect())
+
+
+def test_can_train_test_split(sqlite_con, astronauts_parquet_path):
+    t = sqlite_con.read_parquet(astronauts_parquet_path)
+    (train, test) = xo.train_test_splits(t, 0.2)
+    assert train.execute() is not None
+    assert test.execute() is not None
