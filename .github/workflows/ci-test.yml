@@ -59,6 +59,12 @@ jobs:
               - --extra examples
               - --extra postgres
               - --extra pyiceberg
+              - --extra sqlite
+          - name: sqlite
+            services: false
+            extras:
+              - --extra sqlite
+              - --extra duckdb
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3

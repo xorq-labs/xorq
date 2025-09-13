@@ -79,6 +79,23 @@ wheels = [
 ]
 
 [[package]]
+name = "adbc-driver-sqlite"
+version = "1.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "adbc-driver-manager" },
+    { name = "importlib-resources" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/45/38/44291d3945b6a50bab8f581c08830e0c62bbffd010321f64ac2f339cba24/adbc_driver_sqlite-1.7.0.tar.gz", hash = "sha256:138869e6476d69444b68da6215e4ceca506ca635497e6bccb661f11daa8e4bf6", size = 18363, upload-time = "2025-07-07T06:23:11.563Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1b/af/102923d3eeb45d0dcfb570dec1760a495793feade885897495b05fd7db3c/adbc_driver_sqlite-1.7.0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:efec1bea04089ced1699b76b6b2f87e0df4dcb9a7fe51ab651fac18006483354", size = 1042451, upload-time = "2025-07-07T06:23:01.059Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/c0/6d5dc345f757e767d772e18120613118d74777773221b93318edb4fe0930/adbc_driver_sqlite-1.7.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:ae01974e5b98f7244ddc463504af15d9ff00a59dfb3984e27b4ba23647ee1a37", size = 1012753, upload-time = "2025-07-07T06:23:02.467Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/70/fde26a1562d87f8c1458dfc0a82181e914dd9fc3f1ca0d423c39f80136d6/adbc_driver_sqlite-1.7.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:bdf5bc90d20b48f90627b500e075f38819816012881a888ad6e24d41f5a54ac3", size = 956900, upload-time = "2025-07-07T06:23:03.665Z" },
+    { url = "https://files.pythonhosted.org/packages/93/1f/618d88542ca66baf6bc25a3e5ecbd698eff31b12b2ab2a590bae8d9d8c83/adbc_driver_sqlite-1.7.0-py3-none-manylinux2014_x86_64.manylinux_2_17_x86_64.whl", hash = "sha256:2b3aba1b27ec9cc5761cfe4a870839a6e313e6f580f9f673fbec72299b76fa7d", size = 978150, upload-time = "2025-07-07T06:23:04.835Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/18/c857aecc1b80c02bb0b9af8464ef7c250caab2a0120a68f56b4501db32f6/adbc_driver_sqlite-1.7.0-py3-none-win_amd64.whl", hash = "sha256:d70f05a1d737ac477564e8810985101d6e8c6e632f790e396531ece8d3a93248", size = 867977, upload-time = "2025-07-07T06:23:06.155Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -5125,6 +5142,9 @@ snowflake = [
     { name = "adbc-driver-snowflake" },
     { name = "snowflake-connector-python", marker = "python_full_version < '4'" },
 ]
+sqlite = [
+    { name = "adbc-driver-sqlite" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -5167,6 +5187,7 @@ requires-dist = [
     { name = "adbc-driver-postgresql", marker = "extra == 'examples'", specifier = ">=1.4.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },
     { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.5.0" },
+    { name = "adbc-driver-sqlite", marker = "extra == 'sqlite'", specifier = ">=1.4.0" },
     { name = "atpublic", specifier = ">=5.1" },
     { name = "attrs", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.0.0,<26" },
     { name = "cityhash", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4.7,<1" },
@@ -5215,7 +5236,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite"]
 
 [package.metadata.requires-dev]
 dev = [
