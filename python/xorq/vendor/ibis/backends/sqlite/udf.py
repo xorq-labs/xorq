@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple
 from urllib.parse import parse_qs, urlsplit
 from uuid import uuid4
 
+from cityhash import CityHash32
+
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -242,6 +244,11 @@ def pi():
 @udf(skip_if_exists=True, deterministic=False)
 def uuid():
     return str(uuid4())
+
+
+@udf(skip_if_exists=True, deterministic=True)
+def city_hash_32(x):
+    return CityHash32(x)
 
 
 # Additional UDFS

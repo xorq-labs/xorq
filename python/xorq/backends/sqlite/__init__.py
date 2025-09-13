@@ -4,10 +4,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import sqlglot as sg
+import sqlglot.expressions as sge
 
 from xorq.expr.api import read_csv, read_parquet
-from xorq.vendor.ibis import Schema
+from xorq.vendor.ibis import Schema, util
 from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
+from xorq.vendor.ibis.backends.sqlite import _quote
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
@@ -22,17 +24,50 @@ class Backend(IbisSQLiteBackend):
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
         mode: str = "create",
+        overwrite: bool = True,
         **kwargs: Any,
     ) -> ir.Table:
         from xorq.common.utils.sqlite_utils import SQLiteADBC
 
         table_name = table_name or gen_name("read_record_batches")
 
+        catalog = "temp" if self.is_in_memory() else None
+
+        if overwrite:
+            created_table_name = util.gen_name(f"{self.name}_table")
+            created_table = sg.table(
+                created_table_name,
+                catalog=catalog,
+                quoted=self.compiler.quoted,
+            )
+            table = sg.table(table_name, catalog=catalog, quoted=self.compiler.quoted)
+        else:
+            created_table_name = table_name
+            created_table = table = sg.table(
+                table_name, catalog=catalog, quoted=self.compiler.quoted
+            )
+
         if self.is_in_memory():
-            self._into_memory_record_batches(record_batches, table_name)
+            self._into_memory_record_batches(record_batches, created_table_name)
         else:
             sqlite_adbc = SQLiteADBC(self)
-            sqlite_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
+            sqlite_adbc.adbc_ingest(
+                created_table_name, record_batches, mode=mode, **kwargs
+            )
+
+        with self.begin() as cur:
+            if overwrite:
+                cur.execute(
+                    sge.Drop(kind="TABLE", this=table, exists=True).sql(self.name)
+                )
+                # SQLite's ALTER TABLE statement doesn't support using a
+                # fully-qualified table reference after RENAME TO. Since we
+                # never rename between databases, we only need the table name
+                # here.
+                quoted_name = _quote(table_name)
+                cur.execute(
+                    f"ALTER TABLE {created_table.sql(self.name)} RENAME TO {quoted_name}"
+                )
 
         return self.table(table_name)
 
