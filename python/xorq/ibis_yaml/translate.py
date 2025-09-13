@@ -12,6 +12,7 @@ import toolz
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
@@ -40,6 +41,7 @@ from xorq.ibis_yaml.utils import (
     translate_storage,
 )
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.datashape import Columnar
 from xorq.vendor.ibis.expr.operations.relations import Namespace
 from xorq.vendor.ibis.util import normalize_filenames
 
@@ -921,8 +923,8 @@ def _set_op(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return set_op(left, right, distinct=distinct).to_expr()
 
 
-@translate_to_yaml.register(ops.BinaryOp)
-def _binary_op_to_yaml(op: ops.BinaryOp, context: TranslationContext) -> dict:
+@translate_to_yaml.register(ops.Binary)
+def _binary_op_to_yaml(op: ops.Binary, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": type(op).__name__,
@@ -935,7 +937,7 @@ def _binary_op_to_yaml(op: ops.BinaryOp, context: TranslationContext) -> dict:
     )
 
 
-@register_from_yaml_handler("BinaryOp")
+@register_from_yaml_handler("Binary")
 def _binary_op_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     args = [translate_from_yaml(arg, context) for arg in yaml_dict["args"]]
     op_name = yaml_dict["op"].lower()
@@ -1840,7 +1842,7 @@ def _frozenordereddict_from_yaml(
 
 
 @translate_to_yaml.register(Tag)
-def _tag_to_yaml(op: Tag, context: any) -> dict:
+def _tag_to_yaml(op: Tag, context: Any) -> dict:
     schema_id = context.schema_registry.register_schema(op.schema)
     # source should be called profile_name
 
@@ -1856,7 +1858,7 @@ def _tag_to_yaml(op: Tag, context: any) -> dict:
 
 
 @register_from_yaml_handler("Tag")
-def _tag_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
+def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
     schema_ref = yaml_dict["schema_ref"]
     try:
         schema_def = context.definitions["schemas"][schema_ref]
@@ -1877,3 +1879,60 @@ def _tag_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         metadata=metadata,
     )
     return op.to_expr()
+
+
+@translate_to_yaml.register(ops.ArrayFilter)
+def _array_filter_to_yaml(op: ops.ArrayFilter, context: Any) -> dict:
+    return freeze(
+        {
+            "op": "ArrayFilter",
+            "arg": translate_to_yaml(op.arg, context),
+            "body": translate_to_yaml(op.body, context),
+            "param": translate_to_yaml(op.param, context),
+        }
+    )
+
+
+@register_from_yaml_handler("ArrayFilter")
+def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+    param = translate_from_yaml(yaml_dict["param"], context)
+    body = translate_from_yaml(yaml_dict["body"], context)
+
+    return ops.ArrayFilter(arg, param=param, body=body).to_expr()
+
+
+@translate_to_yaml.register(ops.Argument)
+def _array_filter_to_yaml(op: ops.Argument, context: Any) -> dict:
+    return freeze(
+        {
+            "op": "Argument",
+            "name": translate_to_yaml(op.name, context),
+            "shape": translate_to_yaml(op.shape, context),
+            "dtype": translate_to_yaml(op.dtype, context),
+        }
+    )
+
+
+@register_from_yaml_handler("Argument")
+def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
+    name = translate_from_yaml(yaml_dict["name"], context)
+    shape = translate_from_yaml(yaml_dict["shape"], context)
+    dtype = translate_from_yaml(yaml_dict["dtype"], context)
+
+    return ops.Argument(name, shape=shape, dtype=dtype).to_expr()
+
+
+@translate_to_yaml.register(ds.DataShape)
+def _columnar_to_yaml(op, context) -> dict:
+    return freeze(
+        {
+            "op": op.__class__.__name__,
+            "ndim": translate_to_yaml(op.ndim, context),
+        }
+    )
+
+
+@register_from_yaml_handler("Columnar")
+def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> Any:
+    return Columnar()
