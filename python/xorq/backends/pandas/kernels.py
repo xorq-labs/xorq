@@ -427,19 +427,20 @@ def custom_hash(**kwargs):
     import pyarrow as pa
 
     from xorq.internal import SessionContext
+    from xorq.vendor.ibis.util import gen_name
 
     arg = kwargs["arg"]
-    table_name = f"table_{arg.name}"
-
+    name = arg.name or gen_name("pandas_custom_hash")
+    table_name = f"table_{name}"
     table = pa.Table.from_arrays(
         arrays=[arg],  # List of array-like objects
-        names=[arg.name],  # Column names
+        names=[name],  # Column names
     )
 
     ctx = SessionContext()
     ctx.register_record_batches(table_name, [table.to_batches()])
     return (
-        ctx.sql(f"select hash_int({arg.name}) as col_name from {table_name}")
+        ctx.sql(f"select hash_int({name}) as col_name from {table_name}")
         .to_pandas()
         .squeeze()
     )
