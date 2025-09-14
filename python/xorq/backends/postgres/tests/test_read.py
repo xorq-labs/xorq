@@ -5,100 +5,87 @@ from adbc_driver_manager._lib import OperationalError
 import xorq.api as xo
 
 
-def test_read_csv(pg):
+def test_read_csv(pg, iris_path):
     name = "iris"
     table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
     assert table_name not in pg.tables
-    t = pg.read_csv(path, table_name)
+    t = pg.read_csv(iris_path, table_name)
     assert table_name in pg.tables
-    assert xo.execute(t).equals(pd.read_csv(path))
+    assert xo.execute(t).equals(pd.read_csv(iris_path))
 
 
-def test_read_csv_raises(pg):
+def test_read_csv_raises(pg, iris_path):
     name = "iris"
     table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
     assert table_name not in pg.tables
     with pytest.raises(
         ValueError, match="If `table_name` is not provided, `temporary` must be True"
     ):
-        pg.read_csv(path)
+        pg.read_csv(iris_path)
     assert table_name not in pg.tables
 
 
-def test_read_csv_temporary(pg):
+def test_read_csv_temporary(pg, iris_path):
     name = "iris"
     table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
     assert table_name not in pg.tables
-    t = pg.read_csv(path, temporary=True)
+    t = pg.read_csv(iris_path, temporary=True)
     assert t.op().name in pg.tables
-    assert xo.execute(t).equals(pd.read_csv(path))
+    assert xo.execute(t).equals(pd.read_csv(iris_path))
 
 
-def test_read_csv_named_temporary(pg):
+def test_read_csv_named_temporary(pg, iris_path):
     name = "iris"
     table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
     assert table_name not in pg.tables
-    t = pg.read_csv(path, table_name, temporary=True)
+    t = pg.read_csv(iris_path, table_name, temporary=True)
     assert table_name == t.op().name
     assert table_name in pg.tables
-    assert xo.execute(t).equals(pd.read_csv(path))
+    assert xo.execute(t).equals(pd.read_csv(iris_path))
 
 
-def test_read_parquet(pg):
-    name = "astronauts"
-    table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
+def test_read_parquet(pg, astronauts_parquet_path, astronauts_df):
+    table_name = "testing-astronauts"
     assert table_name not in pg.tables
-    t = pg.read_parquet(path, table_name)
+    t = pg.read_parquet(astronauts_parquet_path, table_name)
     assert table_name in pg.tables
-    assert xo.execute(t).equals(pd.read_parquet(path))
+    assert xo.execute(t).equals(astronauts_df)
 
 
-def test_read_parquet_raises(pg):
-    name = "astronauts"
-    table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
+def test_read_parquet_raises(pg, astronauts_parquet_path):
+    table_name = "testing-astronauts"
     assert table_name not in pg.tables
     with pytest.raises(
         ValueError, match="If `table_name` is not provided, `temporary` must be True"
     ):
-        pg.read_parquet(path)
+        pg.read_parquet(astronauts_parquet_path)
     assert table_name not in pg.tables
 
 
-def test_read_parquet_temporary(pg):
-    name = "astronauts"
-    table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
+def test_read_parquet_temporary(pg, astronauts_parquet_path, astronauts_df):
+    table_name = "testing-astronauts"
     assert table_name not in pg.tables
-    t = pg.read_parquet(path, temporary=True)
+    t = pg.read_parquet(astronauts_parquet_path, temporary=True)
     assert t.op().name in pg.tables
-    assert xo.execute(t).equals(pd.read_parquet(path))
+    assert xo.execute(t).equals(astronauts_df)
 
 
-def test_read_parquet_named_temporary(pg):
-    name = "astronauts"
-    table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
+def test_read_parquet_named_temporary(pg, astronauts_parquet_path, astronauts_df):
+    table_name = "testing-astronauts"
     assert table_name not in pg.tables
-    t = pg.read_parquet(path, table_name, temporary=True)
+    t = pg.read_parquet(astronauts_parquet_path, table_name, temporary=True)
     assert table_name == t.op().name
     assert table_name in pg.tables
-    assert xo.execute(t).equals(pd.read_parquet(path))
+    assert xo.execute(t).equals(astronauts_df)
 
 
-def test_read_csv_multiple_paths(pg):
+def test_read_csv_multiple_paths(pg, iris_path):
     name = "iris"
     table_name = f"testing-{name}"
-    path = xo.options.pins.get_path(name)
     assert table_name not in pg.tables
-    t = pg.read_csv([path, path], table_name)
+    t = pg.read_csv([iris_path, iris_path], table_name)
     assert table_name in pg.tables
-    assert len(xo.execute(t)) == 2 * len(pd.read_csv(path))
+    assert len(xo.execute(t)) == 2 * len(pd.read_csv(iris_path))
 
 
 @pytest.mark.parametrize(
