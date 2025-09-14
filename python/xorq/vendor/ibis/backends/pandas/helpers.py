@@ -72,12 +72,12 @@ class PandasUtils:
         if where_column is None:
 
             def applier(df):
-                return func(df[arg_column.name])
+                return func(df[getattr(arg_column, "name", slice(None))])
         else:
 
             def applier(df):
                 mask = df[where_column.name]
-                col = df[arg_column.name][mask]
+                col = df[getattr(arg_column, "name", slice(None))][mask]
                 return func(col)
 
         return applier
