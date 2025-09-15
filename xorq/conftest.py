@@ -57,7 +57,7 @@ def pg():
 
 @pytest.fixture(scope="session")
 def root_dir():
-    return Path(__file__).absolute().parents[2]
+    return Path(__file__).absolute().parents[1]
 
 
 @pytest.fixture(scope="session")

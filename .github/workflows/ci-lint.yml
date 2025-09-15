@@ -34,7 +34,7 @@ jobs:
       - name: Run codespell
         uses: codespell-project/actions-codespell@v2
         with:
-          path: "python src"
+          path: "xorq"
           ignore_words_file: .codespell.ignore-words
 
       - uses: actions/setup-python@v5

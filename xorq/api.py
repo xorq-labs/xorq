@@ -4,22 +4,16 @@ from __future__ import annotations
 
 import sys
 
-from xorq import examples
-from xorq import udf
-from xorq.udf import *  # noqa: F403
-from xorq import config
-from xorq import expr
+from xorq import config, examples, expr, ml, udf
+from xorq.backends.let import Backend
 from xorq.config import options
-
-
 from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
-from xorq import ml
-from xorq.ml import *  # noqa: F403
-from xorq.backends.let import Backend
 from xorq.internal import SessionConfig
-
 from xorq.loader import load_backend
+from xorq.ml import *  # noqa: F403
+from xorq.udf import *  # noqa: F403
+
 
 __all__ = [  # noqa: PLE0604
     "api",
