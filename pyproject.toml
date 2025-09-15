@@ -4,9 +4,15 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["xorq"]
+exclude = [
+    "**/tests"
+]
 
 [tool.hatch.build.targets.sdist]
 packages = ["xorq"]
+exclude = [
+    "**/tests"
+]
 
 [project]
 name = "xorq"
