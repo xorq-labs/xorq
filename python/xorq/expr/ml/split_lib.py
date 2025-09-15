@@ -2,6 +2,7 @@ import operator
 from random import Random
 from typing import Iterable, Iterator, Tuple
 
+import dask
 import toolz
 
 import xorq.expr.selectors as s
@@ -126,11 +127,14 @@ def calc_split_conditions(
 
     # Set the random seed if set, & Generate a random 256-bit key
     random_str = str(Random(random_seed).getrandbits(256))
+    tmp_name = "_" + dask.base.tokenize(random_str)
 
     comb_key = literal(",").join(
         table[col].cast("str") for col in table.select(unique_key).columns
     )
-    split_bucket = comb_key.concat(random_str).hash().abs().mod(num_buckets)
+    split_bucket = (
+        comb_key.concat(random_str).name(tmp_name).hash().abs().mod(num_buckets)
+    )
     conditions = (
         (literal(lower_bound).cast("decimal(38, 9)") * num_buckets <= split_bucket)
         & (
