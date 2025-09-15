@@ -248,7 +248,7 @@ def uuid():
 
 @udf(skip_if_exists=True, deterministic=True)
 def city_hash_32(x):
-    return CityHash32(x)
+    return CityHash32(str(x))
 
 
 # Additional UDFS
