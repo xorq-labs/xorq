@@ -107,6 +107,9 @@ postgres = [
     "adbc-driver-postgresql>=1.4.0",
     "psycopg2-binary>=2.9.10",
 ]
+sqlite = [
+    "adbc-driver-sqlite>=1.4.0"
+]
 
 [dependency-groups]
 dev = [
@@ -153,6 +156,7 @@ duckdb = "xorq.backends.duckdb"
 pandas = "xorq.backends.pandas"
 trino = "xorq.backends.trino"
 pyiceberg = "xorq.backends.pyiceberg"
+sqlite = "xorq.backends.sqlite"
 
 [project.scripts]
 xorq = "xorq.cli:main"
@@ -216,7 +220,8 @@ markers = [
     "postgres",
     "trino",
     "pyiceberg",
-    "core"
+    "core",
+    "sqlite"
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

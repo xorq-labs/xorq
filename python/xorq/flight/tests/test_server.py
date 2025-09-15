@@ -45,7 +45,12 @@ def make_flight_url(port, scheme="grpc", auth=None):
 
 
 def make_connection_from_name(backend_name):
-    return load_backend(backend_name).connect if backend_name else xo.connect
+    fun = load_backend(backend_name).connect if backend_name else xo.connect
+    return (
+        functools.partial(fun, check_same_thread=False)
+        if backend_name == "sqlite"
+        else fun
+    )
 
 
 @pytest.mark.parametrize(
@@ -53,6 +58,7 @@ def make_connection_from_name(backend_name):
     [
         pytest.param("duckdb", 5005, id="duckdb"),
         pytest.param("datafusion", 5005, id="datafusion"),
+        pytest.param("sqlite", 5005, id="sqlite"),
         pytest.param("", 5005, id="xorq"),
     ],
 )
@@ -111,6 +117,7 @@ def test_list_exchanges():
     [
         pytest.param("duckdb", None, id="duckdb"),
         pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("sqlite", None, id="sqlite"),
         pytest.param("", None, id="xorq"),
     ],
 )
@@ -197,6 +204,7 @@ def test_failed_auth(tls_kwargs):
     [
         pytest.param("duckdb", None, id="duckdb"),
         pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("sqlite", None, id="sqlite"),
         pytest.param("", None, id="xorq"),
     ],
 )
@@ -225,6 +233,7 @@ def test_into_backend_flight_server(connection, port, parquet_dir):
     [
         pytest.param("duckdb", None, id="duckdb"),
         pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("sqlite", None, id="sqlite"),
         pytest.param("", None, id="xorq"),
     ],
 )
@@ -245,6 +254,7 @@ def test_read_parquet(connection, port, parquet_dir):
     [
         pytest.param("duckdb", None, id="duckdb"),
         pytest.param("datafusion", None, id="datafusion"),
+        pytest.param("sqlite", None, id="sqlite"),
         pytest.param("", None, id="xorq"),
     ],
 )
@@ -312,7 +322,7 @@ def test_exchange(connection, port):
     (
         "duckdb",
         "datafusion",
-        "",
+        "sqlite",
     ),
 )
 def test_reentry(connection):
@@ -341,7 +351,7 @@ def test_reentry(connection):
     (
         "duckdb",
         "datafusion",
-        "",
+        "sqlite",
     ),
 )
 def test_serve_close(connection):

@@ -1,3 +1,4 @@
+import functools
 import itertools
 import os
 
@@ -109,64 +110,106 @@ def get_storage_uncached(expr):
     return (storage, uncached)
 
 
-def con_snapshot(alltypes_df, ls_con, df_con):
-    group_by = "year"
-    name = ibis.util.gen_name("tmp_table")
-    # create a temp table we can mutate
-    table = df_con.create_table(name, alltypes_df)
-    cached_expr = (
-        table.group_by(group_by)
-        .agg({f"count_{col}": table[col].count() for col in table.columns})
-        .cache(storage=SourceSnapshotStorage(source=ls_con))
-    )
-    (storage, uncached) = get_storage_uncached(cached_expr)
-    # test preconditions
-    assert not storage.exists(uncached)
-    # test cache creation
-    executed0 = cached_expr.execute()
-    assert storage.exists(uncached)
-    # test cache use
-    executed1 = cached_expr.execute()
-    assert executed0.equals(executed1)
-    # test NO cache invalidation
-    df_con.insert(name, alltypes_df)
-    executed2 = cached_expr.execute()
-    executed3 = cached_expr.ls.uncached.execute()
-    assert executed0.equals(executed2)
-    assert not executed0.equals(executed3)
-    assert storage.get_key(uncached).count(KEY_PREFIX) == 1
+@pytest.fixture(scope="session")
+def xo_con(parquet_dir):
+    conn = xo.connect()
+
+    for name in ("astronauts", "functional_alltypes", "awards_players", "batting"):
+        conn.read_parquet(parquet_dir / f"{name}.parquet", name)
+
+    return conn
 
 
-def con_cross_source_snapshot(alltypes_df, con, expr_con):
-    group_by = "year"
-    name = ibis.util.gen_name("tmp_table")
-    # create a temp table we can mutate
-    table = expr_con.create_table(name, alltypes_df)
-    storage = ParquetSnapshotStorage(source=con)
-    expr = table.group_by(group_by).agg(
-        {f"count_{col}": table[col].count() for col in table.columns}
-    )
-    cached_expr = expr.cache(storage=storage)
-    # test preconditions
-    assert not storage.exists(expr)  # the expr is not cached
-    assert storage.source is not expr_con  # the cache is cross source
-    # test cache creation
-    df = cached_expr.execute()
-    assert not df.empty
-    assert storage.exists(expr)
-    # test cache use
-    executed1 = cached_expr.execute()
-    assert df.equals(executed1)
-    # test NO cache invalidation
-    expr_con.insert(name, alltypes_df)
-    executed2 = cached_expr.execute()
-    executed3 = cached_expr.ls.uncached.execute()
-    assert df.equals(executed2)
-    assert not df.equals(executed3)
+@pytest.fixture(scope="session")
+def alltypes(xo_con):
+    return xo_con.table("functional_alltypes")
 
 
-def con_cache_find_backend(cls, parquet_dir, conn):
-    astronauts_path = parquet_dir / "astronauts.parquet"
-    storage = cls(source=conn)
-    expr = conn.read_parquet(astronauts_path).cache(storage=storage)
-    assert expr._find_backend()._profile == conn._profile
+@pytest.fixture(scope="session")
+def alltypes_df(alltypes):
+    return alltypes.execute()
+
+
+@pytest.fixture(scope="session")
+def awards_players(xo_con):
+    return xo_con.table("awards_players")
+
+
+@pytest.fixture(scope="session")
+def batting(xo_con):
+    return xo_con.table("batting")
+
+
+@pytest.fixture(scope="session")
+def con_snapshot(xo_con, alltypes_df):
+    def _con_snapshot(_alltypes_df, _xo_con, df_con):
+        group_by = "year"
+        name = ibis.util.gen_name("tmp_table")
+        # create a temp table we can mutate
+        table = df_con.create_table(name, _alltypes_df)
+        cached_expr = (
+            table.group_by(group_by)
+            .agg({f"count_{col}": table[col].count() for col in table.columns})
+            .cache(storage=SourceSnapshotStorage(source=_xo_con))
+        )
+        (storage, uncached) = get_storage_uncached(cached_expr)
+        # test preconditions
+        assert not storage.exists(uncached)
+        # test cache creation
+        executed0 = cached_expr.execute()
+        assert storage.exists(uncached)
+        # test cache use
+        executed1 = cached_expr.execute()
+        assert executed0.equals(executed1)
+        # test NO cache invalidation
+        df_con.insert(name, _alltypes_df)
+        executed2 = cached_expr.execute()
+        executed3 = cached_expr.ls.uncached.execute()
+        assert executed0.equals(executed2)
+        assert not executed0.equals(executed3)
+        assert storage.get_key(uncached).count(KEY_PREFIX) == 1
+
+    return functools.partial(_con_snapshot, alltypes_df, xo_con)
+
+
+@pytest.fixture(scope="session")
+def con_cross_source_snapshot(xo_con, alltypes_df):
+    def _con_cross_source_snapshot(_alltypes_df, _con, expr_con):
+        group_by = "year"
+        name = ibis.util.gen_name("tmp_table")
+        # create a temp table we can mutate
+        table = expr_con.create_table(name, _alltypes_df)
+        storage = ParquetSnapshotStorage(source=_con)
+        expr = table.group_by(group_by).agg(
+            {f"count_{col}": table[col].count() for col in table.columns}
+        )
+        cached_expr = expr.cache(storage=storage)
+        # test preconditions
+        assert not storage.exists(expr)  # the expr is not cached
+        assert storage.source is not expr_con  # the cache is cross source
+        # test cache creation
+        df = cached_expr.execute()
+        assert not df.empty
+        assert storage.exists(expr)
+        # test cache use
+        executed1 = cached_expr.execute()
+        assert df.equals(executed1)
+        # test NO cache invalidation
+        expr_con.insert(name, _alltypes_df)
+        executed2 = cached_expr.execute()
+        executed3 = cached_expr.ls.uncached.execute()
+        assert df.equals(executed2)
+        assert not df.equals(executed3)
+
+    return functools.partial(_con_cross_source_snapshot, alltypes_df, xo_con)
+
+
+@pytest.fixture(scope="session")
+def con_cache_find_backend(parquet_dir):
+    def _con_cache_find_backend(_parquet_dir, cls, conn):
+        astronauts_path = _parquet_dir / "astronauts.parquet"
+        storage = cls(source=conn)
+        expr = conn.read_parquet(astronauts_path).cache(storage=storage)
+        assert expr._find_backend()._profile == conn._profile
+
+    return functools.partial(_con_cache_find_backend, parquet_dir)
