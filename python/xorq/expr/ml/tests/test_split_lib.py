@@ -12,6 +12,11 @@ from xorq.expr.ml import _calculate_bounds
 from xorq.tests.util import assert_frame_equal
 
 
+pytest.importorskip("duckdb")
+pytest.importorskip("psycopg2")
+pytest.importorskip("datafusion")
+
+
 def test_train_test_splits_intersections():
     # This is testing the base case where a single float becomes ( 1-test_size , test_size ) proportion
     # Check counts and overlaps in train and test dataset
