@@ -4,9 +4,12 @@ adbc-driver-manager==1.7.0
     # via
     #   adbc-driver-postgresql
     #   adbc-driver-snowflake
+    #   adbc-driver-sqlite
 adbc-driver-postgresql==1.7.0
     # via xorq
 adbc-driver-snowflake==1.7.0
+    # via xorq
+adbc-driver-sqlite==1.7.0
     # via xorq
 aiohappyeyeballs==2.6.1 ; python_full_version < '4'
     # via aiohttp
@@ -267,6 +270,7 @@ importlib-resources==6.5.2
     # via
     #   adbc-driver-postgresql
     #   adbc-driver-snowflake
+    #   adbc-driver-sqlite
     #   pins
     #   quartodoc
 iniconfig==2.1.0

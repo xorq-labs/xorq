@@ -12,7 +12,7 @@ from xorq.api import memtable
 @pytest.mark.parametrize(
     "con_name,unique_key",
     itertools.product(
-        (None, "pandas", "let"),
+        (None, "pandas", "let", "sqlite"),
         (
             "key1",
             ("key1",),
@@ -21,11 +21,12 @@ from xorq.api import memtable
     ),
 )
 def test_train_test_split(con_name, unique_key):
-    N = 100
+    N = 200
     test_size = 0.25
+    tolerance = 0.01
 
     table = memtable(
-        [(i, j, f"val-{i}-{j}") for i in range(N) for j in range(N)],
+        [(i, j, f"val-{i}-{j}") for i, j in ((i, i % N) for i in range(N**2))],
         columns=["key1", "key2", "val"],
     )
     if con_name is not None:
@@ -45,4 +46,4 @@ def test_train_test_split(con_name, unique_key):
     assert len(pd.concat((train, test)).drop_duplicates()) == N**2
 
     # target test size is roughly attained
-    assert abs(len(test) / (test_size * N**2) - 1) < 0.01
+    assert abs(len(test) / (test_size * N**2) - 1) < tolerance
