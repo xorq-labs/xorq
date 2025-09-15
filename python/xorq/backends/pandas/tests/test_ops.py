@@ -8,6 +8,9 @@ from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.expr import datatypes as dt
 
 
+table_name = "test"
+
+
 @pytest.fixture(scope="session")
 def batch():
     return pa.RecordBatch.from_arrays(
@@ -23,7 +26,7 @@ def batch():
 @pytest.fixture(scope="session")
 def con(batch):
     conn = xo.pandas.connect()
-    conn.read_record_batches([batch], table_name="test")
+    conn.read_record_batches([batch], table_name=table_name)
     return conn
 
 
@@ -33,7 +36,7 @@ def df(batch):
 
 
 def test_multiply(con, df):
-    t = con.table("test")
+    t = con.table(table_name)
     expr = t.mutate(my_mul=2 * t.a)
 
     df = df.assign(my_mul=df.a * 2)
@@ -41,7 +44,7 @@ def test_multiply(con, df):
 
 
 def test_hash(con, df):
-    t = con.table("test")
+    t = con.table(table_name)
     expr = t.mutate(my_hash=t.c.hash())
 
     assert not expr.execute().empty
@@ -50,3 +53,8 @@ def test_hash(con, df):
 def test_decimal_multiply(con):
     expr = xo.literal(decimal.Decimal("1.1"), type=dt.Decimal(38, 9)) * 2
     assert con.execute(expr) is not None
+
+
+def test_count(con, df):
+    t = con.table(table_name)
+    assert t.count().execute() == len(df)

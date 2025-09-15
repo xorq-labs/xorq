@@ -272,6 +272,7 @@ reductions = {
     ops.Sum: lambda x: x.sum(),
     ops.Mean: lambda x: x.mean(),
     ops.Count: lambda x: x.count(),
+    ops.CountStar: lambda x: x.count(),
     ops.Mode: lambda x: x.mode().iat[0],
     ops.Any: lambda x: x.any(),
     ops.All: lambda x: x.all(),
