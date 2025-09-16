@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from xorq.vendor.ibis.backends.pandas.helpers import RowsFrame
+from xorq.backends.pandas.helpers import RowsFrame
 
 
 lst = list(range(10))

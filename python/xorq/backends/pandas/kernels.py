@@ -19,7 +19,7 @@ import pandas as pd
 import toolz
 
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.vendor.ibis.backends.pandas.helpers import isnull
+from xorq.backends.pandas.helpers import isnull
 
 
 def substring_rowwise(row):
