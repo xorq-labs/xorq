@@ -13,9 +13,9 @@ from pytest import param
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
+from xorq.backends.pandas.udf import udf
 from xorq.tests.util import assert_series_equal
 from xorq.vendor import ibis
-from xorq.vendor.ibis.backends.pandas.udf import udf
 
 
 @pytest.mark.parametrize(

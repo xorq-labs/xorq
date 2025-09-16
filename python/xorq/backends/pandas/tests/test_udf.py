@@ -10,9 +10,9 @@ from packaging.version import parse as vparse
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.pandas import Backend
+from xorq.backends.pandas.udf import udf
 from xorq.tests.util import assert_frame_equal, assert_series_equal
 from xorq.vendor import ibis
-from xorq.vendor.ibis.backends.pandas.udf import udf
 
 
 @pytest.fixture
