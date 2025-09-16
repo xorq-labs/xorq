@@ -7,10 +7,12 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Mapping
 
 import pyarrow as pa
+import toolz
 from opentelemetry import trace
 
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.let import Backend
+from xorq.common.exceptions import XorqError
 from xorq.common.utils.caching_utils import find_backend
 from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_csv,
@@ -211,13 +213,22 @@ def _cached_with_op(op, pretty, compiler):
     return sql
 
 
-def to_sql(expr: ir.Expr, compiler=Backend.compiler, pretty: bool = True) -> SQLString:
+get_compiler = toolz.excepts(
+    (XorqError, AttributeError),
+    lambda e: e._find_backend(use_default=True).compiler,
+    lambda _: Backend.compiler,
+)
+
+
+def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
     """Return the formatted SQL string for an expression.
 
     Parameters
     ----------
     expr
         Ibis expression.
+    compiler
+        The target compiler to use to translate the Ibis expr
     pretty
         Whether to use pretty formatting.
 
@@ -227,6 +238,9 @@ def to_sql(expr: ir.Expr, compiler=Backend.compiler, pretty: bool = True) -> SQL
         Formatted SQL string
 
     """
+
+    if compiler is None:
+        compiler = get_compiler(expr)
 
     unbound = _remove_tag_nodes(expr).unbind().op()
     return SQLString(_cached_with_op(unbound, pretty, compiler))
