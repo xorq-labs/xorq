@@ -10,11 +10,12 @@ import yaml
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetStorage, SourceStorage
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
+from xorq.common.utils.graph_utils import find_all_sources
 from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import find_relations
@@ -557,3 +558,23 @@ def test_no_sql_or_deferred_when_debug_false(build_dir):
     build_path = build_dir / expr_hash
     assert not os.path.exists(build_path / "sql.yaml")
     assert not os.path.exists(build_path / "deferred_reads.yaml")
+
+
+def test_into_backend_with_array_filter(build_dir):
+    from xorq.conftest import array_types_df
+
+    duckdb_con = xo.duckdb.connect()
+
+    t = duckdb_con.create_table("array_types", array_types_df)
+    expr = t.mutate(filtered=t.x.filter(xo._ > 1)).cache(
+        SourceStorage(source=xo.connect())
+    )
+
+    compiler = BuildManager(build_dir, debug=False)
+    expr_hash = compiler.compile_expr(expr)
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert_frame_equal(expr.execute(), roundtrip_expr.execute())
+    assert {"duckdb", "let"}.intersection(
+        source.name for source in find_all_sources(roundtrip_expr)
+    )

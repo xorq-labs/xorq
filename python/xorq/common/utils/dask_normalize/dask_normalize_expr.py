@@ -28,10 +28,10 @@ def expr_is_bound(expr):
     return bool(backends)
 
 
-def unbound_expr_to_default_sql(expr):
+def unbound_expr_to_default_sql(expr, compiler=None):
     if expr_is_bound(expr):
         raise ValueError
-    default_sql = api.to_sql(expr)
+    default_sql = api.to_sql(expr, compiler=compiler)
     return str(default_sql)
 
 
@@ -524,12 +524,15 @@ def opaque_node_replacer(node, kwargs):
 
 @dask.base.normalize_token.register(ibis.expr.types.Expr)
 def normalize_expr(expr):
-    return normalize_op(expr.op())
+    from xorq.expr.api import get_compiler
+
+    return normalize_op(expr.op(), compiler=get_compiler(expr))
 
 
-def normalize_op(op):
+def normalize_op(op, compiler=None):
     sql = unbound_expr_to_default_sql(
-        op.replace(opaque_node_replacer).to_expr().unbind()
+        op.replace(opaque_node_replacer).to_expr().unbind(),
+        compiler=compiler,
     )
     reads = op.find(rel.Read)
     dts = op.find((ir.DatabaseTable, rel.FlightExpr, rel.FlightUDXF))
