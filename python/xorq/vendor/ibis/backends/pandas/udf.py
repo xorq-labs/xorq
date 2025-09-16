@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from xorq.vendor import ibis
+from xorq.vendor.ibis.legacy.udf.vectorized import analytic, elementwise, reduction
 
 
 class udf:
@@ -10,14 +10,14 @@ class udf:
     def elementwise(input_type, output_type):
         """Alias for ibis.legacy.udf.vectorized.elementwise."""
 
-        return ibis.legacy.udf.vectorized.elementwise(input_type, output_type)
+        return elementwise(input_type, output_type)
 
     @staticmethod
     def reduction(input_type, output_type):
         """Alias for ibis.legacy.udf.vectorized.reduction."""
-        return ibis.legacy.udf.vectorized.reduction(input_type, output_type)
+        return reduction(input_type, output_type)
 
     @staticmethod
     def analytic(input_type, output_type):
         """Alias for ibis.legacy.udf.vectorized.analytic."""
-        return ibis.legacy.udf.vectorized.analytic(input_type, output_type)
+        return analytic(input_type, output_type)

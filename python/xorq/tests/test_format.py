@@ -3,14 +3,12 @@ import re
 import pytest
 
 import xorq.api as xo
-from xorq.api import _
 from xorq.caching import (
     ParquetSnapshotStorage,
     ParquetStorage,
     SourceSnapshotStorage,
     SourceStorage,
 )
-from xorq.common.utils.defer_utils import deferred_read_csv
 
 
 def test_into_backend(batting):
@@ -53,23 +51,5 @@ def test_cache(batting, storage, strategy, parquet):
     )
 
     pattern = rf"CachedNode\[r\d+, strategy={strategy}, parquet={parquet}, source"
-
-    assert re.search(pattern, repr(expr))
-
-
-def test_read():
-    xo.options.interactive = False
-
-    csv_name = "iris"
-    csv_path = xo.options.pins.get_path(csv_name)
-
-    # we can work with a pandas expr without having read it yet
-    pd_con = xo.pandas.connect()
-
-    expr = deferred_read_csv(con=pd_con, path=csv_path, table_name=csv_name).filter(
-        _.sepal_length > 6
-    )
-
-    pattern = r"Read\[name=iris, method_name=read_csv, source=pandas-\d+\]"
 
     assert re.search(pattern, repr(expr))

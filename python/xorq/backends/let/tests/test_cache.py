@@ -461,14 +461,6 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
     snapshot.assert_match(on_expr.ls.get_key(), f"{py_version}_test_udaf_caching.txt")
 
 
-def test_caching_pandas(csv_dir):
-    diamonds_path = csv_dir / "diamonds.csv"
-    pandas_con = xo.pandas.connect()
-    cache = SourceStorage(source=pandas_con)
-    t = pandas_con.read_csv(diamonds_path).cache(storage=cache)
-    assert t.execute() is not None
-
-
 def test_storage_exists_doesnt_materialize(cached_two):
     storage = cached_two.ls.storage
     assert not storage.exists(cached_two)

@@ -329,6 +329,10 @@ def execute(expr: ir.Expr, **kwargs: Any):
     <BLANKLINE>
     [3 rows x 8 columns]
     """
+
+    if (con := expr._find_backend(use_default=True)).name == "pandas":
+        return _pandas_execute(con, expr, **kwargs)
+
     batch_reader = to_pyarrow_batches(expr, **kwargs)
     with tracer.start_as_current_span("read_pandas"):
         df = batch_reader.read_pandas(timestamp_as_object=True)
@@ -358,6 +362,23 @@ def _transform_expr(expr):
     expr, created = register_and_transform_remote_tables(expr)
     expr, dt_to_read = _transform_deferred_reads(expr)
     return (expr, created)
+
+
+def _pandas_execute(con, expr: ir.Expr, **kwargs):
+    from xorq.expr.relations import FlightExpr, FlightUDXF
+
+    span = trace.get_current_span()
+
+    node = expr.op()
+    if isinstance(node, (FlightExpr, FlightUDXF)):
+        # TODO: verify correct caching behavior
+        span.set_attribute("engine", "flight")
+        df = node.to_rbr().read_pandas(timestamp_as_object=True)
+        return expr.__pandas_result__(df)
+    (expr, created) = _transform_expr(expr)
+
+    span.set_attribute("engine", "pandas")
+    return con.execute(expr, **kwargs)
 
 
 @tracer.start_as_current_span("to_pyarrow_batches")
