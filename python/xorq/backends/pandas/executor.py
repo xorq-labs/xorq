@@ -7,22 +7,17 @@ import numpy as np
 import pandas as pd
 from packaging.version import parse as vparse
 
-import xorq.vendor.ibis.backends.pandas.kernels as pandas_kernels
+import xorq.backends.pandas.kernels as pandas_kernels
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.common.exceptions import (
-    OperationNotDefinedError,
-    UnboundExpressionError,
-    UnsupportedOperationError,
-)
-from xorq.vendor.ibis.backends.pandas.convert import PandasConverter
-from xorq.vendor.ibis.backends.pandas.helpers import (
+from xorq.backends.pandas.convert import PandasConverter
+from xorq.backends.pandas.helpers import (
     GroupedFrame,
     PandasUtils,
     RangeFrame,
     RowsFrame,
     UngroupedFrame,
 )
-from xorq.vendor.ibis.backends.pandas.rewrites import (
+from xorq.backends.pandas.rewrites import (
     PandasAggregate,
     PandasAsofJoin,
     PandasJoin,
@@ -33,6 +28,11 @@ from xorq.vendor.ibis.backends.pandas.rewrites import (
     PandasWindowFrame,
     PandasWindowFunction,
     plan,
+)
+from xorq.common.exceptions import (
+    OperationNotDefinedError,
+    UnboundExpressionError,
+    UnsupportedOperationError,
 )
 from xorq.vendor.ibis.formats.pandas import PandasData, PandasType
 from xorq.vendor.ibis.util import any_of, gen_name

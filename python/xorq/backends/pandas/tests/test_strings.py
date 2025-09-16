@@ -7,9 +7,9 @@ import pytest
 from pytest import param
 
 from xorq.backends.pandas import Backend
+from xorq.backends.pandas.kernels import sql_like_to_regex
 from xorq.tests.util import assert_series_equal
 from xorq.vendor import ibis
-from xorq.vendor.ibis.backends.pandas.kernels import sql_like_to_regex
 
 
 @pytest.mark.parametrize(
