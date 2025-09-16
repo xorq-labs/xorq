@@ -180,6 +180,10 @@ class PandasExecutor(PandasUtils):
         return pd.Series(out, index=index)
 
     @classmethod
+    def visit_SimpleCase(cls, op: ops.SimpleCase, cases, results, default, base=None):
+        return cls.visit_SearchedCase(op, cases, results, default, base)
+
+    @classmethod
     def visit_TimestampTruncate(
         cls, op: ops.TimestampTruncate | ops.DateTruncate, arg, unit
     ):
@@ -197,6 +201,10 @@ class PandasExecutor(PandasUtils):
             return arg.dt.floor(unit)
         except ValueError:
             return arg.dt.to_period(unit).dt.to_timestamp()
+
+    @classmethod
+    def visit_DateTruncate(cls, op: ops.DateTruncate, arg, unit):
+        return cls.visit_TimestampTruncate(op, arg, unit)
 
     @classmethod
     def visit_IntervalFromInteger(cls, op: ops.IntervalFromInteger, unit, **kwargs):
@@ -476,6 +484,10 @@ class PandasExecutor(PandasUtils):
         return agg
 
     @classmethod
+    def visit_Lead(cls, op: ops.Lag | ops.Lead, arg, offset, default):
+        return cls.visit_Lag(op, arg, offset, default)
+
+    @classmethod
     def visit_MinRank(cls, op: ops.MinRank | ops.DenseRank):
         method = "dense" if isinstance(op, ops.DenseRank) else "min"
 
@@ -490,6 +502,10 @@ class PandasExecutor(PandasUtils):
             return s.rank(method=method).astype("int64") - 1
 
         return agg
+
+    @classmethod
+    def visit_DenseRank(cls, op: ops.MinRank | ops.DenseRank):
+        return cls.visit_MinRank(op)
 
     @classmethod
     def visit_PercentRank(cls, op: ops.PercentRank):
@@ -611,6 +627,10 @@ class PandasExecutor(PandasUtils):
     @classmethod
     def visit_Reference(cls, op: ops.Reference, parent, **kwargs):
         return parent
+
+    @classmethod
+    def visit_JoinReference(cls, op: ops.Reference, parent, **kwargs):
+        return cls.visit_Reference(op, parent, **kwargs)
 
     @classmethod
     def visit_PandasRename(cls, op: PandasRename, parent, mapping):
@@ -859,20 +879,17 @@ class PandasExecutor(PandasUtils):
     @classmethod
     def execute(cls, node, backend, params):
         def fn(node, _, **kwargs):
-            if isinstance(node, ops.Reduction):
+            method = getattr(cls, f"visit_{type(node).__name__}", None)
+            if method is not None:
+                return method(node, **kwargs)
+            elif isinstance(node, ops.Reduction):
                 return cls.visit_Reduction(node, **kwargs)
+            elif isinstance(node, ops.Value):
+                return cls.visit_Value(node, **kwargs)
             else:
-                method = getattr(cls, f"visit_{type(node).__name__}", None)
-                if method is not None:
-                    return method(node, **kwargs)
-                elif isinstance(node, ops.Value):
-                    return cls.visit_Value(node, **kwargs)
-                else:
-                    raise OperationNotDefinedError(
-                        f"No translation rule for {type(node).__name__}"
-                    )
-
-            # return cls.visit(node, **kwargs)
+                raise OperationNotDefinedError(
+                    f"No translation rule for {type(node).__name__}"
+                )
 
         original = node
         node = node.to_expr().as_table().op()
