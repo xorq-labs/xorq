@@ -469,7 +469,7 @@ def replace_database_tables(build_dir, expr):
             "datafusion",
             "let",
         ):
-            dr_op = database_table_to_read_op(build_dir, table)
+            dr_op = database_table_to_read_op(build_dir, table, con=table.source)
             op = replace_nodes(replace_from_to(table, dr_op), expr)
     new_expr = op.to_expr()
     return new_expr
