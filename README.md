@@ -9,7 +9,7 @@
 
 </div>
 
-> **Xorq is a multi‑engine batch transformation framework built on Ibis,
+> **Xorq is a batch transformation framework built on Ibis,
 > DataFusion and Arrow.**
 > It ships a multi-engine manifest that you can run in SQL across DuckDB,
 > Snowflake, DataFusion, and more.
@@ -21,16 +21,15 @@
 | Feature | Description |
 |---|---|
 |**Multi-engine manifest** | A single, typed plan (YAML manifest) that executes as SQL on DuckDB, Snowflake, and embedded DataFusion. |
-|**Deterministic builds & caching** | One hash for everything—computed from **expression inputs**; for YAML-only builds, we hash the **expression**. The hash names `builds/<hash>/` and keys the cache. |
-|**Lineage & schemas** | Compile-time schema checks with end-to-end, column-level lineage. |
-|**Compute catalog** | Versioned registry to run, cache, diff, and serve-unbound manifests. |
+|**Deterministic builds & caching** | Manifests are uniquely named with a deterministic hash of the expression. |
+|**Lineage & schemas** | Schema checks with end-to-end, column-level lineage. |
+|**Compute catalog** | Versioned registry to run, cache, diff, and manifests. |
 |**Portable UDxFs** | Arbitrary Python logic with schema-in/out contracts, portable via Arrow Flight. |
 |**`scikit-learn` integration** | Fit/predict pipelines serialize to a manifest for portable batch scoring with training lineage. |
-|**Templates with `uv`** | `xorq init` ships a templates in **replicaple environments**—no “works on my machine.” |
+|**Templates with `uv`** | `xorq init` ships a templates in **replicaple environments** |
 
 > [!NOTE]
 > **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
-
 > **Batch focus.** Not streaming/online—**batch**, **out-of-core** transformations.
 
 
@@ -92,7 +91,7 @@ Once you xorq build your pipeline, you get:
 Xorq makes it easy to bring your scikit-learn Pipeline and automatically
 converts it into a deferred Xorq expression.
 
-**Engines used**: `duckdb` to read parquet, `datafusion` for running UDFs.
+**Engines used**: `duckdb` to read parquet, `xorq-datafusion` for running UDFs.
 
 
 ```python
@@ -131,8 +130,7 @@ predicted:
 ```
 
 We serialize the expression as a YAML manifest that captures the graph and all
-nodes (including UDFs as pickled entries); builds are content-addressed by the
-expression hash.
+nodes (including UDFs as pickled entries); builds are addressed by its hash.
 
 This ensures expression-level replicability and round-trippability to Python.
 
@@ -191,13 +189,13 @@ new_expr.execute()
 
 Using the lock with Xorq
 
-If a uv.lock is present, Xorq can use it directly:
+we currently using `requirements.txt` to build the uv env.
 
 ```bash
 # Build using a locked env (hydrates if needed)
 xorq uv-build
 
-# Run a build with the locked env
+# Run a build
 xorq uv-run builds/<hash>
 ```
 
@@ -222,7 +220,7 @@ Also great for:
 
 - Generating SQL from high-level DSLs (e.g. Semantic Layers)
 - Cross‑warehouse migrations (portability via Ibis + UDxFs)
-- Data CI (compile‑time schema/lineage checks in PRs)
+- Data CI (Schema/lineage checks in PRs)
 - ML Experiment Tracking (versioned manifests with cached results)
 
 
