@@ -705,21 +705,15 @@ class LETSQLAccessor:
 
         return walk_nodes((CachedNode,), self.expr)
 
-    def tags(self, keys=None):
+    def tags(self, predicate=None, with_metadata=False):
         from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import Tag
 
-        def filter_by_keys(d):
-            if not keys:
-                return True
-            else:
-                return d.keys() & tuple(keys)
-
-        return {
-            node: node.metadata
+        return tuple(
+            (node, node.metadata) if with_metadata else node
             for node in walk_nodes((Tag,), self.expr)
-            if filter_by_keys(node.metadata)
-        }
+            if predicate(node.metadata)
+        )
 
     @property
     def storage(self):

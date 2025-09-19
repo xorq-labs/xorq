@@ -76,6 +76,16 @@ def test_tagging_pipeline(keys):
     xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipeline)
     fitted_xorq_pipeline = xorq_pipeline.fit(t, target=TARGET)
 
+    def filter_by_keys(d):
+        if not keys:
+            return True
+        else:
+            return d.keys() & tuple(keys)
+
     assert tuple(
-        fitted_xorq_pipeline.predict(t).ls.tags(keys=keys).values()
+        value
+        for _, value in fitted_xorq_pipeline.predict(t).ls.tags(
+            predicate=filter_by_keys,
+            with_metadata=True,
+        )
     ) == expected_tags(keys)
