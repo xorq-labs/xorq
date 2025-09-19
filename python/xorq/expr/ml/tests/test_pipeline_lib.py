@@ -84,7 +84,7 @@ def test_tagging_pipeline(keys):
 
     assert tuple(
         value
-        for _, value in fitted_xorq_pipeline.predict(t).ls.tags(
+        for _, value in fitted_xorq_pipeline.predict(t).ls.get_tags(
             predicate=filter_by_keys,
             with_metadata=True,
         )
