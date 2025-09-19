@@ -774,11 +774,20 @@ class FittedPipeline:
         transformed = expr
         for fitted_step in self.transform_steps:
             transformed = fitted_step.transform(transformed).pipe(do_into_backend)
-        return transformed
+        return transformed.tag(
+            "transform",
+            transform=tuple(
+                fitted_step.step.name for fitted_step in self.transform_steps
+            ),
+        )
 
     def predict(self, expr):
         transformed = self.transform(expr)
-        return self.predict_step.predict(transformed).pipe(do_into_backend)
+        return (
+            self.predict_step.predict(transformed)
+            .pipe(do_into_backend)
+            .tag("predict", predict=self.predict_step.step.params_tuple)
+        )
 
     def score_expr(self, expr, **kwargs):
         # NOTE: this is non-deferred
