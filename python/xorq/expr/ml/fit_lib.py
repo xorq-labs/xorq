@@ -94,7 +94,7 @@ def _deferred_fit_other(
         return_type=dt.binary,
         name=make_name(f"fit_{name_infix}", (fit, other)),
     )
-    deferred_model = model_udaf.on_expr(expr)
+    deferred_model = model_udaf.on_expr(expr).tag("deferred_fit")
     if storage:
         deferred_model = deferred_model.as_table().cache(storage=storage)
 
