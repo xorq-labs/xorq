@@ -14,6 +14,7 @@ from xorq.vendor.ibis.expr.api import (
     case,
     literal,
 )
+from xorq.vendor.ibis.util import promote_tuple
 
 
 def _calculate_bounds(
@@ -235,15 +236,15 @@ def train_test_splits(
     ----------
     table : ir.Table
         The input Ibis table to be split.
+    unique_key : str | tuple[str] | list[str] | Selector, optional
+        The column name(s) that uniquely identify each row in the table. This
+        unique_key is used to create a deterministic split of the dataset
+        through a hashing process.
     test_sizes : Iterable[float] | float
         An iterable of floats representing the desired proportions for data splits.
         Each value should be between 0 and 1, and their sum must equal 1. The
         order of test sizes determines the order of the generated subsets. If float is passed
         it assumes that the value is for the test size and that a tradition tain test split of (1-test_size, test_size) is returned.
-    unique_key : str | tuple[str] | list[str] | Selector, optional
-        The column name(s) that uniquely identify each row in the table. This
-        unique_key is used to create a deterministic split of the dataset
-        through a hashing process.
     num_buckets : int, optional
         The number of buckets into which the data can be binned after being
         hashed (default is 10000). It controls how finely the data is divided
@@ -288,7 +289,20 @@ def train_test_splits(
         num_buckets=num_buckets,
         random_seed=random_seed,
     )
-    return map(table.filter, conditions)
+
+    def tagged_filter(cs):
+        return table.filter(cs).tag(
+            "train_test_split",
+            test_sizes=promote_tuple(test_sizes),
+            num_buckets=num_buckets,
+            unique_key=promote_tuple(
+                unique_key.expand_names(table)
+                if isinstance(unique_key, Selector)
+                else unique_key
+            ),
+        )
+
+    return map(tagged_filter, conditions)
 
 
 __all__ = [
