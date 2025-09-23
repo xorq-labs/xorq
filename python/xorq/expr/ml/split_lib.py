@@ -63,7 +63,7 @@ def _calculate_bounds(
 
 def calc_split_conditions(
     table: ir.Table,
-    unique_key: str | tuple[str] | list[str],
+    unique_key: str | tuple[str] | list[str] | Selector,
     test_sizes: Iterable[float] | float,
     num_buckets: int = 10000,
     random_seed: int | None = None,
@@ -73,7 +73,7 @@ def calc_split_conditions(
     ----------
     table : ir.Table
         The input Ibis table to be split.
-    unique_key : str | tuple[str] | list[str]
+    unique_key : str | tuple[str] | list[str] | Selector
         The column name(s) that uniquely identify each row in the table. This
         unique_key is used to create a deterministic split of the dataset
         through a hashing process.
@@ -149,7 +149,7 @@ def calc_split_conditions(
 
 def calc_split_column(
     table: ir.Table,
-    unique_key: str | tuple[str] | list[str],
+    unique_key: str | tuple[str] | list[str] | Selector,
     test_sizes: Iterable[float] | float,
     num_buckets: int = 10000,
     random_seed: int | None = None,
@@ -160,7 +160,7 @@ def calc_split_column(
     ----------
     table : ir.Table
         The input Ibis table to be split.
-    unique_key : str | tuple[str] | list[str]
+    unique_key : str | tuple[str] | list[str] | Selector
         The column name(s) that uniquely identify each row in the table. This
         unique_key is used to create a deterministic split of the dataset
         through a hashing process.
@@ -235,15 +235,15 @@ def train_test_splits(
     ----------
     table : ir.Table
         The input Ibis table to be split.
-    unique_key : str | tuple[str] | list[str]
-        The column name(s) that uniquely identify each row in the table. This
-        unique_key is used to create a deterministic split of the dataset
-        through a hashing process.
     test_sizes : Iterable[float] | float
         An iterable of floats representing the desired proportions for data splits.
         Each value should be between 0 and 1, and their sum must equal 1. The
         order of test sizes determines the order of the generated subsets. If float is passed
         it assumes that the value is for the test size and that a tradition tain test split of (1-test_size, test_size) is returned.
+    unique_key : str | tuple[str] | list[str] | Selector, optional
+        The column name(s) that uniquely identify each row in the table. This
+        unique_key is used to create a deterministic split of the dataset
+        through a hashing process.
     num_buckets : int, optional
         The number of buckets into which the data can be binned after being
         hashed (default is 10000). It controls how finely the data is divided
@@ -273,7 +273,7 @@ def train_test_splits(
     >>> table = xo.memtable({"key": range(100), "value": range(100,200)})
     >>> unique_key = "key"
     >>> test_sizes = [0.2, 0.3, 0.5]
-    >>> splits = xo.train_test_splits(table, unique_key, test_sizes, num_buckets=10, random_seed=42)
+    >>> splits = xo.train_test_splits(table, test_sizes, unique_key=unique_key, num_buckets=10, random_seed=42)
     >>> for i, split_table in enumerate(splits):
     ...     print(f"Split {i+1} size: {split_table.count().execute()}")
     ...     print(split_table.execute())
