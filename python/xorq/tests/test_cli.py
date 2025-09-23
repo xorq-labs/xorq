@@ -4,6 +4,7 @@ import sys
 from itertools import chain
 from pathlib import Path
 
+import pandas as pd
 import pytest
 
 import xorq.api as xo
@@ -666,3 +667,101 @@ def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
     assert not actual.empty
 
     serve_popened.popen.terminate()
+
+
+@pytest.mark.slow(level=1)
+def test_serve_penguins_template(tmpdir, tmp_path):
+    tmpdir = Path(tmpdir)
+    path = tmpdir.joinpath("xorq-template-penguins")
+    init_args = (
+        "xorq",
+        "init",
+        "--path",
+        str(path),
+        "--template",
+        "penguins",
+    )
+
+    (returncode, stdout, stderr) = subprocess_run(init_args)
+
+    assert returncode == 0, stderr
+    assert path.exists()
+    assert path.joinpath("pyproject.toml").exists()
+    assert path.joinpath("requirements.txt").exists()
+
+    target_dir = tmp_path / "build"
+    build_args = [
+        "xorq",
+        "build",
+        str(path / "expr.py"),
+        "--builds-dir",
+        str(target_dir),
+    ]
+    (returncode, stdout, stderr) = subprocess_run(build_args)
+
+    assert "Building expr" in stderr.decode("ascii")
+    assert returncode == 0, stderr
+
+    if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
+        serve_hash = "405154f690d20f4adbcc375252628b75"
+
+        serve_args = (
+            "xorq",
+            "serve-unbound",
+            str(target_dir / match.group()),
+            "--to_unbind_hash",
+            serve_hash,
+        )
+        serve_popened = Popened(serve_args, deferred=False)
+        port = peek_port(serve_popened)
+
+        # Create sample penguin data using memtable instead of reading from URL
+        sample_data = pd.DataFrame(
+            {
+                "bill_length_mm": [
+                    39.1,
+                    39.5,
+                    40.3,
+                    36.7,
+                    39.3,
+                    38.9,
+                    39.2,
+                    34.1,
+                    42.0,
+                    37.8,
+                ],
+                "bill_depth_mm": [
+                    18.7,
+                    17.4,
+                    18.0,
+                    19.3,
+                    20.6,
+                    17.8,
+                    19.6,
+                    18.1,
+                    20.2,
+                    17.1,
+                ],
+                "species": [
+                    "Adelie",
+                    "Adelie",
+                    "Adelie",
+                    "Adelie",
+                    "Adelie",
+                    "Chinstrap",
+                    "Chinstrap",
+                    "Chinstrap",
+                    "Gentoo",
+                    "Gentoo",
+                ],
+            }
+        )
+
+        expr = xo.memtable(sample_data, name="penguins")
+
+        actual = hit_server(port=port, expr=expr)
+        assert not actual.empty
+        assert actual["predicted"].isin(("Adelie", "Chinstrap", "Gentoo")).all()
+        assert len(actual) == len(sample_data)
+    else:
+        raise AssertionError("No expression hash")
