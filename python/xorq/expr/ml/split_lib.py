@@ -63,7 +63,7 @@ def _calculate_bounds(
 
 def calc_split_conditions(
     table: ir.Table,
-    unique_key: str | tuple[str] | list[str],
+    unique_key: str | tuple[str] | list[str] | Selector,
     test_sizes: Iterable[float] | float,
     num_buckets: int = 10000,
     random_seed: int | None = None,
@@ -73,7 +73,7 @@ def calc_split_conditions(
     ----------
     table : ir.Table
         The input Ibis table to be split.
-    unique_key : str | tuple[str] | list[str]
+    unique_key : str | tuple[str] | list[str] | Selector
         The column name(s) that uniquely identify each row in the table. This
         unique_key is used to create a deterministic split of the dataset
         through a hashing process.
@@ -149,7 +149,7 @@ def calc_split_conditions(
 
 def calc_split_column(
     table: ir.Table,
-    unique_key: str | tuple[str] | list[str],
+    unique_key: str | tuple[str] | list[str] | Selector,
     test_sizes: Iterable[float] | float,
     num_buckets: int = 10000,
     random_seed: int | None = None,
@@ -160,7 +160,7 @@ def calc_split_column(
     ----------
     table : ir.Table
         The input Ibis table to be split.
-    unique_key : str | tuple[str] | list[str]
+    unique_key : str | tuple[str] | list[str] | Selector
         The column name(s) that uniquely identify each row in the table. This
         unique_key is used to create a deterministic split of the dataset
         through a hashing process.
@@ -240,7 +240,7 @@ def train_test_splits(
         Each value should be between 0 and 1, and their sum must equal 1. The
         order of test sizes determines the order of the generated subsets. If float is passed
         it assumes that the value is for the test size and that a tradition tain test split of (1-test_size, test_size) is returned.
-    unique_key : str | tuple[str] | list[str]
+    unique_key : str | tuple[str] | list[str] | Selector, optional
         The column name(s) that uniquely identify each row in the table. This
         unique_key is used to create a deterministic split of the dataset
         through a hashing process.
