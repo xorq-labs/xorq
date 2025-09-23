@@ -67,7 +67,7 @@ xorq run builds/7061dd65ff3c --limit 10
 
 To serve your pipeline as an endpoint, you can use the `xorq serve-unbound` command:
 ```bash
-xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
+xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example abc6e819a19e0f61283a506be692d517
 # This replaces a specific node hash with an exchanger input and serves the unbound expr as do_exchange
 ```
 
@@ -233,7 +233,7 @@ For deployments, you can serve a specific built expression as an endpoint using
 Catalog service:
 
 ```bash
-xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
+xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example abc6e819a19e0f61283a506be692d517
 ```
 
 **Understanding the command:**
@@ -241,11 +241,11 @@ xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir 
 - `builds/7061dd65ff3c`: Your built pipeline directory
 - `--host localhost --port 8001`: Server configuration
 - `--cache-dir penguins_example`: Directory for caching results
-- `b2370a29c19df8e1e639c63252dacd0e`: The specific node hash to serve
+- `abc6e819a19e0f61283a506be692d517`: The specific node hash to serve
 
 ### Finding the Node Hash
 
-The node hash (like `b2370a29c19df8e1e639c63252dacd0e`) identifies a specific
+The node hash (like `abc6e819a19e0f61283a506be692d517`) identifies a specific
 expression node in your pipeline. You can find this hash using:
 
 ```python
