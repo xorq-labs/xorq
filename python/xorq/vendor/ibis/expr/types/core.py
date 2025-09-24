@@ -17,6 +17,7 @@ from public import public
 
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.exceptions import TranslationError, XorqError
+from xorq.common.utils.func_utils import return_constant
 from xorq.vendor import ibis
 from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.grounds import Immutable
@@ -709,11 +710,9 @@ class LETSQLAccessor:
     def tags(self):
         return self.get_tags()
 
-    def get_tags(self, predicate=None, with_metadata=False):
+    def get_tags(self, predicate=return_constant(True), with_metadata=False):
         from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import Tag
-
-        predicate = predicate or (lambda _: True)
 
         return tuple(
             (node, node.metadata) if with_metadata else node
