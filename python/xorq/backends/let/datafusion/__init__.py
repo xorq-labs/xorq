@@ -759,6 +759,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         return expr.__pyarrow_result__(arrow_table)
 
     def execute(self, expr: ir.Expr, **kwargs: Any):
+        breakpoint()
         batch_reader = self._to_pyarrow_batches(expr, **kwargs)
         return expr.__pandas_result__(
             batch_reader.read_pandas(timestamp_as_object=True)

@@ -12,6 +12,7 @@ import xorq.vendor.ibis.config
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends import ExecutionBackend
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import BaseBackend, NoUrl
@@ -302,7 +303,7 @@ class BasePandasBackend(BaseBackend, NoUrl):
         )
 
 
-class Backend(BasePandasBackend):
+class BaseExecutionBackend(BasePandasBackend):
     name = "pandas"
 
     def execute(self, query, params=None, limit="default", **kwargs):
@@ -352,6 +353,10 @@ class Backend(BasePandasBackend):
 
         self.dictionary[table_name] = record_batches.read_pandas()
         return self.table(table_name)
+
+
+class Backend(ExecutionBackend, BaseExecutionBackend):
+    name = "pandas"
 
 
 @lazy_singledispatch
