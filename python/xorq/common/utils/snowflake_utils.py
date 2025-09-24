@@ -107,9 +107,11 @@ def get_snowflake_last_modification_time(dt):
         .LAST_ALTERED.execute()
         .values
     )
-    if not values:
+    if not len(values):
         raise ValueError
-    (value,) = values
+    (value, *rest) = values
+    if rest:
+        raise ValueError
     return value
 
 
