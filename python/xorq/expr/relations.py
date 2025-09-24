@@ -141,12 +141,9 @@ class Tag(ops.Relation):
         )
 
 
-class CachedNode(ops.Relation):
-    schema: Schema
-    parent: Any
-    source: Any
-    storage: Any
-    values = FrozenDict()
+class CachedNode(ops.DatabaseTable):
+    parent: Any = None
+    storage: Any = None
 
 
 gen_name_namespace = "rbr-placeholder"
