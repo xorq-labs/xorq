@@ -482,7 +482,10 @@ class Expr(Immutable, Coercible):
             self, limit=limit, params=params, pretty=pretty
         )
 
-    def execute(self: ir.Expr, **kwargs: Any):
+    def execute(
+        self: ir.Expr,
+        **kwargs: Any,
+    ):
         """Execute an expression against its backend if one exists.
 
         Parameters
@@ -520,9 +523,8 @@ class Expr(Immutable, Coercible):
         <BLANKLINE>
         [3 rows x 8 columns]
         """
-        from xorq.expr.api import execute
 
-        return execute(self, **kwargs)
+        return self._find_backend(use_default=True).execute(self, **kwargs)
 
     def to_pyarrow_batches(
         self: ir.Expr,
@@ -547,9 +549,11 @@ class Expr(Immutable, Coercible):
         results
             RecordBatchReader
         """
-        from xorq.expr.api import to_pyarrow_batches
-
-        return to_pyarrow_batches(self, chunk_size=chunk_size, **kwargs)
+        return self._find_backend(use_default=True).to_pyarrow_batches(
+            self,
+            chunk_size=chunk_size,
+            **kwargs,
+        )
 
     def to_pyarrow(self: ir.Expr, **kwargs: Any):
         """Execute expression and return results in as a pyarrow table.
@@ -568,9 +572,7 @@ class Expr(Immutable, Coercible):
             A pyarrow table holding the results of the executed expression.
         """
 
-        from xorq.expr.api import to_pyarrow
-
-        return to_pyarrow(self, **kwargs)
+        return self._find_backend(use_default=True).to_pyarrow(self, **kwargs)
 
     def to_parquet(
         self: ir.Expr,

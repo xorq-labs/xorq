@@ -383,6 +383,6 @@ def test_calc_split_column(connect_method, n, name):
         .value_counts()
         .order_by(xo.asc(name))
     )
-    df = xo.execute(expr)
+    df = expr.execute()
     assert tuple(df[name].values) == tuple(range(n))
     assert df[f"{name}_count"].sum() == N
