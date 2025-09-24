@@ -710,14 +710,12 @@ class LETSQLAccessor:
     def tags(self):
         return self.get_tags()
 
-    def get_tags(self, predicate=return_constant(True), with_metadata=False):
+    def get_tags(self, predicate=return_constant(True)):
         from xorq.common.utils.graph_utils import walk_nodes
         from xorq.expr.relations import Tag
 
         return tuple(
-            (node, node.metadata) if with_metadata else node
-            for node in walk_nodes((Tag,), self.expr)
-            if predicate(node.metadata)
+            node for node in walk_nodes((Tag,), self.expr) if predicate(node.metadata)
         )
 
     @property
