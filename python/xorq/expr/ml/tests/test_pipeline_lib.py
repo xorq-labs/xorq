@@ -40,7 +40,7 @@ def test_infer_features(fitted_xorq_pipeline):
 def expected_tags(keys=None):
     ds = (
         {
-            "tag": "predict",
+            "tag": "FittedPipeline-predict",
             "predict": (
                 ("copy_X", True),
                 ("fit_intercept", True),
@@ -50,7 +50,7 @@ def expected_tags(keys=None):
             ),
         },
         {
-            "tag": "transform",
+            "tag": "FittedPipeline-transform",
             "transform": ("standardscaler",),
         },
     )
@@ -60,28 +60,29 @@ def expected_tags(keys=None):
 @pytest.mark.parametrize(
     "keys",
     (
-        ("transform",),
+        ("FittedPipeline-transform",),
         (
-            "transform",
-            "predict",
+            "FittedPipeline.transform",
+            "FittedPipeline.predict",
         ),
-        ("predict",),
+        ("FittedPipeline-predict",),
     ),
 )
 def test_tagging_pipeline_with_metadata(keys, t, fitted_xorq_pipeline):
-    def filter_by_keys(d):
+    def filter_by_keys(d, keys=keys):
         if not keys:
             return True
         else:
             return d.keys() & tuple(keys)
 
-    assert tuple(
-        value
-        for _, value in fitted_xorq_pipeline.predict(t).ls.get_tags(
+    actual = tuple(
+        node.metadata
+        for node in fitted_xorq_pipeline.predict(t).ls.get_tags(
             predicate=filter_by_keys,
-            with_metadata=True,
         )
-    ) == expected_tags(keys)
+    )
+    expected = expected_tags(keys)
+    assert actual == expected
 
 
 def test_tagging_pipeline(fitted_xorq_pipeline, t):
