@@ -38,6 +38,14 @@ def replace_cache_table(node, kwargs):
         return node
 
 
+def replace_read(node, kwargs):
+    return (
+        node.make_unbound_dt()
+        if isinstance(node, Read)
+        else (node.__recreate__(kwargs) if kwargs else node)
+    )
+
+
 def legacy_replace_cache_table(node, _, **kwargs):
     return replace_cache_table(node, (kwargs or dict(zip(node.argnames, node.args))))
 
