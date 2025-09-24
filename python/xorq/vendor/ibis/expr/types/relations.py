@@ -3,6 +3,7 @@ from __future__ import annotations
 import itertools
 import operator
 import re
+import uuid
 import warnings
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
@@ -3411,6 +3412,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         current_backend, _ = find_backend(expr.op(), use_default=True)
         storage = storage or SourceStorage(source=current_backend)
         op = CachedNode(
+            name=f"xorq_{uuid.uuid4().hex}",
             schema=expr.schema(),
             parent=expr,
             source=current_backend,

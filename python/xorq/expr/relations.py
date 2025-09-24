@@ -141,11 +141,9 @@ class Tag(ops.Relation):
         )
 
 
-class CachedNode(ops.Relation):
-    schema: Schema
-    parent: Any
-    source: Any
-    storage: Any
+class CachedNode(ops.DatabaseTable):
+    parent: Any = None
+    storage: Any = None
     values = FrozenDict()
 
 
