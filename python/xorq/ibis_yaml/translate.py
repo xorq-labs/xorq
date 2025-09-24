@@ -1118,6 +1118,13 @@ def _sort_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return sort_op.to_expr()
 
 
+@register_from_yaml_handler("Distinct")
+def _distinct_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    args = tuple(translate_from_yaml(el, context) for el in yaml_dict["args"])
+    distinct_op = ops.Distinct(*args)
+    return distinct_op.to_expr()
+
+
 @translate_to_yaml.register(ops.SortKey)
 def _sort_key_to_yaml(op: ops.SortKey, context: TranslationContext) -> dict:
     return freeze(
