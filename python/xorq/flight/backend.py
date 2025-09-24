@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Iterable, Mapping
 import pyarrow as pa
 import toolz
 
+from xorq.backends import ExecutionBackend
 from xorq.common.utils.rbr_utils import (
     make_filtered_reader,
 )
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-class Backend(SQLBackend):
+class BaseExecutionBackend(SQLBackend):
     @property
     def name(self):
         return "xorq_flight"
@@ -263,3 +264,9 @@ class Backend(SQLBackend):
 
     def list_exchanges(self):
         return self.con.do_action_one(ListExchangesAction.name)
+
+
+class Backend(ExecutionBackend, BaseExecutionBackend):
+    @property
+    def name(self):
+        return "xorq_flight"

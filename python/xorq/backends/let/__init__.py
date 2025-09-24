@@ -8,6 +8,7 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from sqlglot import exp, parse_one
 
+from xorq.backends import ExecutionBackend
 from xorq.backends.let.datafusion import Backend as DataFusionBackend
 from xorq.common.collections import SourceDict
 from xorq.internal import SessionConfig, WindowUDF
@@ -35,7 +36,7 @@ def _get_datafusion_dataframe(con, expr, **kwargs):
     return con.con.sql(raw_sql)
 
 
-class Backend(DataFusionBackend):
+class Backend(ExecutionBackend, DataFusionBackend):
     name = "let"
 
     def __init__(self, *args, **kwargs):
@@ -157,42 +158,6 @@ class Backend(DataFusionBackend):
         )
         self._sources[registered_table.op()] = registered_table.op()
         return registered_table
-
-    def execute(self, expr: ir.Expr, **kwargs: Any):
-        batch_reader = self.to_pyarrow_batches(expr, **kwargs)
-        return expr.__pandas_result__(
-            batch_reader.read_pandas(timestamp_as_object=True)
-        )
-
-    def to_pyarrow(self, expr: ir.Expr, **kwargs: Any) -> pa.Table:
-        batch_reader = self.to_pyarrow_batches(expr, **kwargs)
-        arrow_table = batch_reader.read_all()
-        return expr.__pyarrow_result__(arrow_table)
-
-    def to_pyarrow_batches(
-        self,
-        expr: ir.Expr,
-        *,
-        chunk_size: int = 1_000_000,
-        **kwargs: Any,
-    ) -> pa.ipc.RecordBatchReader:
-        return super().to_pyarrow_batches(expr, chunk_size=chunk_size, **kwargs)
-
-    def do_connect(self, config: SessionConfig | None = None) -> None:
-        """Creates a connection.
-
-        Parameters
-        ----------
-        config
-            Mapping of table names to files.
-
-        Examples
-        --------
-        >>> import xorq.api as xo
-        >>> con = xo.connect()
-
-        """
-        super().do_connect(config=config)
 
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any

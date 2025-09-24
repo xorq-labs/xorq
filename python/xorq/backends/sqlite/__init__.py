@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any
 import sqlglot as sg
 import sqlglot.expressions as sge
 
+from xorq.backends import ExecutionBackend
 from xorq.expr.api import read_csv, read_parquet
 from xorq.vendor.ibis import Schema, util
 from xorq.vendor.ibis.backends.sqlite import Backend as IbisSQLiteBackend
@@ -18,7 +19,7 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
 
-class Backend(IbisSQLiteBackend):
+class Backend(ExecutionBackend, IbisSQLiteBackend):
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,
