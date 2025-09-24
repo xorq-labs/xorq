@@ -305,8 +305,8 @@ def train_test_splits(
     }
 
     return (
-        table.filter(cs).tag(size=size, **tag_kwargs)
-        for cs, size in zip(conditions, test_sizes)
+        table.filter(cs).tag(split_i=split_i, split_size=split_size, **tag_kwargs)
+        for split_i, (cs, split_size) in enumerate(zip(conditions, test_sizes))
     )
 
 
