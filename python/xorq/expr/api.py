@@ -238,11 +238,20 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
         Formatted SQL string
 
     """
+    from xorq.expr.relations import replace_cache_table
 
     if compiler is None:
         compiler = get_compiler(expr)
 
-    unbound = _remove_tag_nodes(expr).unbind().op()
+    # FIXME verify why we would need to replace the CachedNode and update replace_cache_table with new method
+    unbound = (
+        _remove_tag_nodes(expr)
+        .op()
+        .replace(replace_cache_table)
+        .to_expr()
+        .unbind()
+        .op()
+    )
     return SQLString(_cached_with_op(unbound, pretty, compiler))
 
 
