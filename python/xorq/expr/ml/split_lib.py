@@ -17,15 +17,23 @@ from xorq.vendor.ibis.expr.api import (
 from xorq.vendor.ibis.util import promote_tuple
 
 
+def _ensure_tuple_test_sizes(test_sizes: Iterable[float] | float):
+    # Convert to traditional train test split
+    if isinstance(test_sizes, float):
+        test_sizes = (1 - test_sizes, test_sizes)
+    test_sizes = tuple(test_sizes)
+    return test_sizes
+
+
 def _calculate_bounds(
-    test_sizes: Iterable[float] | float,
+    test_sizes: Iterable[float],
 ) -> Tuple[Tuple[float, float]]:
     """
     Calculates the cumulative sum of test_sizes and generates bounds for splitting data.
 
     Parameters
     ----------
-    test_sizes : Iterable[float] | float
+    test_sizes : Iterable[float]
         An iterable of floats representing the desired proportions for data splits.
         Each value should be between 0 and 1, and their sum must equal 1. The
         order of test sizes determines the order of the generated subsets. If float is passed
@@ -38,11 +46,6 @@ def _calculate_bounds(
         lower and upper bounds for a split. These bounds are calculated based on
         the cumulative sum of the `test_sizes`.
     """
-    # Convert to traditional train test split
-    if isinstance(test_sizes, float):
-        test_sizes = (1 - test_sizes, test_sizes)
-
-    test_sizes = tuple(test_sizes)
 
     if not all(isinstance(test_size, float) for test_size in test_sizes):
         raise ValueError("Test size must be float.")
@@ -65,7 +68,7 @@ def _calculate_bounds(
 def calc_split_conditions(
     table: ir.Table,
     unique_key: str | tuple[str] | list[str] | Selector,
-    test_sizes: Iterable[float] | float,
+    test_sizes: Iterable[float],
     num_buckets: int = 10000,
     random_seed: int | None = None,
 ) -> Iterator[ir.BooleanColumn]:
@@ -78,7 +81,7 @@ def calc_split_conditions(
         The column name(s) that uniquely identify each row in the table. This
         unique_key is used to create a deterministic split of the dataset
         through a hashing process.
-    test_sizes : Iterable[float] | float
+    test_sizes : Iterable[float]
         An iterable of floats representing the desired proportions for data splits.
         Each value should be between 0 and 1, and their sum must equal 1. The
         order of test sizes determines the order of the generated subsets. If float is passed
@@ -124,7 +127,7 @@ def calc_split_conditions(
         unique_key = [unique_key]
 
     # Get cumulative bounds
-    bounds = _calculate_bounds(test_sizes=test_sizes)
+    bounds = _calculate_bounds(test_sizes=_ensure_tuple_test_sizes(test_sizes))
 
     # Set the random seed if set, & Generate a random 256-bit key
     random_str = str(Random(random_seed).getrandbits(256))
@@ -151,7 +154,7 @@ def calc_split_conditions(
 def calc_split_column(
     table: ir.Table,
     unique_key: str | tuple[str] | list[str] | Selector,
-    test_sizes: Iterable[float] | float,
+    test_sizes: Iterable[float],
     num_buckets: int = 10000,
     random_seed: int | None = None,
     name: str = "split",
@@ -165,7 +168,7 @@ def calc_split_column(
         The column name(s) that uniquely identify each row in the table. This
         unique_key is used to create a deterministic split of the dataset
         through a hashing process.
-    test_sizes : Iterable[float] | float
+    test_sizes : Iterable[float]
         An iterable of floats representing the desired proportions for data splits.
         Each value should be between 0 and 1, and their sum must equal 1. The
         order of test sizes determines the order of the generated subsets. If float is passed
@@ -282,6 +285,7 @@ def train_test_splits(
     Split 2 size: 30
     Split 3 size: 50
     """
+    test_sizes = _ensure_tuple_test_sizes(test_sizes)
     conditions = calc_split_conditions(
         table=table,
         unique_key=unique_key,
@@ -289,20 +293,21 @@ def train_test_splits(
         num_buckets=num_buckets,
         random_seed=random_seed,
     )
+    tag_kwargs = {
+        "tag": "train_test_split",
+        "test_sizes": test_sizes,
+        "num_buckets": num_buckets,
+        "unique_key": promote_tuple(
+            unique_key.expand_names(table)
+            if isinstance(unique_key, Selector)
+            else unique_key
+        ),
+    }
 
-    def tagged_filter(cs):
-        return table.filter(cs).tag(
-            "train_test_split",
-            test_sizes=promote_tuple(test_sizes),
-            num_buckets=num_buckets,
-            unique_key=promote_tuple(
-                unique_key.expand_names(table)
-                if isinstance(unique_key, Selector)
-                else unique_key
-            ),
-        )
-
-    return map(tagged_filter, conditions)
+    return (
+        table.filter(cs).tag(size=size, **tag_kwargs)
+        for cs, size in zip(conditions, test_sizes)
+    )
 
 
 __all__ = [
