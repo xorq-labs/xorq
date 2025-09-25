@@ -38,6 +38,14 @@ def replace_cache_table(node, kwargs):
         return node
 
 
+def replace_read(node, kwargs):
+    return (
+        node.make_unbound_dt()
+        if isinstance(node, Read)
+        else (node.__recreate__(kwargs) if kwargs else node)
+    )
+
+
 def legacy_replace_cache_table(node, _, **kwargs):
     return replace_cache_table(node, (kwargs or dict(zip(node.argnames, node.args))))
 
@@ -141,12 +149,9 @@ class Tag(ops.Relation):
         )
 
 
-class CachedNode(ops.Relation):
-    schema: Schema
-    parent: Any
-    source: Any
-    storage: Any
-    values = FrozenDict()
+class CachedNode(ops.DatabaseTable):
+    parent: Any = None
+    storage: Any = None
 
 
 gen_name_namespace = "rbr-placeholder"
@@ -564,14 +569,10 @@ def flight_udxf(
     )
 
 
-class Read(ops.Relation):
-    method_name: str
-    name: str
-    schema: Schema
-    source: Any
-    read_kwargs: Any
-    normalize_method: Any
-    values = FrozenDict()
+class Read(ops.DatabaseTable):
+    method_name: str = None
+    read_kwargs: Any = None
+    normalize_method: Any = None
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)
