@@ -7,9 +7,6 @@ from pathlib import (
 )
 
 import dask
-import feast
-import feast.repo_operations
-import feast.utils as utils
 import toolz
 from attr import (
     field,
@@ -18,11 +15,6 @@ from attr import (
 from attr.validators import (
     instance_of,
 )
-from feast.infra.offline_stores.offline_utils import (
-    DEFAULT_ENTITY_DF_EVENT_TIMESTAMP_COL,
-)
-
-import xorq.api as xo
 
 
 @dask.base.normalize_token.register(dask.utils.methodcaller)
@@ -45,6 +37,8 @@ class Store:
     @property
     @functools.cache
     def store(self):
+        import feast
+
         return feast.FeatureStore(self.path)
 
     @property
@@ -58,6 +52,8 @@ class Store:
     @property
     @functools.cache
     def repo_contents(self):
+        import feast.repo_operations
+
         with contextlib.chdir(self.path):
             return feast.repo_operations._get_repo_contents(
                 self.path, self.project_name
@@ -76,6 +72,8 @@ class Store:
         return self.config.project
 
     def apply(self, skip_source_validation=False):
+        import feast.repo_operations
+
         with contextlib.chdir(self.path):
             return feast.repo_operations.apply_total(
                 self.config, self.path, skip_source_validation=skip_source_validation
@@ -99,9 +97,13 @@ class Store:
         return self.registry.get_feature_view(feature_view_name, self.store.project)
 
     def get_feature_refs(self, features):
+        import feast.utils as utils
+
         return utils._get_features(self.registry, self.store.project, list(features))
 
     def get_feature_views_to_use(self, features):
+        import feast.utils as utils
+
         (all_feature_views, all_on_demand_feature_views) = (
             utils._get_feature_views_to_use(
                 self.registry,
@@ -112,6 +114,8 @@ class Store:
         return (all_feature_views, all_on_demand_feature_views)
 
     def get_grouped_feature_views(self, features):
+        import feast.utils as utils
+
         feature_refs = self.get_feature_refs(features)
         (all_feature_views, all_on_demand_feature_views) = (
             self.get_feature_views_to_use(features)
@@ -127,6 +131,8 @@ class Store:
         return feature_views, on_demand_feature_views
 
     def validate_entity_expr(self, entity_expr, features, full_feature_names=False):
+        import feast.utils as utils
+
         (_, on_demand_feature_views) = self.get_grouped_feature_views(features)
         if self.store.config.coerce_tz_aware:
             # FIXME: pass entity_expr back out
@@ -203,6 +209,12 @@ class Store:
 def process_one_feature_view(
     entity_expr, store, feature_view, feature_names, all_join_keys
 ):
+    from feast.infra.offline_stores.offline_utils import (
+        DEFAULT_ENTITY_DF_EVENT_TIMESTAMP_COL,
+    )
+
+    import xorq.api as xo
+
     def _read_mapped(
         con,
         store,
@@ -349,13 +361,15 @@ def calc_odfv_schema_append(odfv_dct):
 
 
 def process_odfvs(entity_expr, odfv_dct, full_feature_names=False):
+    import xorq.expr.relations as rel
+
     if full_feature_names:
         raise ValueError
     entity_expr = make_uniform_timestamps(entity_expr)
     odfv_udfs = tuple(odfv.feature_transformation.udf for odfv in odfv_dct.keys())
     schema_in = entity_expr.schema()
     schema_append = calc_odfv_schema_append(odfv_dct)
-    udxf = xo.expr.relations.flight_udxf(
+    udxf = rel.flight_udxf(
         process_df=apply_odfv_dct(odfv_udfs=odfv_udfs),
         maybe_schema_in=schema_in,
         maybe_schema_out=schema_in | schema_append,
@@ -365,6 +379,8 @@ def process_odfvs(entity_expr, odfv_dct, full_feature_names=False):
 
 
 def group_features(store, feature_names):
+    import feast
+
     splat = tuple(feature_name.split(":") for feature_name in feature_names)
     assert (2,) == tuple(set(map(len, splat)))
     name_to_use_to_view = {
