@@ -26,8 +26,8 @@ snowflake_config = SnowflakeConfig.from_env()
 
 def make_credential_defaults():
     return {
-        "user": snowflake_config["SNOWFLAKE_USER"],
-        "password": snowflake_config["SNOWFLAKE_PASSWORD"],
+        "user": "${SNOWFLAKE_USER}",
+        "password": "${SNOWFLAKE_PASSWORD}",
     }
 
 
