@@ -2,12 +2,13 @@ from typing import Any, Mapping
 
 import pyarrow as pa
 
+from xorq.backends import ExecutionBackend
 from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import gen_name
 
 
-class Backend(IbisDuckDBBackend):
+class BaseExecutionBackend(IbisDuckDBBackend):
     def execute(
         self,
         expr: ir.Expr,
@@ -37,3 +38,7 @@ class Backend(IbisDuckDBBackend):
         return self._to_duckdb_relation(
             expr, params=params, limit=limit
         ).fetch_arrow_reader(chunk_size)
+
+
+class Backend(ExecutionBackend, BaseExecutionBackend):
+    pass

@@ -8,6 +8,7 @@ import sqlglot.expressions as sge
 import toolz
 
 import xorq.vendor.ibis.expr.schema as sch
+from xorq.backends import ExecutionBackend
 from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
     read_csv_rbr,
@@ -21,7 +22,7 @@ from xorq.vendor.ibis.util import (
 )
 
 
-class Backend(IbisPostgresBackend):
+class Backend(ExecutionBackend, IbisPostgresBackend):
     _top_level_methods = ("connect_examples", "connect_env")
     compiler = compiler
 
