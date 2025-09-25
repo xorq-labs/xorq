@@ -174,6 +174,11 @@ let
             prev.poetry-core
           ];
         });
+        feast = prev.feast.overrideAttrs (compose [
+          (addResolved final [
+            "setuptools"
+          ])
+        ]);
       };
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
