@@ -3411,6 +3411,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         current_backend, _ = find_backend(expr.op(), use_default=True)
         storage = storage or SourceStorage(source=current_backend)
         op = CachedNode(
+            name="xorq_cached_node_name_placeholder",
             schema=expr.schema(),
             parent=expr,
             source=current_backend,
