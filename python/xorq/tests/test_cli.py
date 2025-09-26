@@ -523,7 +523,11 @@ def peek_port(popened, timeout=60):
     popened.popen.poll()
     if popened.popen.returncode:
         raise Exception(popened.stderr)
-    buf = popened.stdout_peeker.peek_line_until(do_match, timeout=timeout)
+    try:
+        buf = popened.stdout_peeker.peek_line_until(do_match, timeout=timeout)
+    except TimeoutError as e:
+        popened.popen.terminate()
+        raise Exception(popened.stderr) from e
     (as_string,) = do_match(buf).groups()
     port = int(as_string)
     return port
