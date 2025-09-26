@@ -112,7 +112,7 @@ class Backend(IbisPostgresBackend):
             make_table_temporary,
         )
 
-        pgadbc = PgADBC(self, password)
+        pgadbc = PgADBC(self)
         pgadbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         if temporary:
             make_table_temporary(self, table_name)
