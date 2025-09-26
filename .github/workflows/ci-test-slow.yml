@@ -28,7 +28,7 @@ jobs:
     strategy:
       matrix:
         target: [x86_64]
-        python-version: ["3.11"]
+        python-version: ["3.12"]
         slow-level: [1, 2]
     steps:
       - uses: actions/checkout@v4
