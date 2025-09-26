@@ -707,7 +707,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        serve_hash = "405154f690d20f4adbcc375252628b75"
+        serve_hash = "c2b89fd9d3c81bcbffc9c2a20ad77f98"
 
         serve_args = (
             "xorq",
