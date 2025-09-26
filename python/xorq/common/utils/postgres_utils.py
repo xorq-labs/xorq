@@ -8,7 +8,6 @@ from attr import (
 )
 from attr.validators import (
     instance_of,
-    optional,
 )
 
 from xorq.backends.postgres import (
@@ -34,11 +33,10 @@ else:
 @frozen
 class PgADBC:
     con = field(validator=instance_of(PGBackend))
-    password = field(validator=optional(instance_of(str)), default=None, repr=False)
 
-    def __attrs_post_init__(self):
-        if self.password is None:
-            object.__setattr__(self, "password", make_credential_defaults()["password"])
+    @property
+    def password(self):
+        return self.con._con_kwargs["password"]
 
     @property
     def params(self):
