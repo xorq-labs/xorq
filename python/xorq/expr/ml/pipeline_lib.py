@@ -361,6 +361,15 @@ class FittedStep:
         # we should now have everything fixed
 
     @property
+    def tag_kwargs(self):
+        return {
+            "typ": self.step.typ,
+            "name": self.step.name,
+            "params_tuple": self.step.params_tuple,
+            "features": self.features,
+        }
+
+    @property
     def is_transform(self):
         return hasattr(self.step.typ, "transform")
 
@@ -774,11 +783,24 @@ class FittedPipeline:
         transformed = expr
         for fitted_step in self.transform_steps:
             transformed = fitted_step.transform(transformed).pipe(do_into_backend)
-        return transformed
+        return transformed.tag(
+            "FittedStep-transform",
+            steps_tags=tuple(
+                tuple(fitted_step.tag_kwargs.items())
+                for fitted_step in self.transform_steps
+            ),
+        )
 
     def predict(self, expr):
         transformed = self.transform(expr)
-        return self.predict_step.predict(transformed).pipe(do_into_backend)
+        return (
+            self.predict_step.predict(transformed)
+            .pipe(do_into_backend)
+            .tag(
+                "FittedStep-predict",
+                step_tags=tuple(self.predict_step.tag_kwargs.items()),
+            )
+        )
 
     def score_expr(self, expr, **kwargs):
         # NOTE: this is non-deferred
