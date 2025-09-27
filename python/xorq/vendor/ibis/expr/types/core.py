@@ -17,6 +17,7 @@ from public import public
 
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.exceptions import TranslationError, XorqError
+from xorq.common.utils.func_utils import return_constant
 from xorq.vendor import ibis
 from xorq.vendor.ibis.common.annotations import ValidationError
 from xorq.vendor.ibis.common.grounds import Immutable
@@ -704,6 +705,18 @@ class LETSQLAccessor:
         )
 
         return walk_nodes((CachedNode,), self.expr)
+
+    @property
+    def tags(self):
+        return self.get_tags()
+
+    def get_tags(self, predicate=return_constant(True)):
+        from xorq.common.utils.graph_utils import walk_nodes
+        from xorq.expr.relations import Tag
+
+        return tuple(
+            node for node in walk_nodes((Tag,), self.expr) if predicate(node.metadata)
+        )
 
     @property
     def storage(self):
