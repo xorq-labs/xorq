@@ -107,20 +107,26 @@ def register_from_yaml_handler(*op_names: str):
 @functools.cache
 @functools.singledispatch
 def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
-    if "node_ref" in yaml_dict:
-        node_ref = yaml_dict["node_ref"]
-        if "nodes" not in context.definitions:
-            raise ValueError(f"Missing 'nodes' in definitions for reference {node_ref}")
+    match yaml_dict:
+        case None:
+            return None
+        case {"node_ref": node_ref, **_kwargs}:
+            if "nodes" not in context.definitions:
+                raise ValueError(
+                    f"Missing 'nodes' in definitions for reference {node_ref}"
+                )
 
-        try:
-            node_dict = context.definitions["nodes"][node_ref]
-        except KeyError:
-            raise ValueError(f"Node reference {node_ref} not found in definitions")
-        return translate_from_yaml(node_dict, context)
-    op_type = yaml_dict["op"]
-    if op_type not in FROM_YAML_HANDLERS:
-        raise NotImplementedError(f"No handler for operation {op_type}")
-    return FROM_YAML_HANDLERS[op_type](yaml_dict, context)
+            try:
+                node_dict = context.definitions["nodes"][node_ref]
+            except KeyError:
+                raise ValueError(f"Node reference {node_ref} not found in definitions")
+            return translate_from_yaml(node_dict, context)
+        case {"op": op_type, **_kwargs}:
+            if op_type not in FROM_YAML_HANDLERS:
+                raise NotImplementedError(f"No handler for operation {op_type}")
+            return FROM_YAML_HANDLERS[op_type](yaml_dict, context)
+        case _:
+            raise ValueError
 
 
 @functools.cache

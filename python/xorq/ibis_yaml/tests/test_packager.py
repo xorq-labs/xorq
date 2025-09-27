@@ -64,6 +64,7 @@ def test_sdist_builder(template, tmpdir):
     assert sdist_builder.build_path, sdist_builder._uv_tool_run_xorq_build.stderr
 
 
+@pytest.mark.xfail(reason="depends on release with unique_key optional")
 @pytest.mark.slow(level=1)
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
