@@ -160,6 +160,10 @@ class Step:
         object.__setattr__(self, "params_tuple", tuple(sorted(self.params_tuple)))
 
     @property
+    def tag_kwargs(self):
+        return {name: getattr(self, name) for name in ("typ", "name", "params_tuple")}
+
+    @property
     def instance(self):
         """
         Create an instance of the estimator with the configured parameters.
@@ -361,15 +365,6 @@ class FittedStep:
         # we should now have everything fixed
 
     @property
-    def tag_kwargs(self):
-        return {
-            "typ": self.step.typ,
-            "name": self.step.name,
-            "params_tuple": self.step.params_tuple,
-            "features": self.features,
-        }
-
-    @property
     def is_transform(self):
         return hasattr(self.step.typ, "transform")
 
@@ -492,15 +487,28 @@ class FittedStep:
         )
         return transformed
 
+    @property
+    def tag_kwargs(self):
+        return {
+            "tag": "FittedStep-transform"
+            if self.is_transform
+            else "FittedStep-predict",
+            **self.step.tag_kwargs,
+            "features": self.features,
+        }
+
     def transform(self, expr, retain_others=True):
         if self.structer is None:
             col = self.transform_raw(expr)
             if retain_others:
-                return expr.select(*self.get_others(expr), col)
+                expr = expr.select(*self.get_others(expr), col)
             else:
                 return col
         else:
-            return self.transform_unpack(expr, retain_others=retain_others)
+            expr = self.transform_unpack(expr, retain_others=retain_others)
+        return expr.tag(
+            **self.tag_kwargs,
+        )
 
     @property
     def transformed(self):
@@ -522,7 +530,9 @@ class FittedStep:
             expr = expr.select(*others, col)
         else:
             expr = col.as_table()
-        return expr
+        return expr.tag(
+            **self.tag_kwargs,
+        )
 
     def mutate(self, expr, name=None):
         if self.is_predict:
@@ -779,26 +789,34 @@ class FittedPipeline:
     def predict_step(self):
         return self.fitted_steps[-1] if self.is_predict else None
 
-    def transform(self, expr):
-        transformed = expr
-        for fitted_step in self.transform_steps:
-            transformed = fitted_step.transform(transformed).pipe(do_into_backend)
-        return transformed.tag(
-            "FittedStep-transform",
-            steps_tags=tuple(
+    @property
+    def tag_kwargs(self):
+        return {
+            "transforms_tags": tuple(
                 tuple(fitted_step.tag_kwargs.items())
                 for fitted_step in self.transform_steps
             ),
-        )
+        }
+
+    def transform(self, expr, tag=True):
+        transformed = expr
+        for fitted_step in self.transform_steps:
+            transformed = fitted_step.transform(transformed).pipe(do_into_backend)
+        if tag:
+            transformed = transformed.tag(
+                "FittedPipeline-transform",
+                **self.tag_kwargs,
+            )
+        return transformed
 
     def predict(self, expr):
-        transformed = self.transform(expr)
+        transformed = self.transform(expr, tag=False)
         return (
             self.predict_step.predict(transformed)
             .pipe(do_into_backend)
             .tag(
-                "FittedStep-predict",
-                step_tags=tuple(self.predict_step.tag_kwargs.items()),
+                "FittedPipeline-predict",
+                predict_tags=tuple(self.predict_step.tag_kwargs.items()),
             )
         )
 
