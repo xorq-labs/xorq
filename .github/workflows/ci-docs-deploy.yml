@@ -46,7 +46,7 @@ jobs:
 
       - uses: quarto-dev/quarto-actions/setup@v2
         with:
-          version: 1.4.515
+          version: 1.8.24
 
       - name: start services
         run: docker compose up --build --wait
