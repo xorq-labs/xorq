@@ -661,11 +661,6 @@ def _none_to_yaml(value: None, context: TranslationContext) -> None:
     return None
 
 
-# @translate_from_yaml.register("None")
-# def _none_from_yaml(yaml_dict: dict, context: TranslationContext) -> None:
-#     return None
-
-
 @translate_to_yaml.register(ops.Literal)
 def _literal_to_yaml(op: ops.Literal, context: TranslationContext) -> dict:
     value = _translate_literal_value(op.value, op.dtype)
