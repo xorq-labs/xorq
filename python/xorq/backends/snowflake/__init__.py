@@ -237,6 +237,6 @@ class Backend(IbisSnowflakeBackend):
 
 
 def connect(*args, **kwargs):
-    con = Backend()
-    con.do_connect(*args, **kwargs)
+    con = Backend(*args, **kwargs)
+    con.reconnect()
     return con
