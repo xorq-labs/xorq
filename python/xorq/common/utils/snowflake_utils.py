@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pandas as pd
 import snowflake.connector
 from adbc_driver_snowflake import dbapi
@@ -15,6 +17,9 @@ from xorq.backends.snowflake import connect
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
+)
+from xorq.common.utils.process_utils import (
+    Popened,
 )
 
 
@@ -141,6 +146,53 @@ def get_session_query_df(con):
     """
     session_query_df = con.raw_sql(stmt).fetch_pandas_all()
     return session_query_df
+
+
+def write_snowflake_key_pair(base_name):
+    # https://docs.snowflake.com/en/user-guide/key-pair-auth#generate-the-private-keys
+    public_key_path = Path(f"{base_name}.pub")
+    private_key_path = Path(f"{base_name}.p8")
+    Popened.check_output(
+        f"openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out {private_key_path} -nocrypt"
+    )
+    Popened.check_output(
+        f"openssl rsa -in {private_key_path} -pubout -out {public_key_path}"
+    )
+    return public_key_path, private_key_path
+
+
+def assert_success(fetched):
+    assert fetched == [("Statement executed successfully.",)]
+
+
+def assign_public_key(con, user, public_key_bytes, do_assert=True):
+    def massage_public_key_bytes(public_key_bytes):
+        # https://docs.snowflake.com/en/user-guide/key-pair-auth#assign-the-public-key-to-a-snowflake-user
+        # # Note: Exclude the public key delimiters in the SQL statement.
+        sep = b"\n"
+        (preamble, *lines, postamble, end) = public_key_bytes.split(sep)
+        assert (preamble, postamble, end) == (
+            b"-----BEGIN PUBLIC KEY-----",
+            b"-----END PUBLIC KEY-----",
+            b"",
+        )
+        massaged = sep.join(lines)
+        return massaged
+
+    massaged_text = massage_public_key_bytes(public_key_bytes).decode("ascii")
+    stmt = f"ALTER USER {user} SET RSA_PUBLIC_KEY='{massaged_text}';"
+    fetched = con.raw_sql(stmt).fetchall()
+    if do_assert:
+        assert_success(fetched)
+    return fetched
+
+
+def deassign_public_key(con, user, do_assert=True):
+    stmt = f"ALTER USER {user} UNSET RSA_PUBLIC_KEY;"
+    fetched = con.raw_sql(stmt).fetchall()
+    if do_assert:
+        assert_success(fetched)
+    return fetched
 
 
 @frozen
