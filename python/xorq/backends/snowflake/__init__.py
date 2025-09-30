@@ -77,7 +77,6 @@ class Backend(IbisSnowflakeBackend):
             private_key=ensure_private_key_bytes(private_key),
             database=database,
             schema=schema,
-            password=None,
             **kwargs,
         )
 

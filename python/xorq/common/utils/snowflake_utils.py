@@ -148,15 +148,17 @@ def get_session_query_df(con):
     return session_query_df
 
 
-def write_snowflake_key_pair(base_name):
+def write_snowflake_key_pair(base_name, password=None):
     # https://docs.snowflake.com/en/user-guide/key-pair-auth#generate-the-private-keys
     public_key_path = Path(f"{base_name}.pub")
     private_key_path = Path(f"{base_name}.p8")
+    maybe_passout_arg = f"-passout 'pass:{password}'" if password else "-nocrypt"
+    maybe_passin_arg = f"-passin 'pass:{password}'" if password else ""
     Popened.check_output(
-        f"openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out {private_key_path} -nocrypt"
+        f"openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out {private_key_path} {maybe_passout_arg}"
     )
     Popened.check_output(
-        f"openssl rsa -in {private_key_path} -pubout -out {public_key_path}"
+        f"openssl rsa -in {private_key_path} -pubout -out {public_key_path} {maybe_passin_arg}"
     )
     return public_key_path, private_key_path
 
