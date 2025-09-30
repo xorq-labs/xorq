@@ -25,6 +25,7 @@ from xorq.tests.util import (
     assert_frame_equal,
 )
 from xorq.vendor.ibis import _
+from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
 
 
 KEY_PREFIX = xo.config.options.cache.key_prefix
@@ -138,7 +139,7 @@ def test_cache_to_sql(alltypes):
     )
     cached = expr.cache()
 
-    assert xo.to_sql(cached) == xo.to_sql(expr)
+    assert CACHED_NODE_NAME_PLACEHOLDER in xo.to_sql(cached)
 
 
 def test_op_after_cache(alltypes):
@@ -165,7 +166,7 @@ def test_op_after_cache(alltypes):
 
     assert_frame_equal(actual, expected)
 
-    assert xo.to_sql(cached) == xo.to_sql(full_expr)
+    assert CACHED_NODE_NAME_PLACEHOLDER in xo.to_sql(cached)
 
 
 def test_cache_recreate(alltypes):
