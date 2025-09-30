@@ -24,13 +24,27 @@ logger = get_logger(__name__)
 
 
 class Backend(IbisSnowflakeBackend):
-    _top_level_methods = ("connect_env",)
+    _top_level_methods = ("connect_env", "connect_env_mfa")
 
     @classmethod
     def connect_env(cls, database="SNOWFLAKE_SAMPLE_DATA", schema="TPCH_SF1", **kwargs):
         from xorq.common.utils.snowflake_utils import make_connection
 
         return make_connection(database=database, schema=schema, **kwargs)
+
+    @classmethod
+    def connect_env_mfa(
+        cls, passcode, database="SNOWFLAKE_SAMPLE_DATA", schema="TPCH_SF1", **kwargs
+    ):
+        from xorq.common.utils.snowflake_utils import make_connection
+
+        return make_connection(
+            authenticator="username_password_mfa",
+            passcode=passcode,
+            database=database,
+            schema=schema,
+            **kwargs,
+        )
 
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
