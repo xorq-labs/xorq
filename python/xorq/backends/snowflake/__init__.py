@@ -24,7 +24,7 @@ logger = get_logger(__name__)
 
 
 class Backend(IbisSnowflakeBackend):
-    _top_level_methods = ("connect_env", "connect_env_mfa")
+    _top_level_methods = ("connect_env", "connect_env_mfa", "connect_env_private_key")
 
     @classmethod
     def connect_env(cls, database="SNOWFLAKE_SAMPLE_DATA", schema="TPCH_SF1", **kwargs):
@@ -43,6 +43,41 @@ class Backend(IbisSnowflakeBackend):
             passcode=passcode,
             database=database,
             schema=schema,
+            **kwargs,
+        )
+
+    @classmethod
+    def connect_env_private_key(
+        cls,
+        private_key,
+        database="SNOWFLAKE_SAMPLE_DATA",
+        schema="TPCH_SF1",
+        **kwargs,
+    ):
+        from xorq.common.utils.snowflake_utils import make_connection
+
+        def ensure_private_key_bytes(private_key):
+            from pathlib import Path
+
+            from snowflake.connector.connection import _get_private_bytes_from_file
+
+            if isinstance(private_key, str) and (path := Path(private_key)).exists():
+                private_key = path
+            match private_key:
+                case Path():
+                    private_key = _get_private_bytes_from_file(private_key)
+                case bytes():
+                    pass
+                case _:
+                    raise NotImplementedError(f"Can't handle type {type(private_key)}")
+            return private_key
+
+        return make_connection(
+            authenticator="snowflake_jwt",
+            private_key=ensure_private_key_bytes(private_key),
+            database=database,
+            schema=schema,
+            password=None,
             **kwargs,
         )
 
