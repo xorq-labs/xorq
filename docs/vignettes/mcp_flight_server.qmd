@@ -1,12 +1,12 @@
 ---
-title: 'MCP Server + Flight + XGBoost'
-description: 'A demonstration of integrating machine learning models with
-Claude using the Model Control Protocol (MCP) server'
+title: "MCP Server + Flight + XGBoost"
+description: "A demonstration of integrating machine learning models with Claude using the Model Control Protocol (MCP) server"
 ---
 
 ## Overview
 
 In this example, we'll create:
+
 - A Claude integration  with MCP server that can access the sentiment analysis
   capabilities
 - A sentiment analysis model server using Arrow Flight using UDFs with xorq
@@ -30,7 +30,7 @@ The complete source code for this example is available in the xorq GitHub reposi
 
 ## How It Works
 
-```mermaid
+```{mermaid}
 sequenceDiagram
     participant U as User
     participant C as Claude
@@ -47,6 +47,8 @@ sequenceDiagram
     C-->>U: "The headline has a sentiment score of 1 (positive)"
 ```
 
+Components:
+
 - **MCP Server**: The example initializes a specialized Flight server with
   a Model Control Protocol (MCP) server. This provides a standardized way
   for Claude to interact with the ML model.
@@ -61,5 +63,4 @@ sequenceDiagram
 
 ## Next Steps
 
-Try modifying this example to:
-- Create a more complex input mapping to handle various types of user queries
+Try modifying this example to create a more complex input mapping to handle various types of user queries.
