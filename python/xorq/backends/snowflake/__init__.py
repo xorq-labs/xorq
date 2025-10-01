@@ -49,15 +49,17 @@ class Backend(IbisSnowflakeBackend):
     @classmethod
     def connect_env_private_key(
         cls,
-        private_key,
+        private_key=None,
         private_key_pwd=None,
         database="SNOWFLAKE_SAMPLE_DATA",
         schema="TPCH_SF1",
         **kwargs,
     ):
+        import os
+
         from xorq.common.utils.snowflake_utils import make_connection
 
-        def ensure_private_key_bytes(private_key):
+        def ensure_private_key_bytes(private_key, private_key_pwd=None):
             from pathlib import Path
             from tempfile import NamedTemporaryFile
 
@@ -85,9 +87,15 @@ class Backend(IbisSnowflakeBackend):
                     raise NotImplementedError(f"Can't handle type {type(private_key)}")
             return private_key
 
+        if private_key is None:
+            private_key = os.environ["SNOWFLAKE_KEYPAIR_PRIVATE_STR"]
+
+        if private_key_pwd is None:
+            private_key_pwd = os.environ.get("SNOWFLAKE_KEYPAIR_PASSWORD")
+
         return make_connection(
             authenticator="snowflake_jwt",
-            private_key=ensure_private_key_bytes(private_key),
+            private_key=ensure_private_key_bytes(private_key, private_key_pwd),
             database=database,
             schema=schema,
             **kwargs,
