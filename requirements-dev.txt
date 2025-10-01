@@ -7,7 +7,7 @@ adbc-driver-manager==1.7.0
     #   adbc-driver-sqlite
 adbc-driver-postgresql==1.7.0
     # via xorq
-adbc-driver-snowflake==1.7.0
+adbc-driver-snowflake==1.8.0
     # via xorq
 adbc-driver-sqlite==1.7.0
     # via xorq
