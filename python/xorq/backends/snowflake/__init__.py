@@ -59,18 +59,28 @@ class Backend(IbisSnowflakeBackend):
 
         def ensure_private_key_bytes(private_key):
             from pathlib import Path
+            from tempfile import NamedTemporaryFile
 
             from snowflake.connector.connection import _get_private_bytes_from_file
 
-            if isinstance(private_key, str) and (path := Path(private_key)).exists():
-                private_key = path
+            if isinstance(private_key, str):
+                if (path := Path(private_key)).exists():
+                    private_key = path
+                else:
+                    private_key = private_key.encode()
             match private_key:
                 case Path():
-                    private_key = _get_private_bytes_from_file(private_key, private_key_pwd)
+                    private_key = _get_private_bytes_from_file(
+                        private_key, private_key_pwd
+                    )
                 case bytes():
                     if private_key_pwd is not None:
-                        from cryptography.hazmat.primitives import serialization
-                        raise NotImplementedError
+                        with NamedTemporaryFile() as ntf:
+                            Path(ntf.name).write_bytes(private_key)
+                            private_key = _get_private_bytes_from_file(
+                                ntf.name,
+                                private_key_pwd,
+                            )
                 case _:
                     raise NotImplementedError(f"Can't handle type {type(private_key)}")
             return private_key
