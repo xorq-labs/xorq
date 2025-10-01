@@ -1,12 +1,12 @@
 ---
-title: '1 DuckDB + 2 Writers + 1 Reader'
-description: 'A demonstration of spinning up Flight servers for concurrent
-reads and writes with DuckDB'
+title: "1 DuckDB + 2 Writers + 1 Reader"
+description: "A demonstration of spinning up Flight servers for concurrent reads and writes with DuckDB"
 ---
 
 ## Overview
 
 In this example, we'll create:
+
 - A DuckDB-backed Flight server
 - Two writer clients that continuously add data
 - One reader client that continuously queries the data (counts)
@@ -31,18 +31,50 @@ repository:
 You can run this example directly using nix:
 
 ```bash
-nix run github:xorq-labs # TODO
-````
+nix run github:xorq-labs 
+```
 
 ## How It Works
 
 ```{mermaid}
-flowchart LR
-  A[Hard edge] --> B(Round edge)
-  B --> C{Decision}
-  C --> D[Result one]
-  C --> E[Result two]
+sequenceDiagram
+    participant W1 as Writer 1
+    participant W2 as Writer 2
+    participant FS as Flight Server
+    participant DB as DuckDB
+    participant R as Reader
+    
+    Note over FS: Server initialized with thread lock
+    
+    W1->>FS: Write data request
+    activate FS
+    Note right of FS: Lock acquired
+    FS->>DB: Insert data
+    DB-->>FS: Write successful
+    Note right of FS: Lock released
+    FS-->>W1: Response: Success
+    deactivate FS
+    
+    W2->>FS: Write data request
+    activate FS
+    Note right of FS: Lock acquired
+    FS->>DB: Insert data
+    DB-->>FS: Write successful
+    Note right of FS: Lock released
+    FS-->>W2: Response: Success
+    deactivate FS
+    
+    R->>FS: Query: Count records
+    activate FS
+    Note right of FS: Lock acquired
+    FS->>DB: Execute count query
+    DB-->>FS: Return count
+    Note right of FS: Lock released
+    FS-->>R: Response: Record count
+    deactivate FS
 ```
+
+Components:
 
 - **Server**: The example initializes a DuckDB database and sets up a Flight
   server. It creates a table with a simple schema (id and value) and then waits
@@ -75,7 +107,7 @@ The example demonstrates how xorq handles the concurrent operations smoothly, al
 ## Next Steps
 Try modifying this example to:
 
-- Increase the number of readers or writers
-- Use different data types or more complex schemas
-- Implement error handling and recovery strategies
-- Try with a different dataset and more complex query than a count
+- Increase the number of readers or writers.
+- Use different data types or more complex schemas.
+- Implement error handling and recovery strategies.
+- Try with a different dataset and more complex query than a count.
