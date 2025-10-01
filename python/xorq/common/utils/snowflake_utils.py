@@ -1,4 +1,5 @@
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 
 import pandas as pd
 import snowflake.connector
@@ -148,23 +149,56 @@ def get_session_query_df(con):
     return session_query_df
 
 
-def write_snowflake_key_pair(base_name, password=None):
+@frozen
+class SnowflakeKeypair:
+    con = field(validator=instance_of(SnowflakeBackend))
+    user = field(validator=instance_of(str))
+    private_key_bytes = field(validator=instance_of(bytes))
+    public_key_bytes = field(validator=instance_of(bytes))
+    password = field(validator=optional(instance_of(str)), default=None)
+
+    def assign_public_key(self, do_assert=True):
+        return assign_public_key(self.con, self.user, self.public_key_bytes, do_assert=do_assert)
+
+    def deassign_public_key(self, do_assert=True):
+        return deassign_public_key(self.con, self.user, do_assert=do_assert)
+
+    @classmethod
+    def generate(cls, con, user, password=None):
+        (private_key_bytes, public_key_bytes) = make_snowflake_keypair_bytes(password)
+        return cls(con, user, private_key_bytes, public_key_bytes, password)
+
+
+def make_snowflake_keypair_bytes(password=None):
     # https://docs.snowflake.com/en/user-guide/key-pair-auth#generate-the-private-keys
-    public_key_path = Path(f"{base_name}.pub")
-    private_key_path = Path(f"{base_name}.p8")
-    maybe_passout_arg = f"-passout 'pass:{password}'" if password else "-nocrypt"
-    maybe_passin_arg = f"-passin 'pass:{password}'" if password else ""
-    Popened.check_output(
-        f"openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out {private_key_path} {maybe_passout_arg}"
+    (maybe_passout_arg, maybe_passin_arg) = (
+        (
+            f"-passout 'pass:{password}'",
+            f"-passin 'pass:{password}'",
+        ) if password else (
+            "-nocrypt",
+            "",
+        )
     )
-    Popened.check_output(
-        f"openssl rsa -in {private_key_path} -pubout -out {public_key_path} {maybe_passin_arg}"
-    )
-    return public_key_path, private_key_path
+    with NamedTemporaryFile() as private_key_ntf, NamedTemporaryFile() as public_key_ntf:
+        Popened.check_output(
+            f"openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out {private_key_ntf.name} {maybe_passout_arg}"
+        )
+        Popened.check_output(
+            f"openssl rsa -in {private_key_ntf.name} -pubout -out {public_key_ntf.name} {maybe_passin_arg}"
+        )
+        (private_key_bytes, public_key_bytes) = (
+            Path(path).read_bytes()
+            for path in (private_key_ntf.name, public_key_ntf.name)
+        )
+    return private_key_bytes, public_key_bytes
 
 
-def assert_success(fetched):
-    assert fetched == [("Statement executed successfully.",)]
+def run_statement(con, stmt, do_assert=True):
+    fetched = con.raw_sql(stmt).fetchall()
+    if do_assert:
+        assert fetched == [("Statement executed successfully.",)]
+    return fetched
 
 
 def assign_public_key(con, user, public_key_bytes, do_assert=True):
@@ -183,17 +217,13 @@ def assign_public_key(con, user, public_key_bytes, do_assert=True):
 
     massaged_text = massage_public_key_bytes(public_key_bytes).decode("ascii")
     stmt = f"ALTER USER {user} SET RSA_PUBLIC_KEY='{massaged_text}';"
-    fetched = con.raw_sql(stmt).fetchall()
-    if do_assert:
-        assert_success(fetched)
+    fetched = run_statement(con, stmt, do_assert=do_assert)
     return fetched
 
 
 def deassign_public_key(con, user, do_assert=True):
     stmt = f"ALTER USER {user} UNSET RSA_PUBLIC_KEY;"
-    fetched = con.raw_sql(stmt).fetchall()
-    if do_assert:
-        assert_success(fetched)
+    fetched = run_statement(con, stmt, do_assert=do_assert)
     return fetched
 
 
