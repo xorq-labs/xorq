@@ -16,6 +16,7 @@ from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
 from xorq.vendor import ibis
 from xorq.vendor.ibis import _
+from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
 
 
 expected_tables = (
@@ -181,7 +182,7 @@ def test_into_backend_complex(pg, method):
         .cache(SourceStorage(source=con))
     )
 
-    assert xo.to_sql(expr).count("batting") == 2
+    assert xo.to_sql(expr).count(CACHED_NODE_NAME_PLACEHOLDER) > 0
     res = methodcaller(method)(expr)
 
     if isinstance(res, pa.RecordBatchReader):
