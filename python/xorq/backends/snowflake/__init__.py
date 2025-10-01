@@ -50,6 +50,7 @@ class Backend(IbisSnowflakeBackend):
     def connect_env_private_key(
         cls,
         private_key,
+        private_key_pwd=None,
         database="SNOWFLAKE_SAMPLE_DATA",
         schema="TPCH_SF1",
         **kwargs,
@@ -65,9 +66,11 @@ class Backend(IbisSnowflakeBackend):
                 private_key = path
             match private_key:
                 case Path():
-                    private_key = _get_private_bytes_from_file(private_key)
+                    private_key = _get_private_bytes_from_file(private_key, private_key_pwd)
                 case bytes():
-                    pass
+                    if private_key_pwd is not None:
+                        from cryptography.hazmat.primitives import serialization
+                        raise NotImplementedError
                 case _:
                     raise NotImplementedError(f"Can't handle type {type(private_key)}")
             return private_key
