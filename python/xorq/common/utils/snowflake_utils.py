@@ -151,47 +151,82 @@ def get_session_query_df(con):
 
 @frozen
 class SnowflakeKeypair:
-    con = field(validator=instance_of(SnowflakeBackend))
-    user = field(validator=instance_of(str))
-    private_key_bytes = field(validator=instance_of(bytes))
-    public_key_bytes = field(validator=instance_of(bytes))
+    private_str = field(validator=instance_of(str))
+    public_str = field(validator=instance_of(str))
     password = field(validator=optional(instance_of(str)), default=None)
+    prefix = "SNOWFLAKE_"
+    infix = "KEYPAIR"
 
-    def assign_public_key(self, do_assert=True):
-        return assign_public_key(self.con, self.user, self.public_key_bytes, do_assert=do_assert)
+    def assign_public_key(self, con, user, do_assert=True):
+        return assign_public_key(con, user, self.public_str, do_assert=do_assert)
 
-    def deassign_public_key(self, do_assert=True):
-        return deassign_public_key(self.con, self.user, do_assert=do_assert)
+    def deassign_public_key(self, con, user, do_assert=True):
+        return deassign_public_key(con, user, do_assert=do_assert)
+
+    def get_con(self, **kwargs):
+        import xorq.api as xo
+
+        return xo.snowflake.connect_env_private_key(
+            self.private_str, self.password, **kwargs
+        )
+
+    def write_envrc(
+        self, path=Path(".envrc.secrets.snowflake.keypair"), prefix=prefix, infix=infix
+    ):
+        text = "\n".join(
+            f"export {name}='{value}'"
+            for name, value in (
+                (f"{prefix}{infix}_{name.upper()}", getattr(self, name))
+                for name in ("private_str", "public_str", "password")
+            )
+        )
+        path.write_text(text)
+        return path
 
     @classmethod
-    def generate(cls, con, user, password=None):
-        (private_key_bytes, public_key_bytes) = make_snowflake_keypair_bytes(password)
-        return cls(con, user, private_key_bytes, public_key_bytes, password)
+    def generate(cls, password=None):
+        (private_str, public_str) = make_snowflake_keypair_strs(password)
+        return cls(private_str, public_str, password)
+
+    @classmethod
+    def from_environment(cls, prefix=prefix, infix=infix):
+        import os
+
+        kwargs = {
+            name: os.environ[f"{prefix}{infix}_{name.upper()}"]
+            for name in (attr.name for attr in cls.__attrs_attrs__)
+        }
+        return cls(**kwargs)
 
 
-def make_snowflake_keypair_bytes(password=None):
+def make_snowflake_keypair_strs(password=None):
     # https://docs.snowflake.com/en/user-guide/key-pair-auth#generate-the-private-keys
     (maybe_passout_arg, maybe_passin_arg) = (
         (
             f"-passout 'pass:{password}'",
             f"-passin 'pass:{password}'",
-        ) if password else (
+        )
+        if password
+        else (
             "-nocrypt",
             "",
         )
     )
-    with NamedTemporaryFile() as private_key_ntf, NamedTemporaryFile() as public_key_ntf:
+    with (
+        NamedTemporaryFile() as private_key_ntf,
+        NamedTemporaryFile() as public_key_ntf,
+    ):
         Popened.check_output(
             f"openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out {private_key_ntf.name} {maybe_passout_arg}"
         )
         Popened.check_output(
             f"openssl rsa -in {private_key_ntf.name} -pubout -out {public_key_ntf.name} {maybe_passin_arg}"
         )
-        (private_key_bytes, public_key_bytes) = (
-            Path(path).read_bytes()
+        (private_key_str, public_key_str) = (
+            Path(path).read_text()
             for path in (private_key_ntf.name, public_key_ntf.name)
         )
-    return private_key_bytes, public_key_bytes
+    return private_key_str, public_key_str
 
 
 def run_statement(con, stmt, do_assert=True):
@@ -201,21 +236,21 @@ def run_statement(con, stmt, do_assert=True):
     return fetched
 
 
-def assign_public_key(con, user, public_key_bytes, do_assert=True):
-    def massage_public_key_bytes(public_key_bytes):
+def assign_public_key(con, user, public_key_str, do_assert=True):
+    def massage_public_key_str(public_key_str):
         # https://docs.snowflake.com/en/user-guide/key-pair-auth#assign-the-public-key-to-a-snowflake-user
         # # Note: Exclude the public key delimiters in the SQL statement.
-        sep = b"\n"
-        (preamble, *lines, postamble, end) = public_key_bytes.split(sep)
+        sep = "\n"
+        (preamble, *lines, postamble, end) = public_key_str.split(sep)
         assert (preamble, postamble, end) == (
-            b"-----BEGIN PUBLIC KEY-----",
-            b"-----END PUBLIC KEY-----",
-            b"",
+            "-----BEGIN PUBLIC KEY-----",
+            "-----END PUBLIC KEY-----",
+            "",
         )
         massaged = sep.join(lines)
         return massaged
 
-    massaged_text = massage_public_key_bytes(public_key_bytes).decode("ascii")
+    massaged_text = massage_public_key_str(public_key_str)
     stmt = f"ALTER USER {user} SET RSA_PUBLIC_KEY='{massaged_text}';"
     fetched = run_statement(con, stmt, do_assert=do_assert)
     return fetched
