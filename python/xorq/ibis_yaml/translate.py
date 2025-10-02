@@ -466,6 +466,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
         {
             "op": "CachedNode",
             "schema_ref": schema_id,
+            "name": op.name,
             "parent": translate_to_yaml(op.parent, context),
             "source": op.source._profile.hash_name,
             "storage": translate_storage(op.storage, context),
@@ -486,6 +487,8 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         for name, dtype_yaml in schema_def.items()
     }
 
+    name = yaml_dict["name"]
+
     parent_expr = translate_from_yaml(yaml_dict["parent"], context)
     profile_name = yaml_dict.get("source")
     try:
@@ -496,6 +499,7 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 
     op = CachedNode(
         schema=schema,
+        name=name,
         parent=parent_expr,
         source=source,
         storage=storage,

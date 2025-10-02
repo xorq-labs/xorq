@@ -15,6 +15,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_seq_with_caller,
 )
 from xorq.expr import api
+from xorq.expr.relations import CachedNode
 from xorq.vendor import ibis
 from xorq.vendor.ibis.expr.operations.udf import (
     AggUDF,
@@ -535,7 +536,11 @@ def normalize_op(op, compiler=None):
         compiler=compiler,
     )
     reads = op.find(rel.Read)
-    dts = op.find((ir.DatabaseTable, rel.FlightExpr, rel.FlightUDXF))
+    dts = tuple(
+        node
+        for node in op.find((ir.DatabaseTable, rel.FlightExpr, rel.FlightUDXF))
+        if not isinstance(node, CachedNode)
+    )
     udfs = op.find((AggUDF, ScalarUDF))
     mems = op.find(ir.InMemoryTable)
     token = normalize_seq_with_caller(

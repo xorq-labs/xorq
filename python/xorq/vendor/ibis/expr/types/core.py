@@ -747,14 +747,18 @@ class LETSQLAccessor:
         from xorq.common.utils.graph_utils import (
             walk_nodes,
         )
-        from xorq.expr.relations import (
-            RemoteTable,
-        )
+        from xorq.expr.relations import CachedNode, RemoteTable
 
         return tuple(
             el
             for el in walk_nodes(self.node_types, self.expr)
-            if not isinstance(el, RemoteTable)
+            if not isinstance(
+                el,
+                (
+                    RemoteTable,
+                    CachedNode,
+                ),
+            )
         )
 
     @property
