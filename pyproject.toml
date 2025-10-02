@@ -117,7 +117,7 @@ dev = [
     "blackdoc==0.4.3",
     "codespell[hard-encoding-detection,toml]==2.4.1",
     "git-cliff<3.0.0,>=2.2.1",
-    "ipython<9.5.0,>=8.19.0",
+    "ipython<9.7.0,>=8.19.0",
     "pre-commit==4.2.0",
     "ruff==0.12.7",
     "trino==0.335.0",
