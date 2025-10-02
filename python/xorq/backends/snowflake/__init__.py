@@ -55,47 +55,22 @@ class Backend(IbisSnowflakeBackend):
         schema="TPCH_SF1",
         **kwargs,
     ):
-        import os
-
-        from xorq.common.utils.snowflake_utils import make_connection
-
-        def ensure_private_key_bytes(private_key, private_key_pwd=None):
-            from pathlib import Path
-            from tempfile import NamedTemporaryFile
-
-            from snowflake.connector.connection import _get_private_bytes_from_file
-
-            if isinstance(private_key, str):
-                if (path := Path(private_key)).exists():
-                    private_key = path
-                else:
-                    private_key = private_key.encode()
-            match private_key:
-                case Path():
-                    private_key = _get_private_bytes_from_file(
-                        private_key, private_key_pwd
-                    )
-                case bytes():
-                    if private_key_pwd is not None:
-                        with NamedTemporaryFile() as ntf:
-                            Path(ntf.name).write_bytes(private_key)
-                            private_key = _get_private_bytes_from_file(
-                                ntf.name,
-                                private_key_pwd,
-                            )
-                case _:
-                    raise NotImplementedError(f"Can't handle type {type(private_key)}")
-            return private_key
+        from xorq.common.utils.snowflake_utils import (
+            ensure_private_key_bytes,
+            make_connection,
+            snowflake_config,
+        )
 
         if private_key is None:
-            private_key = os.environ["SNOWFLAKE_KEYPAIR_PRIVATE_STR"]
+            private_key = snowflake_config.SNOWFLAKE_KEYPAIR_PRIVATE_STR
 
         if private_key_pwd is None:
-            private_key_pwd = os.environ.get("SNOWFLAKE_KEYPAIR_PASSWORD")
+            private_key_pwd = snowflake_config.SNOWFLAKE_KEYPAIR_PASSWORD
 
         return make_connection(
             authenticator="snowflake_jwt",
             private_key=ensure_private_key_bytes(private_key, private_key_pwd),
+            password=None,
             database=database,
             schema=schema,
             **kwargs,

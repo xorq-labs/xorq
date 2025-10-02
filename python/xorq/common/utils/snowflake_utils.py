@@ -12,6 +12,7 @@ from attr.validators import (
     instance_of,
     optional,
 )
+from snowflake.connector.connection import _get_private_bytes_from_file
 
 from xorq.backends.snowflake import Backend as SnowflakeBackend
 from xorq.backends.snowflake import connect
@@ -262,14 +263,90 @@ def deassign_public_key(con, user, do_assert=True):
     return fetched
 
 
+def decrypt_private_key_bytes_snowflake(private_key_bytes, password_str):
+    from cryptography.hazmat.primitives.serialization import (
+        Encoding,
+        NoEncryption,
+        PrivateFormat,
+        load_pem_private_key,
+    )
+
+    private_key = load_pem_private_key(private_key_bytes, password_str.encode("utf-8"))
+    return private_key.private_bytes(
+        Encoding.DER,
+        PrivateFormat.PKCS8,
+        NoEncryption(),
+    )
+
+
+def encrypt_private_key_bytes_snowflake_adbc(private_key_bytes, password_str):
+    from cryptography.hazmat.primitives.serialization import (
+        BestAvailableEncryption,
+        Encoding,
+        PrivateFormat,
+        load_der_private_key,
+    )
+
+    private_key = load_der_private_key(private_key_bytes, None)
+    return private_key.private_bytes(
+        Encoding.PEM,
+        PrivateFormat.PKCS8,
+        BestAvailableEncryption(password_str.encode("ascii")),
+    )
+
+
+def ensure_private_key_bytes(private_key, private_key_pwd=None):
+    if isinstance(private_key, str):
+        if (path := Path(private_key)).exists():
+            private_key = path
+        else:
+            private_key = private_key.encode()
+    match private_key:
+        case Path():
+            private_key = _get_private_bytes_from_file(private_key, private_key_pwd)
+        case bytes():
+            if private_key_pwd is not None:
+                private_key = decrypt_private_key_bytes_snowflake(
+                    private_key, private_key_pwd
+                )
+        case _:
+            raise NotImplementedError(f"Can't handle type {type(private_key)}")
+    return private_key
+
+
 @frozen
 class SnowflakeADBC:
     con = field(validator=instance_of(SnowflakeBackend))
-    password = field(validator=optional(instance_of(str)), default=None, repr=False)
 
-    def __attrs_post_init__(self):
-        if self.password is None:
-            object.__setattr__(self, "password", make_credential_defaults()["password"])
+    @property
+    def password(self):
+        from xorq.vendor.ibis.backends.profiles import maybe_process_env_var
+
+        return maybe_process_env_var(self.con._profile.kwargs_dict.get("password"))
+
+    @property
+    def is_keypair_auth(self):
+        return self.con._profile.kwargs_dict.get("authenticator") == "snowflake_jwt"
+
+    @property
+    def db_kwargs(self, N=20):
+        import random
+        import string
+
+        from adbc_driver_snowflake import DatabaseOptions
+
+        if self.is_keypair_auth:
+            # ADBC connection requires an encrypted private key, so encrypt on the fly
+            tmp_password_str = "".join(random.choices(string.printable, k=N))
+            return {
+                DatabaseOptions.AUTH_TYPE.value: "auth_jwt",
+                DatabaseOptions.JWT_PRIVATE_KEY_VALUE.value: encrypt_private_key_bytes_snowflake_adbc(
+                    self.con._profile.kwargs_dict["private_key"], tmp_password_str
+                ),
+                DatabaseOptions.JWT_PRIVATE_KEY_PASSWORD.value: tmp_password_str,
+            }
+        else:
+            return {}
 
     @property
     def params(self):
@@ -277,7 +354,8 @@ class SnowflakeADBC:
 
         dct = {
             "user": con.user,
-            "password": self.password,
+            # ADBC connection always requires a password, even if using private key
+            "password": self.password or "nopassword",
             "host": con.host,
             "database": con.database,
             "schema": con.schema,
@@ -296,7 +374,10 @@ class SnowflakeADBC:
         return self.get_uri()
 
     def get_conn(self, **kwargs):
-        return dbapi.connect(self.get_uri(**kwargs))
+        return dbapi.connect(
+            self.get_uri(**kwargs),
+            db_kwargs=self.db_kwargs,
+        )
 
     @property
     def conn(self):
