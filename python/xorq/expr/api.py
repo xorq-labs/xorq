@@ -31,7 +31,6 @@ from xorq.expr.relations import (
     Tag,
     register_and_transform_remote_tables,
 )
-from xorq.vendor.ibis.backends.sql.dialects import DataFusion
 from xorq.vendor.ibis.expr import api
 from xorq.vendor.ibis.expr.api import *  # noqa: F403
 from xorq.vendor.ibis.expr.sql import SQLString
@@ -209,7 +208,7 @@ def read_postgres(
 def _cached_with_op(op, pretty, compiler):
     expr = op.to_expr()
     sg_expr = compiler.to_sqlglot(expr)
-    sql = sg_expr.sql(dialect=DataFusion, pretty=pretty)
+    sql = sg_expr.sql(dialect=compiler.dialect, pretty=pretty)
     return sql
 
 
