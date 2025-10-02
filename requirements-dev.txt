@@ -68,7 +68,7 @@ beautifulsoup4==4.13.4
     # via nbconvert
 beniget==0.4.2.post1 ; sys_platform == 'darwin'
     # via pythran
-black==25.1.0
+black==25.9.0
     # via
     #   blackdoc
     #   quartodoc
@@ -614,6 +614,8 @@ python-multipart==0.0.20
     # via mcp
 pythran==0.18.0 ; sys_platform == 'darwin'
     # via xorq
+pytokens==0.1.10
+    # via black
 pytz==2025.2
     # via
     #   pandas
