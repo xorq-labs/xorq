@@ -9,32 +9,39 @@
 
 </div>
 
-> **Xorq is a multi‑engine batch transformation framework built on Ibis,
+> **Xorq is a batch transformation framework built on Ibis,
 > DataFusion and Arrow.**
-> It ships a compute catalog and a multi-engine manifest you can run
-> across DuckDB, Snowflake, DataFusion, and more.
+> It ships a multi-engine manifest that you can run in SQL across DuckDB,
+> Snowflake, DataFusion, and more.
 
 ---
 
 ## What Xorq gives you
 
-- **Multi-engine manifest:** A single, typed plan captured as a YAML artifact
-that can execute in DuckDB, Snowflake, DataFusion, etc.
-- **Deterministic builds & caching:** Content hashes of the plan power
-reproducible runs and cheap replays.
-- **Lineage & Schemas:** Compile-time schema checks and end-to-end to end
-column-level lineage.
-- **Compute catalog:** Versioned registry that stores and operates on manifests
-(run, cache, diff, serve-unbound).
-- **Portable UDxFs:** Arbitrary python logic with schema-in/out contracts
-portable via Arrow Flight.
-- **Scikit-learn integration:** Model fitting pipeline captured in the predict
-pipeline manifest for portable batch scoring and model training lineage
+| Feature | Description |
+|---|---|
+|**Multi-engine manifest** | A single, typed plan (YAML manifest) that executes as SQL on DuckDB, Snowflake, and embedded DataFusion. |
+|**Deterministic builds & caching** | Manifests are uniquely named with a deterministic hash of the expression. |
+|**Lineage & schemas** | Schema checks with end-to-end, column-level lineage. |
+|**Compute catalog** | Versioned registry to run, cache, diff, and manifests. |
+|**Portable UDxFs** | Arbitrary Python logic with schema-in/out contracts, portable via Arrow Flight. |
+|**`scikit-learn` integration** | Fit/predict pipelines serialize to a manifest for portable batch scoring with training lineage. |
+|**Templates with `uv`** | `xorq init` ships a templates in **replicaple environments** |
 
+> [!NOTE]
 > **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
+> **Batch focus.** Not streaming/online—**batch**, **out-of-core** transformations.
 
-> **Not streaming/online.** Xorq focuses on **batch**,**out-of-core**
-> transformations.
+
+### Supported backends
+
+- DuckDB
+- Snowflake
+- BigQuery
+- Postgres
+- SQLite
+- DataFusion (vanilla)
+- Xorq-DataFusion (embedded)
 
 
 ## Quickstart
@@ -48,7 +55,29 @@ Then follow the [Quickstart
 Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart) for a
 full walk-through using the Penguins dataset.
 
-## From `scikit-learn` to multi-engine manifest
+### Project Templates
+
+We ship minimal, opinionated starter templates so you can go from
+zero-to-manifest fast.
+
+- **Penguins:** Feature engineering + fit/predict LogisticRegression on the
+Penguins dataset.
+- **Digits:** Fit/predict on the Digits dataset with a full pipeline (PCA +
+classifier).
+
+Each template includes:
+
+```bash
+uv.lock — pinned dependencies for replicable envs
+requirements.txt — bare minimal requirement
+pyproject.toml — project metadata
+expr.py  — the expr entrypoint
+```
+
+#### Requirements for environment replicability for a Project:
+- TBD
+
+## Multi-engine manifest for Machine Learning pipelines
 
 The manifest is a collection of YAML files that captures the expression graph
 and supporting files like memtables serialized to disk.
@@ -61,6 +90,9 @@ Once you xorq build your pipeline, you get:
 
 Xorq makes it easy to bring your scikit-learn Pipeline and automatically
 converts it into a deferred Xorq expression.
+
+**Engines used**: `duckdb` to read parquet, `xorq-datafusion` for running UDFs.
+
 
 ```python
 import xorq.api as xo
@@ -96,8 +128,11 @@ predicted:
           body_mass_g: ...
           species: ...         # target
 ```
-The YAML format serializes the Expression graph and all its nodes, including
-UDFs as pickled entries.
+
+We serialize the expression as a YAML manifest that captures the graph and all
+nodes (including UDFs as pickled entries); builds are addressed by its hash.
+
+This ensures expression-level replicability and round-trippability to Python.
 
 ## From manifest to catalog
 
@@ -135,7 +170,7 @@ xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir 
 - `--cache-dir penguins_example`: Directory for caching results
 - `b2370a29c19df8e1e639c63252dacd0e`: The node-hash that represents the expression input to replace
 
-To learn more on how to find the node hash, check out the [Serve Unbound](https://docs.xorq.dev/tutorials/getting_started/quickstart#finding-the-node-hash).
+To learn more on how to find the node hash, check out the [`serve-unbound`](https://docs.xorq.dev/tutorials/getting_started/quickstart#finding-the-node-hash) documentation.
 
 ### Compose with the served expression:
 
@@ -150,6 +185,20 @@ new_expr = expr.pipe(f)
 new_expr.execute()
 ```
 
+### Replicable environments with uv
+
+Using the lock with Xorq
+
+we currently using `requirements.txt` to build the uv env.
+
+```bash
+# Build using a locked env (hydrates if needed)
+xorq uv-build
+
+# Run a build
+xorq uv-run builds/<hash>
+```
+
 ## How Xorq works
 
 Xorq uses Apache Arrow Flight RPC for zero-copy data transfer and leverages Ibis and
@@ -161,18 +210,18 @@ DataFusion under the hood for efficient computation.
 
 A generic catalog that can be used to build new workloads:
 
+- ML/data pipeline development (deterministic builds, caching, replicable envs)
 - Lineage‑preserving, multi-engine feature stores (offline, reproducible)
 - Composable data products (ship datasets as compute artifacts)
 - Governed sharing of compute (catalog entries as the contract between teams)
-- ML/data pipeline development (deterministic builds)
 
 
 Also great for:
 
 - Generating SQL from high-level DSLs (e.g. Semantic Layers)
-- Batch model scoring across engines (same expr, different backends)
 - Cross‑warehouse migrations (portability via Ibis + UDxFs)
-- Data CI (compile‑time schema/lineage checks in PRs)
+- Data CI (Schema/lineage checks in PRs)
+- ML Experiment Tracking (versioned manifests with cached results)
 
 
 ## Learn More
