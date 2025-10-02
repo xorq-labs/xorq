@@ -12,7 +12,8 @@ from xorq.vendor import ibis
 
 
 snowflake_credentials_varnames = (
-    "SNOWFLAKE_PASSWORD",
+    "SNOWFLAKE_KEYPAIR_PRIVATE_STR",
+    "SNOWFLAKE_KEYPAIR_PASSWORD",
     "SNOWFLAKE_USER",
 )
 have_snowflake_credentials = all(
