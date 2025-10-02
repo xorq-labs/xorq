@@ -510,7 +510,7 @@ plum-dispatch==2.5.7
     # via quartodoc
 ply==3.11 ; sys_platform == 'darwin'
     # via pythran
-pre-commit==4.2.0
+pre-commit==4.3.0
 prometheus-client==0.22.1
     # via
     #   jupyter-server
