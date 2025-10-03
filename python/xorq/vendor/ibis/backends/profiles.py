@@ -510,24 +510,22 @@ def parse_env_vars(kwargs_dict: dict) -> dict:
 
     Uses maybe_process_env_var internally to ensure consistent behavior.
     """
-    processed_kwargs = {}
 
-    # get env keys
-    env_var_keys = [
-        k
-        for k, v in kwargs_dict.items()
-        if isinstance(v, str) and compiled_env_var_re.match(v)
-    ]
+    def f(pair):
+        name, obj = pair
+        try:
+            return name, maybe_process_env_var(obj)
+        except ValueError as e:
+            # Re-raise with more context if needed
+            raise ValueError(f"Error processing key '{name}': {str(e)}")
 
-    # possibly parse
-    for k, v in kwargs_dict.items():
-        if k in env_var_keys:
-            try:
-                processed_kwargs[k] = maybe_process_env_var(v)
-            except ValueError as e:
-                # Re-raise with more context if needed
-                raise ValueError(f"Error processing key '{k}': {str(e)}")
-        else:
-            processed_kwargs[k] = v
-
+    to_process = toolz.valfilter(
+        toolz.excepts(Exception, compiled_env_var_re.match),
+        kwargs_dict,
+    )
+    maybe_processed = toolz.itemmap(
+        f,
+        to_process,
+    )
+    processed_kwargs = kwargs_dict | maybe_processed
     return processed_kwargs
