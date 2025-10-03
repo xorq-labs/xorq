@@ -496,11 +496,10 @@ def maybe_process_env_var(obj):
     if isinstance(obj, str) and (match := compiled_env_var_re.match(obj)):
         # this will match on "$"/"${}" and then raise on env_value is None
         env_var = next(filter(None, match.groups()), None)
-        env_value = os.environ.get(env_var)
-        if env_value is None:
+        try:
+            return os.environ[env_var]
+        except KeyError:
             raise ValueError(f"env var {env_var} not found")
-        else:
-            return env_value
     else:
         return obj
 
