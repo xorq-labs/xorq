@@ -258,7 +258,6 @@ class Backend(IbisSnowflakeBackend):
         self,
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
-        password: str | None = None,
         temporary: bool = False,
         mode: str = "create",
         **kwargs: Any,
@@ -275,7 +274,7 @@ class Backend(IbisSnowflakeBackend):
             },
         )
 
-        snowflake_adbc = SnowflakeADBC(self, password)
+        snowflake_adbc = SnowflakeADBC(self)
         snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         return self.table(table_name)
 
