@@ -38,14 +38,6 @@ def replace_cache_table(node, kwargs):
         return node
 
 
-def replace_read(node, kwargs):
-    return (
-        node.make_unbound_dt()
-        if isinstance(node, Read)
-        else (node.__recreate__(kwargs) if kwargs else node)
-    )
-
-
 def legacy_replace_cache_table(node, _, **kwargs):
     return replace_cache_table(node, (kwargs or dict(zip(node.argnames, node.args))))
 
@@ -580,11 +572,8 @@ class Read(ops.DatabaseTable):
         return dt
 
     def make_unbound_dt(self):
-        import dask
-
-        name = f"{self.name}-{dask.base.tokenize(self)}"
         return ops.UnboundTable(
-            name=name,
+            name=self.name,
             schema=self.schema,
         )
 
