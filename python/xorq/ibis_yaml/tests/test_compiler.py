@@ -16,7 +16,6 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources
-from xorq.expr.relations import replace_read
 from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import find_relations
@@ -164,7 +163,7 @@ def test_deferred_reads_yaml(build_dir, parquet_dir):
     assert os.path.exists(yaml_path)
     sql_text = pathlib.Path(yaml_path).read_text()
 
-    sql_str = str(ibis.to_sql(awards_players.op().replace(replace_read).to_expr()))
+    sql_str = str(ibis.to_sql(awards_players))
     expected_sql_file = dask.base.tokenize(sql_str)[: config.hash_length] + ".sql"
 
     expected_read_path = str(config_path)
