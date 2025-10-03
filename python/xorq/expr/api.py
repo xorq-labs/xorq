@@ -238,6 +238,8 @@ def to_sql(expr: ir.Expr, compiler=None, pretty: bool = True) -> SQLString:
 
     """
 
+    assert isinstance(expr, ir.Expr)
+
     if compiler is None:
         compiler = get_compiler(expr)
 
