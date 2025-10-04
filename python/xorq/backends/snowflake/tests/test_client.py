@@ -18,14 +18,13 @@ def test_setup_session():
         .iloc[0]
         .to_dict()
     )
-    assert con.current_catalog == f"{database}/{schema}"
-    assert con.current_database is None
-    assert con.con.database == f"{database}/{schema}"
-    assert con.con.schema is None
+    expected = (database, schema)
+    assert (con.current_catalog, con.current_database) == expected
+    assert (con.con.database, con.con.schema) == expected
     assert dct == {
         "CURRENT_WAREHOUSE()": "COMPUTE_WH",
-        "CURRENT_DATABASE()": None,
-        "CURRENT_SCHEMA()": None,
+        "CURRENT_DATABASE()": database,
+        "CURRENT_SCHEMA()": schema,
     }
 
     con = SU.make_connection(
