@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import itertools
 import warnings
 from typing import Any
@@ -21,6 +22,16 @@ from xorq.vendor.ibis.expr.operations.relations import (
 
 
 logger = get_logger(__name__)
+
+
+@functools.wraps(IbisSnowflakeBackend.do_connect)
+def wrapped_do_connect(self, create_object_udfs: bool = True, **kwargs: Any):
+    from xorq.common.utils.snowflake_utils import maybe_decrypt_private_key
+
+    kwargs = maybe_decrypt_private_key(kwargs)
+    return IbisSnowflakeBackend.do_connect(
+        self, create_object_udfs=create_object_udfs, **kwargs
+    )
 
 
 class Backend(IbisSnowflakeBackend):
@@ -188,6 +199,8 @@ class Backend(IbisSnowflakeBackend):
             pass
 
         return self.table(name, database=(catalog, db))
+
+    do_connect = wrapped_do_connect
 
     def _setup_session(self, *, session_parameters, create_object_udfs: bool):
         con = self.con
