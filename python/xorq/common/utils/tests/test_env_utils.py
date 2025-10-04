@@ -38,7 +38,7 @@ def test_subclass_from_env_file(monkeypatch, tmp_path):
         (
             "export X=2",
             "Y=3",
-            "a line that doesn't match, perhaps we should raise?",
+            "a line that does not match, perhaps we should raise?",
         )
     )
     env_file = Path(tmp_path).joinpath(".env")
