@@ -322,6 +322,25 @@ def ensure_private_key_bytes(private_key, private_key_pwd=None):
     return private_key
 
 
+def maybe_decrypt_private_key(kwargs):
+    match kwargs:
+        case {"private_key": private_key, "private_key_pwd": private_key_pwd, **rest}:
+            if isinstance(private_key, bytes):
+                raise ValueError
+            if isinstance(private_key, str):
+                private_key = private_key.encode("utf-8")
+            kwargs = rest | {
+                "private_key": decrypt_private_key_bytes_snowflake(
+                    private_key, private_key_pwd
+                )
+            }
+        case {"private_key_pwd": private_key_pwd, **rest}:
+            raise ValueError("private_key_pwd passed without private_key")
+        case _:
+            pass
+    return kwargs
+
+
 @frozen
 class SnowflakeADBC:
     con = field(validator=instance_of(SnowflakeBackend))
