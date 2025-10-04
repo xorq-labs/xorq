@@ -56,7 +56,6 @@ class Backend(IbisSnowflakeBackend):
         **kwargs,
     ):
         from xorq.common.utils.snowflake_utils import (
-            ensure_private_key_bytes,
             make_connection,
             snowflake_config,
         )
@@ -69,7 +68,8 @@ class Backend(IbisSnowflakeBackend):
 
         return make_connection(
             authenticator="snowflake_jwt",
-            private_key=ensure_private_key_bytes(private_key, private_key_pwd),
+            private_key=private_key,
+            private_key_pwd=private_key_pwd,
             password=None,
             database=database,
             schema=schema,
