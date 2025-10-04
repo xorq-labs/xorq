@@ -32,10 +32,24 @@ snowflake_config = SnowflakeConfig.from_env()
 
 
 def make_credential_defaults():
-    return {
+    import toolz
+
+    from xorq.vendor.ibis.backends.profiles import maybe_process_env_var
+
+    dct = {
+        # the issue here is that we will try to evaluate an env var and raise if it does not exist
+        # so we want to filter out any kwargs not necessary
         "user": "${SNOWFLAKE_USER}",
-        "password": "${SNOWFLAKE_PASSWORD}",
+        "private_key": "${SNOWFLAKE_KEYPAIR_PRIVATE_STR}",
+        "private_key_pwd": "${SNOWFLAKE_KEYPAIR_PASSWORD}",
     }
+    dct = {
+        k: v
+        for k, v in dct.items()
+        if toolz.excepts(ValueError, maybe_process_env_var)(v, snowflake_config)
+        is not None
+    }
+    return dct
 
 
 def make_connection_defaults():
