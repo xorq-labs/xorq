@@ -337,14 +337,31 @@ class SnowflakeADBC:
         from adbc_driver_snowflake import DatabaseOptions
 
         if self.is_keypair_auth:
-            # ADBC connection requires an encrypted private key, so encrypt on the fly
-            tmp_password_str = "".join(random.choices(string.printable, k=N))
+            match self.con._profile.kwargs_dict:
+                case {
+                    "private_key": private_key,
+                    "private_key_pwd": private_key_pwd,
+                    **rest,  # noqa: F841
+                }:
+                    private_key_encrypted = private_key
+                case {
+                    "private_key": private_key,
+                    **rest,  # noqa: F841
+                }:
+                    # ADBC connection requires an encrypted private key, so encrypt on the fly
+                    private_key_pwd = "".join(random.choices(string.printable, k=N))
+                    private_key_encrypted = encrypt_private_key_bytes_snowflake_adbc(
+                        # how do we know that the private key is decrypted in kwargs?
+                        self.con._profile.kwargs_dict["private_key"].encode("utf-8"),
+                        private_key_pwd,
+                    )
+                case _:
+                    raise ValueError("must have private_key")
+
             return {
                 DatabaseOptions.AUTH_TYPE.value: "auth_jwt",
-                DatabaseOptions.JWT_PRIVATE_KEY_VALUE.value: encrypt_private_key_bytes_snowflake_adbc(
-                    self.con._profile.kwargs_dict["private_key"], tmp_password_str
-                ),
-                DatabaseOptions.JWT_PRIVATE_KEY_PASSWORD.value: tmp_password_str,
+                DatabaseOptions.JWT_PRIVATE_KEY_VALUE.value: private_key_encrypted,
+                DatabaseOptions.JWT_PRIVATE_KEY_PASSWORD.value: private_key_pwd,
             }
         else:
             return {}
