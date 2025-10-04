@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from xorq.common.utils.env_utils import EnvConfigable
+from xorq.common.utils.env_utils import (
+    EnvConfigable,
+    parse_env_file,
+)
 
 
 def test_subclass_from_kwargs(monkeypatch):
@@ -57,3 +60,14 @@ def test_subclass_from_env_file(monkeypatch, tmp_path):
     env_config = EnvConfig.from_env()
     assert env_config.X == "1"
     assert env_config.Y == "3"
+
+
+def test_parse_multiline_env_vars(fixture_dir):
+    multiline_env_vars_path = fixture_dir.joinpath("multiline_env_vars.env")
+    dct = parse_env_file(multiline_env_vars_path)
+    actual = {k: len(v.split("\n")) for k, v in dct.items()}
+    expected = {
+        k: int(v)
+        for k, v in (el.split("=") for el in dct["names_to_numlines"].split(","))
+    }
+    assert actual == expected
