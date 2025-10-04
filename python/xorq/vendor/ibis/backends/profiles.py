@@ -510,6 +510,7 @@ def parse_env_vars(kwargs_dict: dict) -> dict:
     Uses maybe_process_env_var internally to ensure consistent behavior.
     """
 
+    # FIXME: refactor to remove uses of this function
     def f(pair):
         name, obj = pair
         try:
