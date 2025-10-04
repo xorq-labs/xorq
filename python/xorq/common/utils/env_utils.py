@@ -72,6 +72,13 @@ class EnvConfigable:
             **({varname: self[varname] for varname in self.varnames} | overrides)
         )
 
+    def maybe_process_env_var(self, obj):
+        from xorq.vendor.ibis.backends.profiles import (
+            maybe_process_env_var,
+        )
+
+        return maybe_process_env_var(obj, self)
+
     @property
     def varnames(self):
         return tuple(self.get_defaults())
