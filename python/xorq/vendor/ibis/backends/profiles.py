@@ -505,6 +505,15 @@ def maybe_process_env_var(obj, ctx=os.environ):
         return obj
 
 
+def filter_existing_env_vars(dct, ctx):
+    dct = {
+        k: v
+        for k, v in dct.items()
+        if toolz.excepts(ValueError, maybe_process_env_var)(v, ctx) is not None
+    }
+    return dct
+
+
 def parse_env_vars(kwargs_dict: dict) -> dict:
     """Process all environment variables in a dictionary.
 
