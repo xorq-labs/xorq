@@ -492,12 +492,13 @@ class Profile:
         return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
 
 
-def maybe_process_env_var(obj):
+# FIXME: require user to explicitly pass os.environ
+def maybe_process_env_var(obj, ctx=os.environ):
     if isinstance(obj, str) and (match := compiled_env_var_re.match(obj)):
         # this will match on "$"/"${}" and then raise on env_value is None
         env_var = next(filter(None, match.groups()), None)
         try:
-            return os.environ[env_var]
+            return ctx[env_var]
         except KeyError:
             raise ValueError(f"env var {env_var} not found")
     else:
