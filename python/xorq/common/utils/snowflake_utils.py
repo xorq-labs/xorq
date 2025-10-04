@@ -217,6 +217,7 @@ def make_snowflake_keypair_strs(password=None):
         NamedTemporaryFile() as private_key_ntf,
         NamedTemporaryFile() as public_key_ntf,
     ):
+        # can we do this with raw lib and not shell out?
         Popened.check_output(
             f"openssl genrsa 2048 | openssl pkcs8 -topk8 -inform PEM -out {private_key_ntf.name} {maybe_passout_arg}"
         )
