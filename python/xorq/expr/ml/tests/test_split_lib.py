@@ -275,9 +275,9 @@ def test_train_test_splits_num_buckets_gt_one():
 @pytest.mark.parametrize(
     "connect_method",
     (
-        xo.connect,
-        xo.duckdb.connect,
-        xo.postgres.connect_env,
+        lambda: xo.connect,
+        lambda: xo.duckdb.connect,
+        lambda: xo.postgres.connect_env,
         pytest.param(
             xo.datafusion.connect,
             marks=pytest.mark.xfail(
@@ -345,9 +345,9 @@ def test_train_test_splits_intersections_parameterized_pass(connect_method):
 @pytest.mark.parametrize(
     "connect_method",
     (
-        xo.connect,
-        xo.duckdb.connect,
-        xo.postgres.connect_env,
+        lambda: xo.connect,
+        lambda: xo.duckdb.connect,
+        lambda: xo.postgres.connect_env,
         pytest.param(
             xo.datafusion.connect,
             marks=pytest.mark.xfail(
