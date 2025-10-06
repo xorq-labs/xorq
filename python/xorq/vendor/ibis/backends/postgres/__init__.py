@@ -75,7 +75,7 @@ class Backend(
 
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         schema = op.schema
-        if null_columns := schema.null_fields:
+        if null_columns := [col for col, dtype in schema.items() if dtype.is_null()]:
             raise exc.XorqTypeError(
                 f"{self.name} cannot yet reliably handle `null` typed columns; "
                 f"got null typed columns: {null_columns}"
@@ -87,7 +87,7 @@ class Backend(
             kind="TABLE",
             this=sg.exp.Schema(
                 this=sg.to_identifier(name, quoted=quoted),
-                expressions=schema.to_sqlglot_column_defs(self.dialect),
+                expressions=schema.to_sqlglot(self.dialect),
             ),
             properties=sg.exp.Properties(expressions=[sge.TemporaryProperty()]),
         )
