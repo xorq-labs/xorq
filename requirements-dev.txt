@@ -532,10 +532,10 @@ protobuf==6.31.1
     #   proto-plus
 psutil==7.0.0
     # via ipykernel
+psycopg==3.2.10
+    # via xorq
 psycopg2-binary==2.9.10
-    # via
-    #   pyiceberg
-    #   xorq
+    # via pyiceberg
 ptyprocess==0.7.0 ; os_name != 'nt' or (sys_platform != 'emscripten' and sys_platform != 'win32')
     # via
     #   pexpect
@@ -832,6 +832,7 @@ typing-extensions==4.14.1
     #   opentelemetry-semantic-conventions
     #   pins
     #   plum-dispatch
+    #   psycopg
     #   pydantic
     #   pydantic-core
     #   pyopenssl
@@ -853,6 +854,7 @@ tzdata==2025.2
     # via
     #   ibis-framework
     #   pandas
+    #   psycopg
     #   tzlocal
 tzlocal==5.3.1
     # via trino

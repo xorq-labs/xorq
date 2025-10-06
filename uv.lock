@@ -3285,6 +3285,19 @@ wheels = [
 ]
 
 [[package]]
+name = "psycopg"
+version = "3.2.10"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions", marker = "python_full_version < '3.13'" },
+    { name = "tzdata", marker = "sys_platform == 'win32'" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/a9/f1/0258a123c045afaf3c3b60c22ccff077bceeb24b8dc2c593270899353bd0/psycopg-3.2.10.tar.gz", hash = "sha256:0bce99269d16ed18401683a8569b2c5abd94f72f8364856d56c0389bcd50972a", size = 160380, upload-time = "2025-09-08T09:13:37.775Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/4a/90/422ffbbeeb9418c795dae2a768db860401446af0c6768bc061ce22325f58/psycopg-3.2.10-py3-none-any.whl", hash = "sha256:ab5caf09a9ec42e314a21f5216dbcceac528e0e05142e42eea83a3b28b320ac3", size = 206586, upload-time = "2025-09-08T09:07:50.121Z" },
+]
+
+[[package]]
 name = "psycopg2-binary"
 version = "2.9.10"
 source = { registry = "https://pypi.org/simple" }
@@ -5144,7 +5157,6 @@ examples = [
     { name = "mcp" },
     { name = "openai" },
     { name = "pins", extra = ["gcs"], marker = "python_full_version < '4'" },
-    { name = "psycopg2-binary" },
     { name = "quickgrove" },
     { name = "requests" },
     { name = "scikit-learn" },
@@ -5154,7 +5166,7 @@ examples = [
 ]
 postgres = [
     { name = "adbc-driver-postgresql" },
-    { name = "psycopg2-binary" },
+    { name = "psycopg" },
 ]
 pyiceberg = [
     { name = "pyiceberg", extra = ["sql-postgres", "sql-sqlite"] },
@@ -5233,8 +5245,7 @@ requires-dist = [
     { name = "parsy", specifier = ">=2" },
     { name = "pins", extras = ["gcs"], marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.8.3,<1" },
     { name = "prometheus-client", specifier = ">=0.22.1" },
-    { name = "psycopg2-binary", marker = "extra == 'examples'", specifier = ">=2.9.10" },
-    { name = "psycopg2-binary", marker = "extra == 'postgres'", specifier = ">=2.9.10" },
+    { name = "psycopg", marker = "extra == 'postgres'", specifier = ">=3.2.0" },
     { name = "pyarrow", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=13.0.0,<22" },
     { name = "pyarrow-hotfix", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.4,<1" },
     { name = "pyiceberg", extras = ["sql-sqlite", "sql-postgres"], marker = "extra == 'pyiceberg'", specifier = ">=0.9.0" },
