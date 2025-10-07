@@ -196,7 +196,7 @@ class Backend(IbisPostgresBackend):
             raise ValueError(
                 "password is required if POSTGRES_PASSWORD env var is not populated"
             )
-        dsn_parameters = self.con.get_dsn_parameters()
+        dsn_parameters = self.con.info.get_parameters()
         dct = {
             **toolz.dissoc(
                 dsn_parameters,

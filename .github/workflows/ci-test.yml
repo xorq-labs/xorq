@@ -50,6 +50,8 @@ jobs:
             extras:
               - --extra postgres
               - --extra examples
+            sys-deps:
+              - libpq5
           - name: pandas
             services: false
             extras: []
@@ -70,6 +72,14 @@ jobs:
       - uses: extractions/setup-just@v3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: update and install system dependencies
+        if: matrix.backend.sys-deps != null
+        run: |
+          set -euo pipefail
+
+          sudo apt-get update -qq -y
+          sudo apt-get install -qq -y build-essential ${{ join(matrix.backend.sys-deps, ' ') }}
 
       - name: download test data
         run: just download-data

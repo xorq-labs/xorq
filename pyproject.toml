@@ -97,7 +97,6 @@ examples = [
     "scikit-learn<2.0.0,>=1.4.0",
     "openai>=1.65.4",
     "adbc-driver-postgresql>=1.4.0",
-    "psycopg2-binary>=2.9.10",
     "mcp>=1.5.0",
     "requests>=2.32.3",
     "xorq-feature-utils",
@@ -105,7 +104,7 @@ examples = [
 ]
 postgres = [
     "adbc-driver-postgresql>=1.4.0",
-    "psycopg2-binary>=2.9.10",
+    "psycopg>=3.2.0",
 ]
 sqlite = [
     "adbc-driver-sqlite>=1.4.0"

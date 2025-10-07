@@ -1,7 +1,6 @@
 import adbc_driver_postgresql.dbapi
 import sqlglot as sg
 import sqlglot.expressions as sge
-import toolz
 from attr import (
     field,
     frozen,
@@ -40,17 +39,10 @@ class PgADBC:
 
     @property
     def params(self):
-        dsn_parameters = self.con.con.get_dsn_parameters()
-        dct = {
-            **toolz.dissoc(
-                dsn_parameters,
-                "dbname",
-                "options",
-            ),
-            **{
-                "database": dsn_parameters["dbname"],
-                "password": self.password,
-            },
+        con_info = self.con.con.info
+        dct = {key: getattr(con_info, key) for key in ("user", "host", "port")} | {
+            "database": con_info.dbname,
+            "password": self.password,
         }
         return dct
 

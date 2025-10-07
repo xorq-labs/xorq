@@ -8,8 +8,8 @@ import xorq.api as xo
 @pytest.mark.parametrize(
     "make_connection",
     (
-        xo.postgres.connect_env,
-        xo.postgres.connect_examples,
+        lambda: xo.postgres.connect_env(),
+        lambda: xo.postgres.connect_examples(),
     ),
 )
 @pytest.mark.slow(level=1)
