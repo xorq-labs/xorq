@@ -39,10 +39,11 @@ class PgADBC:
 
     @property
     def params(self):
-        dct = {
-            "database": self.con.con.info.dbname,
+        con_info = self.con.con.info
+        dct = {key: getattr(con_info, key) for key in ("user", "host", "port")} | {
+            "database": con_info.dbname,
             "password": self.password,
-        } | {key: getattr(self.con.con.info, key) for key in ("user", "host", "port")}
+        }
         return dct
 
     def get_uri(self, **kwargs):
