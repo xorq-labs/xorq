@@ -349,7 +349,7 @@ def test_train_test_splits_intersections_parameterized_pass(connect_method):
         lambda: xo.duckdb.connect(),
         lambda: xo.postgres.connect_env(),
         pytest.param(
-            lambda: xo.datafusion.connect,
+            lambda: xo.datafusion.connect(),
             marks=pytest.mark.xfail(
                 reason="Compilation rule for 'Hash' operation is not define"
             ),

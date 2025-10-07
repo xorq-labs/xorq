@@ -54,23 +54,53 @@ class Backend(
     supports_python_udfs = True
     supports_temporary_tables = True
 
-    def _from_url(self, url: ParseResult, **kwarg_overrides):
-        kwargs = {}
+    def _from_url(self, url: ParseResult, **kwargs):
+        """Connect to a backend using a URL `url`.
+
+        Parameters
+        ----------
+        url
+            URL with which to connect to a backend.
+        kwargs
+            Additional keyword arguments
+
+        Returns
+        -------
+        BaseBackend
+            A backend instance
+
+        """
         database, *schema = url.path[1:].split("/", 1)
-        if url.username:
-            kwargs["user"] = url.username
-        if url.password:
-            kwargs["password"] = unquote_plus(url.password)
-        if url.hostname:
-            kwargs["host"] = url.hostname
-        if database:
-            kwargs["database"] = database
-        if url.port:
-            kwargs["port"] = url.port
-        if schema:
-            kwargs["schema"] = schema[0]
-        kwargs.update(kwarg_overrides)
+        connect_args = {
+            "user": url.username,
+            "password": unquote_plus(url.password or ""),
+            "host": url.hostname,
+            "database": database or "",
+            "schema": schema[0] if schema else "",
+            "port": url.port,
+        }
+
+        kwargs.update(connect_args)
         self._convert_kwargs(kwargs)
+
+        if "user" in kwargs and not kwargs["user"]:
+            del kwargs["user"]
+
+        if "host" in kwargs and not kwargs["host"]:
+            del kwargs["host"]
+
+        if "database" in kwargs and not kwargs["database"]:
+            del kwargs["database"]
+
+        if "schema" in kwargs and not kwargs["schema"]:
+            del kwargs["schema"]
+
+        if "password" in kwargs and kwargs["password"] is None:
+            del kwargs["password"]
+
+        if "port" in kwargs and kwargs["port"] is None:
+            del kwargs["port"]
+
         return self.connect(**kwargs)
 
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
@@ -95,12 +125,14 @@ class Backend(
 
         table = op.data.to_pyarrow(schema)
         sql = self._build_insert_template(
-            name, schema=schema, columns=True, placeholder="%({name})s"
+            name, schema=schema, columns=True, placeholder="%s"
         )
 
         con = self.con
         with con.cursor() as cursor, con.transaction():
-            cursor.execute(create_stmt_sql).executemany(sql, table.to_pylist())
+            cursor.execute(create_stmt_sql).executemany(
+                sql, zip(*table.to_pydict().values())
+            )
 
     @contextlib.contextmanager
     def begin(self):
