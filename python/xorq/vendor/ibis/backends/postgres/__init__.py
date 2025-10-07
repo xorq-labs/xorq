@@ -8,9 +8,9 @@ from operator import itemgetter
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote_plus
 
+import psycopg
 import sqlglot as sg
 import sqlglot.expressions as sge
-from pandas.api.types import is_float_dtype
 
 import xorq.common.exceptions as com
 import xorq.common.exceptions as exc
@@ -23,27 +23,36 @@ from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import (
     CanCreateDatabase,
-    CanCreateSchema,
     CanListCatalog,
 )
 from xorq.vendor.ibis.backends.sql import SQLBackend
-from xorq.vendor.ibis.backends.sql.compilers.base import TRUE, C, ColGen, F
+from xorq.vendor.ibis.backends.sql.compilers.base import TRUE, C, ColGen
 
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from urllib.parse import ParseResult
 
     import pandas as pd
     import polars as pl
-    import psycopg2
     import pyarrow as pa
+    from typing_extensions import Self
 
 
-class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
+class NatDumper(psycopg.adapt.Dumper):
+    def dump(self, obj, context: Any | None = None) -> str | None:
+        return None
+
+
+class Backend(
+    SQLBackend,
+    CanListCatalog,
+    CanCreateDatabase,
+):
     name = "postgres"
     compiler = sc.postgres.compiler
     supports_python_udfs = True
+    supports_temporary_tables = True
 
     def _from_url(self, url: ParseResult, **kwargs):
         """Connect to a backend using a URL `url`.
@@ -94,24 +103,7 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
 
         return self.connect(**kwargs)
 
-    def _in_memory_table_exists(self, name: str) -> bool:
-        import psycopg2.errors
-
-        ident = sg.to_identifier(name, quoted=self.compiler.quoted)
-        sql = sg.select(sge.convert(1)).from_(ident).limit(0).sql(self.dialect)
-
-        try:
-            with self.begin() as cur:
-                cur.execute(sql)
-                cur.fetchall()
-        except psycopg2.errors.UndefinedTable:
-            return False
-        else:
-            return True
-
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
-        from psycopg2.extras import execute_batch
-
         schema = op.schema
         if null_columns := [col for col, dtype in schema.items() if dtype.is_null()]:
             raise exc.XorqTypeError(
@@ -131,62 +123,70 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         )
         create_stmt_sql = create_stmt.sql(self.dialect)
 
-        df = op.data.to_frame()
-        # nan gets compiled into 'NaN'::float which throws errors in non-float columns
-        # In order to hold NaN values, pandas automatically converts integer columns
-        # to float columns if there are NaN values in them. Therefore, we need to convert
-        # them to their original dtypes (that support pd.NA) to figure out which columns
-        # are actually non-float, then fill the NaN values in those columns with None.
-        convert_df = df.convert_dtypes()
-        for col in convert_df.columns:
-            if not is_float_dtype(convert_df[col]):
-                df[col] = df[col].replace(float("nan"), None)
-
-        data = df.itertuples(index=False)
+        table = op.data.to_pyarrow(schema)
         sql = self._build_insert_template(
             name, schema=schema, columns=True, placeholder="%s"
         )
 
-        with self.begin() as cur:
-            cur.execute(create_stmt_sql)
-            execute_batch(cur, sql, data, 128)
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            cursor.execute(create_stmt_sql).executemany(
+                sql, zip(*table.to_pydict().values())
+            )
 
     @contextlib.contextmanager
     def begin(self):
-        con = self.con
-        cursor = con.cursor()
-        try:
+        with (con := self.con).cursor() as cursor, con.transaction():
             yield cursor
-        except Exception:
-            con.rollback()
-            raise
-        else:
-            con.commit()
-        finally:
-            cursor.close()
 
-    def _fetch_from_cursor(self, cursor, schema: sch.Schema) -> pd.DataFrame:
+    def execute(
+        self,
+        expr: ir.Expr,
+        /,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        **kwargs: Any,
+    ) -> pd.DataFrame | pd.Series | Any:
+        """Execute an Ibis expression and return a pandas `DataFrame`, `Series`, or scalar.
+
+        Parameters
+        ----------
+        expr
+            Ibis expression to execute.
+        params
+            Mapping of scalar parameter expressions to value.
+        limit
+            An integer to effect a specific row limit. A value of `None` means
+            no limit. The default is in `ibis/config.py`.
+        kwargs
+            Keyword arguments
+
+        Returns
+        -------
+        DataFrame | Series | scalar
+            The result of the expression execution.
+        """
         import pandas as pd
+        from ibis.backends.postgres.converter import PostgresPandasData
 
-        from xorq.vendor.ibis.backends.postgres.converter import PostgresPandasData
+        self._run_pre_execute_hooks(expr)
 
-        try:
-            df = pd.DataFrame.from_records(
-                cursor, columns=schema.names, coerce_float=True
-            )
-        except Exception:
-            # clean up the cursor if we fail to create the DataFrame
-            #
-            # in the sqlite case failing to close the cursor results in
-            # artificially locked tables
-            cursor.close()
-            raise
+        table = expr.as_table()
+        sql = self.compile(table, params=params, limit=limit, **kwargs)
+
+        con = self.con
+        with con.cursor() as cur, con.transaction():
+            rows = cur.execute(sql).fetchall()
+
+        schema = table.schema()
+        df = pd.DataFrame.from_records(rows, columns=schema.names, coerce_float=True)
         df = PostgresPandasData.convert_table(df, schema)
-        return df
+        return expr.__pandas_result__(df)
 
     @property
     def version(self):
-        version = f"{self.con.server_version:0>6}"
+        version = f"{self.con.info.server_version:0>6}"
         major = int(version[:2])
         minor = int(version[2:4])
         patch = int(version[4:])
@@ -204,6 +204,7 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         port: int = 5432,
         database: str | None = None,
         schema: str | None = None,
+        autocommit: bool = True,
         **kwargs: Any,
     ) -> None:
         """Create an Ibis client connected to PostgreSQL database.
@@ -222,6 +223,8 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             Database to connect to
         schema
             PostgreSQL schema to use. If `None`, use the default `search_path`.
+        autocommit
+            Whether or not to autocommit
         kwargs
             Additional keyword arguments to pass to the backend client connection.
 
@@ -253,17 +256,15 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
           year            int32
           month           int32
         """
-        import psycopg2.extras
+        import psycopg
 
-        psycopg2.extras.register_default_json(loads=lambda x: x)
-
-        self.con = psycopg2.connect(
+        self.con = psycopg.connect(
             host=host,
             port=port,
             user=user,
             password=password,
-            database=database,
-            options=(f"-csearch_path={schema}" * (schema is not None)) or None,
+            dbname=database,
+            autocommit=autocommit,
             **kwargs,
         )
 
@@ -271,7 +272,7 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
 
     @util.experimental
     @classmethod
-    def from_connection(cls, con: psycopg2.extensions.connection) -> Backend:
+    def from_connection(cls, con: psycopg.Connection, /) -> Backend:
         """Create an Ibis client from an existing connection to a PostgreSQL database.
 
         Parameters
@@ -286,8 +287,14 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         return new_backend
 
     def _post_connect(self) -> None:
-        with self.begin() as cur:
-            cur.execute("SET TIMEZONE = UTC")
+        import pandas as pd
+
+        self.con.adapters.register_dumper(type(pd.NaT), NatDumper)
+        with (con := self.con).cursor() as cursor, con.transaction():
+            cursor.execute("SET TIMEZONE = UTC")
+            if schema := self._con_kwargs.get("schema"):
+                # The `false` means this setting will persist beyond this transaction
+                cursor.execute("SELECT set_config('search_path', %s, false)", (schema,))
 
     @property
     def _session_temp_db(self) -> str | None:
@@ -296,57 +303,19 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         # Before that temp table is created, this will return `None`
         # After a temp table is created, it will return `pg_temp_N` where N is
         # some integer
-        res = self.raw_sql(
-            "select nspname from pg_namespace where oid = pg_my_temp_schema()"
-        ).fetchone()
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            res = cursor.execute(
+                "SELECT nspname FROM pg_namespace WHERE oid = pg_my_temp_schema()"
+            ).fetchone()
         if res is not None:
             return res[0]
         return res
 
     def list_tables(
-        self,
-        like: str | None = None,
-        schema: str | None = None,
-        database: tuple[str, str] | str | None = None,
+        self, *, like: str | None = None, database: tuple[str, str] | str | None = None
     ) -> list[str]:
-        """List the tables in the database.
-
-        ::: {.callout-note}
-        ## Ibis does not use the word `schema` to refer to database hierarchy.
-
-        A collection of tables is referred to as a `database`.
-        A collection of `database` is referred to as a `catalog`.
-
-        These terms are mapped onto the corresponding features in each
-        backend (where available), regardless of whether the backend itself
-        uses the same terminology.
-        :::
-
-        Parameters
-        ----------
-        like
-            A pattern to use for listing tables.
-        schema
-            [deprecated] The schema to perform the list against.
-        database
-            Database to list tables from. Default behavior is to show tables in
-            the current database.
-        """
-        if schema is not None:
-            self._warn_schema()
-
-        if schema is not None and database is not None:
-            raise ValueError(
-                "Using both the `schema` and `database` kwargs is not supported. "
-                "`schema` is deprecated and will be removed in Ibis 10.0"
-                "\nUse the `database` kwarg with one of the following patterns:"
-                '\ndatabase="database"'
-                '\ndatabase=("catalog", "database")'
-                '\ndatabase="catalog.database"',
-            )
-        elif schema is not None:
-            table_loc = schema
-        elif database is not None:
+        if database is not None:
             table_loc = database
         else:
             table_loc = (self.current_catalog, self.current_database)
@@ -364,75 +333,77 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             catalog = catalog.sql(dialect=self.name)
             conditions.append(C.table_catalog.eq(sge.convert(catalog)))
 
-        sql = (
-            sg.select("table_name")
+        sg_expr = (
+            sg.select(C.table_name)
             .from_(sg.table("tables", db="information_schema"))
             .distinct()
             .where(*conditions)
-            .sql(self.dialect)
         )
 
-        with self._safe_raw_sql(sql) as cur:
-            out = cur.fetchall()
-
-        # Include temporary tables only if no database has been explicitly specified
-        # to avoid temp tables showing up in all calls to `list_tables`
+        # Include temporary tables only if no database has been explicitly
+        # specified to avoid temp tables showing up in all calls to
+        # `list_tables`
         if db == "public":
-            out += self._fetch_temp_tables()
+            # postgres temporary tables are stored in a separate schema so we need
+            # to independently grab them and return them along with the existing
+            # results
+            sg_expr = sg_expr.union(
+                sg.select(C.table_name)
+                .from_(sg.table("tables", db="information_schema"))
+                .distinct()
+                .where(C.table_type.eq(sge.convert("LOCAL TEMPORARY"))),
+                distinct=False,
+            )
+
+        sql = sg_expr.sql(self.dialect)
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            out = cursor.execute(sql).fetchall()
 
         return self._filter_with_like(map(itemgetter(0), out), like)
 
-    def _fetch_temp_tables(self):
-        # postgres temporary tables are stored in a separate schema
-        # so we need to independently grab them and return them along with
-        # the existing results
-
-        sql = (
-            sg.select("table_name")
-            .from_(sg.table("tables", db="information_schema"))
-            .distinct()
-            .where(C.table_type.eq(sge.convert("LOCAL TEMPORARY")))
-            .sql(self.dialect)
-        )
-
-        with self._safe_raw_sql(sql) as cur:
-            out = cur.fetchall()
-
-        return out
-
-    def list_catalogs(self, like=None) -> list[str]:
+    def list_catalogs(self, *, like: str | None = None) -> list[str]:
         # http://dba.stackexchange.com/a/1304/58517
         cats = (
             sg.select(C.datname)
             .from_(sg.table("pg_database", db="pg_catalog"))
             .where(sg.not_(C.datistemplate))
+            .sql(self.dialect)
         )
-        with self._safe_raw_sql(cats) as cur:
-            catalogs = list(map(itemgetter(0), cur))
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            catalogs = cursor.execute(cats).fetchall()
 
-        return self._filter_with_like(catalogs, like)
+        return self._filter_with_like(map(itemgetter(0), catalogs), like)
 
     def list_databases(
         self, *, like: str | None = None, catalog: str | None = None
     ) -> list[str]:
-        dbs = sg.select(C.schema_name).from_(
-            sg.table("schemata", db="information_schema")
+        dbs = (
+            sg.select(C.schema_name)
+            .from_(sg.table("schemata", db="information_schema"))
+            .sql(self.dialect)
         )
-        with self._safe_raw_sql(dbs) as cur:
-            databases = list(map(itemgetter(0), cur))
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            databases = cursor.execute(dbs).fetchall()
 
-        return self._filter_with_like(databases, like)
+        return self._filter_with_like(map(itemgetter(0), databases), like)
 
     @property
     def current_catalog(self) -> str:
-        with self._safe_raw_sql(sg.select(F.current_database())) as cur:
-            (db,) = cur.fetchone()
+        sql = sg.select(sg.func("current_database")).sql(self.dialect)
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            [(db,)] = cursor.execute(sql).fetchall()
         return db
 
     @property
     def current_database(self) -> str:
-        with self._safe_raw_sql(sg.select(F.current_schema())) as cur:
-            (schema,) = cur.fetchone()
+        sql = sg.select(sg.func("current_schema")).sql(self.dialect)
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            [(schema,)] = cursor.execute(sql).fetchall()
         return schema
 
     def function(self, name: str, *, database: str | None = None) -> Callable:
@@ -459,14 +430,16 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
                 join_type="LEFT",
             )
             .where(*predicates)
+            .sql(self.dialect)
         )
 
         def split_name_type(arg: str) -> tuple[str, dt.DataType]:
             name, typ = arg.split(" ", 1)
             return name, self.compiler.type_mapper.from_string(typ)
 
-        with self._safe_raw_sql(query) as cur:
-            rows = cur.fetchall()
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            rows = cursor.execute(query).fetchall()
 
         if not rows:
             name = f"{database}.{name}" if database else name
@@ -502,55 +475,47 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         catalog: str | None = None,
         database: str | None = None,
     ):
-        a = ColGen(table="a")
-        c = ColGen(table="c")
-        n = ColGen(table="n")
-
-        format_type = self.compiler.f["pg_catalog.format_type"]
-
         # If no database is specified, assume the current database
-        db = database or self.current_database
-
-        dbs = [sge.convert(db)]
+        dbs = [database or self.current_database]
 
         # If a database isn't specified, then include temp tables in the
         # returned values
         if database is None and (temp_table_db := self._session_temp_db) is not None:
-            dbs.append(sge.convert(temp_table_db))
+            dbs.append(temp_table_db)
 
-        type_info = (
-            sg.select(
-                a.attname.as_("column_name"),
-                format_type(a.atttypid, a.atttypmod).as_("data_type"),
-                sg.not_(a.attnotnull).as_("nullable"),
-            )
-            .from_(sg.table("pg_attribute", db="pg_catalog").as_("a"))
-            .join(
-                sg.table("pg_class", db="pg_catalog").as_("c"),
-                on=c.oid.eq(a.attrelid),
-                join_type="INNER",
-            )
-            .join(
-                sg.table("pg_namespace", db="pg_catalog").as_("n"),
-                on=n.oid.eq(c.relnamespace),
-                join_type="INNER",
-            )
-            .where(
-                a.attnum > 0,
-                sg.not_(a.attisdropped),
-                n.nspname.isin(*dbs),
-                c.relname.eq(sge.convert(name)),
-            )
-            .order_by(a.attnum)
-        )
-
+        type_info = """\
+SELECT
+  a.attname AS column_name,
+  CASE
+    WHEN EXISTS(
+      SELECT 1
+      FROM pg_catalog.pg_type t
+      INNER JOIN pg_catalog.pg_enum e
+              ON e.enumtypid = t.oid
+             AND t.typname = pg_catalog.format_type(a.atttypid, a.atttypmod)
+    ) THEN 'enum'
+    ELSE pg_catalog.format_type(a.atttypid, a.atttypmod)
+  END AS data_type,
+  NOT a.attnotnull AS nullable
+FROM pg_catalog.pg_attribute a
+INNER JOIN pg_catalog.pg_class c
+   ON a.attrelid = c.oid
+INNER JOIN pg_catalog.pg_namespace n
+   ON c.relnamespace = n.oid
+WHERE a.attnum > 0
+  AND NOT a.attisdropped
+  AND n.nspname = ANY(%(dbs)s)
+  AND c.relname = %(name)s
+ORDER BY a.attnum ASC"""
         type_mapper = self.compiler.type_mapper
 
-        with self._safe_raw_sql(type_info) as cur:
-            rows = cur.fetchall()
+        con = self.con
+        params = {"dbs": dbs, "name": name}
+        with con.cursor() as cursor, con.transaction():
+            rows = cursor.execute(type_info, params, prepare=True).fetchall()
 
         if not rows:
-            raise com.XorqError(f"Table not found: {name!r}")
+            raise com.TableNotFound(name)
 
         return sch.Schema(
             {
@@ -567,21 +532,24 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             this=sg.table(name),
             expression=sg.parse_one(query, read=self.dialect),
             properties=sge.Properties(expressions=[sge.TemporaryProperty()]),
-        )
+        ).sql(self.dialect)
+
         drop_stmt = sge.Drop(kind="VIEW", this=sg.table(name), exists=True).sql(
             self.dialect
         )
 
-        with self._safe_raw_sql(create_stmt):
-            pass
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            cursor.execute(create_stmt)
+
         try:
             return self.get_schema(name)
         finally:
-            with self._safe_raw_sql(drop_stmt):
-                pass
+            with con.cursor() as cursor, con.transaction():
+                cursor.execute(drop_stmt)
 
     def create_database(
-        self, name: str, catalog: str | None = None, force: bool = False
+        self, name: str, /, *, catalog: str | None = None, force: bool = False
     ) -> None:
         if catalog is not None and catalog != self.current_catalog:
             raise exc.UnsupportedOperationError(
@@ -589,13 +557,16 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             )
         sql = sge.Create(
             kind="SCHEMA", this=sg.table(name, catalog=catalog), exists=force
-        )
-        with self._safe_raw_sql(sql):
-            pass
+        ).sql(self.dialect)
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            cursor.execute(sql)
 
     def drop_database(
         self,
         name: str,
+        /,
+        *,
         catalog: str | None = None,
         force: bool = False,
         cascade: bool = False,
@@ -607,16 +578,19 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
 
         sql = sge.Drop(
             kind="SCHEMA",
-            this=sg.table(name, catalog=catalog),
+            this=sg.table(name),
             exists=force,
             cascade=cascade,
-        )
-        with self._safe_raw_sql(sql):
-            pass
+        ).sql(self.dialect)
+
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            cursor.execute(sql)
 
     def create_table(
         self,
         name: str,
+        /,
         obj: ir.Table
         | pd.DataFrame
         | pa.Table
@@ -649,7 +623,6 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         overwrite
             If `True`, replace the table if it already exists, otherwise fail
             if the table exists
-
         """
         if obj is None and schema is None:
             raise ValueError("Either `obj` or `schema` must be specified")
@@ -681,7 +654,10 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         if not schema:
             schema = table.schema()
 
-        table_expr = sg.table(temp_name, db=database, quoted=self.compiler.quoted)
+        quoted = self.compiler.quoted
+        dialect = self.dialect
+
+        table_expr = sg.table(temp_name, db=database, quoted=quoted)
         target = sge.Schema(
             this=table_expr, expressions=schema.to_sqlglot(self.dialect)
         )
@@ -690,23 +666,26 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             kind="TABLE",
             this=target,
             properties=sge.Properties(expressions=properties),
-        )
+        ).sql(dialect)
 
-        this = sg.table(name, catalog=database, quoted=self.compiler.quoted)
-        with self._safe_raw_sql(create_stmt) as cur:
-            if query is not None:
-                insert_stmt = sge.Insert(this=table_expr, expression=query).sql(
-                    self.dialect
-                )
-                cur.execute(insert_stmt)
+        this = sg.table(name, catalog=database, quoted=quoted)
+        this_no_catalog = sg.table(name, quoted=quoted)
 
-            if overwrite:
-                cur.execute(
-                    sge.Drop(kind="TABLE", this=this, exists=True).sql(self.dialect)
-                )
-                cur.execute(
-                    f"ALTER TABLE IF EXISTS {table_expr.sql(self.dialect)} RENAME TO {this.sql(self.dialect)}"
-                )
+        con = self.con
+        stmts = [create_stmt]
+
+        if query is not None:
+            stmts.append(sge.Insert(this=table_expr, expression=query).sql(dialect))
+
+        if overwrite:
+            stmts.append(sge.Drop(kind="TABLE", this=this, exists=True).sql(dialect))
+            stmts.append(
+                f"ALTER TABLE IF EXISTS {table_expr.sql(dialect)} RENAME TO {this_no_catalog.sql(dialect)}"
+            )
+
+        with con.cursor() as cursor, con.transaction():
+            for stmt in stmts:
+                cursor.execute(stmt)
 
         if schema is None:
             return self.table(name, database=database)
@@ -719,6 +698,8 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
     def drop_table(
         self,
         name: str,
+        /,
+        *,
         database: str | None = None,
         force: bool = False,
     ) -> None:
@@ -726,18 +707,21 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
             kind="TABLE",
             this=sg.table(name, db=database, quoted=self.compiler.quoted),
             exists=force,
-        )
-        with self._safe_raw_sql(drop_stmt):
-            pass
+        ).sql(self.dialect)
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            cursor.execute(drop_stmt)
 
     @contextlib.contextmanager
-    def _safe_raw_sql(self, *args, **kwargs):
-        with contextlib.closing(self.raw_sql(*args, **kwargs)) as result:
-            yield result
+    def _safe_raw_sql(self, query: str | sg.Expression, **kwargs: Any):
+        with contextlib.suppress(AttributeError):
+            query = query.sql(dialect=self.dialect)
+
+        con = self.con
+        with con.cursor() as cursor, con.transaction():
+            yield cursor.execute(query, **kwargs)
 
     def raw_sql(self, query: str | sg.Expression, **kwargs: Any) -> Any:
-        import psycopg2.extras
-
         with contextlib.suppress(AttributeError):
             query = query.sql(dialect=self.dialect)
 
@@ -745,23 +729,47 @@ class Backend(SQLBackend, CanListCatalog, CanCreateDatabase, CanCreateSchema):
         cursor = con.cursor()
 
         try:
-            # try to load hstore, uuid and ipaddress extensions
-            with contextlib.suppress(psycopg2.ProgrammingError):
-                psycopg2.extras.register_hstore(cursor)
-            with contextlib.suppress(psycopg2.ProgrammingError):
-                psycopg2.extras.register_uuid(conn_or_curs=cursor)
-            with contextlib.suppress(psycopg2.ProgrammingError):
-                psycopg2.extras.register_ipaddress(cursor)
-        except Exception:
-            cursor.close()
-            raise
-
-        try:
             cursor.execute(query, **kwargs)
         except Exception:
-            con.rollback()
             cursor.close()
+            con.rollback()
             raise
         else:
-            con.commit()
             return cursor
+
+    @util.experimental
+    def to_pyarrow_batches(
+        self,
+        expr: ir.Expr,
+        /,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        chunk_size: int = 1_000_000,
+        **_: Any,
+    ) -> pa.ipc.RecordBatchReader:
+        import pyarrow as pa
+
+        def _batches(self: Self, *, struct_type: pa.StructType, query: str):
+            con = self.con
+            # server-side cursors need to be uniquely named
+            with (
+                con.cursor(name=util.gen_name("postgres_cursor")) as cursor,
+                con.transaction(),
+            ):
+                cur = cursor.execute(query)
+                while batch := cur.fetchmany(chunk_size):
+                    yield pa.RecordBatch.from_struct_array(
+                        pa.array(batch, type=struct_type)
+                    )
+
+        self._run_pre_execute_hooks(expr)
+
+        raw_schema = expr.as_table().schema()
+        query = self.compile(expr, limit=limit, params=params)
+        return pa.RecordBatchReader.from_batches(
+            raw_schema.to_pyarrow(),
+            _batches(
+                self, struct_type=raw_schema.as_struct().to_pyarrow(), query=query
+            ),
+        )

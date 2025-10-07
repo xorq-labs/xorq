@@ -386,7 +386,7 @@ def normalize_backend(con):
     if name == "snowflake":
         con_details = con.con._host
     elif name == "postgres":
-        con_dct = con.con.get_dsn_parameters()
+        con_dct = con.con.info.get_parameters() | {"port": con.con.info.port}
         con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
     elif name == "pandas":
         con_details = id(con.dictionary)
