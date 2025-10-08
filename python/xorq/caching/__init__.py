@@ -555,6 +555,6 @@ def maybe_prevent_cross_source_caching(expr, storage):
         into_backend,
     )
 
-    if storage.storage.source != expr._find_backend():
+    if storage.storage.source is not expr._find_backend():
         expr = into_backend(expr, storage.storage.source)
     return expr

@@ -561,14 +561,10 @@ def flight_udxf(
     )
 
 
-class Read(ops.Relation):
-    method_name: str
-    name: str
-    schema: Schema
-    source: Any
-    read_kwargs: Any
-    normalize_method: Any
-    values = FrozenDict()
+class Read(ops.DatabaseTable):
+    method_name: str = None
+    read_kwargs: Any = None
+    normalize_method: Any = None
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)
@@ -576,11 +572,8 @@ class Read(ops.Relation):
         return dt
 
     def make_unbound_dt(self):
-        import dask
-
-        name = f"{self.name}-{dask.base.tokenize(self)}"
         return ops.UnboundTable(
-            name=name,
+            name=self.name,
             schema=self.schema,
         )
 
