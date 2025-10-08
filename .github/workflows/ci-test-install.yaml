@@ -57,10 +57,21 @@ jobs:
           enable-cache: true
 
       - name: Install PostgreSQL on macOS
-        if: runner.os == "macOS"
+        # https://stackoverflow.com/a/78269163
+        if: runner.os == 'macOS'
         run: |
           brew install postgresql@16
           brew link postgresql@16
+
+      - name: Add PostgreSQL binaries to PATH
+        # https://stackoverflow.com/a/78269163
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" == "Windows" ]; then
+            echo "$PGBIN" >> $GITHUB_PATH
+          elif [ "$RUNNER_OS" == "Linux" ]; then
+            echo "$(pg_config --bindir)" >> $GITHUB_PATH
+          fi
 
       - name: Get package extras
         id: get-extras

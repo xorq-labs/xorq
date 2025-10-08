@@ -484,10 +484,10 @@ def test_init_uv_build_uv_run(template, tmpdir):
 
 
 serve_hashes = (
-    "323f89d94c90d1dcf0660baefd813658",  # batting, rel.Read
-    "d5ca7be107d6b69cd11715fa9bb628b9",  # awards_players, rel.Read
-    "3c1b0dc766c6d217ab921fc73ebfe933",  # left, ops.Filter
-    "8cd7850627df82fc184a152d770eb205",  # right, ops.DropColumns
+    "89978d5c78fb5ca50d886365332906da",  # batting, rel.Read
+    "8aca0d6ea3923e55c6e1af694f5c2a5f",  # awards_players, rel.Read
+    "df93de05993777a49942026e2c25fbf1",  # left, ops.Filter
+    "359f78c6909857ae618591493d1c19d9",  # right, ops.DropColumns
 )
 
 
@@ -544,8 +544,8 @@ def hit_server(port, expr):
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
-        "8cd7850627df82fc184a152d770eb205": "xorq.vendor.ibis.expr.operations.DropColumns",
-        "3c1b0dc766c6d217ab921fc73ebfe933": "xorq.vendor.ibis.expr.operations.Filter",
+        "359f78c6909857ae618591493d1c19d9": "xorq.vendor.ibis.expr.operations.DropColumns",
+        "df93de05993777a49942026e2c25fbf1": "xorq.vendor.ibis.expr.operations.Filter",
     }
     expr = load_expr(pipeline_https_build)
     typ = lookup.get(serve_hash)
@@ -707,7 +707,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        serve_hash = "da8ba93cc97709f4ad9502e16d71e8e3"  # RemoteTable 2
+        serve_hash = "a71aec005c38a8153aee589621930174"  # RemoteTable 2
 
         serve_args = (
             "xorq",
