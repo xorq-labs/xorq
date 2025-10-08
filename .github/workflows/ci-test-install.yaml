@@ -58,7 +58,7 @@ jobs:
 
       - name: Install PostgreSQL on macOS
         # https://stackoverflow.com/a/78269163
-        if: runner.os == "macOS"
+        if: runner.os == 'macOS'
         run: |
           brew install postgresql@16
           brew link postgresql@16
