@@ -158,7 +158,6 @@ def test_deferred_reads_yaml(build_dir, parquet_dir):
 
     compiler = BuildManager(build_dir, debug=True)
     expr_hash = compiler.compile_expr(expr)
-    _roundtrip_expr = compiler.load_expr(expr_hash)
 
     yaml_path = build_dir / expr_hash / "deferred_reads.yaml"
     assert os.path.exists(yaml_path)
