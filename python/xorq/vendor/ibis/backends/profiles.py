@@ -1,7 +1,5 @@
 import itertools
 import json
-import os
-import re
 from pathlib import Path
 
 import dask
@@ -16,12 +14,10 @@ from attr.validators import (
     optional,
 )
 
+from xorq.common.utils.env_utils import compiled_env_var_substitution_re
 from xorq.common.utils.inspect_utils import get_arguments
 from xorq.loader import _load_entry_points, load_backend
 from xorq.vendor.ibis.config import options
-
-
-compiled_env_var_re = re.compile(r"^(?:\${(.*)}$)|(?:\$(.*))$")
 
 
 @frozen
@@ -91,6 +87,7 @@ class Profiles:
 
     def __attrs_post_init__(self):
         if self.profile_dir is None:
+            # defer setting to pick up in-process changes to options
             object.__setattr__(self, "profile_dir", options.profiles.profile_dir)
         if not self.profile_dir.exists():
             self.profile_dir.mkdir(exist_ok=True, parents=True)
@@ -243,62 +240,6 @@ class Profile:
             dict(con_name=self.con_name, kwargs_dict=self.kwargs_dict, idx=self.idx)
         )
 
-    def _check_for_exposed_secrets(self, check_secrets: bool) -> None:
-        """Check if profile contains exposed secret keys.
-
-        Raises
-        ------
-        ValueError
-            If profile contains exposed secret keys not using environment variables
-        """
-
-        if check_secrets:
-            # Define secret keys by database type
-            # TODO: Add more database types as needed
-            # maybe user sets this in options
-            secret_keys = {
-                "postgres": [
-                    "password",
-                    "sslcert",
-                    "sslkey",
-                    "sslrootcert",
-                    "sslcrl",
-                    "options",
-                    "passfile",
-                ],
-                "snowflake": [
-                    "password",
-                    "user",
-                    "account",
-                    "token",
-                    "private_key",
-                    "private_key_path",
-                    "oauth_token",
-                ],
-                # Add more database types as needed
-            }
-
-            # default to just password
-            relevant_secrets = secret_keys.get(
-                self.con_name, ["password"]
-            )  # Default to just password
-
-            exposed_secrets = [
-                key
-                for key, value in self.kwargs_dict.items()
-                if key in relevant_secrets
-                and not (isinstance(value, str) and compiled_env_var_re.match(value))
-            ]
-            if exposed_secrets:
-                secrets_list = ", ".join(f"'{key}'" for key in exposed_secrets)
-                env_var_examples = ", ".join(
-                    f"${key} or ${{{key}}}" for key in exposed_secrets
-                )
-                raise ValueError(
-                    f"Profile contains exposed secret keys: {secrets_list}. "
-                    f"Use environment variables ({env_var_examples}) for these values."
-                )
-
     def save(self, profile_dir=None, alias=None, clobber=False, check_secrets=True):
         """Save this profile to disk as a YAML file.
 
@@ -348,7 +289,7 @@ class Profile:
         See Also
         --------
         load : Load a previously saved profile
-        _check_for_exposed_secrets : Check for sensitive information not using env vars
+        check_for_exposed_secrets : Check for sensitive information not using env vars
 
         Examples
         --------
@@ -369,7 +310,8 @@ class Profile:
         >>> # Save without checking for exposed secrets (not recommended)
         >>> profile.save(check_secrets=False)
         """
-        self._check_for_exposed_secrets(check_secrets)
+        if check_secrets:
+            self.check_for_exposed_secrets()
         path = self.get_path(self.hash_name, profile_dir=profile_dir)
         if not path.exists():
             path.write_text(self.as_yaml())
@@ -382,6 +324,9 @@ class Profile:
             alias_path.symlink_to(path)
             return alias_path
         return path
+
+    def check_for_exposed_secrets(self):
+        check_for_exposed_secrets(self.con_name, self.kwargs_dict)
 
     def almost_equals(self, other):
         return self.clone(idx=-1) == other.clone(idx=-1)
@@ -492,42 +437,57 @@ class Profile:
         return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
 
 
-def maybe_process_env_var(obj):
-    if isinstance(obj, str) and (match := compiled_env_var_re.match(obj)):
-        # this will match on "$"/"${}" and then raise on env_value is None
-        env_var = next(filter(None, match.groups()), None)
-        env_value = os.environ.get(env_var)
-        if env_value is None:
-            raise ValueError(f"env var {env_var} not found")
-        else:
-            return env_value
-    else:
-        return obj
+def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
+    """Check if profile contains exposed secret keys.
 
-
-def parse_env_vars(kwargs_dict: dict) -> dict:
-    """Process all environment variables in a dictionary.
-
-    Uses maybe_process_env_var internally to ensure consistent behavior.
+    Raises
+    ------
+    ValueError
+        If profile contains exposed secret keys not using environment variables
     """
-    processed_kwargs = {}
 
-    # get env keys
-    env_var_keys = [
-        k
-        for k, v in kwargs_dict.items()
-        if isinstance(v, str) and compiled_env_var_re.match(v)
-    ]
+    # Define secret keys by connection name
+    # TODO: Add more database types as needed
+    # maybe user sets this in options
+    con_name_to_secret_keys = {
+        "postgres": [
+            "password",
+            "sslcert",
+            "sslkey",
+            "sslrootcert",
+            "sslcrl",
+            "options",
+            "passfile",
+        ],
+        "snowflake": [
+            "password",
+            "user",
+            "account",
+            "token",
+            "private_key",
+            "private_key_path",
+            "oauth_token",
+        ],
+        # Add more database types as needed
+    }
 
-    # possibly parse
-    for k, v in kwargs_dict.items():
-        if k in env_var_keys:
-            try:
-                processed_kwargs[k] = maybe_process_env_var(v)
-            except ValueError as e:
-                # Re-raise with more context if needed
-                raise ValueError(f"Error processing key '{k}': {str(e)}")
-        else:
-            processed_kwargs[k] = v
+    relevant_keys = con_name_to_secret_keys.get(
+        con_name,
+        ["password"],  # default to just password
+    )
 
-    return processed_kwargs
+    exposed_secrets = tuple(
+        key
+        for key, value in kwargs.items()
+        if key in relevant_keys
+        and not (
+            isinstance(value, str) and compiled_env_var_substitution_re.match(value)
+        )
+    )
+    if exposed_secrets:
+        secrets_list = ", ".join(f"'{key}'" for key in exposed_secrets)
+        env_var_examples = ", ".join(f"${key} or ${{{key}}}" for key in exposed_secrets)
+        raise ValueError(
+            f"Profile contains exposed secret keys: {secrets_list}. "
+            f"Use environment variables ({env_var_examples}) for these values."
+        )
