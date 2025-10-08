@@ -56,6 +56,12 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Install PostgreSQL on macOS
+        if: runner.os == "macOS"
+        run: |
+          brew install postgresql@16
+          brew link postgresql@16
+
       - name: Get package extras
         id: get-extras
         shell: bash
