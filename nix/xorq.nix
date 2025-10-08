@@ -174,6 +174,9 @@ let
             prev.poetry-core
           ];
         });
+        psycopg-c = (prev.psycopg-c.overrideAttrs (addResolved final [
+          "setuptools"
+        ])).overrideAttrs(addNativeBuildInputs [ pkgs.postgresql.pg_config ]);
       };
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
