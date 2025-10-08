@@ -105,6 +105,7 @@ examples = [
 postgres = [
     "adbc-driver-postgresql>=1.4.0",
     "psycopg>=3.2.0",
+    "psycopg-c>=3.2.10",
 ]
 sqlite = [
     "adbc-driver-sqlite>=1.4.0"

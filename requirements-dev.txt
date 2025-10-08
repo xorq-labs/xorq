@@ -534,6 +534,8 @@ psutil==7.0.0
     # via ipykernel
 psycopg==3.2.10
     # via xorq
+psycopg-c==3.2.10
+    # via xorq
 psycopg2-binary==2.9.10
     # via pyiceberg
 ptyprocess==0.7.0 ; os_name != 'nt' or (sys_platform != 'emscripten' and sys_platform != 'win32')
