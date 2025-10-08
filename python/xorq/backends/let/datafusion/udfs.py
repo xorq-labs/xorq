@@ -3,12 +3,12 @@ from __future__ import annotations
 import itertools
 from urllib.parse import parse_qs, urlsplit
 
+import ibis.expr.datatypes as dt
 import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow_hotfix  # noqa: F401
 
 import xorq.common.exceptions as com
-import xorq.expr.datatypes as dt
 
 
 def _extract_epoch_seconds(array) -> dt.int32:

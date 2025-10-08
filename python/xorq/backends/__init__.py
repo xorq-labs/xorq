@@ -3,11 +3,12 @@ import importlib.metadata
 from abc import ABC
 from typing import Any, Mapping
 
-from xorq.vendor.ibis import BaseBackend
-from xorq.vendor.ibis.expr import types as ir
+from ibis.backends.sql import SQLBackend
+from ibis.expr import schema as sch
+from ibis.expr import types as ir
 
 
-class ExecutionBackend(BaseBackend, ABC):
+class ExecutionBackend(SQLBackend, ABC):
     def _pandas_execute(self, expr: ir.Expr, **kwargs):
         from xorq.expr.api import _transform_expr
         from xorq.expr.relations import FlightExpr, FlightUDXF
@@ -80,6 +81,25 @@ class ExecutionBackend(BaseBackend, ABC):
         batch_reader = self.to_pyarrow_batches(expr, **kwargs)
         arrow_table = batch_reader.read_all()
         return expr.__pyarrow_result__(arrow_table)
+
+    @property
+    def version(self) -> str:
+        return super().version
+
+    def list_tables(
+        self, *, like: str | None = None, database: tuple[str, str] | str | None = None
+    ) -> list[str]:
+        return super().list_tables(like=like, database=database)
+
+    def _get_schema_using_query(self, query: str) -> sch.Schema:
+        return super()._get_schema_using_query(query)
+
+    def table(
+        self, name: str, /, *, database: tuple[str, str] | str | None = None
+    ) -> ir.Table:
+        from xorq.expr.relations import Table
+
+        return Table.from_ibis(super().table(name, database=database))
 
 
 @functools.cache

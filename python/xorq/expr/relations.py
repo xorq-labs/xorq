@@ -2,10 +2,22 @@ import functools
 import itertools
 import operator
 from collections import defaultdict
-from typing import Any, Callable
+from typing import Any, Callable, Iterable, Sequence
 
+import ibis
+import ibis.expr.types as ir
 import pyarrow as pa
 import toolz
+from ibis import Deferred, Expr, Schema, Table
+from ibis.common.collections import (
+    FrozenDict,
+    FrozenOrderedDict,
+)
+from ibis.common.graph import Graph
+from ibis.expr import operations as ops
+from ibis.expr.format import fmt, render_schema
+from ibis.expr.operations import Node, Relation
+from ibis.selectors import IfAnyAll
 from opentelemetry import trace
 
 from xorq.backends.let import connect as xo_connect
@@ -14,16 +26,6 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
-from xorq.vendor import ibis
-from xorq.vendor.ibis import Expr, Schema
-from xorq.vendor.ibis.common.collections import (
-    FrozenDict,
-    FrozenOrderedDict,
-)
-from xorq.vendor.ibis.common.graph import Graph
-from xorq.vendor.ibis.expr import operations as ops
-from xorq.vendor.ibis.expr.format import fmt, render_schema
-from xorq.vendor.ibis.expr.operations import Node, Relation
 
 
 def replace_cache_table(node, kwargs):
@@ -690,3 +692,132 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     backend = render_backend(source)
     name = f"{op.__class__.__name__}[name={name}, method_name={method_name}, source={backend}]\n"
     return name + render_schema(op.schema, 1)
+
+
+class Table(ir.Table):
+    @classmethod
+    def from_ibis(cls, table):
+        return cls(table.op())
+
+    def filter(
+        self,
+        *predicates: ir.BooleanValue | Sequence[ir.BooleanValue] | IfAnyAll | Deferred,
+    ) -> Table:
+        return Table.from_ibis(super().filter(*predicates))
+
+    def select(
+        self,
+        *exprs: ir.Value | str | Iterable[ir.Value | str] | Deferred,
+        **named_exprs: ir.Value | str | Deferred,
+    ) -> Table:
+        return Table.from_ibis(super().select(*exprs, **named_exprs))
+
+    def cache(self, storage=None) -> Table:
+        """Cache the results of a computation to improve performance on subsequent executions.
+        This method allows you to cache the results of a computation either in memory, on disk
+        using Parquet files, or in a database table. The caching strategy and storage location
+        are determined by the storage parameter.
+
+        Parameters
+        ----------
+        storage : CacheStorage, optional
+            The storage strategy to use for caching. Can be one of:
+            - ParquetStorage: Caches results as Parquet files on disk
+            - SourceStorage: Caches results in the source database
+            - ParquetSnapshotStorage: Creates a snapshot of data in Parquet format
+            - SourceSnapshotStorage: Creates a snapshot in the source database
+            If None, uses the default storage configuration.
+
+        Returns
+        -------
+        Expr
+            A new expression that represents the cached computation.
+
+        Notes
+        -----
+        The cache method supports two main strategies:
+        1. ModificationTimeStrategy: Tracks changes based on modification time
+        2. SnapshotStrategy: Creates point-in-time snapshots of the data
+
+        Each strategy can be combined with either Parquet or database storage.
+
+        Examples
+        --------
+        Using ParquetStorage:
+        >>> import xorq.api as xo
+        >>> from xorq.caching import ParquetStorage
+        >>> from pathlib import Path
+        >>> pg = xo.postgres.connect_examples()
+        >>> con = xo.connect()
+        >>> storage = ParquetStorage(source=con, relative_path=Path.cwd())
+        >>> alltypes = pg.table("functional_alltypes")
+        >>> cached = (alltypes
+        ...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
+        ...     .cache(storage=storage)) # doctest: +SKIP
+
+        Using SourceStorage with PostgreSQL:
+        >>> from xorq.caching import SourceStorage
+        >>> from xorq.api import _
+        >>> ddb = xo.duckdb.connect()
+        >>> path = xo.config.options.pins.get_path("batting")
+        >>> right = (ddb.read_parquet(path, table_name="batting")
+        ...          .filter(_.yearID == 2014)
+        ...          .pipe(con.register, table_name="ddb-batting"))
+        >>> left = (pg.table("batting")
+        ...         .filter(_.yearID == 2015)
+        ...         .pipe(con.register, table_name="pg-batting"))
+        >>> # Cache the joined result
+        >>> expr = left.join(right, "playerID").cache(SourceStorage(source=pg)) # doctest: +SKIP
+
+        Using cache with filtering:
+        >>> cached = alltypes.cache(storage=storage)
+        >>> expr = cached.filter([
+        ...     cached.float_col > 0,
+        ...     cached.smallint_col > 4,
+        ...     cached.int_col < cached.float_col * 2
+        ... ]) # doctest: +SKIP
+
+        See Also
+        --------
+        ParquetStorage : Storage implementation for Parquet files
+        SourceStorage : Storage implementation for database tables
+        ModificationTimeStrategy : Strategy for tracking changes by modification time
+        SnapshotStrategy : Strategy for creating data snapshots
+
+        Notes
+        -----
+        - The cache is identified by a unique key based on the computation and strategy
+        - Cache invalidation is handled automatically based on the chosen strategy
+        - Cross-source caching (e.g., from PostgreSQL to DuckDB) is supported
+        - Cache locations can be configured globally through xorq.config.options
+        """
+
+        from xorq.caching import (
+            SourceStorage,
+            maybe_prevent_cross_source_caching,
+        )
+        from xorq.common.utils.caching_utils import find_backend
+        from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
+
+        if storage:
+            expr = maybe_prevent_cross_source_caching(self, storage)
+        else:
+            expr = self
+
+        current_backend, _ = find_backend(expr.op(), use_default=True)
+        storage = storage or SourceStorage(source=current_backend)
+
+        op = CachedNode(
+            name=CACHED_NODE_NAME_PLACEHOLDER,
+            schema=expr.schema(),
+            parent=expr,
+            source=current_backend,
+            storage=storage,
+        )
+        return op.to_expr()
+
+    @property
+    def ls(self):
+        from xorq.vendor.ibis.expr.types.core import LETSQLAccessor
+
+        return LETSQLAccessor(self.op())

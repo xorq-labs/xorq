@@ -10,6 +10,7 @@ from pathlib import (
 )
 
 import dask
+import ibis
 from attr import (
     field,
     frozen,
@@ -46,7 +47,6 @@ from xorq.expr.relations import (
     Read,
     RemoteTable,
 )
-from xorq.vendor import ibis
 from xorq.vendor.ibis.expr import types as ir
 
 

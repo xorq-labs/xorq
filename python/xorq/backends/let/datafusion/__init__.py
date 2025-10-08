@@ -9,18 +9,32 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import ibis
+import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
+import ibis.expr.schema as sch
+import ibis.expr.types as ir
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 import sqlglot as sg
 import sqlglot.expressions as sge
+from ibis.backends import (
+    CanCreateCatalog,
+    CanCreateDatabase,
+    NoUrl,
+)
+from ibis.backends.sql import SQLBackend
+from ibis.backends.sql.compilers.base import C
+from ibis.common.dispatch import lazy_singledispatch
+from ibis.expr.operations.udf import InputType
+from ibis.formats.pyarrow import (
+    PyArrowType,
+)
+from ibis.util import gen_name, normalize_filename, normalize_filenames
 
 import xorq
 import xorq.common.exceptions as com
-import xorq.expr.datatypes as dt
 import xorq.internal as df
-import xorq.vendor.ibis.expr.operations as ops
-import xorq.vendor.ibis.expr.schema as sch
-import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.let.datafusion.compiler import compiler
 from xorq.backends.let.datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
@@ -38,21 +52,7 @@ from xorq.internal import (
     WindowEvaluator,
     udwf,
 )
-from xorq.vendor import ibis
-from xorq.vendor.ibis.backends import (
-    CanCreateCatalog,
-    CanCreateDatabase,
-    CanCreateSchema,
-    NoUrl,
-)
-from xorq.vendor.ibis.backends.sql import SQLBackend
-from xorq.vendor.ibis.backends.sql.compilers.base import C
-from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
-from xorq.vendor.ibis.expr.operations.udf import InputType
-from xorq.vendor.ibis.formats.pyarrow import (
-    PyArrowType,
-)
-from xorq.vendor.ibis.util import gen_name, normalize_filename, normalize_filenames
+from xorq.vendor.ibis.expr.datatypes import LargeString
 
 
 if TYPE_CHECKING:
@@ -201,7 +201,7 @@ def translate_sort(exprs: list[ir.Expr]):
     return result
 
 
-class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, NoUrl):
+class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, NoUrl):
     name = "datafusion"
     supports_in_memory_tables = True
     supports_arrays = True
@@ -822,7 +822,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                     compiler.cast(
                         sg.column(col, table=relname, quoted=quoted), dtype
                     ).as_(col, quoted=quoted)
-                    if not isinstance(dtype, dt.LargeString)
+                    if not isinstance(dtype, LargeString)
                     else compiler.f.arrow_cast(
                         sg.column(col, table=relname, quoted=quoted), "LargeUtf8"
                     ).as_(col, quoted=quoted)
