@@ -13,7 +13,7 @@ from xorq.tests.util import assert_frame_equal
 
 
 pytest.importorskip("duckdb")
-pytest.importorskip("psycopg2")
+pytest.importorskip("psycopg")
 pytest.importorskip("datafusion")
 
 
