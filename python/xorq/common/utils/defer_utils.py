@@ -211,6 +211,9 @@ def deferred_read_parquet(
         The name to give to the resulting table in the backend. If not provided,
         a unique name will be generated automatically.
 
+    normalize_method : Callable, optional
+     The method that returns the values to be used in the hashing of the Read operation.
+
     **kwargs : dict
         Additional keyword arguments passed to the backend's read_parquet method.
 

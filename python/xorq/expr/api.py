@@ -288,11 +288,8 @@ def _transform_deferred_reads(expr):
                     ),
                 },
             )
-            if node.source.name == "pandas":
-                # FIXME: pandas read is not lazy, leave it to the pandas executor to do
-                node = dt_to_read[node] = node.make_dt()
-            else:
-                node = dt_to_read[node] = node.make_dt()
+            # FIXME: pandas read is not lazy, leave it to the pandas executor to do
+            node = dt_to_read[node] = node.make_dt()
         else:
             if _kwargs:
                 node = node.__recreate__(_kwargs)
