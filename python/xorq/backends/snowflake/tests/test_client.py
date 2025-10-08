@@ -1,15 +1,24 @@
 import pytest
+import toolz
+
+from xorq.backends.snowflake import SnowflakeAuthenticator
 
 
 SU = pytest.importorskip("xorq.common.utils.snowflake_utils")
 
 
+(database, schema) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1")
+make_connection = toolz.curry(
+    SU.make_connection,
+    authenticator=SnowflakeAuthenticator.keypair,
+    database=database,
+    schema=schema,
+)
+
+
 @pytest.mark.snowflake
 def test_setup_session():
-    (database, schema) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1")
-    con = SU.make_connection(
-        database=database,
-        schema=schema,
+    con = make_connection(
         create_object_udfs=False,
     )
     dct = (
@@ -18,19 +27,16 @@ def test_setup_session():
         .iloc[0]
         .to_dict()
     )
-    assert con.current_catalog == f"{database}/{schema}"
-    assert con.current_database is None
-    assert con.con.database == f"{database}/{schema}"
-    assert con.con.schema is None
+    expected = (database, schema)
+    assert (con.current_catalog, con.current_database) == expected
+    assert (con.con.database, con.con.schema) == expected
     assert dct == {
         "CURRENT_WAREHOUSE()": "COMPUTE_WH",
-        "CURRENT_DATABASE()": None,
-        "CURRENT_SCHEMA()": None,
+        "CURRENT_DATABASE()": database,
+        "CURRENT_SCHEMA()": schema,
     }
 
-    con = SU.make_connection(
-        database=database,
-        schema=schema,
+    con = make_connection(
         create_object_udfs=True,
     )
     dct = (
@@ -52,12 +58,8 @@ def test_setup_session():
 
 @pytest.mark.snowflake
 def test_table_namespace():
-    (database, schema, table_name) = ("SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1", "CUSTOMER")
-    con = SU.make_connection(
-        database=database,
-        schema=schema,
-    )
-    table = con.table(table_name)
+    con = make_connection()
+    table = con.table("CUSTOMER")
     namespace = table.op().namespace
     assert namespace.catalog is not None
     assert namespace.database is not None
