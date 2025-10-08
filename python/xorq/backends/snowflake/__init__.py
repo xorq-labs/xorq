@@ -173,25 +173,29 @@ class Backend(IbisSnowflakeBackend):
                 )
             )
 
+        # snowflake activates a database on creation, so reset it back
+        # to the original database and schema
+        if con.database and "/" in con.database:
+            (catalog, db) = con.database.split("/")
+        use_stmt = sge.Use(
+            kind="SCHEMA",
+            this=sg.table(db, catalog=catalog, quoted=self.compiler.quoted),
+        ).sql(dialect=self.name)
+        with contextlib.closing(con.cursor()) as cur:
+            try:
+                cur.execute(use_stmt)
+            except Exception:  # noqa: BLE001
+                warnings.warn("Unable to set catalog,db")
+
         if create_object_udfs:
-            dialect = self.name
             create_stmt = sge.Create(
                 kind="DATABASE", this="ibis_udfs", exists=True
-            ).sql(dialect)
-            if "/" in con.database:
-                (catalog, db) = con.database.split("/")
-                use_stmt = sge.Use(
-                    kind="SCHEMA",
-                    this=sg.table(db, catalog=catalog, quoted=self.compiler.quoted),
-                ).sql(dialect)
-            else:
-                use_stmt = ""
+            ).sql(dialect=self.name)
 
             stmts = [
                 create_stmt,
                 # snowflake activates a database on creation, so reset it back
                 # to the original database and schema
-                use_stmt,
                 *itertools.starmap(self._make_udf, _SNOWFLAKE_MAP_UDFS.items()),
             ]
 
