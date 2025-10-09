@@ -1,20 +1,24 @@
 import pandas as pd
 import snowflake.connector
-from adbc_driver_snowflake import dbapi
+from adbc_driver_snowflake import (
+    DatabaseOptions,
+    dbapi,
+)
 from attr import (
     field,
     frozen,
 )
 from attr.validators import (
     instance_of,
-    optional,
 )
 
 from xorq.backends.snowflake import Backend as SnowflakeBackend
-from xorq.backends.snowflake import connect
+from xorq.backends.snowflake import SnowflakeAuthenticator, connect
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
+    filter_existing_env_vars,
+    maybe_substitute_env_var,
 )
 
 
@@ -24,11 +28,36 @@ SnowflakeConfig = EnvConfigable.subclass_from_env_file(
 snowflake_config = SnowflakeConfig.from_env()
 
 
-def make_credential_defaults():
-    return {
+def make_auth_defaults(authenticator=None):
+    match authenticator := str(authenticator).lower():
+        case SnowflakeAuthenticator.password:
+            return {
+                "password": "${SNOWFLAKE_PASSWORD}",
+            }
+        case SnowflakeAuthenticator.mfa:
+            return {
+                "password": "${SNOWFLAKE_PASSWORD}",
+                "authenticator": authenticator,
+            }
+        case SnowflakeAuthenticator.keypair:
+            return {
+                "private_key": "${SNOWFLAKE_PRIVATE_KEY}",
+                "private_key_pwd": "${SNOWFLAKE_PRIVATE_KEY_PWD}",
+                "authenticator": authenticator,
+            }
+        case SnowflakeAuthenticator.sso:
+            return {
+                "authenticator": authenticator,
+            }
+        case _:
+            raise ValueError
+
+
+def make_credential_defaults(authenticator=None):
+    dct = {
         "user": "${SNOWFLAKE_USER}",
-        "password": "${SNOWFLAKE_PASSWORD}",
-    }
+    } | make_auth_defaults(authenticator)
+    return filter_existing_env_vars(dct, snowflake_config)
 
 
 def make_connection_defaults():
@@ -39,21 +68,23 @@ def make_connection_defaults():
     }
 
 
-def execute_statement(con, statement):
-    (((resp,), *rest0), *rest1) = con.con.execute_string(statement)
-    if rest0 or (resp != "Statement executed successfully."):
-        raise ValueError
+def execute_statement(con, statement, do_assert=True):
+    fetched = con.raw_sql(statement).fetchall()
+    if do_assert:
+        assert fetched == [("Statement executed successfully.",)]
+    return fetched
 
 
 def make_connection(
     database,
     schema,
+    authenticator=None,
     **kwargs,
 ):
     con = connect(
         database=f"{database}/{schema}",
         **{
-            **make_credential_defaults(),
+            **make_credential_defaults(authenticator=authenticator),
             **make_connection_defaults(),
             **kwargs,
         },
@@ -146,24 +177,37 @@ def get_session_query_df(con):
 @frozen
 class SnowflakeADBC:
     con = field(validator=instance_of(SnowflakeBackend))
-    password = field(validator=optional(instance_of(str)), default=None, repr=False)
 
-    def __attrs_post_init__(self):
-        if self.password is None:
-            object.__setattr__(self, "password", make_credential_defaults()["password"])
+    @property
+    def password(self):
+        return maybe_substitute_env_var(self.con._profile.kwargs_dict.get("password"))
+
+    @property
+    def is_keypair_auth(self):
+        return self.con._profile.kwargs_dict.get("authenticator") == "snowflake_jwt"
+
+    @property
+    def db_kwargs(self, N=20):
+        from xorq.common.utils.snowflake_keypair_utils import SnowflakeKeypair
+
+        if self.is_keypair_auth:
+            keypair = SnowflakeKeypair.from_bytes_der(self.con.con._private_key)
+            return {
+                DatabaseOptions.AUTH_TYPE.value: "auth_jwt",
+                DatabaseOptions.JWT_PRIVATE_KEY_VALUE.value: keypair.private_bytes,
+                DatabaseOptions.JWT_PRIVATE_KEY_PASSWORD.value: keypair.private_key_pwd,
+            }
+        else:
+            return {}
 
     @property
     def params(self):
-        con = self.con.con
-
         dct = {
-            "user": con.user,
-            "password": self.password,
-            "host": con.host,
-            "database": con.database,
-            "schema": con.schema,
-            "warehouse": con.warehouse,
-            "role": con.role,
+            attr: getattr(self.con.con, attr)
+            for attr in ("user", "host", "database", "schema", "warehouse", "role")
+        } | {
+            # ADBC connection always requires a password, even if using private key
+            "password": self.password or "nopassword",
         }
         return dct
 
@@ -177,7 +221,10 @@ class SnowflakeADBC:
         return self.get_uri()
 
     def get_conn(self, **kwargs):
-        return dbapi.connect(self.get_uri(**kwargs))
+        return dbapi.connect(
+            self.get_uri(**kwargs),
+            db_kwargs=self.db_kwargs,
+        )
 
     @property
     def conn(self):

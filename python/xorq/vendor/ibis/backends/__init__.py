@@ -865,11 +865,13 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
     supports_in_memory_tables = True
 
     def __init__(self, *args, **kwargs):
-        from xorq.vendor.ibis.backends.profiles import maybe_process_env_var
+        from xorq.common.utils.env_utils import maybe_substitute_env_var
 
         # we need to substitute args, kwargs here
-        self._con_args: tuple[Any] = tuple(map(maybe_process_env_var, args))
-        self._con_kwargs: dict[str, Any] = toolz.valmap(maybe_process_env_var, kwargs)
+        self._con_args: tuple[Any] = tuple(map(maybe_substitute_env_var, args))
+        self._con_kwargs: dict[str, Any] = toolz.valmap(
+            maybe_substitute_env_var, kwargs
+        )
         self._can_reconnect: bool = True
         self._profile = Profile.from_con(self, *args, **kwargs)
         super().__init__()
