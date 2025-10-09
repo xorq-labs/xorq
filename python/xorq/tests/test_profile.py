@@ -4,8 +4,9 @@ import pathlib
 import pytest
 
 import xorq.api as xo
+from xorq.common.utils.env_utils import maybe_substitute_env_vars
 from xorq.vendor.ibis.backends import BaseBackend
-from xorq.vendor.ibis.backends.profiles import Profile, Profiles, parse_env_vars
+from xorq.vendor.ibis.backends.profiles import Profile, Profiles
 
 
 local_con_names = ("duckdb", "let", "datafusion", "pandas", "pyiceberg")
@@ -128,7 +129,7 @@ def test_profile_hash_order_independence():
 class TestParseEnvVars:
     def test_empty_dict(self):
         """Test with empty dictionary."""
-        assert parse_env_vars({}) == {}
+        assert maybe_substitute_env_vars({}) == {}
 
     def test_no_env_vars(self):
         """Test with dictionary containing no environment variables."""
@@ -140,7 +141,7 @@ class TestParseEnvVars:
             "none_value": None,
             "empty_string": "",
         }
-        assert parse_env_vars(input_dict) == input_dict
+        assert maybe_substitute_env_vars(input_dict) == input_dict
 
     def test_dollar_brace_format(self, monkeypatch):
         """Test with ${VAR} format environment variables."""
@@ -164,7 +165,7 @@ class TestParseEnvVars:
             "non_env": "regular_value",
         }
 
-        assert parse_env_vars(input_dict) == expected
+        assert maybe_substitute_env_vars(input_dict) == expected
 
     def test_dollar_format(self, monkeypatch):
         """Test with $VAR format environment variables."""
@@ -188,7 +189,7 @@ class TestParseEnvVars:
             "non_env": "regular_value",
         }
 
-        assert parse_env_vars(input_dict) == expected
+        assert maybe_substitute_env_vars(input_dict) == expected
 
     def test_mixed_formats(self, monkeypatch):
         """Test with mixed ${VAR} and $VAR formats."""
@@ -212,7 +213,7 @@ class TestParseEnvVars:
             "non_env": "regular_value",
         }
 
-        assert parse_env_vars(input_dict) == expected
+        assert maybe_substitute_env_vars(input_dict) == expected
 
     def test_non_string_values(self, monkeypatch):
         """Test with non-string values."""
@@ -238,7 +239,7 @@ class TestParseEnvVars:
             "dict": {"a": 1, "b": 2},
         }
 
-        assert parse_env_vars(input_dict) == expected
+        assert maybe_substitute_env_vars(input_dict) == expected
 
     def test_missing_env_var(self, monkeypatch):
         """Test with missing environment variables - should raise ValueError."""
@@ -250,12 +251,8 @@ class TestParseEnvVars:
             "regular": "value",
         }
 
-        with pytest.raises(ValueError) as exc_info:
-            parse_env_vars(input_dict)
-
-        assert "Error processing key 'missing': env var MISSING_VAR not found" in str(
-            exc_info.value
-        )
+        with pytest.raises(KeyError, match="'MISSING_VAR'"):
+            maybe_substitute_env_vars(input_dict)
 
     def test_dollar_sign_in_string(self, monkeypatch):
         """Test with strings containing dollar signs but not as env vars."""
@@ -271,7 +268,7 @@ class TestParseEnvVars:
             "complex": "a${non-env}b",
         }
 
-        assert parse_env_vars(input_dict) == expected
+        assert maybe_substitute_env_vars(input_dict) == expected
 
     def test_preserve_case(self, monkeypatch):
         """Test that environment variable case is preserved."""
@@ -291,7 +288,7 @@ class TestParseEnvVars:
             "var3": "value3",
         }
 
-        assert parse_env_vars(input_dict) == expected
+        assert maybe_substitute_env_vars(input_dict) == expected
 
     def test_nested_structures(self, monkeypatch):
         """Test how function handles nested structures (should only process top level)."""
@@ -312,7 +309,7 @@ class TestParseEnvVars:
             "list_with_vars": ["${TEST_VAR}", "normal"],
         }
 
-        assert parse_env_vars(input_dict) == expected
+        assert maybe_substitute_env_vars(input_dict) == expected
 
 
 def test_connection_with_env_vars_preserves_env_vars(monkeypatch, tmp_path):
@@ -393,7 +390,7 @@ class TestCheckForExposedSecrets:
         )
 
         with pytest.raises(ValueError) as excinfo:
-            profile._check_for_exposed_secrets(check_secrets=True)
+            profile.check_for_exposed_secrets()
 
         # Check error message contains password
         assert "'password'" in str(excinfo.value)
@@ -413,7 +410,7 @@ class TestCheckForExposedSecrets:
         )
 
         # Should not raise an error
-        profile._check_for_exposed_secrets(check_secrets=True)
+        profile.check_for_exposed_secrets()
 
     def test_password_with_env_var_dollar_brace(self):
         """Test that a profile with password using ${ENV_VAR} format is accepted."""
@@ -429,7 +426,7 @@ class TestCheckForExposedSecrets:
         )
 
         # Should not raise an error
-        profile._check_for_exposed_secrets(check_secrets=True)
+        profile.check_for_exposed_secrets()
 
     def test_postgres_specific_secret_keys(self):
         """Test that postgres-specific secret keys are checked."""
@@ -446,7 +443,7 @@ class TestCheckForExposedSecrets:
         )
 
         with pytest.raises(ValueError) as excinfo:
-            profile._check_for_exposed_secrets(check_secrets=True)
+            profile.check_for_exposed_secrets()
 
         # Check error message contains sslcert
         assert "'sslcert'" in str(excinfo.value)
@@ -467,12 +464,12 @@ class TestCheckForExposedSecrets:
         )
 
         with pytest.raises(ValueError) as excinfo:
-            profile._check_for_exposed_secrets(check_secrets=True)
+            profile.check_for_exposed_secrets()
 
         # Check error message contains user
         assert "'user'" in str(excinfo.value)
 
-    def test_check_secrets_disabled(self):
+    def test_check_secrets_disabled(self, tmp_path):
         """Test that check_secrets=False allows profiles with secrets."""
         profile = Profile(
             con_name="postgres",
@@ -486,7 +483,9 @@ class TestCheckForExposedSecrets:
         )
 
         # Should not raise an error when check_secrets=False
-        profile._check_for_exposed_secrets(check_secrets=False)
+        profile.save(tmp_path, check_secrets=False)
+        with pytest.raises(ValueError, match="Profile contains exposed secret keys"):
+            profile.save(tmp_path, check_secrets=True)
 
     def test_multiple_exposed_secrets(self):
         """Test error message when multiple secrets are exposed."""
@@ -502,7 +501,7 @@ class TestCheckForExposedSecrets:
         )
 
         with pytest.raises(ValueError) as excinfo:
-            profile._check_for_exposed_secrets(check_secrets=True)
+            profile.check_for_exposed_secrets()
 
         # Check error message contains all secrets
         error_msg = str(excinfo.value)
@@ -521,7 +520,7 @@ class TestCheckForExposedSecrets:
         )
 
         with pytest.raises(ValueError) as excinfo:
-            profile._check_for_exposed_secrets(check_secrets=True)
+            profile.check_for_exposed_secrets()
 
         # Check error message contains password
         assert "'password'" in str(excinfo.value)

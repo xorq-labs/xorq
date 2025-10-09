@@ -13,12 +13,10 @@ SU = pytest.importorskip("xorq.common.utils.snowflake_utils")
 
 @pytest.fixture(scope="session")
 def sf_con():
-    return xo.snowflake.connect(
+    return xo.snowflake.connect_env_keypair(
         # a database/schema we can trust exists
         database="SNOWFLAKE_SAMPLE_DATA",
         schema="TPCH_SF1",
-        **SU.make_credential_defaults(),
-        **SU.make_connection_defaults(),
         create_object_udfs=False,
     )
 

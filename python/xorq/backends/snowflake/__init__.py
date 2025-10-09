@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import itertools
 import warnings
 from typing import Any
@@ -7,6 +8,7 @@ import pandas as pd
 import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
+import toolz
 
 import xorq.vendor.ibis.expr.api as api
 import xorq.vendor.ibis.expr.schema as sch
@@ -20,17 +22,73 @@ from xorq.vendor.ibis.expr.operations.relations import (
 )
 
 
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
+
 logger = get_logger(__name__)
 
 
-class Backend(IbisSnowflakeBackend):
-    _top_level_methods = ("connect_env",)
+class SnowflakeAuthenticator(StrEnum):
+    # https://docs.snowflake.com/en/developer-guide/node-js/nodejs-driver-options#label-nodejs-auth-options
+    password = "none"
+    mfa = "username_password_mfa"
+    keypair = "snowflake_jwt"
+    sso = "externalbrowser"
+    # oauth = "oauth"
+    # oauth2 = "oauth_authorization_code"
 
-    @classmethod
-    def connect_env(cls, database="SNOWFLAKE_SAMPLE_DATA", schema="TPCH_SF1", **kwargs):
+
+@functools.wraps(IbisSnowflakeBackend.do_connect)
+def wrapped_do_connect(self, create_object_udfs: bool = True, **kwargs: Any):
+    from xorq.common.utils.snowflake_keypair_utils import maybe_decrypt_private_key
+
+    if "private_key" in kwargs:
+        kwargs = maybe_decrypt_private_key(kwargs)
+    return IbisSnowflakeBackend.do_connect(
+        self, create_object_udfs=create_object_udfs, **kwargs
+    )
+
+
+class Backend(IbisSnowflakeBackend):
+    _top_level_methods = (
+        "connect_env",
+        "connect_env_mfa",
+        "connect_env_password",
+        "connect_env_keypair",
+    )
+
+    @staticmethod
+    def connect_env(
+        passcode=None,
+        authenticator=None,
+        database="SNOWFLAKE_SAMPLE_DATA",
+        schema="TPCH_SF1",
+        **kwargs,
+    ):
         from xorq.common.utils.snowflake_utils import make_connection
 
-        return make_connection(database=database, schema=schema, **kwargs)
+        return make_connection(
+            authenticator=authenticator,
+            passcode=passcode,
+            database=database,
+            schema=schema,
+            **kwargs,
+        )
+
+    connect_env_password = staticmethod(
+        toolz.curry(connect_env, authenticator=SnowflakeAuthenticator.password)
+    )
+
+    connect_env_mfa = staticmethod(
+        toolz.curry(connect_env, authenticator=SnowflakeAuthenticator.mfa)
+    )
+
+    connect_env_keypair = staticmethod(
+        toolz.curry(connect_env, authenticator=SnowflakeAuthenticator.keypair)
+    )
 
     def _to_sqlglot(
         self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
@@ -145,6 +203,8 @@ class Backend(IbisSnowflakeBackend):
 
         return self.table(name, database=(catalog, db))
 
+    do_connect = wrapped_do_connect
+
     def _setup_session(self, *, session_parameters, create_object_udfs: bool):
         con = self.con
 
@@ -173,25 +233,29 @@ class Backend(IbisSnowflakeBackend):
                 )
             )
 
+        # snowflake activates a database on creation, so reset it back
+        # to the original database and schema
+        if con.database and "/" in con.database:
+            (catalog, db) = con.database.split("/")
+        use_stmt = sge.Use(
+            kind="SCHEMA",
+            this=sg.table(db, catalog=catalog, quoted=self.compiler.quoted),
+        ).sql(dialect=self.name)
+        with contextlib.closing(con.cursor()) as cur:
+            try:
+                cur.execute(use_stmt)
+            except Exception:  # noqa: BLE001
+                warnings.warn("Unable to set catalog,db")
+
         if create_object_udfs:
-            dialect = self.name
             create_stmt = sge.Create(
                 kind="DATABASE", this="ibis_udfs", exists=True
-            ).sql(dialect)
-            if "/" in con.database:
-                (catalog, db) = con.database.split("/")
-                use_stmt = sge.Use(
-                    kind="SCHEMA",
-                    this=sg.table(db, catalog=catalog, quoted=self.compiler.quoted),
-                ).sql(dialect)
-            else:
-                use_stmt = ""
+            ).sql(dialect=self.name)
 
             stmts = [
                 create_stmt,
                 # snowflake activates a database on creation, so reset it back
                 # to the original database and schema
-                use_stmt,
                 *itertools.starmap(self._make_udf, _SNOWFLAKE_MAP_UDFS.items()),
             ]
 
@@ -214,7 +278,6 @@ class Backend(IbisSnowflakeBackend):
         self,
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
-        password: str | None = None,
         temporary: bool = False,
         mode: str = "create",
         **kwargs: Any,
@@ -231,7 +294,7 @@ class Backend(IbisSnowflakeBackend):
             },
         )
 
-        snowflake_adbc = SnowflakeADBC(self, password)
+        snowflake_adbc = SnowflakeADBC(self)
         snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         return self.table(table_name)
 

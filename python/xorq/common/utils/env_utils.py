@@ -4,6 +4,7 @@ import re
 import shlex
 from pathlib import Path
 
+import toolz
 from attr import (
     field,
     frozen,
@@ -17,8 +18,15 @@ from attr.validators import (
 env_templates_dir = Path(__file__).parents[2].joinpath("env_templates")
 
 
-def parse_env_file(env_file):
-    def gen_lines(path):
+compiled_env_var_substitution_re = re.compile(r"^(?:\${(.*)}$)|(?:\$(.*))$")
+compiled_env_var_setting_re = re.compile(
+    "(?:export )?([^=]+)=(.*)",
+    flags=re.DOTALL,
+)
+
+
+def parse_env_file(env_file, compiled_re=compiled_env_var_setting_re):
+    def gen_shlex_lines(path):
         def make_lexer(path):
             lex = shlex.shlex(Path(path).read_text(), posix=True)
             lex.whitespace_split = True
@@ -34,6 +42,7 @@ def parse_env_file(env_file):
         ):
             if token is None:
                 if tokens:
+                    # single line env file never triggers `before != after`
                     yield " ".join(tokens)
                 break
             tokens += (token,)
@@ -41,30 +50,35 @@ def parse_env_file(env_file):
                 yield " ".join(tokens)
                 tokens = ()
 
-    matches = (
-        re.match(
-            "(export )?([^=]+)=(.*)",
-            line,
-            flags=re.DOTALL,
-        )
-        for line in gen_lines(env_file)
+    matches = map(
+        compiled_re.match,
+        gen_shlex_lines(env_file),
     )
-    dct = {
-        name: value
-        for name, value in (match.groups()[1:] for match in filter(None, matches))
-    }
+    dct = dict(match.groups() for match in filter(None, matches))
     return dct
 
 
 @frozen
 class EnvConfigable:
     def __getitem__(self, key):
-        return getattr(self, key)
+        try:
+            return getattr(self, key)
+        except AttributeError:
+            raise KeyError(key)
+
+    def __contains__(self, key):
+        return hasattr(self, key)
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
 
     def clone(self, **overrides):
         return type(self)(
             **({varname: self[varname] for varname in self.varnames} | overrides)
         )
+
+    def maybe_substitute_env_var(self, obj):
+        return maybe_substitute_env_var(obj, self)
 
     @property
     def varnames(self):
@@ -124,3 +138,26 @@ class EnvConfigable:
                 }
             )
         )
+
+
+@toolz.curry
+def maybe_substitute_env_var(obj, ctx=os.environ):
+    if isinstance(obj, str) and (match := compiled_env_var_substitution_re.match(obj)):
+        # this will match on "$"/"${}" and then raise on env_value is None
+        env_var = next(filter(None, match.groups()), None)
+        return ctx[env_var]
+    else:
+        return obj
+
+
+def filter_existing_env_vars(dct, ctx):
+    f = toolz.excepts(ValueError, maybe_substitute_env_var(ctx=ctx))
+    dct = {k: v for k, v in dct.items() if (v is None or f(v) is not None)}
+    return dct
+
+
+def maybe_substitute_env_vars(dct: dict, ctx=os.environ) -> dict:
+    return toolz.valmap(
+        maybe_substitute_env_var(ctx=ctx),
+        dct,
+    )
