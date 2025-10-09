@@ -104,11 +104,11 @@ def replace_source_factory(source: Any):
 def make_native_op(node):
     # FIXME: how to reference let.Backend.name?
     if node.source.name != "let":
-        raise ValueError
+        raise ValueError(f"Expected 'let' backend, but got {node.source.name!r}")
     sources = node.source._sources
     native_source = sources.get_backend(node)
     if native_source.name == "let":
-        raise ValueError
+        raise ValueError("Expected a native backend, but got 'let' backend")
 
     def replace_table(_node, _kwargs):
         return sources.get_table_or_op(
@@ -185,9 +185,11 @@ class FlightExpr(ops.DatabaseTable):
 
         (dt, *rest) = walk_nodes(ops.UnboundTable, unbound_expr)
         if rest or not isinstance(dt, ops.UnboundTable):
-            raise ValueError
+            raise ValueError("unbound_expr must contain exactly one UnboundTable")
         if dt.schema != input_expr.schema():
-            raise ValueError
+            raise ValueError(
+                "Schema of unbound_expr does not match schema of input_expr"
+            )
 
     @classmethod
     def from_exprs(
