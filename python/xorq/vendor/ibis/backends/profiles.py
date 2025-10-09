@@ -213,20 +213,10 @@ class Profile:
         return con
 
     def clone(self, idx=None, **kwargs):
+        idx = idx if idx is not None else self.idx
         kwargs_tuple = tuple((dict(self.kwargs_tuple) | kwargs).items())
-        _kwargs = {
-            key: value
-            for key, value in (
-                ("idx", idx),
-                (
-                    "kwargs_tuple",
-                    kwargs_tuple,
-                ),
-            )
-            if value
-        }
 
-        return evolve(self, **_kwargs)
+        return evolve(self, idx=idx, kwargs_tuple=kwargs_tuple)
 
     def as_dict(self):
         return {
