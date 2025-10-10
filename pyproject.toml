@@ -41,7 +41,8 @@ dependencies = [
     "strenum>=0.4.15 ; python_version <= '3.10'",
     "uv>=0.7.20",
     "rich>=13.9.4",
-    "feast",
+    # "feast @ https://github.com/xorq-labs/feast/archive/refs/heads/chore/deps/loosen-pyarrow.zip",
+    "feast @ git+https://github.com/xorq-labs/feast@chore/deps/loosen-pyarrow"
 ]
 requires-python = ">=3.10"
 authors = [
@@ -307,4 +308,3 @@ feast = { git = "https://github.com/xorq-labs/feast", branch = "chore/deps/loose
 
 [tool.hatch.metadata]
 allow-direct-references = true
-feast = { git = "https://github.com/xorq-labs/feast", branch = "chore/deps/loosen-pyarrow" }
