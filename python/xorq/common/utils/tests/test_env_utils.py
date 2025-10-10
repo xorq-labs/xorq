@@ -10,30 +10,31 @@ from xorq.common.utils.env_utils import (
 
 
 def test_subclass_from_kwargs(monkeypatch):
-    monkeypatch.setitem(os.environ, "X", "1")
-    monkeypatch.delitem(os.environ, "SHOULDNT_EXIST", raising=False)
+    exists_name, missing_name = "X", "SHOULDNT_EXIST"
+    monkeypatch.setenv(exists_name, "1")
+    monkeypatch.delenv(missing_name, raising=False)
 
-    EnvConfig = EnvConfigable.subclass_from_kwargs("X", "SHOULDNT_EXIST")
+    EnvConfig = EnvConfigable.subclass_from_kwargs(exists_name, missing_name)
     env_config = EnvConfig.from_env()
-    assert env_config.X == "1"
-    assert env_config.SHOULDNT_EXIST == ""
+    assert env_config[exists_name] == "1"
+    assert env_config[missing_name] == ""
 
     # env vars take priority
-    env_config = EnvConfig.from_env(X=2)
-    assert env_config.X == "1"
-    assert env_config.SHOULDNT_EXIST == ""
+    env_config = EnvConfig.from_env(**{exists_name: 2})
+    assert env_config[exists_name] == "1"
+    assert env_config[missing_name] == ""
 
     # X is an env var so will be passed as a string but must be an int
-    EnvConfig = EnvConfigable.subclass_from_kwargs("SHOULDNT_EXIST", X=1)
+    EnvConfig = EnvConfigable.subclass_from_kwargs(missing_name, **{exists_name: 1})
     with pytest.raises(TypeError):
         env_config = EnvConfig.from_env()
 
     # so when using from_env, non-string fields must not exist in the env
-    monkeypatch.delitem(os.environ, "X")
-    EnvConfig = EnvConfigable.subclass_from_kwargs("SHOULDNT_EXIST", X=1)
+    monkeypatch.delenv(exists_name)
+    EnvConfig = EnvConfigable.subclass_from_kwargs(missing_name, **{exists_name: 1})
     env_config = EnvConfig.from_env()
-    assert env_config.X == 1
-    assert env_config.SHOULDNT_EXIST == ""
+    assert env_config[exists_name] == 1
+    assert env_config[missing_name] == ""
 
 
 def make_EnvConfig_from_content(tmp_path, content):
