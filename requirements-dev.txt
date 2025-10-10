@@ -27,6 +27,7 @@ anyio==4.10.0
     #   openai
     #   sse-starlette
     #   starlette
+    #   watchfiles
 appdirs==1.4.4 ; python_full_version < '4'
     # via pins
 appnope==0.1.4 ; sys_platform == 'darwin'
@@ -68,6 +69,8 @@ beautifulsoup4==4.13.4
     # via nbconvert
 beniget==0.4.2.post1 ; sys_platform == 'darwin'
     # via pythran
+bigtree==0.31.0
+    # via feast
 black==25.9.0
     # via
     #   blackdoc
@@ -115,6 +118,7 @@ click==8.2.1
     # via
     #   black
     #   dask
+    #   feast
     #   pyiceberg
     #   quartodoc
     #   uvicorn
@@ -128,10 +132,12 @@ codespell==2.4.1
 colorama==0.4.6
     # via
     #   click
+    #   feast
     #   griffe
     #   ipython
     #   pytest
     #   tqdm
+    #   uvicorn
 comm==0.2.3
     # via ipykernel
 coverage==7.10.7
@@ -143,6 +149,7 @@ cryptography==45.0.5
     #   xorq
 dask==2025.1.0
     # via
+    #   feast
     #   xorq
     #   xorq-hash-cache
 databackend==0.0.3 ; python_full_version < '4'
@@ -157,6 +164,8 @@ decorator==5.2.1
     #   ipython
 defusedxml==0.7.1
     # via nbconvert
+dill==0.3.9
+    # via feast
 distlib==0.4.0
     # via virtualenv
 distro==1.9.0
@@ -172,8 +181,12 @@ exceptiongroup==1.3.0 ; python_full_version < '3.11'
     #   pytest
 executing==2.2.0
     # via stack-data
+fastapi==0.116.1
+    # via feast
 fastjsonschema==2.21.1
     # via nbformat
+feast==0.55.0
+    # via xorq
 filelock==3.18.0
     # via
     #   snowflake-connector-python
@@ -234,12 +247,18 @@ griffe==1.9.0
     # via quartodoc
 grpcio==1.74.0
     # via opentelemetry-exporter-otlp-proto-grpc
+gunicorn==23.0.0
+    # via
+    #   feast
+    #   uvicorn-worker
 h11==0.16.0
     # via
     #   httpcore
     #   uvicorn
 httpcore==1.0.9
     # via httpx
+httptools==0.6.4
+    # via uvicorn
 httpx==0.28.1
     # via
     #   jupyterlab
@@ -289,6 +308,7 @@ jedi==0.19.2
     # via ipython
 jinja2==3.1.6
     # via
+    #   feast
     #   jupyter-server
     #   jupyterlab
     #   jupyterlab-server
@@ -310,6 +330,7 @@ jsonpointer==3.0.0
     # via jsonschema
 jsonschema==4.25.0
     # via
+    #   feast
     #   jupyter-events
     #   jupyterlab-server
     #   mcp
@@ -376,15 +397,21 @@ mdurl==0.1.2
 mistune==3.1.3
     # via nbconvert
 mmh3==5.2.0
-    # via pyiceberg
+    # via
+    #   feast
+    #   pyiceberg
 more-itertools==10.7.0
     # via blackdoc
 multidict==6.6.3 ; python_full_version < '4'
     # via
     #   aiohttp
     #   yarl
+mypy==1.17.1
+    # via sqlalchemy
 mypy-extensions==1.1.0
-    # via black
+    # via
+    #   black
+    #   mypy
 nbclient==0.10.2
     # via nbconvert
 nbconvert==7.16.6
@@ -405,6 +432,8 @@ notebook-shim==0.2.4
     #   notebook
 numpy==2.2.6 ; python_full_version < '3.11'
     # via
+    #   dask
+    #   feast
     #   pandas
     #   pythran
     #   scikit-learn
@@ -412,6 +441,8 @@ numpy==2.2.6 ; python_full_version < '3.11'
     #   xgboost
 numpy==2.3.2 ; python_full_version >= '3.11'
     # via
+    #   dask
+    #   feast
     #   pandas
     #   pythran
     #   scikit-learn
@@ -461,6 +492,7 @@ packaging==25.0
     # via
     #   black
     #   dask
+    #   gunicorn
     #   ipykernel
     #   jupyter-events
     #   jupyter-server
@@ -472,6 +504,8 @@ packaging==25.0
     #   vendoring
 pandas==2.3.1
     # via
+    #   dask
+    #   feast
     #   pins
     #   xorq
     #   xorq-feature-utils
@@ -491,6 +525,7 @@ pathspec==0.12.1
     # via
     #   black
     #   blackdoc
+    #   mypy
 pexpect==4.9.0 ; sys_platform != 'emscripten' and sys_platform != 'win32'
     # via ipython
 pins==0.9.0 ; python_full_version < '4'
@@ -513,6 +548,7 @@ ply==3.11 ; sys_platform == 'darwin'
 pre-commit==4.3.0
 prometheus-client==0.22.1
     # via
+    #   feast
     #   jupyter-server
     #   opentelemetry-exporter-prometheus
     #   xorq
@@ -526,12 +562,15 @@ proto-plus==1.26.1 ; python_full_version < '4'
     # via google-api-core
 protobuf==6.31.1
     # via
+    #   feast
     #   google-api-core
     #   googleapis-common-protos
     #   opentelemetry-proto
     #   proto-plus
 psutil==7.0.0
-    # via ipykernel
+    # via
+    #   feast
+    #   ipykernel
 psycopg==3.2.10
     # via xorq
 psycopg-c==3.2.10
@@ -544,9 +583,11 @@ ptyprocess==0.7.0 ; os_name != 'nt' or (sys_platform != 'emscripten' and sys_pla
     #   terminado
 pure-eval==0.2.3
     # via stack-data
-pyarrow==21.0.0
+pyarrow==20.0.0
     # via
+    #   dask
     #   datafusion
+    #   feast
     #   xorq
     #   xorq-datafusion
     #   xorq-feature-utils
@@ -561,19 +602,22 @@ pyasn1-modules==0.4.2 ; python_full_version < '4'
     # via google-auth
 pycparser==2.22
     # via cffi
-pydantic==2.11.7
+pydantic==2.10.6
     # via
+    #   fastapi
+    #   feast
     #   mcp
     #   openai
     #   pydantic-settings
     #   pyiceberg
     #   quartodoc
-pydantic-core==2.33.2
+pydantic-core==2.27.2
     # via pydantic
 pydantic-settings==2.10.1
     # via mcp
 pygments==2.19.2
     # via
+    #   feast
     #   ipython
     #   ipython-pygments-lexers
     #   nbconvert
@@ -581,8 +625,10 @@ pygments==2.19.2
     #   rich
 pyiceberg==0.9.1
     # via xorq
-pyjwt==2.10.1 ; python_full_version < '4'
-    # via snowflake-connector-python
+pyjwt==2.10.1
+    # via
+    #   feast
+    #   snowflake-connector-python
 pyopenssl==25.1.0
     # via snowflake-connector-python
 pyparsing==3.2.3
@@ -609,7 +655,9 @@ python-dateutil==2.9.0.post0
     #   trino
     #   xorq
 python-dotenv==1.1.1
-    # via pydantic-settings
+    # via
+    #   pydantic-settings
+    #   uvicorn
 python-json-logger==3.3.0
     # via jupyter-events
 python-multipart==0.0.20
@@ -637,10 +685,12 @@ pyyaml==6.0.2
     # via
     #   dask
     #   envyaml
+    #   feast
     #   jupyter-events
     #   pins
     #   pre-commit
     #   quartodoc
+    #   uvicorn
     #   xorq
 pyzmq==27.0.1
     # via
@@ -657,6 +707,7 @@ referencing==0.36.2
     #   jupyter-events
 requests==2.32.4
     # via
+    #   feast
     #   gcsfs
     #   google-api-core
     #   google-cloud-storage
@@ -736,7 +787,9 @@ soupsieve==2.7
 sphobjinv==2.3.1.3
     # via quartodoc
 sqlalchemy==2.0.42
-    # via pyiceberg
+    # via
+    #   feast
+    #   pyiceberg
 sqlglot==25.20.2
     # via
     #   ibis-framework
@@ -746,7 +799,9 @@ sse-starlette==3.0.2
 stack-data==0.6.3
     # via ipython
 starlette==0.47.2
-    # via mcp
+    # via
+    #   fastapi
+    #   mcp
 strenum==0.4.15 ; python_full_version < '3.11'
     # via xorq
 strictyaml==1.7.3
@@ -754,9 +809,13 @@ strictyaml==1.7.3
 structlog==25.4.0 ; python_full_version < '4'
     # via xorq
 tabulate==0.9.0
-    # via quartodoc
-tenacity==9.1.2
-    # via pyiceberg
+    # via
+    #   feast
+    #   quartodoc
+tenacity==8.5.0
+    # via
+    #   feast
+    #   pyiceberg
 terminado==0.18.1
     # via
     #   jupyter-server
@@ -766,7 +825,9 @@ threadpoolctl==3.6.0
 tinycss2==1.4.0
     # via bleach
 toml==0.10.2
-    # via vendoring
+    # via
+    #   feast
+    #   vendoring
 tomli==2.2.1
     # via
     #   black
@@ -774,6 +835,7 @@ tomli==2.2.1
     #   codespell
     #   coverage
     #   jupyterlab
+    #   mypy
     #   pytest
 tomlkit==0.13.3 ; python_full_version < '4'
     # via snowflake-connector-python
@@ -795,7 +857,9 @@ tornado==6.5.1
     #   notebook
     #   terminado
 tqdm==4.67.1
-    # via openai
+    # via
+    #   feast
+    #   openai
 traitlets==5.14.3
     # via
     #   ipykernel
@@ -810,6 +874,8 @@ traitlets==5.14.3
     #   nbconvert
     #   nbformat
 trino==0.335.0
+typeguard==4.4.4
+    # via feast
 types-python-dateutil==2.9.0.20250708
     # via arrow
 typing-extensions==4.14.1
@@ -822,10 +888,12 @@ typing-extensions==4.14.1
     #   black
     #   datafusion
     #   exceptiongroup
+    #   fastapi
     #   ibis-framework
     #   ipython
     #   mistune
     #   multidict
+    #   mypy
     #   openai
     #   opentelemetry-api
     #   opentelemetry-exporter-otlp-proto-grpc
@@ -845,13 +913,12 @@ typing-extensions==4.14.1
     #   sqlalchemy
     #   starlette
     #   structlog
+    #   typeguard
     #   typing-inspection
     #   uvicorn
     #   xorq
 typing-inspection==0.4.1
-    # via
-    #   pydantic
-    #   pydantic-settings
+    # via pydantic-settings
 tzdata==2025.2
     # via
     #   ibis-framework
@@ -871,13 +938,22 @@ urllib3==2.5.0
     #   xorq-weather-lib
 uv==0.8.4
     # via xorq
-uvicorn==0.35.0 ; sys_platform != 'emscripten'
-    # via mcp
+uvicorn==0.34.0
+    # via
+    #   feast
+    #   mcp
+    #   uvicorn-worker
+uvicorn-worker==0.3.0
+    # via feast
+uvloop==0.21.0 ; platform_python_implementation != 'PyPy' and sys_platform != 'cygwin' and sys_platform != 'win32'
+    # via uvicorn
 vendoring==1.2.0
 virtualenv==20.33.0
     # via pre-commit
 watchdog==6.0.0
     # via quartodoc
+watchfiles==1.1.0
+    # via uvicorn
 wcwidth==0.2.13
     # via prompt-toolkit
 webcolors==24.11.1
@@ -888,6 +964,8 @@ webencodings==0.5.1
     #   tinycss2
 websocket-client==1.8.0
     # via jupyter-server
+websockets==15.0.1
+    # via uvicorn
 xgboost==3.0.3
     # via xorq
 xorq-datafusion==0.2.4
