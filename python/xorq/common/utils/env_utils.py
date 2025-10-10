@@ -5,6 +5,7 @@ import shlex
 from pathlib import Path
 
 from attr import (
+    evolve,
     field,
     frozen,
 )
@@ -61,10 +62,7 @@ class EnvConfigable:
     def __getitem__(self, key):
         return getattr(self, key)
 
-    def clone(self, **overrides):
-        return type(self)(
-            **({varname: self[varname] for varname in self.varnames} | overrides)
-        )
+    clone = evolve
 
     @property
     def varnames(self):
