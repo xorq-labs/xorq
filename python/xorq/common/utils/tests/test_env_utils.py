@@ -88,3 +88,30 @@ def test_parse_multiline_env_vars(fixture_dir):
         for k, v in (el.split("=") for el in dct["names_to_numlines"].split(","))
     }
     assert actual == expected
+
+
+def test_clone(monkeypatch):
+    initial = {
+        "a": "one",
+        "b": 2,
+        "c": 3.0,
+    }
+    modifications = {
+        "a": "zero",
+    }
+    bad_modifications = {
+        "b": 2.0,
+    }
+
+    for name in initial:
+        monkeypatch.delenv(name, raising=False)
+
+    EnvConfig = EnvConfigable.subclass_from_kwargs(**initial)
+    env_config = EnvConfig()
+
+    cloned = env_config.clone(**modifications)
+    assert cloned != env_config
+    assert cloned.__getstate__() == env_config.__getstate__() | modifications
+
+    with pytest.raises(TypeError, match="must be <class.*got.*that is a <class"):
+        env_config.clone(**bad_modifications)
