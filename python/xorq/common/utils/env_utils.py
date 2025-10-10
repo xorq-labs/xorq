@@ -6,6 +6,7 @@ from pathlib import Path
 
 import toolz
 from attr import (
+    evolve,
     field,
     frozen,
 )
@@ -72,10 +73,7 @@ class EnvConfigable:
     def get(self, key, default=None):
         return getattr(self, key, default)
 
-    def clone(self, **overrides):
-        return type(self)(
-            **({varname: self[varname] for varname in self.varnames} | overrides)
-        )
+    clone = evolve
 
     def maybe_substitute_env_var(self, obj):
         return maybe_substitute_env_var(obj, self)

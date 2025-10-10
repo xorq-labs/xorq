@@ -5,10 +5,7 @@ from pathlib import Path
 import dask
 import toolz
 import yaml
-from attr import (
-    field,
-    frozen,
-)
+from attr import evolve, field, frozen
 from attr.validators import (
     instance_of,
     optional,
@@ -214,17 +211,9 @@ class Profile:
 
     def clone(self, idx=None, **kwargs):
         idx = idx if idx is not None else self.idx
-        kwargs_tuple = tuple(
-            {
-                **dict(self.kwargs_tuple),
-                **kwargs,
-            }.items()
-        )
-        return type(self)(
-            con_name=self.con_name,
-            kwargs_tuple=kwargs_tuple,
-            idx=idx,
-        )
+        kwargs_tuple = tuple((dict(self.kwargs_tuple) | kwargs).items())
+
+        return evolve(self, idx=idx, kwargs_tuple=kwargs_tuple)
 
     def as_dict(self):
         return {
