@@ -141,7 +141,11 @@ class Tag(ops.Relation):
         )
 
 
-class CachedNode(ops.DatabaseTable):
+class DatabaseTableView(ops.DatabaseTable):
+    pass
+
+
+class CachedNode(DatabaseTableView):
     parent: Any = None
     storage: Any = None
 
@@ -154,7 +158,7 @@ gen_name = toolz.compose(
 )
 
 
-class RemoteTable(ops.DatabaseTable):
+class RemoteTable(DatabaseTableView):
     remote_expr: Expr = None
 
     @classmethod
@@ -172,7 +176,7 @@ def into_backend(expr, con, name=None):
     return RemoteTable.from_expr(con=con, expr=expr, name=name).to_expr()
 
 
-class FlightExpr(ops.DatabaseTable):
+class FlightExpr(DatabaseTableView):
     input_expr: Expr = None
     unbound_expr: Expr = None
     make_server: Callable = None
@@ -318,7 +322,7 @@ def flight_expr(
     )
 
 
-class FlightUDXF(ops.DatabaseTable):
+class FlightUDXF(DatabaseTableView):
     input_expr: Expr = None
     # FIXME: fix circular import issue so we can possibly pass an instance of AbstractExchanger
     udxf: type = None
