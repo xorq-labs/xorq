@@ -196,6 +196,91 @@ let
     ${pkgs.postgresql}/bin/psql "''${@}"
   '';
 
+  xorq-sops-ssh-to-age = pkgs.writeShellScriptBin "xorq-sops-ssh-to-age" ''
+    set -eux
+
+    private_key=''${1:-$HOME/.ssh/id_rsa}
+    target=''${2:-$HOME/.config/sops/age/keys.txt}
+
+    if [ ! -f "$private_key" ]; then
+      echo "$private_key" does not exist
+      exit 1
+    fi
+    mkdir -p "$(dirname "$target")" || {
+      echo cannot mkdir for "$target"
+      exit 1
+    }
+
+    ${pkgs.ssh-to-age}/bin/ssh-to-age \
+      -private-key \
+      -i "$private_key" \
+      -o "$target"
+  '';
+
+  xorq-sops-ssh-to-age-public = pkgs.writeShellScriptBin "xorq-sops-ssh-to-age-public" ''
+    set -eux
+
+    public_key_path=''${1:-$HOME/.ssh/id_rsa.pub}
+    target=''${2:--}
+
+
+    if [ ! -f "$public_key_path" ]; then
+      echo "$public_key_path" does not exist
+      exit 1
+    fi
+    mkdir -p "$(dirname "$target")" || {
+      echo cannot mkdir for "$target"
+      exit 1
+    }
+
+    ${pkgs.ssh-to-age}/bin/ssh-to-age \
+      -i "$public_key_path" \
+      -o "$target"
+  '';
+
+  xorq-sops-add-age-key = pkgs.writeShellScriptBin "xorq-sops-add-age-key" ''
+    set -eux
+
+    public_key_path=''${1:-$HOME/.ssh/id_rsa.pub}
+    sops_path=''${2:-$HOME/.sops.yaml}
+    age_key=$(${xorq-sops-ssh-to-age-public}/bin/xorq-sops-ssh-to-age-public "$public_key_path" /dev/stdout)
+    script=$(cat <<EOF
+    from yaml import safe_dump, safe_load
+    from pathlib import Path
+
+    sops_path = Path("$sops_path")
+    dct = safe_load(sops_path.read_text()) if sops_path.exists() else {}
+    creation_rules = [{"age": "$age_key"}] + dct.get("creation_rules", [])
+    dct = dct | {"creation_rules": creation_rules}
+    sops_path.write_text(safe_dump(dct))
+    EOF)
+    ${python}/bin/python -c "$script"
+  '';
+
+  xorq-sops-encrypt-dotenv = pkgs.writeShellScriptBin "xorq-sops-encrypt-dotenv" ''
+    set -eux
+
+    path=$1
+    target=''${2:-$path.sops-encrypted}
+    ${pkgs.sops}/bin/sops encrypt --input-type dotenv --output-type dotenv $path >$target
+  '';
+
+  xorq-sops-decrypt-dotenv = pkgs.writeShellScriptBin "xorq-sops-decrypt-dotenv" ''
+    set -eux
+    path=$1
+    ${pkgs.sops}/bin/sops decrypt --input-type dotenv --output-type dotenv $path
+  '';
+
+  xorq-sops-concatenate-dotenv = pkgs.writeShellScriptBin "xorq-sops-concatenate-dotenv" ''
+    set -eux
+
+    sops encrypt --input-type dotenv --output-type dotenv <(
+      for file in "$@"; do
+        ${pkgs.sops}/bin/sops decrypt --input-type dotenv --output-type dotenv "$file"
+      done
+    )
+  '';
+
   xorq-commands = {
     inherit
       xorq-cachix-use xorq-cachix-push
@@ -209,6 +294,8 @@ let
       xorq-colima-start
       xorq-docker xorq-docker-run-otel-collector xorq-docker-exec-otel-print-initial-config
       xorq-psql
+      xorq-sops-encrypt-dotenv xorq-sops-decrypt-dotenv xorq-sops-concatenate-dotenv
+      xorq-sops-ssh-to-age xorq-sops-ssh-to-age-public xorq-sops-add-age-key
       ;
   };
 
