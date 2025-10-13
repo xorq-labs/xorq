@@ -149,17 +149,18 @@ class ModificationTimeStrategy(CacheStrategy):
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
+    @classmethod
     @contextlib.contextmanager
-    def normalization_context(self, expr):
+    def normalization_context(cls, expr):
         typs = map(type, expr.ls.backends)
-        with patch_normalize_token(*typs, f=self.normalize_backend):
+        with patch_normalize_token(*typs, f=cls.normalize_backend):
             with patch_normalize_token(
                 ops.DatabaseTable,
-                f=self.normalize_databasetable,
+                f=cls.normalize_databasetable,
             ):
                 with patch_normalize_token(
                     Read,
-                    f=self.cached_normalize_read,
+                    f=cls.cached_normalize_read,
                 ):
                     yield
 
@@ -188,16 +189,18 @@ class SnapshotStrategy(CacheStrategy):
 
         return op.replace(rename_remote_table)
 
-    def replace_remote_table(self, expr):
+    @classmethod
+    def replace_remote_table(cls, expr):
         """replace remote table with deterministic name ***strictly for key calculation***"""
         if expr.op().find(RemoteTable):
-            expr = self.cached_replace_remote_table(expr.op()).to_expr()
+            expr = cls.cached_replace_remote_table(expr.op()).to_expr()
         return expr
 
-    def get_key(self, expr: ir.Expr):
+    @classmethod
+    def get_key(cls, expr: ir.Expr):
         # can we cache this?
-        with self.normalization_context(expr):
-            replaced = self.replace_remote_table(expr)
+        with cls.normalization_context(expr):
+            replaced = cls.replace_remote_table(expr)
             tokenized = replaced.ls.tokenized
             return "-".join(("snapshot", tokenized))
 
