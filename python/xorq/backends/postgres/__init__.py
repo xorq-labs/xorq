@@ -2,12 +2,17 @@ from functools import partial
 from pathlib import Path
 from typing import Any
 
+import ibis.expr.schema as sch
 import pyarrow as pa
 import sqlglot as sg
 import sqlglot.expressions as sge
 import toolz
+from ibis.backends.postgres import Backend as IbisPostgresBackend
+from ibis.expr import types as ir
+from ibis.util import (
+    gen_name,
+)
 
-import xorq.vendor.ibis.expr.schema as sch
 from xorq.backends import ExecutionBackend
 from xorq.backends.postgres.compiler import compiler
 from xorq.common.utils.defer_utils import (
@@ -15,11 +20,6 @@ from xorq.common.utils.defer_utils import (
 )
 from xorq.expr.api import read_parquet
 from xorq.expr.relations import replace_cache_table
-from xorq.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
-from xorq.vendor.ibis.expr import types as ir
-from xorq.vendor.ibis.util import (
-    gen_name,
-)
 
 
 class Backend(ExecutionBackend, IbisPostgresBackend):

@@ -3,6 +3,10 @@ import importlib.metadata
 from abc import ABC
 from typing import Any, Mapping
 
+import ibis
+import ibis.expr.operations as ops
+import pandas as pd
+import pyarrow as pa
 from ibis.backends.sql import SQLBackend
 from ibis.expr import schema as sch
 from ibis.expr import types as ir
@@ -94,12 +98,33 @@ class ExecutionBackend(SQLBackend, ABC):
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         return super()._get_schema_using_query(query)
 
+    def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
+        return super()._register_in_memory_table(op)
+
+    def create_table(
+        self,
+        name: str,
+        /,
+        obj: pd.DataFrame | pa.Table | ir.Table | None = None,
+        *,
+        schema: ibis.Schema | None = None,
+        database: str | None = None,
+        temp: bool = False,
+        overwrite: bool = False,
+    ) -> ir.Table:
+        return super().create_table(
+            name,
+            obj=obj,
+            schema=schema,
+            database=database,
+            temp=temp,
+            overwrite=overwrite,
+        )
+
     def table(
         self, name: str, /, *, database: tuple[str, str] | str | None = None
     ) -> ir.Table:
-        from xorq.expr.relations import Table
-
-        return Table.from_ibis(super().table(name, database=database))
+        return super().table(name, database=database)
 
 
 @functools.cache

@@ -1,11 +1,11 @@
 from typing import Any, Mapping
 
 import pyarrow as pa
+from ibis.backends.duckdb import Backend as IbisDuckDBBackend
+from ibis.expr import types as ir
+from ibis.util import gen_name
 
 from xorq.backends import ExecutionBackend
-from xorq.vendor.ibis.backends.duckdb import Backend as IbisDuckDBBackend
-from xorq.vendor.ibis.expr import types as ir
-from xorq.vendor.ibis.util import gen_name
 
 
 class BaseExecutionBackend(IbisDuckDBBackend):

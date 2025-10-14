@@ -11,6 +11,7 @@ from xorq.caching import (
     SourceSnapshotStorage,
     SourceStorage,
 )
+from xorq.expr.relations import cache, into_backend
 from xorq.tests.util import assert_frame_equal
 
 
@@ -32,9 +33,10 @@ def test_can_into_backend(sqlite_con, astronauts_parquet_path):
     ddb = xo.duckdb.connect()
 
     expr = astronauts.join(
-        ddb.read_in_memory(
-            astronauts_table.to_pandas(), table_name="astronauts"
-        ).into_backend(sqlite_con, name="ddb_astronauts"),
+        ddb.create_table(
+            "astronauts",
+            astronauts_table.to_pandas(),
+        ).pipe(into_backend(con=sqlite_con, name="ddb_astronauts")),
         "id",
     ).filter(xo._.number == 104)
 
@@ -51,7 +53,7 @@ def test_can_cache(sqlite_con, astronauts_parquet_path):
     astronauts = ddb.read_parquet(astronauts_parquet_path)
 
     expr = (
-        astronauts.cache(SourceStorage(sqlite_con))
+        astronauts.pipe(cache(storage=SourceStorage(sqlite_con)))
         .filter(xo._.number == 104)
         .select(xo._.id, xo._.number, xo._.nationwide_number, xo._.name)
     )
@@ -69,7 +71,7 @@ def test_can_cache(sqlite_con, astronauts_parquet_path):
 def test_can_be_cached(sqlite_con, astronauts_parquet_path):
     astronauts = sqlite_con.read_parquet(astronauts_parquet_path)
     expr = (
-        astronauts.cache(SourceStorage(xo.duckdb.connect()))
+        astronauts.pipe(cache(storage=SourceStorage(xo.duckdb.connect())))
         .filter(xo._.number == 104)
         .select(xo._.id, xo._.number, xo._.nationwide_number, xo._.name)
     )
@@ -103,7 +105,7 @@ def test_can_outo_backend_and_tokenize(sqlite_con, astronauts_parquet_path):
         astronauts.filter(xo._.number == 104)
         .select(xo._.id, xo._.number, xo._.nationwide_number, xo._.name)
         .mutate(add_1=xo._.number + 1, clean_name=xo._.name.strip())
-        .into_backend(ddb, name="ddb_astronauts")
+        .pipe(into_backend(con=ddb, name="ddb_astronauts"))
     )
 
     assert dask.base.tokenize(expr) is not None

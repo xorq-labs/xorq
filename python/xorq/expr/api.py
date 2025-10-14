@@ -8,6 +8,9 @@ from typing import TYPE_CHECKING, Any, Mapping
 
 import pyarrow as pa
 import toolz
+from ibis.expr import api
+from ibis.expr.api import *  # noqa: F403
+from ibis.expr.sql import SQLString
 from opentelemetry import trace
 
 import xorq.vendor.ibis.expr.types as ir
@@ -31,9 +34,6 @@ from xorq.expr.relations import (
     Tag,
     register_and_transform_remote_tables,
 )
-from xorq.vendor.ibis.expr import api
-from xorq.vendor.ibis.expr.api import *  # noqa: F403
-from xorq.vendor.ibis.expr.sql import SQLString
 
 
 if TYPE_CHECKING:
