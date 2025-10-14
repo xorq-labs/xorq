@@ -10,6 +10,7 @@ from pathlib import (
 )
 
 import dask
+import ibis
 from attr import (
     field,
     frozen,
@@ -45,8 +46,8 @@ from xorq.config import _backend_init, options
 from xorq.expr.relations import (
     Read,
     RemoteTable,
+    ls,
 )
-from xorq.vendor import ibis
 from xorq.vendor.ibis.expr import types as ir
 
 
@@ -94,7 +95,7 @@ class Cache:
 
     def get_key(self, expr):
         # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
-        if expr.ls.is_cached and expr.ls.storage.cache is self:
+        if ls(expr).is_cached and ls(expr).storage.cache is self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
         # FIXME: let strategy solely determine key by giving it key_prefix
@@ -555,6 +556,6 @@ def maybe_prevent_cross_source_caching(expr, storage):
         into_backend,
     )
 
-    if storage.storage.source != expr._find_backend():
+    if storage.storage.source is not expr._find_backend():
         expr = into_backend(expr, storage.storage.source)
     return expr

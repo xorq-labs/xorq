@@ -1,17 +1,17 @@
 import operator
 import pickle
 
+import ibis.expr.datatypes as dt
 import pyarrow as pa
 import pytest
 import toolz
+from ibis import _
+from ibis import literal as L
+from ibis.selectors import of_type
 
 import xorq.api as xo
-import xorq.expr.datatypes as dt
 from xorq.api import make_pandas_expr_udf, make_pandas_udf, udf
 from xorq.tests.util import assert_frame_equal
-from xorq.vendor.ibis import _
-from xorq.vendor.ibis import literal as L
-from xorq.vendor.ibis.selectors import of_type
 
 
 pc = pytest.importorskip("pyarrow.compute")

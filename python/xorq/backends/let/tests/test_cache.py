@@ -4,13 +4,14 @@ import inspect
 import pathlib
 import uuid
 
+import ibis.expr.datatypes as dt
 import pyarrow as pa
 import pyarrow.compute as pc
 import pytest
 import toolz
+from ibis import _
 
 import xorq.api as xo
-import xorq.expr.datatypes as dt
 from xorq.caching import (
     ParquetSnapshotStorage,
     ParquetStorage,
@@ -24,7 +25,6 @@ from xorq.expr.udf import (
 from xorq.tests.util import (
     assert_frame_equal,
 )
-from xorq.vendor.ibis import _
 from xorq.vendor.ibis.expr.types.relations import CACHED_NODE_NAME_PLACEHOLDER
 
 

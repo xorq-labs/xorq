@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Dict
 
-from xorq.vendor.ibis.expr.operations import relations as ops
+from ibis.expr.operations import relations as ops
 
 
 # FIXME: create unique function for finding all backends

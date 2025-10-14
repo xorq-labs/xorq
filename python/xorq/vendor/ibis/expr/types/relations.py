@@ -28,8 +28,6 @@ from xorq.vendor.ibis.expr.types.temporal import TimestampColumn
 from xorq.vendor.ibis.util import deprecated
 
 
-CACHED_NODE_NAME_PLACEHOLDER = "xorq_cached_node_name_placeholder"
-
 if TYPE_CHECKING:
     import pandas as pd
     import polars as pl
@@ -3412,6 +3410,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         current_backend, _ = find_backend(expr.op(), use_default=True)
         storage = storage or SourceStorage(source=current_backend)
+        from xorq.expr.relations import CACHED_NODE_NAME_PLACEHOLDER
+
         op = CachedNode(
             name=CACHED_NODE_NAME_PLACEHOLDER,
             schema=expr.schema(),

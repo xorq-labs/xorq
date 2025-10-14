@@ -11,17 +11,17 @@ import itertools
 import typing
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, overload
 
+import ibis.expr.datashape as ds
+import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
+import ibis.expr.rules as rlz
+from ibis import util
+from ibis.common.annotations import Argument, attribute
+from ibis.common.collections import FrozenDict
+from ibis.common.deferred import deferrable
 from public import public
 
 import xorq.common.exceptions as exc
-import xorq.vendor.ibis.expr.datashape as ds
-import xorq.vendor.ibis.expr.datatypes as dt
-import xorq.vendor.ibis.expr.operations as ops
-import xorq.vendor.ibis.expr.rules as rlz
-from xorq.vendor.ibis import util
-from xorq.vendor.ibis.common.annotations import Argument, attribute
-from xorq.vendor.ibis.common.collections import FrozenDict
-from xorq.vendor.ibis.common.deferred import deferrable
 
 
 if TYPE_CHECKING:

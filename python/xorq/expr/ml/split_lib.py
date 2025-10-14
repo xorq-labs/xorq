@@ -3,17 +3,17 @@ from random import Random
 from typing import Iterable, Iterator, Tuple
 
 import dask
+import ibis.expr.types as ir
+import ibis.selectors as s
 import toolz
-
-import xorq.expr.selectors as s
-import xorq.vendor.ibis.expr.types as ir
-from xorq.vendor.ibis.common.selectors import (
-    Selector,
-)
-from xorq.vendor.ibis.expr.api import (
+from ibis.expr.api import (
     case,
     literal,
 )
+from ibis.selectors import (
+    Selector,
+)
+
 from xorq.vendor.ibis.util import promote_tuple
 
 

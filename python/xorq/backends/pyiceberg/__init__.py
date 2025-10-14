@@ -8,6 +8,7 @@ from pyiceberg.table import ALWAYS_TRUE
 from pyiceberg.table import Table as IcebergTable
 
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.backends import ExecutionBackend
 from xorq.backends.postgres.compiler import compiler as postgres_compiler
 from xorq.backends.pyiceberg.compiler import PyIceberg, translate
 from xorq.backends.pyiceberg.relations import PyIcebergTable
@@ -50,7 +51,7 @@ def _overwrite_table_data(iceberg_table: IcebergTable, data: pa.Table):
     tx.commit_transaction()
 
 
-class Backend(SQLBackend):
+class BaseExecutionBackend(SQLBackend):
     name = "pyiceberg"
     dialect = PyIceberg
     compiler = postgres_compiler
@@ -317,3 +318,7 @@ class Backend(SQLBackend):
             )
 
         return snapshots
+
+
+class Backend(ExecutionBackend, BaseExecutionBackend):
+    pass

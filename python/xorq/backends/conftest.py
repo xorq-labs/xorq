@@ -3,12 +3,13 @@ import itertools
 import os
 
 import _pytest
+import ibis
 import pytest
 
 import xorq.api as xo
 from xorq.backends import _get_backend_names
 from xorq.caching import ParquetSnapshotStorage, SourceSnapshotStorage
-from xorq.vendor import ibis
+from xorq.expr.relations import cache
 
 
 snowflake_credentials_varnames = (
@@ -210,7 +211,7 @@ def con_cache_find_backend(parquet_dir):
     def _con_cache_find_backend(_parquet_dir, cls, conn):
         astronauts_path = _parquet_dir / "astronauts.parquet"
         storage = cls(source=conn)
-        expr = conn.read_parquet(astronauts_path).cache(storage=storage)
+        expr = conn.read_parquet(astronauts_path).pipe(cache(storage=storage))
         assert expr._find_backend()._profile == conn._profile
 
     return functools.partial(_con_cache_find_backend, parquet_dir)

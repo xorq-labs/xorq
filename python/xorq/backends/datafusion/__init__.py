@@ -11,6 +11,7 @@ import sqlglot.expressions as sge
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
+from xorq.backends import ExecutionBackend
 from xorq.vendor import ibis
 from xorq.vendor.ibis.backends.datafusion import Backend as IbisDatafusionBackend
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
@@ -21,7 +22,7 @@ if TYPE_CHECKING:
     import pandas as pd
 
 
-class Backend(IbisDatafusionBackend):
+class Backend(ExecutionBackend, IbisDatafusionBackend):
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
         self.con.from_arrow(op.data.to_pyarrow(op.schema), op.name)
 

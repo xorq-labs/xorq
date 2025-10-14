@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import ibis
+import ibis.common.exceptions as com
+import ibis.expr.datatypes as dt
 import numpy as np
 import pandas as pd
 import pytest
+from ibis import _
+from ibis import literal as L
 from pytest import param
 
 import xorq.api as xo
-import xorq.common.exceptions as com
-import xorq.expr.datatypes as dt
 from xorq.tests.util import assert_frame_equal, reduction_tolerance
-from xorq.vendor.ibis import _
-from xorq.vendor.ibis import literal as L
 
 
 @xo.udf.agg.builtin
@@ -218,7 +219,7 @@ def test_aggregate_grouped(alltypes, alltypes_df, result_fn, expected_fn):
             id="is_in",
         ),
         param(
-            lambda _: xo._.string_col.isin(["1", "7"]),
+            lambda _: ibis._.string_col.isin(["1", "7"]),
             lambda t: t.string_col.isin(["1", "7"]),
             id="is_in_deferred",
         ),
@@ -410,9 +411,9 @@ def test_agg_name_in_output_column(alltypes):
 
 
 def test_grouped_case(con):
-    table = xo.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
+    table = ibis.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
 
-    case_expr = xo.case().when(table.value < 25, table.value).else_(xo.null()).end()
+    case_expr = ibis.case().when(table.value < 25, table.value).else_(ibis.null()).end()
 
     expr = table.group_by("key").aggregate(mx=case_expr.max()).order_by("key")
     result = con.execute(expr)
@@ -422,7 +423,7 @@ def test_grouped_case(con):
 
 def test_value_counts_on_expr(alltypes, alltypes_df):
     expr = alltypes.bigint_col.add(1).value_counts()
-    columns = expr.columns
+    columns = list(expr.columns)
     expr = expr.order_by(columns)
     result = expr.execute().sort_values(columns).reset_index(drop=True)
     expected = alltypes_df.bigint_col.add(1).value_counts().reset_index()

@@ -4,8 +4,18 @@ import operator
 from collections import defaultdict
 from typing import Any, Callable
 
+import ibis
 import pyarrow as pa
 import toolz
+from ibis import Expr, Schema
+from ibis.common.collections import (
+    FrozenDict,
+    FrozenOrderedDict,
+)
+from ibis.common.graph import Graph
+from ibis.expr import operations as ops
+from ibis.expr.format import fmt, render_schema
+from ibis.expr.operations import Node, Relation
 from opentelemetry import trace
 
 from xorq.backends.let import connect as xo_connect
@@ -14,16 +24,6 @@ from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
     instrument_reader,
 )
-from xorq.vendor import ibis
-from xorq.vendor.ibis import Expr, Schema
-from xorq.vendor.ibis.common.collections import (
-    FrozenDict,
-    FrozenOrderedDict,
-)
-from xorq.vendor.ibis.common.graph import Graph
-from xorq.vendor.ibis.expr import operations as ops
-from xorq.vendor.ibis.expr.format import fmt, render_schema
-from xorq.vendor.ibis.expr.operations import Node, Relation
 
 
 def replace_cache_table(node, kwargs):
@@ -168,8 +168,43 @@ class RemoteTable(ops.DatabaseTable):
         )
 
 
+@toolz.curry
 def into_backend(expr, con, name=None):
     return RemoteTable.from_expr(con=con, expr=expr, name=name).to_expr()
+
+
+CACHED_NODE_NAME_PLACEHOLDER = "xorq_cached_node_name_placeholder"
+
+
+@toolz.curry
+def cache(expr, storage=None):
+    from xorq.caching import (
+        SourceStorage,
+        maybe_prevent_cross_source_caching,
+    )
+    from xorq.common.utils.caching_utils import find_backend
+
+    if storage:
+        expr = maybe_prevent_cross_source_caching(expr, storage)
+    else:
+        expr = expr
+
+    current_backend, _ = find_backend(expr.op(), use_default=True)
+    storage = storage or SourceStorage(source=current_backend)
+    op = CachedNode(
+        name=CACHED_NODE_NAME_PLACEHOLDER,
+        schema=expr.schema(),
+        parent=expr,
+        source=current_backend,
+        storage=storage,
+    )
+    return op.to_expr()
+
+
+def ls(expr):
+    from xorq.vendor.ibis.expr.types.core import LETSQLAccessor
+
+    return LETSQLAccessor(expr.op())
 
 
 class FlightExpr(ops.DatabaseTable):

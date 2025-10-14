@@ -4,30 +4,28 @@ import calendar
 import math
 from functools import partial
 from itertools import starmap
-from typing import Any, Mapping
 
+import ibis.expr.datatypes as dt
+import ibis.expr.operations as ops
 import sqlglot as sg
 import sqlglot.expressions as sge
-from sqlglot import exp, transforms
-from sqlglot.dialects import Postgres
-from sqlglot.dialects.dialect import rename_func
-
-import xorq.common.exceptions as com
-import xorq.expr.datatypes as dt
-import xorq.vendor.ibis.expr.operations as ops
-from xorq.expr.datatypes import LargeString
-from xorq.vendor.ibis.backends.sql.compilers.base import (
+from ibis.backends.sql.compilers.base import (
     FALSE,
     NULL,
     STAR,
     AggGen,
     SQLGlotCompiler,
 )
-from xorq.vendor.ibis.backends.sql.datatypes import PostgresType
-from xorq.vendor.ibis.backends.sql.rewrites import split_select_distinct_with_order_by
-from xorq.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit
-from xorq.vendor.ibis.expr import types as ir
-from xorq.vendor.ibis.expr.operations.udf import InputType
+from ibis.backends.sql.datatypes import PostgresType
+from ibis.backends.sql.rewrites import split_select_distinct_with_order_by
+from ibis.common.temporal import IntervalUnit, TimestampUnit
+from ibis.expr.operations.udf import InputType
+from sqlglot import exp, transforms
+from sqlglot.dialects import Postgres
+from sqlglot.dialects.dialect import rename_func
+
+import xorq.common.exceptions as com
+from xorq.expr.datatypes import LargeString
 
 
 _UNIX_EPOCH = "1970-01-01T00:00:00Z"
@@ -385,7 +383,7 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_ArrayPosition(self, op, *, arg, other):
         return self.f.coalesce(self.f.array_position(arg, other), 0)
 
-    def visit_ArrayCollect(self, op, *, arg, where, order_by, include_null):
+    def visit_ArrayCollect(self, op, *, arg, where, order_by, include_null, distinct):
         if not include_null:
             cond = arg.is_(sg.not_(NULL, copy=False))
             where = cond if where is None else sge.And(this=cond, expression=where)
@@ -666,18 +664,18 @@ class DataFusionCompiler(SQLGlotCompiler):
             ),
         )
 
-    def to_sqlglot(
-        self,
-        expr: ir.Expr,
-        *,
-        limit: str | None = None,
-        params: Mapping[ir.Expr, Any] | None = None,
-    ):
-        op = expr.op()
-        from xorq.expr.relations import legacy_replace_cache_table
-
-        out = op.map_clear(legacy_replace_cache_table)
-        return super().to_sqlglot(out.to_expr().unbind(), limit=limit, params=params)
+    # def to_sqlglot(
+    #     self,
+    #     expr: ir.Expr,
+    #     *,
+    #     limit: str | None = None,
+    #     params: Mapping[ir.Expr, Any] | None = None,
+    # ):
+    #     op = expr.op()
+    #     from xorq.expr.relations import legacy_replace_cache_table
+    #
+    #     out = op.map_clear(legacy_replace_cache_table)
+    #     return super().to_sqlglot(out.to_expr().unbind(), limit=limit, params=params)
 
 
 compiler = DataFusionCompiler()
