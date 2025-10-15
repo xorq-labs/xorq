@@ -237,15 +237,15 @@ class Backend(IbisSnowflakeBackend):
         # to the original database and schema
         if con.database and "/" in con.database:
             (catalog, db) = con.database.split("/")
-        use_stmt = sge.Use(
-            kind="SCHEMA",
-            this=sg.table(db, catalog=catalog, quoted=self.compiler.quoted),
-        ).sql(dialect=self.name)
-        with contextlib.closing(con.cursor()) as cur:
-            try:
-                cur.execute(use_stmt)
-            except Exception:  # noqa: BLE001
-                warnings.warn("Unable to set catalog,db")
+            use_stmt = sge.Use(
+                kind="SCHEMA",
+                this=sg.table(db, catalog=catalog, quoted=self.compiler.quoted),
+            ).sql(dialect=self.name)
+            with contextlib.closing(con.cursor()) as cur:
+                try:
+                    cur.execute(use_stmt)
+                except Exception:  # noqa: BLE001
+                    warnings.warn("Unable to set catalog,db")
 
         if create_object_udfs:
             create_stmt = sge.Create(

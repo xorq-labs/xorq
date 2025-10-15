@@ -104,8 +104,17 @@ def remove_unexpected_tables(dirty):
         if table not in expected_tables:
             dirty.drop_view(table, force=True)
 
-    if sorted(dirty.list_tables()) != sorted(expected_tables):
-        raise ValueError
+    actual = sorted(dirty.list_tables())
+    expected = sorted(expected_tables)
+    if actual != expected:
+        missing = tuple(t for t in expected if t not in actual)
+        extra = tuple(t for t in actual if t not in expected)
+        raise ValueError(
+            {
+                "missing": missing,
+                "extra": extra,
+            }
+        )
 
 
 @pytest.fixture(scope="function")
