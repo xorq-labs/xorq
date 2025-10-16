@@ -1,0 +1,18 @@
+use_sops() {
+    # https://github.com/direnv/direnv/wiki/Sops#how-to-encrypt
+    local path=${1:-$PWD/../secrets.yaml}
+    local output_type=${2:-dotenv}
+    if [ "$output_type" = "dotenv" ]; then
+        eval "$(sops --decrypt --input-type dotenv --output-type dotenv "$path" | direnv dotenv bash /dev/stdin)"
+    else
+        eval "$(sops --decrypt --input-type $output_type --output-type $output_type "$path")"
+    fi
+
+    watch_file "$path"
+}
+
+use_sops_if_exists() {
+    if [ -f "$1" ]; then
+        use_sops "$@"
+    fi
+}
