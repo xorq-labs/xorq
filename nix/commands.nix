@@ -243,7 +243,7 @@ let
 
     public_key_path=''${1:-$HOME/.ssh/id_rsa.pub}
     sops_path=''${2:-$HOME/.sops.yaml}
-    age_key=$(${xorq-sops-ssh-to-age-public}/bin/xorq-sops-ssh-to-age-public "$public_key_path" /dev/stdout)
+    age_key=$(${xorq-sops-ssh-to-age-public}/bin/xorq-sops-ssh-to-age-public "$public_key_path")
     script=$(cat <<EOF
     from yaml import safe_dump, safe_load
     from pathlib import Path
