@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import subprocess
 from typing import Callable
 
 import pandas as pd
@@ -154,3 +155,18 @@ def test_write(alltypes, df, tmp_path, extension, write, read):
 )
 def test_deferred_read(method):
     assert hasattr(xo, method)
+
+
+@pytest.mark.benchmark
+@pytest.mark.parametrize(
+    "module",
+    ("xorq.api as xo",),
+)
+def test_benchmark_module_import(module):
+    subprocess.check_output(
+        (
+            "python",
+            "-c",
+            f"import {module}",
+        )
+    )
