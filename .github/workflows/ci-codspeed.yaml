@@ -39,8 +39,9 @@ jobs:
       - name: start services
         run: docker compose up --build --wait
 
-      - uses: CodSpeedHQ/action@v3
+      - uses: CodSpeedHQ/action@v4
         with:
+          mode: "instrumentation"
           run: uv run --no-sync pytest --import-mode=importlib --codspeed
           token: ${{ secrets.CODSPEED_TOKEN }}
           working-directory: ${{ github.workspace }}
