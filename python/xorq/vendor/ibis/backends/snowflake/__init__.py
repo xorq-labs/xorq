@@ -12,7 +12,7 @@ from operator import itemgetter
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote_plus
-from urllib.request import urlretrieve
+from urllib.request import urlcleanup, urlretrieve
 
 import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
@@ -38,13 +38,23 @@ from xorq.vendor.ibis.backends.sql.compilers.base import STAR
 
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Iterator, Mapping
+    from collections.abc import Generator, Iterable, Iterator, Mapping
     from urllib.parse import ParseResult
 
     import pandas as pd
     import polars as pl
     import snowflake.connector
     import snowflake.snowpark
+
+
+@contextlib.contextmanager
+def download_file(url: str) -> Generator[str]:
+    assert url.startswith("https://"), str(url)
+    tmpfile, _ = urlretrieve(url)  # noqa: S310
+    try:
+        yield tmpfile
+    finally:
+        urlcleanup()
 
 
 _SNOWFLAKE_MAP_UDFS = {
@@ -146,6 +156,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema):
     name = "snowflake"
     compiler = sc.snowflake.compiler
     supports_python_udfs = True
+    supports_temporary_tables = True
 
     _top_level_methods = ("from_connection", "from_snowpark")
 
@@ -393,6 +404,7 @@ $$ {defn["source"]} $$"""
     def from_connection(
         cls,
         con: snowflake.connector.SnowflakeConnection | snowflake.snowpark.Session,
+        /,
         *,
         create_object_udfs: bool = True,
     ) -> Backend:
@@ -459,6 +471,7 @@ $$ {defn["source"]} $$"""
     def to_pyarrow(
         self,
         expr: ir.Expr,
+        /,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
@@ -488,6 +501,7 @@ $$ {defn["source"]} $$"""
     def to_pandas_batches(
         self,
         expr: ir.Expr,
+        /,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
@@ -508,6 +522,7 @@ $$ {defn["source"]} $$"""
     def to_pyarrow_batches(
         self,
         expr: ir.Expr,
+        /,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
@@ -543,6 +558,8 @@ $$ {defn["source"]} $$"""
         catalog: str | None = None,
         database: str | None = None,
     ) -> Iterable[tuple[str, dt.DataType]]:
+        import snowflake.connector
+
         # this will always show temp tables with the same name as a non-temp
         # table first
         #
@@ -553,8 +570,25 @@ $$ {defn["source"]} $$"""
         table = sg.table(
             table_name, db=database, catalog=catalog, quoted=self.compiler.quoted
         )
-        with self._safe_raw_sql(sge.Describe(kind="TABLE", this=table)) as cur:
-            result = cur.fetchall()
+        query = sge.Describe(kind="TABLE", this=table)
+
+        try:
+            with self._safe_raw_sql(query) as cur:
+                result = cur.fetchall()
+        except snowflake.connector.errors.ProgrammingError as e:
+            # apparently sqlstate codes are "standard", in the same way that
+            # SQL is standard, because sqlstate codes are part of the SQL
+            # standard
+            #
+            # Nowhere does this exist in Snowflake's documentation but this
+            # exists in MariaDB's docs and matches the SQLSTATE error code
+            #
+            # https://mariadb.com/kb/en/sqlstate/
+            # https://mariadb.com/kb/en/mariadb-error-code-reference/
+            # and the least helpful version: https://docs.snowflake.com/en/developer-guide/snowflake-scripting/exceptions#handling-an-exception
+            if e.sqlstate == "42S02":
+                raise com.TableNotFound(table.sql(self.dialect)) from e
+            raise
 
         type_mapper = self.compiler.type_mapper
         return sch.Schema(
@@ -580,13 +614,13 @@ $$ {defn["source"]} $$"""
             }
         )
 
-    def list_catalogs(self, like: str | None = None) -> list[str]:
+    def list_catalogs(self, *, like: str | None = None) -> list[str]:
         with self._safe_raw_sql("SHOW DATABASES") as con:
             catalogs = list(map(itemgetter(1), con))
         return self._filter_with_like(catalogs, like)
 
     def list_databases(
-        self, like: str | None = None, catalog: str | None = None
+        self, *, like: str | None = None, catalog: str | None = None
     ) -> list[str]:
         query = "SHOW SCHEMAS"
 
@@ -681,7 +715,7 @@ $$ {defn["source"]} $$"""
             pq.write_table(data, path, compression="zstd")
             self.read_parquet(path, table_name=name)
 
-    def create_catalog(self, name: str, force: bool = False) -> None:
+    def create_catalog(self, name: str, /, *, force: bool = False) -> None:
         current_catalog = self.current_catalog
         current_database = self.current_database
         quoted = self.compiler.quoted
@@ -699,7 +733,7 @@ $$ {defn["source"]} $$"""
             # so we switch back to the original database and schema
             cur.execute(use_stmt)
 
-    def drop_catalog(self, name: str, force: bool = False) -> None:
+    def drop_catalog(self, name: str, /, *, force: bool = False) -> None:
         current_catalog = self.current_catalog
         if name == current_catalog:
             raise com.UnsupportedOperationError(
@@ -714,7 +748,7 @@ $$ {defn["source"]} $$"""
             pass
 
     def create_database(
-        self, name: str, catalog: str | None = None, force: bool = False
+        self, name: str, /, *, catalog: str | None = None, force: bool = False
     ) -> None:
         current_catalog = self.current_catalog
         current_database = self.current_database
@@ -754,7 +788,7 @@ $$ {defn["source"]} $$"""
             return cur
 
     def drop_database(
-        self, name: str, catalog: str | None = None, force: bool = False
+        self, name: str, /, *, catalog: str | None = None, force: bool = False
     ) -> None:
         if self.current_database == name and (
             catalog is None or self.current_catalog == catalog
@@ -774,6 +808,7 @@ $$ {defn["source"]} $$"""
     def create_table(
         self,
         name: str,
+        /,
         obj: ir.Table
         | pd.DataFrame
         | pa.Table
@@ -866,7 +901,7 @@ $$ {defn["source"]} $$"""
         return self.table(name, database=(catalog, db))
 
     def read_csv(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
+        self, path: str | Path, /, *, table_name: str | None = None, **kwargs: Any
     ) -> ir.Table:
         """Register a CSV file as a table in the Snowflake backend.
 
@@ -922,16 +957,13 @@ $$ {defn["source"]} $$"""
         with self._safe_raw_sql(";\n".join(stmts)) as cur:
             # copy the local file to the stage
             if str(path).startswith("https://"):
-                with tempfile.NamedTemporaryFile() as tmp:
-                    tmpname = tmp.name
-                    urlretrieve(path, filename=tmpname)  # noqa: S310
-                    tmp.flush()
+                with download_file(str(path)) as tmpname:
                     cur.execute(
-                        f"PUT 'file://{tmpname}' @{stage} PARALLEL = {threads:d}"
+                        f"PUT 'file://{Path(tmpname).absolute().as_posix()}' @{stage} PARALLEL = {threads:d}"
                     )
             else:
                 cur.execute(
-                    f"PUT 'file://{Path(path).absolute()}' @{stage} PARALLEL = {threads:d}"
+                    f"PUT 'file://{Path(path).absolute().as_posix()}' @{stage} PARALLEL = {threads:d}"
                 )
 
             # handle setting up the schema in python because snowflake is
@@ -995,7 +1027,7 @@ $$ {defn["source"]} $$"""
         return self.table(table)
 
     def read_json(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
+        self, path: str | Path, /, *, table_name: str | None = None, **kwargs: Any
     ) -> ir.Table:
         """Read newline-delimited JSON into an ibis table, using Snowflake.
 
@@ -1059,7 +1091,7 @@ $$ {defn["source"]} $$"""
         )
         with self._safe_raw_sql(";\n".join(stmts)) as cur:
             cur.execute(
-                f"PUT 'file://{Path(path).absolute()}' @{stage} PARALLEL = {threads:d}"
+                f"PUT 'file://{Path(path).absolute().as_posix()}' @{stage} PARALLEL = {threads:d}"
             )
             cur.execute(
                 ";\n".join(
@@ -1084,7 +1116,7 @@ $$ {defn["source"]} $$"""
         return self.table(table)
 
     def read_parquet(
-        self, path: str | Path, table_name: str | None = None, **kwargs: Any
+        self, path: str | Path, /, *, table_name: str | None = None, **kwargs: Any
     ) -> ir.Table:
         """Read a Parquet file into an ibis table, using Snowflake.
 
