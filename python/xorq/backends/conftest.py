@@ -110,9 +110,12 @@ def pytest_runtest_setup(item):
             }
             SKU.maybe_decrypt_private_key(kwargs)
         except Exception as e:
-            import dask
+            import hashlib
 
-            hashed = {f"{k}-hash": dask.base.tokenize(v) for k, v in kwargs.items()}
+            hashed = {
+                f"{k}-hash": hashlib.md5(v.encode("ascii")).hexdigest()
+                for k, v in kwargs.items()
+            }
             strip_equality = {k: v.strip() == v for k, v in kwargs.items()}
             pytest.fail(
                 f"cannot decrpyt snowflake creds '{e}'\n{hashed}\n{strip_equality}"
