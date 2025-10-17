@@ -48,8 +48,8 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_GH_WAREHOUSE }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_GH_ROLE }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_GH_ACCOUNT }}
-          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }},
-          SNOWFLAKE_PRIVATE_KEY_PWD: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PWD }},
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          SNOWFLAKE_PRIVATE_KEY_PWD: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PWD }}
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
           POSTGRES_HOST: localhost
