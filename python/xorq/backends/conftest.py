@@ -110,7 +110,13 @@ def pytest_runtest_setup(item):
             }
             SKU.maybe_decrypt_private_key(kwargs)
         except Exception as e:
-            pytest.fail(f"cannot decrpyt snowflake creds '{e}'")
+            import dask
+
+            hashed = {f"{k}-hash": dask.base.tokenize(v) for k, v in kwargs.items()}
+            strip_equality = {k: v.strip() == v for k, v in kwargs.items()}
+            pytest.fail(
+                f"cannot decrpyt snowflake creds '{e}'\n{hashed}\n{strip_equality}"
+            )
 
 
 def get_storage_uncached(expr):
