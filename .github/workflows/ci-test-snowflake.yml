@@ -37,7 +37,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: start services
-        run: docker compose up --build --wait
+        run: docker compose up --build --wait postgres
 
       - name: pytest
         run: uv run --no-sync pytest --import-mode=importlib -m snowflake -v --cov --cov-report=xml -s -vv
