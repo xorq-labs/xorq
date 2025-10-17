@@ -117,8 +117,9 @@ def pytest_runtest_setup(item):
                 for k, v in kwargs.items()
             }
             strip_equality = {k: v.strip() == v for k, v in kwargs.items()}
+            split_count = {k: len(v.split("\n")) == v for k, v in kwargs.items()}
             pytest.fail(
-                f"cannot decrpyt snowflake creds '{e}'\n{hashed}\n{strip_equality}"
+                f"cannot decrpyt snowflake creds '{e}'\n{hashed}\n{strip_equality}\n{split_count}"
             )
 
 
