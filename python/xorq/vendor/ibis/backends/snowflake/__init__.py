@@ -246,7 +246,7 @@ IMMUTABLE
 AS
 $$ {defn["source"]} $$"""
 
-    def do_connect(self, create_object_udfs: bool = True, **kwargs: Any):
+    def do_connect(self, create_object_udfs: bool = False, **kwargs: Any):
         """Connect to Snowflake.
 
         Parameters
@@ -350,7 +350,7 @@ $$ {defn["source"]} $$"""
     @util.deprecated(as_of="10.0", instead="use from_connection instead")
     @classmethod
     def from_snowpark(
-        cls, session: snowflake.snowpark.Session, *, create_object_udfs: bool = True
+        cls, session: snowflake.snowpark.Session, *, create_object_udfs: bool = False
     ) -> Backend:
         """Create an Ibis Snowflake backend from a Snowpark session.
 
@@ -406,7 +406,7 @@ $$ {defn["source"]} $$"""
         con: snowflake.connector.SnowflakeConnection | snowflake.snowpark.Session,
         /,
         *,
-        create_object_udfs: bool = True,
+        create_object_udfs: bool = False,
     ) -> Backend:
         """Create an Ibis Snowflake backend from an existing connection.
 
