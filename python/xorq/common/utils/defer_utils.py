@@ -230,7 +230,7 @@ def deferred_read_parquet(
     if table_name is None:
         table_name = gen_name(f"letsql-{method_name}")
     schema = xo_connect().read_parquet(path).schema()
-    read_kwargs = make_read_kwargs(method, path, table_name, **kwargs)
+    read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
     return Read(
         method_name=method_name,
         name=table_name,

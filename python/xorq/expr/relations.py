@@ -570,7 +570,9 @@ class Read(ops.DatabaseTable):
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)
-        dt = method(**dict(self.read_kwargs)).op()
+        args = tuple(v for k, v in self.read_kwargs if k == "path")
+        kwargs = dict((k, v) for k, v in self.read_kwargs if k != "path")
+        dt = method(*args, **kwargs).op()
         return dt
 
     def make_unbound_dt(self):

@@ -97,11 +97,26 @@ def pytest_collection_modifyitems(session, config, items):
             item.add_marker(marker)
 
 
+@functools.cache
+def maybe_snowflake_decrypt_failure():
+    try:
+        SKU = pytest.importorskip("xorq.common.utils.snowflake_keypair_utils")
+        kwargs = {
+            varname[len("SNOWFLAKE_") :].lower(): os.environ.get(varname)
+            for varname in snowflake_credentials_varnames
+        }
+        SKU.maybe_decrypt_private_key(kwargs)
+    except Exception as e:
+        return e
+
+
 def pytest_runtest_setup(item):
     if any(mark.name == "snowflake" for mark in item.iter_markers()):
         pytest.importorskip("snowflake.connector")
         if not have_snowflake_credentials:
             pytest.skip("cannot run snowflake tests without snowflake creds")
+        if e := maybe_snowflake_decrypt_failure():
+            pytest.fail(f"cannot decrpyt snowflake creds '{e}'")
 
 
 def get_storage_uncached(expr):
