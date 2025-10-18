@@ -37,10 +37,10 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: start services
-        run: docker compose up --build --wait
+        run: docker compose up --build --wait postgres
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib python/xorq/backends/snowflake -v --cov --cov-report=xml
+        run: uv run --no-sync pytest --import-mode=importlib -m snowflake -v --cov --cov-report=xml -s -vv
         working-directory: ${{ github.workspace }}
         env:
           SNOWFLAKE_PASSWORD: ${{ secrets.SNOWFLAKE_GH_USER_PASSWORD }}
@@ -48,6 +48,8 @@ jobs:
           SNOWFLAKE_WAREHOUSE: ${{ secrets.SNOWFLAKE_GH_WAREHOUSE }}
           SNOWFLAKE_ROLE: ${{ secrets.SNOWFLAKE_GH_ROLE }}
           SNOWFLAKE_ACCOUNT: ${{ secrets.SNOWFLAKE_GH_ACCOUNT }}
+          SNOWFLAKE_PRIVATE_KEY: ${{ secrets.SNOWFLAKE_PRIVATE_KEY }}
+          SNOWFLAKE_PRIVATE_KEY_PWD: ${{ secrets.SNOWFLAKE_PRIVATE_KEY_PWD }}
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
           POSTGRES_HOST: localhost
