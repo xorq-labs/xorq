@@ -4,7 +4,6 @@ import calendar
 import math
 from functools import partial
 from itertools import starmap
-from typing import Any, Mapping
 
 import sqlglot as sg
 import sqlglot.expressions as sge
@@ -26,7 +25,6 @@ from xorq.vendor.ibis.backends.sql.compilers.base import (
 from xorq.vendor.ibis.backends.sql.datatypes import PostgresType
 from xorq.vendor.ibis.backends.sql.rewrites import split_select_distinct_with_order_by
 from xorq.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit
-from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.expr.operations.udf import InputType
 
 
@@ -665,19 +663,6 @@ class DataFusionCompiler(SQLGlotCompiler):
                 self.cast(NULL, dt.bool),
             ),
         )
-
-    def to_sqlglot(
-        self,
-        expr: ir.Expr,
-        *,
-        limit: str | None = None,
-        params: Mapping[ir.Expr, Any] | None = None,
-    ):
-        op = expr.op()
-        from xorq.expr.relations import legacy_replace_cache_table
-
-        out = op.map_clear(legacy_replace_cache_table)
-        return super().to_sqlglot(out.to_expr().unbind(), limit=limit, params=params)
 
 
 compiler = DataFusionCompiler()
