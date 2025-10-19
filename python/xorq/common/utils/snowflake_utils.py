@@ -231,10 +231,29 @@ class SnowflakeADBC:
         return self.get_conn()
 
     def adbc_ingest(
-        self, table_name, record_batch_reader, mode="create", temporary=False, **kwargs
+        self,
+        table_name,
+        record_batch_reader,
+        mode="create",
+        temporary=False,
+        conn_kwargs=(),
+        **kwargs,
     ):
-        with self.get_conn() as conn:
+        def make_use_stmt(con, catalog, db):
+            import sqlglot as sg
+            import sqlglot.expressions as sge
+
+            use_stmt = sge.Use(
+                kind="SCHEMA",
+                this=sg.table(db, catalog=catalog, quoted=con.compiler.quoted),
+            ).sql(dialect=con.name)
+            return use_stmt
+
+        catalog, db = self.con.current_catalog, self.con.current_database
+        d = {"database": "SNOWFLAKE_SAMPLE_DATA", "schema": "TPCH_SF1"}
+        with self.get_conn(**d | dict(conn_kwargs)) as conn:
             with conn.cursor() as cur:
+                cur.execute(make_use_stmt(self.con, catalog, db))
                 cur.adbc_ingest(
                     table_name,
                     record_batch_reader,
