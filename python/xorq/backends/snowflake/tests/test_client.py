@@ -1,7 +1,12 @@
 import pytest
 import toolz
 
+import xorq.api as xo
 from xorq.backends.snowflake import SnowflakeAuthenticator
+from xorq.backends.snowflake.tests.conftest import (
+    inside_temp_schema,
+)
+from xorq.vendor.ibis.util import gen_name
 
 
 SU = pytest.importorskip("xorq.common.utils.snowflake_utils")
@@ -63,3 +68,39 @@ def test_table_namespace():
     namespace = table.op().namespace
     assert namespace.catalog is not None
     assert namespace.database is not None
+
+
+@pytest.mark.snowflake
+def test_create_table_from_expr_failure(sf_con, temp_catalog, temp_db, csv_dir):
+    name = "batting"
+    t = xo.deferred_read_csv(csv_dir.joinpath(f"{name}.csv"), table_name=name)
+    name = gen_name(t.get_name())
+    with pytest.raises(ValueError, match="expr backend must be .*, is"):
+        sf_con.create_table(name, t, database=f"{temp_catalog}.{temp_db}")
+
+
+@pytest.mark.snowflake
+def test_create_table_from_expr_success(sf_con, temp_catalog, temp_db, csv_dir):
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        name = "batting"
+        t = xo.deferred_read_csv(
+            csv_dir.joinpath(f"{name}.csv"), table_name=name
+        ).into_backend(sf_con)
+        name = gen_name(t.get_name())
+        sf_con.create_table(name, t)
+        assert name in sf_con.list_tables()
+
+
+@pytest.mark.snowflake
+def test_create_table_from_expr_other(
+    sf_con, temp_catalog, temp_db, temp_catalog2, temp_db2, csv_dir
+):
+    with inside_temp_schema(sf_con, temp_catalog, temp_db):
+        name = "batting"
+        t = xo.deferred_read_csv(
+            csv_dir.joinpath(f"{name}.csv"), table_name=name
+        ).into_backend(sf_con)
+        name = gen_name(t.get_name())
+        assert not sf_con.list_tables()
+        sf_con.create_table(name, t, database=f"{temp_catalog2}.{temp_db2}")
+        assert name in sf_con.list_tables(database=(temp_catalog2, temp_db2))
