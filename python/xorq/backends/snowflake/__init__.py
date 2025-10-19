@@ -235,8 +235,8 @@ class Backend(IbisSnowflakeBackend):
             with contextlib.closing(con.cursor()) as cur:
                 try:
                     cur.execute(use_stmt)
-                except Exception:  # noqa: BLE001
-                    warnings.warn("Unable to set catalog,db")
+                except Exception as e:  # noqa: BLE001
+                    warnings.warn(f"Unable to set catalog,db: {e}")
 
         if create_object_udfs:
             create_stmt = sge.Create(
