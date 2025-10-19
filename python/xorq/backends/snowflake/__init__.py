@@ -265,6 +265,13 @@ class Backend(IbisSnowflakeBackend):
             except Exception:  # noqa: BLE001
                 pass
 
+    @property
+    def adbc(self):
+        from xorq.common.utils.snowflake_utils import SnowflakeADBC
+
+        adbc = SnowflakeADBC(self)
+        return adbc
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,
@@ -273,8 +280,6 @@ class Backend(IbisSnowflakeBackend):
         mode: str = "create",
         **kwargs: Any,
     ) -> ir.Table:
-        from xorq.common.utils.snowflake_utils import SnowflakeADBC
-
         logger.info(
             "reading record batches with SnowflakeADBC",
             **{
@@ -285,7 +290,7 @@ class Backend(IbisSnowflakeBackend):
             },
         )
 
-        snowflake_adbc = SnowflakeADBC(self)
+        snowflake_adbc = self.adbc
         snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
         return self.table(table_name)
 
