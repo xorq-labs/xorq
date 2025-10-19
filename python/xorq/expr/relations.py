@@ -692,3 +692,12 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     backend = render_backend(source)
     name = f"{op.__class__.__name__}[name={name}, method_name={method_name}, source={backend}]\n"
     return name + render_schema(op.schema, 1)
+
+
+def prepare_create_table_from_expr(con, expr):
+    from xorq.expr.api import _transform_expr
+
+    if (expr_backend := expr._find_backend()) != con:
+        raise ValueError(f"expr backend must be {con}, is {expr_backend}")
+    (table, _) = _transform_expr(expr)
+    return table

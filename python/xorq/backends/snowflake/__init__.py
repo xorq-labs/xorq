@@ -14,6 +14,9 @@ import xorq.vendor.ibis.expr.api as api
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.logging_utils import get_logger
+from xorq.expr.relations import (
+    prepare_create_table_from_expr,
+)
 from xorq.vendor.ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
 from xorq.vendor.ibis.backends.snowflake import Backend as IbisSnowflakeBackend
 from xorq.vendor.ibis.expr.operations.relations import (
@@ -173,7 +176,7 @@ class Backend(IbisSnowflakeBackend):
             if not isinstance(obj, ir.Expr):
                 table = api.memtable(obj)
             else:
-                table = obj
+                table = prepare_create_table_from_expr(self, obj)
 
             self._run_pre_execute_hooks(table)
 
