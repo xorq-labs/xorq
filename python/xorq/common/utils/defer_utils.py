@@ -156,10 +156,12 @@ def deferred_read_csv(
 
     infer_schema = kwargs.pop("infer_schema", infer_csv_schema_pandas)
     deferred_read_csv.method_name = method_name = "read_csv"
-    method = getattr(con, method_name)
 
     if con is None:
         con = _backend_init()
+
+    method = getattr(con, method_name)
+
     if table_name is None:
         table_name = gen_name(f"xorq-{method_name}")
     if schema is None:
