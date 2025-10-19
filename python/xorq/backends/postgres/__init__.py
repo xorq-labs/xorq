@@ -13,7 +13,6 @@ from xorq.common.utils.defer_utils import (
     read_csv_rbr,
 )
 from xorq.expr.api import read_parquet
-from xorq.expr.relations import replace_cache_table
 from xorq.vendor.ibis.backends.postgres import Backend as IbisPostgresBackend
 from xorq.vendor.ibis.expr import types as ir
 from xorq.vendor.ibis.util import (
@@ -40,14 +39,6 @@ class Backend(IbisPostgresBackend):
             "database": "letsql",
         }
         return cls().connect(**(examples_kwargs | kwargs))
-
-    def _to_sqlglot(
-        self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
-    ):
-        op = expr.op()
-        out = op.map_clear(replace_cache_table)
-
-        return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
 
     def _build_insert_template(
         self,

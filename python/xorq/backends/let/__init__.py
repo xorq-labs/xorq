@@ -194,16 +194,6 @@ class Backend(DataFusionBackend):
         """
         super().do_connect(config=config)
 
-    def _to_sqlglot(
-        self, expr: ir.Expr, *, limit: str | None = None, params=None, **_: Any
-    ):
-        from xorq.expr.relations import replace_cache_table
-
-        op = expr.op()
-        out = op.map_clear(replace_cache_table)
-
-        return super()._to_sqlglot(out.to_expr(), limit=limit, params=params)
-
     def _extract_catalog(self, query):
         tables = parse_one(query).find_all(exp.Table)
         return {table.name: self.table(table.name) for table in tables}
