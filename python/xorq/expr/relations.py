@@ -38,10 +38,6 @@ def replace_cache_table(node, kwargs):
         return node
 
 
-def legacy_replace_cache_table(node, _, **kwargs):
-    return replace_cache_table(node, (kwargs or dict(zip(node.argnames, node.args))))
-
-
 # https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
 class SafeTee(object):
     """tee object wrapped to make it thread-safe"""
@@ -622,26 +618,29 @@ def register_and_transform_remote_tables(expr):
         return result.op()
 
     def replacer(node, kwargs):
-        kwargs = kwargs or {}
-        if isinstance(node, Relation):
-            updated = {}
-            for k, v in list(kwargs.items()):
-                try:
-                    if v in batches_table:
-                        updated[v] = mark_remote_table(v)
-
-                except TypeError:  # v may not be hashable
-                    continue
-
-            if len(updated) > 0:
-                kwargs = {k: recursive_update(v, updated) for k, v in kwargs.items()}
-
-        if kwargs:
-            node = node.__recreate__(kwargs)
         if isinstance(node, RemoteTable):
             result = mark_remote_table(node)
             batches_table[result] = batches_table.pop(node)
             node = result
+        else:
+            kwargs = kwargs or {}
+            if isinstance(node, Relation):
+                updated = {}
+                for k, v in list(kwargs.items()):
+                    try:
+                        if v in batches_table:
+                            updated[v] = mark_remote_table(v)
+
+                    except TypeError:  # v may not be hashable
+                        continue
+
+                if len(updated) > 0:
+                    kwargs = {
+                        k: recursive_update(v, updated) for k, v in kwargs.items()
+                    }
+
+            if kwargs:
+                node = node.__recreate__(kwargs)
 
         return node
 
