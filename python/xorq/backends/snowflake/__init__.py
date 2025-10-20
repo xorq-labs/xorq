@@ -14,6 +14,9 @@ import xorq.vendor.ibis.expr.api as api
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.logging_utils import get_logger
+from xorq.expr.relations import (
+    prepare_create_table_from_expr,
+)
 from xorq.vendor.ibis.backends.snowflake import _SNOWFLAKE_MAP_UDFS
 from xorq.vendor.ibis.backends.snowflake import Backend as IbisSnowflakeBackend
 from xorq.vendor.ibis.expr.operations.relations import (
@@ -173,7 +176,12 @@ class Backend(IbisSnowflakeBackend):
             if not isinstance(obj, ir.Expr):
                 table = api.memtable(obj)
             else:
-                table = obj
+                if catalog is not None and db is not None:
+                    table = prepare_create_table_from_expr(
+                        self, obj, database=(catalog, db)
+                    )
+                else:
+                    table = prepare_create_table_from_expr(self, obj)
 
             self._run_pre_execute_hooks(table)
 
@@ -235,8 +243,8 @@ class Backend(IbisSnowflakeBackend):
             with contextlib.closing(con.cursor()) as cur:
                 try:
                     cur.execute(use_stmt)
-                except Exception:  # noqa: BLE001
-                    warnings.warn("Unable to set catalog,db")
+                except Exception as e:  # noqa: BLE001
+                    warnings.warn(f"Unable to set catalog,db: {e}")
 
         if create_object_udfs:
             create_stmt = sge.Create(
@@ -265,16 +273,22 @@ class Backend(IbisSnowflakeBackend):
             except Exception:  # noqa: BLE001
                 pass
 
+    @property
+    def adbc(self):
+        from xorq.common.utils.snowflake_utils import SnowflakeADBC
+
+        adbc = SnowflakeADBC(self)
+        return adbc
+
     def read_record_batches(
         self,
         record_batches: pa.RecordBatchReader,
         table_name: str | None = None,
         temporary: bool = False,
         mode: str = "create",
+        database=None,
         **kwargs: Any,
     ) -> ir.Table:
-        from xorq.common.utils.snowflake_utils import SnowflakeADBC
-
         logger.info(
             "reading record batches with SnowflakeADBC",
             **{
@@ -285,9 +299,11 @@ class Backend(IbisSnowflakeBackend):
             },
         )
 
-        snowflake_adbc = SnowflakeADBC(self)
-        snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
-        return self.table(table_name)
+        snowflake_adbc = self.adbc
+        snowflake_adbc.adbc_ingest(
+            table_name, record_batches, mode=mode, database=database, **kwargs
+        )
+        return self.table(table_name, database=database)
 
 
 def connect(*args, **kwargs):
