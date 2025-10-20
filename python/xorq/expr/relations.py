@@ -38,10 +38,6 @@ def replace_cache_table(node, kwargs):
         return node
 
 
-def legacy_replace_cache_table(node, _, **kwargs):
-    return replace_cache_table(node, (kwargs or dict(zip(node.argnames, node.args))))
-
-
 # https://stackoverflow.com/questions/6703594/is-the-result-of-itertools-tee-thread-safe-python
 class SafeTee(object):
     """tee object wrapped to make it thread-safe"""
