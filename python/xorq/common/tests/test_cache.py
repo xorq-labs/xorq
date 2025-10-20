@@ -25,15 +25,14 @@ def test_put_get_drop(tmp_path, parquet_dir):
 def test_default_connection(tmp_path, parquet_dir):
     batting_path = parquet_dir.joinpath("astronauts.parquet")
 
-    con = xo.datafusion.connect()
+    con = xo.connect()
     t = con.read_parquet(batting_path, table_name="astronauts")
 
     # if we do cross source caching, then we get a random name and cache.calc_key result isn't stable
-    cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path)
     cache.put(t, t.op())
 
     get_node = cache.get(t)
     assert get_node is not None
     assert get_node.source.name == con.name
-    assert xo.options.backend is not None
     assert get_node.to_expr().execute is not None
