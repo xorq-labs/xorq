@@ -365,10 +365,10 @@ def _remove_tag_nodes(expr):
 
 
 @tracer.start_as_current_span("_transform_expr")
-def _transform_expr(expr, database=None):
+def _transform_expr(expr, **kwargs):
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
-    expr, created = register_and_transform_remote_tables(expr, database=database)
+    expr, created = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
     return (expr, created)
 
