@@ -176,7 +176,12 @@ class Backend(IbisSnowflakeBackend):
             if not isinstance(obj, ir.Expr):
                 table = api.memtable(obj)
             else:
-                table = prepare_create_table_from_expr(self, obj)
+                if catalog is not None and db is not None:
+                    table = prepare_create_table_from_expr(
+                        self, obj, database=(catalog, db)
+                    )
+                else:
+                    table = prepare_create_table_from_expr(self, obj)
 
             self._run_pre_execute_hooks(table)
 
@@ -281,6 +286,7 @@ class Backend(IbisSnowflakeBackend):
         table_name: str | None = None,
         temporary: bool = False,
         mode: str = "create",
+        database=None,
         **kwargs: Any,
     ) -> ir.Table:
         logger.info(
@@ -294,8 +300,10 @@ class Backend(IbisSnowflakeBackend):
         )
 
         snowflake_adbc = self.adbc
-        snowflake_adbc.adbc_ingest(table_name, record_batches, mode=mode, **kwargs)
-        return self.table(table_name)
+        snowflake_adbc.adbc_ingest(
+            table_name, record_batches, mode=mode, database=database, **kwargs
+        )
+        return self.table(table_name, database=database)
 
 
 def connect(*args, **kwargs):

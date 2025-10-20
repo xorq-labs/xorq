@@ -236,6 +236,7 @@ class SnowflakeADBC:
         record_batch_reader,
         mode="create",
         temporary=False,
+        database=None,
         conn_kwargs=(),
         **kwargs,
     ):
@@ -249,7 +250,12 @@ class SnowflakeADBC:
             ).sql(dialect=con.name)
             return use_stmt
 
-        catalog, db = self.con.current_catalog, self.con.current_database
+        catalog, db = (
+            (self.con.current_catalog, self.con.current_database)
+            if database is None
+            else database
+        )
+        # create adbc con pointing to a "known safe" catalog/db
         d = {"database": "SNOWFLAKE_SAMPLE_DATA", "schema": "TPCH_SF1"}
         with self.get_conn(**d | dict(conn_kwargs)) as conn:
             with conn.cursor() as cur:

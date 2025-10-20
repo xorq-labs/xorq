@@ -586,7 +586,7 @@ _count = itertools.count()
 
 
 @tracer.start_as_current_span("register_and_transform_remote_tables")
-def register_and_transform_remote_tables(expr):
+def register_and_transform_remote_tables(expr, database=None):
     created = {}
 
     op = expr.op()
@@ -617,7 +617,9 @@ def register_and_transform_remote_tables(expr):
         schema, batchess = batches_table[node]
         name = f"{node.name}_cu{next(_count)}_t{len(batchess)}"
         reader = pa.RecordBatchReader.from_batches(schema, batchess.pop())
-        result = node.source.read_record_batches(reader, table_name=name)
+        result = node.source.read_record_batches(
+            reader, table_name=name, database=database
+        )
         created[name] = node.source
         return result.op()
 
@@ -694,10 +696,10 @@ def _fmt_read(op, name, method_name, source, **kwargs):
     return name + render_schema(op.schema, 1)
 
 
-def prepare_create_table_from_expr(con, expr):
+def prepare_create_table_from_expr(con, expr, database=None):
     from xorq.expr.api import _transform_expr
 
     if (expr_backend := expr._find_backend()) != con:
         raise ValueError(f"expr backend must be {con}, is {expr_backend}")
-    (table, _) = _transform_expr(expr)
+    (table, _) = _transform_expr(expr, database=database)
     return table
