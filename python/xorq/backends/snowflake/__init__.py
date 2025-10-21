@@ -44,8 +44,12 @@ class SnowflakeAuthenticator(StrEnum):
 
 
 @functools.wraps(IbisSnowflakeBackend.do_connect)
-def wrapped_do_connect(self, create_object_udfs: bool = True, **kwargs: Any):
+def wrapped_do_connect(self, create_object_udfs: bool = None, **kwargs: Any):
     from xorq.common.utils.snowflake_keypair_utils import maybe_decrypt_private_key
+    from xorq.common.utils.snowflake_utils import default_create_object_udfs
+
+    if create_object_udfs is None:
+        create_object_udfs = default_create_object_udfs
 
     if "private_key" in kwargs:
         kwargs = maybe_decrypt_private_key(kwargs)
