@@ -485,9 +485,9 @@ def test_init_uv_build_uv_run(template, tmpdir):
 
 serve_hashes = (
     "323f89d94c90d1dcf0660baefd813658",  # batting, rel.Read
-    "d5ca7be107d6b69cd11715fa9bb628b9",  # awards_players, rel.Read
+    "e6d438bd87aa3d84babd6f4c2956312f",  # awards_players, rel.Read
     "3c1b0dc766c6d217ab921fc73ebfe933",  # left, ops.Filter
-    "8cd7850627df82fc184a152d770eb205",  # right, ops.DropColumns
+    "c3950f7f9ab98a9e943e02f761db7c2a",  # right, ops.DropColumns
 )
 
 
@@ -544,7 +544,7 @@ def hit_server(port, expr):
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
-        "8cd7850627df82fc184a152d770eb205": "xorq.vendor.ibis.expr.operations.DropColumns",
+        "c3950f7f9ab98a9e943e02f761db7c2a": "xorq.vendor.ibis.expr.operations.DropColumns",
         "3c1b0dc766c6d217ab921fc73ebfe933": "xorq.vendor.ibis.expr.operations.Filter",
     }
     expr = load_expr(pipeline_https_build)
