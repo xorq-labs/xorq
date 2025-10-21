@@ -26,6 +26,7 @@ SnowflakeConfig = EnvConfigable.subclass_from_env_file(
     env_templates_dir.joinpath(".env.snowflake.template")
 )
 snowflake_config = SnowflakeConfig.from_env()
+default_create_object_udfs = bool(snowflake_config.SNOWFLAKE_CREATE_OBJECT_UDFS)
 
 
 def make_auth_defaults(authenticator=None):
