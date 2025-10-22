@@ -70,8 +70,6 @@ class Backend(IbisSnowflakeBackend):
     def connect_env(
         passcode=None,
         authenticator=None,
-        database="SNOWFLAKE_SAMPLE_DATA",
-        schema="TPCH_SF1",
         **kwargs,
     ):
         from xorq.common.utils.snowflake_utils import make_connection
@@ -79,8 +77,6 @@ class Backend(IbisSnowflakeBackend):
         return make_connection(
             authenticator=authenticator,
             passcode=passcode,
-            database=database,
-            schema=schema,
             **kwargs,
         )
 
