@@ -27,6 +27,8 @@ SnowflakeConfig = EnvConfigable.subclass_from_env_file(
 )
 snowflake_config = SnowflakeConfig.from_env()
 default_create_object_udfs = bool(snowflake_config.SNOWFLAKE_CREATE_OBJECT_UDFS)
+default_database = snowflake_config["SNOWFLAKE_DATABASE"] or "SNOWFLAKE_SAMPLE_DATA"
+default_schema = snowflake_config["SNOWFLAKE_SCHEMA"] or "TPCH_SF1"
 
 
 def make_auth_defaults(authenticator=None):
@@ -77,8 +79,8 @@ def execute_statement(con, statement, do_assert=True):
 
 
 def make_connection(
-    database,
-    schema,
+    database=default_database,
+    schema=default_schema,
     authenticator=None,
     **kwargs,
 ):
