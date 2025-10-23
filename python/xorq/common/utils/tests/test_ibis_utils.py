@@ -18,11 +18,15 @@ def test_basic_ops():
     assert xorq_t is not None
 
 
-def test_select():
-    t = ibis.memtable({"id": [1, 2, 3]})
-    expr = t.select(ibis._.id).filter(ibis._.id == 1)
+@pytest.mark.parametrize(
+    "field,predicate", (("id", ibis._.id == 1), ("name", ibis._.name == "Bob"))
+)
+def test_select(field, predicate, con):
+    t = ibis.memtable({"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]})
+    expr = t.select(field).filter(predicate)
     xorq_expr = from_ibis(expr)
     assert xorq_expr is not None
+    assert not xo.execute(xorq_expr).empty
 
 
 def test_read_parquet(con, parquet_dir):
