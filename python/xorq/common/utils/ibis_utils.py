@@ -1,51 +1,75 @@
 import functools
 
 from ibis import Schema as IbisSchema
+from ibis.common.collections import FrozenOrderedDict as IbisFrozenOrderedDict
 from ibis.expr.datatypes import DataType as IbisDataType
+from ibis.expr.operations import Node as IbisNode
 from ibis.formats.pandas import PandasDataFrameProxy as IbisPandasDataFrameProxy
 
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Schema
+from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.datatypes import DataType
+from xorq.vendor.ibis.expr.operations import Node
 from xorq.vendor.ibis.formats.pandas import PandasDataFrameProxy
 
 
 @functools.singledispatch
-def map_op(op, kwargs):
+def map_ibis(op, kwargs):
+    raise NotImplementedError
+
+
+@map_ibis.register(int)
+@map_ibis.register(str)
+@map_ibis.register(float)
+@map_ibis.register(Node)
+def map_pass_through(op, kwargs):
+    return op
+
+
+@map_ibis.register(IbisNode)
+def map_nodes(op, kwargs):
     try:
         klass_name = op.__class__.__name__
         cls = getattr(ops, klass_name)
 
-        return cls(
-            **dict(zip(op.argnames, tuple(map_op(arg, kwargs) for arg in op.args)))
+        _kwargs = (
+            kwargs
+            if kwargs
+            else dict(zip(op.argnames, tuple(map_ibis(arg, kwargs) for arg in op.args)))
         )
+
+        return cls(**_kwargs)
     except AttributeError:
         raise ValueError(f"Cannot map: {type(op)}")
 
 
-@map_op.register(int)
-@map_op.register(str)
-@map_op.register(float)
-def map_builtins(op, kwargs):
-    return op
-
-
-@map_op.register(IbisSchema)
+@map_ibis.register(IbisSchema)
 def map_schema(schema, kwargs):
     return Schema(
-        dict(zip(schema.names, tuple(map_op(typ, kwargs) for typ in schema.types)))
+        dict(zip(schema.names, tuple(map_ibis(typ, kwargs) for typ in schema.types)))
     )
 
 
-@map_op.register(IbisDataType)
+@map_ibis.register(IbisDataType)
 def map_datatype(datatype, kwargs):
     return DataType.from_pyarrow(datatype.to_pyarrow())
 
 
-@map_op.register(IbisPandasDataFrameProxy)
+@map_ibis.register(IbisPandasDataFrameProxy)
 def map_pandas_dataframe_proxy(proxy, kwargs):
     return PandasDataFrameProxy(proxy.obj)
 
 
+@map_ibis.register(IbisFrozenOrderedDict)
+def map_frozendict(frozendict, kwargs):
+    return FrozenOrderedDict(
+        tuple(
+            (map_ibis(key, kwargs), map_ibis(value, kwargs))
+            for key, value in frozendict.items()
+        )
+    )
+
+
 def from_ibis(ibis_expr):
-    return ibis_expr.op().replace(map_op).to_expr()
+    return ibis_expr.op().replace(map_ibis).to_expr()
