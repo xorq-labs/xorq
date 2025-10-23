@@ -110,6 +110,9 @@ postgres = [
 sqlite = [
     "adbc-driver-sqlite>=1.4.0"
 ]
+ibis = [
+    "ibis-framework>=10.5.0"
+]
 
 [dependency-groups]
 dev = [

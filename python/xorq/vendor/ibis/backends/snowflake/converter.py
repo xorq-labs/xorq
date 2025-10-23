@@ -30,7 +30,7 @@ class JSONArray(pa.ExtensionArray):
 
 class JSONType(pa.ExtensionType):
     def __init__(self):
-        super().__init__(pa.string(), "ibis.json")
+        super().__init__(pa.string(), "xorq.json")
 
     def __arrow_ext_serialize__(self):
         return b""
