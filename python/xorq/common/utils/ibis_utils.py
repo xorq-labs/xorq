@@ -1,21 +1,25 @@
 import functools
 
 from ibis import Schema as IbisSchema
+from ibis.backends import BaseBackend as IbisBaseBackend
 from ibis.common.collections import FrozenOrderedDict as IbisFrozenOrderedDict
 from ibis.expr.datatypes import DataType as IbisDataType
 from ibis.expr.operations import Node as IbisNode
+from ibis.expr.operations.relations import Namespace as IbisNamespace
 from ibis.formats.pandas import PandasDataFrameProxy as IbisPandasDataFrameProxy
 
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Schema
+from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.datatypes import DataType
 from xorq.vendor.ibis.expr.operations import Node
+from xorq.vendor.ibis.expr.operations.relations import Namespace
 from xorq.vendor.ibis.formats.pandas import PandasDataFrameProxy
 
 
 @functools.singledispatch
-def map_ibis(op, kwargs):
+def map_ibis(val, kwargs):
     raise NotImplementedError
 
 
@@ -69,6 +73,18 @@ def map_frozendict(frozendict, kwargs):
             for key, value in frozendict.items()
         )
     )
+
+
+@map_ibis.register(IbisBaseBackend)
+def map_duckdb_backend(backend, kwargs):
+    new_backend = Profile.from_con(backend).get_con()
+    new_backend.con = backend.con
+    return new_backend
+
+
+@map_ibis.register(IbisNamespace)
+def map_namespace(namespace, kwargs):
+    return Namespace(catalog=namespace.catalog, database=namespace.database)
 
 
 def from_ibis(ibis_expr):
