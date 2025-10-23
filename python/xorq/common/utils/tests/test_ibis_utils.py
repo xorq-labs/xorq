@@ -1,6 +1,9 @@
-import ibis
+import pytest
 
 from xorq.common.utils.ibis_utils import from_ibis
+
+
+ibis = pytest.importorskip("ibis")
 
 
 def test_basic_ops():
