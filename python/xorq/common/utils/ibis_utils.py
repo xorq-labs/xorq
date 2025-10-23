@@ -1,10 +1,14 @@
+import datetime
 import functools
 
 from ibis import Schema as IbisSchema
 from ibis.backends import BaseBackend as IbisBaseBackend
 from ibis.common.collections import FrozenOrderedDict as IbisFrozenOrderedDict
+from ibis.common.temporal import IntervalUnit as IbisIntervalUnit
 from ibis.expr.datatypes import DataType as IbisDataType
+from ibis.expr.datatypes.core import Interval as IbisInterval
 from ibis.expr.operations import Node as IbisNode
+from ibis.expr.operations.generic import Cast as IbisCast
 from ibis.expr.operations.relations import Namespace as IbisNamespace
 from ibis.formats.pandas import PandasDataFrameProxy as IbisPandasDataFrameProxy
 
@@ -12,7 +16,9 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.common.temporal import IntervalUnit
 from xorq.vendor.ibis.expr.datatypes import DataType
+from xorq.vendor.ibis.expr.datatypes.core import Interval
 from xorq.vendor.ibis.expr.operations import Node
 from xorq.vendor.ibis.expr.operations.relations import Namespace
 from xorq.vendor.ibis.formats.pandas import PandasDataFrameProxy
@@ -27,8 +33,15 @@ def map_ibis(val, kwargs):
 @map_ibis.register(str)
 @map_ibis.register(float)
 @map_ibis.register(Node)
+@map_ibis.register(type(None))
+@map_ibis.register(datetime.datetime)
 def map_pass_through(op, kwargs):
     return op
+
+
+@map_ibis.register(IbisCast)
+def map_cast(cast, kwargs):
+    return ops.Cast(arg=map_ibis(cast.arg, None), to=map_ibis(cast.to, None))
 
 
 @map_ibis.register(IbisNode)
@@ -40,18 +53,30 @@ def map_nodes(op, kwargs):
         _kwargs = (
             kwargs
             if kwargs
-            else dict(zip(op.argnames, tuple(map_ibis(arg, kwargs) for arg in op.args)))
+            else dict(zip(op.argnames, tuple(map_ibis(arg, None) for arg in op.args)))
         )
 
         return cls(**_kwargs)
-    except AttributeError:
-        raise ValueError(f"Cannot map: {type(op)}")
+    except AttributeError as e:
+        raise ValueError(f"Cannot map: {type(op)}, cause: {e}")
 
 
 @map_ibis.register(IbisSchema)
 def map_schema(schema, kwargs):
     return Schema(
         dict(zip(schema.names, tuple(map_ibis(typ, kwargs) for typ in schema.types)))
+    )
+
+
+@map_ibis.register(IbisIntervalUnit)
+def map_interval_unit(unit, kwargs):
+    return IntervalUnit(unit.value)
+
+
+@map_ibis.register(IbisInterval)
+def map_interval(interval, kwargs):
+    return Interval(
+        unit=map_ibis(interval.unit, None), nullable=map_ibis(interval.nullable, None)
     )
 
 
