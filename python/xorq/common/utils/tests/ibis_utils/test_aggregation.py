@@ -1,8 +1,10 @@
-import ibis
 import pytest
 from pytest import param
 
 from xorq.common.utils.ibis_utils import from_ibis
+
+
+ibis = pytest.importorskip("ibis")
 
 
 @pytest.mark.parametrize(

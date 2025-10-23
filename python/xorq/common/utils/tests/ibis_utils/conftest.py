@@ -1,5 +1,7 @@
-import ibis
 import pytest
+
+
+ibis = pytest.importorskip("ibis")
 
 
 @pytest.fixture(scope="session")
