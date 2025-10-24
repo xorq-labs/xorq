@@ -8,7 +8,6 @@ from ibis.common.collections import FrozenOrderedDict as IbisFrozenOrderedDict
 from ibis.common.temporal import IntervalUnit as IbisIntervalUnit
 from ibis.expr.datatypes import DataType as IbisDataType
 from ibis.expr.datatypes.core import Interval as IbisInterval
-from ibis.expr.operations import Node as IbisNode
 from ibis.expr.operations.generic import Cast as IbisCast
 from ibis.expr.operations.relations import Namespace as IbisNamespace
 from ibis.formats.pandas import PandasDataFrameProxy as IbisPandasDataFrameProxy
@@ -58,23 +57,6 @@ def map_pass_through(op, kwargs):
 @map_ibis.register(IbisCast)
 def map_cast(cast, kwargs):
     return ops.Cast(arg=map_ibis(cast.arg, None), to=map_ibis(cast.to, None))
-
-
-@map_ibis.register(IbisNode)
-def map_nodes(op, kwargs):
-    try:
-        klass_name = op.__class__.__name__
-        cls = getattr(ops, klass_name)
-
-        _kwargs = (
-            kwargs
-            if kwargs
-            else dict(zip(op.argnames, tuple(map_ibis(arg, None) for arg in op.args)))
-        )
-
-        return cls(**_kwargs)
-    except AttributeError as e:
-        raise ValueError(f"Cannot map: {type(op)}, cause: {e}")
 
 
 @map_ibis.register(IbisSchema)
