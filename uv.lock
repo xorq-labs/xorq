@@ -5170,6 +5170,9 @@ examples = [
     { name = "xorq-feature-utils" },
     { name = "xorq-weather-lib" },
 ]
+ibis = [
+    { name = "ibis-framework" },
+]
 postgres = [
     { name = "adbc-driver-postgresql" },
     { name = "psycopg" },
@@ -5243,6 +5246,7 @@ requires-dist = [
     { name = "envyaml", specifier = ">=1.10.211231" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=2024.6.1,<2025.7.1" },
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.2,<1" },
+    { name = "ibis-framework", marker = "extra == 'ibis'", specifier = ">=10.5.0" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
     { name = "opentelemetry-exporter-otlp", specifier = ">=1.32.1" },
@@ -5279,7 +5283,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "ibis"]
 
 [package.metadata.requires-dev]
 dev = [

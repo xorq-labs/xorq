@@ -62,6 +62,7 @@ jobs:
               - --extra postgres
               - --extra pyiceberg
               - --extra sqlite
+              - --extra ibis
           - name: sqlite
             services: false
             extras:
