@@ -1,5 +1,6 @@
 import datetime
 import functools
+import importlib
 
 from ibis import Schema as IbisSchema
 from ibis.backends import BaseBackend as IbisBaseBackend
@@ -26,7 +27,22 @@ from xorq.vendor.ibis.formats.pandas import PandasDataFrameProxy
 
 @functools.singledispatch
 def map_ibis(val, kwargs):
-    raise NotImplementedError
+    try:
+        attr = val.__class__.__name__
+        module = val.__class__.__module__
+
+        cls = getattr(importlib.import_module(f"xorq.vendor.{module}"), attr)
+
+        _kwargs = (
+            kwargs
+            if kwargs
+            else dict(zip(val.argnames, tuple(map_ibis(arg, None) for arg in val.args)))
+        )
+
+        return cls(**_kwargs)
+
+    except AttributeError:
+        raise NotImplementedError(f"{type(val)} is not implemented")
 
 
 @map_ibis.register(int)
