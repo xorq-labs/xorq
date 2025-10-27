@@ -275,7 +275,7 @@ importlib-resources==6.5.2
     #   quartodoc
 iniconfig==2.1.0
     # via pytest
-ipykernel==6.30.0
+ipykernel==6.31.0
     # via jupyterlab
 ipython==8.37.0 ; python_full_version < '3.11'
     # via ipykernel
@@ -345,7 +345,7 @@ jupyter-server==2.16.0
     #   notebook-shim
 jupyter-server-terminals==0.5.3
     # via jupyter-server
-jupyterlab==4.4.5
+jupyterlab==4.4.8
     # via notebook
 jupyterlab-pygments==0.3.0
     # via nbconvert
@@ -398,7 +398,7 @@ nest-asyncio==1.6.0
     # via ipykernel
 nodeenv==1.9.1
     # via pre-commit
-notebook==7.4.4
+notebook==7.4.5
 notebook-shim==0.2.4
     # via
     #   jupyterlab
@@ -869,7 +869,7 @@ urllib3==2.5.0
     #   xorq-feature-utils
     #   xorq-hash-cache
     #   xorq-weather-lib
-uv==0.8.4
+uv==0.9.5
     # via xorq
 uvicorn==0.35.0 ; sys_platform != 'emscripten'
     # via mcp
