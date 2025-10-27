@@ -784,13 +784,13 @@ class LETSQLAccessor:
 
     @property
     def uncached(self):
-        from xorq.expr.relations import (
-            legacy_replace_cache_table,
-        )
+        from xorq.expr.relations import CachedNode, RemoteTable, replace_cache_table
 
         if self.has_cached:
             op = self.expr.op()
-            return op.map_clear(legacy_replace_cache_table).to_expr()
+            return op.replace(
+                replace_cache_table, filter=(RemoteTable, CachedNode)
+            ).to_expr()
         else:
             return self.expr
 
