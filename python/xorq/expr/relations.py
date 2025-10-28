@@ -626,26 +626,29 @@ def register_and_transform_remote_tables(expr, **kwargs):
         return result.op()
 
     def replacer(node, kwargs):
-        kwargs = kwargs or {}
-        if isinstance(node, Relation):
-            updated = {}
-            for k, v in list(kwargs.items()):
-                try:
-                    if v in batches_table:
-                        updated[v] = mark_remote_table(v)
-
-                except TypeError:  # v may not be hashable
-                    continue
-
-            if len(updated) > 0:
-                kwargs = {k: recursive_update(v, updated) for k, v in kwargs.items()}
-
-        if kwargs:
-            node = node.__recreate__(kwargs)
         if isinstance(node, RemoteTable):
             result = mark_remote_table(node)
             batches_table[result] = batches_table.pop(node)
             node = result
+        else:
+            kwargs = kwargs or {}
+            if isinstance(node, Relation):
+                updated = {}
+                for k, v in list(kwargs.items()):
+                    try:
+                        if v in batches_table:
+                            updated[v] = mark_remote_table(v)
+
+                    except TypeError:  # v may not be hashable
+                        continue
+
+                if len(updated) > 0:
+                    kwargs = {
+                        k: recursive_update(v, updated) for k, v in kwargs.items()
+                    }
+
+            if kwargs:
+                node = node.__recreate__(kwargs)
 
         return node
 
