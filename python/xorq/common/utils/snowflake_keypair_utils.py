@@ -1,6 +1,7 @@
 import os
 import random
 import string
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -261,7 +262,9 @@ def maybe_decrypt_private_key(kwargs):
                 case str():
                     pass
                 case _:
-                    raise ValueError("expecting str and only str")
+                    warnings.warn(
+                        f"expecting str and only str, found: {type(private_key)}"
+                    )
         case _:
             raise ValueError("private_key must be passed")
     return kwargs

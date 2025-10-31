@@ -250,6 +250,7 @@ httpx-sse==0.4.1
 humanize==4.12.3 ; python_full_version < '4'
     # via pins
 ibis-framework==10.8.0
+    # via xorq
 identify==2.6.12
     # via pre-commit
 idna==3.10
