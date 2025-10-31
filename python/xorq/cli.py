@@ -240,7 +240,7 @@ def unbind_and_serve_command(
 
     expr = load_expr(expr_path)
     unbound_expr = expr_to_unbound(
-        typ, expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
     )
     flight_url = xorq.flight.FlightUrl(host=host, port=port)
     make_server = functools.partial(

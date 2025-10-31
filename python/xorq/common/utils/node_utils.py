@@ -136,19 +136,15 @@ def elide_downstream_cached_node(expr, downstream_of):
     return elide_cached_node
 
 
-def expr_to_unbound(typ, expr, hash, tag, typs):
+def expr_to_unbound(expr, hash, tag, typs):
     """create an unbound expr that only needs to have a source of record batches fed in"""
 
     from xorq.common.utils.graph_utils import (
         replace_nodes,
         walk_nodes,
     )
-    from xorq.common.utils.node_utils import (
-        elide_downstream_cached_node,
-        replace_by_expr_hash,
-    )
 
-    found = find_node(expr, hash=hash, tag=tag, typs=typ)
+    found = find_node(expr, hash=hash, tag=tag, typs=typs)
     found_expr = found.to_expr()
     to_unbind_hash = hash or dask.base.tokenize(found_expr)
     found_cons = find_all_sources(found_expr)
