@@ -5,8 +5,8 @@
     "config:recommended", ":disableDependencyDashboard"
   ],
   "semanticCommits": "enabled",
-  "lockFileMaintenance": { "enabled": false },
-  "updateLockFiles": false,
+  "lockFileMaintenance": { "enabled": true },
+  "updateLockFiles": true,
   "enabledManagers": [
     "docker-compose",
     "dockerfile",
