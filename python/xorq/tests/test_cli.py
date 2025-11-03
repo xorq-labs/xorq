@@ -540,7 +540,7 @@ def hit_server(port, expr):
     return df
 
 
-@pytest.mark.slow(level=1)
+@pytest.mark.slow(level=3)
 @pytest.mark.parametrize("serve_hash", serve_hashes)
 def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     lookup = {
@@ -580,7 +580,7 @@ serve_tags = (
 )
 
 
-@pytest.mark.slow(level=1)
+@pytest.mark.slow(level=3)
 @pytest.mark.parametrize("serve_tag", serve_tags)
 def test_serve_unbound_tag(serve_tag, pipeline_https_build):
     expr = load_expr(pipeline_https_build)
@@ -673,7 +673,7 @@ def test_serve_unbound_tag_get_exchange_udf(fixture_dir, tmp_path):
     serve_popened.popen.terminate()
 
 
-@pytest.mark.slow(level=1)
+@pytest.mark.slow(level=3)
 def test_serve_penguins_template(tmpdir, tmp_path):
     tmpdir = Path(tmpdir)
     path = tmpdir.joinpath("xorq-template-penguins")

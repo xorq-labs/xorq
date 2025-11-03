@@ -41,5 +41,6 @@ def test_read_csv(con, csv_dir):
     astronauts_csv = csv_dir / "astronauts.csv"
     t = con.read_csv(astronauts_csv, table_name="astronauts")
     expr = t.join(t, "id")
+    print(expr)
     xorq_expr = from_ibis(expr)
     assert xorq_expr is not None

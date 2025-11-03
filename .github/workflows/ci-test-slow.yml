@@ -29,7 +29,7 @@ jobs:
       matrix:
         target: [x86_64]
         python-version: ["3.12"]
-        slow-level: [1, 2]
+        slow-level: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3

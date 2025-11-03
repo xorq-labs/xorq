@@ -54,6 +54,19 @@ def map_pass_through(op, kwargs):
     return op
 
 
+@map_ibis.register(tuple)
+@map_ibis.register(list)
+@map_ibis.register(set)
+@map_ibis.register(frozenset)
+def map_builtin_container(op, kwargs):
+    return type(op)(map_ibis(val, None) for val in op)
+
+
+@map_ibis.register(dict)
+def map_builtin_dict(op, kwargs):
+    return {map_ibis(k, None): map_ibis(v, None) for k, v in op.items()}
+
+
 @map_ibis.register(IbisCast)
 def map_cast(cast, kwargs):
     return ops.Cast(arg=map_ibis(cast.arg, None), to=map_ibis(cast.to, None))
