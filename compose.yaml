@@ -28,7 +28,7 @@ services:
       - ./db/postgres.sql:/docker-entrypoint-initdb.d/create_tables.sql
 
   hive-metastore-db:
-    image: postgres:17.5-alpine
+    image: postgres:17.6-alpine
     environment:
       POSTGRES_USER: admin
       POSTGRES_PASSWORD: admin
