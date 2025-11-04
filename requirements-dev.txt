@@ -596,7 +596,7 @@ pytest==8.4.2
     #   pytest-cov
     #   pytest-mock
     #   pytest-snapshot
-pytest-codspeed==4.0.0
+pytest-codspeed==4.2.0
 pytest-cov==6.3.0
 pytest-mock==3.14.1 ; python_full_version < '4'
     # via xorq
