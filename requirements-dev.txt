@@ -72,7 +72,7 @@ black==25.9.0
     # via
     #   blackdoc
     #   quartodoc
-blackdoc==0.4.3
+blackdoc==0.4.5
 bleach==6.2.0
     # via nbconvert
 boto3==1.40.1 ; python_full_version < '4'
