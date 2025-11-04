@@ -456,6 +456,8 @@ opentelemetry-sdk==1.36.0
     #   xorq
 opentelemetry-semantic-conventions==0.57b0
     # via opentelemetry-sdk
+orjson==3.11.4 ; platform_python_implementation != 'PyPy'
+    # via trino
 overrides==7.7.0
     # via jupyter-server
 packaging==25.0
@@ -810,7 +812,7 @@ traitlets==5.14.3
     #   nbclient
     #   nbconvert
     #   nbformat
-trino==0.335.0
+trino==0.336.0
 types-python-dateutil==2.9.0.20250708
     # via arrow
 typing-extensions==4.14.1
