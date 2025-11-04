@@ -117,7 +117,7 @@ ibis = [
 [dependency-groups]
 dev = [
     "black==25.9.0",
-    "blackdoc==0.4.3",
+    "blackdoc==0.4.5",
     "codespell[hard-encoding-detection,toml]==2.4.1",
     "git-cliff<3.0.0,>=2.2.1",
     "ipython<9.7.0,>=8.19.0",
@@ -135,11 +135,11 @@ dev = [
     "quickgrove>=0.1.2",
 ]
 test = [
-    "pytest-codspeed<4.0.1,>=3.0.0",
+    "pytest-codspeed<4.2.1,>=3.0.0",
     "pytest==8.4.2",
     "pytest-cov==6.3.0",
     "pytest-snapshot<1.0.0,>=0.9.0",
-    "coverage[toml]==7.10.7",
+    "coverage[toml]==7.11.0",
 ]
 docs = [
     "quartodoc<0.11.2,>=0.7.2",
