@@ -29,7 +29,7 @@ jobs:
       matrix:
         target: [x86_64]
         python-version: ["3.12"]
-        slow-level: [1, 2]
+        slow-level: [1, 2, 3]
     steps:
       - uses: actions/checkout@v4
       - uses: extractions/setup-just@v3
@@ -49,7 +49,7 @@ jobs:
           enable-cache: true
 
       - name: Install the project
-        run: uv sync --locked --extra examples --extra postgres --extra pyiceberg --group dev --group test
+        run: uv sync --locked --extra examples --extra postgres --extra pyiceberg --extra ibis --group dev --group test
         working-directory: ${{ github.workspace }}
 
       - name: start services
