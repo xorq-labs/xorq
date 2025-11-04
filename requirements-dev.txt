@@ -701,7 +701,7 @@ rpds-py==0.26.0
     #   referencing
 rsa==4.9.1 ; python_full_version < '4'
     # via google-auth
-ruff==0.12.7
+ruff==0.14.3
 s3transfer==0.13.1 ; python_full_version < '4'
     # via boto3
 scikit-learn==1.7.1
