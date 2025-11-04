@@ -177,6 +177,11 @@ let
         psycopg-c = (prev.psycopg-c.overrideAttrs (addResolved final [
           "setuptools"
         ])).overrideAttrs(addNativeBuildInputs [ pkgs.postgresql.pg_config ]);
+        feast = prev.feast.overrideAttrs (compose [
+          (addResolved final [
+            "setuptools"
+          ])
+        ]);
       };
       pyprojectOverrides-editable = final: prev: {
         xorq = prev.xorq.overrideAttrs (old: {
