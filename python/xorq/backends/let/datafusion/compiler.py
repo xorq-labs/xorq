@@ -93,7 +93,6 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.CountDistinctStar,
         ops.DateDelta,
         ops.RowID,
-        ops.Strftime,
         ops.TimeDelta,
         ops.TimestampDelta,
     )
@@ -663,6 +662,9 @@ class DataFusionCompiler(SQLGlotCompiler):
                 self.cast(NULL, dt.bool),
             ),
         )
+
+    def visit_Strftime(self, op, *, arg, format_str):
+        return self.f.temporal_strftime(arg, format_str)
 
 
 compiler = DataFusionCompiler()

@@ -129,3 +129,15 @@ def regex_split(s: str, pattern: str) -> list[str]:
         )
     pattern = patterns[0].as_py()
     return pc.split_pattern_regex(s, pattern)
+
+
+def temporal_strftime(array: dt.Timestamp(scale=9), pattern: str) -> dt.string:
+    patterns = pattern.unique()
+
+    if len(patterns) != 1:
+        raise com.XorqError(
+            "Only a single scalar pattern is supported for DataFusion strftime"
+        )
+
+    pattern = patterns[0].as_py()
+    return pc.strftime(array, pattern)
