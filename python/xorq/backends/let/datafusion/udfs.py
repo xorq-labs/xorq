@@ -131,7 +131,7 @@ def regex_split(s: str, pattern: str) -> list[str]:
     return pc.split_pattern_regex(s, pattern)
 
 
-def temporal_strftime(array: dt.Timestamp(scale=9), pattern: str) -> dt.string:
+def temporal_strftime(array: dt.Timestamp(scale=9), pattern: dt.string) -> dt.string:
     patterns = pattern.unique()
 
     if len(patterns) != 1:
