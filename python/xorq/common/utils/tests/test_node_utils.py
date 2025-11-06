@@ -12,6 +12,7 @@ from xorq.common.utils.graph_utils import (
     walk_nodes,
 )
 from xorq.common.utils.node_utils import (
+    expr_to_unbound,
     find_by_expr_hash,
     replace_by_expr_hash,
 )
@@ -109,7 +110,7 @@ def test_replace_by_expr_hash(to_replace_name):
 def test_unbind_expr_hash(to_replace_name):
     dct = make_exprs()
     (expr_cached, to_replace) = (dct[k] for k in ("expr_cached", to_replace_name))
-    to_replace_hash = dask.base.tokenize(to_replace)
+
     typs = (type(to_replace.op()),)
     replace_with = ops.UnboundTable(name="unbound", schema=to_replace.schema())
     replace_with_typs = (type(replace_with),)
@@ -128,3 +129,22 @@ def test_unbind_expr_hash(to_replace_name):
     assert found
     found = try_find_by_expr_hash(replaced, to_replace_hash, typs=typs)
     assert not found
+
+
+@pytest.mark.parametrize(
+    "to_replace_name",
+    (
+        "batting",
+        "batting_cached",
+        "awards_players",
+        "expr_cached",
+    ),
+)
+def test_expr_to_unbound(to_replace_name):
+    dct = make_exprs()
+    (expr_cached, to_replace) = (dct[k] for k in ("expr_cached", to_replace_name))
+
+    to_replace_hash = dask.base.tokenize(to_replace)
+    unbound = expr_to_unbound(expr_cached, to_replace_hash, None, None)
+    assert unbound is not None
+    assert tuple(walk_nodes(ops.UnboundTable, unbound))
