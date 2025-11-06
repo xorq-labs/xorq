@@ -24,13 +24,15 @@ try_find_by_expr_hash = toolz.excepts(Exception, find_by_expr_hash)
 def make_exprs():
     on = ("playerID", "yearID", "lgID")
     batting = xo.examples.batting.fetch()
-    batting_cached = batting.cache(storage=SourceStorage())
+    batting_tagged = batting.tag("batting")
+    batting_cached = batting_tagged.cache(storage=SourceStorage())
     awards_players = xo.examples.awards_players.fetch()
     expr = batting_cached[list(on) + ["G"]].join(
         awards_players[list(on) + ["awardID"]],
         predicates=on,
     )
-    expr_cached = expr.cache(storage=SourceStorage())
+    expr_tagged = expr.tag("join_expr")
+    expr_cached = expr_tagged.cache(storage=SourceStorage())
     return {
         "batting": batting,
         "batting_cached": batting_cached,
@@ -132,19 +134,26 @@ def test_unbind_expr_hash(to_replace_name):
 
 
 @pytest.mark.parametrize(
-    "to_replace_name",
+    "expr_to_hash,tag_value",
     (
-        "batting",
-        "batting_cached",
-        "awards_players",
-        "expr_cached",
+        ("batting", None),
+        ("batting_cached", None),
+        ("awards_players", None),
+        ("expr_cached", None),
+        (None, "batting"),
+        (None, "join_expr"),
     ),
 )
-def test_expr_to_unbound(to_replace_name):
+def test_expr_to_unbound(expr_to_hash, tag_value):
     dct = make_exprs()
-    (expr_cached, to_replace) = (dct[k] for k in ("expr_cached", to_replace_name))
 
-    to_replace_hash = dask.base.tokenize(to_replace)
-    unbound = expr_to_unbound(expr_cached, to_replace_hash, None, None)
+    expr_cached = dct["expr_cached"]
+    (to_replace_hash, to_replace_tag) = (
+        (dask.base.tokenize(dct[expr_to_hash]), None)
+        if expr_to_hash
+        else (None, tag_value)
+    )
+
+    unbound = expr_to_unbound(expr_cached, to_replace_hash, to_replace_tag, None)
     assert unbound is not None
     assert tuple(walk_nodes(ops.UnboundTable, unbound))
