@@ -17,14 +17,15 @@ def test_create_table_from_expr_success(sf_con, temp_catalog, temp_db, parquet_d
             .into_backend(sf_con)
         )
 
-        h1 = alltypes.order_by("id").string_col.hexdigest().execute(limit=10)
-        df = alltypes.order_by("id").execute(limit=10)
-
         import hashlib
 
-        def hash_256(col):
-            return hashlib.sha256(col.encode()).hexdigest()
+        for how in ("sha256", "sha512", "md5"):
 
-        h2 = df["string_col"].apply(hash_256).rename("HexDigest(string_col)")
+            def hashing(col):
+                return getattr(hashlib, how)(col.encode()).hexdigest()
 
-        assert_series_equal(h1, h2)
+            h1 = alltypes.order_by("id").string_col.hexdigest(how=how).execute(limit=10)
+            df = alltypes.order_by("id").execute(limit=10)
+            h2 = df["string_col"].apply(hashing).rename("HexDigest(string_col)")
+
+            assert_series_equal(h1, h2)

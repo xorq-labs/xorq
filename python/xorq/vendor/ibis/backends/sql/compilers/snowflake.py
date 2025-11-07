@@ -894,16 +894,19 @@ $$""",
         return self.cast(self.f.udf.array_avg(arg), op.dtype)
 
     def visit_HexDigest(self, op, *, arg, how):
-        if how == "md5":
-            return self.f.md5_hex(arg)
-        elif how == "sha1":
-            return self.f.sha1_hex(arg)
-        elif how == "sha256":
-            return self.f.sha2_hex(arg, 256)
-        elif how == "sha512":
-            return self.f.sha2_hex(arg, 512)
-        else:
-            raise com.UnsupportedOperationError(f"Unrecognized how argument: {how}. ")
+        match how:
+            case "md5":
+                return self.f.md5_hex(arg)
+            case "sha1":
+                return self.f.sha1_hex(arg)
+            case "sha256":
+                return self.f.sha2_hex(arg, 256)
+            case "sha512":
+                return self.f.sha2_hex(arg, 512)
+            case _:
+                raise com.UnsupportedOperationError(
+                    f"Unrecognized how argument: {how}. "
+                )
 
 
 compiler = SnowflakeCompiler()
