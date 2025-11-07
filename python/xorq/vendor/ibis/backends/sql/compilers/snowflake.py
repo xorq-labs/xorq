@@ -908,5 +908,15 @@ $$""",
                     f"Unrecognized how argument: {how}. "
                 )
 
+    def visit_FindInSet(self, op, *, needle, values):
+        return self.f.coalesce(
+            self.f.array_position(
+                sge.cast(needle, sge.DataType.Type.VARIANT, copy=False),
+                self.f.array_construct(*values),
+            )
+            + 1,
+            0,
+        )
+
 
 compiler = SnowflakeCompiler()
