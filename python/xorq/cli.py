@@ -21,6 +21,7 @@ from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
+from xorq.common.utils.node_utils import expr_to_unbound
 from xorq.common.utils.otel_utils import tracer
 from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import (
@@ -218,13 +219,6 @@ def unbind_and_serve_command(
 ):
     import functools
 
-    from xorq.common.utils.graph_utils import (
-        find_all_sources,
-    )
-    from xorq.common.utils.node_utils import (
-        find_node,
-    )
-
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
@@ -243,41 +237,6 @@ def unbind_and_serve_command(
         logger.warning(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
-
-    def expr_to_unbound(expr, hash, tag, typs):
-        """create an unbound expr that only needs to have a source of record batches fed in"""
-        import dask
-
-        from xorq.common.utils.graph_utils import (
-            replace_nodes,
-            walk_nodes,
-        )
-        from xorq.common.utils.node_utils import (
-            elide_downstream_cached_node,
-            replace_by_expr_hash,
-        )
-        from xorq.vendor.ibis.expr.operations import UnboundTable
-
-        found = find_node(expr, hash=hash, tag=tag, typs=typ)
-        found_expr = found.to_expr()
-        to_unbind_hash = hash or dask.base.tokenize(found_expr)
-        found_cons = find_all_sources(found_expr)
-        if len(found_cons) == 0:
-            raise ValueError
-        elif len(found_cons) == 1:
-            (found_con,) = found_cons
-        else:
-            found_con = found_expr._find_backend()
-            assert found_con
-
-        unbound_table = UnboundTable("unbound", found.schema)
-        replace_with = unbound_table.to_expr().into_backend(found_con).op()
-        replaced = replace_by_expr_hash(
-            expr, to_unbind_hash, replace_with, typs=(type(found),)
-        )
-        (found,) = walk_nodes(UnboundTable, replaced)
-        elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
-        return elided
 
     expr = load_expr(expr_path)
     unbound_expr = expr_to_unbound(

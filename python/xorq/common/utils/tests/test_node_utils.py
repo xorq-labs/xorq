@@ -12,6 +12,7 @@ from xorq.common.utils.graph_utils import (
     walk_nodes,
 )
 from xorq.common.utils.node_utils import (
+    expr_to_unbound,
     find_by_expr_hash,
     replace_by_expr_hash,
 )
@@ -23,13 +24,15 @@ try_find_by_expr_hash = toolz.excepts(Exception, find_by_expr_hash)
 def make_exprs():
     on = ("playerID", "yearID", "lgID")
     batting = xo.examples.batting.fetch()
-    batting_cached = batting.cache(storage=SourceStorage())
+    batting_tagged = batting.tag("batting")
+    batting_cached = batting_tagged.cache(storage=SourceStorage())
     awards_players = xo.examples.awards_players.fetch()
     expr = batting_cached[list(on) + ["G"]].join(
         awards_players[list(on) + ["awardID"]],
         predicates=on,
     )
-    expr_cached = expr.cache(storage=SourceStorage())
+    expr_tagged = expr.tag("join_expr")
+    expr_cached = expr_tagged.cache(storage=SourceStorage())
     return {
         "batting": batting,
         "batting_cached": batting_cached,
@@ -109,7 +112,7 @@ def test_replace_by_expr_hash(to_replace_name):
 def test_unbind_expr_hash(to_replace_name):
     dct = make_exprs()
     (expr_cached, to_replace) = (dct[k] for k in ("expr_cached", to_replace_name))
-    to_replace_hash = dask.base.tokenize(to_replace)
+
     typs = (type(to_replace.op()),)
     replace_with = ops.UnboundTable(name="unbound", schema=to_replace.schema())
     replace_with_typs = (type(replace_with),)
@@ -128,3 +131,29 @@ def test_unbind_expr_hash(to_replace_name):
     assert found
     found = try_find_by_expr_hash(replaced, to_replace_hash, typs=typs)
     assert not found
+
+
+@pytest.mark.parametrize(
+    "expr_to_hash,tag_value",
+    (
+        ("batting", None),
+        ("batting_cached", None),
+        ("awards_players", None),
+        ("expr_cached", None),
+        (None, "batting"),
+        (None, "join_expr"),
+    ),
+)
+def test_expr_to_unbound(expr_to_hash, tag_value):
+    dct = make_exprs()
+
+    expr_cached = dct["expr_cached"]
+    (to_replace_hash, to_replace_tag) = (
+        (dask.base.tokenize(dct[expr_to_hash]), None)
+        if expr_to_hash
+        else (None, tag_value)
+    )
+
+    unbound = expr_to_unbound(expr_cached, to_replace_hash, to_replace_tag, None)
+    assert unbound is not None
+    assert tuple(walk_nodes(ops.UnboundTable, unbound))

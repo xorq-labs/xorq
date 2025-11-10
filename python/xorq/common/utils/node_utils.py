@@ -1,14 +1,17 @@
 import importlib
 
+import dask
 import toolz
 
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.common.utils.graph_utils import (
     bfs,
+    find_all_sources,
     replace_nodes,
     walk_nodes,
 )
+from xorq.vendor.ibis.expr.operations import UnboundTable
 
 
 replace_typs = (
@@ -131,3 +134,32 @@ def elide_downstream_cached_node(expr, downstream_of):
         return node
 
     return elide_cached_node
+
+
+def expr_to_unbound(expr, hash, tag, typs):
+    """create an unbound expr that only needs to have a source of record batches fed in"""
+
+    from xorq.common.utils.graph_utils import (
+        replace_nodes,
+        walk_nodes,
+    )
+
+    found = find_node(expr, hash=hash, tag=tag, typs=typs)
+    found_expr = found.to_expr()
+    to_unbind_hash = hash or dask.base.tokenize(found_expr)
+    match find_all_sources(found_expr):
+        case []:
+            raise ValueError("found no connections")
+        case [found_con]:
+            pass
+        case _:
+            found_con = found_expr._find_backend()
+            assert found_con
+    unbound_table = UnboundTable("unbound", found.schema)
+    replace_with = unbound_table.to_expr().into_backend(found_con).op()
+    replaced = replace_by_expr_hash(
+        expr, to_unbind_hash, replace_with, typs=(type(found),)
+    )
+    (found,) = walk_nodes(UnboundTable, replaced)
+    elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
+    return elided
