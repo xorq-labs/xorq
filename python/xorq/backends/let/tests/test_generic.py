@@ -653,7 +653,6 @@ def test_sample_memtable(con):
     assert_frame_equal(res.iloc[:0], df.iloc[:0])
 
 
-@pytest.mark.xfail(reason="datafusion 43.0.0 update introduced a bug")
 def test_hexdigest(alltypes):
     h1 = alltypes.order_by("id").string_col.hexdigest().execute(limit=10)
     df = alltypes.order_by("id").execute(limit=10)
