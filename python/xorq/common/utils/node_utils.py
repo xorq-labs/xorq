@@ -147,15 +147,14 @@ def expr_to_unbound(expr, hash, tag, typs):
     found = find_node(expr, hash=hash, tag=tag, typs=typs)
     found_expr = found.to_expr()
     to_unbind_hash = hash or dask.base.tokenize(found_expr)
-    found_cons = find_all_sources(found_expr)
-    if len(found_cons) == 0:
-        raise ValueError
-    elif len(found_cons) == 1:
-        (found_con,) = found_cons
-    else:
-        found_con = found_expr._find_backend()
-        assert found_con
-
+    match find_all_sources(found_expr):
+        case []:
+            raise ValueError("found no connections")
+        case [found_con]:
+            pass
+        case _:
+            found_con = found_expr._find_backend()
+            assert found_con
     unbound_table = UnboundTable("unbound", found.schema)
     replace_with = unbound_table.to_expr().into_backend(found_con).op()
     replaced = replace_by_expr_hash(
