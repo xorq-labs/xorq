@@ -338,12 +338,12 @@ def execute(expr: ir.Expr, **kwargs: Any):
     <BLANKLINE>
     [3 rows x 8 columns]
     """
-
     if (con := expr._find_backend(use_default=True)).name == "pandas":
         return _pandas_execute(con, expr, **kwargs)
 
     batch_reader = to_pyarrow_batches(expr, **kwargs)
     with tracer.start_as_current_span("read_pandas"):
+        breakpoint()
         df = batch_reader.read_pandas(timestamp_as_object=True)
     return expr.__pandas_result__(df)
 

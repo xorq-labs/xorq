@@ -69,7 +69,6 @@ class SnowflakeCompiler(SQLGlotCompiler):
         ops.IntervalSubtract,
         ops.IntervalMultiply,
         ops.IntervalFloorDivide,
-        ops.TimestampDiff,
     )
 
     SIMPLE_OPS = {
@@ -362,6 +361,7 @@ $$""",
         return self.f.timediff(part, right, left, dialect=self.dialect)
 
     def visit_DateDelta(self, op, *, part, left, right):
+        breakpoint()
         return self.f.datediff(part, right, left, dialect=self.dialect)
 
     def visit_TimestampDelta(self, op, *, part, left, right):
@@ -699,7 +699,6 @@ $$""",
 
     def visit_TimestampRange(self, op, *, start, stop, step):
         raw_step = op.step
-
         if not isinstance(raw_step, ops.Literal):
             raise com.UnsupportedOperationError("`step` argument must be a literal")
 
@@ -916,6 +915,14 @@ $$""",
             )
             + 1,
             0,
+        )
+
+    def visit_TimestampDiff(self, op, *, left, right):
+        return self.f.timestampdiff(left, right, sge.convert("seconds", copy=False))
+
+    def visitDateDiff(self, op, *, left, right):
+        return self.f.datediff(
+            sge.convert("days", copy=False), left, right, dialect=self.dialect
         )
 
 
