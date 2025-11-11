@@ -9,7 +9,7 @@ headline: "Get a first taste of xorq"
 Xorq can be installed using pip:
 
 ```bash
-pip install xorq
+pip install 'xorq[examples]'
 ```
 
 Or using nix to drop into an IPython shell:
