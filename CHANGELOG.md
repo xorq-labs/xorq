@@ -5,6 +5,24 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.3] - 2025-11-11
+### Details
+#### Added
+- Add builtin containers in from_ibis by @mesejo in [#1369](https://github.com/xorq-labs/xorq/pull/1369)
+- Add hexdigest function by @mesejo in [#1374](https://github.com/xorq-labs/xorq/pull/1374)
+- Support version >= 1.4.1 by @mesejo in [#1377](https://github.com/xorq-labs/xorq/pull/1377)
+
+#### Changed
+- Enable lock file maintenance in renovatebot by @mesejo in [#1370](https://github.com/xorq-labs/xorq/pull/1370)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.9.7 by @renovate[bot] in [#1367](https://github.com/xorq-labs/xorq/pull/1367)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.14.3 by @renovate[bot] in [#1366](https://github.com/xorq-labs/xorq/pull/1366)
+- Update postgres docker tag to v17.6 by @renovate[bot] in [#1365](https://github.com/xorq-labs/xorq/pull/1365)
+- Disable setup-python dependency updates by @mesejo in [#1371](https://github.com/xorq-labs/xorq/pull/1371)
+- Update dependency trino to v0.336.0 by @renovate[bot] in [#1364](https://github.com/xorq-labs/xorq/pull/1364)
+- Update dependencies pytest-codspeed, coverage, blackdoc by @renovate[bot] in [#1361](https://github.com/xorq-labs/xorq/pull/1361)
+- Update dependency ruff to v0.14.3 by @renovate[bot] in [#1363](https://github.com/xorq-labs/xorq/pull/1363)
+- Move expr_to_unbound by @mesejo in [#1357](https://github.com/xorq-labs/xorq/pull/1357)
+
 ## [0.3.2] - 2025-11-03
 ### Details
 #### Added
