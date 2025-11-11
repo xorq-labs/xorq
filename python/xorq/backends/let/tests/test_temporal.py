@@ -158,6 +158,24 @@ def test_timestamp_extract_week_of_year(alltypes, alltypes_df):
     assert_series_equal(result, expected)
 
 
+@pytest.mark.parametrize(
+    ("expr_fn", "pandas_pattern"),
+    [
+        param(
+            lambda t: t.timestamp_col.strftime("%Y%m%d").name("formatted"),
+            "%Y%m%d",
+            id="literal_format_str",
+        ),
+    ],
+)
+def test_strftime(alltypes, alltypes_df, expr_fn, pandas_pattern):
+    expr = expr_fn(alltypes)
+    expected = alltypes_df.timestamp_col.dt.strftime(pandas_pattern).rename("formatted")
+
+    result = expr.execute()
+    assert_series_equal(result, expected)
+
+
 PANDAS_UNITS = {
     "m": "Min",
     "ms": "L",
