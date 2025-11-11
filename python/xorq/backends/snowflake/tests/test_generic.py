@@ -55,7 +55,9 @@ def test_string_column_find_in_set(sf_con, temp_catalog, temp_db, parquet_dir):
         )
 
         s = alltypes.string_col
-        vals = list("abc")
+        vals = "312"
 
-        expr = s.find_in_set(vals)
-        assert not expr.execute().empty
+        actual = s.find_in_set(list(vals)).execute().to_list()
+        expected = [vals.find(v) for v in s.execute()]
+
+        assert actual == expected

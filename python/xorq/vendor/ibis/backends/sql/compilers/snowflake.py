@@ -909,6 +909,8 @@ $$""",
                 )
 
     def visit_FindInSet(self, op, *, needle, values):
+        # The return value of array_position is 0-based, not 1-based, Ibis expect it to be 1-based so we need to add 1
+        # hence the + 1
         return self.f.coalesce(
             self.f.array_position(
                 sge.cast(needle, sge.DataType.Type.VARIANT, copy=False),
