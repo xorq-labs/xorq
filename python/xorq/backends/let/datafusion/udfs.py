@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import itertools
+import typing
 from urllib.parse import parse_qs, urlsplit
 
 import pyarrow as pa
@@ -129,3 +130,14 @@ def regex_split(s: str, pattern: str) -> list[str]:
         )
     pattern = patterns[0].as_py()
     return pc.split_pattern_regex(s, pattern)
+
+
+def temporal_strftime(array: dt.Timestamp(scale=9), pattern: dt.string) -> dt.string:
+    pattern, *rest = typing.cast(pa.StringArray, pattern).unique().to_pylist()
+
+    if rest:
+        raise com.XorqError(
+            "Only a single scalar pattern is supported for DataFusion strftime"
+        )
+
+    return pc.strftime(array, pattern)
