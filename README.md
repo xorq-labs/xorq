@@ -10,7 +10,7 @@
 </div>
 
 > **Xorq is a batch transformation framework built on Ibis,
-> DataFusion and Arrow.**
+> DataFusion, and Arrow.**
 > It ships a multi-engine manifest that you can run in SQL across DuckDB,
 > Snowflake, DataFusion, and more.
 
@@ -21,17 +21,16 @@
 | Feature | Description |
 |---|---|
 |**Multi-engine manifest** | A single, typed plan (YAML manifest) that executes as SQL on DuckDB, Snowflake, and embedded DataFusion. |
-|**Deterministic builds & caching** | Manifests are uniquely named with a deterministic hash of the expression. |
-|**Lineage & schemas** | Schema checks with end-to-end, column-level lineage. |
+|**Deterministic builds and caching** | Manifests are uniquely named with a deterministic hash of the expression. |
+|**Lineage and schemas** | Schema checks with end-to-end, column-level lineage. |
 |**Compute catalog** | Versioned registry to run, cache, diff, and manifests. |
 |**Portable UDxFs** | Arbitrary Python logic with schema-in/out contracts, portable via Arrow Flight. |
 |**`scikit-learn` integration** | Fit/predict pipelines serialize to a manifest for portable batch scoring with training lineage. |
-|**Templates with `uv`** | `xorq init` ships a templates in **replicaple environments** |
+|**Templates with `uv`** | `xorq init` ships a templates in replicatable environments. |
 
 > [!NOTE]
-> **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
-> **Batch focus.** Not streaming/online—**batch**, **out-of-core** transformations.
-
+> **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, and more.
+> **Batch focus.** Not streaming/online—batch, out-of-core transformations.
 
 ### Supported backends
 
@@ -42,7 +41,6 @@
 - SQLite
 - DataFusion (vanilla)
 - Xorq-DataFusion (embedded)
-
 
 ## Quickstart
 
@@ -55,14 +53,14 @@ Then follow the [Quickstart
 Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart) for a
 full walk-through using the Penguins dataset.
 
-### Project Templates
+### Project templates
 
 We ship minimal, opinionated starter templates so you can go from
 zero-to-manifest fast.
 
-- **Penguins:** Feature engineering + fit/predict LogisticRegression on the
+- **Penguins:** Feature engineering and fit/predict LogisticRegression on the
 Penguins dataset.
-- **Digits:** Fit/predict on the Digits dataset with a full pipeline (PCA +
+- **Digits:** Fit/predict on the Digits dataset with a full pipeline (PCA and
 classifier).
 
 Each template includes:
@@ -77,7 +75,7 @@ expr.py  — the expr entrypoint
 #### Requirements for environment replicability for a Project:
 - TBD
 
-## Multi-engine manifest for Machine Learning pipelines
+## Multi-engine manifest for machine learning pipelines
 
 The manifest is a collection of YAML files that captures the expression graph
 and supporting files like memtables serialized to disk.
@@ -92,7 +90,6 @@ Xorq makes it easy to bring your scikit-learn Pipeline and automatically
 converts it into a deferred Xorq expression.
 
 **Engines used**: `duckdb` to read parquet, `xorq-datafusion` for running UDFs.
-
 
 ```python
 import xorq.api as xo
@@ -219,7 +216,7 @@ A generic catalog that can be used to build new workloads:
 Also great for:
 
 - Generating SQL from high-level DSLs (e.g. Semantic Layers)
-- Cross‑warehouse migrations (portability via Ibis + UDxFs)
+- Cross‑warehouse migrations (portability via Ibis and UDxFs)
 - Data CI (Schema/lineage checks in PRs)
 - ML Experiment Tracking (versioned manifests with cached results)
 
