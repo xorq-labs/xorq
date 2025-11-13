@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import dask
 import pytest
 
 import xorq.api as xo
@@ -172,3 +173,34 @@ def test_cache_properties(parquet_dir, tmp_path):
     assert not psn1.to_expr().ls.cache_path.exists()
     assert not psn2.to_expr().ls.cache_path.exists()
     assert ssn.to_expr().ls.cache_path is None
+
+
+def test_tokenized_matches():
+    expr = xo.examples.batting.fetch()[lambda t: t.stint == 0]
+    actual = expr.ls.tokenized
+    expected = dask.base.tokenize(expr)
+    assert actual == expected
+
+
+def test_tokenized_changes():
+    expr = xo.examples.batting.fetch()[lambda t: t.stint == 0]
+    (path,) = (
+        Path(dict(op.read_kwargs)["path"])
+        for op in expr.op().find(xo.expr.relations.Read)
+    )
+    before = expr.ls.tokenized
+    path.touch()
+    after = expr.ls.tokenized
+    assert before != after
+
+
+def test_tokenized_snapshot():
+    expr = xo.examples.batting.fetch()[lambda t: t.stint == 0]
+    (path,) = (
+        Path(dict(op.read_kwargs)["path"])
+        for op in expr.op().find(xo.expr.relations.Read)
+    )
+    before = expr.ls.tokenized_snapshot
+    path.touch()
+    after = expr.ls.tokenized_snapshot
+    assert before == after

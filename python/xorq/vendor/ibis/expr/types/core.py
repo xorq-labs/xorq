@@ -816,6 +816,13 @@ class LETSQLAccessor:
         # NOTE: this should almost certainly not be functools.cache'd: it can obscure filesystem / source table changes within the same process run
         return patched_tokenize(self.expr)
 
+    @property
+    def tokenized_snapshot(self):
+        from xorq.caching import SnapshotStrategy
+
+        with SnapshotStrategy.normalization_context(self.expr):
+            return self.tokenized
+
     def get_cache_path(self):
         from xorq.caching import ParquetStorage
 
