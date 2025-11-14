@@ -10,7 +10,7 @@ Xorq also ships with a CLI for quickly bootstrapping the creation, execution and
 ## Installation
 
 ```bash
-pip install 'xorq[duckdb,examples]'
+pip install 'xorq[examples]'
 ```
 
 ## Working with Data
