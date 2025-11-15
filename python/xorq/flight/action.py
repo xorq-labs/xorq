@@ -230,8 +230,7 @@ class ReadParquetAction(AbstractAction):
 
         table_name = args["table_name"]
         source_list = args["source_list"]
-
-        table = server._conn.read_parquet(source_list, table_name)
+        table = server._conn.read_parquet(source_list, table_name=table_name)
         yield make_flight_result(table.get_name())
 
 
