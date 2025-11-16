@@ -9,7 +9,7 @@ from collections.abc import Callable, Iterable, Iterator, KeysView, Mapping, Seq
 from typing import TYPE_CHECKING, Any, Optional, TypeVar, Union
 
 from xorq.vendor.ibis.common.bases import Hashable
-from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.common.collections import FrozenDict, FrozenOrderedDict
 from xorq.vendor.ibis.common.patterns import NoMatch, Pattern
 from xorq.vendor.ibis.common.typing import _ClassInfo
 from xorq.vendor.ibis.util import experimental, promote_list
@@ -176,6 +176,8 @@ def _apply_replacements(obj: Any, replacements: dict) -> tuple[Any, bool]:
         if isinstance(obj, FrozenOrderedDict):
             # hack: for Tag
             items = FrozenOrderedDict(items)
+        elif isinstance(obj, FrozenDict):
+            items = FrozenDict(items)
         return items, changed
     else:
         return obj, False
