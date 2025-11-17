@@ -19,7 +19,7 @@ repos:
     rev: v0.14.3
     hooks:
       # Run the linter.
-      - id: ruff
+      - id: ruff-check
         args: ["--output-format=full", "--fix", "python", "examples", "docs"]
       # Run the formatter.
       - id: ruff-format
@@ -29,5 +29,3 @@ repos:
     hooks:
       # Update the uv lockfile
       - id: uv-lock
-      - id: uv-export
-        args: ["--frozen", "--no-hashes", "--no-emit-project", "--all-groups", "--all-extras", "--output-file=requirements-dev.txt"]
