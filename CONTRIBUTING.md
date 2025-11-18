@@ -1,27 +1,6 @@
-## Contributing Guide
+# Contributing Guide
 
-### Setting up a development environment
-
-#### Using pip and venv
-
-```bash
-# fetch this repo
-git clone git@github.com:xorq-labs/xorq.git
-# prepare development environment (used to build wheel / install in development)
-python3 -m venv venv
-# activate the venv
-source venv/bin/activate
-# update pip itself if necessary
-python -m pip install -U pip
-# install dependencies 
-python -m pip install -r requirements-dev.txt
-# install current package in editable mode
-python -m pip install -e .
-# set up the git hook scripts
-pre-commit install
-```
-
-#### Using uv
+## Setting up a development environment
 
 This assumes you have uv installed, otherwise please follow these [instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
@@ -38,7 +17,7 @@ source venv/bin/activate
 uv run pre-commit install
 ```
 
-### Running the test suite
+## Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
 Download example data to run the tests successfully.
 
@@ -63,7 +42,53 @@ just up postgres # some of the tests use postgres
 python -m pytest # or pytest
 ```
 
-### Working with xorq-datafusion
+## Writing the commit
+
+xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
+In brief, the commit summary should look like:
+
+    fix(types): make all floats doubles
+
+The type (e.g. `fix`) can be:
+
+- `fix`: A bug fix. Correlates with PATCH in SemVer
+- `feat`: A new feature. Correlates with MINOR in SemVer
+- `docs`: Documentation only changes
+- `style`: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
+
+If the commit fixes a GitHub issue, add something like this to the bottom of the description:
+
+    fixes #4242
+
+## Working with the documentation
+
+To build or preview the documentation locally, follow the steps below.
+
+1. **Install Quarto**
+
+   Follow the official Quarto installation guide:
+   [https://quarto.org/docs/get-started/](https://quarto.org/docs/get-started/)
+
+
+2. **Install required Python dependencies** 
+
+   Run the following to install all development, test, and documentation dependencies:
+
+   ```bash
+   uv sync --locked --group dev --group test --group docs --extra examples
+   ```
+
+3. **Build and preview the documentation**
+
+   ```bash
+   cd docs  # ensure you are in the docs directory
+   uv run --no-sync quartodoc build --verbose --config docs/_quarto.yml
+   uv run --no-sync quarto preview
+   ```
+
+This will build the API reference and launch a local preview server so you can iterate on documentation changes.
+
+## Working with xorq-datafusion
 
 xorq-datafusion is a Backend developed by xorq labs based on the DataFusion query engine, occasionally we make change to it
 that must be reflected in xorq. So when working with both repos, the following workflow is proposed:
@@ -83,29 +108,10 @@ xorq-datafusion = { path = "local/path/to/xorq-datafusion-repo" }
 Notice that our test run with `--no-sources` so they will fail if a new version of `xorq-datafusion` with the required 
 change is not present in PyPI. 
 
-### Writing the commit
-
-xorq follows the [Conventional Commits](https://www.conventionalcommits.org/) structure.
-In brief, the commit summary should look like:
-
-    fix(types): make all floats doubles
-
-The type (e.g. `fix`) can be:
-
-- `fix`: A bug fix. Correlates with PATCH in SemVer
-- `feat`: A new feature. Correlates with MINOR in SemVer
-- `docs`: Documentation only changes
-- `style`: Changes that do not affect the meaning of the code (white-space, formatting, missing semi-colons, etc)
-
-If the commit fixes a GitHub issue, add something like this to the bottom of the description:
-
-    fixes #4242
-
-
-### Release Flow
+## Release Flow
 ***This section is intended for xorq maintainers***
 
-#### Steps
+### Steps
 1. Ensure you're on upstream main: `git switch main && git pull`
 2. Compute the new version number (`$version_number`) according to [Semantic Versioning](https://semver.org/) rules.
 3. Create a branch that starts from the upstream main: `git switch --create=release-$version_number`
