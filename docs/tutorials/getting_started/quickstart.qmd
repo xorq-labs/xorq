@@ -6,8 +6,6 @@ headline: "Get a first taste of xorq"
 
 ## Installation
 
-## Installation
-
 Xorq can be installed on Linux, macOS, and Windows using pip:
 
 ```bash
