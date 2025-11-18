@@ -34,7 +34,7 @@ Previously:
 First, ensure you have all required packages:
 
 ```bash
-pip install 'xorq[examples]'
+pip install xorq[examples]
 ```
 
 Then import the necessary modules:
