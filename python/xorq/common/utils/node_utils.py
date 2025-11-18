@@ -49,6 +49,11 @@ def get_typs(maybe_typs):
 
 def find_by_expr_hash(expr, to_replace_hash, typs=None):
     typs = get_typs(typs)
+
+    with open("nodes.txt", mode="a+") as f:
+        for node in walk_nodes(typs, expr):
+            print(node, node.to_expr().ls.tokenized, to_replace_hash, file=f)
+
     (to_replace, *rest) = (
         node
         for node in walk_nodes(typs, expr)

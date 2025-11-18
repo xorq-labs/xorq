@@ -95,7 +95,7 @@ def test_tokenize_pandas_expr(alltypes_df, snapshot):
 def test_tokenize_duckdb_expr(batting, snapshot):
     con = xo.duckdb.connect()
     typ = type(con)
-    t = con.register(batting.to_pyarrow(), "dashed-name")
+    t = con.create_table("dashed-name", batting.to_pyarrow())
     with patch_normalize_token(type(con)) as mocks:
         actual = dask.base.tokenize(t)
     mocks[typ].assert_not_called()
@@ -115,7 +115,7 @@ def test_pandas_snapshot_key(alltypes_df, snapshot):
 @pytest.mark.snapshot_check
 def test_duckdb_snapshot_key(batting, snapshot):
     con = xo.duckdb.connect()
-    t = con.register(batting.to_pyarrow(), "dashed-name")
+    t = con.create_table("dashed-name", batting.to_pyarrow())
     storage = SourceSnapshotStorage(source=con)
     actual = storage.get_key(t)
     snapshot.assert_match(actual, "duckdb_snapshot_key.txt")
