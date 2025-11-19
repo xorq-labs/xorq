@@ -141,8 +141,10 @@ class ArtifactStore:
             # Capture lazy registrations (e.g., numpy) that occurred during tokenization
             # Exclude Mocks which are temporary patches from SnapshotStrategy
             from unittest.mock import Mock
+
             lazy_registrations = {
-                k: v for k, v in dask.base.normalize_token._lookup.items()
+                k: v
+                for k, v in dask.base.normalize_token._lookup.items()
                 if k not in original_lookup and not isinstance(v, Mock)
             }
 
@@ -191,14 +193,17 @@ class YamlExpressionTranslator:
             context = context.finalize_definitions()
 
             from unittest.mock import Mock
+
             lazy_registrations = {
-                k: v for k, v in dask.base.normalize_token._lookup.items()
+                k: v
+                for k, v in dask.base.normalize_token._lookup.items()
                 if k not in original_lookup and not isinstance(v, Mock)
             }
 
         dask.base.normalize_token._lookup.update(lazy_registrations)
 
         from xorq.ibis_yaml import translate as translate_module
+
         translate_module.translate_to_yaml.cache_clear()
         translate_module.translate_from_yaml.cache_clear()
         SnapshotStrategy.cached_normalize_read.cache_clear()

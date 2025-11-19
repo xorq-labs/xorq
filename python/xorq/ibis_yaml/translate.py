@@ -543,6 +543,7 @@ def _remotetable_to_yaml(op: RemoteTable, context: any) -> dict:
     schema_id = context.schema_registry.register_schema(op.schema)
 
     import dask.base
+
     deterministic_name = dask.base.tokenize(op)
 
     # TODO: change profile to profile_name

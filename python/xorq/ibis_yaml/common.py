@@ -13,7 +13,6 @@ from attr import (
     field,
     frozen,
 )
-from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
@@ -24,8 +23,8 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 def _extract_parent_ref(node_dict):
     return toolz.pipe(
         node_dict,
-        operator.methodcaller('get', 'parent', {}),
-        lambda p: p.get('node_ref') if isinstance(p, dict) else None,
+        operator.methodcaller("get", "parent", {}),
+        lambda p: p.get("node_ref") if isinstance(p, dict) else None,
     )
 
 
@@ -41,8 +40,7 @@ def _dict_to_sorted_tuple(obj):
 
 @dask.base.normalize_token.register(FrozenOrderedDict)
 def _normalize_frozen_ordered_dict(d):
-    """Normalize FrozenOrderedDict using sorted tuple representation.
-    """
+    """Normalize FrozenOrderedDict using sorted tuple representation."""
     return ("FrozenOrderedDict", _dict_to_sorted_tuple(d))
 
 
@@ -88,21 +86,22 @@ class SchemaRegistry:
 
         Returns a name like '@read_{hash}', '@filter_{hash}', etc.
         """
-        from xorq.expr.relations import Tag
         import re
+
+        from xorq.expr.relations import Tag
 
         if isinstance(node, Tag):
             parent_ref = _extract_parent_ref(node_dict)
-            metadata = node_dict.get('metadata', FrozenOrderedDict())
-            untagged_repr = ('Tag', parent_ref, metadata)
+            metadata = node_dict.get("metadata", FrozenOrderedDict())
+            untagged_repr = ("Tag", parent_ref, metadata)
         else:
             untagged_repr = node.to_expr().ls.untagged
 
         node_hash = dask.base.tokenize(untagged_repr)
 
-        op_type = node_dict.get('op', 'unknown')
+        op_type = node_dict.get("op", "unknown")
         short_hash = node_hash[:8]
-        op_name = re.sub(r'[^a-zA-Z0-9_]', '_', op_type.lower())
+        op_name = re.sub(r"[^a-zA-Z0-9_]", "_", op_type.lower())
         node_name = f"@{op_name}_{short_hash}"
 
         self.nodes.setdefault(node_name, freeze(node_dict))
