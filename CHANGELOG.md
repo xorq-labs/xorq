@@ -5,6 +5,26 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2025-11-19
+### Details
+#### Added
+- Add strftime function by @mesejo in [#1373](https://github.com/xorq-labs/xorq/pull/1373)
+- Add find_in_set by @mesejo in [#1375](https://github.com/xorq-labs/xorq/pull/1375)
+- Add help for uv-build and uv-run commands by @mesejo in [#1395](https://github.com/xorq-labs/xorq/pull/1395)
+
+#### Changed
+- Correct installation of quickstart by @mesejo in [#1379](https://github.com/xorq-labs/xorq/pull/1379)
+- Automate preview by @mesejo in [#1380](https://github.com/xorq-labs/xorq/pull/1380)
+- Rollback automatic preview of docs by @mesejo in [#1383](https://github.com/xorq-labs/xorq/pull/1383)
+- Use xorq[examples] across tutorials by @mesejo in [#1388](https://github.com/xorq-labs/xorq/pull/1388)
+- Use pyscopg[binary] by @mesejo in [#1396](https://github.com/xorq-labs/xorq/pull/1396)
+
+#### Fixed
+- Fix FrozenDict replacement by @mesejo in [#1385](https://github.com/xorq-labs/xorq/pull/1385)
+
+#### Removed
+- Remove requirements-dev.txt by @mesejo in [#1387](https://github.com/xorq-labs/xorq/pull/1387)
+
 ## [0.3.3] - 2025-11-11
 ### Details
 #### Added
