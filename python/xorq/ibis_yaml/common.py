@@ -104,7 +104,8 @@ class SchemaRegistry:
         op_name = re.sub(r"[^a-zA-Z0-9_]", "_", op_type.lower())
         node_name = f"@{op_name}_{short_hash}"
 
-        self.nodes.setdefault(node_name, freeze(node_dict))
+        node_dict_with_hash = dict(node_dict) | {"snapshot_hash": node_hash}
+        self.nodes.setdefault(node_name, freeze(node_dict_with_hash))
 
         return node_name
 
