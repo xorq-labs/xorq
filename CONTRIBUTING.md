@@ -12,7 +12,7 @@ export UV_NO_SYNC=1
 # prepare development environment and install dependencies (including current package)
 uv sync --all-extras --all-groups
 # activate the venv
-source venv/bin/activate
+source .venv/bin/activate
 # set up the git hook scripts
 uv run pre-commit install
 ```
