@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 import dask
+import dask.base
 import toolz
 import yaml
 
@@ -14,6 +15,7 @@ import xorq
 import xorq.common.utils.logging_utils as lu
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
+from xorq.caching import SnapshotStrategy
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     file_digest,
@@ -54,7 +56,7 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
 
     def represent_ibis_schema(self, data):
         schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
-        return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
+        return self.represent_mapping("tag:yaml.org,2002:map", schema_dict.items())
 
     def represent_posix_path(self, data):
         return self.represent_scalar("tag:yaml.org,2002:str", str(data))
@@ -118,7 +120,6 @@ class ArtifactStore:
                 f,
                 Dumper=CleanDictYAMLDumper,
                 default_flow_style=False,
-                sort_keys=False,
             )
         return path
 
@@ -131,7 +132,27 @@ class ArtifactStore:
         return self.get_path(*path_parts).exists()
 
     def get_expr_hash(self, expr) -> str:
-        expr_hash = dask.base.tokenize(expr)
+        original_lookup = dask.base.normalize_token._lookup.copy()
+
+        snapshot_strategy = SnapshotStrategy()
+        with snapshot_strategy.normalization_context(expr):
+            expr_hash = dask.base.tokenize(expr)
+
+            # Capture lazy registrations (e.g., numpy) that occurred during tokenization
+            # Exclude Mocks which are temporary patches from SnapshotStrategy
+            from unittest.mock import Mock
+            lazy_registrations = {
+                k: v for k, v in dask.base.normalize_token._lookup.items()
+                if k not in original_lookup and not isinstance(v, Mock)
+            }
+
+        # Re-apply?
+        dask.base.normalize_token._lookup.update(lazy_registrations)
+
+        # Why?
+        SnapshotStrategy.cached_normalize_read.cache_clear()
+        SnapshotStrategy.cached_replace_remote_table.cache_clear()
+
         hash_length = config.hash_length
         return expr_hash[:hash_length]
 
@@ -150,18 +171,38 @@ class YamlExpressionTranslator:
         pass
 
     def to_yaml(self, expr: ir.Expr, profiles=None, cache_dir=None) -> Dict[str, Any]:
+        from xorq.caching import SnapshotStrategy
+
         context = TranslationContext(
             schema_registry=SchemaRegistry(),
             profiles=freeze(profiles or {}),
             cache_dir=cache_dir,
         )
 
-        schema_ref = context.schema_registry._register_expr_schema(expr)
+        original_lookup = dask.base.normalize_token._lookup.copy()
 
-        expr_dict = translate_to_yaml(expr, context)
-        expr_dict = freeze({**dict(expr_dict), "schema_ref": schema_ref})
+        snapshot = SnapshotStrategy()
+        with snapshot.normalization_context(expr):
+            schema_ref = context.schema_registry._register_expr_schema(expr)
 
-        context = context.finalize_definitions()
+            expr_dict = translate_to_yaml(expr, context)
+            expr_dict = freeze({**dict(expr_dict), "schema_ref": schema_ref})
+
+            context = context.finalize_definitions()
+
+            from unittest.mock import Mock
+            lazy_registrations = {
+                k: v for k, v in dask.base.normalize_token._lookup.items()
+                if k not in original_lookup and not isinstance(v, Mock)
+            }
+
+        dask.base.normalize_token._lookup.update(lazy_registrations)
+
+        from xorq.ibis_yaml import translate as translate_module
+        translate_module.translate_to_yaml.cache_clear()
+        translate_module.translate_from_yaml.cache_clear()
+        SnapshotStrategy.cached_normalize_read.cache_clear()
+        SnapshotStrategy.cached_replace_remote_table.cache_clear()
 
         return freeze(
             {
