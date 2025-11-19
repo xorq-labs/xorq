@@ -46,9 +46,28 @@ from xorq.vendor.ibis.expr.operations.relations import Namespace
 from xorq.vendor.ibis.util import normalize_filenames
 
 
-def should_register_node(node_dict):
-    if "parent" in node_dict and isinstance(node_dict["parent"], dict):
+def should_register_node(op):
+    """Check if a node should be registered in the schema registry for deduplication.
+
+    Explicitly list operation types that should be deduplicated.
+    These are typically table-like or transformation operations where the same
+    operation should produce the same node_ref for consistent hashing.
+
+    Field nodes are intentionally excluded - different relation instances
+    (like T vs T.view()) must remain distinct to preserve join semantics.
+    """
+    # Table operations that should be deduplicated
+    if isinstance(op, (ops.UnboundTable, ops.DatabaseTable)):
         return True
+
+    # Xorq relation operations that should be deduplicated
+    if isinstance(op, (CachedNode, RemoteTable, Read, Tag)):
+        return True
+
+    # Relational operations that should be deduplicated
+    if isinstance(op, (ops.Filter, ops.Project, ops.JoinChain)):
+        return True
+
     return False
 
 
@@ -369,7 +388,7 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) ->
             "database": op.namespace.database,
         }
     )
-    return freeze(
+    node_dict = freeze(
         {
             "op": "UnboundTable",
             "name": op.name,
@@ -377,6 +396,12 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) ->
             "namespace": namespace_dict,
         }
     )
+
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
+        return freeze({"node_ref": node_hash})
+
+    return node_dict
 
 
 @register_from_yaml_handler("UnboundTable")
@@ -420,10 +445,8 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
         }
     )
 
-    if should_register_node(node_dict) and hasattr(
-        context.schema_registry, "register_node"
-    ):
-        node_hash = context.schema_registry.register_node(node_dict)
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
         return freeze({"node_ref": node_hash})
 
     return node_dict
@@ -462,7 +485,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
     schema_id = context.schema_registry.register_schema(op.schema)
     # source should be called profile_name
 
-    return freeze(
+    node_dict = freeze(
         {
             "op": "CachedNode",
             "schema_ref": schema_id,
@@ -472,6 +495,12 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
             "storage": translate_storage(op.storage, context),
         }
     )
+
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
+        return freeze({"node_ref": node_hash})
+
+    return node_dict
 
 
 @register_from_yaml_handler("CachedNode")
@@ -512,16 +541,26 @@ def _remotetable_to_yaml(op: RemoteTable, context: any) -> dict:
     profile_name = op.source._profile.hash_name
     remote_expr_yaml = translate_to_yaml(op.remote_expr, context)
     schema_id = context.schema_registry.register_schema(op.schema)
+
+    import dask.base
+    deterministic_name = dask.base.tokenize(op)
+
     # TODO: change profile to profile_name
-    return freeze(
+    node_dict = freeze(
         {
             "op": "RemoteTable",
-            "table": op.name,
+            "table": deterministic_name,
             "schema_ref": schema_id,
             "profile": profile_name,
             "remote_expr": remote_expr_yaml,
         }
     )
+
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
+        return freeze({"node_ref": node_hash})
+
+    return node_dict
 
 
 @register_from_yaml_handler("RemoteTable")
@@ -571,7 +610,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
 
     warn_on_local_path(op.read_kwargs)
 
-    return freeze(
+    node_dict = freeze(
         {
             "op": "Read",
             "method_name": op.method_name,
@@ -582,6 +621,12 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             "normalize_method": serialize_callable(op.normalize_method),
         }
     )
+
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
+        return freeze({"node_ref": node_hash})
+
+    return node_dict
 
 
 @register_from_yaml_handler("Read")
@@ -958,10 +1003,8 @@ def _filter_to_yaml(op: ops.Filter, context: TranslationContext) -> dict:
         }
     )
 
-    if should_register_node(node_dict) and hasattr(
-        context.schema_registry, "register_node"
-    ):
-        node_hash = context.schema_registry.register_node(node_dict)
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
         return freeze({"node_ref": node_hash})
 
     return node_dict
@@ -979,19 +1022,21 @@ def _filter_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 @translate_to_yaml.register(ops.Project)
 def _project_to_yaml(op: ops.Project, context: TranslationContext) -> dict:
-    node_dict = {
-        "op": "Project",
-        "parent": translate_to_yaml(op.parent, context),
-        "values": {
-            name: translate_to_yaml(val, context) for name, val in op.values.items()
-        },
-    }
+    node_dict = freeze(
+        {
+            "op": "Project",
+            "parent": translate_to_yaml(op.parent, context),
+            "values": {
+                name: translate_to_yaml(val, context) for name, val in op.values.items()
+            },
+        }
+    )
 
-    if should_register_node(node_dict):
-        node_hash = context.schema_registry.register_node(freeze(node_dict))
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
         return freeze({"node_ref": node_hash})
 
-    return freeze(node_dict)
+    return node_dict
 
 
 @register_from_yaml_handler("Project")
@@ -1079,8 +1124,8 @@ def _join_to_yaml(op: ops.JoinChain, context: TranslationContext) -> dict:
         name: translate_to_yaml(val, context) for name, val in op.values.items()
     }
 
-    if should_register_node(node_dict):
-        node_hash = context.schema_registry.register_node(freeze(node_dict))
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, freeze(node_dict))
         return freeze({"node_ref": node_hash})
     return freeze(node_dict)
 
@@ -1241,8 +1286,8 @@ def _field_to_yaml(op: ops.Field, context: TranslationContext) -> dict:
 
     node_dict = freeze(result)
 
-    if hasattr(context.schema_registry, "register_node"):
-        node_hash = context.schema_registry.register_node(node_dict)
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
         return freeze({"node_ref": node_hash})
 
     return node_dict
@@ -1855,9 +1900,9 @@ def _frozenordereddict_from_yaml(
 @translate_to_yaml.register(Tag)
 def _tag_to_yaml(op: Tag, context: Any) -> dict:
     schema_id = context.schema_registry.register_schema(op.schema)
-    # source should be called profile_name
 
-    return freeze(
+    # Create the node_dict for the Tag operation
+    node_dict = freeze(
         {
             "op": "Tag",
             "schema_ref": schema_id,
@@ -1866,6 +1911,12 @@ def _tag_to_yaml(op: Tag, context: Any) -> dict:
             "metadata": translate_to_yaml(op.metadata, context),
         }
     )
+
+    if should_register_node(op):
+        node_hash = context.schema_registry.register_node(op, node_dict)
+        return freeze({"node_ref": node_hash})
+
+    return node_dict
 
 
 @register_from_yaml_handler("Tag")
