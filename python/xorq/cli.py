@@ -373,7 +373,7 @@ def parse_args(override=None):
     ls_parser.set_defaults(subcommand="ls")
 
     uv_build_parser = subparsers.add_parser(
-        "uv-build",
+        "uv-build", help="Build an expression with a custom Python environment"
     )
     uv_build_parser.add_argument("script_path", help="Path to the Python script")
     uv_build_parser.add_argument(
@@ -393,7 +393,7 @@ def parse_args(override=None):
     )
 
     uv_run_parser = subparsers.add_parser(
-        "uv-run",
+        "uv-run", help="Run an expression with a custom Python environment"
     )
     uv_run_parser.add_argument("build_path", help="Path to the build script")
     uv_run_parser.add_argument(
