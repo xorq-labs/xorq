@@ -260,7 +260,7 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
 
 @translate_to_yaml.register(dt.DataType)
 def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
-    return freeze(
+    type_dict = freeze(
         {
             "op": "DataType",
             "type": type(dtype).__name__,
@@ -271,9 +271,27 @@ def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
         }
     )
 
+    # Only register and return reference when context is available
+    if context is not None:
+        type_ref = context.schema_registry.register_type(dtype, type_dict)
+        return freeze({"type_ref": type_ref})
+
+    return type_dict
+
 
 @register_from_yaml_handler("DataType")
 def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    # Handle type references
+    if "type_ref" in yaml_dict:
+        type_ref = yaml_dict["type_ref"]
+        if "types" not in context.definitions:
+            raise ValueError(f"Missing 'types' in definitions for reference {type_ref}")
+        try:
+            type_dict = context.definitions["types"][type_ref]
+        except KeyError:
+            raise ValueError(f"Type reference {type_ref} not found in definitions")
+        return _datatype_from_yaml(type_dict, context)
+
     typ = getattr(dt, yaml_dict["type"])
     dct = toolz.dissoc(yaml_dict, "op", "type")
     return typ(

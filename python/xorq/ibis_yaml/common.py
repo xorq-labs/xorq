@@ -61,7 +61,9 @@ def deserialize_callable(encoded_fn: str) -> callable:
 class SchemaRegistry:
     def __init__(self):
         self.schemas = {}
+        self.types = {}
         self.counter = itertools.count()
+        self.type_counter = itertools.count()
         self.nodes = {}
 
     def register_schema(self, schema):
@@ -74,6 +76,23 @@ class SchemaRegistry:
         schema_id = f"schema_{next(self.counter)}"
         self.schemas[schema_id] = frozen_schema
         return schema_id
+
+    def register_type(self, dtype, type_dict):
+        """Register a type and return its reference ID.
+
+        Returns a name like 'type_0', 'type_1', etc.
+        """
+        frozen_type_dict = freeze(type_dict)
+
+        # Check if this type already exists
+        for type_id, existing_type in self.types.items():
+            if existing_type == frozen_type_dict:
+                return type_id
+
+        # Create new type ID
+        type_id = f"type_{next(self.type_counter)}"
+        self.types[type_id] = frozen_type_dict
+        return type_id
 
     def _register_expr_schema(self, expr: ir.Expr) -> str:
         if hasattr(expr, "schema"):
@@ -89,11 +108,15 @@ class SchemaRegistry:
         import re
 
         from xorq.expr.relations import Tag
+        from xorq.vendor.ibis.expr.schema import Schema
 
         if isinstance(node, Tag):
             parent_ref = _extract_parent_ref(node_dict)
             metadata = node_dict.get("metadata", FrozenOrderedDict())
             untagged_repr = ("Tag", parent_ref, metadata)
+        elif isinstance(node, Schema):
+            # Schema objects don't have .to_expr(), so we tokenize the schema dict directly
+            untagged_repr = ("Schema", _dict_to_sorted_tuple(dict(node.items())))
         else:
             untagged_repr = node.to_expr().ls.untagged
 
@@ -120,7 +143,7 @@ class TranslationContext:
     schema_registry: SchemaRegistry = field(factory=SchemaRegistry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
     definitions: FrozenOrderedDict = field(
-        factory=lambda: freeze({"schemas": {}, "nodes": {}})
+        factory=lambda: freeze({"schemas": {}, "types": {}, "nodes": {}})
     )
     cache_dir: Path = field(
         default=None,
@@ -134,6 +157,7 @@ class TranslationContext:
     def finalize_definitions(self):
         updated_defs = dict(self.definitions)
         updated_defs["schemas"] = self.schema_registry.schemas
+        updated_defs["types"] = self.schema_registry.types
         updated_defs["nodes"] = self.schema_registry.nodes
         return attr.evolve(self, definitions=freeze(updated_defs))
 
@@ -164,6 +188,17 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
             except KeyError:
                 raise ValueError(f"Node reference {node_ref} not found in definitions")
             return translate_from_yaml(node_dict, context)
+        case {"type_ref": type_ref, **_kwargs}:
+            if "types" not in context.definitions:
+                raise ValueError(
+                    f"Missing 'types' in definitions for reference {type_ref}"
+                )
+
+            try:
+                type_dict = context.definitions["types"][type_ref]
+            except KeyError:
+                raise ValueError(f"Type reference {type_ref} not found in definitions")
+            return translate_from_yaml(type_dict, context)
         case {"op": op_type, **_kwargs}:
             if op_type not in FROM_YAML_HANDLERS:
                 raise NotImplementedError(f"No handler for operation {op_type}")
