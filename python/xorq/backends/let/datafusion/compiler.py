@@ -674,36 +674,41 @@ class DataFusionCompiler(SQLGlotCompiler):
         return self.f.temporal_strftime(arg, format_str)
 
     time_delta_factor = {
-        "nanosecond": 1,
-        "microsecond": 1000,
-        "millisecond": 1_000_000,
-        "second": 1_000_000_000,
-        "minute": 60_000_000_000,
-        "hour": 3600_000_000_000,
-        "day": 86400_000_000_000,
+        "nanosecond": lambda a: sge.Mul(
+            this=a, expression=sge.Literal(this=1_000_000_000, is_string=False)
+        ),
+        "microsecond": lambda a: sge.Mul(
+            this=a, expression=sge.Literal(this=1_000_000, is_string=False)
+        ),
+        "millisecond": lambda a: sge.Mul(
+            this=a, expression=sge.Literal(this=1000, is_string=False)
+        ),
+        "second": lambda a: a,
+        "minute": lambda a: sge.IntDiv(
+            this=a, expression=sge.Literal(this=60, is_string=False)
+        ),
+        "hour": lambda a: sge.IntDiv(
+            this=a, expression=sge.Literal(this=3600, is_string=False)
+        ),
+        "day": lambda a: sge.IntDiv(
+            this=a, expression=sge.Literal(this=86400, is_string=False)
+        ),
     }
 
-    def visit_TimeDelta(self, op, *, part, left, right):
-        factor = sge.Literal(
-            this=str(self.time_delta_factor[part.this.lower()]), is_string=False
-        )
-        return sge.paren(
-            sge.IntDiv(this=self.cast(left, dt.int64), expression=factor)
-        ) - sge.paren(sge.IntDiv(this=self.cast(right, dt.int64), expression=factor))
-
     def visit_TimestampDelta(self, op, *, part, left, right):
-        # this assumes the timestamps are in microseconds
         unit = part.this.lower()
         factor = self.time_delta_factor[unit]
-        factor = int(factor * 1000 if unit == "nanosecond" else factor / 1000)
 
-        return (
-            sge.paren(
-                self.f.date_trunc(unit=unit, this=left)
-                - self.f.date_trunc(unit=unit, this=right)
-            )
-            / factor
+        epoch = sge.Literal(this="epoch", is_string=True)
+
+        left, right = (
+            factor(self.cast(sge.Extract(this=epoch, expression=operand), dt.int64))
+            for operand in (left, right)
         )
+
+        return left - right
+
+    visit_TimeDelta = visit_DateDelta = visit_TimestampDelta
 
 
 compiler = DataFusionCompiler()
