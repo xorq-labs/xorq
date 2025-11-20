@@ -716,3 +716,28 @@ def test_timestamp_bucket_offset_in_hours(alltypes, offset_in_hours):
         "datetime64[ns]"
     )
     assert_series_equal(res, sol)
+
+
+@pytest.mark.parametrize(
+    ("start", "end", "unit", "expected"),
+    [
+        param(
+            xo.time("01:58:00"),
+            xo.time("23:59:59"),
+            "hour",
+            22,
+            id="time",
+        ),
+        param(xo.date("1992-09-30"), xo.date("1992-10-01"), "day", 1, id="date"),
+        param(
+            xo.timestamp("1992-09-30 23:59:59"),
+            xo.timestamp("1992-10-01 01:58:00"),
+            "hour",
+            2,
+            id="timestamp",
+        ),
+    ],
+)
+def test_delta(con, start, end, unit, expected):
+    expr = end.delta(start, unit)
+    assert con.execute(expr) == expected
