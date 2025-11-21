@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import datetime
+import importlib.util
 import operator
 import warnings
 from itertools import chain, product
@@ -752,11 +753,6 @@ def test_delta(con, start, end, unit, expected):
     assert con.execute(expr) == expected
 
 
-@pytest.fixture(scope="session")
-def temp_ddb_con():
-    return xo.duckdb.connect()
-
-
 delta_parameters = tuple(
     (start, end, unit)
     for (start, end), unit in chain(
@@ -797,8 +793,11 @@ delta_parameters = tuple(
 )
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("duckdb") is None, reason="requires duckdb"
+)
 @pytest.mark.parametrize("start,end,unit", delta_parameters)
-def test_delta_using_ddb_standard(con, temp_ddb_con, start, end, unit):
+def test_delta_using_ddb_standard(con, start, end, unit):
+    ddb_con = xo.duckdb.connect()
     expr = end.delta(start, unit)
-
-    assert temp_ddb_con.execute(expr) == con.execute(expr)
+    assert ddb_con.execute(expr) == con.execute(expr)
