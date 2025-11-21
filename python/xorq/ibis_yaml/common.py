@@ -1,22 +1,47 @@
 import base64
 import functools
 import itertools
+import operator
 from pathlib import Path
 from typing import Any
 
 import attr
 import cloudpickle
+import dask.base
 import toolz
 from attr import (
     field,
     frozen,
 )
-from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.types as ir
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+
+
+def _extract_parent_ref(node_dict):
+    return toolz.pipe(
+        node_dict,
+        operator.methodcaller("get", "parent", {}),
+        lambda p: p.get("node_ref") if isinstance(p, dict) else None,
+    )
+
+
+def _dict_to_sorted_tuple(obj):
+    if isinstance(obj, (dict, FrozenOrderedDict)):
+        sorted_items = sorted(obj.items(), key=lambda kv: str(kv[0]))
+        return tuple((k, _dict_to_sorted_tuple(v)) for k, v in sorted_items)
+    elif isinstance(obj, (list, tuple)):
+        return tuple(_dict_to_sorted_tuple(item) for item in obj)
+    else:
+        return obj
+
+
+@dask.base.normalize_token.register(FrozenOrderedDict)
+def _normalize_frozen_ordered_dict(d):
+    """Normalize FrozenOrderedDict using sorted tuple representation."""
+    return ("FrozenOrderedDict", _dict_to_sorted_tuple(d))
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
@@ -36,7 +61,9 @@ def deserialize_callable(encoded_fn: str) -> callable:
 class SchemaRegistry:
     def __init__(self):
         self.schemas = {}
+        self.types = {}
         self.counter = itertools.count()
+        self.type_counter = itertools.count()
         self.nodes = {}
 
     def register_schema(self, schema):
@@ -50,21 +77,60 @@ class SchemaRegistry:
         self.schemas[schema_id] = frozen_schema
         return schema_id
 
+    def register_type(self, dtype, type_dict):
+        """Register a type and return its reference ID.
+
+        Returns a name like 'type_0', 'type_1', etc.
+        """
+        frozen_type_dict = freeze(type_dict)
+
+        # Check if this type already exists
+        for type_id, existing_type in self.types.items():
+            if existing_type == frozen_type_dict:
+                return type_id
+
+        # Create new type ID
+        type_id = f"type_{next(self.type_counter)}"
+        self.types[type_id] = frozen_type_dict
+        return type_id
+
     def _register_expr_schema(self, expr: ir.Expr) -> str:
         if hasattr(expr, "schema"):
             schema = expr.schema()
             return self.register_schema(schema)
         return None
 
-    def register_node(self, node_dict):
-        frozen_node = freeze(node_dict)
+    def register_node(self, node, node_dict):
+        """Register a node and return its name.
 
-        node_hash = tokenize(frozen_node)
+        Returns a name like '@read_{hash}', '@filter_{hash}', etc.
+        """
+        import re
 
-        if node_hash not in self.nodes:
-            self.nodes[node_hash] = frozen_node
+        from xorq.expr.relations import Tag
+        from xorq.vendor.ibis.expr.schema import Schema
 
-        return node_hash
+        if isinstance(node, Tag):
+            parent_ref = _extract_parent_ref(node_dict)
+            metadata = node_dict.get("metadata", FrozenOrderedDict())
+            untagged_repr = ("Tag", parent_ref, metadata)
+        elif isinstance(node, Schema):
+            # Schema objects don't have .to_expr(), so we tokenize the schema dict directly
+            untagged_repr = ("Schema", _dict_to_sorted_tuple(dict(node.items())))
+        else:
+            untagged_repr = node.to_expr().ls.untagged
+
+        node_hash = dask.base.tokenize(untagged_repr)
+
+        op_type = node_dict.get("op", "unknown")
+        short_hash = node_hash[:8]
+        op_name = re.sub(r"[^a-zA-Z0-9_]", "_", op_type.lower())
+        node_name = f"@{op_name}_{short_hash}"
+
+        node_dict_with_hash = dict(node_dict) | {"snapshot_hash": node_hash}
+        self.nodes.setdefault(node_name, freeze(node_dict_with_hash))
+
+        return node_name
 
 
 def _is_absolute_path(instance, attribute, value):
@@ -77,7 +143,7 @@ class TranslationContext:
     schema_registry: SchemaRegistry = field(factory=SchemaRegistry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
     definitions: FrozenOrderedDict = field(
-        factory=lambda: freeze({"schemas": {}, "nodes": {}})
+        factory=lambda: freeze({"schemas": {}, "types": {}, "nodes": {}})
     )
     cache_dir: Path = field(
         default=None,
@@ -91,6 +157,7 @@ class TranslationContext:
     def finalize_definitions(self):
         updated_defs = dict(self.definitions)
         updated_defs["schemas"] = self.schema_registry.schemas
+        updated_defs["types"] = self.schema_registry.types
         updated_defs["nodes"] = self.schema_registry.nodes
         return attr.evolve(self, definitions=freeze(updated_defs))
 
@@ -121,6 +188,17 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
             except KeyError:
                 raise ValueError(f"Node reference {node_ref} not found in definitions")
             return translate_from_yaml(node_dict, context)
+        case {"type_ref": type_ref, **_kwargs}:
+            if "types" not in context.definitions:
+                raise ValueError(
+                    f"Missing 'types' in definitions for reference {type_ref}"
+                )
+
+            try:
+                type_dict = context.definitions["types"][type_ref]
+            except KeyError:
+                raise ValueError(f"Type reference {type_ref} not found in definitions")
+            return translate_from_yaml(type_dict, context)
         case {"op": op_type, **_kwargs}:
             if op_type not in FROM_YAML_HANDLERS:
                 raise NotImplementedError(f"No handler for operation {op_type}")
