@@ -2,7 +2,6 @@
 
 This guide builds on the [Google developer documentation style guide](https://developers.google.com/style). When something isn't covered here, follow Google's guidance. If it's still not clear, choose the option that is easier to read, scan, and understand.
 
----
 
 ## Product name and terminology
 
@@ -19,18 +18,19 @@ Use official names for core concepts: **build**, **node hash**, **backend**, **p
 
 Define each term once in a Concepts or Glossary page, then use it consistently everywhere.
 
-**Latin abbreviations**
+
+#### Latin abbreviations
 
 Don't use them.
 
 - Write **"for example"** instead of **"e.g."**
 - Write **"that is"** instead of **"i.e."** ([Google guidance](https://developers.google.com/style/abbreviations#latin-abbreviations))
 
-**People and inclusivity**
+
+#### People and inclusivity
 
 Use **"people with disabilities"**, not **"the disabled"** or **"disabled people"** ([Google guidance](https://developers.google.com/style/accessibility)).
 
----
 
 ## Voice and tone
 
@@ -45,7 +45,7 @@ Be direct. Be helpful. Skip the hype.
 
 Focus on what the user is trying to do, not on how impressive Xorq is.
 
----
+
 
 ## Person, tense, and pronouns
 
@@ -61,7 +61,7 @@ Use present tense unless you're describing something that happened in the past.
 
 Avoid **"we"** unless you clearly mean the Xorq team (for example, in release notes or roadmap statements).
 
----
+
 
 ## Sentence and paragraph style
 
@@ -73,7 +73,7 @@ Avoid nested clauses when a simpler structure works.
 
 Write so people can quickly scan the docs and find what they need.
 
----
+
 
 ## Headings and capitalization
 
@@ -89,7 +89,7 @@ Make headings descriptive, not cute.
 
 Every page must have one H1 that states the topic clearly, plus logical nested headings (H2, H3) to break content into scannable sections.
 
----
+
 
 ## Content types
 
@@ -107,7 +107,7 @@ Tutorials are learning-oriented and assume the reader is a beginner. You're resp
 
 How-to guides are goal-oriented and assume the reader already has some experience. They answer questions that only someone with existing knowledge would ask: "How do I…?". The reader knows what they want to achieve but doesn't yet know how.
 
----
+
 
 ## Lists, steps, and tables
 
@@ -137,7 +137,7 @@ Keep headers short and descriptive.
 | `--builds-dir` | Directory where build artifacts are stored | `builds` |
 | `--engine` | Execution engine to use | `expr` |
 
----
+
 
 ## Code, commands, and output
 
@@ -174,7 +174,7 @@ Then explain: "Replace `<build_id>` with your actual build directory name (for e
 
 If commands differ on Windows, macOS, or Linux, show each explicitly and label them. Don't assume only bash or zsh.
 
----
+
 
 ## Links
 
@@ -189,7 +189,7 @@ Link to related tutorials and how-to guides, concept pages that explain jargon, 
 
 Every major page should have "Next steps" links at the end.
 
----
+
 
 ## Images and screenshots
 
@@ -204,7 +204,7 @@ Add alt text that describes what the user should notice, not just "screenshot." 
 
 Don't use images as the only way to convey critical information.
 
----
+
 
 ## Accessibility
 
@@ -216,7 +216,7 @@ Write and structure docs so they work for people with disabilities and for peopl
 - Include alt text for images.
 - Avoid overly complex tables and deep nested lists when a simpler structure works.
 
----
+
 
 ## Inclusive and bias-free language
 
@@ -232,7 +232,7 @@ Prefer "you" over "the user" when speaking to the reader.
 
 When in doubt, check the [Google style guide's word list](https://developers.google.com/style/word-list) and [accessibility guidance](https://developers.google.com/style/accessibility).
 
----
+
 
 ## Numbers, dates, and units
 
@@ -258,7 +258,7 @@ Use unambiguous formats in docs.
 
 Use SI units and be consistent (MB versus MiB, for example) when it matters.
 
----
+
 
 ## UI text and messages
 
@@ -281,7 +281,7 @@ Error: Backend not found for engine 'duckdb'
 
 **What to do:** Install the backend with `pip install "xorq[duckdb]"` and verify your profile configuration.
 
----
+
 
 ## File and navigation structure
 
@@ -308,7 +308,7 @@ Good example:
 
 Each section should bridge to the next one. Tell readers what they just finished and what comes next. This keeps them oriented and prevents them from feeling lost.
 
----
+
 
 ## Words and phrases to avoid
 
@@ -352,7 +352,7 @@ Don't use marketing language or jargon that clutters technical documentation. Av
 
 These words add nothing. Cut them. Write plainly instead.
 
----
+
 
 ## Xorq-specific word list
 
@@ -371,7 +371,7 @@ Use these terms consistently across all Xorq docs. When in doubt, refer to the [
 
 Define each term once in the Concepts section, then use it the same way everywhere.
 
----
+
 
 ## How to use this guide
 
@@ -380,4 +380,5 @@ When you write or review Xorq docs:
 1. Start with this style guide and the Xorq-specific decisions.
 2. If something isn't covered here, follow the [Google developer documentation style guide](https://developers.google.com/style).
 3. If it's still unclear, choose the option that is easier to read, scan, and understand.
+
 
