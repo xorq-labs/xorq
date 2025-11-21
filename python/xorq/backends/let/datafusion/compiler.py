@@ -673,42 +673,15 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_Strftime(self, op, *, arg, format_str):
         return self.f.temporal_strftime(arg, format_str)
 
-    time_delta_factor = {
-        "nanosecond": lambda a: sge.Mul(
-            this=a, expression=sge.Literal(this=1_000_000_000, is_string=False)
-        ),
-        "microsecond": lambda a: sge.Mul(
-            this=a, expression=sge.Literal(this=1_000_000, is_string=False)
-        ),
-        "millisecond": lambda a: sge.Mul(
-            this=a, expression=sge.Literal(this=1000, is_string=False)
-        ),
-        "second": lambda a: a,
-        "minute": lambda a: sge.IntDiv(
-            this=a, expression=sge.Literal(this=60, is_string=False)
-        ),
-        "hour": lambda a: sge.IntDiv(
-            this=a, expression=sge.Literal(this=3600, is_string=False)
-        ),
-        "day": lambda a: sge.IntDiv(
-            this=a, expression=sge.Literal(this=86400, is_string=False)
-        ),
-    }
+    def visit_TimeDelta(self, op, *, part, left, right):
+        unit = part.this.lower()
+        return self.f.time_delta(unit, right, left)
 
     def visit_TimestampDelta(self, op, *, part, left, right):
         unit = part.this.lower()
-        factor = self.time_delta_factor[unit]
+        return self.f.timestamp_delta(unit, right, left)
 
-        epoch = sge.Literal(this="epoch", is_string=True)
-
-        left, right = (
-            factor(self.cast(sge.Extract(this=epoch, expression=operand), dt.int64))
-            for operand in (left, right)
-        )
-
-        return left - right
-
-    visit_TimeDelta = visit_DateDelta = visit_TimestampDelta
+    visit_DateDelta = visit_TimestampDelta
 
 
 compiler = DataFusionCompiler()
