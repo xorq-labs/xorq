@@ -47,24 +47,13 @@ from xorq.vendor.ibis.util import normalize_filenames
 
 
 def should_register_node(op):
-    """Check if a node should be registered in the schema registry for deduplication.
-
-    Explicitly list operation types that should be deduplicated.
-    These are typically table-like or transformation operations where the same
-    operation should produce the same node_ref for consistent hashing.
-
-    Field nodes are intentionally excluded - different relation instances
-    (like T vs T.view()) must remain distinct to preserve join semantics.
-    """
-    # Table operations that should be deduplicated
+    """Check if a node should be registered in the schema registry for deduplication."""
     if isinstance(op, (ops.UnboundTable, ops.DatabaseTable)):
         return True
 
-    # Xorq relation operations that should be deduplicated
     if isinstance(op, (CachedNode, RemoteTable, Read, Tag)):
         return True
 
-    # Relational operations that should be deduplicated
     if isinstance(op, (ops.Filter, ops.Project, ops.JoinChain)):
         return True
 
