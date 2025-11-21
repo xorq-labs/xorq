@@ -1,6 +1,6 @@
 # Xorq Documentation Style Guide
 
-This guide builds on the [Google developer documentation style guide](https://developers.google.com/style). When something isn't covered here, follow Google's guidance. If it's still not clear, choose the option that is easier to read, scan, and understand.
+This guide builds on the [Google developer documentation style guide](https://developers.google.com/style). When something isn't covered here, follow Google's guidance. If it's still not clear, choose the option that is easier to read, scan, and understand for non-native English speakers.
 
 ---
 
