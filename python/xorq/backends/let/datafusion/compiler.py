@@ -55,6 +55,10 @@ class DataFusionType(PostgresType):
         return LargeString(nullable=nullable)
 
 
+def _int_div_sql(self: DataFusion.Generator, expression: exp.IntDiv) -> str:
+    return f"{self.sql(expression, 'this')} / {self.sql(expression, 'expression')}"
+
+
 class DataFusion(Postgres):
     class Generator(Postgres.Generator):
         TRANSFORMS = Postgres.Generator.TRANSFORMS.copy() | {
@@ -67,6 +71,7 @@ class DataFusion(Postgres):
             sge.Array: rename_func("make_array"),
             sge.ArrayContains: rename_func("array_has"),
             sge.ArraySize: rename_func("array_length"),
+            sge.IntDiv: _int_div_sql,
         }
 
         TYPE_MAPPING = Postgres.Generator.TYPE_MAPPING.copy() | {
@@ -91,10 +96,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.ArrayMap,
         ops.ArrayZip,
         ops.CountDistinctStar,
-        ops.DateDelta,
         ops.RowID,
-        ops.TimeDelta,
-        ops.TimestampDelta,
     )
 
     SIMPLE_OPS = {
@@ -665,6 +667,16 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_Strftime(self, op, *, arg, format_str):
         return self.f.temporal_strftime(arg, format_str)
+
+    def visit_TimeDelta(self, op, *, part, left, right):
+        unit = part.this.lower()
+        return self.f.time_delta(unit, right, left)
+
+    def visit_TimestampDelta(self, op, *, part, left, right):
+        unit = part.this.lower()
+        return self.f.timestamp_delta(unit, right, left)
+
+    visit_DateDelta = visit_TimestampDelta
 
 
 compiler = DataFusionCompiler()
