@@ -9,6 +9,10 @@ Xorq also ships with a CLI for quickly bootstrapping the creation, execution and
 
 ## Installation
 
+::: {.callout-note} 
+On Windows run `pip install xorq[examples]` 
+:::
+
 ```bash
 pip install 'xorq[examples]'
 ```
