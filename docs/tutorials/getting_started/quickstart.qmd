@@ -6,11 +6,11 @@ headline: "Get a first taste of xorq"
 
 ## Installation
 
-Xorq can be installed using pip:
+Xorq can be installed on macOS, Linux and Windows using pip: 
 
-```bash
-pip install 'xorq[examples]'
-```
+::: {.callout-note} 
+On Windows run `pip install xorq[examples]` 
+:::
 
 Or using nix to drop into an IPython shell:
 
