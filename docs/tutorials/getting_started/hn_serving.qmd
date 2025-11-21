@@ -33,6 +33,10 @@ Previously:
 
 First, ensure you have all required packages:
 
+::: {.callout-note} 
+On Windows run `pip install xorq[examples]` 
+:::
+
 ```bash
 pip install 'xorq[examples]'
 ```

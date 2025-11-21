@@ -27,6 +27,10 @@ In this tutorial (Part 3 of our series), you'll learn how to:
 
 First, ensure you have the required packages:
 
+::: {.callout-note} 
+On Windows run `pip install xorq[examples]` 
+:::
+
 ```bash
 pip install 'xorq[examples]'
 ```

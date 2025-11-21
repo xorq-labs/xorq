@@ -33,6 +33,10 @@ export OPENAI_API_KEY=your_api_key
 
 First, install Xorq and the required dependencies:
 
+::: {.callout-note} 
+On Windows run `pip install xorq[examples]` 
+:::
+
 ```bash
 pip install 'xorq[examples]' 
 ```
