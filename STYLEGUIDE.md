@@ -62,7 +62,6 @@ Use present tense unless you're describing something that happened in the past.
 Avoid **"we"** unless you clearly mean the Xorq team (for example, in release notes or roadmap statements).
 
 
-
 ## Sentence and paragraph style
 
 One main idea per sentence.
@@ -73,7 +72,7 @@ Avoid nested clauses when a simpler structure works.
 
 Write so people can quickly scan the docs and find what they need.
 
-
+xorq
 
 ## Headings and capitalization
 
@@ -109,7 +108,7 @@ How-to guides are goal-oriented and assume the reader already has some experienc
 
 
 
-## Lists, steps, and tables
+## Lists and tables
 
 ### Lists
 
@@ -175,7 +174,6 @@ Then explain: "Replace `<build_id>` with your actual build directory name (for e
 If commands differ on Windows, macOS, or Linux, show each explicitly and label them. Don't assume only bash or zsh.
 
 
-
 ## Links
 
 Make link text descriptive. Don't use "click here" or raw URLs. ([Google guidance](https://developers.google.com/style/link-text))
@@ -190,7 +188,6 @@ Link to related tutorials and how-to guides, concept pages that explain jargon, 
 Every major page should have "Next steps" links at the end.
 
 
-
 ## Images and screenshots
 
 Use screenshots when they clarify an important step or result—showing the builds folder and manifest, or a successful served pipeline, for example.
@@ -203,7 +200,6 @@ Add alt text that describes what the user should notice, not just "screenshot." 
 | Terminal output showing successful build completion with node hash. | Image of terminal |
 
 Don't use images as the only way to convey critical information.
-
 
 
 ## Accessibility
@@ -296,7 +292,6 @@ Every page should answer one clear question.
 
 Keep sidebar hierarchy shallow and intuitive. Avoid deep nesting. Avoid duplicate or near-duplicate topics with small differences.
 
----
 
 ## Section transitions
 
@@ -380,5 +375,3 @@ When you write or review Xorq docs:
 1. Start with this style guide and the Xorq-specific decisions.
 2. If something isn't covered here, follow the [Google developer documentation style guide](https://developers.google.com/style).
 3. If it's still unclear, choose the option that is easier to read, scan, and understand.
-
-
