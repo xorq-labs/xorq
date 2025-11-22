@@ -72,7 +72,7 @@ Avoid nested clauses when a simpler structure works.
 
 Write so people can quickly scan the docs and find what they need.
 
-
+xorq
 
 ## Headings and capitalization
 
