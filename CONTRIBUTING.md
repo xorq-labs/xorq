@@ -16,6 +16,9 @@ source .venv/bin/activate
 # set up the git hook scripts
 uv run pre-commit install
 ```
+> [!IMPORTANT]
+> Rename `.gitignore.template` to `.gitignore` 
+
 
 ## Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
@@ -62,6 +65,10 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 
 ## Working with the documentation
 
+> [!TIP]
+> Read our [style guide](https://github.com/xorq-labs/xorq/blob/main/STYLEGUIDE.md) to 
+> learn more about our writing style.
+
 To build or preview the documentation locally, follow the steps below.
 
 1. **Install Quarto**
@@ -87,6 +94,7 @@ To build or preview the documentation locally, follow the steps below.
    ```
 
 This will build the API reference and launch a local preview server so you can iterate on documentation changes.
+
 
 ## Working with xorq-datafusion
 
