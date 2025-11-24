@@ -1,0 +1,9 @@
+extends: substitution
+message: "According to Xorq branding: Use '%s' instead of '%s'."
+level: error
+ignorecase: false  # strictly matches the keys on the left below
+swap:
+  xorq: Xorq
+  XORQ: Xorq
+  XOR: Xorq
+  XorQ: Xorq
