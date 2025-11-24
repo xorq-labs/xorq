@@ -1,0 +1,19 @@
+extends: substitution
+message: "According to Xorq style: %s"
+level: error
+ignorecase: true
+swap:
+  # Latin Abbreviations
+  e.g.: "use 'for example'"
+  i.e.: "use 'that is'"
+  
+  # Inclusivity
+  the disabled: "people with disabilities"
+  disabled people: "people with disabilities"
+  dummy data: "example data"
+  handicapped: "people with disabilities"
+  ninja: "developer/engineer"
+  rockstar: "developer/engineer"
+
+  # Link Text
+  click here: "use descriptive link text"
