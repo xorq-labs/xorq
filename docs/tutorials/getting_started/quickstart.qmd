@@ -12,6 +12,10 @@ Xorq can be installed on macOS, Linux and Windows using pip:
 On Windows run `pip install xorq[examples]` 
 :::
 
+```bash
+pip install 'xorq[examples]'
+```
+
 Or using nix to drop into an IPython shell:
 
 ```bash
