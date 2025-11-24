@@ -69,6 +69,11 @@ If the commit fixes a GitHub issue, add something like this to the bottom of the
 > Read our [style guide](https://github.com/xorq-labs/xorq/blob/main/STYLEGUIDE.md) to 
 > learn more about our writing style.
 
+> [!NOTE]
+> Our docs follow the Google developer style guide plus Xorq’s own rules, enforced with    
+> vale linter. To get this set up locally, go through the [linting guide](https://github.com/> 
+> xorq-labs/xorq/blob/main/LINTING.md).
+
 To build or preview the documentation locally, follow the steps below.
 
 1. **Install Quarto**
