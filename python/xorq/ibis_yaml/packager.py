@@ -322,8 +322,12 @@ def uv_tool_run(
     For direct uv pip commands (not isolated), use uv_pip_command() which includes
     the nix shell check.
     """
-    command_v_xorq = Popened.check_output("command -v xorq", shell=True).strip()
-    args = tuple(el if el != command_v_xorq else "xorq" for el in args)
+    # Try to get xorq path, but don't fail if it's not in PATH (e.g., with nix run)
+    try:
+        command_v_xorq = Popened.check_output("command -v xorq", shell=True).strip()
+        args = tuple(el if el != command_v_xorq else "xorq" for el in args)
+    except (AssertionError, Exception):
+        pass  # xorq not in PATH, args remain unchanged
     popened_args = (
         "uv",
         "tool",
