@@ -2,6 +2,7 @@ import datetime
 import functools
 import importlib
 
+import ibis
 from ibis import Schema as IbisSchema
 from ibis.backends import BaseBackend as IbisBaseBackend
 from ibis.common.collections import FrozenOrderedDict as IbisFrozenOrderedDict
@@ -11,12 +12,15 @@ from ibis.expr.datatypes.core import Interval as IbisInterval
 from ibis.expr.operations.generic import Cast as IbisCast
 from ibis.expr.operations.relations import Namespace as IbisNamespace
 from ibis.formats.pandas import PandasDataFrameProxy as IbisPandasDataFrameProxy
+from packaging.version import Version
 
+import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.common.temporal import IntervalUnit
+from xorq.vendor.ibis.expr.builders import LegacyWindowBuilder
 from xorq.vendor.ibis.expr.datatypes import DataType
 from xorq.vendor.ibis.expr.datatypes.core import Interval
 from xorq.vendor.ibis.expr.operations import Node
@@ -44,14 +48,81 @@ def map_ibis(val, kwargs):
         raise NotImplementedError(f"{type(val)} is not implemented")
 
 
+def _extract_value(boundary):
+    """Extract the numeric value from a window boundary object.
+
+    Args:
+        boundary: A window boundary object that may have nested .value attributes
+
+    Returns:
+        The numeric value or None if the boundary has no value
+    """
+    if not hasattr(boundary, "value") or boundary.value is None:
+        return None
+
+    value = boundary.value
+    if hasattr(value, "value"):
+        value = value.value
+
+    return value
+
+
+def _process_rows_frame(window, params):
+    """Process ROWS frame parameters for window conversion."""
+    start_val = _extract_value(window.start)
+    if start_val is not None and start_val != 0:
+        params["preceding"] = abs(start_val)
+
+    end_val = _extract_value(window.end)
+    if end_val is not None:
+        params["following"] = end_val if end_val != 0 else 0
+
+
+def _process_range_frame(window, params):
+    """Process RANGE frame parameters for window conversion."""
+    start_val = _extract_value(window.start)
+    if start_val is not None and start_val != 0:
+        params["preceding"] = abs(start_val)
+
+    end_val = _extract_value(window.end)
+    if end_val is not None and end_val != 0:
+        params["following"] = end_val
+
+
 @map_ibis.register(int)
 @map_ibis.register(str)
 @map_ibis.register(float)
 @map_ibis.register(Node)
 @map_ibis.register(type(None))
 @map_ibis.register(datetime.datetime)
+@map_ibis.register(LegacyWindowBuilder)
 def map_pass_through(op, kwargs):
     return op
+
+
+if Version(ibis.__version__) >= Version("10.0.0"):
+    try:
+        from ibis.expr.builders import LegacyWindowBuilder as IbisLegacyWindowBuilder
+
+        @map_ibis.register(IbisLegacyWindowBuilder)
+        def map_window_builder(window, kwargs):
+            params = {}
+
+            if window.groupings:
+                params["group_by"] = window.groupings
+
+            if window.orderings:
+                params["order_by"] = window.orderings
+
+            if window.how == "rows":
+                _process_rows_frame(window, params)
+            elif window.how == "range":
+                _process_range_frame(window, params)
+
+            return xo.window(**params)
+
+    except ImportError:
+        pass
 
 
 @map_ibis.register(tuple)
