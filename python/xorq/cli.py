@@ -30,6 +30,7 @@ from xorq.ibis_yaml.compiler import (
 )
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
+    Sdister,
     SdistRunner,
 )
 from xorq.loader import load_backend
@@ -138,7 +139,11 @@ def build_command(
             f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
         )
 
-    expr_hash = build_manager.compile_expr(expr)
+    # Create sdist tarball for reproducible builds
+    sdister = Sdister.from_script_path(script_path)
+    sdist_path = sdister.sdist_path
+
+    expr_hash = build_manager.compile_expr(expr, sdist_path=sdist_path)
     span.add_event("build.outputs", {"expr_hash": expr_hash})
     print(
         f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",

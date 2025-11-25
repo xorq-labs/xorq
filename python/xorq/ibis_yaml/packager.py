@@ -26,9 +26,24 @@ from xorq.common.utils.tar_utils import (
 )
 
 
-REQUIREMENTS_NAME = "requirements.txt"
 PYPROJECT_NAME = "pyproject.toml"
+UV_LOCK_NAME = "uv.lock"
 BUILD_SDIST_NAME = "sdist.tar.gz"
+
+
+def uv_pip_command(*args, **kwargs):
+    """
+    Execute a uv pip command with nix shell safety check.
+
+    Direct uv pip commands (without --isolated) can have issues with nix shells
+    and enclosing virtual environments. Use uv_tool_run() instead for isolated operations.
+
+    This function exists to:
+    1. Document that direct uv pip commands should be avoided
+    2. Provide a safety check if they must be used
+    """
+    assert_not_in_nix_shell()
+    return Popened(("uv", "pip", *args), **kwargs)
 
 
 @frozen
@@ -77,18 +92,18 @@ class Sdister:
         sdist_path = Path(rest)
         return sdist_path
 
-    def ensure_requirements_member(self):
+    def ensure_uv_lock_member(self):
         sdist_path = self._sdist_path
-        if not TGZProxy(sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
-            requirements_path = self.tmpdir.joinpath(REQUIREMENTS_NAME)
-            requirements_text = uv_tool_run_uv_pip_freeze_package_path(sdist_path)
-            requirements_path.write_text(requirements_text)
-            TGZAppender.append_toplevel(sdist_path, requirements_path)
+        # Copy uv.lock from project if it exists and is not already in the sdist
+        if not TGZProxy(sdist_path).toplevel_name_exists(UV_LOCK_NAME):
+            project_uv_lock = self.project_path.joinpath(UV_LOCK_NAME)
+            if project_uv_lock.exists():
+                TGZAppender.append_toplevel(sdist_path, project_uv_lock)
 
     @property
     @functools.cache
     def sdist_path(self):
-        self.ensure_requirements_member()
+        self.ensure_uv_lock_member()
         return self._sdist_path
 
     @property
@@ -113,45 +128,22 @@ class SdistBuilder:
         converter=toolz.curried.excepts(Exception, Path),
         default=None,
     )
-    require_requirements = field(validator=instance_of(bool), default=True)
 
     def __attrs_post_init__(self):
-        if self.require_requirements:
-            assert TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
-        self.ensure_requirements_path()
-        assert self.requirements_path.exists()
-
-    @property
-    @functools.cache
-    def _tmpdir(self):
-        return TemporaryDirectory()
-
-    @property
-    def tmpdir(self):
-        return Path(self._tmpdir.name)
-
-    @property
-    def requirements_path(self):
-        return self.tmpdir.joinpath(REQUIREMENTS_NAME)
-
-    def ensure_requirements_path(self):
-        if not self.requirements_path.exists():
-            if TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
-                TGZProxy(self.sdist_path).extract_toplevel_name(
-                    REQUIREMENTS_NAME, self.requirements_path
-                )
-            else:
-                requirements_text = uv_tool_run_uv_pip_freeze_package_path(
-                    self.sdist_path
-                )
-                self.requirements_path.write_text(requirements_text)
+        # Require uv.lock for reproducible builds
+        assert TGZProxy(self.sdist_path).toplevel_name_exists(UV_LOCK_NAME), (
+            "sdist must contain uv.lock for reproducible builds"
+        )
 
     @property
     @functools.cache
     def _uv_tool_run_xorq_build(self):
         args = self.args if self.args else ("xorq", "build", str(self.script_path))
+        # Use uv tool run --with for building (not --frozen, since build doesn't need reproducibility)
+        # The sdist will be installed which makes the package importable
         popened = uv_tool_run(
-            *args, with_=self.sdist_path, with_requirements=self.requirements_path
+            *args,
+            with_=self.sdist_path,
         )
         return popened
 
@@ -164,6 +156,8 @@ class SdistBuilder:
     @functools.cache
     def copy_sdist(self):
         target = self.get_build_path().joinpath(BUILD_SDIST_NAME)
+        # Ensure parent directory exists
+        target.parent.mkdir(parents=True, exist_ok=True)
         copy_path(self.sdist_path, target)
         return target
 
@@ -197,8 +191,10 @@ class SdistRunner:
     def __attrs_post_init__(self):
         assert self.build_path.exists()
         assert self.sdist_path.exists()
-        # we ALWAYS require requirements.txt to run
-        assert TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME)
+        # Require uv.lock for reproducible builds
+        assert TGZProxy(self.sdist_path).toplevel_name_exists(UV_LOCK_NAME), (
+            "sdist must contain uv.lock for reproducible builds"
+        )
 
     @property
     def sdist_path(self):
@@ -214,27 +210,71 @@ class SdistRunner:
         return Path(self._tmpdir.name)
 
     @property
+    def uv_lock_path(self):
+        return self.tmpdir.joinpath(UV_LOCK_NAME)
+
+    @property
+    def pyproject_path(self):
+        return self.tmpdir.joinpath("pyproject.toml")
+
+    @property
     def requirements_path(self):
-        return self.tmpdir.joinpath(REQUIREMENTS_NAME)
+        return self.tmpdir.joinpath("requirements.txt")
 
     def ensure_requirements_path(self):
+        """Extract uv.lock and pyproject.toml from sdist and export to requirements.txt"""
         if not self.requirements_path.exists():
-            if TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
+            # Extract uv.lock and pyproject.toml from sdist (both needed for uv export)
+            if not self.uv_lock_path.exists():
                 TGZProxy(self.sdist_path).extract_toplevel_name(
-                    REQUIREMENTS_NAME, self.requirements_path
+                    UV_LOCK_NAME, self.uv_lock_path
                 )
-            else:
-                requirements_text = uv_tool_run_uv_pip_freeze_package_path(
-                    self.sdist_path
+            if not self.pyproject_path.exists():
+                TGZProxy(self.sdist_path).extract_toplevel_name(
+                    "pyproject.toml", self.pyproject_path
                 )
-                self.requirements_path.write_text(requirements_text)
+
+            # Export uv.lock to requirements.txt using uv export
+            export_args = (
+                "uv",
+                "export",
+                "--format",
+                "requirements.txt",
+                "--frozen",
+                "--no-hashes",  # Don't include hashes for cleaner output
+            )
+            popened = Popened(
+                export_args,
+                kwargs_tuple=(
+                    ("stdout", PIPE),
+                    ("stderr", PIPE),
+                    (
+                        "cwd",
+                        str(self.tmpdir),
+                    ),  # Run in tmpdir where uv.lock and pyproject.toml are
+                ),
+            )
+            popened.popen.wait()
+            assert not popened.returncode, popened.stderr
+
+            # Filter out local file:// dependencies since they'll be provided via --with sdist
+            exported_reqs = popened.stdout
+            filtered_lines = []
+            for line in exported_reqs.split("\n"):
+                # Skip local file:// paths (the template package itself, e.g., xorq-template-sklearn)
+                # These are provided by --with <sdist>
+                if "file:///" in line:
+                    continue
+                filtered_lines.append(line)
+
+            self.requirements_path.write_text("\n".join(filtered_lines))
 
     @property
     @functools.cache
     def _uv_tool_run_xorq_run(self):
         self.ensure_requirements_path()
         args = self.args if self.args else ("xorq", "run", str(self.build_path))
-        # FIXME: enable streaming output
+        # Use uv tool run with sdist and requirements from uv.lock
         popened = uv_tool_run(
             *args,
             with_=self.sdist_path,
@@ -258,9 +298,22 @@ def find_file_upwards(start, name):
 
 
 def uv_tool_run(
-    *args, isolated=True, with_=None, with_requirements=None, check=True, capturing=True
+    *args,
+    isolated=True,
+    with_=None,
+    with_requirements=None,
+    check=True,
+    capturing=True,
 ):
-    assert_not_in_nix_shell()
+    """
+    Execute a command via uv tool run in an isolated environment.
+
+    This is safe in nix shells because --isolated creates a completely separate
+    Python environment that doesn't inherit from or conflict with nix packages.
+
+    For direct uv pip commands (not isolated), use uv_pip_command() which includes
+    the nix shell check.
+    """
     command_v_xorq = Popened.check_output("command -v xorq", shell=True).strip()
     args = tuple(el if el != command_v_xorq else "xorq" for el in args)
     popened_args = (
@@ -282,18 +335,3 @@ def uv_tool_run(
         popened.popen.wait()
         assert not popened.returncode, popened.stderr
     return popened
-
-
-def uv_tool_run_uv_pip_freeze(sdist_path):
-    # don't use "uv pip freeze": causes issues with nix and enclosing venv
-    popened = uv_tool_run("pip", "freeze", with_=sdist_path)
-    stdout = popened.stdout
-    return stdout
-
-
-def uv_tool_run_uv_pip_freeze_package_path(package_path):
-    stdout = uv_tool_run_uv_pip_freeze(package_path)
-    splat = stdout.split("\n")
-    filtered = (el for el in splat if "file:///" not in el)
-    joined = "\n".join(filtered)
-    return joined
