@@ -17,6 +17,7 @@ from attr.validators import (
 from xorq.common.utils.process_utils import (
     Popened,
     assert_not_in_nix_shell,
+    in_nix_shell,
 )
 from xorq.common.utils.tar_utils import (
     TGZAppender,
@@ -264,6 +265,13 @@ class SdistRunner:
                 # Skip local file:// paths (the template package itself, e.g., xorq-template-sklearn)
                 # These are provided by --with <sdist>
                 if "file:///" in line:
+                    continue
+                # Skip xorq itself ONLY when in nix shell (xorq development environment)
+                # In nix shell: avoids conflict with editable xorq install
+                # Outside nix shell: keep xorq for regular users who need it from uv.lock
+                if in_nix_shell() and (
+                    line.startswith("xorq @") or line.startswith("xorq==")
+                ):
                     continue
                 filtered_lines.append(line)
 
