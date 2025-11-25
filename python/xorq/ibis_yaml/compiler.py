@@ -141,8 +141,10 @@ class ArtifactStore:
             # Capture lazy registrations (e.g., numpy) that occurred during tokenization
             # Exclude Mocks which are temporary patches from SnapshotStrategy
             from unittest.mock import Mock
+
             lazy_registrations = {
-                k: v for k, v in dask.base.normalize_token._lookup.items()
+                k: v
+                for k, v in dask.base.normalize_token._lookup.items()
                 if k not in original_lookup and not isinstance(v, Mock)
             }
 
@@ -191,14 +193,17 @@ class YamlExpressionTranslator:
             context = context.finalize_definitions()
 
             from unittest.mock import Mock
+
             lazy_registrations = {
-                k: v for k, v in dask.base.normalize_token._lookup.items()
+                k: v
+                for k, v in dask.base.normalize_token._lookup.items()
                 if k not in original_lookup and not isinstance(v, Mock)
             }
 
         dask.base.normalize_token._lookup.update(lazy_registrations)
 
         from xorq.ibis_yaml import translate as translate_module
+
         translate_module.translate_to_yaml.cache_clear()
         translate_module.translate_from_yaml.cache_clear()
         SnapshotStrategy.cached_normalize_read.cache_clear()
@@ -296,7 +301,7 @@ class BuildManager:
 
         return updated_reads
 
-    def compile_expr(self, expr: ir.Expr) -> str:
+    def compile_expr(self, expr: ir.Expr, sdist_path: pathlib.Path = None) -> str:
         expr_hash = self.artifact_store.get_expr_hash(expr)
         expr_build_dir = self.artifact_store.root_path / expr_hash
         expr = replace_memtables(expr_build_dir, expr)
@@ -331,6 +336,13 @@ class BuildManager:
 
         metadata_json = self._make_metadata()
         self.artifact_store.write_text(metadata_json, expr_hash, "metadata.json")
+
+        # Copy sdist tarball for reproducible builds
+        if sdist_path is not None:
+            import shutil
+
+            target_path = self.artifact_store.get_path(expr_hash, "sdist.tar.gz")
+            shutil.copy2(sdist_path, target_path)
 
         return expr_hash
 

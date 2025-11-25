@@ -112,8 +112,8 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 
 @translate_to_yaml.register(Schema)
 def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
-    context.schema_registry.register_schema(schema)
-    return freeze(
+    # Create the node dict representing the schema
+    node_dict = freeze(
         {
             "op": schema.__class__.__name__,
             "value": freeze(
@@ -124,6 +124,10 @@ def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
             ),
         }
     )
+
+    # Register as a node for deduplication
+    node_hash = context.schema_registry.register_node(schema, node_dict)
+    return freeze({"node_ref": node_hash})
 
 
 @register_from_yaml_handler(Schema.__name__)
