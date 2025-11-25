@@ -47,24 +47,13 @@ from xorq.vendor.ibis.util import normalize_filenames
 
 
 def should_register_node(op):
-    """Check if a node should be registered in the schema registry for deduplication.
-
-    Explicitly list operation types that should be deduplicated.
-    These are typically table-like or transformation operations where the same
-    operation should produce the same node_ref for consistent hashing.
-
-    Field nodes are intentionally excluded - different relation instances
-    (like T vs T.view()) must remain distinct to preserve join semantics.
-    """
-    # Table operations that should be deduplicated
+    """Check if a node should be registered in the schema registry for deduplication."""
     if isinstance(op, (ops.UnboundTable, ops.DatabaseTable)):
         return True
 
-    # Xorq relation operations that should be deduplicated
     if isinstance(op, (CachedNode, RemoteTable, Read, Tag)):
         return True
 
-    # Relational operations that should be deduplicated
     if isinstance(op, (ops.Filter, ops.Project, ops.JoinChain)):
         return True
 
@@ -260,7 +249,7 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
 
 @translate_to_yaml.register(dt.DataType)
 def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
-    return freeze(
+    type_dict = freeze(
         {
             "op": "DataType",
             "type": type(dtype).__name__,
@@ -271,9 +260,27 @@ def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
         }
     )
 
+    # Only register and return reference when context is available
+    if context is not None:
+        type_ref = context.schema_registry.register_type(dtype, type_dict)
+        return freeze({"type_ref": type_ref})
+
+    return type_dict
+
 
 @register_from_yaml_handler("DataType")
 def _datatype_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
+    # Handle type references
+    if "type_ref" in yaml_dict:
+        type_ref = yaml_dict["type_ref"]
+        if "types" not in context.definitions:
+            raise ValueError(f"Missing 'types' in definitions for reference {type_ref}")
+        try:
+            type_dict = context.definitions["types"][type_ref]
+        except KeyError:
+            raise ValueError(f"Type reference {type_ref} not found in definitions")
+        return _datatype_from_yaml(type_dict, context)
+
     typ = getattr(dt, yaml_dict["type"])
     dct = toolz.dissoc(yaml_dict, "op", "type")
     return typ(
@@ -543,6 +550,7 @@ def _remotetable_to_yaml(op: RemoteTable, context: any) -> dict:
     schema_id = context.schema_registry.register_schema(op.schema)
 
     import dask.base
+
     deterministic_name = dask.base.tokenize(op)
 
     # TODO: change profile to profile_name
