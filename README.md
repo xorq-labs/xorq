@@ -7,187 +7,144 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-</div>
 
-> **Xorq is a multi‑engine batch transformation framework built on Ibis,
-> DataFusion and Arrow.**
-> It ships a compute catalog and a multi-engine manifest you can run
-> across DuckDB, Snowflake, DataFusion, and more.
+**The periodic table for ML computation.**
+
+Everything is an expression. Addressable. Composable. Portable.
+
+Write high-level expression. Execute as SQL on DuckDB, Snowflake, BigQuery, or
+any engine. Every computation addressable, versioned, and reusable.
+
+[Documentation](https://docs.xorq.dev) • [Discord](https://discord.gg/8Kma9DhcJG) • [Website](https://www.xorq.dev)
+
+</div>
 
 ---
 
-## What Xorq gives you
+## What is Xorq?
 
-- **Multi-engine manifest:** A single, typed plan captured as a YAML artifact
-that can execute in DuckDB, Snowflake, DataFusion, etc.
-- **Deterministic builds & caching:** Content hashes of the plan power
-reproducible runs and cheap replays.
-- **Lineage & Schemas:** Compile-time schema checks and end-to-end to end
-column-level lineage.
-- **Compute catalog:** Versioned registry that stores and operates on manifests
-(run, cache, diff, serve-unbound).
-- **Portable UDxFs:** Arbitrary python logic with schema-in/out contracts
-portable via Arrow Flight.
-- **Scikit-learn integration:** Model fitting pipeline captured in the predict
-pipeline manifest for portable batch scoring and model training lineage
+Machine learning (ML) infrastructure is fragmented—features in one system, models in another,
+lineage reconstructed through archaeology.
 
-> **Not an orchestrator.** Use Xorq from Airflow, Dagster, GitHub Actions, etc.
+What if features, models, and pipelines aren't different things?
 
-> **Not streaming/online.** Xorq focuses on **batch**,**out-of-core**
-> transformations.
+A feature is a computation. A model is a computation. A pipeline is
+computations composed. The vendor categories aren't computational
+truths—they're commercial territories. Strip away the product boundaries and
+everything reduces to the same primitive: the expression.
 
+Xorq is the composability layer for compute expressed as relational plans.
 
-## Quickstart
+## Installation
 
 ```bash
 pip install xorq[examples]
 xorq init -t penguins
 ```
 
-Then follow the [Quickstart
-Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart) for a
-full walk-through using the Penguins dataset.
+[Full tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
 
-## From `scikit-learn` to multi-engine manifest
-
-The manifest is a collection of YAML files that captures the expression graph
-and supporting files like memtables serialized to disk.
-
-Once you xorq build your pipeline, you get:
-
-- expr.yaml: a reproducible expression graph
-- deferred_reads.yaml: source metadata
-- SQL and metadata files for inspection and CI
-
-Xorq makes it easy to bring your scikit-learn Pipeline and automatically
-converts it into a deferred Xorq expression.
+## Quickstart
 
 ```python
 import xorq.api as xo
-from xorq.expr.ml.pipeline_lib import Pipeline
+from sklearn.ensemble import RandomForestClassifier
 
+data = xo.read_parquet('s3://bucket/penguins.parquet')
+train, test = xo.test_train_splits(data, test_size=0.2)
 
-(train, test) = xo.test_train_splits(...)
-sklearn_pipeline = make_pipeline(...)
-xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-# still no work done: deferred fit expression
-fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
-expr = fitted_pipeline.predict(test[features])
+model = xo.Pipeline.from_instance(RandomForestClassifier())
+fitted = model.fit(train, features=['bill_length_mm', 'bill_depth_mm'],
+                   target='species')
+
+predictions = fitted.predict(test).cache(storage=ParquetStorage())  # deferred
+predictions.execute()  # do work
 ```
 
-Here's a commented snippet from a YAML manifest
+**CLI:**
 
 ```bash
+xorq build expr.py -e predictions
+xorq run builds/
+```
+
+## How it works
+
+Xorq captures your ML computation as an **input-addressed manifest**—a
+declarative representation where each node is identified by the hash of its
+computation specification, not its results.
+
+```yaml
+# Manifest snippet: fit → predict lineage
 predicted:
-  op: ExprScalarUDF            # predict(...)
+  op: ExprScalarUDF            # Model inference
   kwargs:
-    bill_length_mm: ...        # features
+    bill_length_mm: ...        # Feature inputs
     bill_depth_mm: ...
-    flipper_length_mm: ...
-    body_mass_g: ...
   meta:
     __config__:
-      computed_kwargs_expr:
-        op: AggUDF             # fit(...)
+      computed_kwargs_expr:    # Training lineage preserved
+        op: AggUDF             # Model training
         kwargs:
-          bill_length_mm: ...
-          bill_depth_mm: ...
-          flipper_length_mm: ...
-          body_mass_g: ...
-          species: ...         # target
+          species: ...         # Original training target
 ```
-The YAML format serializes the Expression graph and all its nodes, including
-UDFs as pickled entries.
 
-## From manifest to catalog
+### What This Enables
 
-Once an expression is built, we can then catalog it and share across teams.
+| Capability | How |
+|------------|-----|
+| **Version by intent** | Same computation = same hash, regardless of input data |
+| **Precise caching** | Cache based on what you're computing, not when |
+| **Structural lineage** | Provenance is the graph itself, not reconstructed logs |
+| **Portable execution** | Manifest compiles to optimized SQL for any engine |
 
-The compute catalog is a versioned registry of compute manifests. It can be
-stored in Git, S3, GCS, or a database.
+### Input-Addressing
+
+Every computation gets a unique hash based on its logic:
+
+- Same feature engineering on different days → **same hash** (reusable)
+- Different feature logic → **different hash** (new version)
+
+If anyone on your team has run this exact computation before, Xorq reuses it
+automatically. The hash is the truth.
+
+## The Catalog
+
+Your team's shared ledger of ML compute—versioned, discoverable, composable.
+Below is an example of what it looks like to add an expr to the catalog.
 
 ```bash
-❯ xorq catalog add builds/{build-hash} --alias penguins-model
-```
+# Register a build with an alias.
+❯ xorq catalog add builds/7061dd65ff3c --alias fraud-model
 
-```
+# Discover what exists.
 ❯ xorq catalog ls
 Aliases:
-mortgage-test-predicted dbf90860-88b3-4b6c-830a-8518b3296e7c    r1
-Entries:
-dbf90860-88b3-4b6c-830a-8518b3296e7c    r1      52f987594254
+fraud-model                  7061dd65ff3c     r2
+customer-features            dbf90860-88b3    r1
+recommendation-pipeline      52f987594254     r1
+
+# Trace lineage.
+❯ xorq lineage fraud-model
+
+# Serve for inference.
+xorq serve-unbound  fraud-model --port 8001 405154f690d20f4adbcc375252628b75
 ```
 
-You can then run, serve or cache the catalog entry, including unbinding nodes
-that depend on external state (e.g. source tables). This is useful to serve a
-trained pipeline with new data.
+The catalog isn't a database. It's an addressing system—discoverable by humans,
+navigable by agents.
 
-### Serve the same expression with new inputs (serve-unbound)
-
-We can rerun an expression with new inputs by replacing an arbitrary node in
-the expression defined by its node-hash.
-
-```bash
-xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example b2370a29c19df8e1e639c63252dacd0e
-```
-- `builds/7061dd65ff3c`: Your built expression manifest
-- `--host localhost --port 8001`: Where to serve the UDxF from
-- `--cache-dir penguins_example`: Directory for caching results
-- `b2370a29c19df8e1e639c63252dacd0e`: The node-hash that represents the expression input to replace
-
-To learn more on how to find the node hash, check out the [Serve Unbound](https://docs.xorq.dev/tutorials/getting_started/quickstart#finding-the-node-hash).
-
-### Compose with the served expression:
-
-```python
-import xorq.api as xo
-
-client = xo.flight.connect("localhost", 8001)
-f = client.get_exchange("default") # currently all expressions get the default name in addition to their hash
-
-new_expr = expr.pipe(f)
-
-new_expr.execute()
-```
-
-## How Xorq works
-
-Xorq uses Apache Arrow Flight RPC for zero-copy data transfer and leverages Ibis and
-DataFusion under the hood for efficient computation.
-
-![Xorq Architecture](docs/images/how-xorq-works-2.png)
-
-## Use cases
-
-A generic catalog that can be used to build new workloads:
-
-- Lineage‑preserving, multi-engine feature stores (offline, reproducible)
-- Composable data products (ship datasets as compute artifacts)
-- Governed sharing of compute (catalog entries as the contract between teams)
-- ML/data pipeline development (deterministic builds)
+## The Architecture
+![Architecture](docs/images/architecture-light.png#gh-light-mode-only)
+![Architecture](docs/images/architecture-dark.png#gh-dark-mode-only)
 
 
-Also great for:
+## Learn more
 
-- Generating SQL from high-level DSLs (e.g. Semantic Layers)
-- Batch model scoring across engines (same expr, different backends)
-- Cross‑warehouse migrations (portability via Ibis + UDxFs)
-- Data CI (compile‑time schema/lineage checks in PRs)
-
-
-## Learn More
-
-* [Why Xorq?](https://docs.xorq.dev/#why-xorq)
-* [Caching Guide](https://docs.xorq.dev/core_concepts/caching)
-* [Backend Profiles](https://docs.xorq.dev/api_reference/backend_configuration/profiles_api)
-* [Scikit-learn Template](https://github.com/xorq-labs/xorq-template-sklearn)
+- [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
+- [Why xorq?](https://docs.xorq.dev/#why-xorq)
+- [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 
 ## Status
 
-Xorq is pre-1.0 and evolving fast. Expect breaking changes.
-
-## Get Involved
-
-* [Website](https://www.xorq.dev)
-* [Discord](https://discord.gg/8Kma9DhcJG)
-* [Contribute on GitHub](https://github.com/xorq-labs/xorq)
+Pre-1.0. Expect breaking changes with migration guides.
