@@ -12,8 +12,8 @@
 
 Everything is an expression. Addressable. Composable. Portable.
 
-Write high-level expressions → Make multi-engine pipelines → Execute as SQL on
-DuckDB, Snowflake, BigQuery, or any engine.
+Write high-level expression. Execute as SQL on DuckDB, Snowflake, BigQuery, or
+any engine. Every computation addressable, versioned, and reusable.
 
 [Documentation](https://docs.xorq.dev) • [Discord](https://discord.gg/8Kma9DhcJG) • [Website](https://www.xorq.dev)
 
@@ -23,6 +23,9 @@ DuckDB, Snowflake, BigQuery, or any engine.
 
 ## What is Xorq?
 
+ML infrastructure is fragmented—features in one system, models in another,
+lineage reconstructed through archaeology.
+
 What if features, models, and pipelines aren't different things?
 
 A feature is a computation. A model is a computation. A pipeline is
@@ -31,9 +34,6 @@ truths—they're commercial territories. Strip away the product boundaries and
 everything reduces to the same primitive: the expression.
 
 Xorq is the composability layer for compute expressed as relational plans.
-
-Write high-level expression. Execute as SQL on DuckDB, Snowflake, BigQuery, or
-any engine. Every computation addressable, versioned, and reusable.
 
 ## Installation
 
