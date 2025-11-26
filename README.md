@@ -127,7 +127,7 @@ recommendation-pipeline      52f987594254     r1
 ❯ xorq lineage fraud-model
 
 # Serve for inference
-❯ xorq serve-unbound --port 8815
+xorq serve-unbound  fraud-model --port 8001 405154f690d20f4adbcc375252628b75
 ```
 
 The catalog isn't a database. It's an addressing system—discoverable by humans,
