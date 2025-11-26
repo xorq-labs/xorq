@@ -42,7 +42,7 @@ pip install xorq[examples]
 xorq init -t penguins
 ```
 
-[Full Tutorial →](https://docs.xorq.dev/tutorials/getting_started/quickstart)
+[Full tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
 
 ## Quick Start
 
