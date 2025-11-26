@@ -44,7 +44,7 @@ xorq init -t penguins
 
 [Full tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
 
-## Quick Start
+## Quickstart
 
 ```python
 import xorq.api as xo
