@@ -68,7 +68,7 @@ xorq build expr.py -e predictions
 xorq run builds/
 ```
 
-## How It Works
+## How it works
 
 Xorq captures your ML computation as an **input-addressed manifest**—a
 declarative representation where each node is identified by the hash of its
