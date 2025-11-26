@@ -138,7 +138,7 @@ navigable by agents.
 ![Architecture](docs/images/architecture-dark.png#gh-dark-mode-only)
 
 
-## Learn More
+## Learn more
 
 - [Quickstart Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
 - [Why Xorq?](https://docs.xorq.dev/#why-xorq)
