@@ -110,23 +110,24 @@ automatically. The hash is the truth.
 
 ## The Catalog
 
-Your team's shared ledger of ML compute—versioned, discoverable, composable:
+Your team's shared ledger of ML compute—versioned, discoverable, composable.
+Below is an example of what it looks like to add an expr to the catalog.
 
 ```bash
-# Register a build with an alias
+# Register a build with an alias.
 ❯ xorq catalog add builds/7061dd65ff3c --alias fraud-model
 
-# Discover what exists
+# Discover what exists.
 ❯ xorq catalog ls
 Aliases:
 fraud-model                  7061dd65ff3c     r2
 customer-features            dbf90860-88b3    r1
 recommendation-pipeline      52f987594254     r1
 
-# Trace lineage
+# Trace lineage.
 ❯ xorq lineage fraud-model
 
-# Serve for inference
+# Serve for inference.
 xorq serve-unbound  fraud-model --port 8001 405154f690d20f4adbcc375252628b75
 ```
 
@@ -140,9 +141,9 @@ navigable by agents.
 
 ## Learn more
 
-- [Quickstart Tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
-- [Why Xorq?](https://docs.xorq.dev/#why-xorq)
-- [Scikit-learn Template](https://github.com/xorq-labs/xorq-template-sklearn)
+- [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
+- [Why xorq?](https://docs.xorq.dev/#why-xorq)
+- [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 
 ## Status
 
