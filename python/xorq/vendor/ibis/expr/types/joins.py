@@ -317,7 +317,7 @@ class Join(Table):
             # 2. filter the asof join result using the `tolerance` parameter and
             #    the `on` parameter
             # 3. perform a left join between the original left table and the
-            #    filtered asof join result using the `on` parameter but this
+            #    filtered asof join result using the left operand of the `on` parameter but this
             #    time as an equality predicate
             if isinstance(on, str):
                 # self is always a JoinChain so reference one of the join tables
@@ -339,7 +339,7 @@ class Join(Table):
             filtered = joined.filter(
                 left_on <= right_on + tolerance, left_on >= right_on - tolerance
             )
-            right_on = right_on.op().replace({right.op(): filtered.op()}).to_expr()
+            (right_on,) = filtered.bind(left_on)
 
             # without joining twice the table would not contain the rows from
             # the left table that do not match any row from the right table
