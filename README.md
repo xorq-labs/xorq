@@ -23,7 +23,7 @@ any engine. Every computation addressable, versioned, and reusable.
 
 ## What is Xorq?
 
-ML infrastructure is fragmented—features in one system, models in another,
+Machine learning (ML) infrastructure is fragmented—features in one system, models in another,
 lineage reconstructed through archaeology.
 
 What if features, models, and pipelines aren't different things?
