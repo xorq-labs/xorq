@@ -141,3 +141,56 @@ def temporal_strftime(array: dt.Timestamp(scale=9), pattern: dt.string) -> dt.st
         )
 
     return pc.strftime(array, pattern)
+
+
+def _compute_interval(unit, start, end):
+    unit, *rest = typing.cast(pa.StringArray, unit).unique().to_pylist()
+
+    if rest:
+        raise com.XorqError("Only a single scalar unit is supported")
+
+    match unit:
+        case "year":
+            return pc.years_between(start, end)
+        case "quarter":
+            return pc.quarters_between(start, end)
+        case "month":
+            return pa.array(
+                [
+                    v.months
+                    for v in pc.month_day_nano_interval_between(start, end).tolist()
+                ],
+                type=pa.int64(),
+            )
+        case "week":
+            return pc.weeks_between(start, end)
+        case "day":
+            return pc.days_between(start, end)
+        case "hour":
+            return pc.hours_between(start, end)
+        case "minute":
+            return pc.minutes_between(start, end)
+        case "second":
+            return pc.seconds_between(start, end)
+        case "millisecond":
+            return pc.milliseconds_between(start, end)
+        case "microsecond":
+            return pc.microseconds_between(start, end)
+        case "nanosecond":
+            return pc.nanoseconds_between(start, end)
+        case _:
+            raise ValueError(f"Unknown unit: {unit}")
+
+
+def time_delta(unit: dt.string, start: dt.time, end: dt.time) -> dt.int64:
+    return _compute_interval(unit, start, end)
+
+
+def date_delta(unit: dt.string, start: dt.date, end: dt.date) -> dt.int64:
+    return _compute_interval(unit, start, end)
+
+
+def timestamp_delta(
+    unit: dt.string, start: dt.Timestamp(scale=9), end: dt.Timestamp(scale=9)
+) -> dt.int64:
+    return _compute_interval(unit, start, end)
