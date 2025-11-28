@@ -55,6 +55,12 @@ def predict_sklearn(model, df):
 
 
 @toolz.curry
+def predict_proba_sklearn(model, df):
+    predicted_proba = model.predict_proba(df)
+    return predicted_proba
+
+
+@toolz.curry
 def _deferred_fit_other(
     expr,
     target,
@@ -203,6 +209,30 @@ def deferred_fit_predict_sklearn(
         storage=storage,
     )
     return deferred_model, model_udaf, deferred_predict
+
+
+@toolz.curry
+def deferred_fit_predict_proba_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
+    name_infix="predicted_proba",
+    storage=None,
+):
+    deferred_model, model_udaf, deferred_predict_proba = _deferred_fit_other(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=predict_proba_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        storage=storage,
+    )
+    return deferred_model, model_udaf, deferred_predict_proba
 
 
 @toolz.curry
