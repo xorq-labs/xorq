@@ -371,6 +371,8 @@ def visualize_command(
     format="svg",
     relations_only=False,
     show_schemas=False,
+    show_operations=True,
+    show_tags=True,
 ):
     """
     Visualize the DAG of an expression from a Python script.
@@ -383,6 +385,7 @@ def visualize_command(
     format : Output format (svg, png, pdf, dot)
     relations_only : Show only relations (table operations)
     show_schemas : Show column names in the graph
+    show_operations : Show operation nodes (default: True)
     """
     from xorq.ibis_yaml.visualize import (
         generate_dag_visualization,
@@ -409,6 +412,8 @@ def visualize_command(
             output_path=output_path,
             format=format,
             show_schemas=show_schemas,
+            show_operations=show_operations,
+            show_tags=show_tags,
         )
 
     if not output_path:
@@ -658,6 +663,20 @@ def parse_args(override=None):
         action="store_true",
         help="Show column names in the graph",
     )
+    visualize_parser.add_argument(
+        "--no-show-operations",
+        dest="show_operations",
+        action="store_false",
+        default=True,
+        help="Hide operation nodes, show only relations",
+    )
+    visualize_parser.add_argument(
+        "--no-show-tags",
+        dest="show_tags",
+        action="store_false",
+        default=True,
+        help="Hide Tag nodes from the graph",
+    )
     lineage_parser = subparsers.add_parser(
         "lineage",
         help="Print lineage trees of all columns for a build",
@@ -811,6 +830,8 @@ def main():
                         args.format,
                         args.relations_only,
                         args.show_schemas,
+                        args.show_operations,
+                        args.show_tags,
                     ),
                 )
             case "lineage":

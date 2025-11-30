@@ -10,6 +10,7 @@ import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import bfs
+from xorq.expr.relations import Tag
 
 
 def generate_dag_visualization(
@@ -18,6 +19,7 @@ def generate_dag_visualization(
     format: str = "svg",
     show_schemas: bool = False,
     show_operations: bool = True,
+    show_tags: bool = True,
 ) -> str:
     """
     Generate a visualization of the expression DAG.
@@ -28,6 +30,7 @@ def generate_dag_visualization(
         format: Output format (svg, png, pdf, dot)
         show_schemas: Whether to show column names in the graph
         show_operations: Whether to show operation types
+        show_tags: Whether to show Tag nodes
 
     Returns:
         DOT source code for the graph
@@ -42,7 +45,18 @@ def generate_dag_visualization(
 
     # Build the graph using BFS
     graph = bfs(expr)
-    nodes = list(graph.keys())
+    all_nodes = list(graph.keys())
+
+    # Filter nodes based on show_operations and show_tags
+    nodes = []
+    for n in all_nodes:
+        # Filter out operations if show_operations=False
+        if not show_operations and not isinstance(n, ops.Relation):
+            continue
+        # Filter out Tag nodes if show_tags=False
+        if not show_tags and isinstance(n, Tag):
+            continue
+        nodes.append(n)
 
     # Create a directed graph
     dot = graphviz.Digraph(
@@ -126,6 +140,9 @@ def generate_dag_visualization(
 
         return "<" + "<br/>".join(label_parts) + ">"
 
+    # Create set of nodes to display for quick lookup
+    nodes_set = set(nodes)
+
     # Add nodes
     for node in nodes:
         node_id = get_node_id(node)
@@ -141,11 +158,44 @@ def generate_dag_visualization(
         )
 
     # Add edges (parent -> child relationships)
-    for node, children in graph.items():
-        node_id = get_node_id(node)
-        for child in children:
-            child_id = get_node_id(child)
-            dot.edge(child_id, node_id)
+    if show_operations:
+        # Show all edges between displayed nodes
+        for node in nodes:
+            if node not in graph:
+                continue
+            node_id = get_node_id(node)
+            for child in graph[node]:
+                if child in nodes_set:
+                    child_id = get_node_id(child)
+                    dot.edge(child_id, node_id)
+    else:
+        # When hiding operations, build relation-to-relation edges
+        # by traversing through intermediate operation nodes
+        from collections import defaultdict
+
+        relation_graph = defaultdict(set)
+        for rel in nodes:
+            # Find all relations reachable from this relation
+            if rel in graph:
+                queue = list(graph[rel])
+                visited = set()
+                while queue:
+                    node = queue.pop(0)
+                    if node in visited:
+                        continue
+                    visited.add(node)
+
+                    if isinstance(node, ops.Relation) and node in nodes_set:
+                        relation_graph[rel].add(node)
+                    elif node in graph:
+                        queue.extend(graph[node])
+
+        # Add relation-to-relation edges
+        for rel, children_rels in relation_graph.items():
+            rel_id = get_node_id(rel)
+            for child_rel in children_rels:
+                child_id = get_node_id(child_rel)
+                dot.edge(child_id, rel_id)
 
     # Generate statistics
     relation_count = sum(1 for n in nodes if isinstance(n, ops.Relation))

@@ -377,17 +377,13 @@ class BuildManager:
                 node_info["name"] = node.name
 
             # Add source info for relations
-            if True:
-                if hasattr(node, "source") and node.source is not None:
-                    node_info["source_type"] = getattr(node.source, "name", None)
-                # Add schema info
-                if hasattr(node, "schema") and node.schema:
-                    node_info["columns"] = (
-                        list(node.schema.names) if node.schema else []
-                    )
-                    node_info["column_count"] = (
-                        len(node.schema.names) if node.schema else 0
-                    )
+            if hasattr(node, "source") and node.source is not None:
+                node_info["source_type"] = getattr(node.source, "name", None)
+
+            # Add schema info
+            if hasattr(node, "schema") and node.schema:
+                node_info["columns"] = list(node.schema.names) if node.schema else []
+                node_info["column_count"] = len(node.schema.names) if node.schema else 0
 
             graph_nodes.append(node_info)
 
