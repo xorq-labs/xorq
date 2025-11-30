@@ -45,6 +45,23 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
 
+def _convert_to_tuples(obj):
+    """Recursively convert dicts and FrozenOrderedDicts to tuples of key-value pairs.
+
+    This allows the YAML serializer to handle the data structure properly.
+    Converts type objects to their qualified name strings for JSON serialization.
+    """
+    if isinstance(obj, type):
+        # Convert type objects to their qualified name
+        return f"{obj.__module__}.{obj.__name__}"
+    elif isinstance(obj, (dict, FrozenOrderedDict)):
+        return tuple((k, _convert_to_tuples(v)) for k, v in obj.items())
+    elif isinstance(obj, (list, tuple)):
+        return tuple(_convert_to_tuples(item) for item in obj)
+    else:
+        return obj
+
+
 class CleanDictYAMLDumper(yaml.SafeDumper):
     def represent_frozenordereddict(self, data):
         return self.represent_dict(dict(data))
@@ -317,6 +334,11 @@ class BuildManager:
                 rel_info["columns"] = list(rel.schema.names) if rel.schema else []
                 rel_info["column_count"] = len(rel.schema.names) if rel.schema else 0
 
+            # Add tag metadata if available
+            if hasattr(rel, "metadata") and rel.metadata:
+                # Convert metadata to tuples for YAML serialization
+                rel_info["metadata"] = _convert_to_tuples(rel.metadata)
+
             relation_details.append(rel_info)
 
         # Find all source backends
@@ -384,6 +406,11 @@ class BuildManager:
             if hasattr(node, "schema") and node.schema:
                 node_info["columns"] = list(node.schema.names) if node.schema else []
                 node_info["column_count"] = len(node.schema.names) if node.schema else 0
+
+            # Add tag metadata if available
+            if hasattr(node, "metadata") and node.metadata:
+                # Convert metadata to tuples for YAML serialization
+                node_info["metadata"] = _convert_to_tuples(node.metadata)
 
             graph_nodes.append(node_info)
 
