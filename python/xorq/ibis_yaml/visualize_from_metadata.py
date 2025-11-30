@@ -117,21 +117,13 @@ def visualize_from_metadata(
         node_type = node_info["type"]
         label_parts = [f"<b>{node_type}</b>"]
 
-        # Add snapshot hash if available (only for relations)
-        is_relation = node_info.get("is_relation", False)
-        snapshot_hash = node_info.get("snapshot_hash")
-        if is_relation and snapshot_hash:
-            short_hash = snapshot_hash[:8]
-            label_parts.append(
-                f"<font point-size='8' color='#666666'>{short_hash}</font>"
-            )
-
         # Add name if available
         name = node_info.get("name")
         if name:
             label_parts.append(f"<i>{name}</i>")
 
         # Add schema info for relations if requested
+        is_relation = node_info.get("is_relation", False)
         if show_schemas and is_relation:
             columns = node_info.get("columns", [])
             if columns:
@@ -265,13 +257,10 @@ def visualize_relations_tree_from_metadata(
 
             for i, rel_info in type_relations:
                 node_id = f"rel_{i}"
-                snapshot_hash = rel_info.get("snapshot_hash")
                 name = rel_info.get("name", "")
                 col_count = rel_info.get("column_count", 0)
 
                 label_parts = []
-                if snapshot_hash:
-                    label_parts.append(snapshot_hash[:8])
                 if name:
                     label_parts.append(f'"{name}"')
                 label_parts.append(f"{col_count} cols")

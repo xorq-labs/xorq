@@ -6,42 +6,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
-import dask.base
-
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.graph_utils import bfs
-
-
-def _compute_snapshot_hash(node: ops.Node) -> Optional[str]:
-    """
-    Compute the snapshot hash for a node.
-
-    Args:
-        node: The operation node
-
-    Returns:
-        The snapshot hash (full hash), or None if it cannot be computed
-    """
-    try:
-        # Try to get untagged representation
-        if hasattr(node, "to_expr"):
-            expr = node.to_expr()
-            if hasattr(expr, "ls") and hasattr(expr.ls, "untagged"):
-                untagged_repr = expr.ls.untagged
-            else:
-                untagged_repr = node
-        else:
-            untagged_repr = node
-
-        # Compute hash using dask tokenize
-        node_hash = dask.base.tokenize(untagged_repr)
-        return node_hash
-    except Exception:
-        # Some nodes (like JoinLink) cannot be deterministically hashed
-        # Return None to indicate hash is not available
-        return None
 
 
 def generate_dag_visualization(
@@ -50,7 +18,6 @@ def generate_dag_visualization(
     format: str = "svg",
     show_schemas: bool = False,
     show_operations: bool = True,
-    show_snapshot_hash: bool = True,
 ) -> str:
     """
     Generate a visualization of the expression DAG.
@@ -61,7 +28,6 @@ def generate_dag_visualization(
         format: Output format (svg, png, pdf, dot)
         show_schemas: Whether to show column names in the graph
         show_operations: Whether to show operation types
-        show_snapshot_hash: Whether to show snapshot hash for each node
 
     Returns:
         DOT source code for the graph
@@ -140,15 +106,6 @@ def generate_dag_visualization(
         node_type = type(node).__name__
         label_parts = [f"<b>{node_type}</b>"]
 
-        # Add snapshot hash if requested (only for relations)
-        if show_snapshot_hash and isinstance(node, ops.Relation):
-            snapshot_hash = _compute_snapshot_hash(node)
-            if snapshot_hash is not None:
-                short_hash = snapshot_hash[:8]
-                label_parts.append(
-                    f"<font point-size='8' color='#666666'>{short_hash}</font>"
-                )
-
         # Add name if available
         if hasattr(node, "name") and node.name:
             label_parts.append(f"<i>{node.name}</i>")
@@ -219,7 +176,6 @@ def generate_dag_visualization(
 def generate_relation_graph(
     expr: ir.Expr,
     output_path: Optional[Path] = None,
-    show_snapshot_hash: bool = True,
 ) -> str:
     """
     Generate a simplified visualization showing only relations (table operations).
@@ -227,7 +183,6 @@ def generate_relation_graph(
     Args:
         expr: The Ibis expression to visualize
         output_path: Optional path to save the visualization
-        show_snapshot_hash: Whether to show snapshot hash for each relation
 
     Returns:
         DOT source code for the graph
@@ -291,15 +246,6 @@ def generate_relation_graph(
         )
 
         label_parts = [f"<b>{node_type}</b>"]
-
-        # Add snapshot hash if requested
-        if show_snapshot_hash:
-            snapshot_hash = _compute_snapshot_hash(rel)
-            if snapshot_hash is not None:
-                short_hash = snapshot_hash[:8]
-                label_parts.append(
-                    f"<font point-size='8' color='#666666'>{short_hash}</font>"
-                )
 
         if name:
             label_parts.append(f"<i>{name}</i>")

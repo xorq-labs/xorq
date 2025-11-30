@@ -306,23 +306,6 @@ class BuildManager:
                 "name": getattr(rel, "name", None),
             }
 
-            # Add snapshot hash
-            try:
-                # Compute snapshot hash using the same method as visualize.py
-                if hasattr(rel, "to_expr"):
-                    expr_obj = rel.to_expr()
-                    if hasattr(expr_obj, "ls") and hasattr(expr_obj.ls, "untagged"):
-                        untagged_repr = expr_obj.ls.untagged
-                    else:
-                        untagged_repr = rel
-                else:
-                    untagged_repr = rel
-                snapshot_hash = dask.base.tokenize(untagged_repr)
-                rel_info["snapshot_hash"] = snapshot_hash
-            except Exception:
-                # Some nodes cannot be deterministically hashed
-                rel_info["snapshot_hash"] = None
-
             # Add source info if available
             if hasattr(rel, "source") and rel.source is not None:
                 rel_info["source_type"] = getattr(rel.source, "name", None)
@@ -378,30 +361,12 @@ class BuildManager:
             node_id = f"node_{i}"
             node_to_id[id(node)] = node_id
 
-            # Compute snapshot hash for this node
-            snapshot_hash = None
-            try:
-                if hasattr(node, "to_expr"):
-                    expr_obj = node.to_expr()
-                    if hasattr(expr_obj, "ls") and hasattr(expr_obj.ls, "untagged"):
-                        untagged_repr = expr_obj.ls.untagged
-                    else:
-                        untagged_repr = node
-                else:
-                    untagged_repr = node
-                snapshot_hash = dask.base.tokenize(untagged_repr)
-            except Exception:
-                pass
-
             # Build node info
             node_info = {
                 "id": node_id,
                 "type": type(node).__name__,
                 "is_relation": isinstance(node, ops.Relation),
             }
-
-            if snapshot_hash:
-                node_info["snapshot_hash"] = snapshot_hash
 
             # Add name if available
             if hasattr(node, "name") and node.name:
