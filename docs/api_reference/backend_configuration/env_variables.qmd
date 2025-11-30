@@ -8,9 +8,9 @@ This document provides a comprehensive reference for all environment variables u
 
 Xorq uses several `.env.{service}.template` files to define environment variables for different services. These templates help ensure consistent configuration across different environments while keeping sensitive credentials secure through environment variable references.
 
-## Template Files
+## Template files
 
-### PostgreSQL Configuration (`.env.postgres.template`)
+### PostgreSQL configuration (`.env.postgres.template`)
 
 PostgreSQL database connection parameters.
 
@@ -23,7 +23,7 @@ PostgreSQL database connection parameters.
 | `POSTGRES_DATABASE` | Database name | Yes |
 
 
-### AWS Configuration (`.env.aws.template`)
+### AWS configuration (`.env.aws.template`)
 
 Amazon Web Services authentication and configuration.
 
@@ -37,7 +37,7 @@ Amazon Web Services authentication and configuration.
 
 **Security Note:** Never commit actual AWS credentials to version control. Use IAM roles or temporary credentials when possible.
 
-### Snowflake Configuration (`.env.snowflake.template`)
+### Snowflake configuration (`.env.snowflake.template`)
 
 Snowflake data warehouse connection parameters.
 
@@ -51,7 +51,7 @@ Snowflake data warehouse connection parameters.
 
 **Note:** Snowflake accounts can be identified by their account locator or account URL format.
 
-### Weather API Configuration (`.env.weather.template`)
+### Weather API configuration (`.env.weather.template`)
 
 OpenWeatherMap API integration settings.
 
@@ -63,7 +63,7 @@ OpenWeatherMap API integration settings.
 
 **API Key:** Obtain from [OpenWeatherMap](https://openweathermap.org/api) after creating an account.
 
-### PyIceberg Configuration (`.env.pyiceberg.template`)
+### PyIceberg configuration (`.env.pyiceberg.template`)
 
 Apache Iceberg table format configuration for PyIceberg.
 
@@ -80,7 +80,7 @@ Apache Iceberg table format configuration for PyIceberg.
 - `hive`: Hive Metastore catalog
 - `glue`: AWS Glue Data Catalog
 
-### XORQ Configuration (`.env.xorq.template`)
+### Xorq configuration (`.env.xorq.template`)
 
 Core XORQ application settings.
 

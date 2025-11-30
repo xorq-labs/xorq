@@ -5,7 +5,7 @@ title: 'serve-flight-udxf'
 The `xorq serve` command is designed to serve expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. 
 
 
-## What the serve-flight-udxf Command Does
+## What the serve-flight-udxf command does
 
 When you run `xorq serve-flight-udxf`, the following happens internally:
 
@@ -16,11 +16,11 @@ When you run `xorq serve-flight-udxf`, the following happens internally:
 
 The `serve-flight-udxf` command is essentially a wrapper that makes UDXF-containing expressions available as network services.
 
-## Example: Penguins Health Analysis
+## Example: penguins health analysis
 
 Let's use the same penguins health analysis example from the build and run documentation to demonstrate how the `serve-flight-udxf` command works.
 
-### Step 1: The penguins_analysis.py Script
+### Step 1: The penguins_analysis.py script
 
 We'll use the same `penguins_analysis.py` script as in the previous examples:
 
@@ -113,7 +113,7 @@ expr = xo.expr.relations.flight_udxf(
 )
 ```
 
-### Step 2: Build the Expression
+### Step 2: Build the expression
 
 ```bash
 # Build the expression
@@ -122,14 +122,14 @@ xorq build penguins_analysis.py --expr-name expr
 
 This creates a `builds/f02d28198715/` directory with the serialized expression.
 
-### Step 3: Serve the Expression
+### Step 3: Serve the expression
 
 ```bash
 # Serve the built expression
 xorq serve-flight-udxf builds/f02d28198715 --host 0.0.0.0 --port 8080
 ```
 
-## Key Points About UDXF Serving
+## Key points about UDXF serving
 
 The `serve-flight-udxf` command is specifically designed for UDXF expressions because:
 
@@ -138,7 +138,7 @@ The `serve-flight-udxf` command is specifically designed for UDXF expressions be
 3. **The server hosts the function** and makes it available for remote execution
 4. **Clients can send data** and get processed results back via the Flight protocol
 
-## Testing the Served UDXF
+## Testing the served UDXF
 
 Once your penguin health analysis server is running, you can test it from another Python process:
 
@@ -182,7 +182,7 @@ Expected output:
 2     Gentoo       4500.0  ...          large 2025-07-14 17:32:22.802505
 ```
 
-## Command Line Options
+## Command line options
 
 The `serve-flight-udxf` command supports several options:
 

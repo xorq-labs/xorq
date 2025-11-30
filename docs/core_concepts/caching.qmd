@@ -13,9 +13,9 @@ The caching system in Xorq allows you to:
 - **Automatically invalidate cache when source data changes** ensuring data freshness without manual intervention
 - **Chain caches across multiple engines** enabling the creation of complex pipelines with multiple caching layers
 
-## Core Concepts
+## Core concepts
 
-### Lazy Evaluation and Caching
+### Lazy evaluation and caching
 
 Xorq operations are **lazy** by default - they don't execute until you call `.execute()`. This lazy evaluation works hand-in-hand with the caching system:
 
@@ -35,7 +35,7 @@ recent_batting = (
 result = recent_batting.execute()
 ```
 
-### Cache Keys and Hashing
+### Cache keys and hashing
 
 Xorq uses different hashing strategies to determine when cached data is still valid. Cache keys are generated using [cityhash](https://github.com/escherba/python-cityhash) based on different components depending on the storage type:
 
@@ -47,7 +47,7 @@ Xorq uses different hashing strategies to determine when cached data is still va
 
 Additionally, when data freshness is required, i.e. automatic cache invalidation on data changes it uses the last modified time of files both disk-based and remote
 
-## Storage Types
+## Storage types
 
 Xorq supports four types of storage, each optimized for different use cases:
 
@@ -160,7 +160,7 @@ result = cached_analysis.execute()
 - **No automatic invalidation** - manual control over cache lifecycle
 - Ideal for reproducible research and analysis where you want fixed snapshots
 
-## Multi-Engine Caching
+## Multi-engine caching
 
 Xorq excels at caching data across different backends using `into_backend()`:
 
@@ -179,7 +179,7 @@ ddb = xo.duckdb.connect()
 ddb_summary = cached_join.into_backend(ddb, "ddb_awards")
 ```
 
-## Cache Environment Variables
+## Cache environment variables
 
 Xorq caching behavior can be configured through environment variables:
 
