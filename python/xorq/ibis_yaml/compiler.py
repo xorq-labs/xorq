@@ -353,11 +353,15 @@ class BuildManager:
         )
 
         # Build graph structure for visualization
+        # Filter nodes: only include relations (which includes Tag nodes)
+        # Exclude operation nodes like Field, Literal, Cast, etc.
+        filtered_nodes = relations
+
         # Create node ID mapping
         node_to_id = {}
         graph_nodes = []
 
-        for i, node in enumerate(nodes):
+        for i, node in enumerate(filtered_nodes):
             node_id = f"node_{i}"
             node_to_id[id(node)] = node_id
 
@@ -365,7 +369,7 @@ class BuildManager:
             node_info = {
                 "id": node_id,
                 "type": type(node).__name__,
-                "is_relation": isinstance(node, ops.Relation),
+                "is_relation": True,
             }
 
             # Add name if available
@@ -373,7 +377,7 @@ class BuildManager:
                 node_info["name"] = node.name
 
             # Add source info for relations
-            if isinstance(node, ops.Relation):
+            if True:
                 if hasattr(node, "source") and node.source is not None:
                     node_info["source_type"] = getattr(node.source, "name", None)
                 # Add schema info
@@ -387,13 +391,36 @@ class BuildManager:
 
             graph_nodes.append(node_info)
 
-        # Build edges
+        # Build edges - only relation-to-relation edges
+        # Traverse through intermediate operations to connect relations
+        from collections import defaultdict
+
+        filtered_nodes_set = set(filtered_nodes)
+        relation_graph = defaultdict(set)
+
+        for rel in filtered_nodes:
+            # Find all relations reachable from this relation
+            if rel in graph:
+                queue = list(graph[rel])
+                visited = set()
+                while queue:
+                    node = queue.pop(0)
+                    if node in visited:
+                        continue
+                    visited.add(node)
+
+                    if isinstance(node, ops.Relation) and node in filtered_nodes_set:
+                        relation_graph[rel].add(node)
+                    elif node in graph:
+                        queue.extend(graph[node])
+
+        # Build edges from relation graph
         graph_edges = []
-        for node, children in graph.items():
-            parent_id = node_to_id.get(id(node))
+        for rel, children_rels in relation_graph.items():
+            parent_id = node_to_id.get(id(rel))
             if parent_id:
-                for child in children:
-                    child_id = node_to_id.get(id(child))
+                for child_rel in children_rels:
+                    child_id = node_to_id.get(id(child_rel))
                     if child_id:
                         graph_edges.append(
                             {
