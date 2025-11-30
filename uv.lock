@@ -1421,6 +1421,15 @@ wheels = [
 ]
 
 [[package]]
+name = "graphviz"
+version = "0.21"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/b3/3ac91e9be6b761a4b30d66ff165e54439dcd48b83f4e20d644867215f6ca/graphviz-0.21.tar.gz", hash = "sha256:20743e7183be82aaaa8ad6c93f8893c923bd6658a04c32ee115edb3c8a835f78", size = 200434, upload-time = "2025-06-15T09:35:05.824Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/91/4c/e0ce1ef95d4000ebc1c11801f9b944fa5910ecc15b5e351865763d8657f8/graphviz-0.21-py3-none-any.whl", hash = "sha256:54f33de9f4f911d7e84e4191749cac8cc5653f815b06738c54db9a15ab8b1e42", size = 47300, upload-time = "2025-06-15T09:35:04.433Z" },
+]
+
+[[package]]
 name = "greenlet"
 version = "3.2.3"
 source = { registry = "https://pypi.org/simple" }
@@ -5332,6 +5341,9 @@ snowflake = [
 sqlite = [
     { name = "adbc-driver-sqlite" },
 ]
+visualization = [
+    { name = "graphviz" },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -5387,6 +5399,7 @@ requires-dist = [
     { name = "envyaml", specifier = ">=1.10.211231" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=2024.6.1,<2025.10.1" },
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.2,<1" },
+    { name = "graphviz", marker = "extra == 'visualization'", specifier = ">=0.20.0" },
     { name = "ibis-framework", marker = "extra == 'ibis'", specifier = ">=10.5.0" },
     { name = "mcp", marker = "extra == 'examples'", specifier = ">=1.5.0" },
     { name = "openai", marker = "extra == 'examples'", specifier = ">=1.65.4" },
@@ -5423,7 +5436,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "ibis"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "visualization", "examples", "postgres", "sqlite", "ibis"]
 
 [package.metadata.requires-dev]
 dev = [

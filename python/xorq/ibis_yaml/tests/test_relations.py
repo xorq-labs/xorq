@@ -86,3 +86,14 @@ def test_limit(compiler, t):
     assert expression["n"] == 10
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
+
+
+def test_fillna_dict(compiler, t):
+    expr = t.fillna({"a": 0, "c": 1.5})
+    yaml_dict = compiler.to_yaml(expr)
+    expression = yaml_dict["expression"]
+
+    assert expression["op"] == "FillNull"
+    assert expression["replacements"]["op"] == "dict"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(expr)

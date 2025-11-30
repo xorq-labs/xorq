@@ -363,6 +363,61 @@ def init_command(
     return path
 
 
+@tracer.start_as_current_span("cli.visualize_command")
+def visualize_command(
+    script_path,
+    expr_name="expr",
+    output_path=None,
+    format="svg",
+    relations_only=False,
+    show_schemas=False,
+):
+    """
+    Visualize the DAG of an expression from a Python script.
+
+    Parameters
+    ----------
+    script_path : Path to the Python script
+    expr_name : Name of the expression variable (default: 'expr')
+    output_path : Path to save visualization (without extension)
+    format : Output format (svg, png, pdf, dot)
+    relations_only : Show only relations (table operations)
+    show_schemas : Show column names in the graph
+    """
+    from xorq.ibis_yaml.visualize import (
+        generate_dag_visualization,
+        generate_relation_graph,
+    )
+
+    logger.info(f"Loading expression '{expr_name}' from {script_path}")
+    module = import_from_path(script_path, "viz_module")
+    expr = getattr(module, expr_name)
+
+    if not isinstance(expr, Expr):
+        raise ValueError(
+            f"Variable '{expr_name}' in {script_path} is not an Ibis expression. "
+            f"Got type: {type(expr)}"
+        )
+
+    logger.info("Generating DAG visualization...")
+
+    if relations_only:
+        dot_source = generate_relation_graph(expr, output_path=output_path)
+    else:
+        dot_source = generate_dag_visualization(
+            expr,
+            output_path=output_path,
+            format=format,
+            show_schemas=show_schemas,
+        )
+
+    if not output_path:
+        print("\nDOT Source:")
+        print(dot_source)
+
+    return dot_source
+
+
 def parse_args(override=None):
     parser = argparse.ArgumentParser(
         description="xorq - build, run, and serve expressions"
@@ -568,6 +623,41 @@ def parse_args(override=None):
         choices=tuple(InitTemplates),
         default=InitTemplates.cached_fetcher,
     )
+
+    visualize_parser = subparsers.add_parser(
+        "visualize",
+        help="Visualize the DAG of an expression",
+    )
+    visualize_parser.add_argument("script_path", help="Path to the Python script")
+    visualize_parser.add_argument(
+        "-e",
+        "--expr-name",
+        default="expr",
+        help="Name of the expression variable in the Python script (default: expr)",
+    )
+    visualize_parser.add_argument(
+        "-o",
+        "--output-path",
+        default=None,
+        help="Path to save visualization (without extension)",
+    )
+    visualize_parser.add_argument(
+        "-f",
+        "--format",
+        default="svg",
+        choices=["svg", "png", "pdf", "dot"],
+        help="Output format (default: svg)",
+    )
+    visualize_parser.add_argument(
+        "--relations-only",
+        action="store_true",
+        help="Show only relations (table operations)",
+    )
+    visualize_parser.add_argument(
+        "--show-schemas",
+        action="store_true",
+        help="Show column names in the graph",
+    )
     lineage_parser = subparsers.add_parser(
         "lineage",
         help="Print lineage trees of all columns for a build",
@@ -710,6 +800,18 @@ def main():
                 f, f_args = (
                     init_command,
                     (args.path, args.template),
+                )
+            case "visualize":
+                f, f_args = (
+                    visualize_command,
+                    (
+                        args.script_path,
+                        args.expr_name,
+                        args.output_path,
+                        args.format,
+                        args.relations_only,
+                        args.show_schemas,
+                    ),
                 )
             case "lineage":
                 f, f_args = (

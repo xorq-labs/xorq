@@ -862,6 +862,24 @@ def _string_to_date_from_yaml(yaml_dict: dict, context: TranslationContext) -> i
     return arg.as_date(format_str)
 
 
+@translate_to_yaml.register(ops.Strftime)
+def _strftime_to_yaml(op: ops.Strftime, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "Strftime",
+            "arg": translate_to_yaml(op.arg, context),
+            "format_str": translate_to_yaml(op.format_str, context),
+        }
+    )
+
+
+@register_from_yaml_handler("Strftime")
+def _strftime_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+    format_str = translate_from_yaml(yaml_dict["format_str"], context)
+    return arg.strftime(format_str)
+
+
 @translate_to_yaml.register(ops.StringConcat)
 def _string_concat_to_yaml(op: ops.StringConcat, context: TranslationContext) -> dict:
     return freeze(
@@ -1146,7 +1164,20 @@ def _join_chain_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Ex
     for join in yaml_dict["rest"]:
         table = translate_from_yaml(join["table"], context)
         predicates = [translate_from_yaml(pred, context) for pred in join["predicates"]]
-        result = result.join(table, predicates, how=join["how"])
+        how = join["how"]
+
+        if how == "asof":
+            # For asof joins, the first predicate is the `on` parameter (inequality)
+            # and the rest are additional equality predicates
+            if len(predicates) == 0:
+                raise ValueError(
+                    "Asof join requires at least one predicate (the 'on' condition)"
+                )
+            on = predicates[0]
+            additional_predicates = predicates[1:] if len(predicates) > 1 else ()
+            result = result.asof_join(table, on=on, predicates=additional_predicates)
+        else:
+            result = result.join(table, predicates, how=how)
 
     values = {
         name: translate_from_yaml(val, context)
@@ -1791,6 +1822,58 @@ def _drop_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Exp
     ).to_expr()
 
 
+@translate_to_yaml.register(ops.FillNull)
+def _fill_null_to_yaml(op: ops.FillNull, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "FillNull",
+            "parent": translate_to_yaml(op.parent, context),
+            "replacements": translate_to_yaml(op.replacements, context),
+        }
+    )
+
+
+@register_from_yaml_handler("FillNull")
+def _fill_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    parent = translate_from_yaml(yaml_dict["parent"], context)
+    replacements = translate_from_yaml(yaml_dict["replacements"], context)
+
+    # If replacements is a dict, cast boolean values to numeric for numeric columns
+    if isinstance(replacements, dict):
+        parent_schema = parent.schema()
+        fixed_replacements = {}
+        for col_name, value in replacements.items():
+            # Only process columns that exist in the schema
+            if col_name not in parent_schema:
+                fixed_replacements[col_name] = value
+                continue
+
+            col_type = parent_schema[col_name]
+            # If trying to fill a numeric column with a boolean, cast it
+            if not col_type.is_numeric():
+                fixed_replacements[col_name] = value
+                continue
+
+            # Check if it's a Python bool (from YAML deserialization)
+            if isinstance(value, bool):
+                # Convert False -> 0, True -> 1 as a raw Python int
+                fixed_replacements[col_name] = int(value)
+            # Check if it's an Ibis expression with a boolean literal
+            elif hasattr(value, "op"):
+                val_op = value.op()
+                if isinstance(val_op, ops.Literal) and isinstance(val_op.value, bool):
+                    # Convert False -> 0, True -> 1 as a raw Python int
+                    fixed_replacements[col_name] = int(val_op.value)
+                else:
+                    fixed_replacements[col_name] = value
+            else:
+                fixed_replacements[col_name] = value
+
+        replacements = fixed_replacements
+
+    return ops.FillNull(parent=parent, replacements=replacements).to_expr()
+
+
 @register_from_yaml_handler(
     "ExtractYear",
     "ExtractMonth",
@@ -1812,6 +1895,28 @@ def _extract_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     return op_map[yaml_dict["op"]](arg)
 
 
+@register_from_yaml_handler("Date")
+def _date_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["args"][0], context)
+    return arg.date()
+
+
+@register_from_yaml_handler("Time")
+def _time_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["args"][0], context)
+    return arg.time()
+
+
+@register_from_yaml_handler("TimestampNow")
+def _timestamp_now_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    return ibis.now()
+
+
+@register_from_yaml_handler("DateNow")
+def _date_now_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    return ibis.today()
+
+
 @register_from_yaml_handler("TimestampDiff")
 def _timestamp_diff_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     left = translate_from_yaml(yaml_dict["args"][0], context)
@@ -1831,153 +1936,44 @@ def _timestamp_arithmetic_from_yaml(
         return timestamp - interval
 
 
-@translate_to_yaml.register(tm.Date)
-def _date_to_yaml(op: tm.Date, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "Date",
-            "arg": translate_to_yaml(op.arg, context),
-        }
-    )
-
-
-@register_from_yaml_handler("Date")
-def _date_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    arg = translate_from_yaml(yaml_dict["arg"], context)
-    return arg.date()
-
-
-@translate_to_yaml.register(tm.Time)
-def _time_to_yaml(op: tm.Time, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "Time",
-            "arg": translate_to_yaml(op.arg, context),
-        }
-    )
-
-
-@register_from_yaml_handler("Time")
-def _time_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    arg = translate_from_yaml(yaml_dict["arg"], context)
-    return arg.time()
-
-
-@translate_to_yaml.register(ops.TimestampNow)
-@translate_to_yaml.register(ops.DateNow)
-def _timestamp_now_to_yaml(
-    op: ops.TimestampNow | ops.DateNow, _context: TranslationContext
-) -> dict:
-    return freeze(
-        {
-            "op": op.__class__.__name__,
-        }
-    )
-
-
-@register_from_yaml_handler("TimestampNow", "DateNow")
-def _timestamp_now_from_yaml(_yaml_dict: dict, _context: TranslationContext) -> ir.Expr:
-    return getattr(ops, _yaml_dict["op"])().to_expr()
-
-
-@translate_to_yaml.register(tm.DateAdd)
-@translate_to_yaml.register(tm.DateSub)
-def _date_arithmetic_to_yaml(
-    op: tm.DateAdd | tm.DateSub, context: TranslationContext
-) -> dict:
-    return freeze(
-        {
-            "op": type(op).__name__,
-            "left": translate_to_yaml(op.left, context),
-            "right": translate_to_yaml(op.right, context),
-        }
-    )
-
-
 @register_from_yaml_handler("DateAdd", "DateSub")
 def _date_arithmetic_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    date = translate_from_yaml(yaml_dict["left"], context)
-    interval = translate_from_yaml(yaml_dict["right"], context)
-    return date + interval if yaml_dict["op"] == "DateAdd" else date - interval
-
-
-@translate_to_yaml.register(tm.DateDiff)
-def _date_diff_to_yaml(op: tm.DateDiff, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "DateDiff",
-            "left": translate_to_yaml(op.left, context),
-            "right": translate_to_yaml(op.right, context),
-        }
-    )
+    date = translate_from_yaml(yaml_dict["args"][0], context)
+    interval = translate_from_yaml(yaml_dict["args"][1], context)
+    if yaml_dict["op"] == "DateAdd":
+        return date + interval
+    else:
+        return date - interval
 
 
 @register_from_yaml_handler("DateDiff")
 def _date_diff_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    left = translate_from_yaml(yaml_dict["left"], context)
-    right = translate_from_yaml(yaml_dict["right"], context)
+    left = translate_from_yaml(yaml_dict["args"][0], context)
+    right = translate_from_yaml(yaml_dict["args"][1], context)
     return left - right
-
-
-@translate_to_yaml.register(tm.DateDelta)
-def _date_delta_to_yaml(op: tm.DateDelta, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "DateDelta",
-            "part": translate_to_yaml(op.part, context),
-            "left": translate_to_yaml(op.left, context),
-            "right": translate_to_yaml(op.right, context),
-        }
-    )
 
 
 @register_from_yaml_handler("DateDelta")
 def _date_delta_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    part = translate_from_yaml(yaml_dict["part"], context)
-    left = translate_from_yaml(yaml_dict["left"], context)
-    right = translate_from_yaml(yaml_dict["right"], context)
+    part = translate_from_yaml(yaml_dict["args"][0], context)
+    left = translate_from_yaml(yaml_dict["args"][1], context)
+    right = translate_from_yaml(yaml_dict["args"][2], context)
     return left.delta(right, part)
-
-
-@translate_to_yaml.register(tm.TimestampDelta)
-def _timestamp_delta_to_yaml(
-    op: tm.TimestampDelta, context: TranslationContext
-) -> dict:
-    return freeze(
-        {
-            "op": "TimestampDelta",
-            "part": translate_to_yaml(op.part, context),
-            "left": translate_to_yaml(op.left, context),
-            "right": translate_to_yaml(op.right, context),
-        }
-    )
 
 
 @register_from_yaml_handler("TimestampDelta")
 def _timestamp_delta_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    part = translate_from_yaml(yaml_dict["part"], context)
-    left = translate_from_yaml(yaml_dict["left"], context)
-    right = translate_from_yaml(yaml_dict["right"], context)
+    part = translate_from_yaml(yaml_dict["args"][0], context)
+    left = translate_from_yaml(yaml_dict["args"][1], context)
+    right = translate_from_yaml(yaml_dict["args"][2], context)
     return left.delta(right, part)
-
-
-@translate_to_yaml.register(tm.TimeDelta)
-def _time_delta_to_yaml(op: tm.TimeDelta, context: TranslationContext) -> dict:
-    return freeze(
-        {
-            "op": "TimeDelta",
-            "part": translate_to_yaml(op.part, context),
-            "left": translate_to_yaml(op.left, context),
-            "right": translate_to_yaml(op.right, context),
-        }
-    )
 
 
 @register_from_yaml_handler("TimeDelta")
 def _time_delta_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    part = translate_from_yaml(yaml_dict["part"], context)
-    left = translate_from_yaml(yaml_dict["left"], context)
-    right = translate_from_yaml(yaml_dict["right"], context)
+    part = translate_from_yaml(yaml_dict["args"][0], context)
+    left = translate_from_yaml(yaml_dict["args"][1], context)
+    right = translate_from_yaml(yaml_dict["args"][2], context)
     return left.delta(right, part)
 
 

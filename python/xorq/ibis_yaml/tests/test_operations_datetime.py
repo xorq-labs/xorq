@@ -114,3 +114,132 @@ def test_temporal_unit_yaml(compiler):
     assert expression_time["type"]["unit"]["value"] == "h"
     roundtrip_time = compiler.from_yaml(yaml_time)
     assert roundtrip_time.equals(interval_time)
+
+
+def test_strftime(compiler):
+    dt_expr = ibis.literal(datetime(2024, 3, 14, 15, 9, 26))
+    formatted = dt_expr.strftime("%Y-%m-%d")
+
+    yaml_dict = compiler.to_yaml(formatted)
+    expression = yaml_dict["expression"]
+
+    assert expression["op"] == "Strftime"
+    assert expression["arg"]["value"] == "2024-03-14T15:09:26"
+    assert expression["format_str"]["op"] == "Literal"
+    assert expression["format_str"]["value"] == "%Y-%m-%d"
+
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(formatted)
+
+
+def test_date_arithmetic(compiler):
+    from datetime import date
+
+    d = ibis.literal(date(2024, 3, 14))
+    delta = ibis.interval(days=1)
+
+    # Test DateAdd
+    plus_day = d + delta
+    yaml_dict = compiler.to_yaml(plus_day)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "DateAdd"
+    roundtrip_plus = compiler.from_yaml(yaml_dict)
+    assert roundtrip_plus.equals(plus_day)
+
+    # Test DateSub
+    minus_day = d - delta
+    yaml_dict = compiler.to_yaml(minus_day)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "DateSub"
+    roundtrip_minus = compiler.from_yaml(yaml_dict)
+    assert roundtrip_minus.equals(minus_day)
+
+
+def test_date_diff(compiler):
+    from datetime import date
+
+    d1 = ibis.literal(date(2024, 3, 14))
+    d2 = ibis.literal(date(2024, 3, 15))
+    diff = d2 - d1
+    yaml_dict = compiler.to_yaml(diff)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "DateDiff"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(diff)
+
+
+def test_date_from_timestamp(compiler):
+    dt_expr = ibis.literal(datetime(2024, 3, 14, 15, 9, 26))
+    date_part = dt_expr.date()
+    yaml_dict = compiler.to_yaml(date_part)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Date"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(date_part)
+
+
+def test_time_from_timestamp(compiler):
+    dt_expr = ibis.literal(datetime(2024, 3, 14, 15, 9, 26))
+    time_part = dt_expr.time()
+    yaml_dict = compiler.to_yaml(time_part)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "Time"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(time_part)
+
+
+def test_timestamp_now(compiler):
+    now = ibis.now()
+    yaml_dict = compiler.to_yaml(now)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "TimestampNow"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    # Both should be TimestampNow operations
+    assert type(roundtrip_expr.op()).__name__ == "TimestampNow"
+
+
+def test_date_now(compiler):
+    today = ibis.today()
+    yaml_dict = compiler.to_yaml(today)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "DateNow"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    # Both should be DateNow operations
+    assert type(roundtrip_expr.op()).__name__ == "DateNow"
+
+
+def test_date_delta(compiler):
+    from datetime import date
+
+    d1 = ibis.literal(date(2024, 3, 14))
+    d2 = ibis.literal(date(2024, 3, 20))
+    delta = d2.delta(d1, "day")
+    yaml_dict = compiler.to_yaml(delta)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "DateDelta"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(delta)
+
+
+def test_timestamp_delta(compiler):
+    ts1 = ibis.literal(datetime(2024, 3, 14, 10, 0, 0))
+    ts2 = ibis.literal(datetime(2024, 3, 14, 15, 0, 0))
+    delta = ts2.delta(ts1, "hour")
+    yaml_dict = compiler.to_yaml(delta)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "TimestampDelta"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(delta)
+
+
+def test_time_delta(compiler):
+    from datetime import time
+
+    t1 = ibis.literal(time(10, 0, 0))
+    t2 = ibis.literal(time(15, 0, 0))
+    delta = t2.delta(t1, "hour")
+    yaml_dict = compiler.to_yaml(delta)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "TimeDelta"
+    roundtrip_expr = compiler.from_yaml(yaml_dict)
+    assert roundtrip_expr.equals(delta)

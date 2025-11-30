@@ -135,6 +135,8 @@
               pkgs.python310
               pkgs.uv
               pkgs.gh
+              pkgs.graphviz
+              pkgs.dot
             ];
             env =
               {

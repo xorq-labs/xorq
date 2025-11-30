@@ -22,6 +22,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
 from xorq.common.utils.graph_utils import (
+    bfs,
     find_all_sources,
     opaque_ops,
     replace_nodes,
@@ -274,7 +275,186 @@ class BuildManager:
 
         return updated_plans
 
-    def _make_metadata(self) -> str:
+    def _extract_dag_metadata(self, expr: ir.Expr) -> Dict[str, Any]:
+        """
+        Extract high-level DAG metadata including all relations.
+        Traverses through ExprScalarUDF and computed_kwargs_expr to build a unified plan.
+        """
+        from collections import Counter
+
+        import xorq.expr.udf as udf
+        import xorq.vendor.ibis.expr.operations as ops
+
+        # Build the full graph using BFS
+        graph = bfs(expr)
+        nodes = list(graph.keys())
+
+        # Count all node types
+        node_type_counts = Counter(type(node).__name__ for node in nodes)
+
+        # Find all relation nodes (tables, reads, etc.)
+        relation_types = (
+            ops.Relation,  # Base class for all table-like operations
+        )
+        relations = [n for n in nodes if isinstance(n, relation_types)]
+
+        # Extract relation info with metadata
+        relation_details = []
+        for rel in relations:
+            rel_info = {
+                "type": type(rel).__name__,
+                "name": getattr(rel, "name", None),
+            }
+
+            # Add snapshot hash
+            try:
+                # Compute snapshot hash using the same method as visualize.py
+                if hasattr(rel, "to_expr"):
+                    expr_obj = rel.to_expr()
+                    if hasattr(expr_obj, "ls") and hasattr(expr_obj.ls, "untagged"):
+                        untagged_repr = expr_obj.ls.untagged
+                    else:
+                        untagged_repr = rel
+                else:
+                    untagged_repr = rel
+                snapshot_hash = dask.base.tokenize(untagged_repr)
+                rel_info["snapshot_hash"] = snapshot_hash
+            except Exception:
+                # Some nodes cannot be deterministically hashed
+                rel_info["snapshot_hash"] = None
+
+            # Add source info if available
+            if hasattr(rel, "source") and rel.source is not None:
+                rel_info["source_type"] = getattr(rel.source, "name", None)
+                if hasattr(rel.source, "_profile"):
+                    rel_info["profile_hash"] = rel.source._profile.hash_name
+
+            # Add schema info if available
+            if hasattr(rel, "schema"):
+                rel_info["columns"] = list(rel.schema.names) if rel.schema else []
+                rel_info["column_count"] = len(rel.schema.names) if rel.schema else 0
+
+            relation_details.append(rel_info)
+
+        # Find all source backends
+        sources = find_all_sources(expr)
+        source_types = [s.name for s in sources if hasattr(s, "name")]
+
+        # Calculate DAG depth using topological traversal
+        def calculate_depth(node, graph_dict, memo=None):
+            if memo is None:
+                memo = {}
+            if node in memo:
+                return memo[node]
+
+            children = graph_dict.get(node, ())
+            if not children:
+                depth = 0
+            else:
+                depth = 1 + max(
+                    calculate_depth(child, graph_dict, memo) for child in children
+                )
+
+            memo[node] = depth
+            return depth
+
+        max_depth = calculate_depth(expr.op(), dict(graph), {})
+
+        # Find leaf nodes (data sources)
+        leaf_node_types = [type(n).__name__ for n in nodes if isinstance(n, opaque_ops)]
+
+        # Check for UDFs and ML operations
+        has_udfs = any(isinstance(n, udf.ExprScalarUDF) for n in nodes)
+        has_ml_ops = any(
+            "Predict" in type(n).__name__ or "Train" in type(n).__name__ for n in nodes
+        )
+
+        # Build graph structure for visualization
+        # Create node ID mapping
+        node_to_id = {}
+        graph_nodes = []
+
+        for i, node in enumerate(nodes):
+            node_id = f"node_{i}"
+            node_to_id[id(node)] = node_id
+
+            # Compute snapshot hash for this node
+            snapshot_hash = None
+            try:
+                if hasattr(node, "to_expr"):
+                    expr_obj = node.to_expr()
+                    if hasattr(expr_obj, "ls") and hasattr(expr_obj.ls, "untagged"):
+                        untagged_repr = expr_obj.ls.untagged
+                    else:
+                        untagged_repr = node
+                else:
+                    untagged_repr = node
+                snapshot_hash = dask.base.tokenize(untagged_repr)
+            except Exception:
+                pass
+
+            # Build node info
+            node_info = {
+                "id": node_id,
+                "type": type(node).__name__,
+                "is_relation": isinstance(node, ops.Relation),
+            }
+
+            if snapshot_hash:
+                node_info["snapshot_hash"] = snapshot_hash
+
+            # Add name if available
+            if hasattr(node, "name") and node.name:
+                node_info["name"] = node.name
+
+            # Add source info for relations
+            if isinstance(node, ops.Relation):
+                if hasattr(node, "source") and node.source is not None:
+                    node_info["source_type"] = getattr(node.source, "name", None)
+                # Add schema info
+                if hasattr(node, "schema") and node.schema:
+                    node_info["columns"] = (
+                        list(node.schema.names) if node.schema else []
+                    )
+                    node_info["column_count"] = (
+                        len(node.schema.names) if node.schema else 0
+                    )
+
+            graph_nodes.append(node_info)
+
+        # Build edges
+        graph_edges = []
+        for node, children in graph.items():
+            parent_id = node_to_id.get(id(node))
+            if parent_id:
+                for child in children:
+                    child_id = node_to_id.get(id(child))
+                    if child_id:
+                        graph_edges.append(
+                            {
+                                "from": child_id,
+                                "to": parent_id,
+                            }
+                        )
+
+        return {
+            "node_count": len(nodes),
+            "node_types": dict(node_type_counts),
+            "relation_count": len(relations),
+            "relations": relation_details,
+            "source_count": len(sources),
+            "source_types": source_types,
+            "max_depth": max_depth,
+            "leaf_node_types": list(set(leaf_node_types)),
+            "has_udfs": has_udfs,
+            "has_ml_ops": has_ml_ops,
+            "graph": {
+                "nodes": graph_nodes,
+                "edges": graph_edges,
+            },
+        }
+
+    def _make_metadata(self, expr: ir.Expr = None) -> str:
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
@@ -283,6 +463,11 @@ class BuildManager:
             else None,
             "sys-version_info": tuple(sys.version_info),
         }
+
+        # Add DAG metadata if expression is provided
+        if expr is not None:
+            metadata["dag_metadata"] = self._extract_dag_metadata(expr)
+
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
@@ -334,7 +519,8 @@ class BuildManager:
                 updated_deferred_reads, expr_hash, "deferred_reads.yaml"
             )
 
-        metadata_json = self._make_metadata()
+        # Generate metadata with DAG information
+        metadata_json = self._make_metadata(expr)
         self.artifact_store.write_text(metadata_json, expr_hash, "metadata.json")
 
         # Copy sdist tarball for reproducible builds

@@ -230,6 +230,7 @@ let
         pkgs.uv
         xorq-commands-star
         pkgs.gh
+        pkgs.graphviz
       ];
       defaultShell = pkgs.mkShell {
         packages = [

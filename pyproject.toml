@@ -88,6 +88,9 @@ snowflake = [
 quickgrove = [
     "quickgrove>=0.1.2",
 ]
+visualization = [
+    "graphviz>=0.20.0",
+]
 examples = [
     "fsspec>=2024.6.1,<2025.10.1; python_version >= '3.10' and python_version < '4.0'",
     "pins[gcs]>=0.8.3,<1 ; python_version >= '3.10' and python_version < '4.0'",
