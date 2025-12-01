@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import Counter
 from functools import partial
 
 import numpy as np
@@ -350,3 +351,63 @@ def test_array_agg_bool(con, data, agg, baseline_func):
     result = [x if pd.notna(x) else None for x in result]
     expected = [baseline_func(x) for x in df.x]
     assert result == expected
+
+
+@pytest.mark.parametrize(
+    "colspec",
+    ["y", lambda t: t.y, xo._.y],
+    ids=["string", "lambda", "deferred"],
+)
+def test_table_unnest(array_types, colspec):
+    t = array_types
+    expr = t.unnest(colspec)
+    result = expr.execute()
+    assert set(result["y"].values) == set(t[["y"]].execute().explode("y")["y"].values)
+
+
+def test_table_unnest_with_offset(array_types):
+    t = array_types
+    col = "y"
+    df = (
+        t[[col]]
+        .execute()
+        .assign(idx=lambda df: df[col].map(lambda v: list(range(len(v)))))[[col, "idx"]]
+        .explode("idx")
+        .assign(idx=lambda df: df["idx"].astype("int64"))
+    )
+    idx = iter(df.idx.values)
+    expected = (
+        df.assign(**{col: df[col].map(lambda v: v[next(idx)])})
+        .sort_values(["idx", col])
+        .reset_index(drop=True)[["idx", col]]
+    )
+
+    expr = t.unnest(col, offset="idx")[["idx", col]].order_by("idx", col)
+    result = expr.execute()
+    assert_frame_equal(result, expected)
+
+
+def test_table_unnest_with_keep_empty(con):
+    t = xo.memtable(pd.DataFrame({"y": [[], None, ["a"]]}))
+    expr = t.unnest("y", keep_empty=True)["y"]
+    result = con.execute(expr)
+    assert Counter(result.values) == Counter(["a", None, None])
+
+
+def test_table_unnest_array_of_struct_of_array(con):
+    t = xo.memtable(
+        {
+            "a": [
+                [{"x": [1, 2, 3]}, {"x": [1, 2]}],
+                [],
+                None,
+                [{"x": [3, 1, 2, 3]}],
+            ]
+        },
+        schema={"a": "array<struct<x: array<int64>>>"},
+    )
+    # two different unnests
+    expr = t.unnest("a").a.x.unnest().name("x").as_table().order_by("x")
+    result = con.execute(expr)
+    expected = pd.DataFrame({"x": [1, 1, 1, 2, 2, 2, 3, 3, 3]})
+    assert_frame_equal(result, expected)
