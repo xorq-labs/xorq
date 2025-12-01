@@ -474,7 +474,7 @@ wheels = [
 
 [[package]]
 name = "blackdoc"
-version = "0.4.5"
+version = "0.4.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "black" },
@@ -483,9 +483,9 @@ dependencies = [
     { name = "rich" },
     { name = "tomli" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/14/0d/8e118ce07cded6002a38d980d428fb718b5aa13f91ee5f71985c3fa8982f/blackdoc-0.4.5.tar.gz", hash = "sha256:9da6a59f2005e1fbbe6ac651c3f283a398dada67e11e8c573be33dca789d8cfa", size = 42263, upload-time = "2025-10-21T19:09:55.008Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/3b/2ae2120a479975c34022d49e0139a472cda17488043e5e9496e0e1786164/blackdoc-0.4.6.tar.gz", hash = "sha256:9cce04cd898ed0ceb1c423836e62024e1d118a38ee5f760b931cadf7761b964f", size = 42303, upload-time = "2025-11-16T21:01:00.854Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2c/a8/5e99d2dc6465068a270b67466123361733491e1267c88ae584b1aa4e4a47/blackdoc-0.4.5-py3-none-any.whl", hash = "sha256:9e14da47392b66e1cdb619eb6b19f89a069d9519dd92672d406d6544dc1a748f", size = 40469, upload-time = "2025-10-21T19:09:53.557Z" },
+    { url = "https://files.pythonhosted.org/packages/67/5b/fe2e48b50f963e4381b03de0652cdfa9b912af207bcf6f3e04e248629896/blackdoc-0.4.6-py3-none-any.whl", hash = "sha256:85d78ae44d07e8d85a318276813abfa8b8bcf236b47983aa203f692e139533ab", size = 40485, upload-time = "2025-11-16T21:00:59.245Z" },
 ]
 
 [[package]]
@@ -5424,7 +5424,7 @@ provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove
 [package.metadata.requires-dev]
 dev = [
     { name = "black", specifier = "==25.9.0" },
-    { name = "blackdoc", specifier = "==0.4.5" },
+    { name = "blackdoc", specifier = "==0.4.6" },
     { name = "codespell", extras = ["hard-encoding-detection", "toml"], specifier = "==2.4.1" },
     { name = "datafusion", specifier = ">=43.1.0" },
     { name = "duckdb", specifier = ">=1.1.3" },
