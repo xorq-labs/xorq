@@ -116,7 +116,7 @@ ibis = [
 [dependency-groups]
 dev = [
     "black==25.9.0",
-    "blackdoc==0.4.5",
+    "blackdoc==0.4.6",
     "codespell[hard-encoding-detection,toml]==2.4.1",
     "git-cliff<3.0.0,>=2.2.1",
     "ipython<9.7.0,>=8.19.0",
