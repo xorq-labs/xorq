@@ -1639,6 +1639,42 @@ def _not_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr
     return arg.notnull()
 
 
+@translate_to_yaml.register(ops.FillNull)
+def _fill_null_to_yaml(op: ops.FillNull, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "FillNull",
+            "parent": translate_to_yaml(op.parent, context),
+            "replacements": translate_to_yaml(op.replacements, context),
+        }
+    )
+
+
+@register_from_yaml_handler("FillNull")
+def _fill_null_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    parent = translate_from_yaml(yaml_dict["parent"], context)
+    replacements = translate_from_yaml(yaml_dict["replacements"], context)
+    return ops.FillNull(parent=parent, replacements=replacements).to_expr()
+
+
+@translate_to_yaml.register(ops.NullIf)
+def _nullif_to_yaml(op: ops.NullIf, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "NullIf",
+            "arg": translate_to_yaml(op.arg, context),
+            "null_if_expr": translate_to_yaml(op.null_if_expr, context),
+        }
+    )
+
+
+@register_from_yaml_handler("NullIf")
+def _nullif_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+    null_if_expr = translate_from_yaml(yaml_dict["null_if_expr"], context)
+    return arg.nullif(null_if_expr)
+
+
 @translate_to_yaml.register(ops.DropNull)
 def _drop_null_to_yaml(op: ops.DropNull, context: TranslationContext) -> dict:
     return freeze(
