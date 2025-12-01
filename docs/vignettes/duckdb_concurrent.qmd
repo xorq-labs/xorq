@@ -23,7 +23,7 @@ Watch this vignette in action:
   <img src="https://asciinema.org/a/709879.svg" alt="Asciinema Demo of DuckDB Flight Example" width="100%" />
 </a>
 
-## Try It Yourself
+## Try it yourself
 
 The complete source code for this example is available in the xorq GitHub
 repository:
@@ -34,7 +34,7 @@ You can run this example directly using nix:
 nix run github:xorq-labs 
 ```
 
-## How It Works
+## How it works
 
 ```{mermaid}
 sequenceDiagram
@@ -88,7 +88,7 @@ Components:
 
 The example demonstrates how xorq handles the concurrent operations smoothly, allowing multiple clients to interact with the database simultaneously.
 
-## Key Concepts
+## Key concepts
 
 - **Flight Server**: xorq's implementation of Apache Arrow Flight for
   high-performance data transfer. As such, Xorq makes it easier to spin up
@@ -104,7 +104,7 @@ The example demonstrates how xorq handles the concurrent operations smoothly, al
   the Flight server, preventing race conditions and maintaining data integrity
   even under high concurrency scenarios.
 
-## Next Steps
+## Next steps
 Try modifying this example to:
 
 - Increase the number of readers or writers.

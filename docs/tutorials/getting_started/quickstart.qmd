@@ -22,9 +22,9 @@ Or using nix to drop into an IPython shell:
 nix run github:xorq-labs/xorq
 ```
 
-## Quick Start: 4 Steps to Your First Pipeline
+## Quick start: 4 steps to your first pipeline
 
-### Step 1: Initialize a Project
+### Step 1: Initialize a project
 
 The fastest way to get started with Xorq is to use the `xorq init` command:
 
@@ -37,7 +37,7 @@ This creates a complete ML pipeline example with the Palmer Penguins dataset
 demonstrating key Xorq features including machine learning, caching, and
 lineage tracking.
 
-### Step 2: Build Your Expression
+### Step 2: Build your expression
 
 Convert your pipeline into a serialized, executable format:
 
@@ -52,7 +52,7 @@ Written 'expr' to builds/7061dd65ff3c
 builds/7061dd65ff3c
 ```
 
-### Step 3: Run Your Pipeline
+### Step 3: Run your pipeline
 
 Execute your built pipeline:
 
@@ -67,7 +67,7 @@ xorq run builds/7061dd65ff3c -o predictions.parquet
 xorq run builds/7061dd65ff3c --limit 10
 ```
 
-### Step 4: Serve Your Pipelines
+### Step 4: Serve your pipelines
 
 To serve your pipeline as an endpoint, you can use the `xorq serve-unbound` command:
 ```bash
@@ -77,12 +77,12 @@ xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir 
 
 That's it! You've built and run your first Xorq ML pipeline.
 
-## Understanding the Generated Pipeline
+## Understanding the generated pipeline
 
 The template creates an `expr.py` file that demonstrates a complete ML
 workflow. Let's walk through the key components:
 
-### 1. Data Loading and Preparation
+### 1. Data loading and preparation
 
 ```python
 import sklearn
@@ -96,7 +96,7 @@ target = "species"
 data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
 ```
 
-### 2. Data Splitting
+### 2. Data splitting
 
 ```python
 def gen_splits(expr, test_size=0.2, random_seed=42, **split_kwargs):
@@ -125,7 +125,7 @@ def get_penguins_splits(storage=None, **split_kwargs):
     return (train, test)
 ```
 
-### 3. Deferred ML Pipeline
+### 3. Deferred ML pipeline
 
 The key is converting scikit-learn pipelines to deferred expressions:
 
@@ -150,9 +150,9 @@ expr = test_predicted = fitted_pipeline.predict(test[list(features)])
 `fitted_pipeline` is still just an expression - no actual training has happened
 yet. The computation is deferred until you call `.execute()` or run via CLI.
 
-## CLI Commands Deep Dive
+## CLI commands deep dive
 
-### Build Options
+### Build options
 
 ```bash
 # Basic build
@@ -165,7 +165,7 @@ xorq build expr.py -e my_expr
 xorq build expr.py --profile production
 ```
 
-### Run Options
+### Run options
 
 ```bash
 # Different output formats
@@ -177,7 +177,7 @@ xorq run builds/HASH -o results.parquet --format parquet
 xorq run builds/HASH --limit 100
 ```
 
-### Inspecting Builds
+### Inspecting builds
 
 ```bash
 # View build contents
@@ -191,9 +191,9 @@ cat builds/7061dd65ff3c/expr.yaml
 cat builds/7061dd65ff3c/*.sql
 ```
 
-## Serving Pipelines as Endpoints
+## Serving pipelines as endpoints
 
-### Basic Catalog Server with Arrow Flight
+### Basic catalog server with Arrow Flight
 
 Start a Flight server:
 
@@ -230,7 +230,7 @@ result_df = rbr.read_pandas()
 print(result_df)
 ```
 
-### Serving Built Pipelines with serve-unbound
+### Serving built pipelines with serve-unbound
 
 For deployments, you can serve a specific built expression as an endpoint using
 `serve-unbound`. This allows you to expose a particular expression as a
@@ -247,7 +247,7 @@ xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir 
 - `--cache-dir penguins_example`: Directory for caching results
 - `405154f690d20f4adbcc375252628b75`: The specific node hash to serve
 
-### Finding the Node Hash
+### Finding the node hash
 
 The node hash (like `405154f690d20f4adbcc375252628b75`) identifies a specific
 expression node in your pipeline. You can find this hash using:
@@ -267,7 +267,7 @@ This hash represents the unique identity of your expression, including its
 computation graph and dependencies. When you serve this specific node, clients
 can query exactly that expression endpoint.
 
-## Exploring Pipeline Lineage
+## Exploring pipeline lineage
 
 One of Xorq's most powerful features is automatic lineage tracking:
 
@@ -281,13 +281,13 @@ print_tree(build_column_trees(expr)['predicted'])
 This shows the complete computational graph from raw data to predictions,
 including data loading, splitting, caching, and model execution.
 
-## Next Steps
+## Next steps
 
 - **Experiment**: Modify `expr.py` and rebuild to see changes
 - **Learn more**: Check [Profiles](../../api_reference/backend_configuration/profiles_api.qmd) for backend configuration
 - **Get help**: Join our [community](https://discord.gg/8Kma9DhcJG) for support
 
-## Common Patterns
+## Common patterns
 
 ```bash
 # Development cycle

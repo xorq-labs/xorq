@@ -2,7 +2,7 @@
 title: 'Installation and Setup'
 ---
 
-## Table of Contents
+## Table of contents
 1. [Installation](#installation)
 2. [Backend Configuration](#backend-configuration)
 3. [Basic Usage Examples](#basic-usage-examples)
@@ -13,7 +13,7 @@ title: 'Installation and Setup'
 - Python 3.9+
 - Apache Arrow 19.0+
 
-### Basic Installation
+### Basic installation
 
 ```bash
 # Standard installation
@@ -23,7 +23,7 @@ pip install xorq
 pip install "xorq[examples]"
 ```
 
-### Optional Dependencies
+### Optional dependencies
 
 Xorq supports various backends through optional dependencies:
 
@@ -47,11 +47,11 @@ pip install "xorq[datafusion]"
 pip install "xorq[examples,duckdb,snowflake,postgres,pyiceberg,datafusion]"
 ```
 
-## Backend Configuration
+## Backend configuration
 
 Xorq supports multiple backends for different use cases. Here's how to configure and connect to each:
 
-### 1. Xorq Embedded Backend (Default)
+### 1. Xorq embedded backend (default)
 
 The embedded backend uses Xorq's modified DataFusion engine optimized for Arrow UDF execution.
 
@@ -63,7 +63,7 @@ con = xo.connect()
 print(f"Connected to: {con}")
 ```
 
-### 2. Pandas Backend
+### 2. Pandas backend
 
 Good for local development and small datasets.
 
@@ -79,7 +79,7 @@ df = pd.DataFrame({"a": [1, 2, 3, 4, 5], "b": [2, 3, 4, 5, 6]})
 table = pandas_con.create_table("my_table", df)
 ```
 
-### 3. PostgreSQL Backend
+### 3. PostgreSQL backend
 
 For production workloads with PostgreSQL databases.
 
@@ -105,7 +105,7 @@ pg_con = xo.postgres.connect(
 batting_table = pg_con.table("batting")
 ```
 
-### 4. DuckDB Backend
+### 4. DuckDB backend
 
 For analytical workloads with DuckDB's columnar engine.
 
@@ -116,7 +116,7 @@ import xorq.api as xo
 duck_con = xo.duckdb.connect()
 ```
 
-### 5. Snowflake Backend
+### 5. Snowflake backend
 
 For cloud data warehouse operations.
 
@@ -135,9 +135,9 @@ snow_con = xo.snowflake.connect(
 )
 ```
 
-## Basic Usage Examples
+## Basic usage examples
 
-### Simple Data Processing
+### Simple data processing
 
 ```{python}
 import xorq.api as xo
@@ -157,7 +157,7 @@ result = grouped.execute()
 print(result)
 ```
 
-### Machine Learning Pipeline
+### Machine learning pipeline
 
 ```{python}
 import xorq.api as xo
@@ -192,7 +192,7 @@ result = predictions.execute()
 print(result)
 ```
 
-### Caching and Performance
+### Caching and performance
 
 ```python
 import xorq.api as xo

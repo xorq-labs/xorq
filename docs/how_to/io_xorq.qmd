@@ -4,7 +4,7 @@ title: "Xorq I/O Operations"
 
 This guide covers the essential I/O operations in Xorq, including reading various file formats, working with dataframes, and handling PyArrow tables.
 
-## Table of Contents
+## Table of contents
 
 1. [Reading Files](#reading-files)
 2. [Deferred Operations](#deferred-operations)
@@ -13,9 +13,9 @@ This guide covers the essential I/O operations in Xorq, including reading variou
 5. [Output Formats](#output-formats)
 
 
-## Reading Files
+## Reading files
 
-### Reading Parquet Files
+### Reading Parquet files
 
 The most common way to read Parquet files in Xorq is using the `read_parquet()` method:
 
@@ -37,7 +37,7 @@ table = xo.read_parquet(path)
 - `path`: Path to the Parquet file
 - `table_name`: Optional name for the table in the backend
 
-### Reading CSV Files
+### Reading CSV files
 
 CSV files can be read using `read_csv()` method:
 
@@ -47,7 +47,7 @@ csv_path = xo.options.pins.get_path("iris")  # replace with the path to the csv 
 table = con.read_csv(csv_path, table_name="iris_csv_table")
 ```
 
-## Deferred Operations
+## Deferred operations
 
 Xorq supports deferred operations that build computation graphs which delay execution until explicitly requested:
 
@@ -90,7 +90,7 @@ table = con.register(df, table_name="my_dataframe")
 result = table.filter(table.value > 15).execute()
 ```
 
-### Converting Back to DataFrames
+### Converting back to DataFrames
 
 All Xorq table operations return pandas DataFrames when executed:
 
@@ -100,9 +100,9 @@ df_result = table.select(['id', 'name']).execute()
 print(type(df_result))  # <class 'pandas.core.frame.DataFrame'>
 ```
 
-## PyArrow Tables
+## PyArrow tables
 
-### Creating Tables from PyArrow
+### Creating tables from PyArrow
 
 Xorq can work directly with PyArrow tables:
 
@@ -143,9 +143,9 @@ expr = con.read_record_batches(reader, "rbr_table")
 result = expr.execute()
 ```
 
-## Output Formats
+## Output formats
 
-### Saving Data
+### Saving data
 
 Xorq supports multiple output formats:
 

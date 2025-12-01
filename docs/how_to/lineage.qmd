@@ -1,8 +1,8 @@
-# Data Lineage in Xorq
+# Data lineage in Xorq
 
 Data lineage is one of Xorq's most powerful features, providing complete visibility into your data transformations and computations. This guide shows you how to track, visualize, and understand the flow of data through your pipelines.
 
-## What is Data Lineage?
+## What is data lineage?
 
 Data lineage tracks how data flows through your computational pipeline, showing:
 
@@ -11,9 +11,9 @@ Data lineage tracks how data flows through your computational pipeline, showing:
 - **Data provenance**: The complete history of how data was derived
 - **Computational graph**: Visual representation of your pipeline's structure
 
-## Getting Started
+## Getting started
 
-### Basic Setup
+### Basic setup
 
 First, import the necessary lineage utilities:
 
@@ -23,7 +23,7 @@ import xorq.expr.datatypes as dt
 from xorq.common.utils.lineage_utils import build_column_trees, print_tree
 ```
 
-### Simple Example
+### Simple example
 
 Let's start with a basic pipeline that demonstrates lineage tracking:
 
@@ -61,9 +61,9 @@ expr = sales_with_discount.group_by("order_id").agg(
 )
 ```
 
-## Building and Visualizing Lineage Trees
+## Building and visualizing lineage trees
 
-### Column-Level Lineage
+### Column-level lineage
 
 Use `build_column_trees()` to create lineage trees for each column in your expression:
 

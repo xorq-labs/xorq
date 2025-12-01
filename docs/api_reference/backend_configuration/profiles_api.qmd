@@ -18,7 +18,7 @@ A `Profile` is an immutable representation of database connection settings that 
 | `hash_name` | `str` | Unique hash identifier for the profile |
 | `idx` | `int` | Unique numeric identifier |
 
-### Creation Methods
+### Creation methods
 
 ```{python}
 #| eval: false
@@ -45,7 +45,7 @@ profile = Profile.from_con(xo.connect())
 profile = Profile.load("postgres_example")
 ```
 
-### Instance Methods
+### Instance methods
 
 ```{python}
 #| eval: false
@@ -100,7 +100,7 @@ profile = profiles.postgres_example
 profile = profiles["postgres_example"]
 ```
 
-## Environment Variable Handling
+## Environment variable handling
 
 Profiles store references to environment variables, not their values:
 
@@ -133,9 +133,9 @@ print(profile.kwargs_dict["password"])
 conn = profile.get_con()
 ```
 
-## Common Patterns
+## Common patterns
 
-### Creating and Using Profiles
+### Creating and using profiles
 
 ```{python}
 #| eval: false
@@ -165,7 +165,7 @@ connection = loaded_profile.get_con()
 tables = connection.list_tables()
 ```
 
-### Cloning and Modifying Profiles
+### Cloning and modifying profiles
 
 ```{python}
 #| eval: false
@@ -177,7 +177,7 @@ cloned_profile = profile.clone(**{"connect_timeout": 10})
 cloned_profile.save(alias="postgres_other_db", clobber=True)
 ```
 
-### Working with Multiple Profiles
+### Working with multiple profiles
 
 ```{python}
 #| eval: false
@@ -192,7 +192,7 @@ all_profiles = profiles.list()
 my_profile = profiles.get("postgres_example")
 ```
 
-## Security Considerations
+## Security considerations
 
 - Profiles never store actual values of environment variables, only references
 - Sensitive information is resolved only when connections are created

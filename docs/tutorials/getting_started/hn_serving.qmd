@@ -29,7 +29,7 @@ Previously:
 - Python 3.8+ installed on your system
 - Basic understanding of client-server architecture
 
-### Installation and Imports
+### Installation and imports
 
 First, ensure you have all required packages:
 
@@ -77,7 +77,7 @@ m = import_python(xo.options.pins.get_path("hackernews_lib"))
 o = import_python("/home/daniel/PycharmProjects/public-letsql/examples/libs/openai_lib.py")
 ```
 
-## Model Training Recap
+## Model training recap
 
 First, let's quickly recap our model training process from Part 3. Assume we've already:
 
@@ -235,11 +235,11 @@ Key components of Flight in Xorq:
 3. **flight_serve**: Function to create a Flight server from an Xorq expression
 :::
 
-## Setting Up Flight Servers
+## Setting up Flight servers
 
 Now that we have our trained models, let's serve them using Flight.
 
-### Defining Port and Server Configuration
+### Defining port and server configuration
 
 First, let's define the ports where our services will be available:
 
@@ -249,7 +249,7 @@ transform_port = 8915
 predict_port = 8916
 ```
 
-### Creating Flight Servers for TF-IDF and XGBoost Models
+### Creating Flight servers for TF-IDF and XGBoost models
 
 Now, let's set up Flight servers for our TF-IDF transformation and XGBoost prediction services:
 
@@ -279,7 +279,7 @@ The `make_server` parameter allows you to customize the server configuration,
 such as specifying the port.
 ::: 
 
-### Extracting Server Commands
+### Extracting server commands
 
 Each Flight server provides a unique command that clients use to invoke the service:
 
@@ -292,7 +292,7 @@ Each Flight server provides a unique command that clients use to invoke the serv
 )
 ```
 
-## Creating New Data for Prediction
+## Creating new data for prediction
 
 Let's prepare some new data to make predictions on:
 
@@ -313,7 +313,7 @@ z = (
 )
 ```
 
-## Making Predictions Using the Services
+## Making predictions using the services
 
 Now that we have our Flight servers set up and new data to predict on, we can
 use the model directly in xorq:
@@ -332,7 +332,7 @@ expression, which is different from client-side usage where it would receive a
 PyArrow RecordBatchReader. This is an important distinction to be aware of.
 :::
 
-## Best Practices for Flight Services
+## Best practices for Flight services
 
 When deploying models using Flight, consider these best practices:
 
@@ -344,7 +344,7 @@ When deploying models using Flight, consider these best practices:
 5. **Versioning**: Implement versioning for your model endpoints to handle model updates
 :::
 
-## Summary and Next Steps
+## Summary and next steps
 
 Congratulations! In this fourth part of our tutorial series, you've:
 1. Deployed trained models as microservices using Flight
@@ -359,7 +359,7 @@ This completes our end-to-end tutorial series on sentiment analysis with xorq, c
 - Model training with XGBoost (Part 3)
 - Model serving with Flight (Part 4)
 
-## Further Reading
+## Further reading
 
 - [Apache Arrow Flight Documentation](https://arrow.apache.org/docs/python/flight.html)
 - [xorq Documentation](https://docs.xorq.io)

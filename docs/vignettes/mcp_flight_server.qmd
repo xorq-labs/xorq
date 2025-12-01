@@ -23,12 +23,12 @@ src="https://www.youtube.com/embed/Y4hn5iNcoUk" title="MCP Server with Claude
 Demo" frameborder="0" allow="accelerometer; autoplay; clipboard-write;
 encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
 
-## Try It Yourself
+## Try it yourself
 
 The complete source code for this example is available in the xorq GitHub repository:
 [mcp_flight_server.py](https://github.com/xorq-labs/xorq/blob/main/examples/mcp_flight_server.py)
 
-## How It Works
+## How it works
 
 ```{mermaid}
 sequenceDiagram
@@ -61,6 +61,6 @@ Components:
   language requests and the ML model's required format, then transform the
   model outputs back into a Claude-friendly response.
 
-## Next Steps
+## Next steps
 
 Try modifying this example to create a more complex input mapping to handle various types of user queries.

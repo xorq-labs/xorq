@@ -13,7 +13,7 @@ xorq currently supports:
     - Snowflake
     - BigQuery
 
-### Backend Selection Guidelines
+### Backend selection guidelines
 
 Choose engines based on their strengths:
 
@@ -22,7 +22,7 @@ Choose engines based on their strengths:
 3. **Trino**: Distributed queries, federation, security
 4. **Snowflake/BigQuery**: Managed infrastructure, scalability
 
-### Data Transfer
+### Data transfer
 
 Data movement between engines is handled through:
 

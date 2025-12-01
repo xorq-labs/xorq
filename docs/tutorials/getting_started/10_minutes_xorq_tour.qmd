@@ -17,7 +17,7 @@ On Windows run `pip install xorq[examples]`
 pip install 'xorq[examples]'
 ```
 
-## Working with Data
+## Working with data
 
 Xorq leverage Ibis for working with data, for example:
 
@@ -46,7 +46,7 @@ clean_penguins.execute()
 
 For more info on data operations and transformations with Ibis, check the [Ibis docs](https://ibis-project.org/).
 
-## Multi-Engine Operations
+## Multi-engine operations
 
 A core feature of Xorq is the capability of moving data between backends use `into_backend()`:
 
@@ -102,7 +102,7 @@ result1 = cached_enriched.execute()
 result2 = cached_enriched.execute()  # Much faster
 ```
 
-## UDXF (User-Defined Exchange Functions)
+## UDXF (user-defined exchange functions)
 
 UDXF are functions that spin an ephemeral Flight Server for the execution through a [DoExchange](https://arrow.apache.org/docs/format/Flight.html#exchanging-data):
 
@@ -175,7 +175,7 @@ path = pandas_profile.save(alias="pandas_example", clobber=True)  # clobber for 
 
 The Profiles API supports serialization to  and deserialization from YAML, environment variable substitution, and security  checks to prevent sensitive information from being stored in plain text.
 
-# Xorq CLI Commands
+# Xorq CLI commands
 
 The `xorq` CLI provides powerful commands to build, run, and serve data pipelines. This section covers the essential commands you'll use in your workflow.
 
@@ -187,9 +187,9 @@ Xorq separates pipeline definition from execution through its CLI:
 xorq <command> [options]
 ```
 
-## Core Commands
+## Core commands
 
-### `xorq init` – Initialize a Project
+### xorq init – Initialize a project
 
 Quickly bootstrap a new Xorq project from templates:
 
@@ -198,7 +198,7 @@ Quickly bootstrap a new Xorq project from templates:
 xorq init -t penguins -p penguins_example
 ```
 
-### `xorq build` - Compile Expressions
+### xorq build - Compile expressions
 
 Convert Python expressions into serialized artifacts:
 
@@ -218,7 +218,7 @@ builds/5704ffbeade4
 This means the artifact for the variable named `expr` in the file `expr.py` was written to  
 `builds/5704ffbeade4`.
 
-### `xorq run` – Execute Pipelines
+### xorq run – Execute pipelines
 
 Run compiled expressions with various output options:
 
@@ -235,7 +235,7 @@ save the output, use:
 xorq run builds/5704ffbeade4 -o results.parquet
 ```
 
-### `xorq serve-unbound` – Deploy as Flight Server
+### xorq serve-unbound – Deploy as Flight server
 
 Serve your pipeline as an Arrow Flight endpoint:
 
@@ -244,7 +244,7 @@ Serve your pipeline as an Arrow Flight endpoint:
 xorq serve-unbound builds/5704ffbeade4 b2370a29c19df8e1e639c63252dacd0e
 ```
 
-### `xorq serve-flight-udxf`
+### xorq serve-flight-udxf
 
 The [`xorq serve-flight-udxf`](../../api_reference/cli/serve-flight-udxf.qmd) command serves expressions that contain UDXF (User-Defined Exchange Functions) nodes via Apache Arrow Flight. 
 

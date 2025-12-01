@@ -12,7 +12,7 @@ User-Defined Exchange Functions (UDXFs) are a specialized type of user-defined f
 - **Microservice architectures** (deploying models as standalone services)
 - **Process isolation** (running untrusted or memory-intensive code safely)
 
-### Key Components
+### Key components
 
 1. **Process Function**: Your custom Python logic that transforms pandas DataFrames
 2. **Schema Validation**: Input/output schema specifications for type safety
@@ -21,7 +21,7 @@ User-Defined Exchange Functions (UDXFs) are a specialized type of user-defined f
 
 ## Creating UDXFs
 
-### Basic Syntax
+### Basic syntax
 
 ```python
 import xorq.api as xo
@@ -45,7 +45,7 @@ my_udxf = flight_udxf(
 result = input_expr.pipe(my_udxf)
 ```
 
-### Schema Specifications
+### Schema specifications
 
 UDXFs require explicit schema definitions for type safety and optimization:
 

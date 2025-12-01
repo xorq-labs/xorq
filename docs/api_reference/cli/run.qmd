@@ -10,11 +10,11 @@ Before running Xorq expressions, you need:
 - Built Xorq expression artifacts (created with `xorq build`)
 - Xorq installed with necessary dependencies
 
-## Running Expressions
+## Running expressions
 
 Once you've built a Xorq expression using `xorq build`, you can execute it with the `run` command.
 
-### Basic Usage
+### Basic usage
 
 The basic syntax for the `run` command is:
 
@@ -27,7 +27,7 @@ Where:
 - `--output-path` specifies where to write the results (defaults to discarding output)
 - `--format` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
 
-### Example: Running the Penguins Analysis
+### Example: running the penguins analysis
 
 Assuming you've built the penguins analysis expression from the [run example](run.qmd):
 
@@ -38,30 +38,30 @@ xorq run builds/f02d28198715 --output-path penguin_results.parquet
 
 The command will execute the UDXF Xorq expression and produce a dataset with the health analysis results.
 
-### Output Formats
+### Output formats
 
-#### Parquet Output (Default)
+#### Parquet output (default)
 ```bash
 xorq run builds/f02d28198715 --output-path results.parquet --format parquet
 ```
 
 Parquet is efficient for large datasets and preserves data types perfectly.
 
-#### CSV Output
+#### CSV output
 ```bash
 xorq run builds/f02d28198715 --output-path results.csv --format csv
 ```
 
 CSV is human-readable and works well with spreadsheet applications.
 
-#### JSON Output
+#### JSON output
 ```bash
 xorq run builds/f02d28198715 --output-path results.json --format json
 ```
 
 JSON is useful for web applications and APIs.
 
-### Example Output
+### Example output
 
 When you run the penguins health analysis, you'll get output like (for json the output format is [NDJSON](https://github.com/ndjson/ndjson-spec)):
 
@@ -81,9 +81,9 @@ When you run the penguins health analysis, you'll get output like (for json the 
 }
 ```
 
-### Advanced Options
+### Advanced options
 
-#### Custom Cache Directory
+#### Custom cache directory
 Specify where intermediate cache files are stored:
 
 ```bash
@@ -92,7 +92,7 @@ xorq run builds/penguins_analysis \
     --cache-dir /path/to/cache
 ```
 
-#### Output to Standard Output
+#### Output to standard output
 Use `-` to output to stdout (useful for piping):
 
 ```bash
@@ -100,7 +100,7 @@ Use `-` to output to stdout (useful for piping):
 xorq run builds/f02d28198715 --output-path - --format csv | head -10
 ```
 
-#### Discarding Output
+#### Discarding output
 When you don't need to save results (useful for validation):
 
 ```bash
@@ -108,7 +108,7 @@ When you don't need to save results (useful for validation):
 xorq run builds/f02d28198715
 ```
 
-## Understanding Execution
+## Understanding execution
 
 When you run `xorq run`, several things happen:
 
