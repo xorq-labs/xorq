@@ -135,7 +135,7 @@ dev = [
 ]
 test = [
     "pytest-codspeed<4.2.1,>=3.0.0",
-    "pytest==8.4.2",
+    "pytest==9.0.1",
     "pytest-cov==6.3.0",
     "pytest-snapshot<1.0.0,>=0.9.0",
     "coverage[toml]==7.12.0",
