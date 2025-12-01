@@ -22,7 +22,7 @@ In this tutorial (Part 2 of our series), you'll learn how to:
 - Python 3.8+ installed on your system
 - Basic understanding of feature engineering concepts
 
-## Installation and Imports
+## Installation and imports
 
 First, make sure you have the required packages:
 
@@ -57,7 +57,7 @@ m = import_python(xo.options.pins.get_path("hackernews_lib"))
 o = import_python(xo.options.pins.get_path("openai_lib"))
 ```
 
-## Setting Up the TF-IDF Transformation
+## Setting up the TF-IDF transformation
 
 Now, let's define our TF-IDF transformer using xorq's deferred operations:
 
@@ -82,7 +82,7 @@ operation that will be applied to our data pipeline. We're using scikit-learn's
 TfidfVectorizer to transform our text data into numerical features.
 :::
 
-## Loading the Labeled Data
+## Loading the labeled data
 
 Let's initialize the backend and load our data from Part 1:
 
@@ -121,7 +121,7 @@ processed_expr = (
 )
 ```
 
-## Splitting Data into Train and Test Sets
+## Splitting data into train and test sets
 
 Before applying our TF-IDF transformation, we'll split the data into training and testing sets:
 
@@ -143,7 +143,7 @@ We're using the 'id' field as a unique key to ensure that each record is
 assigned to either train or test set. The random seed ensures reproducibility.
 :::
 
-## Building the Deferred TF-IDF Pipeline
+## Building the deferred TF-IDF pipeline
 
 Now let's build our deferred TF-IDF pipeline:
 
@@ -185,7 +185,7 @@ When we execute the pipeline, xorq efficiently manages the computation,
 ensuring that the model is fit only once, cached resources are reused for all
 transformations.
 
-## Applying the Transformation to Test Data
+## Applying the transformation to test data
 
 Similarly, we can apply the same transformation to the test data:
 
@@ -204,7 +204,7 @@ fitted transform on training data. This ensures that our test data is
 transformed in exactly the same way, without information leakage.
 :::
 
-## Executing and Examining the Transformed Data
+## Executing and examining the transformed data
 
 Now let's execute our pipeline and examine the transformed data:
 
@@ -239,13 +239,13 @@ Congratulations! In this second part of our tutorial series, you've:
 4. Examined the transformed data
 5. Saved the transformed data for future use
 
-## Next Steps
+## Next steps
 
 In the next tutorial (Part 3), we'll use the transformed data to train an
 XGBoost model for sentiment classification. We'll build on the same deferred
 pipeline pattern to create an end-to-end machine learning workflow.
 
-## Further Reading
+## Further reading
 
 - [scikit-learn TF-IDF Documentation](https://scikit-learn.org/stable/modules/generated/sklearn.feature_extraction.text.TfidfVectorizer.html)
 - [xorq ML Module Documentation](https://docs.xorq.io)
@@ -334,7 +334,7 @@ CachedNode[r6, strategy=modification_time, parquet=True, source=let-126580202190
 ```
 
 
-### Complete Example Code
+### Complete example code
 
 ```{python}
 #| eval: false

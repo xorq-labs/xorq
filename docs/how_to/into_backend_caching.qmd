@@ -1,5 +1,5 @@
 ---
-title: Backend Switching and Caching Guide
+title: Backend switching and caching guide
 ---
 
 This guide demonstrates how to effectively use Xorq's pipeline operations to switch between different backends, cache results for optimal performance, and leverage ParquetStorage for persistent caching. We'll use the penguins dataset and work with the default backend, DuckDB, and PostgreSQL.
@@ -14,7 +14,7 @@ Xorq's multi-engine architecture allows you to:
 
 Let's explore these capabilities using practical examples.
 
-## Setup and Initial Connections
+## Setup and initial connections
 
 First, let's set up our environment and create connections to different backends:
 
@@ -36,7 +36,7 @@ print(f"DuckDB Backend: {ddb}")
 print(f"PostgreSQL Backend: {pg}")
 ```
 
-## Loading the Penguins Dataset
+## Loading the penguins dataset
 
 Let's start by loading the famous penguins dataset and exploring its structure:
 
@@ -55,7 +55,7 @@ print("\nFirst 5 rows:")
 penguins_expr.head().execute()
 ```
 
-## Data Preprocessing
+## Data preprocessing
 
 Before we demonstrate backend switching, let's clean our data by removing rows with missing values:
 
@@ -73,11 +73,11 @@ print(f"Cleaned dataset: {clean_penguins.count().execute()} rows")
 print("Dataset is now ready for multi-backend operations!")
 ```
 
-## Backend Switching with `into_backend()`
+## Backend switching with `into_backend()`
 
 Xorq's powerful [`into_backend()`](../reference/Table.qmd#xorq.vendor.ibis.expr.types.relations.Table.into_backend) method allows seamless data movement between different query engines using Apache Arrow as an intermediate format.
 
-### Moving Data to DuckDB
+### Moving data to DuckDB
 
 Let's move our cleaned penguins data to DuckDB for processing:
 
@@ -106,7 +106,7 @@ print("\nSpecies Statistics (computed in DuckDB):")
 species_stats_ddb.execute()
 ```
 
-### Moving Data to PostgreSQL
+### Moving data to PostgreSQL
 
 Now let's demonstrate moving data to PostgreSQL for additional processing:
 
@@ -134,11 +134,11 @@ print("\nSpecies Analysis (computed in PostgreSQL):")
 species_analysis.execute()
 ```
 
-## Caching Pipeline Results
+## Caching pipeline results
 
 Xorq provides sophisticated caching mechanisms to optimize performance and avoid recomputation. Let's explore different storage types.
 
-### ParquetStorage for Persistent Caching
+### ParquetStorage for persistent caching
 
 ParquetStorage provides durable persistence by caching results as Parquet files on disk:
 
@@ -164,7 +164,7 @@ result2 = cached_penguins.count().execute()
 print(f"Count: {result2}")
 ```
 
-### SourceStorage for Backend-Specific Caching
+### SourceStorage for backend-specific caching
 
 SourceStorage automatically invalidates cache when upstream data changes and uses the source backend for persistence:
 
@@ -194,7 +194,7 @@ print("Complex analysis cached in DuckDB!")
 complex_analysis.execute()
 ```
 
-### Chaining Caches Across Multiple Engines
+### Chaining caches across multiple engines
 
 One of Xorq's powerful features is the ability to chain caches across different backends:
 

@@ -29,7 +29,7 @@ export OPENAI_API_KEY=your_api_key
 ```
 :::
 
-## Installation and Imports
+## Installation and imports
 
 First, install Xorq and the required dependencies:
 
@@ -69,7 +69,7 @@ You'll need to ensure these files are accessible in your environment or create
 them based on the code snippets in the Appendix.
 :::
 
-## Defining the HackerNews Fetcher
+## Defining the HackerNews fetcher
 
 We'll define a User-Defined Exchanger Function (UDXF) that fetches HackerNews stories:
 
@@ -84,7 +84,7 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
 )
 ```
 
-## Setting Up the Backend and Storage
+## Setting up the backend and storage
 
 Let's initialize the Xorq backend and storage:
 
@@ -102,7 +102,7 @@ con = xo.connect()
 storage = ParquetStorage(source=con)
 ```
 
-## Building the Data Pipeline
+## Building the data pipeline
 
 Now, let's set up our complete data pipeline:
 
@@ -140,7 +140,7 @@ t = (
 )
 ```
 
-## Execute and Inspect the Labeled Data
+## Execute and inspect the labeled data
 
 Now let's execute the pipeline to get our labeled DataFrame:
 
@@ -164,7 +164,7 @@ Congratulations! You've now:
 3. Used OpenAI GPT to automatically label the data with sentiment analysis
 4. Created a labeled dataset ready for future machine learning tasks
 
-## Next Steps
+## Next steps
 
 With this labeled dataset, you can now proceed to:
 - Split the data into train/test sets for model development
@@ -172,7 +172,7 @@ With this labeled dataset, you can now proceed to:
 - Train and evaluate various machine learning models
 - Perform data analysis to gain insights about sentiment patterns in HackerNews stories
 
-## Further Reading
+## Further reading
 
 - [xorq Documentation](https://docs.xorq.dev)
 - [OpenAI API Documentation](https://platform.openai.com/docs/api-reference)

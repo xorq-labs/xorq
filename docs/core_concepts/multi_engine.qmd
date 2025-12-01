@@ -28,13 +28,13 @@ result = recent.join(
 result.execute()
 ```
 
-### Key Features
+### Key features
 
 * **Zero-copy transfers** using Apache Arrow
 * **Automatic optimization** of data placement
 * **Transparent movement** between any supported engines
 
-### When to Use
+### When to use
 
 * **Leverage engine strengths** - Use DuckDB for local analysis, Postgres for joins
 * **Combine data sources** - Join tables from different databases
