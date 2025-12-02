@@ -1421,6 +1421,44 @@ def _drop_columns_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.
     return op.to_expr()
 
 
+@translate_to_yaml.register(ops.TableUnnest)
+def _table_unnest_to_yaml(op: ops.TableUnnest, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "TableUnnest",
+            "parent": translate_to_yaml(op.parent, context),
+            "column": translate_to_yaml(op.column, context),
+            "column_name": translate_to_yaml(op.column_name, context),
+            "offset": translate_to_yaml(op.offset, context)
+            if op.offset is not None
+            else None,
+            "keep_empty": translate_to_yaml(op.keep_empty, context),
+        }
+    )
+
+
+@register_from_yaml_handler("TableUnnest")
+def _table_unnest_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    parent = translate_from_yaml(yaml_dict["parent"], context)
+    column = translate_from_yaml(yaml_dict["column"], context)
+    column_name = translate_from_yaml(yaml_dict["column_name"], context)
+    offset = (
+        translate_from_yaml(yaml_dict["offset"], context)
+        if yaml_dict["offset"] is not None
+        else None
+    )
+    keep_empty = translate_from_yaml(yaml_dict["keep_empty"], context)
+
+    op = ops.TableUnnest(
+        parent=parent,
+        column=column,
+        column_name=column_name,
+        offset=offset,
+        keep_empty=keep_empty,
+    )
+    return op.to_expr()
+
+
 @translate_to_yaml.register(ops.SearchedCase)
 def _searched_case_to_yaml(op: ops.SearchedCase, context: TranslationContext) -> dict:
     return freeze(

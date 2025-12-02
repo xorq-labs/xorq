@@ -5,7 +5,7 @@ import xorq.api as xo
 from xorq.tests.util import assert_frame_equal
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture(scope="function")
 def con():
     return xo.connect()
 
@@ -70,3 +70,59 @@ def test_table_fill_null_mapping(replacements, con, compiler, parquet_dir):
     expected = pd_table.fillna(replacements).reset_index(drop=True)
 
     assert_frame_equal(result, expected, check_dtype=False)
+
+
+def test_table_unnest(con, compiler):
+    t = con.create_table("test", {"x": [[1, 2, 3], [4, 5], [6]]})
+
+    expr = t.unnest("x")
+
+    yaml_dict = compiler.to_yaml(expr)
+    expression = yaml_dict["expression"]
+
+    assert expression["op"] == "TableUnnest"
+    assert "parent" in expression
+    assert "column" in expression
+    assert "column_name" in expression
+    assert "keep_empty" in expression
+
+    profiles = {
+        con._profile.hash_name: con,
+    }
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
+
+    result = roundtrip_expr.execute().reset_index(drop=True)
+    expected = expr.execute().reset_index(drop=True)
+
+    assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("offset", "keep_empty"),
+    [
+        param(None, False, id="no_offset_no_keep_empty"),
+        param("idx", False, id="with_offset_no_keep_empty"),
+        param(None, True, id="no_offset_with_keep_empty"),
+    ],
+)
+def test_table_unnest_options(con, compiler, offset, keep_empty):
+    t = con.create_table("test", {"x": [[1, 2], [], [3]]})
+
+    expr = t.unnest("x", offset=offset, keep_empty=keep_empty)
+
+    yaml_dict = compiler.to_yaml(expr)
+
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "TableUnnest"
+
+    roundtrip_expr = compiler.from_yaml(
+        yaml_dict,
+        profiles={
+            con._profile.hash_name: con,
+        },
+    )
+
+    assert_frame_equal(
+        con.execute(roundtrip_expr).reset_index(drop=True),
+        expr.execute().reset_index(drop=True),
+    )
