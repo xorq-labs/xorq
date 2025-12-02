@@ -1740,6 +1740,156 @@ def _timestamp_arithmetic_from_yaml(
         return timestamp - interval
 
 
+@translate_to_yaml.register(tm.Date)
+def _date_to_yaml(op: tm.Date, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "Date",
+            "arg": translate_to_yaml(op.arg, context),
+        }
+    )
+
+
+@register_from_yaml_handler("Date")
+def _date_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+    return arg.date()
+
+
+@translate_to_yaml.register(tm.Time)
+def _time_to_yaml(op: tm.Time, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "Time",
+            "arg": translate_to_yaml(op.arg, context),
+        }
+    )
+
+
+@register_from_yaml_handler("Time")
+def _time_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    arg = translate_from_yaml(yaml_dict["arg"], context)
+    return arg.time()
+
+
+@translate_to_yaml.register(ops.TimestampNow)
+@translate_to_yaml.register(ops.DateNow)
+def _timestamp_now_to_yaml(
+    op: ops.TimestampNow | ops.DateNow, _context: TranslationContext
+) -> dict:
+    return freeze(
+        {
+            "op": op.__class__.__name__,
+        }
+    )
+
+
+@register_from_yaml_handler("TimestampNow", "DateNow")
+def _timestamp_now_from_yaml(_yaml_dict: dict, _context: TranslationContext) -> ir.Expr:
+    return getattr(ops, _yaml_dict["op"])().to_expr()
+
+
+@translate_to_yaml.register(tm.DateAdd)
+@translate_to_yaml.register(tm.DateSub)
+def _date_arithmetic_to_yaml(
+    op: tm.DateAdd | tm.DateSub, context: TranslationContext
+) -> dict:
+    return freeze(
+        {
+            "op": type(op).__name__,
+            "left": translate_to_yaml(op.left, context),
+            "right": translate_to_yaml(op.right, context),
+        }
+    )
+
+
+@register_from_yaml_handler("DateAdd", "DateSub")
+def _date_arithmetic_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    date = translate_from_yaml(yaml_dict["left"], context)
+    interval = translate_from_yaml(yaml_dict["right"], context)
+    return date + interval if yaml_dict["op"] == "DateAdd" else date - interval
+
+
+@translate_to_yaml.register(tm.DateDiff)
+def _date_diff_to_yaml(op: tm.DateDiff, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "DateDiff",
+            "left": translate_to_yaml(op.left, context),
+            "right": translate_to_yaml(op.right, context),
+        }
+    )
+
+
+@register_from_yaml_handler("DateDiff")
+def _date_diff_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    left = translate_from_yaml(yaml_dict["left"], context)
+    right = translate_from_yaml(yaml_dict["right"], context)
+    return left - right
+
+
+@translate_to_yaml.register(tm.DateDelta)
+def _date_delta_to_yaml(op: tm.DateDelta, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "DateDelta",
+            "part": translate_to_yaml(op.part, context),
+            "left": translate_to_yaml(op.left, context),
+            "right": translate_to_yaml(op.right, context),
+        }
+    )
+
+
+@register_from_yaml_handler("DateDelta")
+def _date_delta_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    part = translate_from_yaml(yaml_dict["part"], context)
+    left = translate_from_yaml(yaml_dict["left"], context)
+    right = translate_from_yaml(yaml_dict["right"], context)
+    return left.delta(right, part)
+
+
+@translate_to_yaml.register(tm.TimestampDelta)
+def _timestamp_delta_to_yaml(
+    op: tm.TimestampDelta, context: TranslationContext
+) -> dict:
+    return freeze(
+        {
+            "op": "TimestampDelta",
+            "part": translate_to_yaml(op.part, context),
+            "left": translate_to_yaml(op.left, context),
+            "right": translate_to_yaml(op.right, context),
+        }
+    )
+
+
+@register_from_yaml_handler("TimestampDelta")
+def _timestamp_delta_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    part = translate_from_yaml(yaml_dict["part"], context)
+    left = translate_from_yaml(yaml_dict["left"], context)
+    right = translate_from_yaml(yaml_dict["right"], context)
+    return left.delta(right, part)
+
+
+@translate_to_yaml.register(tm.TimeDelta)
+def _time_delta_to_yaml(op: tm.TimeDelta, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "TimeDelta",
+            "part": translate_to_yaml(op.part, context),
+            "left": translate_to_yaml(op.left, context),
+            "right": translate_to_yaml(op.right, context),
+        }
+    )
+
+
+@register_from_yaml_handler("TimeDelta")
+def _time_delta_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
+    part = translate_from_yaml(yaml_dict["part"], context)
+    left = translate_from_yaml(yaml_dict["left"], context)
+    right = translate_from_yaml(yaml_dict["right"], context)
+    return left.delta(right, part)
+
+
 @register_from_yaml_handler("Cast")
 def _cast_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     arg = translate_from_yaml(yaml_dict["args"][0], context)
