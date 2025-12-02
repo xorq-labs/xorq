@@ -20,7 +20,7 @@ The entire process takes about five minutes. By the end, you'll understand how X
 
 ::: {.callout-tip}
 ### Python version
-Xorq requires Python 3.9 or higher. Verify your version with python --version.
+Xorq requires `Python 3.9` or higher. Verify your version with python --version.
 :::
 
 ## Step 1: Install Xorq
@@ -66,13 +66,12 @@ If you see a version number, then Xorq is installed correctly.
 
 With Xorq installed, the next step is to create your first project.
 
----
 
 ## Step 2: Initialize a project
 
 Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the Palmer Penguins dataset.
 
-```{.bash filename="Terminal"}
+```bash
 xorq init -t penguins -p penguins_example # <1>
 cd penguins_example # <2>
 ```
@@ -88,13 +87,12 @@ The penguins template includes caching, lineage tracking, and a scikit-learn log
 
 With your project initialized, the next step is to build it into an executable format.
 
----
 
 ## Step 3: Build your expression
 
 Convert your pipeline into a serialized, executable format using the `build` command.
 
-```{.bash filename="Terminal"}
+```bash
 xorq build expr.py
 ```
 
@@ -110,7 +108,6 @@ The build process creates a directory (for example, `builds/12287e173c17`) conta
 
 With your pipeline built, the next step is to run it and see results.
 
----
 
 ## Step 4: Run your pipeline
 
@@ -151,7 +148,6 @@ You should see prediction results from your ML pipeline. If you saved to a file,
 
 With your pipeline running locally, the next step is to serve it as an endpoint.
 
----
 
 ## Step 5: Serve your pipeline
 
@@ -159,13 +155,13 @@ Serve your pipeline as an API endpoint using Arrow Flight. This allows other app
 
 First, start the Flight server with your built pipeline:
 
-```{.bash filename="Terminal"}
+```bash
 xorq serve-flight-udxf --port 8001 builds/12287e173c17
 ```
 
 Then, in a new terminal, serve your specific pipeline node:
 
-```{.bash filename="Terminal"}
+```bash
 xorq serve-unbound builds/12287e173c17 --host localhost --port 8001 --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
 ```
 
@@ -178,13 +174,12 @@ Your pipeline is now running as an endpoint on `localhost:8001`.
 
 With the server running, the next step is to query your pipeline.
 
----
 
 ## Query your served pipeline
 
 With the server running, you can query your pipeline from Python.
 
-```{.python filename="query_pipeline.py"}
+```python
 import xorq.api as xo
 
 client = xo.flight.client.FlightClient(port=8001) # <1>
@@ -213,21 +208,6 @@ print(result_df)
 
 You should see a DataFrame with penguin measurements and species predictions.
 
----
-
-## What you've accomplished
-
-You've just built your first Xorq ML pipeline. Here's what happened:
-
-- **Initialized** a project with a complete ML workflow
-- **Built** the pipeline into a serialized, portable format
-- **Ran** the pipeline to generate predictions
-- **Served** the pipeline as an API endpoint
-- **Queried** the endpoint from Python
-
-The entire workflow used Xorq's deferred execution model. No computation happened until you explicitly ran or queried the pipeline.
-
----
 
 ## Next steps
 
