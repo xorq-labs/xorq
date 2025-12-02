@@ -8,8 +8,8 @@ def test_equals(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Equals"
-    assert expression["args"][0]["value"] == 5
-    assert expression["args"][1]["value"] == 5
+    assert expression["left"]["value"] == 5
+    assert expression["right"]["value"] == 5
     assert expression["type"] == {
         "op": "DataType",
         "type": "Boolean",
@@ -26,8 +26,8 @@ def test_not_equals(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "NotEquals"
-    assert expression["args"][0]["value"] == 5
-    assert expression["args"][1]["value"] == 3
+    assert expression["left"]["value"] == 5
+    assert expression["right"]["value"] == 3
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -39,8 +39,8 @@ def test_greater_than(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Greater"
-    assert expression["args"][0]["value"] == 5
-    assert expression["args"][1]["value"] == 3
+    assert expression["left"]["value"] == 5
+    assert expression["right"]["value"] == 3
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -52,8 +52,8 @@ def test_less_than(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Less"
-    assert expression["args"][0]["value"] == 3
-    assert expression["args"][1]["value"] == 5
+    assert expression["left"]["value"] == 3
+    assert expression["right"]["value"] == 5
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -67,8 +67,8 @@ def test_and_or(compiler):
     yaml_dict = compiler.to_yaml(expr_and)
     expression = yaml_dict["expression"]
     assert expression["op"] == "And"
-    assert expression["args"][0]["op"] == "Greater"
-    assert expression["args"][1]["op"] == "Less"
+    assert expression["left"]["op"] == "Greater"
+    assert expression["right"]["op"] == "Less"
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr_and)
 
@@ -76,8 +76,8 @@ def test_and_or(compiler):
     yaml_dict = compiler.to_yaml(expr_or)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Or"
-    assert expression["args"][0]["op"] == "Greater"
-    assert expression["args"][1]["op"] == "Less"
+    assert expression["left"]["op"] == "Greater"
+    assert expression["right"]["op"] == "Less"
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr_or)
 
@@ -88,7 +88,7 @@ def test_not(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Not"
-    assert expression["args"][0]["value"]
+    assert expression["arg"]["value"]
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -99,7 +99,7 @@ def test_is_null(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "IsNull"
-    assert expression["args"][0]["value"] is None
+    assert expression["arg"]["value"] is None
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -110,7 +110,7 @@ def test_is_inf(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "IsInf"
-    assert expression["args"][0]["value"] == float("inf")
+    assert expression["arg"]["value"] == float("inf")
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -123,7 +123,7 @@ def test_is_nan(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "IsNan"
-    isnan(expression["args"][0]["value"])
+    isnan(expression["arg"]["value"])
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -134,8 +134,8 @@ def test_between(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Between"
-    assert expression["args"][0]["value"] == 5
-    assert expression["args"][1]["value"] == 3
-    assert expression["args"][2]["value"] == 7
+    assert expression["arg"]["value"] == 5
+    assert expression["lower_bound"]["value"] == 3
+    assert expression["upper_bound"]["value"] == 7
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

@@ -1,8 +1,11 @@
+import pyarrow as pa
 import pytest
 
 import xorq.api as xo
 import xorq.ibis_yaml
 import xorq.ibis_yaml.utils
+from xorq.expr.udf import pyarrow_udwf
+from xorq.vendor import ibis
 
 
 def test_built_in_udf_properties(compiler):
@@ -96,3 +99,54 @@ def test_pandas_udf_properties(compiler):
     assert original_udf.__input_type__ == roundtrip_udf.__input_type__
     assert original_udf.dtype == roundtrip_udf.dtype
     assert len(original_udf.args) == len(roundtrip_udf.args)
+
+
+@pytest.fixture
+def df():
+    batch = pa.RecordBatch.from_arrays(
+        [
+            pa.array([0, 1, 2, 3, 4, 5, 6]),
+            pa.array([7, 4, 3, 8, 9, 1, 6]),
+            pa.array(["A", "A", "A", "A", "B", "B", "B"]),
+        ],
+        names=["a", "b", "c"],
+    )
+
+    return batch.to_pandas()
+
+
+def test_udwf_roundtrip(compiler, df):
+    @pyarrow_udwf(
+        schema=ibis.schema({"a": float}),
+        return_type=ibis.dtype(float),
+        alpha=0.9,
+    )
+    def exp_smooth(self, values: list[pa.Array], num_rows: int) -> pa.Array:
+        results = []
+        curr_value = 0.0
+        values = values[0]
+        for idx in range(num_rows):
+            if idx == 0:
+                curr_value = values[idx].as_py()
+            else:
+                curr_value = values[idx].as_py() * self.alpha + curr_value * (
+                    1.0 - self.alpha
+                )
+            results.append(curr_value)
+
+        return pa.array(results)
+
+    con = xo.connect()
+    t = con.register(df, table_name="t")
+
+    expr = t.select(
+        t.a,
+        udwf=exp_smooth.on_expr(t).over(ibis.window(group_by=ibis._.c)),
+    ).order_by(t.a)
+
+    yaml_dict = compiler.to_yaml(expr)
+
+    profiles = {con._profile.hash_name: con}
+    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles=profiles)
+
+    roundtrip_expr.execute()

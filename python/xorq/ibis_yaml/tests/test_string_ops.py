@@ -12,8 +12,8 @@ def test_string_concat(compiler):
     yaml_dict = compiler.to_yaml(expr)["expression"]
 
     assert yaml_dict["op"] == "StringConcat"
-    assert yaml_dict["args"][0]["value"] == "hello"
-    assert yaml_dict["args"][1]["value"] == "world"
+    assert yaml_dict["arg"]["values"][0]["value"] == "hello"
+    assert yaml_dict["arg"]["values"][1]["value"] == "world"
     assert yaml_dict["type"] == {
         "op": "DataType",
         "type": "String",
@@ -28,11 +28,11 @@ def test_string_upper_lower(compiler):
 
     upper_yaml = compiler.to_yaml(upper_expr)["expression"]
     assert upper_yaml["op"] == "Uppercase"
-    assert upper_yaml["args"][0]["value"] == "Hello"
+    assert upper_yaml["arg"]["value"] == "Hello"
 
     lower_yaml = compiler.to_yaml(lower_expr)["expression"]
     assert lower_yaml["op"] == "Lowercase"
-    assert lower_yaml["args"][0]["value"] == "Hello"
+    assert lower_yaml["arg"]["value"] == "Hello"
 
 
 def test_string_to_date(compiler):
@@ -57,7 +57,7 @@ def test_string_length(compiler):
     yaml_dict = compiler.to_yaml(expr)["expression"]
 
     assert yaml_dict["op"] == "StringLength"
-    assert yaml_dict["args"][0]["value"] == "hello"
+    assert yaml_dict["arg"]["value"] == "hello"
     assert yaml_dict["type"] == {
         "op": "DataType",
         "type": "Int32",
@@ -71,9 +71,9 @@ def test_string_substring(compiler):
     yaml_dict = compiler.to_yaml(expr)["expression"]
 
     assert yaml_dict["op"] == "Substring"
-    assert yaml_dict["args"][0]["value"] == "hello world"
-    assert yaml_dict["args"][1]["value"] == 0
-    assert yaml_dict["args"][2]["value"] == 5
+    assert yaml_dict["arg"]["value"] == "hello world"
+    assert yaml_dict["start"]["value"] == 0
+    assert yaml_dict["length"]["value"] == 5
 
 
 def test_string_startswith(compiler):
