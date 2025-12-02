@@ -20,8 +20,14 @@ The entire process takes about five minutes. By the end, you'll understand how X
 
 ::: {.callout-tip}
 ### Python version
-Xorq requires `Python 3.9` or higher. Verify your version with python --version.
+Xorq requires Python 3.9 or higher. Verify your version with `python --version`.
 :::
+
+Create and activate a virtual environment:
+```bash
+python -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
+```
 
 ## Step 1: Install Xorq
 
@@ -144,7 +150,7 @@ xorq run builds/12287e173c17 --limit 10
 
 Replace `12287e173c17` with the hash from your own build output.
 
-You should see prediction results from your ML pipeline. If you saved to a file, then you can open `predictions.parquet` with any Parquet-compatible tool.
+You should see prediction results from your ML pipeline. If you saved to a file, then you can open `predictions.parquet` with any Parquet-compatible tool (for example, pandas, DuckDB, or Polars).
 
 With your pipeline running locally, the next step is to serve it as an endpoint.
 
@@ -208,17 +214,20 @@ print(result_df)
 
 You should see a DataFrame with penguin measurements and species predictions.
 
+![Quickstart server running with predictions](../images/quickstart-server-running.png)
+
+The output shows the original penguin measurements alongside their predicted species classifications.
+
+## What you built
+
+You've just built your first Xorq ML pipeline. You initialized a project, built it into a portable format, ran it to generate predictions, and served it as an API endpoint. The entire workflow used Xorq's deferred execution model. No computation happened until you explicitly ran or queried the pipeline.
 
 ## Next steps
 
-Congratulations! You've successfully built and served your first Xorq ML pipeline. You initialized a project, built an expression, ran predictions, and served your pipeline as an endpoint.
+Continue learning:
 
-Here are suggested next steps to continue your journey:
-
-- **[Take the 10-minute tour](/tutorials/getting_started/10-minute-tour)** — Go deeper with Xorq's features. Explore lineage tracking, caching, and multi-engine execution in a guided walkthrough.
-
-- **[Train an XGBoost model](/tutorials/getting_started/hn_training_xgb)** — Apply what you learned to a real ML workflow. Train and serve an XGBoost model using the same patterns from this quickstart.
-
-- **[Understand deferred execution](/concepts/deferred-execution)** — Learn how Xorq builds computation graphs and optimizes execution. This is the core concept behind everything you just built.
-
-- **[Join the community](https://discord.gg/8Kma9DhcJG)** — Get help, share your projects, and connect with other Xorq users on Discord.
+- [Take the 10-minute tour](/tutorials/getting_started/10-minute-tour) to explore lineage tracking, caching, and multi-engine execution.
+- [Train an XGBoost model](/tutorials/getting_started/hn_training_xgb) using the same patterns from this quickstart.
+- [Explore the CLI reference](/api_reference/cli/) to understand all available commands and options.
+- [Understand deferred execution](/concepts/deferred-execution) to learn how Xorq builds computation graphs.
+- [Join the community](https://discord.gg/8Kma9DhcJG) on Discord to get help and share your projects.
