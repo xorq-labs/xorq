@@ -27,12 +27,12 @@ with built-in caching, lineage tracking, and deployment-ready artifacts. Xorq is
 and [Apache DataFusion](https://datafusion.apache.org/).
 
 
-## Getting Started
+## Getting started
 
 :::{#getting-started}
 :::
 
-## Dive Deeper
+## Dive deeper
 
 Multipart series on how to build an end-to-end ML pipeline using live data from the [HackerNews API](https://github.com/HackerNews/API).
 

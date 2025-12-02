@@ -3,7 +3,7 @@ title: 'Core Concepts'
 description: 'The core concepts to understand what is xorq'
 ---
 
-## Caching System
+## Caching system
 
 Xorq provides a sophisticated caching system that enables efficient iterative development of ML pipelines. The caching system allows you to:
 
@@ -12,7 +12,7 @@ Xorq provides a sophisticated caching system that enables efficient iterative de
 - Automatically invalidate cache when source data changes
 - Chain caches across multiple engines
 
-### Storage Types
+### Storage types
 
 Xorq supports two main types of cache storage:
 
@@ -59,7 +59,7 @@ result = xo.execute(cached)
 - Uses source backend for writing
 - Ensures durable persistence
 
-### Hashing Strategies
+### Hashing strategies
 
 Cache invalidation uses different hashing strategies based on the storage type:
 
@@ -69,7 +69,7 @@ Cache invalidation uses different hashing strategies based on the storage type:
 | Disk-Based | Query plan + Schema |
 | Remote | Table metadata + Last modified time |
 
-### Key Benefits
+### Key benefits
 
 1. **Faster Iteration**:
     - Reduce network calls to source systems
@@ -88,11 +88,11 @@ Cache invalidation uses different hashing strategies based on the storage type:
     - Optimize storage location for performance
     - Flexible persistence options
 
-## Multi-Engine System
+## Multi-engine system
 
 xorq's multi-engine system enables seamless data movement between different query engines, allowing you to leverage the strengths of each engine while maintaining a unified workflow.
 
-### The `into_backend` Operator
+### The `into_backend` operator
 
 The core of xorq's multi-engine capability is the `into_backend` operator, which enables:
 
@@ -129,7 +129,7 @@ expr = left.join(
 result = expr.execute()
 ```
 
-### Supported Engines
+### Supported engines
 
 xorq currently supports:
 
@@ -142,7 +142,7 @@ xorq currently supports:
     - Snowflake
     - BigQuery
 
-### Engine Selection Guidelines
+### Engine selection guidelines
 
 Choose engines based on their strengths:
 
@@ -151,7 +151,7 @@ Choose engines based on their strengths:
 3. **Trino**: Distributed queries, federation, security
 4. **Snowflake/BigQuery**: Managed infrastructure, scalability
 
-### Data Transfer
+### Data transfer
 
 Data movement between engines is handled through:
 
@@ -159,11 +159,11 @@ Data movement between engines is handled through:
 2. **Memory Management**: Automatic spilling to disk
 3. **Batching**: Efficient chunk-based processing
 
-## Custom UD(X)F System
+## Custom UD(X)F system
 
 xorq provides a powerful system for extending query engines with custom User-Defined Functions (UDFs). Here are three key types supported:
 
-### 1. Scalar UDF with Model Integration
+### 1. Scalar UDF with model integration
 
 ```python
 import xorq.api as xo
@@ -178,7 +178,7 @@ model = make_quickgrove_udf(model_path, model_name="diamonds_model")
 expr = t.mutate(pred=model.on_expr).filter(_.carat < 1).select(_.pred).execute()
 ```
 
-### 2. User Defined Aggregate Functions
+### 2. User-defined aggregate functions
 ```python
 from xorq.expr import udf
 import xorq.vendor.ibis.expr.datatypes as dt
@@ -204,7 +204,7 @@ actual = (
 
 Additionally you can use UDAF for training ML models, see the [example](https://github.com/letsql/xorq/blob/main/examples/xgboost_udaf.py) for training an XGBoost model
 
-### 3. Window UDF for Analysis
+### 3. Window UDF for analysis
 ```python
 import pyarrow as pa
 from xorq.expr.udf import pyarrow_udwf
@@ -255,7 +255,7 @@ expr = t.select(
 result = expr.execute()
 ```
 
-## Ephemeral Flight Service
+## Ephemeral Flight service
 
 xorq's Ephemeral Flight Service provides a high-performance data transfer mechanism between engines using Apache Arrow Flight. Unlike traditional data transfer methods, this service provides:
 

@@ -89,7 +89,7 @@ To build or preview the documentation locally, follow the steps below.
 
    ```bash
    cd docs  # ensure you are in the docs directory
-   uv run --no-sync quartodoc build --verbose --config docs/_quarto.yml
+   uv run --no-sync quartodoc build --verbose --config _quarto.yml
    uv run --no-sync quarto preview
    ```
 

@@ -23,7 +23,7 @@ In this tutorial (Part 3 of our series), you'll learn how to:
 - Python 3.8+ installed on your system
 - Basic understanding of machine learning concepts
 
-### Installation and Imports
+### Installation and imports
 
 First, ensure you have the required packages:
 
@@ -62,8 +62,8 @@ m = import_python(xo.options.pins.get_path("hackernews_lib"))
 o = import_python(xo.options.pins.get_path("openai_lib"))
 ```
 
-## Setting Up Deferred Operations
-### Defining Model Training and Prediction Functions
+## Setting up deferred operations
+### Defining model training and prediction functions
 
 Let's define functions for training and making predictions with XGBoost:
 
@@ -136,7 +136,7 @@ This is because training involves aggregating across the entire dataset to
 learn patterns, while transformation is applied row by row.
 :::
 
-## Loading and Preparing the Data
+## Loading and preparing the data
 
 Let's load and prepare our data, similar to what we did in the previous parts:
 
@@ -174,7 +174,7 @@ t = (
 )
 ```
 
-### Splitting the Data into Train and Test Sets
+### Splitting the data into train and test sets
 
 Before training our model, we'll split the data into training and testing sets:
 
@@ -204,7 +204,7 @@ approach ensures that:
 3. Records are not duplicated across splits
 :::
 
-### Applying TF-IDF Transformation
+### Applying TF-IDF transformation
 
 Let's apply the TF-IDF transformation to our training data:
 
@@ -232,7 +232,7 @@ numerical feature vectors. This step is necessary to convert the text into a
 format that our XGBoost model can process.
 :::
 
-## Training the XGBoost Model
+## Training the XGBoost model
 
 Now, let's train our XGBoost model on the transformed training data:
 
@@ -268,7 +268,7 @@ The `deferred_fit_predict_xgb` function returns three key components:
   `ExprScalarUDF`
 :::
 
-### Making Predictions on Test Data
+### Making predictions on test data
 
 Similarly, we'll apply both the TF-IDF transformation and XGBoost prediction to
 our test data:
@@ -290,7 +290,7 @@ proper handling of the data types during the prediction process and should be
 fixed. See the GitHub issue for more information.
 :::
 
-## Evaluating Model Performance
+## Evaluating model performance
 
 Let's execute our pipeline and evaluate the model's performance:
 
@@ -316,7 +316,7 @@ print(f"\nTraining Accuracy: {train_accuracy:.4f}")
 print(f"Test Accuracy: {test_accuracy:.4f}")
 ```
 
-## Summary and Next Steps
+## Summary and next steps
 
 Congratulations! In this third part of our tutorial series, you've:
 1. Created deferred operations for model training and prediction
@@ -330,7 +330,7 @@ Congratulations! In this third part of our tutorial series, you've:
 In the next tutorial (Part 4), we'll explore how to deploy our trained model
 for real-time predictions using Xorq's Flight serving capabilities.
 
-## Further Reading
+## Further reading
 
 - [XGBoost Documentation](https://xgboost.readthedocs.io/)
 - [Xorq Documentation](https://docs.xorq.io)
@@ -338,7 +338,7 @@ for real-time predictions using Xorq's Flight serving capabilities.
 
 ## Appendix
 
-### Complete Example Code
+### Complete example code
 
 ```{python}
 #| eval: false

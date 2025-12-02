@@ -369,8 +369,6 @@ def parse_args(override=None):
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
     subparsers.required = True
-    ls_parser = subparsers.add_parser("ls", help="List catalog entries")
-    ls_parser.set_defaults(subcommand="ls")
 
     uv_build_parser = subparsers.add_parser(
         "uv-build", help="Build an expression with a custom Python environment"
