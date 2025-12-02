@@ -60,6 +60,20 @@ def convert_to_ref(which, wrapped):
 
     return wrapper
 
+@translate_to_yaml.register(ops.Node)
+def _object_to_yaml(obj: ops.Node, context: Any) -> dict:
+    return freeze(
+        {"op": obj.__class__.__name__}
+        | {
+            name: translate_to_yaml(arg, context)
+            for name, arg in zip(obj.argnames, obj.args)
+        }
+        | {
+            name: translate_to_yaml(getattr(obj, attribute), context)
+            for name, attribute in (("type", "dtype"),)
+            if hasattr(obj, attribute)
+        }
+    )
 
 convert_to_dtype_ref = convert_to_ref(RegistryEnum.dtypes)
 convert_to_node_ref = convert_to_ref(RegistryEnum.nodes)
@@ -1384,6 +1398,17 @@ def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> Froze
     dct = FrozenDict(
         {
             key: context.translate_from_yaml(value)
+            for key, value in toolz.dissoc(yaml_dict, "op").items()
+        }
+    )
+    return dct
+
+
+@register_from_yaml_handler("FrozenDict")
+def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> FrozenDict:
+    dct = FrozenDict(
+        {
+            key: translate_from_yaml(value, context)
             for key, value in toolz.dissoc(yaml_dict, "op").items()
         }
     )
