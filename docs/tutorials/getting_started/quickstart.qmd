@@ -5,7 +5,7 @@ icon: "pencil-square"
 headline: "Get a first taste of Xorq"
 ---
 
-After completing this guide, you will have a working ML pipeline that loads data, trains a model, and generates predictions—all using Xorq's deferred execution model.
+After completing this guide, you will have a working ML pipeline that loads data, trains a model, and generates predictions, all using Xorq's deferred execution model.
 
 ## What you'll build
 
