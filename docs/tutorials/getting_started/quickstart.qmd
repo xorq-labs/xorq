@@ -214,7 +214,7 @@ print(result_df)
 
 You should see a DataFrame with penguin measurements and species predictions.
 
-![Quickstart server running with predictions](../images/quickstart-server-running.png)
+![Quickstart server running with predictions](../../images/quickstart-server-running.png)
 
 The output shows the original penguin measurements alongside their predicted species classifications.
 
