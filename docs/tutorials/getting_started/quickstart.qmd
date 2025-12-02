@@ -1,216 +1,196 @@
 ---
 title: "Quickstart"
+description: "Build and run your first Xorq ML pipeline in under 10 minutes"
 icon: "pencil-square"
-headline: "Get a first taste of xorq"
+headline: "Get a first taste of Xorq"
 ---
 
-## Installation
+After completing this guide, you will have a working ML pipeline that loads data, trains a model, and generates predictions—all using Xorq's deferred execution model.
 
-Xorq can be installed on macOS, Linux and Windows using pip: 
+## What you'll build
 
-::: {.callout-note} 
-On Windows run `pip install xorq[examples]` 
-:::
+In this quickstart, you will:
+
+1. Install Xorq and initialize a project
+2. Build a pipeline expression
+3. Run your pipeline and save results
+4. Serve your pipeline as an endpoint
+
+The entire process takes about 10 minutes. By the end, you'll understand how Xorq transforms Python code into executable, servable pipelines.
+
+---
+
+## Step 1: Install Xorq
+
+Install Xorq using your preferred package manager.
+
+::: {.panel-tabset}
+
+### pip (macOS/Linux)
 
 ```bash
-pip install 'xorq[examples]'
+pip install xorq[examples]
 ```
 
-Or using nix to drop into an IPython shell:
+### pip (Windows)
+
+```bash
+pip install "xorq[examples]"
+```
+
+### nix
 
 ```bash
 nix run github:xorq-labs/xorq
 ```
 
-## Quick start: 4 steps to your first pipeline
+:::
 
-### Step 1: Initialize a project
+::: {.callout-tip}
+## Verify your installation
+Open a Python shell and check the version:
 
-The fastest way to get started with Xorq is to use the `xorq init` command:
-
-```bash
-xorq init -t penguins -p penguins_example
-cd penguins_example
+```python
+python
+>>> import xorq
+>>> xorq.__version__
+'0.3.3'
+>>> exit() or Ctrl-D 
 ```
 
-This creates a complete ML pipeline example with the Palmer Penguins dataset
-demonstrating key Xorq features including machine learning, caching, and
-lineage tracking.
+If you see a version number, then Xorq is installed correctly.
+:::
 
-### Step 2: Build your expression
+With Xorq installed, the next step is to create your first project.
 
-Convert your pipeline into a serialized, executable format:
+---
+
+## Step 2: Initialize a project
+
+Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the Palmer Penguins dataset.
+
+```bash
+xorq init -t penguins -p penguins_example # <1>
+cd penguins_example # <2>
+```
+1. Creates a new project called `penguins_example` using the penguins template
+2. Moves into the project directory
+
+The template generates an `expr.py` file containing a complete ML pipeline with data loading, train/test splitting, model training, and prediction.
+
+::: {.callout-note}
+## What's in the template?
+The penguins template includes caching, lineage tracking, and a scikit-learn logistic regression model. You can explore the code in `expr.py` after completing this quickstart.
+:::
+
+With your project initialized, the next step is to build it into an executable format.
+
+---
+
+## Step 3: Build your expression
+
+Convert your pipeline into a serialized, executable format using the `build` command.
 
 ```bash
 xorq build expr.py
 ```
 
-Output:
+**Output:**
+
 ```
 Building expr from expr.py
-Written 'expr' to builds/7061dd65ff3c
-builds/7061dd65ff3c
+Written 'expr' to builds/12287e173c17
+builds/12287e173c17
 ```
 
-### Step 3: Run your pipeline
+The build process creates a directory (for example, `builds/12287e173c17`) containing your serialized pipeline. This hash uniquely identifies your build.
 
-Execute your built pipeline:
+<!-- SCREENSHOT: Show the builds directory structure with manifest.json visible -->
+
+With your pipeline built, the next step is to run it and see results.
+
+---
+
+## Step 4: Run your pipeline
+
+Execute your built pipeline and view the results.
+
+::: {.callout-warning}
+## Windows users
+Skip the first command and go straight to saving results to a file. Running without an output file may cause issues on Windows.
+:::
+
+::: {.panel-tabset}
+
+### View results
 
 ```bash
-# Run and see results
-xorq run builds/7061dd65ff3c
-
-# Save to file
-xorq run builds/7061dd65ff3c -o predictions.parquet
-
-# Run with limit for testing
-xorq run builds/7061dd65ff3c --limit 10
+xorq run builds/12287e173c17
 ```
 
-### Step 4: Serve your pipelines
-
-To serve your pipeline as an endpoint, you can use the `xorq serve-unbound` command:
-```bash
-xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example 405154f690d20f4adbcc375252628b75
-# This replaces a specific node hash with an exchanger input and serves the unbound expr as do_exchange
-```
-
-That's it! You've built and run your first Xorq ML pipeline.
-
-## Understanding the generated pipeline
-
-The template creates an `expr.py` file that demonstrates a complete ML
-workflow. Let's walk through the key components:
-
-### 1. Data loading and preparation
-
-```python
-import sklearn
-from sklearn.linear_model import LogisticRegression
-import xorq.api as xo
-from xorq.caching import ParquetStorage
-from xorq.expr.ml.pipeline_lib import Pipeline
-
-features = ("bill_length_mm", "bill_depth_mm")
-target = "species"
-data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
-```
-
-### 2. Data splitting
-
-```python
-def gen_splits(expr, test_size=0.2, random_seed=42, **split_kwargs):
-    yield from xo.train_test_splits(
-        expr,
-        unique_key=expr.columns,
-        test_sizes=test_size,
-        random_seed=random_seed,
-        **split_kwargs,
-    )
-
-def get_penguins_splits(storage=None, **split_kwargs):
-    t = (
-        xo.deferred_read_parquet(
-            con=xo.duckdb.connect(),
-            path=data_url,
-            table_name="t",
-        )
-        .select(features + (target,))
-        .drop_null()
-    )
-    (train, test) = (
-        expr.cache(storage or ParquetStorage())
-        for expr in gen_splits(t, **split_kwargs)
-    )
-    return (train, test)
-```
-
-### 3. Deferred ML pipeline
-
-The key is converting scikit-learn pipelines to deferred expressions:
-
-```python
-# Configure hyperparameters
-params = {"logistic__C": 1e-4}
-
-# Get train/test splits (still deferred!)
-(train, test) = get_penguins_splits()
-
-# Create and convert pipeline
-sklearn_pipeline = make_pipeline(params=params)
-xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-
-# Create fitted pipeline expression (no computation yet!)
-fitted_pipeline = xorq_pipeline.fit(train, features=features, target=target)
-
-# Get prediction expression
-expr = test_predicted = fitted_pipeline.predict(test[list(features)])
-```
-
-`fitted_pipeline` is still just an expression - no actual training has happened
-yet. The computation is deferred until you call `.execute()` or run via CLI.
-
-## CLI commands deep dive
-
-### Build options
+### Save to file
 
 ```bash
-# Basic build
-xorq build expr.py
-
-# Build with specific expression name
-xorq build expr.py -e my_expr
-
-# Build with profile
-xorq build expr.py --profile production
+xorq run builds/12287e173c17 -o predictions.parquet
 ```
 
-### Run options
+### Limit output
+
+Return only a subset of rows to quickly verify the pipeline works.
 
 ```bash
-# Different output formats
-xorq run builds/HASH -o results.csv --format csv
-xorq run builds/HASH -o results.json --format json
-xorq run builds/HASH -o results.parquet --format parquet
-
-# Control output size
-xorq run builds/HASH --limit 100
+xorq run builds/12287e173c17 --limit 10
 ```
 
-### Inspecting builds
+:::
+
+Replace `12287e173c17` with the hash from your own build output.
+
+You should see prediction results from your ML pipeline. If you saved to a file, then you can open `predictions.parquet` with any Parquet-compatible tool.
+
+<!-- SCREENSHOT: Show terminal output with prediction results -->
+
+With your pipeline running locally, the next step is to serve it as an endpoint.
+
+---
+
+## Step 5: Serve your pipeline
+
+Serve your pipeline as an API endpoint using Arrow Flight. This allows other applications to query your pipeline over the network.
+
+First, start the Flight server with your built pipeline:
 
 ```bash
-# View build contents
-ls builds/7061dd65ff3c/
-# Shows: expr.yaml, *.sql, metadata.json, deferred_reads.yaml
-
-# Check expression definition
-cat builds/7061dd65ff3c/expr.yaml
-
-# View generated SQL
-cat builds/7061dd65ff3c/*.sql
+xorq serve-flight-udxf --port 8001 builds/12287e173c17
 ```
 
-## Serving pipelines as endpoints
-
-### Basic catalog server with Arrow Flight
-
-Start a Flight server:
+Then, in a new terminal, serve your specific pipeline node:
 
 ```bash
-# Start server (UDXF)
-xorq serve-flight-udxf --port 8001
+xorq serve-unbound builds/12287e173c17 --host localhost --port 8001 --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
 ```
 
-Then connect and execute expressions:
+::: {.callout-important}
+## About the node hash
+The hash `da8ba93cc97709f4ad9502e16d71e8e3` is specific to this quickstart template. When you build your own pipelines, you will generate different hashes. For this tutorial, use the exact hash shown above.
+:::
 
-```python
+Your pipeline is now running as an endpoint on `localhost:8001`.
+
+<!-- SCREENSHOT: Show terminal output confirming the server is running -->
+
+---
+
+## Query your served pipeline
+
+With the server running, you can query your pipeline from Python.
+
+```{python}
+#| eval: false
 import xorq.api as xo
 
-# Connect to Flight server
-client = xo.flight.client.FlightClient(port=8001)
+client = xo.flight.client.FlightClient(port=8001) # <1>
 
-# Create a simple expression
 data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
 
 expr = (
@@ -219,90 +199,68 @@ expr = (
         path=data_url,
         table_name="penguins",
     )
-    .select("bill_length_mm", "bill_depth_mm", "species")  # Match schema order
+    .select("bill_length_mm", "bill_depth_mm", "species") # <2>
     .drop_null()
     .limit(5)
 )
 
-print("Executing via Flight do_exchange...")
-fut, rbr = client.do_exchange("default", expr)
-result_df = rbr.read_pandas()
+fut, rbr = client.do_exchange("default", expr) # <3>
+result_df = rbr.read_pandas() # <4>
 print(result_df)
 ```
+1. Connect to the Flight server on port 8001
+2. Select only the columns needed for prediction
+3. Execute the expression via Flight's do_exchange protocol
+4. Convert the result to a pandas DataFrame
 
-### Serving built pipelines with serve-unbound
+You should see a DataFrame with penguin measurements and species predictions.
 
-For deployments, you can serve a specific built expression as an endpoint using
-`serve-unbound`. This allows you to expose a particular expression as a
-Catalog service:
+---
 
-```bash
-xorq serve-unbound builds/7061dd65ff3c --host localhost --port 8001 --cache-dir penguins_example 405154f690d20f4adbcc375252628b75
-```
+## What you've accomplished
 
-**Understanding the command:**
+You've just built your first Xorq ML pipeline. Here's what happened:
 
-- `builds/7061dd65ff3c`: Your built pipeline directory
-- `--host localhost --port 8001`: Server configuration
-- `--cache-dir penguins_example`: Directory for caching results
-- `405154f690d20f4adbcc375252628b75`: The specific node hash to serve
+- **Initialized** a project with a complete ML workflow
+- **Built** the pipeline into a serialized, portable format
+- **Ran** the pipeline to generate predictions
+- **Served** the pipeline as an API endpoint
+- **Queried** the endpoint from Python
 
-### Finding the node hash
+The entire workflow used Xorq's deferred execution model. No computation happened until you explicitly ran or queried the pipeline.
 
-The node hash (like `405154f690d20f4adbcc375252628b75`) identifies a specific
-expression node in your pipeline. You can find this hash using:
-
-```python
-import dask
-import sys
-sys.path.append('penguins_example')
-from expr import expr  # or your specific expression
-
-# Get the hash for any expression
-node_hash = dask.base.tokenize(expr)
-print(f"Node hash: {node_hash}")
-```
-
-This hash represents the unique identity of your expression, including its
-computation graph and dependencies. When you serve this specific node, clients
-can query exactly that expression endpoint.
-
-## Exploring pipeline lineage
-
-One of Xorq's most powerful features is automatic lineage tracking:
-
-```python
-from xorq.common.utils.lineage_utils import build_column_trees, print_tree
-
-# Visualize complete lineage
-print_tree(build_column_trees(expr)['predicted'])
-```
-
-This shows the complete computational graph from raw data to predictions,
-including data loading, splitting, caching, and model execution.
+---
 
 ## Next steps
 
-- **Experiment**: Modify `expr.py` and rebuild to see changes
-- **Learn more**: Check [Profiles](../../api_reference/backend_configuration/profiles_api.qmd) for backend configuration
-- **Get help**: Join our [community](https://discord.gg/8Kma9DhcJG) for support
+::: {.grid}
 
-## Common patterns
+::: {.g-col-6}
+### Explore the code
+Open `expr.py` in your project to see how the pipeline is constructed. Modify the model parameters and rebuild to see changes.
 
-```bash
-# Development cycle
-xorq init -t penguins -p my_project
-cd my_project
-# Edit expr.py
-xorq build expr.py
-xorq run builds/HASH --limit 10  # test
-xorq run builds/HASH -o final_results.parquet  # production
+[Understand deferred execution →](/concepts/deferred-execution)
+:::
 
-# Batch processing
-for file in data/*.csv; do
-  xorq run builds/HASH --input $file -o results/$(basename $file .csv).parquet
-done
+::: {.g-col-6}
+### Learn about caching
+The penguins template uses `ParquetStorage` for caching. Learn how caching speeds up repeated pipeline runs.
 
-# API serving
-xorq serve-unbound builds/HASH --host 0.0.0.0 --port 8001 --cache-dir cache NODE_HASH
-```
+[Caching guide →](/concepts/caching)
+:::
+
+::: {.g-col-6}
+### Configure backends
+Xorq supports multiple execution backends including DuckDB and DataFusion. Learn how to switch between them.
+
+[Backend configuration →](/reference/backend/profiles)
+:::
+
+::: {.g-col-6}
+### Join the community
+Get help, share your projects, and connect with other Xorq users.
+
+[Discord community →](https://discord.gg/8Kma9DhcJG)
+:::
+
+:::
