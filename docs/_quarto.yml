@@ -139,6 +139,7 @@ format:
     toc: true
     code-copy: true
     code-overflow: wrap
+    code-annotations: hover
     include-in-header: "style/google.html"
 
 quartodoc:
