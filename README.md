@@ -7,13 +7,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-
-**The periodic table for ML computation.**
-
-Everything is an expression. Addressable. Composable. Portable.
-
-Write high-level expression. Execute as SQL on DuckDB, Snowflake, BigQuery, or
-any engine. Every computation addressable, versioned, and reusable.
+**A compute manifest and tools for ML.**
 
 [Documentation](https://docs.xorq.dev) • [Discord](https://discord.gg/8Kma9DhcJG) • [Website](https://www.xorq.dev)
 
@@ -21,130 +15,180 @@ any engine. Every computation addressable, versioned, and reusable.
 
 ---
 
-## What is Xorq?
+# The Problem
 
-Machine learning (ML) infrastructure is fragmented—features in one system, models in another,
-lineage reconstructed through archaeology.
+Feature stores. Model registries. Orchestrators. Vertical silos that don't
+serve agentic AI—which needs context and skills, not categories.
 
-What if features, models, and pipelines aren't different things?
+# Xorq
 
-A feature is a computation. A model is a computation. A pipeline is
-computations composed. The vendor categories aren't computational
-truths—they're commercial territories. Strip away the product boundaries and
-everything reduces to the same primitive: the expression.
+**Manifest = Context.** Every ML computation becomes a structured, addressable YAML manifest.
 
-Xorq is the composability layer for compute expressed as relational plans.
+**Tools = Skills.** A catalog to discover. A build system to execute anywhere.
 
-## Installation
-
+## Quick Start
 ```bash
 pip install xorq[examples]
 xorq init -t penguins
 ```
 
-[Full tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
+## The Manifest
 
-## Quickstart
+Write [Ibis](https://ibis-project.org) expressions, get addressable manifests.
 
 ```python
-import xorq.api as xo
-from sklearn.ensemble import RandomForestClassifier
 
-data = xo.read_parquet('s3://bucket/penguins.parquet')
-train, test = xo.test_train_splits(data, test_size=0.2)
+import ibis
 
-model = xo.Pipeline.from_instance(RandomForestClassifier())
-fitted = model.fit(train, features=['bill_length_mm', 'bill_depth_mm'],
-                   target='species')
+from xorq.common.utils.ibis_utils import from_ibis
+from xorq.caching import ParquetStorage
 
-predictions = fitted.predict(test).cache(storage=ParquetStorage())  # deferred
-predictions.execute()  # do work
+penguins_tbl = ibis.examples.penguins.fetch()
+
+penguins_expr = (
+    penguins_tbl
+    .filter(ibis._.species.notnull())
+    .group_by("species")
+    .agg(avg_bill_length=ibis._.bill_length_mm.mean())
+)
+
+xo_expr = from_ibis(penguins_expr)
 ```
-
-**CLI:**
 
 ```bash
-xorq build expr.py -e predictions
-xorq run builds/
+xorq build expr.py -e xo_expr
 ```
-
-## How it works
-
-Xorq captures your ML computation as an **input-addressed manifest**—a
-declarative representation where each node is identified by the hash of its
-computation specification, not its results.
-
-```yaml
-# Manifest snippet: fit → predict lineage
-predicted:
-  op: ExprScalarUDF            # Model inference
-  kwargs:
-    bill_length_mm: ...        # Feature inputs
-    bill_depth_mm: ...
-  meta:
-    __config__:
-      computed_kwargs_expr:    # Training lineage preserved
-        op: AggUDF             # Model training
-        kwargs:
-          species: ...         # Original training target
-```
-
-### What This Enables
-
-| Capability | How |
-|------------|-----|
-| **Version by intent** | Same computation = same hash, regardless of input data |
-| **Precise caching** | Cache based on what you're computing, not when |
-| **Structural lineage** | Provenance is the graph itself, not reconstructed logs |
-| **Portable execution** | Manifest compiles to optimized SQL for any engine |
-
-### Input-Addressing
-
-Every computation gets a unique hash based on its logic:
-
-- Same feature engineering on different days → **same hash** (reusable)
-- Different feature logic → **different hash** (new version)
-
-If anyone on your team has run this exact computation before, Xorq reuses it
-automatically. The hash is the truth.
-
-## The Catalog
-
-Your team's shared ledger of ML compute—versioned, discoverable, composable.
-Below is an example of what it looks like to add an expr to the catalog.
-
 ```bash
-# Register a build with an alias.
-❯ xorq catalog add builds/7061dd65ff3c --alias fraud-model
+❯ lt builds/4f98390ba42c
+builds/4f98390ba42c
+├── database_tables
+│   └── 254da96e3615d9080b4a17d8a3116f36.parquet
+├── expr.yaml
+├── metadata.json
+├── profiles.yaml
+└── sdist.tar.gz
+```
+Reproducible build artifacts with `uv` based environments.
 
-# Discover what exists.
+And roundtrippable, human-diffable YAML.
+
+```expr.yaml
+# Addressable, composable, portable
+nodes:
+  '@cachednode_195db4d1':
+    name: xorq_cached_node_name_placeholder
+    op: CachedNode
+    parent:
+      node_ref: '@remotetable_e189a774'
+    schema_ref: schema_0
+    snapshot_hash: 195db4d132b665301c77ca86ec7010f3
+    source: feda6956a9ca4d2bda0fbc8e775042c3_3
+    storage:
+      relative_path: parquet
+      source: feda6956a9ca4d2bda0fbc8e775042c3_3
+      type: ParquetStorage
+  '@filter_68655050':
+    op: Filter
+    parent:
+      node_ref: '@read_e1fcd64e'
+    predicates:
+    - args:
+      - name: species
+        op: Field
+        relation:
+          node_ref: '@read_e1fcd64e'
+        type:
+          type_ref: type_1
+      op: NotNull
+      type:
+        type_ref: type_0
+    snapshot_hash: 68655050dd9e691abb7b31308eed1f3f
+  '@read_e1fcd64e':
+    method_name: read_parquet
+    name: penguins
+    normalize_method: gAWVWAAAAAAAAACMNXhvcnEuY29tbW9uLnV0aWxzLmRhc2tfbm9ybWFsaXplLmRhc2tfbm9ybWFsaXplX3V0aWxzlIwabm9ybWFsaXplX3JlYWRfcGF0aF9tZDVzdW2Uk5Qu
+    op: Read
+    profile: 2eca7579af9a9d8e315faf6af1ddb59a_2
+    read_kwargs:
+    - - source_list
+      - builds/4f98390ba42c/database_tables/254da96e3615d9080b4a17d8a3116f36.parquet
+    - - table_name
+      - penguins
+    schema_ref: schema_1
+    snapshot_hash: e1fcd64eb0e8c9d39aa07787ed7523ca
+```
+
+Same computation = same hash. The manifest *is* the version. The hash *is*
+the address.
+
+#### Multi-Engine
+
+Manifests are portable. Execute on DuckDB locally, compile to multi-engine
+Snowflake for production, and use Python  with Xorq's embedded engine, based
+on DataFusion.
+
+One manifest, many engines.
+
+```profiles.yaml
+2eca7579af9a9d8e315faf6af1ddb59a_2:
+  con_name: duckdb
+  idx: 2
+  kwargs_tuple:
+    database: ':memory:'
+    extensions: null
+    read_only: false
+    temp_directory: null
+feda6956a9ca4d2bda0fbc8e775042c3_3:
+  con_name: let
+  idx: 3
+  kwargs_tuple:
+    config: null
+```
+
+## The Tools
+```bash
+# Add
+❯ xorq catalog add builds/4f98390ba42c --alias penguins-dev
+Added build 4f98390ba42c as entry f7f2b329-4263-410b-9cd7-fba894e1f637 revision r1
+
+# List
 ❯ xorq catalog ls
 Aliases:
-fraud-model                  7061dd65ff3c     r2
-customer-features            dbf90860-88b3    r1
-recommendation-pipeline      52f987594254     r1
+penguins-dev    f7f2b329-4263-410b-9cd7-fba894e1f637    r1
+Entries:
+f7f2b329-4263-410b-9cd7-fba894e1f637    r1      4f98390ba42c
 
-# Trace lineage.
-❯ xorq lineage fraud-model
+# Introspect
+❯ xorq lineage penguins-dev
 
-# Serve for inference.
-xorq serve-unbound  fraud-model --port 8001 405154f690d20f4adbcc375252628b75
+# Run
+❯ xorq catalog run penguins-dev -o
+
+# Serve
+❯
 ```
 
-The catalog isn't a database. It's an addressing system—discoverable by humans,
-navigable by agents.
+## The Dissagregated Architecture
 
-## The Architecture
+Write in Python. Catalog as YAML. Compose anywhere via Ibis.
+
 ![Architecture](docs/images/architecture-light.png#gh-light-mode-only)
 ![Architecture](docs/images/architecture-dark.png#gh-dark-mode-only)
 
+Lineage, caching, and versioning travel with the manifest—cataloged, not
+locked in a vendor's database.
 
-## Learn more
+
+### Integrations
+
+Ibis • scikit-learn • Feast • dbt
+
+# Learn more
 
 - [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
-- [Why xorq?](https://docs.xorq.dev/#why-xorq)
+- [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 - [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 
-## Status
+---
 
 Pre-1.0. Expect breaking changes with migration guides.
