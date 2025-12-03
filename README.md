@@ -15,12 +15,12 @@
 
 ---
 
-## The Problem
+# The Problem
 
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
 serve agentic AI—which needs context and skills, not categories.
 
-## Xorq
+# Xorq
 
 **Manifest = Context.** Every ML computation becomes a structured, addressable YAML manifest.
 
@@ -32,7 +32,7 @@ pip install xorq[examples]
 xorq init -t penguins
 ```
 
-## Manifest
+## The Manifest
 
 Write [Ibis](https://ibis-project.org) expressions, get addressable manifests.
 
@@ -72,7 +72,7 @@ Reproducible build artifacts with `uv` based environments.
 
 And roundtrippable, human-diffable YAML.
 
-```yaml
+```expr.yaml
 # Addressable, composable, portable
 nodes:
   '@cachednode_195db4d1':
@@ -145,7 +145,7 @@ feda6956a9ca4d2bda0fbc8e775042c3_3:
     config: null
 ```
 
-## Tools
+## The Tools
 ```bash
 # Add
 ❯ xorq catalog add builds/4f98390ba42c --alias penguins-dev
@@ -168,9 +168,9 @@ f7f2b329-4263-410b-9cd7-fba894e1f637    r1      4f98390ba42c
 ❯
 ```
 
-## The Architecture
+## The Dissagregated Architecture
 
-Write in Python. Catalog as YAML. Execute anywhere via Ibis.
+Write in Python. Catalog as YAML. Compose anywhere via Ibis.
 
 ![Architecture](docs/images/architecture-light.png#gh-light-mode-only)
 ![Architecture](docs/images/architecture-dark.png#gh-dark-mode-only)
@@ -179,12 +179,11 @@ Lineage, caching, and versioning travel with the manifest—cataloged, not
 locked in a vendor's database.
 
 
-
-## Integrations
+### Integrations
 
 Ibis • scikit-learn • Feast • dbt
 
-## Learn more
+# Learn more
 
 - [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
 - [Why Xorq?](https://docs.xorq.dev/#why-xorq)
