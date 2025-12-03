@@ -167,10 +167,13 @@ f7f2b329-4263-410b-9cd7-fba894e1f637    r1      4f98390ba42c
 # Serve
 ❯
 ```
+### xorq-template-sklearn
 
-## The Dissagregated Architecture
 
-Write in Python. Catalog as YAML. Compose anywhere via Ibis.
+## The Composable Architecture
+
+Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
+engine built on DataFusion. Universal UDFs via Arrow Flight.
 
 ![Architecture](docs/images/architecture-light.png#gh-light-mode-only)
 ![Architecture](docs/images/architecture-dark.png#gh-dark-mode-only)
