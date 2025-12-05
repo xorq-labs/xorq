@@ -49,6 +49,7 @@ website:
         - id: tutorials-section
           section: "Getting Started"
           contents:
+            - href: tutorials/getting_started/introduction.qmd
             - href: tutorials/getting_started/quickstart.qmd
             - href: tutorials/getting_started/10_minutes_xorq_tour.qmd
             - href: tutorials/getting_started/hn_data_prep.qmd
