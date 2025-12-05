@@ -1,0 +1,94 @@
+---
+title: "Introduction"
+description: "Understand what Xorq is, why it exists, and how it fits into your ML infrastructure"
+icon: "circle-info"
+---
+
+Xorq is an open source compute catalog for AI. It helps teams catalog, compose, reuse, and observe transformations, features, models, and pipelines across multiple engines.
+
+Think of it this way: Apache Iceberg standardized data. Xorq standardizes compute.
+
+## What is Xorq?
+
+Xorq is an open source compute catalog for reusing, shipping, and observing ML pipelines across multiple engines.
+
+::: {.callout-note}
+Data has standards like Iceberg and Delta. Xorq is the missing analog to Apache Iceberg, but for compute.
+:::
+
+## The problem
+
+Data infrastructure has standards. Iceberg and Delta solved how teams store and version data. But compute remains fragmented.
+
+ML pipelines suffer from four problems:
+
+- **Leakage prone**: Feature generation on historical data causes silent temporal leakage. Models train on information they should not have access to at prediction time.
+- **Disjointed**: Pipelines communicate through runtime artifacts. Monitoring gets bolted on as an afterthought rather than built in from the start.
+- **Research-only**: Features trapped in notebooks require complete rewrites for batch and online serving. What works in Jupyter fails in production.
+- **Undecipherable**: ML pipelines become black boxes with no lineage or computation visibility. When something breaks, there is no way to trace back to the root cause.
+
+These problems compound over time. A single invisible imputation in opaque preprocessing can run undetected for months, causing millions in losses and regulatory scrutiny.
+
+## Why Xorq?
+
+Traditional approaches force a choice between the expressiveness of pandas and the scalability of SQL engines. This leads to SQL-pandas impedance mismatches, wasteful recomputation, and pipelines that work in notebooks but fail in production.
+
+Xorq solves these problems by providing five core benefits:
+
+- **Unified multi-engine workflows**: Combine [Snowflake, DuckDB, and Python](/api_reference/backend_configuration/supported_backends) within a single declarative pipeline. No engine-specific rewrites required.
+- **Write-once portability**: Define [user-defined functions (UDFs)](/reference/make_pandas_udf) once and run them consistently across any supported engine. Xorq serializes logic to diff-able YAML artifacts for reproducibility.
+- **Faster iteration through caching**: Intelligent [caching](/core_concepts/caching) of intermediate results eliminates waiting for expensive joins or full pipeline re-runs after every change.
+- **Dev-to-prod without rewrites**: Move a working pipeline from local development to production without code changes. Compile-time validation catches errors before runtime.
+- **Built-in observability**: Automatic [column-level lineage](/how_to/lineage) tracking and fail-fast pipelines provide the visibility needed for production ML systems.
+
+
+## Core capabilities
+
+Xorq provides four capabilities that work together.
+
+- **Immutable artifacts**: Features, models, and pipelines become versioned, content-addressed artifacts. Identical computation produces identical hashes.
+- **[Multi-engine](/api_reference/backend_configuration/supported_backends) manifest**: A single typed plan captured as YAML executes on DuckDB, Snowflake, DataFusion, BigQuery, Pandas, PostgreSQL, PyIceberg, and Trino without modification.
+- **Composable and shareable**: Catalog entries become contracts between teams. Discover existing computations, compose on previous work, and share validated logic.
+- **Governance and lineage**: [Column-level lineage](/how_to/lineage) tracking and compile-time schema validation. Policies enforce through compiled plans, not runtime checks.
+
+## Where Xorq fits
+
+Xorq sits between your data sources and your ML applications. It's not a replacement for your data warehouse or your model serving infrastructure, it is the layer that connects them.
+
+The architecture image here illustrates this positioning. Expressions and UDFs flow through the manifest layer into stateless, Arrow-native execution across any supported engine.
+
+![](/images/introduction/architecture-dark.png){fig-alt="Architecture diagram showing expressions and UDFs flowing through manifest to stateless Arrow-native execution"}
+
+Teams use Xorq for feature stores, semantic layers, ML pipelines, batch scoring, and data CI. In each case, the value comes from the same properties: reproducibility, multi-engine portability, and full lineage.
+
+
+## Who Xorq is for
+
+Xorq targets data scientists, data engineers, and ML engineers who:
+
+- Work with SQL-heavy pipelines but need Python for ML
+- Run pipelines across multiple engines such as DuckDB locally and Snowflake in production
+- Need reproducibility and lineage for compliance or debugging
+- Want to share and reuse validated computations across teams
+
+If you are comfortable with pandas and SQL, the Xorq API feels familiar.
+
+## Built on open standards
+
+Xorq builds on battle-tested foundations:
+
+- **[Apache Arrow Flight](/core_concepts/flight_udxf)**: Zero-copy data transfer between processes
+- **Ibis**: Cross-engine [expression trees](/core_concepts/expression_format) serialized to YAML
+- **Apache DataFusion**: Embedded engine for stateless Arrow-native execution
+- **uv**: Reproducible Python environment management
+
+The core expression and build logic remains open source.
+
+## Next steps
+
+Now that you understand what Xorq is and why it exists, choose your path:
+
+- [Quickstart](/tutorials/getting_started/quickstart) to build your first pipeline in under five minutes
+- [10-minute tour](/tutorials/getting_started/10_minutes_xorq_tour) to explore Xorq features in depth
+- [GitHub](https://github.com/xorq-labs/xorq) to star the repo and contribute
+- [Discord](https://discord.gg/8Kma9DhcJG) to join the community
