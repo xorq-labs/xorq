@@ -1,3 +1,5 @@
+import importlib
+
 import pandas as pd
 import pytest
 import toolz
@@ -58,9 +60,21 @@ def connect_snowflake():
 @pytest.mark.parametrize(
     "get_con,backend_type",
     (
-        (connect_postgres, PostgresBackend),
-        (lambda: ibis.datafusion.connect(), DatafusionBackend),
-        (lambda: ibis.sqlite.connect(), SqliteBackend),
+        pytest.param(
+            connect_postgres,
+            PostgresBackend,
+            marks=[
+                pytest.mark.skipif(
+                    importlib.util.find_spec("psycopg2") is None,
+                    reason="requires backwards postgres compatibility",
+                )
+            ],
+            id="postgres",
+        ),
+        pytest.param(
+            lambda: ibis.datafusion.connect(), DatafusionBackend, id="datafusion"
+        ),
+        pytest.param(lambda: ibis.sqlite.connect(), SqliteBackend, id="sqlite"),
     ),
 )
 def test_backends(get_con, backend_type):
@@ -79,6 +93,9 @@ def test_backends(get_con, backend_type):
         print(e)
 
 
+@pytest.mark.skipif(
+    importlib.util.find_spec("snowflake") is None, reason="requires snowflake"
+)
 @pytest.mark.snowflake
 def test_snowflake_backend():
     snow_conn = connect_snowflake()

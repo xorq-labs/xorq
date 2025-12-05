@@ -17,16 +17,7 @@ from xorq.common.utils.env_utils import (
     env_templates_dir,
 )
 from xorq.vendor import ibis
-
-
-try:
-    from sqlglot.expressions import Alter
-except ImportError:
-    from sqlglot.expressions import AlterTable
-else:
-
-    def AlterTable(*args, kind="TABLE", **kwargs):
-        return Alter(*args, kind=kind, **kwargs)
+from xorq.vendor.ibis.backends.sql.compilers.base import STAR, AlterTable, RenameTable
 
 
 @frozen
@@ -166,7 +157,7 @@ def make_table_temporary(con, name):
         sql = AlterTable(
             this=sg.table(old_name, quoted=True),
             actions=[
-                sge.RenameTable(
+                RenameTable(
                     this=sg.table(new_name, quoted=True),
                 ),
             ],
@@ -179,16 +170,9 @@ def make_table_temporary(con, name):
         # copy_stmt = f"CREATE {'TEMP ' if temporary else ''}TABLE {to_name} AS SELECT * FROM {from_name}"
         # sg.parse_one(copy_stmt)
         sql = sge.Create(
-            this=sg.table(to_name, quoted=True),
             kind="TABLE",
-            expression=sge.Select(
-                **{
-                    "expressions": [sge.Star()],
-                    "from": sge.From(
-                        this=sg.table(from_name, quoted=True),
-                    ),
-                }
-            ),
+            this=sg.table(to_name, quoted=True),
+            expression=sg.select(STAR).from_(sg.table(from_name, quoted=True)),
             properties=sge.Properties(
                 expressions=[sge.TemporaryProperty()] if temporary else []
             ),
