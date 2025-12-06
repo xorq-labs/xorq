@@ -424,8 +424,8 @@ def test_date_operations_in_aggregation(compiler, con, alltypes):
     yaml_dict = compiler.to_yaml(expr)
     profiles = {con._profile.hash_name: con}
     roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
-
-    result = roundtrip_expr.execute().reset_index(drop=True)
-    expected = expr.execute().reset_index(drop=True)
-
-    assert_frame_equal(result, expected, check_dtype=False)
+    actual, expected = (
+        e.execute().sort_values(e.columns).reset_index(drop=True)
+        for e in (roundtrip_expr, expr)
+    )
+    assert_frame_equal(actual, expected, check_dtype=False)

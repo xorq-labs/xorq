@@ -4,7 +4,7 @@ import pyarrow as pa
 import pytest
 
 import xorq.api as xo
-from xorq.conftest import array_types_df
+from xorq.conftest import array_types_df, win
 
 
 expected_tables = (
@@ -68,6 +68,7 @@ def con(data_dir, ddl_file):
     conn.read_parquet(parquet_dir / "awards_players.parquet", "awards_players")
 
     conn.create_table("array_types", array_types_df)
+    conn.create_table("win", win)
 
     if ddl_file.is_file() and ddl_file.name.endswith(".sql"):
         for statement in statements(ddl_file):
@@ -158,3 +159,8 @@ def df():
     )
 
     return batch.to_pandas()
+
+
+@pytest.fixture(scope="session")
+def win_table(con):
+    return con.table("win")

@@ -2,10 +2,13 @@ import datetime
 import functools
 import importlib
 
+import toolz
 from ibis import Schema as IbisSchema
 from ibis.backends import BaseBackend as IbisBaseBackend
 from ibis.common.collections import FrozenOrderedDict as IbisFrozenOrderedDict
 from ibis.common.temporal import IntervalUnit as IbisIntervalUnit
+from ibis.common.temporal import TimestampUnit as IbisTimestampUnit
+from ibis.common.temporal import TimeUnit as IbisTimeUnit
 from ibis.expr.datatypes import DataType as IbisDataType
 from ibis.expr.datatypes.core import Interval as IbisInterval
 from ibis.expr.operations.generic import Cast as IbisCast
@@ -16,7 +19,7 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
-from xorq.vendor.ibis.common.temporal import IntervalUnit
+from xorq.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit, TimeUnit
 from xorq.vendor.ibis.expr.datatypes import DataType
 from xorq.vendor.ibis.expr.datatypes.core import Interval
 from xorq.vendor.ibis.expr.operations import Node
@@ -32,13 +35,13 @@ def map_ibis(val, kwargs):
 
         cls = getattr(importlib.import_module(f"xorq.vendor.{module}"), attr)
 
-        _kwargs = (
-            kwargs
-            if kwargs
-            else dict(zip(val.argnames, tuple(map_ibis(arg, None) for arg in val.args)))
+        kwargs = kwargs if kwargs else dict(zip(val.argnames, val.args))
+        kwargs = toolz.valmap(
+            lambda v: map_ibis(v, None),
+            kwargs if kwargs else dict(zip(val.argnames, val.args)),
         )
 
-        return cls(**_kwargs)
+        return cls(**kwargs)
 
     except AttributeError:
         raise NotImplementedError(f"{type(val)} is not implemented")
@@ -82,6 +85,16 @@ def map_schema(schema, kwargs):
 @map_ibis.register(IbisIntervalUnit)
 def map_interval_unit(unit, kwargs):
     return IntervalUnit(unit.value)
+
+
+@map_ibis.register(IbisTimestampUnit)
+def map_timestamp_unit(unit: IbisTimestampUnit, kwargs):
+    return TimestampUnit(unit.value)
+
+
+@map_ibis.register(IbisTimeUnit)
+def map_time_unit(unit, kwargs):
+    return TimeUnit(unit.value)
 
 
 @map_ibis.register(IbisInterval)
