@@ -51,11 +51,7 @@ website:
           contents:
             - href: tutorials/getting_started/introduction.qmd
             - href: tutorials/getting_started/quickstart.qmd
-            - href: tutorials/getting_started/10_minutes_xorq_tour.qmd
-            - href: tutorials/getting_started/hn_data_prep.qmd
-            - href: tutorials/getting_started/hn_transform_tfidf.qmd
-            - href: tutorials/getting_started/hn_training_xgb.qmd
-            - href: tutorials/getting_started/hn_serving.qmd
+            - href: tutorials/getting_started/installation.qmd
         - id: vignettes-section
           section: "Vignettes"
           contents:
@@ -126,7 +122,6 @@ website:
     - id: how_to_guides
       title: "How-To Guides"
       contents:
-         - how_to/installation.qmd
          - how_to/into_backend_caching.qmd
          - how_to/integration_patterns.qmd
          - how_to/io_xorq.qmd
