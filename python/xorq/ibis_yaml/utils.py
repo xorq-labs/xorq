@@ -153,12 +153,8 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
     elif storage_yaml["type"] == "ParquetSnapshotStorage":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        kwargs = {
-            "source": source,
-            "relative_path": pathlib.Path(storage_yaml["relative_path"]),
-        }
-        if storage_yaml.get("base_path"):
-            kwargs["base_path"] = pathlib.Path(storage_yaml["base_path"])
-        return ParquetSnapshotStorage(**kwargs)
+        return ParquetSnapshotStorage(
+            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+        )
     else:
         raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")
