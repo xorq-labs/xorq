@@ -1,0 +1,323 @@
+---
+title: 'Installation'
+---
+
+Xorq is a Python library for building reproducible data and ML pipelines. This guide shows you how to install Xorq and configure it for your environment.
+
+## Requirements
+
+Before you install Xorq, verify your system meets these requirements:
+
+- Python 3.9 or later
+- Apache Arrow 19.0 or later
+
+## Install Xorq
+
+Install Xorq with pip. The basic installation includes the core library and default backends.
+
+```bash
+pip install xorq
+```
+
+If you want to run the included examples, install Xorq with the examples extras:
+
+```bash
+pip install "xorq[examples]"
+```
+
+## Install backend support
+
+Xorq runs on multiple execution engines. Install support for the backends you plan to use.
+
+### DuckDB backend
+
+DuckDB is good for analytical workloads on local or moderate-sized datasets.
+
+```bash
+pip install "xorq[duckdb]"
+```
+
+### Snowflake backend
+
+Snowflake is good for cloud data warehouse operations.
+
+```bash
+pip install "xorq[snowflake]"
+```
+
+### PostgreSQL backend
+
+PostgreSQL is good for production workloads with existing PostgreSQL databases.
+
+```bash
+pip install "xorq[postgres]"
+```
+
+### PyIceberg backend
+
+PyIceberg is good for working with Apache Iceberg tables.
+
+```bash
+pip install "xorq[pyiceberg]"
+```
+
+### DataFusion backend
+
+DataFusion is good for in-memory analytical processing.
+
+```bash
+pip install "xorq[datafusion]"
+```
+
+### Install all backends
+
+If you want to install all backend support at once, use this command:
+
+```bash
+pip install "xorq[examples,duckdb,snowflake,postgres,pyiceberg,datafusion]"
+```
+
+## Connect to backends
+
+After you install Xorq, connect to a backend to start working with data.
+
+### Connect to the embedded backend
+
+The embedded backend is the default. It uses a modified DataFusion engine optimized for Arrow UDF execution.
+
+```{python}
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+print(f"Connected to: {con}")
+```
+1. The `connect` function creates a connection to the embedded backend.
+
+### Connect to Pandas
+
+Pandas is good for local development and small datasets. You create a Pandas backend connection and then load data into it.
+
+```{python}
+import xorq.api as xo
+import pandas as pd
+
+# <1>
+pandas_con = xo.pandas.connect()
+
+# <2>
+df = pd.DataFrame({
+    "a": [1, 2, 3, 4, 5],
+    "b": [2, 3, 4, 5, 6]
+})
+
+# <3>
+table = pandas_con.create_table("my_table", df)
+```
+1. Connect to the Pandas backend.
+2. Create a Pandas DataFrame with sample data.
+3. Load the DataFrame into a table in the Pandas backend.
+
+### Connect to PostgreSQL
+
+PostgreSQL connections require database credentials. You can provide credentials directly or use environment variables.
+
+**Connect with environment variables:**
+
+Set these environment variables before you run your code:
+
+- `POSTGRES_HOST`
+- `POSTGRES_PORT`
+- `POSTGRES_DATABASE`
+- `POSTGRES_USER`
+- `POSTGRES_PASSWORD`
+
+Then connect using `connect_env`:
+
+```python
+import xorq.api as xo
+
+# <1>
+pg_con = xo.postgres.connect_env()
+
+# <2>
+batting_table = pg_con.table("batting")
+```
+1. The `connect_env` function reads credentials from environment variables.
+2. Access an existing table in your PostgreSQL database.
+
+**Connect with direct credentials:**
+
+If you prefer to provide credentials directly, then use the `connect` function:
+
+```python
+import xorq.api as xo
+
+pg_con = xo.postgres.connect(
+    host="localhost",          # <1>
+    port=5432,
+    database="your_database",
+    user="your_user",
+    password="your_password"
+)
+
+batting_table = pg_con.table("batting")
+```
+1. Replace these values with your actual PostgreSQL connection details.
+
+### Connect to DuckDB
+
+DuckDB connections can be in-memory or persistent. By default, DuckDB creates an in-memory database.
+
+```python
+import xorq.api as xo
+
+# <1>
+duck_con = xo.duckdb.connect()
+```
+1. This creates an in-memory DuckDB database.
+
+### Connect to Snowflake
+
+Snowflake connections require your account credentials and resource identifiers.
+
+```python
+import xorq.api as xo
+
+snow_con = xo.snowflake.connect(
+    user="your_user",            # <1>
+    password="your_password",
+    account="your_account",
+    role="your_role",
+    warehouse="your_warehouse",
+    database="your_database",
+    schema="your_schema"
+)
+```
+1. Replace these values with your actual Snowflake credentials.
+
+## Run your first query
+
+After you connect to a backend, try running a simple query. This example loads the iris dataset and filters it.
+
+```{python}
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+
+# <2>
+iris = xo.examples.iris.fetch(backend=con)
+
+# <3>
+filtered = iris.filter(xo._.sepal_length > 5)
+
+# <4>
+grouped = filtered.group_by("species").agg(
+    xo._.sepal_width.sum()
+)
+
+# <5>
+result = grouped.execute()
+print(result)
+```
+1. Connect to the embedded backend.
+2. Load the iris dataset into your backend.
+3. Filter rows where sepal length is greater than 5.
+4. Group by species and sum the sepal widths.
+5. Execute the query and print results.
+
+## Train your first model
+
+Xorq integrates with scikit-learn for machine learning workflows. This example trains a classifier on the penguins dataset.
+
+```{python}
+import xorq.api as xo
+from sklearn.neighbors import KNeighborsClassifier
+from xorq.expr.ml.pipeline_lib import Step
+
+# <1>
+con = xo.connect()
+penguins = xo.examples.penguins.fetch(backend=con)
+
+# <2>
+filtered_penguins = penguins.filter(
+    penguins.bill_length_mm.isnull() == False,
+    penguins.bill_depth_mm.isnull() == False,
+    penguins.flipper_length_mm.isnull() == False,
+    penguins.body_mass_g.isnull() == False,
+)
+
+# <3>
+features = [
+    'bill_length_mm',
+    'bill_depth_mm',
+    'flipper_length_mm',
+    'body_mass_g'
+]
+target = 'species'
+
+# <4>
+step = Step(KNeighborsClassifier)
+fitted = step.fit(
+    filtered_penguins,
+    features=features,
+    target=target
+)
+
+# <5>
+predictions = filtered_penguins.mutate(
+    predicted=fitted.deferred_predict.on_expr
+)
+
+# <6>
+result = predictions.execute()
+print(result)
+```
+1. Load the penguins dataset from the examples.
+2. Filter out rows with null values in the feature columns.
+3. Define which columns to use as features and which column is the target.
+4. Create a Step with KNeighborsClassifier and fit it to the data.
+5. Add a new column with predictions from the fitted model.
+6. Execute to see the predictions.
+
+## Use caching
+
+Xorq caches expression results to speed up repeated queries. This example shows how to cache a query that filters and aggregates data.
+
+```python
+import xorq.api as xo
+from xorq.caching import SourceStorage
+
+# <1>
+con = xo.connect()
+pg = xo.postgres.connect_env()
+
+# <2>
+expr = (
+    pg.table("large_table")
+    .filter(xo._.date >= "2024-01-01")
+    .group_by("category")
+    .agg(total=xo._.amount.sum())
+    .cache(SourceStorage(source=con))
+)
+
+# <3>
+result1 = expr.execute()
+
+# <4>
+result2 = expr.execute()
+```
+1. Connect to both the embedded backend and PostgreSQL.
+2. Create an expression that filters, groups, and caches results.
+3. The first execution computes the query and stores results in the cache.
+4. The second execution reads from cache instead of recomputing.
+
+## Next steps
+
+Now that you have Xorq installed, explore these resources:
+
+- Complete the [Ten-minute tour](10_minutes_xorq_tour.qmd) to see more Xorq features
+- Read [Why deferred execution](/core_concepts/deferred_execution) to understand how Xorq works
+- Browse [Core tutorials](/tutorials/core_tutorials/) to learn the basics
+
