@@ -1,0 +1,18 @@
+---
+title: 'Split data for training'
+---
+
+## Coming soon
+
+This tutorial will teach you how to split data for model training and evaluation.
+
+You will learn how to create train, test, validation, and holdout splits with Xorq.
+
+**What you'll learn:**
+- Use `train_test_splits` function
+- Use `calc_split_column` for custom splits
+- Create deterministic splits
+- Handle multiple split strategies
+
+Check back soon for the complete tutorial.
+

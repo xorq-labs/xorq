@@ -1,0 +1,22 @@
+---
+title: 'Manage LLM costs'
+---
+
+## Coming soon
+
+This guide will show you how to control costs when using LLMs in production pipelines.
+
+You will learn batching strategies, caching patterns, and cost optimization techniques.
+
+**What you'll accomplish:**
+- Implement LLM result caching
+- Batch API calls efficiently
+- Monitor token usage
+- Set cost budgets and alerts
+
+**Prerequisites:**
+- LLM integration working
+- Understanding of LLM pricing
+
+Check back soon for the complete guide.
+

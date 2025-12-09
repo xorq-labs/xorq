@@ -1,0 +1,22 @@
+---
+title: 'Read and write production data'
+---
+
+## Coming soon
+
+This guide will show you how to handle data I/O in production environments with Xorq.
+
+You will learn production-ready patterns for reading from and writing to various data sources.
+
+**What you'll accomplish:**
+- Read from production data sources
+- Write results to production systems
+- Handle file formats (CSV, Parquet, JSON)
+- Manage connection credentials securely
+
+**Prerequisites:**
+- Completed Quickstart
+- Familiarity with your data source
+
+Check back soon for the complete guide.
+

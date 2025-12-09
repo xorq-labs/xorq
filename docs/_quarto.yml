@@ -22,110 +22,301 @@ website:
         href: https://github.com/xorq-labs/xorq
 
     left:
-      - sidebar:user-guide
-      - text: How-To Guides
-        href: how_to/index.qmd
-      - text: "Reference"
-        menu:
-          - api_reference/cli/index.qmd
-          - reference/index.qmd
-          - api_reference/backend_configuration/index.qmd
-      - text: "Core Concepts"
-        menu:
-          - core_concepts/deferred_execution.qmd
-          - core_concepts/multi_engine.qmd
-          - core_concepts/caching.qmd
-          - core_concepts/flight_udxf.qmd
-          - api_reference/backend_configuration/profiles_api.qmd
-          - core_concepts/expression_format.qmd
+      - sidebar:getting-started
+      - sidebar:tutorials
+      - sidebar:guides
+      - sidebar:concepts
+      - sidebar:reference
+      - href: release_notes.qmd
+        text: "Release Notes"
+      - href: faq.qmd
+        text: "FAQ"
+      - sidebar:contributors
 
 
 
   sidebar:
-    - id: user-guide
+    - id: getting-started
+      title: "Getting Started"
+      collapse-level: 1
+      contents:
+        - href: getting_started/introduction.qmd
+        - href: getting_started/installation.qmd
+          text: "Install Xorq"
+        - href: getting_started/quickstart.qmd
+        - href: getting_started/your_first_expression.qmd
+          text: "Your first expression"
+
+    - id: tutorials
       title: "Tutorials"
       collapse-level: 2
       contents:
-        - id: tutorials-section
-          section: "Getting Started"
+        - id: core-tutorials-section
+          section: "Core Tutorials"
           contents:
-            - href: tutorials/getting_started/introduction.qmd
-            - href: tutorials/getting_started/quickstart.qmd
-            - href: tutorials/getting_started/installation.qmd
-        - id: vignettes-section
-          section: "Vignettes"
+            - href: tutorials/core_tutorials/understand_deferred_execution.qmd
+            - href: tutorials/core_tutorials/explore_caching.qmd
+            - href: tutorials/core_tutorials/switch_backends.qmd
+            - href: tutorials/core_tutorials/your_first_build.qmd
+        - id: ml-tutorials-section
+          section: "ML Tutorials"
           contents:
-            - href: vignettes/duckdb_concurrent.qmd
-            - href: vignettes/mcp_flight_server.qmd
+            - href: tutorials/ml_tutorials/train_your_first_model.qmd
+            - href: tutorials/ml_tutorials/understand_step_and_pipeline.qmd
+            - href: tutorials/ml_tutorials/use_deferred_fit_predict.qmd
+            - href: tutorials/ml_tutorials/split_data_for_training.qmd
+            - href: tutorials/ml_tutorials/explore_model_evaluation.qmd
+            - href: tutorials/ml_tutorials/deploy_your_first_model.qmd
+        - id: ai-tutorials-section
+          section: "AI Tutorials"
+          contents:
+            - href: tutorials/ai_tutorials/your_first_udxf.qmd
+            - href: tutorials/ai_tutorials/call_llms_from_expressions.qmd
+            - href: tutorials/ai_tutorials/build_an_mcp_tool.qmd
+            - href: tutorials/ai_tutorials/understand_flight_protocol.qmd
+        - id: analytics-tutorials-section
+          section: "Analytics Tutorials"
+          contents:
+            - href: tutorials/analytics_tutorials/query_across_engines.qmd
+            - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
+            - href: tutorials/analytics_tutorials/use_window_functions.qmd
+            - href: tutorials/analytics_tutorials/work_with_schemas.qmd
+
+
+    - id: guides
+      title: "Guides"
+      collapse-level: 2
+      contents:
+        - id: data-workflows-section
+          section: "Data Workflows"
+          contents:
+            - href: guides/data_workflows/read_write_production_data.qmd
+            - href: guides/data_workflows/build_data_quality_checks.qmd
+            - href: guides/data_workflows/transform_data_custom_udfs.qmd
+            - href: guides/data_workflows/build_feature_pipelines.qmd
+        - id: ml-workflows-section
+          section: "ML Workflows"
+          contents:
+            - href: guides/ml_workflows/train_models_at_scale.qmd
+            - href: guides/ml_workflows/evaluate_model_performance.qmd
+            - href: guides/ml_workflows/version_and_promote_models.qmd
+            - href: guides/ml_workflows/deploy_models_to_production.qmd
+            - href: guides/ml_workflows/integrate_sklearn_pipelines.qmd
+        - id: performance-workflows-section
+          section: "Performance Workflows"
+          contents:
+            - href: guides/performance_workflows/optimize_pipeline_performance.qmd
+            - href: guides/performance_workflows/optimize_model_serving.qmd
+            - href: guides/performance_workflows/switch_backends_dynamically.qmd
+            - href: guides/performance_workflows/manage_llm_costs.qmd
+        - id: platform-workflows-section
+          section: "Platform Workflows"
+          contents:
+            - href: guides/platform_workflows/build_reproducible_environments.qmd
+            - href: guides/platform_workflows/manage_compute_catalog.qmd
+            - href: guides/platform_workflows/setup_cicd_pipelines.qmd
+            - href: guides/platform_workflows/monitor_production_deployments.qmd
+            - href: guides/platform_workflows/handle_production_errors.qmd
+            - href: guides/platform_workflows/debug_pipeline_failures.qmd
+        - id: advanced-workflows-section
+          section: "Advanced Workflows"
+          contents:
+            - href: guides/advanced_workflows/track_data_lineage.qmd
+            - href: guides/advanced_workflows/build_feature_store.qmd
+            - href: guides/advanced_workflows/integrate_existing_tools.qmd
+
+    - id: concepts
+      title: "Concepts"
+      collapse-level: 2
+      contents:
+        - id: understanding-xorq-section
+          section: "Understanding Xorq"
+          contents:
+            - concepts/understanding_xorq/overview.qmd
+            - concepts/understanding_xorq/how_xorq_works.qmd
+            - concepts/understanding_xorq/why_deferred_execution.qmd
+            - concepts/understanding_xorq/multi_engine_execution.qmd
+            - concepts/understanding_xorq/intelligent_caching_system.qmd
+            - concepts/understanding_xorq/expression_format.qmd
+            - concepts/understanding_xorq/when_to_use_xorq.qmd
+        - id: core-concepts-section
+          section: "Core Concepts"
+          contents:
+            - concepts/core_concepts/content_addressed_hashing.qmd
+            - concepts/core_concepts/build_system.qmd
+            - concepts/core_concepts/compute_catalog.qmd
+            - concepts/core_concepts/profile_based_connections.qmd
+            - concepts/core_concepts/user_defined_exchange_functions.qmd
+            - concepts/core_concepts/serving_expressions_as_endpoints.qmd
+            - concepts/core_concepts/data_lineage_tracking.qmd
+            - concepts/core_concepts/reproducible_environments_uv.qmd
+            - concepts/core_concepts/feature_serving_patterns.qmd
+            - concepts/core_concepts/batch_processing_llms.qmd
+            - concepts/core_concepts/point_in_time_correctness.qmd
+
+    - id: reference
+      title: "Reference"
+      collapse-level: 2
+      contents:
+        - reference/glossary.qmd
+        - id: backend-config-section
+          section: "Backend Configuration"
+          contents:
+            - api_reference/backend_configuration/overview.qmd
+            - api_reference/backend_configuration/profiles_api.qmd
+            - api_reference/backend_configuration/env_variables.qmd
+            - api_reference/backend_configuration/supported_backends.qmd
+        - id: cli-commands-section
+          section: "CLI Commands"
+          contents:
+            - api_reference/cli/index.qmd
+            - api_reference/cli/init.qmd
+            - api_reference/cli/build.qmd
+            - api_reference/cli/uv-build.qmd
+            - api_reference/cli/run.qmd
+            - api_reference/cli/uv-run.qmd
+            - api_reference/cli/serve-flight-udxf.qmd
+            - api_reference/cli/serve-unbound.qmd
+            - api_reference/cli/lineage.qmd
+            - api_reference/cli/ps.qmd
+            - id: catalog-subsection
+              section: "catalog"
+              contents:
+                - api_reference/cli/catalog/add.qmd
+                - api_reference/cli/catalog/ls.qmd
+                - api_reference/cli/catalog/info.qmd
+                - api_reference/cli/catalog/rm.qmd
+                - api_reference/cli/catalog/diff-builds.qmd
+        - reference/index.qmd
 
     - id: api-reference
       title: "Python API"
       collapse-level: 1
       contents:
+        - reference/index.qmd
         - id: core-operations-section
-          section: "Core Expressions"
+          section: "Core Operations"
           contents:
-            - reference/Table.qmd
-            - reference/GroupedTable.qmd
-            - reference/Value.qmd
-            - reference/Scalar.qmd
-            - reference/Column.qmd
-            - reference/NumericColumn.qmd
-            - reference/IntegerColumn.qmd
-            - reference/FloatingColumn.qmd
-            - reference/StringValue.qmd
-            - reference/TimeValue.qmd
-            - reference/DateValue.qmd
-            - reference/DayOfWeek.qmd
-            - reference/TimestampValue.qmd
-            - reference/IntervalValue.qmd
-        - id: machine-learning-operations-section
-          section: "Machine Learning Helpers"
+            - reference/connect.qmd
+            - reference/execute.qmd
+            - reference/memtable.qmd
+            - reference/read_csv.qmd
+            - reference/read_parquet.qmd
+            - reference/deferred_read_csv.qmd
+            - reference/deferred_read_parquet.qmd
+            - reference/to_csv.qmd
+            - reference/to_json.qmd
+            - reference/to_parquet.qmd
+            - reference/to_pyarrow.qmd
+            - reference/to_pyarrow_batches.qmd
+            - reference/to_sql.qmd
+            - reference/register.qmd
+            - reference/get_plans.qmd
+        - id: types-schemas-section
+          section: "Types and Schemas"
           contents:
-            - reference/train_test_splits.qmd
-            - reference/Step.qmd
-            - reference/Pipeline.qmd
+            - reference/datatypes.qmd
+            - reference/schemas.qmd
         - id: data-operations-section
           section: "Data Operations"
           contents:
-            - reference/read_csv.qmd
-            - reference/read_parquet.qmd
-            - reference/memtable.qmd
-            - reference/to_sql.qmd
-            - reference/execute.qmd
-            - reference/to_pyarrow_batches.qmd
-            - reference/to_pyarrow.qmd
-            - reference/to_parquet.qmd
-            - reference/to_csv.qmd
-            - reference/to_json.qmd
+            - reference/Column.qmd
+            - reference/DateValue.qmd
+            - reference/DayOfWeek.qmd
+            - reference/FloatingColumn.qmd
+            - reference/GroupedTable.qmd
+            - reference/IntegerColumn.qmd
+            - reference/IntervalValue.qmd
+            - reference/NumericColumn.qmd
+            - reference/Scalar.qmd
+            - reference/StringValue.qmd
+            - reference/Table.qmd
+            - reference/TimeValue.qmd
+            - reference/TimestampValue.qmd
+            - reference/Value.qmd
+            - reference/window.qmd
+            - reference/selectors.qmd
         - id: udf-system-section
           section: "UDF System"
           contents:
             - reference/agg.pandas_df.qmd
             - reference/agg.pyarrow.qmd
+            - reference/flight_udxf.qmd
             - reference/make_pandas_expr_udf.qmd
             - reference/make_pandas_udf.qmd
             - reference/pyarrow_udwf.qmd
+        - id: ml-operations-section
+          section: "ML Operations"
+          contents:
+            - reference/Pipeline.qmd
+            - reference/Step.qmd
+            - reference/FittedPipeline.qmd
+            - reference/FittedStep.qmd
+            - reference/train_test_splits.qmd
+            - reference/deferred_fit_predict.qmd
+            - reference/deferred_fit_transform.qmd
+            - reference/calc_split_column.qmd
+            - reference/make_quickgrove_udf.qmd
+        - id: caching-section
+          section: "Caching"
+          contents:
+            - reference/ParquetStorage.qmd
+            - reference/ParquetSnapshotStorage.qmd
+            - reference/SourceStorage.qmd
+            - reference/SourceSnapshotStorage.qmd
+        - id: lineage-section
+          section: "Lineage"
+          contents:
+            - reference/build_column_trees.qmd
+            - reference/build_tree.qmd
+            - reference/print_tree.qmd
+        - id: flight-operations-section
+          section: "Flight Operations"
+          contents:
+            - reference/FlightServer.qmd
+            - reference/FlightUrl.qmd
+            - reference/connect_flight.qmd
+            - reference/make_udxf.qmd
+        - id: catalog-operations-section
+          section: "Catalog Operations"
+          contents:
+            - reference/XorqCatalog.qmd
+            - reference/Build.qmd
+            - reference/Alias.qmd
+            - reference/CatalogMetadata.qmd
 
     - id: cli-reference
       title: "CLI Commands"
       collapse-level: 2
       contents:
+        - api_reference/cli/index.qmd
         - api_reference/cli/init.qmd
         - api_reference/cli/build.qmd
-        - api_reference/cli/run.qmd
         - api_reference/cli/uv-build.qmd
+        - api_reference/cli/run.qmd
         - api_reference/cli/uv-run.qmd
-        - api_reference/cli/serve-unbound.qmd
         - api_reference/cli/serve-flight-udxf.qmd
-
-    - id: how_to_guides
-      title: "How-To Guides"
+        - api_reference/cli/serve-unbound.qmd
+        - api_reference/cli/lineage.qmd
+        - api_reference/cli/ps.qmd
+        - id: catalog-section
+          section: "catalog"
+          contents:
+            - api_reference/cli/catalog/add.qmd
+            - api_reference/cli/catalog/ls.qmd
+            - api_reference/cli/catalog/info.qmd
+            - api_reference/cli/catalog/rm.qmd
+            - api_reference/cli/catalog/diff-builds.qmd
+    
+    - id: contributors
+      title: "Contributors"
+      collapse-level: 2
       contents:
-         - how_to/into_backend_caching.qmd
-         - how_to/integration_patterns.qmd
-         - how_to/io_xorq.qmd
-         - how_to/lineage.qmd
+        - contributors/getting_started.qmd
+        - contributors/code_guidelines.qmd
+        - contributors/documentation_guidelines.qmd
+        - contributors/testing.qmd
+      
 
 format:
   html:
@@ -150,6 +341,18 @@ quartodoc:
     - title: Core Operations
       desc: "APIs for reading and returning data"
       contents:
+        - name: connect
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: execute
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: memtable
+          dynamic: true
+          signature_name: full
+          package: xorq.api
         - name: read_csv
           dynamic: true
           signature_name: full
@@ -158,27 +361,11 @@ quartodoc:
           dynamic: true
           signature_name: full
           package: xorq.api
-        - name: memtable
+        - name: deferred_read_csv
           dynamic: true
           signature_name: full
           package: xorq.api
-        - name: to_sql
-          dynamic: true
-          signature_name: full
-          package: xorq.api
-        - name: execute
-          dynamic: true
-          signature_name: full
-          package: xorq.api
-        - name: to_pyarrow_batches
-          dynamic: true
-          signature_name: full
-          package: xorq.api
-        - name: to_pyarrow
-          dynamic: true
-          signature_name: full
-          package: xorq.api
-        - name: to_parquet
+        - name: deferred_read_parquet
           dynamic: true
           signature_name: full
           package: xorq.api
@@ -187,6 +374,30 @@ quartodoc:
           signature_name: full
           package: xorq.api
         - name: to_json
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: to_parquet
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: to_pyarrow
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: to_pyarrow_batches
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: to_sql
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: register
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: get_plans
           dynamic: true
           signature_name: full
           package: xorq.api
@@ -233,6 +444,18 @@ quartodoc:
          - SourceCache
          - SourceSnapshotCache
 
+    - title: Data Operations
+      desc: "Table, column, and value types"
+      contents:
+        - name: window
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+        - name: selectors
+          dynamic: true
+          signature_name: full
+          package: xorq.api
+
     - title: Machine Learning Operations
       package: xorq.expr.ml
       desc: "Machine Learning Functions and Helpers"
@@ -240,6 +463,68 @@ quartodoc:
         - train_test_splits
         - Step
         - Pipeline
+        - FittedStep
+        - FittedPipeline
+        - name: deferred_fit_predict
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.ml
+        - name: deferred_fit_transform
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.ml
+        - name: calc_split_column
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.ml
+        - name: make_quickgrove_udf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.ml
+
+    - title: Lineage
+      desc: "Data lineage tracking utilities"
+      contents:
+        - name: build_column_trees
+          dynamic: true
+          signature_name: full
+          package: xorq.common.utils.lineage_utils
+        - name: build_tree
+          dynamic: true
+          signature_name: full
+          package: xorq.common.utils.lineage_utils
+        - name: print_tree
+          dynamic: true
+          signature_name: full
+          package: xorq.common.utils.lineage_utils
+
+    - title: Flight Operations
+      desc: "Apache Arrow Flight server and client operations"
+      contents:
+        - name: FlightServer
+          package: xorq.flight
+        - name: FlightUrl
+          package: xorq.flight
+        - name: connect
+          dynamic: true
+          signature_name: full
+          package: xorq.flight
+        - name: make_udxf
+          dynamic: true
+          signature_name: full
+          package: xorq.expr.relations
+
+    - title: Catalog Operations
+      desc: "Compute catalog management"
+      contents:
+        - name: XorqCatalog
+          package: xorq.catalog
+        - name: Build
+          package: xorq.catalog
+        - name: Alias
+          package: xorq.catalog
+        - name: CatalogMetadata
+          package: xorq.catalog
 
     - title: Type System
       desc: "Data types and schemas"
@@ -325,3 +610,5 @@ quartodoc:
         - name: flight_udxf
           dynamic: true
           package: xorq.expr.relations
+
+    

@@ -1,0 +1,19 @@
+---
+title: 'Train your first model'
+---
+
+## Coming soon
+
+This tutorial will guide you through training your first classification model with Xorq.
+
+You will learn how to use the Step and Pipeline classes to build and train a model.
+
+**What you'll learn:**
+- Load a dataset for training
+- Create a Step with a classifier
+- Fit the model to data
+- Make predictions
+- Evaluate basic metrics
+
+Check back soon for the complete tutorial.
+

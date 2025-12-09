@@ -1,0 +1,18 @@
+---
+title: 'Deploy your first model'
+---
+
+## Coming soon
+
+This tutorial will guide you through deploying a trained model as a prediction endpoint.
+
+You will learn how to serve models via Apache Arrow Flight for low-latency predictions.
+
+**What you'll learn:**
+- Deploy a model via Flight
+- Make predictions from a client
+- Validate schemas
+- Manage server lifecycle
+
+Check back soon for the complete tutorial.
+

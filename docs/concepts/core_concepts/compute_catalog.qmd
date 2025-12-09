@@ -1,0 +1,18 @@
+---
+title: 'Compute catalog'
+---
+
+## Coming soon
+
+This page will explain how the compute catalog manages builds, aliases, and metadata.
+
+You will understand how to use the catalog for deployment and version management.
+
+**What you'll learn:**
+- What the catalog stores
+- How builds are registered
+- Alias management
+- Catalog query operations
+
+Check back soon for the complete concept guide.
+

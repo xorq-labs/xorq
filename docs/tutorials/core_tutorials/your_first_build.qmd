@@ -1,0 +1,282 @@
+---
+title: 'Your first build'
+---
+
+This tutorial helps you understand what Xorq builds are and why they matter. You'll create your first build and inspect the generated artifacts.
+
+By the end, you'll know how builds capture your code as portable, versioned artifacts.
+
+## What is a build?
+
+A build captures your Xorq expression as a portable artifact that you can version, share, and deploy. When you run `xorq build`, Xorq analyzes your code and generates a manifest describing the computation.
+
+Think of a build like compiling source code into an executable—you get a self-contained artifact that runs anywhere Xorq runs.
+
+:::{.callout-tip}
+### Why builds matter
+Builds let you version your computations, deploy them to production, and share them with your team. They're the bridge between development and deployment.
+:::
+
+## Create a Python file
+
+First, let's create a simple Python file with a Xorq expression. This file will be the input to your build.
+
+Create a file called `my_first_expr.py`:
+
+```python
+# my_first_expr.py
+import xorq.api as xo
+
+# Connect and load data
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+# Create expression
+filtered_iris = (
+    iris
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(
+        count=xo._.species.count(),
+        avg_width=xo._.sepal_width.mean()
+    )
+)
+```
+
+This expression filters iris flowers by sepal length and aggregates by species. Nothing fancy, but it's enough to demonstrate builds.
+
+## Run your first build
+
+Now let's build this expression. Open your terminal and run the `xorq build` command.
+
+```bash
+# Build the expression named 'filtered_iris'
+xorq build my_first_expr.py -e filtered_iris
+```
+
+The `-e filtered_iris` flag tells Xorq which expression to build from the file.
+
+You'll see output showing the build process:
+
+```
+Building expression 'filtered_iris'...
+✓ Analyzed dependencies
+✓ Generated manifest
+✓ Computed build hash: a1b2c3d4e5f6...
+Build complete: builds/a1b2c3d4e5f6/
+```
+
+:::{.callout-note}
+### Build hash
+The hash (like `a1b2c3d4e5f6`) is computed from your expression's structure. Same expression = same hash, always.
+:::
+
+## Inspect build artifacts
+
+Let's look at what Xorq generated. Navigate to the builds directory:
+
+```bash
+# List the build directory
+ls -la builds/a1b2c3d4e5f6/
+```
+
+You'll see several files:
+
+```
+builds/a1b2c3d4e5f6/
+├── expr.yaml          # Expression manifest (YAML format)
+├── metadata.json      # Build metadata
+└── __pycache__/       # Python cache files
+```
+
+The key artifact is `expr.yaml`—this contains your expression as a declarative manifest.
+
+## Understand the manifest
+
+Let's look inside `expr.yaml`. Open it in your text editor:
+
+```yaml
+# Simplified expr.yaml structure
+op: Aggregate
+kwargs:
+  metrics:
+    - count
+    - avg_width
+  by:
+    - species
+parent:
+  op: Filter
+  kwargs:
+    predicates:
+      - sepal_length > 6
+  parent:
+    op: UnboundTable
+    kwargs:
+      name: iris
+```
+
+The manifest describes your expression as a tree of operations. Each node has:
+- An operation type (`Filter`, `Aggregate`, etc.)
+- Arguments (`kwargs`)
+- Parent operations
+
+This structure is platform-independent. You can run this manifest on any system with Xorq, even if it doesn't have your original Python code.
+
+:::{.callout-tip}
+### Version control
+Check your `expr.yaml` files into git. They're text-based, so you get meaningful diffs when expressions change.
+:::
+
+## Understand the build hash
+
+The build hash comes from the manifest content, not the data. Let's see what this means.
+
+Run the build again with the same code:
+
+```bash
+xorq build my_first_expr.py -e filtered_iris
+```
+
+You'll get the same hash: `a1b2c3d4e5f6`. Same expression = same hash.
+
+Now modify the filter threshold in your Python file:
+
+```python
+# Change from > 6 to > 6.5
+filtered_iris = (
+    iris
+    .filter(xo._.sepal_length > 6.5)  # Changed!
+    ...
+)
+```
+
+Build again:
+
+```bash
+xorq build my_first_expr.py -e filtered_iris
+```
+
+You'll get a different hash: `f6e5d4c3b2a1`. Different expression = different hash.
+
+This content-addressed hashing means builds are automatically versioned by their computational content.
+
+## Run a build
+
+Once you have a build, you can run it with the `xorq run` command:
+
+```bash
+# Run the build by hash
+xorq run builds/a1b2c3d4e5f6/
+```
+
+This executes the manifest and shows results. You don't need the original Python file—the manifest contains everything Xorq needs.
+
+:::{.callout-note}
+### Portable execution
+You can copy the build directory to another machine, and `xorq run` will work there too (assuming data sources are accessible).
+:::
+
+## Add to the catalog
+
+Builds become even more powerful when you add them to the catalog. This gives them discoverable names.
+
+```bash
+# Add build to catalog with an alias
+xorq catalog add builds/a1b2c3d4e5f6/ --alias my-iris-analysis
+```
+
+Now you can reference this build by name:
+
+```bash
+# List catalog entries
+xorq catalog ls
+
+# Run by alias instead of hash
+xorq run my-iris-analysis
+```
+
+The catalog acts as a registry for your team's computations. Others can discover and reuse your builds.
+
+## Builds with dependencies
+
+Let's create a more complex build with multiple expressions. Create `pipeline.py`:
+
+```python
+# pipeline.py
+import xorq.api as xo
+
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+# Step 1: Filter
+filtered = iris.filter(xo._.sepal_length > 5)
+
+# Step 2: Add calculated column
+with_ratio = filtered.mutate(
+    ratio=xo._.sepal_length / xo._.sepal_width
+)
+
+# Step 3: Aggregate
+summary = (
+    with_ratio
+    .group_by("species")
+    .agg(
+        avg_ratio=xo._.ratio.mean(),
+        count=xo._.species.count()
+    )
+)
+```
+
+Build it:
+
+```bash
+xorq build pipeline.py -e summary
+```
+
+The manifest will capture the entire pipeline—filter, mutate, and aggregate—as a single versioned artifact.
+
+:::{.callout-warning}
+### Build scope
+Builds capture the expression you specify with `-e`. If your expression depends on other expressions, those are included automatically.
+:::
+
+## Complete example
+
+Here's a full workflow from code to deployed build:
+
+```bash
+# 1. Create expression file
+cat > analysis.py << 'EOF'
+import xorq.api as xo
+
+con = xo.connect()
+data = xo.examples.iris.fetch(backend=con)
+
+result = (
+    data
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(avg=xo._.sepal_width.mean())
+)
+EOF
+
+# 2. Build the expression
+xorq build analysis.py -e result
+
+# 3. Run the build
+xorq run builds/<hash>/
+
+# 4. Add to catalog
+xorq catalog add builds/<hash>/ --alias iris-analysis
+
+# 5. Run from catalog
+xorq run iris-analysis
+```
+
+## Next steps
+
+Now you understand builds. Continue exploring:
+
+- [Manage the compute catalog](/guides/platform_workflows/manage_compute_catalog.qmd) shows how to organize builds in the catalog
+- [Build reproducible environments](/guides/platform_workflows/build_reproducible_environments.qmd) explains uv-build for hermetic environments
+- [Set up CI/CD pipelines](/guides/platform_workflows/setup_cicd_pipelines.qmd) covers automated build and deployment workflows

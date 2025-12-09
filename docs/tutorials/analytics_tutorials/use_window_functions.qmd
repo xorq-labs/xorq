@@ -1,0 +1,18 @@
+---
+title: 'Use window functions'
+---
+
+## Coming soon
+
+This tutorial will teach you how to create and use window functions for advanced analytics.
+
+You will learn ranking, moving averages, and other window operations in Xorq.
+
+**What you'll learn:**
+- Define window partitions
+- Apply ranking functions
+- Calculate rolling aggregates
+- Understand window frames
+
+Check back soon for the complete tutorial.
+

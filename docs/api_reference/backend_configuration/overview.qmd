@@ -1,0 +1,37 @@
+---
+title: 'Overview'
+---
+
+## Backend Configuration
+
+Xorq supports multiple execution engines (backends) for running your data and ML workloads. This section covers how to configure and use different backends.
+
+### Topics
+
+- [Profiles](profiles_api.qmd) - Secure connection management via environment variables
+- [Environment Variables](env_variables.qmd) - Available configuration options
+- [Supported Backends](supported_backends.qmd) - Choose the right backend for your workload
+
+### Quick start
+
+Connect to the default embedded backend:
+
+```python
+import xorq.api as xo
+
+con = xo.connect()
+```
+
+Connect to a specific backend:
+
+```python
+# DuckDB
+duckdb_con = xo.duckdb.connect()
+
+# PostgreSQL
+pg_con = xo.postgres.connect_env()
+
+# Pandas
+pandas_con = xo.pandas.connect()
+```
+

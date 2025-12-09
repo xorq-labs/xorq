@@ -1,0 +1,19 @@
+---
+title: 'Use deferred fit and predict'
+---
+
+## Coming soon
+
+This tutorial will show you how to use deferred execution for model fitting and prediction.
+
+You will learn when computation actually happens and how to leverage caching for ML workflows.
+
+**What you'll learn:**
+- Defer model fitting
+- Defer predictions
+- Understand computation timing
+- Cache training results
+- Performance benefits
+
+Check back soon for the complete tutorial.
+

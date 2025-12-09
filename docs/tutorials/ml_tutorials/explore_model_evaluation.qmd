@@ -1,0 +1,18 @@
+---
+title: 'Explore model evaluation'
+---
+
+## Coming soon
+
+This tutorial will show you how to compare multiple models to find the best one for your task.
+
+You will learn model selection workflows and how to evaluate different classifiers.
+
+**What you'll learn:**
+- Compare multiple classifiers
+- Evaluate model performance
+- Select the best model
+- Understand model tradeoffs
+
+Check back soon for the complete tutorial.
+

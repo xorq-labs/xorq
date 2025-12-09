@@ -1,0 +1,270 @@
+---
+title: "Quickstart"
+description: "Build and run your first Xorq ML pipeline in under five minutes"
+icon: "pencil-square"
+headline: "Get a first taste of Xorq"
+---
+
+After completing this guide, you have a working ML pipeline. This pipeline loads data, trains a model, and generates predictions. It uses Xorq's deferred execution model.
+
+## What you'll build
+
+In this quickstart, you:
+
+1. Set up your environment and install Xorq
+2. Initialize a project
+3. Build a pipeline expression
+4. Run your pipeline and save results
+5. Serve your pipeline as an endpoint
+
+The entire process takes about five minutes. By the end, you understand how Xorq transforms Python code into executable, servable pipelines.
+
+## Step 1: Set up your environment and install Xorq
+
+This step covers environment setup, Xorq installation, and verification.
+
+### Check your Python version
+
+::: {.callout-tip}
+### Python version
+Xorq requires Python 3.10 or higher. Check your version with `python --version`. If you need to install or update Python, then visit the [official Python downloads page](https://www.python.org/downloads/).
+:::
+
+### Create a virtual environment
+
+Create and activate a virtual environment:
+
+::: {.panel-tabset}
+
+### macOS/Linux
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### Windows
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+:::
+
+### Update pip
+
+Before installing Xorq, update pip to the latest version. This avoids compatibility issues:
+```bash
+python -m pip install --upgrade pip
+```
+
+### Install Xorq
+
+Now install Xorq using your preferred package manager:
+
+::: {.panel-tabset}
+
+### pip (macOS/Linux/Windows)
+```bash
+pip install "xorq[examples]"
+```
+
+### nix
+```bash
+nix run github:xorq-labs/xorq
+```
+
+:::
+
+### Verify installation
+
+Verify your installation by checking the version. Open a Python shell:
+```bash
+python
+```
+
+::: {.callout-note}
+If `python` does not work, then try `python3` instead.
+:::
+
+Import Xorq and check the version:
+```python
+import xorq
+xorq.__version__
+```
+
+You see a version number like `'0.3.4'`.
+
+Exit the Python shell:
+```python
+exit()
+```
+
+If you see a version number, then Xorq is installed correctly.
+
+With Xorq installed, the next step is to create your first project.
+
+## Step 2: Initialize a project
+
+Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the Palmer Penguins dataset:
+```bash
+xorq init -t penguins -p penguins_example # <1>
+cd penguins_example # <2>
+```
+1. Creates a new project called penguins_example using the penguins template.
+2. Moves into the project directory.
+
+The template generates an `expr.py` file. This file contains a complete ML pipeline with data loading, train/test splitting, model training, and prediction.
+
+::: {.callout-note}
+The penguins template includes caching, lineage tracking, and a scikit-learn logistic regression model. You can explore our [ten-minute tour](/tutorials/getting_started/10-minute-tour) to understand the generated pipeline after completing this quickstart.
+:::
+
+With your project initialized, the next step is to build it into an executable format.
+
+## Step 3: Build your expression
+
+Convert your pipeline into a serialized, executable format using the `build` command:
+```bash
+xorq build expr.py
+```
+
+**Output:**
+```
+Building expr from expr.py
+Written 'expr' to builds/12287e173c17
+builds/12287e173c17
+```
+
+The build creates a directory (like `builds/12287e173c17`) containing your serialized pipeline. This hash uniquely identifies your build.
+
+![](../../images/quickstart/build-output-hash.png)
+
+With your pipeline built, the next step is to run it and see results.
+
+## Step 4: Run your pipeline
+
+Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with the hash from your build output in step 3:
+
+::: {.callout-warning}
+### Windows users
+Skip the first tab and go straight to "Save to file". Running without an output file may cause issues on Windows.
+:::
+
+::: {.panel-tabset}
+
+### View results
+```bash
+xorq run builds/<BUILD_HASH>
+```
+
+### Save to file
+```bash
+xorq run builds/<BUILD_HASH> -o predictions.parquet
+```
+
+### Limit output
+```bash
+xorq run builds/<BUILD_HASH> --limit 10 -o predictions.parquet
+```
+
+:::
+
+The command saves prediction results to `predictions.parquet`. You can open this file with any Parquet-compatible tool. Compatible tools include pandas, DuckDB, or Polars.
+
+With your pipeline running locally, the next step is to serve it as an endpoint.
+
+## Step 5: Serve your pipeline
+
+Serve your pipeline as an API endpoint using Arrow Flight. This allows other applications to query your pipeline over the network.
+
+### Start the Flight server
+
+::: {.callout-note}
+Start the Flight server with your built pipeline. Replace `<BUILD_HASH>` with your build hash:
+:::
+```bash
+xorq serve-flight-udxf --port 8001 builds/<BUILD_HASH>
+```
+
+Your pipeline is now running as an endpoint on `localhost:8001`. Keep this terminal window open while you query the pipeline.
+
+With the server running, the next step is to query your pipeline.
+
+## Query your served pipeline
+
+With the server running, you can query your pipeline from Python. Create a new Python file called `query.py` in your working directory. Paste the code below into the file:
+```python
+# query.py
+import xorq.api as xo
+
+client = xo.flight.client.FlightClient(port=8001) # <1>
+
+data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
+
+expr = (
+    xo.deferred_read_parquet(
+        con=xo.duckdb.connect(),
+        path=data_url,
+        table_name="penguins",
+    )
+    .select("bill_length_mm", "bill_depth_mm", "species") # <2>
+    .drop_null()
+    .limit(5)
+)
+
+fut, rbr = client.do_exchange("default", expr) # <3>
+result_df = rbr.read_pandas() # <4>
+print(result_df)
+```
+1. Connects to the Flight server on port 8001.
+2. Selects only the columns needed for prediction.
+3. Executes the expression via Flight's do_exchange protocol.
+4. Converts the result to a pandas DataFrame.
+
+### Run the query script
+
+Run the script:
+```bash
+python query.py
+```
+
+With querying complete, the next step is to learn about deploying specific expressions.
+
+## Deploy a specific expression
+
+For deployments, you can serve a specific built expression as an endpoint using `serve-unbound`. This allows you to expose a particular expression as a Catalog service.
+
+### Start the deployment server
+
+Open a new terminal and run:
+```bash
+xorq serve-unbound builds/<BUILD_HASH> --host localhost --port 8001 --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
+```
+
+::: {.callout-important}
+The hash `da8ba93cc97709f4ad9502e16d71e8e3` is specific to this quickstart template. When you build your own pipelines, you generate different hashes. For this tutorial, use the exact hash shown above.
+:::
+
+### View your results
+
+You can now run your `query.py` script while this terminal is running. You see a DataFrame with penguin measurements and species predictions.
+
+![](../../images/quickstart/quickstart-server-running.png)
+
+The output shows the original penguin measurements alongside their predicted species classifications.
+
+## What you built
+
+You just built your first Xorq ML pipeline. You initialized a project, built it into a portable format, ran it to generate predictions, and served it as an API endpoint.
+
+The entire workflow used Xorq's deferred execution model. No computation happened until you explicitly ran or queried the pipeline.
+
+## Next steps
+
+Continue learning:
+
+- [Take the 10-minute tour](/tutorials/getting_started/10-minute-tour) to explore lineage tracking, caching, and multi-engine execution.
+- [Train an XGBoost model](/tutorials/getting_started/hn_training_xgb) using the same patterns from this quickstart.
+- [Explore the CLI reference](/api_reference/cli/) to understand all available commands and options.
+- [Understand deferred execution](/concepts/deferred-execution) to learn how Xorq builds computation graphs.
+- [Join the community](https://discord.gg/8Kma9DhcJG) on Discord to get help and share your projects.

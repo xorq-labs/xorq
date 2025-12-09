@@ -1,0 +1,16 @@
+---
+title: 'Testing'
+---
+
+## Coming soon
+
+Guide to testing in the Xorq project.
+
+You'll learn:
+- How to run the test suite
+- Writing new tests
+- Test coverage requirements
+- CI/CD testing workflows
+
+Check back soon for the complete guide.
+

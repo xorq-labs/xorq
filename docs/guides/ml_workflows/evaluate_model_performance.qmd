@@ -1,0 +1,22 @@
+---
+title: 'Evaluate model performance'
+---
+
+## Coming soon
+
+This guide will show you how to implement comprehensive model evaluation in production.
+
+You will learn how to track metrics across experiments and compare model versions.
+
+**What you'll accomplish:**
+- Calculate evaluation metrics
+- Compare multiple models
+- Track experiments
+- Validate model quality
+
+**Prerequisites:**
+- Completed "Train your first model" tutorial
+- Trained model available
+
+Check back soon for the complete guide.
+

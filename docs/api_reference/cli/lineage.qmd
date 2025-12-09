@@ -1,0 +1,12 @@
+---
+title: 'lineage'
+---
+
+## Coming soon
+
+Documentation for the `xorq lineage` CLI command.
+
+This command tracks and displays data lineage information.
+
+Check back soon for complete documentation.
+
