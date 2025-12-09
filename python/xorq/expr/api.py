@@ -11,7 +11,7 @@ import toolz
 from opentelemetry import trace
 
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.let import Backend
+from xorq.backends.xorq import Backend
 from xorq.common.exceptions import XorqError
 from xorq.common.utils.caching_utils import find_backend
 from xorq.common.utils.defer_utils import (  # noqa: F403

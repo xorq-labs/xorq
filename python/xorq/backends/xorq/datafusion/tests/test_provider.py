@@ -2,7 +2,7 @@ import pyarrow as pa
 import pytest
 
 import xorq.api as xo
-from xorq.backends.let.datafusion.provider import IbisTableProvider
+from xorq.backends.xorq.datafusion.provider import IbisTableProvider
 
 
 @pytest.fixture
