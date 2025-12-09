@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import datetime
 import functools
 from abc import (
     abstractmethod,
@@ -60,19 +61,19 @@ class CacheStrategy:
 @frozen
 class CacheStorage:
     @abstractmethod
-    def key_exists(self, key):
+    def exists(self, key):
         pass
 
     @abstractmethod
-    def _get(self, expr):
+    def get(self, key):
         pass
 
     @abstractmethod
-    def _put(self, expr):
+    def put(self, key, value):
         pass
 
     @abstractmethod
-    def _drop(self, expr):
+    def drop(self, key):
         pass
 
 
@@ -85,55 +86,54 @@ class Cache:
         factory=functools.partial(options.get, "cache.key_prefix"),
     )
 
-    def exists(self, expr):
-        key = self.get_key(expr)
-        return self.storage.key_exists(key)
-
-    def key_exists(self, key):
-        return self.storage.key_exists(key)
-
-    def get_key(self, expr):
+    def calc_key(self, expr):
         # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
         if expr.ls.is_cached and expr.ls.storage.cache is self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
         # FIXME: let strategy solely determine key by giving it key_prefix
-        return self.key_prefix + self.strategy.get_key(expr)
+        return self.key_prefix + self.strategy.calc_key(expr)
+
+    def key_exists(self, key):
+        return self.storage.exists(key)
+
+    def exists(self, expr):
+        key = self.calc_key(expr)
+        return self.storage.exists(key)
 
     def get(self, expr: ir.Expr):
-        key = self.get_key(expr)
+        key = self.calc_key(expr)
         if not self.key_exists(key):
             raise KeyError
         else:
-            return self.storage._get(key)
+            return self.storage.get(key)
 
     def put(self, expr: ir.Expr, value):
-        key = self.get_key(expr)
+        key = self.calc_key(expr)
         if self.key_exists(key):
             raise ValueError
         else:
-            key = self.get_key(expr)
-            return self.storage._put(key, value)
+            return self.storage.put(key, value)
 
     @tracer.start_as_current_span("cache.set_default")
     def set_default(self, expr: ir.Expr, default):
         span = trace.get_current_span()
-        key = self.get_key(expr)
+        key = self.calc_key(expr)
         if not self.key_exists(key):
             span.add_event("cache.miss", {"key": key})
-            with tracer.start_as_current_span("cache._put") as child_span:
+            with tracer.start_as_current_span("cache.put") as child_span:
                 child_span.add_event("cache.miss", {"key": key})
-                return self.storage._put(key, default)
+                return self.storage.put(key, default)
         else:
             span.add_event("cache.hit", {"key": key})
-            return self.storage._get(key)
+            return self.storage.get(key)
 
     def drop(self, expr: ir.Expr):
-        key = self.get_key(expr)
+        key = self.calc_key(expr)
         if not self.key_exists(key):
             raise KeyError
         else:
-            self.storage._drop(key)
+            self.storage.drop(key)
 
 
 @frozen
@@ -143,12 +143,19 @@ class ModificationTimeStrategy(CacheStrategy):
         factory=functools.partial(options.get, "cache.key_prefix"),
     )
 
-    def get_key(self, expr: ir.Expr):
+    def calc_key(self, expr: ir.Expr):
         return expr.ls.tokenized
 
 
 @frozen
 class SnapshotStrategy(CacheStrategy):
+    def calc_key(self, expr: ir.Expr):
+        # can we cache this?
+        with self.normalization_context(expr):
+            replaced = self.replace_remote_table(expr)
+            tokenized = replaced.ls.tokenized
+            return "-".join(("snapshot", tokenized))
+
     @contextlib.contextmanager
     def normalization_context(self, expr):
         typs = map(type, expr.ls.backends)
@@ -194,13 +201,6 @@ class SnapshotStrategy(CacheStrategy):
             expr = self.cached_replace_remote_table(expr.op()).to_expr()
         return expr
 
-    def get_key(self, expr: ir.Expr):
-        # can we cache this?
-        with self.normalization_context(expr):
-            replaced = self.replace_remote_table(expr)
-            tokenized = replaced.ls.tokenized
-            return "-".join(("snapshot", tokenized))
-
     @staticmethod
     def normalize_backend(con):
         name = con.name
@@ -224,7 +224,7 @@ class SnapshotStrategy(CacheStrategy):
 
 
 @frozen
-class _ParquetStorage(CacheStorage):
+class ParquetStorage(CacheStorage):
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
         factory=_backend_init,
@@ -240,55 +240,72 @@ class _ParquetStorage(CacheStorage):
         converter=if_not_none(Path),
     )
 
+    def __attrs_post_init__(self):
+        self.path.mkdir(exist_ok=True, parents=True)
+
     @property
     def path(self):
         return (self.base_path or get_xorq_cache_dir()).joinpath(self.relative_path)
 
-    def __attrs_post_init__(self):
-        self.path.mkdir(exist_ok=True, parents=True)
-
-    def get_loc(self, key):
+    def get_path(self, key):
         return self.path.joinpath(key + ".parquet")
 
-    def key_exists(self, key):
-        return self.get_loc(key).exists()
+    def exists(self, key):
+        return self.get_path(key).exists()
 
-    def _get(self, key):
+    def get(self, key):
         op = deferred_read_parquet(
-            path=self.get_loc(key),
+            path=self.get_path(key),
             con=self.source,
             table_name=key,
         ).op()
         return op
 
-    def _put(self, key, value):
-        loc = self.get_loc(key)
+    def put(self, key, value):
+        path = self.get_path(key)
         # move from temp location upon success to prevent empty files on failure
-        tmp_loc = loc.with_name(loc.name + ".tmp")
-        value.to_expr().to_parquet(tmp_loc)
-        tmp_loc.rename(loc)
-        return self._get(key)
+        tmp_path = path.with_name(path.name + ".tmp")
+        value.to_expr().to_parquet(tmp_path)
+        tmp_path.rename(path)
+        return self.get(key)
 
-    def _drop(self, key):
-        path = self.get_loc(key)
+    def drop(self, key):
+        path = self.get_path(key)
         path.unlink()
+
+
+@frozen
+class ParquetTTLStorage(ParquetStorage):
+    ttl = field(
+        validator=instance_of(datetime.timedelta), default=datetime.timedelta(days=1)
+    )
+
+    def exists(self, key):
+        path = self.get_path(key)
+        return path.exists() and self.satisfies_ttl(path)
+
+    def satisfies_ttl(self, path):
+        delta = datetime.datetime.now() - datetime.datetime.fromtimestamp(
+            path.stat().st_mtime
+        )
+        return delta < self.ttl
 
 
 # named with underscore prefix until we swap out SourceStorage
 @frozen
-class _SourceStorage(CacheStorage):
+class SourceStorage(CacheStorage):
     source = field(
         validator=instance_of(ibis.backends.BaseBackend),
         factory=_backend_init,
     )
 
-    def key_exists(self, key):
+    def exists(self, key):
         return key in self.source.tables
 
-    def _get(self, key):
+    def get(self, key):
         return self.source.table(key).op()
 
-    def _put(self, key, value):
+    def put(self, key, value):
         def is_remote(value):
             name = value.to_expr()._find_backend().name
             # FIXME: add pyiceberg, trino
@@ -316,29 +333,16 @@ class _SourceStorage(CacheStorage):
                 )
         else:
             self.source.create_table(key, value.to_expr().to_pyarrow())
-        return self._get(key)
+        return self.get(key)
 
-    def _drop(self, key):
+    def drop(self, key):
         self.source.drop_table(key)
-
-
-###############
-###############
-# drop in replacements for previous versions
-
-
-def chained_getattr(self, attr):
-    for obj in (self.cache, self.cache.storage, self.cache.strategy):
-        if hasattr(obj, attr):
-            return getattr(obj, attr)
-    else:
-        return object.__getattribute__(self, attr)
 
 
 @public
 @frozen
-class ParquetSnapshotStorage:
-    """Storage that caches expressions as Parquet files using a snapshot invalidation strategy.
+class ParquetSnapshotCache(Cache):
+    """Cache expressions as Parquet files using a snapshot invalidation strategy.
 
     This storage class saves intermediate results as Parquet files in a specified
     directory and uses a snapshot-based approach for cache invalidation.
@@ -354,200 +358,75 @@ class ParquetSnapshotStorage:
         xorq.config.options.cache.default_path.
     """
 
-    source = field(
-        validator=instance_of(ibis.backends.BaseBackend),
-        factory=_backend_init,
-    )
-    relative_path = field(
-        validator=instance_of(Path),
-        factory=functools.partial(options.get, "cache.default_relative_path"),
-        converter=Path,
-    )
-    base_path = field(
-        validator=optional(instance_of(Path)),
-        default=None,
-        converter=if_not_none(Path),
-    )
-    cache = field(validator=instance_of(Cache), init=False)
-
     def __attrs_post_init__(self):
-        cache = Cache(
-            strategy=SnapshotStrategy(),
-            storage=_ParquetStorage(
-                source=self.source,
-                relative_path=self.relative_path,
-                base_path=self.base_path,
-            ),
-        )
-        object.__setattr__(self, "cache", cache)
+        assert isinstance(self.strategy, SnapshotStrategy)
+        assert isinstance(self.storage, ParquetStorage)
 
-    def exists(self, expr: ir.Expr) -> bool:
-        """Check if the expression has been cached.
-
-        Parameters
-        ----------
-        expr : ir.Expr
-            The expression to check
-
-        Returns
-        -------
-        bool
-            True if the expression is cached, False otherwise
-        """
-        return self.cache.exists(expr)
-
-    __getattr__ = chained_getattr
+    @classmethod
+    def from_kwargs(cls, **kwargs):
+        strategy = SnapshotStrategy()
+        storage = ParquetStorage(**kwargs)
+        return cls(strategy=strategy, storage=storage)
 
 
 @public
 @frozen
-class ParquetStorage:
-    """Storage that caches expressions as Parquet files using a modification time strategy.
-
-    This storage class saves intermediate results as Parquet files in a specified
-    directory and uses a modification time-based approach for cache invalidation.
-    The cache is invalidated when the modification time of the source data changes,
-    making it suitable for data that changes periodically.
-
-    Parameters
-    ----------
-    source : ibis.backends.BaseBackend
-        The backend to use for execution. Defaults to xorq's default backend.
-    relative_path : Path
-        The relative directory where Parquet files will be stored. Defaults to
-        xorq.config.options.cache.default_path.
-    base_path : Path
-        The base path where Parquet files will be stored.
-    """
-
-    source = field(
-        validator=instance_of(ibis.backends.BaseBackend),
-        factory=_backend_init,
-    )
-    relative_path = field(
-        validator=instance_of(Path),
-        factory=functools.partial(options.get, "cache.default_relative_path"),
-        converter=Path,
-    )
-    base_path = field(
-        validator=optional(instance_of(Path)),
-        default=None,
-        converter=if_not_none(Path),
-    )
-    cache = field(validator=instance_of(Cache), init=False)
-
+class ParquetTTLSnapshotCache(Cache):
     def __attrs_post_init__(self):
-        cache = Cache(
-            strategy=ModificationTimeStrategy(),
-            storage=_ParquetStorage(
-                source=self.source,
-                relative_path=self.relative_path,
-                base_path=self.base_path,
-            ),
-        )
-        object.__setattr__(self, "cache", cache)
+        assert isinstance(self.strategy, SnapshotStrategy)
+        assert isinstance(self.storage, ParquetTTLStorage)
 
-    __getattr__ = chained_getattr
-
-    @property
-    def root_path(self):
-        return self.cache.storage.path
+    @classmethod
+    def from_kwargs(cls, **kwargs):
+        strategy = SnapshotStrategy()
+        storage = ParquetTTLStorage(**kwargs)
+        return cls(strategy=strategy, storage=storage)
 
 
 @public
 @frozen
-class SourceStorage:
-    """Storage that caches expressions within the source backend using a modification time strategy.
-
-    This storage class materializes intermediate results as tables within the source
-    backend itself (e.g., as temporary tables in a database) and uses a modification
-    time-based approach for cache invalidation. The cache is invalidated when the
-    modification time of the source data changes.
-
-    Parameters
-    ----------
-    source : ibis.backends.BaseBackend
-        The backend to use for both execution and storage. Defaults to xorq's default backend.
-    """
-
-    source = field(
-        validator=instance_of(ibis.backends.BaseBackend),
-        factory=_backend_init,
-    )
-    cache = field(validator=instance_of(Cache), init=False)
-
+class SourceCache:
     def __attrs_post_init__(self):
-        cache = Cache(
-            strategy=ModificationTimeStrategy(), storage=_SourceStorage(self.source)
-        )
-        object.__setattr__(self, "cache", cache)
+        assert isinstance(self.strategy, ModificationTimeStrategy)
+        assert isinstance(self.storage, SourceStorage)
 
-    __getattr__ = chained_getattr
+    @classmethod
+    def from_kwargs(cls, key_prefix, source):
+        strategy = ModificationTimeStrategy(key_prefix=key_prefix)
+        storage = SourceStorage(source=source)
+        return cls(strategy=strategy, storage=storage)
 
 
 @public
 @frozen
-class SourceSnapshotStorage:
-    """Storage that caches expressions within the source backend using a snapshot strategy.
-
-    This storage class materializes intermediate results as tables within the source
-    backend itself (e.g., as temporary tables in a database) and uses a snapshot-based
-    approach for cache invalidation. The snapshot strategy ensures cached data is only
-    invalidated when the expression's definition changes, making it suitable for
-    stable datasets that are queried frequently.
-
-    Parameters
-    ----------
-    source : ibis.backends.BaseBackend
-        The backend to use for both execution and storage. Defaults to xorq's default backend.
-    """
-
-    source = field(
-        validator=instance_of(ibis.backends.BaseBackend),
-        factory=_backend_init,
-    )
-    cache = field(validator=instance_of(Cache), init=False)
-
+class SourceSnapshotCache:
     def __attrs_post_init__(self):
-        cache = Cache(strategy=SnapshotStrategy(), storage=_SourceStorage(self.source))
-        object.__setattr__(self, "cache", cache)
+        assert isinstance(self.strategy, SnapshotStrategy)
+        assert isinstance(self.storage, SourceStorage)
 
-    __getattr__ = chained_getattr
+    @classmethod
+    def from_kwargs(cls, source):
+        strategy = SnapshotStrategy()
+        storage = SourceStorage(source=source)
+        return cls(strategy=strategy, storage=storage)
 
 
 @public
 @frozen
-class GCStorage:
-    bucket_name = field(validator=instance_of(str))
-    source = field(
-        validator=instance_of(ibis.backends.BaseBackend),
-        factory=_backend_init,
-    )
-    cache = field(validator=instance_of(Cache), init=False)
-
+class GCSCache(Cache):
     def __attrs_post_init__(self):
         from xorq.common.utils.gcloud_utils import _GCStorage
 
-        cache = Cache(
-            strategy=ModificationTimeStrategy(),
-            storage=_GCStorage(
-                bucket_name=self.bucket_name,
-                source=self.source,
-            ),
-        )
-        object.__setattr__(self, "cache", cache)
+        assert isinstance(self.strategy, ModificationTimeStrategy)
+        assert isinstance(self.storage, _GCStorage)
 
-    def get_path(self, expr):
-        return (
-            Path(
-                self.bucket_name,
-                self.cache.get_key(expr),
-            )
-            .with_suffix(".parquet")
-            .as_posix()
-        )
+    @classmethod
+    def from_kwargs(cls, bucket_name, source):
+        from xorq.common.utils.gcloud_utils import _GCStorage
 
-    __getattr__ = chained_getattr
+        strategy = ModificationTimeStrategy()
+        storage = _GCStorage(bucket_name=bucket_name, source=source)
+        return cls(strategy=strategy, storage=storage)
 
 
 def maybe_prevent_cross_source_caching(expr, storage):

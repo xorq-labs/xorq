@@ -57,28 +57,28 @@ class _GCStorage(CacheStorage):
         assert hasattr(self.source, "read_record_batches")
         object.__setattr__(self, "fs", gcsfs.GCSFileSystem())
 
-    def key_exists(self, key):
-        path = self.calc_path(key)
-        return self.fs.exists(path)
-
-    def calc_path(self, key):
+    def get_path(self, key):
         path = f"{self.bucket_name}/{key}.parquet"
         return path
 
-    def _get(self, key):
-        path = self.calc_path(key)
+    def exists(self, key):
+        path = self.get_path(key)
+        return self.fs.exists(path)
+
+    def get(self, key):
+        path = self.get_path(key)
         rbr = rbr_from_fs(self.fs, path)
         op = self.source.read_record_batches(rbr).op()
         return op
 
-    def _put(self, key, value):
-        path = self.calc_path(key)
+    def put(self, key, value):
+        path = self.get_path(key)
         rbr = value.to_expr().to_pyarrow_batches()
         rbr_to_fs(self.fs, path, rbr)
-        return self._get(key)
+        return self.get(key)
 
-    def _drop(self, key):
-        path = self.calc_path(key)
+    def drop(self, key):
+        path = self.get_path(key)
         self.fs.delete(path)
 
 
