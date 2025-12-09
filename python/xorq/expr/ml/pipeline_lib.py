@@ -19,6 +19,7 @@ from toolz.curried import (
 import xorq.expr.datatypes as dt
 from xorq.backends.let import connect
 from xorq.caching import (
+    ParquetSnapshotStorage,
     ParquetStorage,
     SourceStorage,
 )
@@ -348,7 +349,10 @@ class FittedStep:
     )
     target = field(validator=optional(instance_of(str)), default=None)
     storage = field(
-        validator=optional(instance_of((ParquetStorage, SourceStorage))), default=None
+        validator=optional(
+            instance_of((ParquetStorage, SourceStorage, ParquetSnapshotStorage))
+        ),
+        default=None,
     )
     dest_col = field(validator=optional(instance_of(str)), default=None)
 

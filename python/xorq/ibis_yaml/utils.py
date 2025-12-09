@@ -2,7 +2,7 @@ import pathlib
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict
 
-from xorq.caching import ParquetStorage, SourceStorage
+from xorq.caching import ParquetSnapshotStorage, ParquetStorage, SourceStorage
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -129,6 +129,12 @@ def translate_storage(storage, translation_context: Any) -> Dict:
             "source": storage.source._profile.hash_name,
             "relative_path": str(storage.relative_path),
         }
+    elif isinstance(storage, ParquetSnapshotStorage):
+        return {
+            "type": "ParquetSnapshotStorage",
+            "source": storage.source._profile.hash_name,
+            "relative_path": str(storage.relative_path),
+        }
     else:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
 
@@ -142,6 +148,12 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
         return ParquetStorage(
+            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+        )
+    elif storage_yaml["type"] == "ParquetSnapshotStorage":
+        source_profile_name = storage_yaml["source"]
+        source = compiler.profiles[source_profile_name]
+        return ParquetSnapshotStorage(
             source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
         )
     else:
