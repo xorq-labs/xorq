@@ -1,0 +1,18 @@
+---
+title: 'Understand Step and Pipeline'
+---
+
+## Coming soon
+
+This tutorial will explain how Xorq wraps scikit-learn pipelines through the Step and Pipeline classes.
+
+You will understand the core ML abstractions that make Xorq's deferred execution work with machine learning.
+
+**What you'll learn:**
+- What Step and Pipeline are
+- How they differ from scikit-learn
+- Benefits of the Xorq wrapper
+- When to use each class
+
+Check back soon for the complete tutorial.
+

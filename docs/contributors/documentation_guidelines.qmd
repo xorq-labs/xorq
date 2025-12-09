@@ -1,0 +1,16 @@
+---
+title: 'Documentation guidelines'
+---
+
+## Coming soon
+
+Guidelines for writing and maintaining Xorq documentation.
+
+This guide covers:
+- Documentation style guide
+- Writing conventions
+- How to add new pages
+- Review process
+
+Check back soon for complete guidelines.
+

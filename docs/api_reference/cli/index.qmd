@@ -1,13 +1,32 @@
 ---
-title: CLI Commands
+title: 'CLI Commands'
 ---
+
+## Overview
+
+Xorq provides command-line tools for building, running, and managing your data and ML pipelines.
+
+### Project management
 
 |                                            |                                                                                      |
 |--------------------------------------------|--------------------------------------------------------------------------------------|
 | [init](init.qmd)                           | Create a Xorq project.                                                               |
 | [build](build.qmd)                         | Compile a Xorq expression into a reusable artifact that can be executed later.       |
-| [uv-build](uv-build.qmd)                   | Build a Xorq expression using uv for dependency management.                    |
+| [uv-build](uv-build.qmd)                   | Build a Xorq expression using uv for dependency management.                          |
 | [run](run.qmd)                             | Executes a built expression artifact and outputs the results in your desired format. |
-| [uv-run](uv-run.qmd)                       | Run a built expression artifact using uv for dependency management.              |
-| [serve-flight-udxf](serve-flight-udxf.qmd) | Deploys UDXF nodes to a Flight Server, enabling remote execution and  data serving.  |
-| [serve-unbound](serve-unbound.qmd)         | Serve an unbound expression via Flight Server.                               |
+| [uv-run](uv-run.qmd)                       | Run a built expression artifact using uv for dependency management.                  |
+
+### Serving and deployment
+
+|                                            |                                                                                      |
+|--------------------------------------------|--------------------------------------------------------------------------------------|
+| [serve-flight-udxf](serve-flight-udxf.qmd) | Deploys UDXF nodes to a Flight Server, enabling remote execution and data serving.   |
+| [serve-unbound](serve-unbound.qmd)         | Serve an unbound expression via Flight Server.                                       |
+
+### Analysis and management
+
+|                                            |                                                                                      |
+|--------------------------------------------|--------------------------------------------------------------------------------------|
+| [lineage](lineage.qmd)                     | Track and display data lineage information.                                          |
+| [ps](ps.qmd)                               | List running Xorq processes.                                                         |
+| [catalog](catalog/add.qmd)                 | Manage the compute catalog (add, ls, info, rm, diff-builds).                        |

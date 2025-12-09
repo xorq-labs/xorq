@@ -1,0 +1,12 @@
+---
+title: 'catalog add'
+---
+
+## Coming soon
+
+Documentation for the `xorq catalog add` CLI command.
+
+This command adds a build to the compute catalog with an optional alias.
+
+Check back soon for complete documentation.
+
