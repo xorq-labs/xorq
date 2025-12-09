@@ -10,7 +10,7 @@ import yaml
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
-from xorq.caching import ParquetStorage, SourceStorage
+from xorq.caching import ParquetSnapshotStorage, ParquetStorage, SourceStorage
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
@@ -577,3 +577,22 @@ def test_into_backend_with_array_filter(build_dir):
     assert {"duckdb", "let"}.intersection(
         source.name for source in find_all_sources(roundtrip_expr)
     )
+
+
+def test_roundtrip_parquet_snapshot_storage(build_dir, tmp_path, users_df):
+    original = xo.connect()
+    ddb = xo.duckdb.connect()
+
+    storage = ParquetSnapshotStorage(source=ddb, relative_path=tmp_path)
+
+    t = original.register(users_df, table_name="users")
+    expr = (
+        t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(storage=storage)
+    )
+
+    compiler = BuildManager(build_dir)
+    expr_hash = compiler.compile_expr(expr)
+
+    roundtrip_expr = compiler.load_expr(expr_hash)
+
+    assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
