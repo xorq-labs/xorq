@@ -99,7 +99,13 @@ def test_string_as_date():
 
     xorq_expr = from_ibis(expr)
 
-    assert expr.execute() == pd.to_datetime(xorq_expr.execute())
+    expected = expr.execute()
+    actual = xorq_expr.execute()
+
+    if version.parse(ibis.__version__) >= version.parse("10.0.0"):
+        actual = pd.to_datetime(actual)
+
+    assert expected == actual
 
 
 def test_string_as_timestamp():
