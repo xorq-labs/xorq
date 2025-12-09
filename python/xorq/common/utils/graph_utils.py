@@ -81,7 +81,7 @@ def walk_nodes(node_types, expr):
         if isinstance(node, node_types):
             result += (node,)
 
-        to_visit += set(gen_children_of(node)).difference(visited)
+        to_visit += (child for child in gen_children_of(node) if child not in visited)
 
     return result
 
