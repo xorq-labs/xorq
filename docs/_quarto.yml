@@ -248,11 +248,6 @@ website:
         - id: ml-operations-section
           section: "ML Operations"
           contents:
-            # - reference/Pipeline.qmd
-            # - reference/Step.qmd
-            # - reference/FittedPipeline.qmd
-            # - reference/FittedStep.qmd
-            # - reference/train_test_splits.qmd
             - reference/deferred_fit_predict.qmd
             - reference/deferred_fit_transform.qmd
             - reference/calc_split_column.qmd
@@ -463,24 +458,11 @@ quartodoc:
         - train_test_splits
         - Step
         - Pipeline
-        # - FittedStep
         - FittedPipeline
-        - name: deferred_fit_predict
-          dynamic: true
-          signature_name: full
-          package: xorq.expr.ml
-        - name: deferred_fit_transform
-          dynamic: true
-          signature_name: full
-          package: xorq.expr.ml
-        - name: calc_split_column
-          dynamic: true
-          signature_name: full
-          package: xorq.expr.ml
-        - name: make_quickgrove_udf
-          dynamic: true
-          signature_name: full
-          package: xorq.expr.ml
+        - deferred_fit_predict
+        - deferred_fit_transform
+        - calc_split_column
+        - make_quickgrove_udf
 
     - title: Lineage
       desc: "Data lineage tracking utilities"
@@ -512,7 +494,7 @@ quartodoc:
         - name: make_udxf
           dynamic: true
           signature_name: full
-          package: xorq.expr.relations
+          package: xorq.flight.exchanger
 
     - title: Catalog Operations
       desc: "Compute catalog management"
@@ -609,6 +591,4 @@ quartodoc:
           package: xorq.expr.udf
         - name: flight_udxf
           dynamic: true
-          package: xorq.expr.relations
-
-    
+          package: xorq.flight.exchanger
