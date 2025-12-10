@@ -591,4 +591,4 @@ quartodoc:
           package: xorq.expr.udf
         - name: flight_udxf
           dynamic: true
-          package: xorq.flight.exchanger
+          package: xorq.expr.relations
