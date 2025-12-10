@@ -203,7 +203,7 @@ def con_cross_source_snapshot(xo_con, alltypes_df):
         cached_expr = expr.cache(storage=storage)
         # test preconditions
         assert not storage.exists(expr)  # the expr is not cached
-        assert storage.source is not expr_con  # the cache is cross source
+        assert storage.storage.source is not expr_con  # the cache is cross source
         # test cache creation
         df = cached_expr.execute()
         assert not df.empty
