@@ -817,14 +817,9 @@ class LETSQLAccessor:
         return patched_tokenize(self.expr)
 
     def get_cache_path(self):
-        from xorq.caching import Cache
-
-        if self.is_cached and isinstance(
-            self.storage,
-            Cache,
-        ):
+        if self.is_cached and hasattr(self.storage.storage, "get_path"):
             cn = self.op
-            return cn.storage.get_loc(cn.storage.get_key(cn.parent))
+            return cn.storage.storage.get_path(cn.storage.calc_key(cn.parent))
         else:
             return None
 
@@ -845,13 +840,13 @@ class LETSQLAccessor:
     @property
     def cached_dt(self):
         if self.exists():
-            return self.storage.cache.get(self.expr)
+            return self.storage.get(self.uncached_one)
         else:
             return None
 
     def get_key(self):
         if self.is_cached:
-            return self.storage.get_key(self.uncached_one)
+            return self.storage.strategy.calc_key(self.uncached_one)
         else:
             return None
 
