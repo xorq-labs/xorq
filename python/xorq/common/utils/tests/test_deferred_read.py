@@ -123,7 +123,7 @@ def test_deferred_read_cache_key_check(con, tmp_path, pins_resource, request):
 
     assert pins_resource.table_name not in con.tables
     t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
-    storage.get_key(t)
+    storage.strategy.calc_key(t)
     assert pins_resource.table_name not in con.tables
 
 
@@ -315,7 +315,7 @@ def test_deferred_read_cache(con, tmp_path, method_name, path, remote):
 
     t = read_method(path, connection)
     uncached = t.head(10)
-    assert storage.get_key(uncached) is not None
+    assert storage.strategy.calc_key(uncached) is not None
 
     expr = uncached.cache(storage=storage)
     assert not expr.execute().empty

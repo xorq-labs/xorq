@@ -108,7 +108,7 @@ def test_pandas_snapshot_key(alltypes_df, snapshot):
     con = xo.pandas.connect()
     t = con.create_table("t", alltypes_df)
     storage = SourceSnapshotCache.from_kwargs(source=con)
-    actual = storage.get_key(t)
+    actual = storage.strategy.calc_key(t)
     snapshot.assert_match(actual, "pandas_snapshot_key.txt")
 
 
@@ -117,7 +117,7 @@ def test_duckdb_snapshot_key(batting, snapshot):
     con = xo.duckdb.connect()
     t = con.register(batting.to_pyarrow(), "dashed-name")
     storage = SourceSnapshotCache.from_kwargs(source=con)
-    actual = storage.get_key(t)
+    actual = storage.strategy.calc_key(t)
     snapshot.assert_match(actual, "duckdb_snapshot_key.txt")
 
 
