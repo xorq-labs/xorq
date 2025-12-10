@@ -56,6 +56,7 @@ Xorq supports four types of storage, each optimized for different use cases:
 **SourceStorage** provides automatic cache invalidation when upstream data changes:
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 from xorq.caching import SourceStorage
 
@@ -92,10 +93,20 @@ result = xo.execute(cached)
 **SnapshotStorage** provides caching without automatic invalidation:
 
 ```{python}
+#| eval: false
+import xorq.api as xo
 from xorq.caching import SourceSnapshotStorage
+
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
 
 # Create snapshot storage
 storage = SourceSnapshotStorage(source=con)
+
+# Register table from postgres
+batting = pg.table("batting")
+expr = batting.filter(batting.yearID == 2015)
 
 # Cache data without automatic invalidation
 cached_snapshot = (
@@ -115,8 +126,14 @@ cached_snapshot = (
 **ParquetStorage** is a special case of SourceStorage that persists data as Parquet files:
 
 ```{python}
+#| eval: false
+import xorq.api as xo
 from pathlib import Path
 from xorq.caching import ParquetStorage
+
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
 
 # Create a storage for cached data
 cache_storage = ParquetStorage(source=con, base_path=Path.cwd())
@@ -141,11 +158,21 @@ result = cached_awards.execute()
 **ParquetSnapshotStorage** combines Parquet file persistence with snapshot-style caching (no automatic invalidation):
 
 ```{python}
+#| eval: false
+import xorq.api as xo
 from pathlib import Path
 from xorq.caching import ParquetSnapshotStorage
 
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
+
 # Create a snapshot storage for Parquet files
 cache_storage = ParquetSnapshotStorage(source=con, base_path=Path.cwd())
+
+# Register table from postgres
+batting = pg.table("batting")
+expr = batting.filter(batting.yearID == 2015)
 
 # Cache the results as Parquet files without automatic invalidation
 cached_analysis = expr.cache(storage=cache_storage)
@@ -165,6 +192,18 @@ result = cached_analysis.execute()
 Xorq excels at caching data across different backends using `into_backend()`:
 
 ```{python}
+#| eval: false
+import xorq.api as xo
+from xorq.caching import ParquetStorage
+
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
+
+# Register table from postgres
+batting = pg.table("batting")
+expr = batting.filter(batting.yearID == 2015)
+
 # Read from Postgres and cache in xorq backend
 awards = pg.table("awards_players").into_backend(con, "awards")
 

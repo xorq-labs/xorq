@@ -85,7 +85,7 @@ elapsed = time.time() - start
 print(f"✗ Cache miss: computed in {elapsed:.4f} seconds")
 print(f"Result shape: {result1.shape}")
 print(f"\nFirst few rows:")
-print(result1.slice(0, 3))
+print(result1.head(3))
 ```
 1. Start timing the execution.
 2. Execute the expression—this triggers computation and caching.
