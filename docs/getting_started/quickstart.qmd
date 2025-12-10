@@ -15,7 +15,7 @@ In this quickstart, you:
 2. Initialize a project
 3. Build a pipeline expression
 4. Run your pipeline and save results
-5. Serve your pipeline as an endpoint
+5. Serve a UDXF expression as an endpoint
 
 The entire process takes about five minutes. By the end, you understand how Xorq transforms Python code into executable, servable pipelines.
 
@@ -115,9 +115,6 @@ cd penguins_example # <2>
 
 The template generates an `expr.py` file. This file contains a complete ML pipeline with data loading, train/test splitting, model training, and prediction.
 
-::: {.callout-note}
-The penguins template includes caching, lineage tracking, and a scikit-learn logistic regression model. You can explore our [ten-minute tour](/tutorials/getting_started/10-minute-tour) to understand the generated pipeline after completing this quickstart.
-:::
 
 With your project initialized, the next step is to build it into an executable format.
 
@@ -140,6 +137,7 @@ The build creates a directory (like `builds/12287e173c17`) containing your seria
 ![](../../images/quickstart/build-output-hash.png)
 
 With your pipeline built, the next step is to run it and see results.
+
 
 ## Step 4: Run your pipeline
 
@@ -171,87 +169,145 @@ xorq run builds/<BUILD_HASH> --limit 10 -o predictions.parquet
 
 The command saves prediction results to `predictions.parquet`. You can open this file with any Parquet-compatible tool. Compatible tools include pandas, DuckDB, or Polars.
 
-With your pipeline running locally, the next step is to serve it as an endpoint.
+With your pipeline running locally, the next step is to serve a UDXF expression as an endpoint.
 
-## Step 5: Serve your pipeline
 
-Serve your pipeline as an API endpoint using Arrow Flight. This allows other applications to query your pipeline over the network.
+## Step 5: Serve a UDXF expression
+
+Serve a User-Defined Exchange Function (UDXF) as an API endpoint using Arrow Flight. UDXFs enable distributed data processing over the network. This example creates a simple transformation function that you can serve and query.
+
+### Create a simple UDXF example
+
+Create a new file called `udxf_example.py` in your working directory:
+
+```python
+# udxf_example.py
+import pandas as pd
+import xorq.api as xo
+
+# <1>
+def add_computed_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Add a computed column that doubles the input value."""
+    result = df.copy()
+    result["doubled"] = result["value"] * 2
+    return result
+
+# <2>
+input_schema = xo.schema({"value": "int64"})
+output_schema = xo.schema({"value": "int64", "doubled": "int64"})
+
+# <3>
+con = xo.connect()
+input_table = xo.memtable({"value": [1, 2, 3, 4, 5]}, schema=input_schema)
+
+# <4>
+expr = xo.expr.relations.flight_udxf(
+    input_table,
+    process_df=add_computed_column,
+    maybe_schema_in=input_schema,
+    maybe_schema_out=output_schema,
+    con=con,
+    make_udxf_kwargs={
+        "name": "double_value",
+        "command": "double_value"
+    }
+)
+```
+1. Defines a transformation function that doubles input values.
+2. Specifies input and output schemas for type safety.
+3. Creates a simple input table with test data.
+4. Creates the UDXF expression with the transformation function.
+
+### Build the UDXF expression
+
+Build the expression:
+
+```bash
+xorq build udxf_example.py --expr-name expr
+```
+
+This creates a second `<HASH>` in your `builds/<HASH>/` directory with your serialized UDXF expression. 
 
 ### Start the Flight server
 
-::: {.callout-note}
-Start the Flight server with your built pipeline. Replace `<BUILD_HASH>` with your build hash:
-:::
+Start the Flight server with your built UDXF expression. Replace `<BUILD_HASH>` with the second hash from your build output:
+
 ```bash
 xorq serve-flight-udxf --port 8001 builds/<BUILD_HASH>
 ```
 
-Your pipeline is now running as an endpoint on `localhost:8001`. Keep this terminal window open while you query the pipeline.
+Your UDXF is now running as an endpoint on `localhost:8001`. Keep this terminal window open while you query it.
 
-With the server running, the next step is to query your pipeline.
+### Query your served UDXF
 
-## Query your served pipeline
+With the server running, create a new Python file called `query_udxf.py`:
 
-With the server running, you can query your pipeline from Python. Create a new Python file called `query.py` in your working directory. Paste the code below into the file:
 ```python
-# query.py
+# query_udxf.py
 import xorq.api as xo
 
-client = xo.flight.client.FlightClient(port=8001) # <1>
+# <1>
+client = xo.flight.client.FlightClient(port=8001)
 
-data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
+# <2>
+test_data = xo.memtable({"value": [10, 20, 30]}, schema=xo.schema({"value": "int64"}))
 
-expr = (
-    xo.deferred_read_parquet(
-        con=xo.duckdb.connect(),
-        path=data_url,
-        table_name="penguins",
-    )
-    .select("bill_length_mm", "bill_depth_mm", "species") # <2>
-    .drop_null()
-    .limit(5)
-)
+# <3>
+fut, rbr = client.do_exchange("double_value", test_data)
+result_df = rbr.read_pandas()
 
-fut, rbr = client.do_exchange("default", expr) # <3>
-result_df = rbr.read_pandas() # <4>
+# <4>
+print("Input values:")
+print(test_data.execute())
+print("\nOutput with doubled values:")
 print(result_df)
 ```
 1. Connects to the Flight server on port 8001.
-2. Selects only the columns needed for prediction.
-3. Executes the expression via Flight's do_exchange protocol.
-4. Converts the result to a pandas DataFrame.
+2. Creates test data with values to double.
+3. Executes the UDXF via Flight's do_exchange protocol.
+4. Prints both input and output for comparison.
 
 ### Run the query script
 
 Run the script:
+
 ```bash
-python query.py
+python query_udxf.py
 ```
+
+You see output showing the input values and their doubled counterparts. The UDXF processed your data remotely and returned the transformed results.
 
 With querying complete, the next step is to learn about deploying specific expressions.
 
-## Deploy a specific expression
+## Deploy a specific expression 
 
-For deployments, you can serve a specific built expression as an endpoint using `serve-unbound`. This allows you to expose a particular expression as a Catalog service.
+For deployments, you can serve a specific built expression from the penguins template as an endpoint using `serve-unbound`. This allows you to expose a particular expression as a Catalog service.
 
 ### Start the deployment server
 
+
 Open a new terminal and run:
+
 ```bash
 xorq serve-unbound builds/<BUILD_HASH> --host localhost --port 8001 --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
 ```
 
 ::: {.callout-important}
-The hash `da8ba93cc97709f4ad9502e16d71e8e3` is specific to this quickstart template. When you build your own pipelines, you generate different hashes. For this tutorial, use the exact hash shown above.
+The hash `da8ba93cc97709f4ad9502e16d71e8e3` is specific to the penguins template. When you build your own pipelines, you generate different hashes. For this tutorial, use the exact hash shown above.
 :::
 
 ### View your results
 
-You can now run your `query.py` script while this terminal is running. You see a DataFrame with penguin measurements and species predictions.
+With the server running, you can query the penguins expression using the Flight client. 
 
+Run the script:
+
+```bash
+python query_udxf.py
+```
 ![](../../images/quickstart/quickstart-server-running.png)
 
-The output shows the original penguin measurements alongside their predicted species classifications.
+The output shows penguin measurements alongside their predicted species classifications.
 
 ## What you built
 
@@ -263,7 +319,6 @@ The entire workflow used Xorq's deferred execution model. No computation happene
 
 Continue learning:
 
-- [Take the 10-minute tour](/tutorials/getting_started/10-minute-tour) to explore lineage tracking, caching, and multi-engine execution.
 - [Train an XGBoost model](/tutorials/getting_started/hn_training_xgb) using the same patterns from this quickstart.
 - [Explore the CLI reference](/api_reference/cli/) to understand all available commands and options.
 - [Understand deferred execution](/concepts/deferred-execution) to learn how Xorq builds computation graphs.
