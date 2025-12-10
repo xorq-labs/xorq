@@ -846,7 +846,7 @@ class LETSQLAccessor:
 
     def get_key(self):
         if self.is_cached:
-            return self.storage.strategy.calc_key(self.uncached_one)
+            return self.storage.calc_key(self.uncached_one)
         else:
             return None
 

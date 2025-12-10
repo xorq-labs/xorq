@@ -55,7 +55,7 @@ def test_pandas_snapshot(xo_con, alltypes_df):
     # everything else is stable, despite the different data
     assert normalized0[1][1] == normalized1[1][1]
     assert storage.exists(uncached)
-    assert storage.strategy.calc_key(uncached).count(KEY_PREFIX) == 1
+    assert storage.calc_key(uncached).count(KEY_PREFIX) == 1
     executed2 = cached_expr.ls.uncached.execute()
     assert not executed0.equals(executed2)
 

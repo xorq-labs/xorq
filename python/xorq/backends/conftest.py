@@ -184,7 +184,7 @@ def con_snapshot(xo_con, alltypes_df):
         assert executed0.equals(executed2)
         assert not executed0.equals(executed3)
         # key does not have key prefix
-        assert storage.strategy.calc_key(uncached).count(KEY_PREFIX) == 1
+        assert storage.calc_key(uncached).count(KEY_PREFIX) == 1
 
     return functools.partial(_con_snapshot, alltypes_df, xo_con)
 
