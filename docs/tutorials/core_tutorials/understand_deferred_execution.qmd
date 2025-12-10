@@ -76,7 +76,7 @@ result = filtered.execute()
 print(f"After execute: got results!")
 print(f"Result type: {type(result)}")
 print(f"Number of rows: {len(result)}")
-print(result.slice(0, 5))
+print(result.head(5))
 ```
 1. We're about to trigger computation.
 2. This line executes the expression—computation happens here!
@@ -132,11 +132,11 @@ Let's see what happens if you force early execution versus deferring.
 ```{python}
 # <1>
 immediate = iris.filter(xo._.sepal_length > 6).execute()  # Executes immediately
-filtered_again = immediate.group_by("species").agg(xo._.sepal_width.sum())
 
 # <2>
 print(f"Immediate approach - first result type: {type(immediate)}")
-print(f"This is already executed data, not an expression!")
+print(f"This is already executed data (pandas DataFrame), not an expression!")
+print(f"Cannot chain more Xorq operations on this DataFrame")
 
 # <3>
 deferred = (
@@ -149,6 +149,7 @@ deferred = (
 # <4>
 print(f"\nDeferred approach - expression type: {type(deferred)}")
 print(f"This is an expression that can still be optimized!")
+print(f"Can chain more operations or execute when ready")
 ```
 1. Execute early by calling `.execute()` after the first operation.
 2. You now have materialized data, not an expression.
