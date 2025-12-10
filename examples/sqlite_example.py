@@ -48,7 +48,7 @@ expr = (
         "annual_income",
         "purchase_amount",
     )
-    .cache(SourceCache.from_kwargs(sqlite_con))
+    .cache(SourceCache.from_kwargs(source=sqlite_con))
 )
 
 
