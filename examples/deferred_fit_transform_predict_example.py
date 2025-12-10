@@ -5,7 +5,7 @@ from sklearn.metrics import mean_absolute_error
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
 from xorq.expr.ml.pipeline_lib import (
@@ -91,7 +91,7 @@ transform_col = "title"
 target = "descendants"
 target_predicted = f"{target}_predicted"
 con = xo.connect()
-storage = ParquetStorage(source=con)
+storage = ParquetCache.from_kwargs(source=con)
 (train_expr, test_expr) = make_splits(con)
 fitted_pipeline, test_predicted = make_pipeline(
     train_expr, test_expr, transform_col, target, target_predicted, storage

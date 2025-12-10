@@ -1,11 +1,11 @@
 import xorq.api as xo
 from xorq.api import _
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 
 
 pg = xo.postgres.connect_examples()
 con = xo.connect()
-storage = ParquetStorage(source=con)
+storage = ParquetCache.from_kwargs(source=con)
 
 
 expr = (

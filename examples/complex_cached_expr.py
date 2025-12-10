@@ -9,8 +9,8 @@ from sklearn.metrics import mean_absolute_error
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import (
-    ParquetStorage,
-    SourceStorage,
+    ParquetCache,
+    SourceCache,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
@@ -163,7 +163,7 @@ def do_serve(expr, deferred_transform, deferred_predict, transform_port, predict
 def make_exprs():
     name = "hn-fetcher-input-large"
     con = xo.connect()
-    storage = ParquetStorage(source=con)
+    storage = ParquetCache.from_kwargs(source=con)
     # pg.postgres.connect_env().create_catalog("caching")
     pg = xo.postgres.connect_env(database="caching")
 
@@ -175,10 +175,10 @@ def make_exprs():
         )
         .pipe(do_hackernews_fetcher_udxf)
         .filter(xo._.text.notnull())
-        .cache(storage=SourceStorage(pg))
+        .cache(storage=SourceCache.from_kwargs(source=pg))
         .pipe(do_hackernews_sentiment_udxf, con=con)
-        .cache(storage=SourceStorage(pg))
-        .cache(storage=ParquetStorage(con))
+        .cache(storage=SourceCache.from_kwargs(source=pg))
+        .cache(storage=ParquetCache.from_kwargs(source=con))
         .filter(~xo._[SENTIMENT].contains("ERROR"))
         .mutate(
             **{

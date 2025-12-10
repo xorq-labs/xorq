@@ -19,7 +19,7 @@ import xorq.api as xo
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import (
-    ParquetStorage,
+    ParquetCache,
 )
 from xorq.common.utils.defer_utils import deferred_read_csv
 from xorq.expr.ml import (
@@ -158,7 +158,7 @@ def make_pipeline(dataset_name, target_column, predicted_col, con=None, storage=
 
 
 con = xo.connect()
-storage = ParquetStorage(
+storage = ParquetCache.from_kwargs(
     source=con,
     relative_path="./tmp-cache",
     base_path=Path(".").absolute(),

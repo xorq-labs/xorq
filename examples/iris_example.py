@@ -1,12 +1,12 @@
 from pathlib import Path
 
 import xorq.api as xo
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 
 
 t = xo.examples.iris.fetch()
 con = t.op().source
-storage = ParquetStorage(source=con, relative_path=Path("./parquet-cache"))
+storage = ParquetCache.from_kwargs(source=con, relative_path=Path("./parquet-cache"))
 
 expr = t.filter([t.species == "Setosa"]).cache(storage=storage)
 

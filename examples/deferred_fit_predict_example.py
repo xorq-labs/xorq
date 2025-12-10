@@ -3,7 +3,7 @@ from sklearn.linear_model import LinearRegression
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 from xorq.expr.ml.pipeline_lib import Step
 from xorq.ml import deferred_fit_predict_sklearn
 
@@ -28,7 +28,7 @@ step = Step(typ=LinearRegression)
 
 
 con = xo.connect()
-storage = ParquetStorage(source=con)
+storage = ParquetCache.from_kwargs(source=con)
 (df, features, target) = make_data()
 t = con.register(df, "t")
 kwargs = {

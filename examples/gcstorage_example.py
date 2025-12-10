@@ -1,10 +1,10 @@
 import xorq.api as xo
-from xorq.caching import GCStorage
+from xorq.caching import GCCache
 
 
 bucket_name = "expr-cache"
 con = xo.connect()
-storage = GCStorage(bucket_name=bucket_name)
+storage = GCCache.from_kwargs(bucket_name=bucket_name)
 
 
 expr = xo.deferred_read_csv(
