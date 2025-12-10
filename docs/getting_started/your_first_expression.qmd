@@ -17,9 +17,25 @@ You'll create an expression that:
 
 The entire process takes about 2 minutes.
 
+::: {.callout-note}
+### Prerequisites
+Before starting, make sure you have Xorq installed. See [Installation](installation.qmd) if you need help.
+:::
+
 :::{.callout-tip}
 ### Dataset included
 The iris dataset comes with Xorq's examples package. You don't need to download anything separately.
+:::
+
+:::{.callout-note}
+### How to follow along
+Run the code examples using any of these methods:
+
+- **Python interactive shell**: Open a terminal, run `python`, then copy and paste each code block
+- **Jupyter notebook**: Create a new notebook and run each code block in a separate cell
+- **Python script**: Copy all code blocks into a `.py` file and run it with `python script.py`
+
+Run the code blocks in order since they build on each other. Variables like `iris` and `expr` are created in earlier blocks and used in later ones.
 :::
 
 ## Load data
@@ -134,7 +150,7 @@ print(result)
 
 Now that you've written your first expression, explore these concepts:
 
-- [Understand deferred execution](understand_deferred_execution.qmd) explains when computation happens versus when expressions are built
-- [Explore caching](explore_caching.qmd) shows you how to speed up repeated queries
-- [Switch backends](switch_backends.qmd) teaches you how to run the same expression on different engines
+- [Understand deferred execution](../tutorials/core_tutorials/understand_deferred_execution.qmd) explains when computation happens versus when expressions are built
+- [Explore caching](../tutorials/core_tutorials/explore_caching.qmd) shows you how to speed up repeated queries
+- [Switch backends](../tutorials/core_tutorials/switch_backends.qmd) teaches you how to run the same expression on different engines
 

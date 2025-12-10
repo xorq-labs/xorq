@@ -10,7 +10,7 @@ By the end, you'll know how builds capture your code as portable, versioned arti
 
 A build captures your Xorq expression as a portable artifact that you can version, share, and deploy. When you run `xorq build`, Xorq analyzes your code and generates a manifest describing the computation.
 
-Think of a build like compiling source code into an executable—you get a self-contained artifact that runs anywhere Xorq runs.
+Think of a build like compiling source code into an executable. You get a self-contained artifact that runs anywhere Xorq runs.
 
 :::{.callout-tip}
 ### Why builds matter
@@ -89,7 +89,7 @@ builds/a1b2c3d4e5f6/
 └── __pycache__/       # Python cache files
 ```
 
-The key artifact is `expr.yaml`—this contains your expression as a declarative manifest.
+The key artifact is `expr.yaml`. This contains your expression as a declarative manifest.
 
 ## Understand the manifest
 
@@ -169,7 +169,7 @@ Once you have a build, you can run it with the `xorq run` command:
 xorq run builds/a1b2c3d4e5f6/
 ```
 
-This executes the manifest and shows results. You don't need the original Python file—the manifest contains everything Xorq needs.
+This executes the manifest and shows results. You don't need the original Python file. The manifest contains everything Xorq needs.
 
 :::{.callout-note}
 ### Portable execution
@@ -233,7 +233,7 @@ Build it:
 xorq build pipeline.py -e summary
 ```
 
-The manifest will capture the entire pipeline—filter, mutate, and aggregate—as a single versioned artifact.
+The manifest will capture the entire pipeline (filter, mutate, and aggregate) as a single versioned artifact.
 
 :::{.callout-warning}
 ### Build scope
@@ -275,8 +275,8 @@ xorq run iris-analysis
 
 ## Next steps
 
-Now you understand builds. Continue exploring:
+Now you understand builds. Continue with domain-specific tutorials:
 
-- [Manage the compute catalog](/guides/platform_workflows/manage_compute_catalog.qmd) shows how to organize builds in the catalog
-- [Build reproducible environments](/guides/platform_workflows/build_reproducible_environments.qmd) explains uv-build for hermetic environments
-- [Set up CI/CD pipelines](/guides/platform_workflows/setup_cicd_pipelines.qmd) covers automated build and deployment workflows
+- [Train your first model](../ml_tutorials/train_your_first_model.qmd) shows you how to build ML pipelines with Xorq
+- [Your first UDXF](../ai_tutorials/your_first_udxf.qmd) teaches you how to create user-defined exchange functions for custom processing
+- [Query across engines](../analytics_tutorials/query_across_engines.qmd) demonstrates how to combine data from multiple backends

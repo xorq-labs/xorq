@@ -228,6 +228,8 @@ xorq build udxf_example.py --expr-name expr
 
 This creates a second `<HASH>` in your `builds/<HASH>/` directory with your serialized UDXF expression. 
 
+![](../../images/quickstart/second-hash.png)
+
 ### Start the Flight server
 
 Start the Flight server with your built UDXF expression. Replace `<BUILD_HASH>` with the second hash from your build output:
@@ -319,7 +321,8 @@ The entire workflow used Xorq's deferred execution model. No computation happene
 
 Continue learning:
 
-- [Train an XGBoost model](/tutorials/getting_started/hn_training_xgb) using the same patterns from this quickstart.
-- [Explore the CLI reference](/api_reference/cli/) to understand all available commands and options.
-- [Understand deferred execution](/concepts/deferred-execution) to learn how Xorq builds computation graphs.
+- [Your first expression](/getting_started/your_first_expression.qmd) shows you how to build expressions from scratch without templates.
+- [Understand deferred execution](/tutorials/core_tutorials/understand_deferred_execution.qmd) explains how Xorq builds computation graphs before executing them.
+- [Explore caching](/tutorials/core_tutorials/explore_caching.qmd) demonstrates how Xorq caches results to speed up your workflows.
+- [Your first UDXF](/tutorials/ai_tutorials/your_first_udxf.qmd) teaches you how to create custom exchange functions like the one you just served.
 - [Join the community](https://discord.gg/8Kma9DhcJG) on Discord to get help and share your projects.
