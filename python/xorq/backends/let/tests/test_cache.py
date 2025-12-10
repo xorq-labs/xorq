@@ -12,10 +12,10 @@ import toolz
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceSnapshotStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
 )
 from xorq.common.utils.inspect_utils import get_python_version_no_dot
 from xorq.expr.udf import (
@@ -33,7 +33,7 @@ KEY_PREFIX = xo.config.options.cache.key_prefix
 
 @pytest.fixture
 def cached_two(ls_con, batting, tmp_path):
-    parquet_storage = ParquetStorage(source=ls_con, relative_path=tmp_path)
+    parquet_storage = ParquetCache(source=ls_con, relative_path=tmp_path)
     return (
         batting[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
@@ -58,7 +58,7 @@ def test_cache_simple(con, alltypes, alltypes_df):
             alltypes.int_col < alltypes.float_col * 2,
         ]
     )
-    cached = expr.cache(storage=SourceStorage(source=con))
+    cached = expr.cache(storage=SourceCache(source=con))
     tables_after_caching = con.list_tables()
 
     expected = alltypes_df[
@@ -188,7 +188,7 @@ def test_cache_recreate(alltypes):
 
     for con, expr in zip(cons, exprs):
         # FIXME: execute one, simply check the other returns true for `expr.ls.exists()`
-        expr.cache(storage=SourceStorage(source=con)).execute()
+        expr.cache(storage=SourceCache(source=con)).execute()
 
     (con_cached_tables0, con_cached_tables1) = (
         set(
@@ -251,7 +251,7 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     expr = t[cols]
     expected = alltypes_df[cols]
     source = expr._find_backend()
-    storage = ParquetStorage(
+    storage = ParquetCache(
         source=source,
         relative_path=tmp_path.joinpath("parquet-cache-storage"),
     )
@@ -289,7 +289,7 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
             alltypes.int_col < alltypes.float_col * 2,
         ]
     )
-    storage = ParquetStorage(
+    storage = ParquetCache(
         source=con,
         relative_path=tmp_path.joinpath("parquet-cache-storage"),
     )
@@ -302,14 +302,14 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
 def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
+    expr = t.cache(storage=ParquetCache(source=con, relative_path=tmp_path))
     assert expr.execute() is not None
 
 
 def test_read_parquet_and_cache_xorq(ls_con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = ls_con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
+    expr = t.cache(storage=ParquetCache(source=ls_con, relative_path=tmp_path))
     assert expr.execute() is not None
 
 
@@ -318,7 +318,7 @@ def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
     expr = (
         t[t.yearID == 2015]
-        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
+        .cache(storage=ParquetCache(source=con, relative_path=tmp_path))
         .cache()
     )
     assert expr.execute() is not None
@@ -327,7 +327,7 @@ def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
 def test_read_csv_and_cache(ls_con, csv_dir, tmp_path):
     batting_path = csv_dir / "batting.csv"
     t = ls_con.read_csv(batting_path, table_name=f"csv_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
+    expr = t.cache(storage=ParquetCache(source=ls_con, relative_path=tmp_path))
     assert expr.execute() is not None
 
 
@@ -340,14 +340,14 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
     )
     expr = (
         t[t.yearID == 2015]
-        .cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
+        .cache(storage=ParquetCache(source=ls_con, relative_path=tmp_path))
         .cache()
     )
     assert expr.execute() is not None
 
 
 def test_repeated_cache(con, ls_con, tmp_path):
-    storage = ParquetStorage(
+    storage = ParquetCache(
         source=ls_con,
         relative_path=tmp_path,
     )
@@ -366,7 +366,7 @@ def test_repeated_cache(con, ls_con, tmp_path):
 def test_cache_default_path_set(batting, ls_con, tmp_path):
     xo.options.cache.default_relative_path = tmp_path
 
-    storage = ParquetStorage(
+    storage = ParquetCache(
         source=ls_con,
     )
 
@@ -484,7 +484,7 @@ def test_ls_exists_doesnt_materialize(cached_two):
 
 @pytest.mark.parametrize(
     "cls",
-    [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
+    [ParquetSnapshotCache, ParquetCache, SourceSnapshotCache, SourceCache],
 )
 def test_cache_find_embedded_backend(cls, parquet_dir):
     con = xo.connect()

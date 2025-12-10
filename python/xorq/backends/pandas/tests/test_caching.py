@@ -3,7 +3,7 @@ import pandas as pd
 
 import xorq.api as xo
 from xorq.backends.conftest import KEY_PREFIX, get_storage_uncached
-from xorq.caching import SourceSnapshotStorage, SourceStorage
+from xorq.caching import SourceCache, SourceSnapshotCache
 from xorq.expr.relations import into_backend
 from xorq.vendor import ibis
 
@@ -20,7 +20,7 @@ def test_pandas_snapshot(xo_con, alltypes_df):
         table.group_by(group_by)
         .agg({f"count_{col}": table[col].count() for col in table.columns})
         .pipe(into_backend, xo_con)
-        .cache(storage=SourceSnapshotStorage(source=xo_con))
+        .cache(storage=SourceSnapshotCache(source=xo_con))
     )
     (storage, uncached) = get_storage_uncached(cached_expr)
 
@@ -63,6 +63,6 @@ def test_pandas_snapshot(xo_con, alltypes_df):
 def test_caching_pandas(csv_dir):
     diamonds_path = csv_dir / "diamonds.csv"
     pandas_con = xo.pandas.connect()
-    cache = SourceStorage(source=pandas_con)
+    cache = SourceCache(source=pandas_con)
     t = pandas_con.read_csv(diamonds_path).cache(storage=cache)
     assert t.execute() is not None

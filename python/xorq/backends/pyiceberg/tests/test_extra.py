@@ -2,7 +2,7 @@ import pyarrow as pa
 
 import xorq.api as xo
 from xorq.backends.pyiceberg.tests.conftest import QUOTES_TABLE_NAME
-from xorq.caching import SourceStorage
+from xorq.caching import SourceCache
 from xorq.tests.util import assert_frame_equal
 
 
@@ -30,7 +30,7 @@ def test_out_into_backend(quotes_table, quotes_df):
 
 
 def test_caching(iceberg_con, quotes_table):
-    storage = SourceStorage(source=iceberg_con)
+    storage = SourceCache(source=iceberg_con)
     uncached_expr = quotes_table.select("symbol", "bid").filter(xo._.symbol == "GOOGL")
     expr = uncached_expr.cache(storage)
 

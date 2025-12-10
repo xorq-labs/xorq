@@ -1,5 +1,5 @@
 import xorq.api as xo
-from xorq.caching import ParquetStorage, SourceStorage
+from xorq.caching import ParquetCache, SourceCache
 from xorq.tests.util import assert_frame_equal
 
 
@@ -8,7 +8,7 @@ def test_cross_source_storage(pg):
     expr = (
         xo.duckdb.connect()
         .create_table(name, pg.table(name).to_pyarrow())[lambda t: t.number > 22]
-        .cache(storage=SourceStorage(source=pg))
+        .cache(storage=SourceCache(source=pg))
     )
     expr.execute()
 
@@ -23,7 +23,7 @@ def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
     expected = expr.execute()
 
     result = expr.cache(
-        storage=ParquetStorage(source=con, relative_path=tmp_path)
+        storage=ParquetCache(source=con, relative_path=tmp_path)
     ).execute()
 
     assert result is not None
@@ -33,6 +33,6 @@ def test_caching_of_registered_arbitrary_expression(con, pg, tmp_path):
 def test_cache_record_batch_provider_exec(pg):
     batches = pg.table("batting").to_pyarrow_batches()
     t = (ls_con := xo.connect()).register(batches, table_name="batting_batches")
-    storage = SourceStorage(source=ls_con)
+    storage = SourceCache(source=ls_con)
 
     assert storage.get_key(t) is not None

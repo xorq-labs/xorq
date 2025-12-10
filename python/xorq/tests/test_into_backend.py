@@ -10,7 +10,7 @@ import pytest
 from pytest import param
 
 import xorq.api as xo
-from xorq.caching import ParquetStorage, SourceStorage
+from xorq.caching import ParquetCache, SourceCache
 from xorq.expr.relations import register_and_transform_remote_tables
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
@@ -149,7 +149,7 @@ def test_multiple_record_batches(pg):
         left.join(right, "playerID")
         .limit(15)
         .select(player_id="playerID", year_id="yearID_right")
-        .cache(SourceStorage(source=con))
+        .cache(SourceCache(source=con))
     )
 
     res = expr.execute()
@@ -179,7 +179,7 @@ def test_into_backend_complex(pg, method):
         t.join(t, "playerID")
         .limit(15)
         .select(player_id="playerID", year_id="yearID_right")
-        .cache(SourceStorage(source=con))
+        .cache(SourceCache(source=con))
     )
 
     assert xo.to_sql(expr).count(CACHED_NODE_NAME_PLACEHOLDER) > 0
@@ -202,7 +202,7 @@ def test_double_into_backend_batches(pg):
         .limit(15)
         .into_backend(ddb_con)
         .select(player_id="playerID", year_id="yearID_right")
-        .cache(SourceStorage(source=con))
+        .cache(SourceCache(source=con))
     )
 
     res = expr.to_pyarrow_batches()
@@ -221,10 +221,10 @@ def test_into_backend_cache(pg, tmp_path):
     expr = (
         t.join(t, "playerID")
         .limit(15)
-        .cache(SourceStorage(source=con))
+        .cache(SourceCache(source=con))
         .into_backend(ddb_con)
         .select(player_id="playerID", year_id="yearID_right")
-        .cache(ParquetStorage(source=ddb_con, relative_path=tmp_path))
+        .cache(ParquetCache(source=ddb_con, relative_path=tmp_path))
     )
 
     res = expr.execute()
@@ -306,7 +306,7 @@ def test_into_backend_duckdb_trino_cached(trino_table, tmp_path):
         trino_table.head(10_000)
         .into_backend(db_con)
         .pipe(make_merged)
-        .cache(ParquetStorage(relative_path=tmp_path))
+        .cache(ParquetCache(relative_path=tmp_path))
     )
     df = expr.execute()
     assert isinstance(df, pd.DataFrame)
@@ -566,7 +566,7 @@ def test_multiple_pipes(pg, backend_name):
 @pytest.mark.parametrize("remote", [True, False])
 def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con, function, remote):
     source = pg if remote else ls_con
-    storage = SourceStorage(source=source)
+    storage = SourceCache(source=source)
 
     table_name = "batting"
     pg_t = pg.table(table_name)[lambda t: t.yearID == 2015].cache(storage)
@@ -636,14 +636,14 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
     ],
 )
 def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
-    from xorq.caching import SourceStorage
+    from xorq.caching import SourceCache
 
     table_name = "batting"
     left, right = map(request.getfixturevalue, tables)
     source = right.op().source
 
-    left_storage = SourceStorage(source=left.op().source)
-    right_storage = SourceStorage(source=right.op().source)
+    left_storage = SourceCache(source=left.op().source)
+    right_storage = SourceCache(source=right.op().source)
 
     left_t = ls_con.register(left, table_name=f"left-{table_name}")[
         lambda t: t.yearID == 2015
@@ -702,7 +702,7 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
         db_t,
         db_t.columns,
     ).cache(
-        storage=ParquetStorage(
+        storage=ParquetCache(
             source=ls_con,
             relative_path=tmp_path,
         )

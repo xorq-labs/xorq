@@ -19,9 +19,9 @@ from toolz.curried import (
 import xorq.expr.datatypes as dt
 from xorq.backends.let import connect
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    SourceCache,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_attrs,
@@ -350,7 +350,7 @@ class FittedStep:
     target = field(validator=optional(instance_of(str)), default=None)
     storage = field(
         validator=optional(
-            instance_of((ParquetStorage, SourceStorage, ParquetSnapshotStorage))
+            instance_of((ParquetCache, SourceCache, ParquetSnapshotCache))
         ),
         default=None,
     )

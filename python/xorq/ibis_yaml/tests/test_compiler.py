@@ -10,7 +10,7 @@ import yaml
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
-from xorq.caching import ParquetSnapshotStorage, ParquetStorage, SourceStorage
+from xorq.caching import ParquetCache, ParquetSnapshotCache, SourceCache
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
@@ -269,7 +269,7 @@ def test_multi_engine_with_caching_with_parquet(
     con0 = xo.connect()
     con1 = xo.connect()
 
-    storage = ParquetStorage(source=con1, relative_path=tmp_path)
+    storage = ParquetCache(source=con1, relative_path=tmp_path)
 
     expr = (
         deferred_read_parquet(parquet_dir / "awards_players.parquet", con=con0)
@@ -334,7 +334,7 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetStorage(source=ddb, relative_path=tmp_path)
+    storage = ParquetCache(source=ddb, relative_path=tmp_path)
 
     t = table_from_df(original, users_df)
     expr = (
@@ -364,7 +364,7 @@ def test_roundtrip_database_table_behind_cache(
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetStorage(source=ddb, relative_path=tmp_path)
+    storage = ParquetCache(source=ddb, relative_path=tmp_path)
 
     t = table_from_df(original, users_df)
     expr = (
@@ -566,7 +566,7 @@ def test_into_backend_with_array_filter(build_dir):
 
     t = duckdb_con.create_table("array_types", array_types_df)
     expr = t.mutate(filtered=t.x.filter(xo._ > 1)).cache(
-        SourceStorage(source=xo.connect())
+        SourceCache(source=xo.connect())
     )
 
     compiler = BuildManager(build_dir, debug=False)
@@ -583,7 +583,7 @@ def test_roundtrip_parquet_snapshot_storage(build_dir, tmp_path, users_df):
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetSnapshotStorage(source=ddb, relative_path=tmp_path)
+    storage = ParquetSnapshotCache(source=ddb, relative_path=tmp_path)
 
     t = original.register(users_df, table_name="users")
     expr = (

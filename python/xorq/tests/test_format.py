@@ -4,10 +4,10 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceSnapshotStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
 )
 
 
@@ -30,13 +30,13 @@ def test_into_backend(batting):
 @pytest.mark.parametrize(
     "storage, strategy, parquet",
     [
-        pytest.param(ParquetStorage(), "modification_time", True, id="parquet_storage"),
+        pytest.param(ParquetCache(), "modification_time", True, id="parquet_storage"),
         pytest.param(
-            ParquetSnapshotStorage(), "snapshot", True, id="parquet_snapshot_storage"
+            ParquetSnapshotCache(), "snapshot", True, id="parquet_snapshot_storage"
         ),
-        pytest.param(SourceStorage(), "modification_time", False, id="source_storage"),
+        pytest.param(SourceCache(), "modification_time", False, id="source_storage"),
         pytest.param(
-            SourceSnapshotStorage(), "snapshot", False, id="source_snapshot_storage"
+            SourceSnapshotCache(), "snapshot", False, id="source_snapshot_storage"
         ),
     ],
 )

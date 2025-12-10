@@ -8,7 +8,7 @@ import pyarrow.dataset as ds
 import pytest
 
 import xorq.api as xo
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.common.collections import FrozenDict
@@ -170,9 +170,7 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
     path = "gs://cloud-samples-data/bigquery/us-states/us-states.parquet"
     expr = (
         xo.deferred_read_parquet(path, con)
-        .cache(
-            storage=ParquetStorage(source=xo.duckdb.connect(), relative_path=tmp_path)
-        )
+        .cache(storage=ParquetCache(source=xo.duckdb.connect(), relative_path=tmp_path))
         .limit(10)
     )
 
@@ -209,7 +207,7 @@ def test_read_csv_from_s3_and_cache(tmp_path):
     )
 
     expr = t.cache(
-        storage=ParquetStorage(source=xo.duckdb.connect(), relative_path=tmp_path)
+        storage=ParquetCache(source=xo.duckdb.connect(), relative_path=tmp_path)
     ).limit(10)
 
     assert not expr.execute().empty

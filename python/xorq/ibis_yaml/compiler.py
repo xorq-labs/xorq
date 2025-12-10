@@ -371,14 +371,14 @@ def replace_base_path(expr, base_path):
     from attr import evolve
 
     from xorq.caching import (
-        ParquetSnapshotStorage,
-        ParquetStorage,
+        ParquetCache,
+        ParquetSnapshotCache,
     )
     from xorq.expr.relations import CachedNode
 
     def replace(node, kwargs):
         if isinstance(node, CachedNode) and isinstance(
-            node.storage, (ParquetStorage, ParquetSnapshotStorage)
+            node.storage, (ParquetCache, ParquetSnapshotCache)
         ):
             return node.__recreate__(
                 dict(zip(node.argnames, node.args))

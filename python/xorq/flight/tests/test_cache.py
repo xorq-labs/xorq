@@ -4,7 +4,7 @@ import toolz
 
 import xorq.api as xo
 from xorq.caching import (
-    ParquetStorage,
+    ParquetCache,
 )
 from xorq.common.utils.func_utils import (
     return_constant,
@@ -33,7 +33,7 @@ def test_flight_expr_name_doesnt_matter():
         xo.expr.relations.flight_expr(
             t,
             xo.table(t.schema(), name=_name),
-        ).cache(ParquetStorage(con))
+        ).cache(ParquetCache(con))
         for _name in ("name-a", "name-b")
     )
     assert expr0.ls.get_key() == expr1.ls.get_key()
@@ -46,7 +46,7 @@ def test_flight_udxf_name_doesnt_matter():
     expr0, expr1 = (
         c.read_parquet(path, name)
         .pipe(echo_udxf, name=_name, inner_name="inner_name")
-        .cache(ParquetStorage(c))
+        .cache(ParquetCache(c))
         for (c, _name) in (
             (con, "name-a"),
             (other_con, "name-b"),
@@ -62,7 +62,7 @@ def test_flight_udxf_inner_name_doesnt_matter():
     expr0, expr1 = (
         c.read_parquet(path, name)
         .pipe(echo_udxf, name="echo", inner_name=inner_name)
-        .cache(ParquetStorage(c))
+        .cache(ParquetCache(c))
         for (c, inner_name) in (
             (con, "inner_name-a"),
             (other_con, "inner_name-b"),
@@ -79,7 +79,7 @@ def test_flight_udxf_path_matters(tmp_path):
     expr0, expr1 = (
         c.read_parquet(p, name)
         .pipe(echo_udxf, name="echo", inner_name="inner-echo")
-        .cache(ParquetStorage(c))
+        .cache(ParquetCache(c))
         for c, p in (
             (con, path),
             (other_con, other_path),

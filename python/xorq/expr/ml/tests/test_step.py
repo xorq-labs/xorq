@@ -2,8 +2,8 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import (
-    ParquetStorage,
-    SourceStorage,
+    ParquetCache,
+    SourceCache,
 )
 from xorq.expr.ml.pipeline_lib import (
     Pipeline,
@@ -51,7 +51,7 @@ def make_exprs(X_train, X_test, y_train, y_test):
     return train, test, features, target
 
 
-@pytest.mark.parametrize("storage_cls", (None, ParquetStorage, SourceStorage))
+@pytest.mark.parametrize("storage_cls", (None, ParquetCache, SourceCache))
 def test_fittedstep_model(storage_cls):
     storage = storage_cls() if storage_cls else storage_cls
     X_train, X_test, y_train, y_test = make_data()

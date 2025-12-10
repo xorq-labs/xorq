@@ -2,7 +2,7 @@ import pathlib
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict
 
-from xorq.caching import ParquetSnapshotStorage, ParquetStorage, SourceStorage
+from xorq.caching import ParquetCache, ParquetSnapshotCache, SourceCache
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -118,20 +118,20 @@ def diff_ibis_exprs(expr1, expr2):
 
 
 def translate_storage(storage, translation_context: Any) -> Dict:
-    if isinstance(storage, SourceStorage):
+    if isinstance(storage, SourceCache):
         return {
-            "type": "SourceStorage",
+            "type": "SourceCache",
             "source": storage.source._profile.hash_name,
         }
-    elif isinstance(storage, ParquetStorage):
+    elif isinstance(storage, ParquetCache):
         return {
-            "type": "ParquetStorage",
+            "type": "ParquetCache",
             "source": storage.source._profile.hash_name,
             "relative_path": str(storage.relative_path),
         }
-    elif isinstance(storage, ParquetSnapshotStorage):
+    elif isinstance(storage, ParquetSnapshotCache):
         return {
-            "type": "ParquetSnapshotStorage",
+            "type": "ParquetSnapshotCache",
             "source": storage.source._profile.hash_name,
             "relative_path": str(storage.relative_path),
         }
@@ -140,20 +140,20 @@ def translate_storage(storage, translation_context: Any) -> Dict:
 
 
 def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
-    if storage_yaml["type"] == "SourceStorage":
+    if storage_yaml["type"] == "SourceCache":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return SourceStorage(source=source)
-    elif storage_yaml["type"] == "ParquetStorage":
+        return SourceCache(source=source)
+    elif storage_yaml["type"] == "ParquetCache":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetStorage(
+        return ParquetCache(
             source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
         )
-    elif storage_yaml["type"] == "ParquetSnapshotStorage":
+    elif storage_yaml["type"] == "ParquetSnapshotCache":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetSnapshotStorage(
+        return ParquetSnapshotCache(
             source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
         )
     else:

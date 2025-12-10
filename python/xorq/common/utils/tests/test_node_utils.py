@@ -6,7 +6,7 @@ import toolz
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import (
-    SourceStorage,
+    SourceCache,
 )
 from xorq.common.utils.graph_utils import (
     walk_nodes,
@@ -25,14 +25,14 @@ def make_exprs():
     on = ("playerID", "yearID", "lgID")
     batting = xo.examples.batting.fetch()
     batting_tagged = batting.tag("batting")
-    batting_cached = batting_tagged.cache(storage=SourceStorage())
+    batting_cached = batting_tagged.cache(storage=SourceCache())
     awards_players = xo.examples.awards_players.fetch()
     expr = batting_cached[list(on) + ["G"]].join(
         awards_players[list(on) + ["awardID"]],
         predicates=on,
     )
     expr_tagged = expr.tag("join_expr")
-    expr_cached = expr_tagged.cache(storage=SourceStorage())
+    expr_cached = expr_tagged.cache(storage=SourceCache())
     return {
         "batting": batting,
         "batting_cached": batting_cached,

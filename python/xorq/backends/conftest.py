@@ -7,7 +7,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.backends import _get_backend_names
-from xorq.caching import ParquetSnapshotStorage, SourceSnapshotStorage
+from xorq.caching import ParquetSnapshotCache, SourceSnapshotCache
 from xorq.vendor import ibis
 
 
@@ -166,7 +166,7 @@ def con_snapshot(xo_con, alltypes_df):
         cached_expr = (
             table.group_by(group_by)
             .agg({f"count_{col}": table[col].count() for col in table.columns})
-            .cache(storage=SourceSnapshotStorage(source=_xo_con))
+            .cache(storage=SourceSnapshotCache(source=_xo_con))
         )
         (storage, uncached) = get_storage_uncached(cached_expr)
         # test preconditions
@@ -195,7 +195,7 @@ def con_cross_source_snapshot(xo_con, alltypes_df):
         name = ibis.util.gen_name("tmp_table")
         # create a temp table we can mutate
         table = expr_con.create_table(name, _alltypes_df)
-        storage = ParquetSnapshotStorage(source=_con)
+        storage = ParquetSnapshotCache(source=_con)
         expr = table.group_by(group_by).agg(
             {f"count_{col}": table[col].count() for col in table.columns}
         )

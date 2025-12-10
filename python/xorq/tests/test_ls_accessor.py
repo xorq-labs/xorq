@@ -6,13 +6,13 @@ import xorq.api as xo
 import xorq.vendor.ibis.expr.operations.relations as rel
 from xorq.backends.let import Backend
 from xorq.caching import (
-    ParquetStorage,
+    ParquetCache,
 )
 
 
 @pytest.fixture
 def cached_two(con, pg, tmp_path):
-    parquet_storage = ParquetStorage(source=con, relative_path=tmp_path)
+    parquet_storage = ParquetCache(source=con, relative_path=tmp_path)
     return (
         pg.table("batting")[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
@@ -123,9 +123,7 @@ def test_exists(cached_two):
 
 def test_cache_properties(parquet_dir, tmp_path):
     con = xo.connect()
-    storage = ParquetStorage(
-        source=con, relative_path="./tmp-cache", base_path=tmp_path
-    )
+    storage = ParquetCache(source=con, relative_path="./tmp-cache", base_path=tmp_path)
     t = xo.deferred_read_parquet(
         parquet_dir.joinpath("batting.parquet"),
         con=con,

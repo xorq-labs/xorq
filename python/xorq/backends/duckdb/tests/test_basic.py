@@ -4,10 +4,10 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceSnapshotStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
 )
 from xorq.conftest import array_types_df
 from xorq.tests.util import assert_frame_equal, check_eq
@@ -22,7 +22,7 @@ def test_duckdb_cache_parquet(con, parquet_dir, tmp_path):
     expr = (
         xo.duckdb.connect()
         .read_parquet(parquet_path)[lambda t: t.number > 22]
-        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
+        .cache(storage=ParquetCache(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -32,7 +32,7 @@ def test_duckdb_cache_csv(con, csv_dir, tmp_path):
     expr = (
         xo.duckdb.connect()
         .read_csv(csv_path)[lambda t: t.number > 22]
-        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
+        .cache(storage=ParquetCache(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -42,7 +42,7 @@ def test_duckdb_cache_arrow(con, tmp_path):
     expr = (
         xo.duckdb.connect()
         .create_table(name, con.table(name).to_pyarrow())[lambda t: t.number > 22]
-        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
+        .cache(storage=ParquetCache(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -57,7 +57,7 @@ def test_cross_source_snapshot(con_cross_source_snapshot):
 
 @pytest.mark.parametrize(
     "cls",
-    [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
+    [ParquetSnapshotCache, ParquetCache, SourceSnapshotCache, SourceCache],
 )
 def test_cache_find_backend(cls, con_cache_find_backend):
     con_cache_find_backend(cls, xo.duckdb.connect())
@@ -155,7 +155,7 @@ def test_array_filter_cached(con, duckdb_con):
     uncached = t.mutate(filtered=t.x.filter(xo._ > 1)).into_backend(
         con, name="array_types"
     )
-    expr = uncached.cache(SourceStorage(source=con))
+    expr = uncached.cache(SourceCache(source=con))
 
     assert dask.base.tokenize(uncached)
     assert not expr.execute().empty

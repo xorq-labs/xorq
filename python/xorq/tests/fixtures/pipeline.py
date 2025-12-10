@@ -1,5 +1,5 @@
 import xorq.api as xo
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import into_backend
 
@@ -12,7 +12,7 @@ batting = pg.table("batting")
 integer = 1
 
 backend = xo.duckdb.connect()
-storage = ParquetStorage(source=backend)
+storage = ParquetCache(source=backend)
 awards_players = deferred_read_parquet(
     xo.config.options.pins.get_path("awards_players"),
     backend,

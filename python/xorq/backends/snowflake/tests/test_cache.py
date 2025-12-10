@@ -15,8 +15,8 @@ from xorq.backends.snowflake.tests.conftest import (
     inside_temp_schema,
 )
 from xorq.caching import (
-    ParquetStorage,
-    SourceSnapshotStorage,
+    ParquetCache,
+    SourceSnapshotCache,
 )
 from xorq.common.utils.snowflake_utils import (
     SnowflakeADBC,
@@ -55,7 +55,7 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
     con = xo.connect()
-    storage = ParquetStorage(source=con, relative_path=tmp_path)
+    storage = ParquetCache(source=con, relative_path=tmp_path)
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
@@ -99,9 +99,7 @@ def test_snowflake_simple_cache(sf_con, tmp_path):
     db_con = xo.duckdb.connect()
     with inside_temp_schema(sf_con, "SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"):
         table = sf_con.table("CUSTOMER")
-        expr = table.limit(1).cache(
-            ParquetStorage(source=db_con, relative_path=tmp_path)
-        )
+        expr = table.limit(1).cache(ParquetCache(source=db_con, relative_path=tmp_path))
         xo.execute(expr)
 
 
@@ -110,7 +108,7 @@ def test_snowflake_native_cache(sf_con, temp_catalog, temp_db, tmp_path):
     group_by = "key"
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
-    storage = ParquetStorage(source=sf_con, relative_path=tmp_path)
+    storage = ParquetCache(source=sf_con, relative_path=tmp_path)
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
@@ -132,7 +130,7 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
     group_by = "key"
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
-    storage = SourceSnapshotStorage(source=xo.duckdb.connect())
+    storage = SourceSnapshotCache(source=xo.duckdb.connect())
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
@@ -182,7 +180,7 @@ def test_snowflake_cross_source_native_cache(
 ):
     group_by = "number"
     table = pg.table("astronauts")
-    storage = ParquetStorage(source=sf_con, relative_path=tmp_path)
+    storage = ParquetCache(source=sf_con, relative_path=tmp_path)
 
     mocker.patch.object(
         SnowflakeADBC,
@@ -203,7 +201,7 @@ def test_snowflake_cross_source_native_cache(
 
     assert not actual.empty
     assert any(tmp_path.glob(f"{KEY_PREFIX}*")), (
-        "The ParquetStorage MUST write a parquet file to the given directory"
+        "The ParquetCache MUST write a parquet file to the given directory"
     )
 
 
@@ -212,7 +210,7 @@ def test_snowflake_with_failing_name(sf_con, pg, temp_catalog, temp_db, mocker):
     table = pg.table("functional_alltypes")
 
     # caches
-    snow_storage = SourceSnapshotStorage(sf_con)
+    snow_storage = SourceSnapshotCache(sf_con)
 
     mocker.patch.object(
         SnowflakeADBC,

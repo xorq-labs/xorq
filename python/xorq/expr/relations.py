@@ -662,21 +662,21 @@ def render_backend(con):
 
 def get_storage_params(storage):
     from xorq.caching import (
-        ParquetSnapshotStorage,
-        ParquetStorage,
-        SourceSnapshotStorage,
-        SourceStorage,
+        ParquetCache,
+        ParquetSnapshotCache,
+        SourceCache,
+        SourceSnapshotCache,
     )
 
     storage_repr = None, None
     match storage:
-        case ParquetStorage():
+        case ParquetCache():
             storage_repr = "modification_time", True
-        case ParquetSnapshotStorage():
+        case ParquetSnapshotCache():
             storage_repr = "snapshot", True
-        case SourceStorage():
+        case SourceCache():
             storage_repr = "modification_time", False
-        case SourceSnapshotStorage():
+        case SourceSnapshotCache():
             storage_repr = "snapshot", False
     return storage_repr + (render_backend(storage.source),)
 

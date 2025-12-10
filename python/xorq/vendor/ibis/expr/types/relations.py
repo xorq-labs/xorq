@@ -3328,10 +3328,10 @@ class Table(Expr, _FixedTextJupyterMixin):
         ----------
         storage : CacheStorage, optional
             The storage strategy to use for caching. Can be one of:
-            - ParquetStorage: Caches results as Parquet files on disk
-            - SourceStorage: Caches results in the source database
-            - ParquetSnapshotStorage: Creates a snapshot of data in Parquet format
-            - SourceSnapshotStorage: Creates a snapshot in the source database
+            - ParquetCache: Caches results as Parquet files on disk
+            - SourceCache: Caches results in the source database
+            - ParquetSnapshotCache: Creates a snapshot of data in Parquet format
+            - SourceSnapshotCache: Creates a snapshot in the source database
             If None, uses the default storage configuration.
 
         Returns
@@ -3349,20 +3349,20 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         Examples
         --------
-        Using ParquetStorage:
+        Using ParquetCache:
         >>> import xorq.api as xo
-        >>> from xorq.caching import ParquetStorage
+        >>> from xorq.caching import ParquetCache
         >>> from pathlib import Path
         >>> pg = xo.postgres.connect_examples()
         >>> con = xo.connect()
-        >>> storage = ParquetStorage(source=con, relative_path=Path.cwd())
+        >>> storage = ParquetCache(source=con, relative_path=Path.cwd())
         >>> alltypes = pg.table("functional_alltypes")
         >>> cached = (alltypes
         ...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
         ...     .cache(storage=storage)) # doctest: +SKIP
 
-        Using SourceStorage with PostgreSQL:
-        >>> from xorq.caching import SourceStorage
+        Using SourceCache with PostgreSQL:
+        >>> from xorq.caching import SourceCache
         >>> from xorq.api import _
         >>> ddb = xo.duckdb.connect()
         >>> path = xo.config.options.pins.get_path("batting")
@@ -3373,7 +3373,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         ...         .filter(_.yearID == 2015)
         ...         .pipe(con.register, table_name="pg-batting"))
         >>> # Cache the joined result
-        >>> expr = left.join(right, "playerID").cache(SourceStorage(source=pg)) # doctest: +SKIP
+        >>> expr = left.join(right, "playerID").cache(SourceCache(source=pg)) # doctest: +SKIP
 
         Using cache with filtering:
         >>> cached = alltypes.cache(storage=storage)
@@ -3385,8 +3385,8 @@ class Table(Expr, _FixedTextJupyterMixin):
 
         See Also
         --------
-        ParquetStorage : Storage implementation for Parquet files
-        SourceStorage : Storage implementation for database tables
+        ParquetCache : Storage implementation for Parquet files
+        SourceCache : Storage implementation for database tables
         ModificationTimeStrategy : Strategy for tracking changes by modification time
         SnapshotStrategy : Strategy for creating data snapshots
 
@@ -3399,7 +3399,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         """
 
         from xorq.caching import (
-            SourceStorage,
+            SourceCache,
             maybe_prevent_cross_source_caching,
         )
         from xorq.common.utils.caching_utils import find_backend
@@ -3411,7 +3411,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             expr = self
 
         current_backend, _ = find_backend(expr.op(), use_default=True)
-        storage = storage or SourceStorage(source=current_backend)
+        storage = storage or SourceCache(source=current_backend)
         op = CachedNode(
             name=CACHED_NODE_NAME_PLACEHOLDER,
             schema=expr.schema(),
