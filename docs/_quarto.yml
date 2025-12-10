@@ -248,11 +248,11 @@ website:
         - id: ml-operations-section
           section: "ML Operations"
           contents:
-            - reference/Pipeline.qmd
-            - reference/Step.qmd
-            - reference/FittedPipeline.qmd
-            - reference/FittedStep.qmd
-            - reference/train_test_splits.qmd
+            # - reference/Pipeline.qmd
+            # - reference/Step.qmd
+            # - reference/FittedPipeline.qmd
+            # - reference/FittedStep.qmd
+            # - reference/train_test_splits.qmd
             - reference/deferred_fit_predict.qmd
             - reference/deferred_fit_transform.qmd
             - reference/calc_split_column.qmd
