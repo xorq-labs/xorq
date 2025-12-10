@@ -463,7 +463,7 @@ quartodoc:
         - train_test_splits
         - Step
         - Pipeline
-        - FittedStep
+        # - FittedStep
         - FittedPipeline
         - name: deferred_fit_predict
           dynamic: true
