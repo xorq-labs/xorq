@@ -13,7 +13,7 @@ expr = t.filter([t.species == "Setosa"]).cache(storage=storage)
 
 if __name__ == "__pytest_main__":
     (op,) = expr.ls.cached_nodes
-    path = storage.get_loc(op.to_expr().ls.get_key())
+    path = storage.storage.get_path(op.to_expr().ls.get_key())
     print(f"{path} exists?: {path.exists()}")
     result = xo.execute(expr)
     print(f"{path} exists?: {path.exists()}")
