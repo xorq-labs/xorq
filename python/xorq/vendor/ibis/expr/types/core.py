@@ -817,15 +817,11 @@ class LETSQLAccessor:
         return patched_tokenize(self.expr)
 
     def get_cache_path(self):
-        from xorq.caching import (
-            ParquetCache,
-            ParquetSnapshotCache,
-            ParquetSnapshotTTLStorage,
-        )
+        from xorq.caching import Cache
 
         if self.is_cached and isinstance(
             self.storage,
-            (ParquetCache, ParquetSnapshotCache, ParquetSnapshotTTLStorage),
+            Cache,
         ):
             cn = self.op
             return cn.storage.get_loc(cn.storage.get_key(cn.parent))

@@ -174,17 +174,17 @@ class GCSCache(Cache):
     storage_typ = None
 
     def __attrs_post_init__(self):
-        from xorq.common.utils.gcloud_utils import _GCStorage
+        from xorq.common.utils.gcloud_utils import GCStorage
 
         assert isinstance(self.strategy, ModificationTimeStrategy)
-        assert isinstance(self.storage, _GCStorage)
+        assert isinstance(self.storage, GCStorage)
 
     @classmethod
     def from_kwargs(cls, bucket_name, source):
-        from xorq.common.utils.gcloud_utils import _GCStorage
+        from xorq.common.utils.gcloud_utils import GCStorage
 
         strategy = cls.strategy_typ()
-        storage = _GCStorage(bucket_name=bucket_name, source=source)
+        storage = GCStorage(bucket_name=bucket_name, source=source)
         return cls(strategy=strategy, storage=storage)
 
 
