@@ -121,19 +121,19 @@ def translate_storage(storage, translation_context: Any) -> Dict:
     if isinstance(storage, SourceCache):
         return {
             "type": "SourceCache",
-            "source": storage.source._profile.hash_name,
+            "source": storage.storage.source._profile.hash_name,
         }
     elif isinstance(storage, ParquetCache):
         return {
             "type": "ParquetCache",
-            "source": storage.source._profile.hash_name,
-            "relative_path": str(storage.relative_path),
+            "source": storage.storage.source._profile.hash_name,
+            "relative_path": str(storage.storage.relative_path),
         }
     elif isinstance(storage, ParquetSnapshotCache):
         return {
             "type": "ParquetSnapshotCache",
-            "source": storage.source._profile.hash_name,
-            "relative_path": str(storage.relative_path),
+            "source": storage.storage.source._profile.hash_name,
+            "relative_path": str(storage.storage.relative_path),
         }
     else:
         raise NotImplementedError(f"Unknown storage type: {type(storage)}")
