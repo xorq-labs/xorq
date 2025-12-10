@@ -49,7 +49,7 @@ def test_pandas_snapshot(xo_con, alltypes_df):
         .cache(storage)
     )
     (storage, uncached) = get_storage_uncached(cached_expr)
-    with storage.normalization_context(uncached):
+    with storage.strategy.normalization_context(uncached):
         normalized1 = dask.base.normalize_token(uncached)
 
     # everything else is stable, despite the different data
