@@ -1,4 +1,4 @@
-from typing import Any, Tuple
+from typing import Any, OrderedDict, Tuple
 
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
@@ -81,7 +81,11 @@ def walk_nodes(node_types, expr):
         if isinstance(node, node_types):
             result += (node,)
 
-        to_visit += (child for child in gen_children_of(node) if child not in visited)
+        to_visit += (
+            child
+            for child in OrderedDict.fromkeys(gen_children_of(node))
+            if child not in visited
+        )
 
     return result
 
