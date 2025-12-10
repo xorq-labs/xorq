@@ -4,10 +4,12 @@ title: 'Install Xorq'
 
 This guide shows you how to install Xorq and configure it for your environment.
 
-
+You'll need Python 3.10 or higher to run Xorq. To check your current version, run this command:
+```bash
+python --version
+```
 ::: {.callout-tip}
-### Python version
-Xorq requires Python 3.10 or higher. Check your version with `python --version`. If you need to install or update Python, then visit the [official Python downloads page](https://www.python.org/downloads/).
+If the version is below 3.10, download the latest release from the [Python downloads page](https://www.python.org/downloads/).
 :::
 
 ## Install Xorq
