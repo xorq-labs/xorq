@@ -12,7 +12,7 @@ from xorq.caching import (
 
 @pytest.fixture
 def cached_two(con, pg, tmp_path):
-    parquet_storage = ParquetCache(source=con, relative_path=tmp_path)
+    parquet_storage = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
     return (
         pg.table("batting")[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
@@ -110,20 +110,22 @@ def test_exists(cached_two):
     storage = cached_two.ls.storage
 
     assert not cached_two.ls.exists()
-    assert not tuple(storage.path.iterdir())
+    assert not tuple(storage.storage.path.iterdir())
 
     xo.execute(cached_two)
     assert cached_two.ls.exists()
-    assert len(tuple(storage.path.iterdir())) == 1
+    assert len(tuple(storage.storage.path.iterdir())) == 1
 
-    (path,) = storage.path.iterdir()
+    (path,) = storage.storage.path.iterdir()
     path.unlink()
     assert not cached_two.ls.exists()
 
 
 def test_cache_properties(parquet_dir, tmp_path):
     con = xo.connect()
-    storage = ParquetCache(source=con, relative_path="./tmp-cache", base_path=tmp_path)
+    storage = ParquetCache.from_kwargs(
+        source=con, relative_path="./tmp-cache", base_path=tmp_path
+    )
     t = xo.deferred_read_parquet(
         parquet_dir.joinpath("batting.parquet"),
         con=con,
@@ -144,11 +146,11 @@ def test_cache_properties(parquet_dir, tmp_path):
     (ssn, psn0, psn1, psn2) = expr.ls.cached_nodes
     (ss, ps, *rest) = expr.ls.storages
     assert (ps,) == tuple(set(rest))
-    p = storage.cache.storage.path
+    p = storage.storage.path
 
     # downstream is still cached even if upstream caches don't exist
     (*to_remove, last) = sorted(
-        storage.cache.storage.path.iterdir(), key=lambda p: p.stat().st_ctime
+        storage.storage.path.iterdir(), key=lambda p: p.stat().st_ctime
     )
     for p in to_remove:
         p.unlink()

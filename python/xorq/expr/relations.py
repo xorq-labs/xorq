@@ -678,7 +678,7 @@ def get_storage_params(storage):
             storage_repr = "modification_time", False
         case SourceSnapshotCache():
             storage_repr = "snapshot", False
-    return storage_repr + (render_backend(storage.source),)
+    return storage_repr + (render_backend(storage.storage.source),)
 
 
 @fmt.register(CachedNode)

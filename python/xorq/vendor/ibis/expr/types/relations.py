@@ -3355,7 +3355,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         >>> from pathlib import Path
         >>> pg = xo.postgres.connect_examples()
         >>> con = xo.connect()
-        >>> storage = ParquetCache(source=con, relative_path=Path.cwd())
+        >>> storage = ParquetCache.from_kwargs(source=con, relative_path=Path.cwd())
         >>> alltypes = pg.table("functional_alltypes")
         >>> cached = (alltypes
         ...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
@@ -3373,7 +3373,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         ...         .filter(_.yearID == 2015)
         ...         .pipe(con.register, table_name="pg-batting"))
         >>> # Cache the joined result
-        >>> expr = left.join(right, "playerID").cache(SourceCache(source=pg)) # doctest: +SKIP
+        >>> expr = left.join(right, "playerID").cache(SourceCache.from_kwargs(source=pg)) # doctest: +SKIP
 
         Using cache with filtering:
         >>> cached = alltypes.cache(storage=storage)
@@ -3411,7 +3411,7 @@ class Table(Expr, _FixedTextJupyterMixin):
             expr = self
 
         current_backend, _ = find_backend(expr.op(), use_default=True)
-        storage = storage or SourceCache(source=current_backend)
+        storage = storage or SourceCache.from_kwargs(source=current_backend)
         op = CachedNode(
             name=CACHED_NODE_NAME_PLACEHOLDER,
             schema=expr.schema(),

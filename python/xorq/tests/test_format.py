@@ -30,13 +30,23 @@ def test_into_backend(batting):
 @pytest.mark.parametrize(
     "storage, strategy, parquet",
     [
-        pytest.param(ParquetCache(), "modification_time", True, id="parquet_storage"),
         pytest.param(
-            ParquetSnapshotCache(), "snapshot", True, id="parquet_snapshot_storage"
+            ParquetCache.from_kwargs(), "modification_time", True, id="parquet_storage"
         ),
-        pytest.param(SourceCache(), "modification_time", False, id="source_storage"),
         pytest.param(
-            SourceSnapshotCache(), "snapshot", False, id="source_snapshot_storage"
+            ParquetSnapshotCache.from_kwargs(),
+            "snapshot",
+            True,
+            id="parquet_snapshot_storage",
+        ),
+        pytest.param(
+            SourceCache.from_kwargs(), "modification_time", False, id="source_storage"
+        ),
+        pytest.param(
+            SourceSnapshotCache.from_kwargs(),
+            "snapshot",
+            False,
+            id="source_snapshot_storage",
         ),
     ],
 )
