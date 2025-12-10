@@ -46,7 +46,7 @@ class Cache:
 
     def calc_key(self, expr):
         # the order here matters: must check is_cached before calling maybe_prevent_cross_source_caching
-        if expr.ls.is_cached and expr.ls.storage.cache is self:
+        if expr.ls.is_cached and expr.ls.storage is self:
             expr = expr.ls.uncached_one
         expr = maybe_prevent_cross_source_caching(expr, self)
         # FIXME: let strategy solely determine key by giving it key_prefix
