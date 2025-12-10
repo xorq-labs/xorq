@@ -380,9 +380,15 @@ def replace_base_path(expr, base_path):
         if isinstance(node, CachedNode) and isinstance(
             node.storage, (ParquetCache, ParquetSnapshotCache)
         ):
+            evolved = evolve(
+                node.storage,
+                storage=evolve(
+                    node.storage.storage,
+                    base_path=base_path,
+                ),
+            )
             return node.__recreate__(
-                dict(zip(node.argnames, node.args))
-                | {"storage": evolve(node.storage, base_path=base_path)}
+                dict(zip(node.argnames, node.args)) | {"storage": evolved}
             )
         elif kwargs:
             return node.__recreate__(kwargs)
