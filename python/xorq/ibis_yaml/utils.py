@@ -143,17 +143,17 @@ def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
     if storage_yaml["type"] == "SourceCache":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return SourceCache(source=source)
+        return SourceCache.from_kwargs(source=source)
     elif storage_yaml["type"] == "ParquetCache":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetCache(
+        return ParquetCache.from_kwargs(
             source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
         )
     elif storage_yaml["type"] == "ParquetSnapshotCache":
         source_profile_name = storage_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetSnapshotCache(
+        return ParquetSnapshotCache.from_kwargs(
             source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
         )
     else:

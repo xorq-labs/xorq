@@ -12,7 +12,7 @@ batting = pg.table("batting")
 integer = 1
 
 backend = xo.duckdb.connect()
-storage = ParquetCache(source=backend)
+storage = ParquetCache.from_kwargs(source=backend)
 awards_players = deferred_read_parquet(
     xo.config.options.pins.get_path("awards_players"),
     backend,

@@ -24,7 +24,7 @@ from xorq.common.utils.postgres_utils import (
 def test_source_caching(name, pg, parquet_dir):
     con = xo.connect()
     example = xo.deferred_read_parquet(parquet_dir / f"{name}.parquet", con)
-    expr = example.cache(storage=SourceCache(pg))
+    expr = example.cache(storage=SourceCache.from_kwargs(source=pg))
     assert not expr.ls.exists()
     actual = expr.execute()
     expected = example.execute()
@@ -64,7 +64,7 @@ def test_postgres_cache_invalidation(pg, con):
         pg_t.group_by("playerID")
         .size()
         .order_by("playerID")
-        .cache(storage=SourceCache(source=con))
+        .cache(storage=SourceCache.from_kwargs(source=con))
     )
     dt = pg_t.op()
     (storage, uncached) = (expr_cached.ls.storage, expr_cached.ls.uncached_one)
@@ -115,7 +115,7 @@ def test_postgres_snapshot(pg, con):
     if to_name in pg.tables:
         pg.drop_table(to_name)
     pg_t = pg.create_table(to_name, obj=pg.table(from_name).limit(1000))
-    storage = SourceSnapshotCache(source=con)
+    storage = SourceSnapshotCache.from_kwargs(source=con)
     expr_cached = (
         pg_t.group_by("playerID").size().order_by("playerID").cache(storage=storage)
     )
@@ -174,7 +174,7 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
     if to_name in pg.tables:
         pg.drop_table(to_name)
     pg_t = pg.create_table(to_name, obj=pg.table(from_name).limit(1000))
-    storage = ParquetSnapshotCache(
+    storage = ParquetSnapshotCache.from_kwargs(
         relative_path=tmp_path.joinpath("parquet-snapshot-storage")
     )
     expr = pg_t.group_by("playerID").size().order_by("playerID")

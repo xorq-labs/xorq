@@ -25,14 +25,14 @@ def make_exprs():
     on = ("playerID", "yearID", "lgID")
     batting = xo.examples.batting.fetch()
     batting_tagged = batting.tag("batting")
-    batting_cached = batting_tagged.cache(storage=SourceCache())
+    batting_cached = batting_tagged.cache(storage=SourceCache.from_kwargs())
     awards_players = xo.examples.awards_players.fetch()
     expr = batting_cached[list(on) + ["G"]].join(
         awards_players[list(on) + ["awardID"]],
         predicates=on,
     )
     expr_tagged = expr.tag("join_expr")
-    expr_cached = expr_tagged.cache(storage=SourceCache())
+    expr_cached = expr_tagged.cache(storage=SourceCache.from_kwargs())
     return {
         "batting": batting,
         "batting_cached": batting_cached,

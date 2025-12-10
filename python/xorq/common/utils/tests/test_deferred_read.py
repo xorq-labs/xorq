@@ -119,7 +119,7 @@ def mutate_csv(path, line=None):
 def test_deferred_read_cache_key_check(con, tmp_path, pins_resource, request):
     # check that we don't invoke read when we calc key
     pins_resource = request.getfixturevalue(pins_resource)
-    storage = ParquetCache(source=xo.connect(), relative_path=tmp_path)
+    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
 
     assert pins_resource.table_name not in con.tables
     t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
@@ -203,7 +203,7 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
 
     con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
-    storage = ParquetCache(source=xo.connect(), relative_path=tmp_path)
+    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
 
     df = pins_resource.df[filter_].reset_index(drop=True)
     t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
@@ -264,7 +264,7 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
 def test_cached_csv_mutate(get_con, iris_csv, tmp_path):
     con = get_con()
     target_path = ensure_tmp_csv(iris_csv.name, tmp_path)
-    storage = ParquetCache(source=xo.connect(), relative_path=tmp_path)
+    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
     # make sure the con is "clean"
     if iris_csv.table_name in con.tables:
         con.drop_table(iris_csv.table_name, force=True)
@@ -309,7 +309,7 @@ def test_cached_csv_mutate(get_con, iris_csv, tmp_path):
     [True, False],
 )
 def test_deferred_read_cache(con, tmp_path, method_name, path, remote):
-    storage = ParquetCache(source=xo.connect(), relative_path=tmp_path)
+    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
     read_method = getattr(xo, method_name)
     connection = con if remote else xo.duckdb.connect()
 

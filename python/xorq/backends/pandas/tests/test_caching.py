@@ -20,7 +20,7 @@ def test_pandas_snapshot(xo_con, alltypes_df):
         table.group_by(group_by)
         .agg({f"count_{col}": table[col].count() for col in table.columns})
         .pipe(into_backend, xo_con)
-        .cache(storage=SourceSnapshotCache(source=xo_con))
+        .cache(storage=SourceSnapshotCache.from_kwargs(source=xo_con))
     )
     (storage, uncached) = get_storage_uncached(cached_expr)
 
@@ -30,7 +30,7 @@ def test_pandas_snapshot(xo_con, alltypes_df):
     # test cache creation
     executed0 = cached_expr.execute()
 
-    with storage.normalization_context(uncached):
+    with storage.strategy.normalization_context(uncached):
         normalized0 = dask.base.normalize_token(uncached)
     assert storage.exists(uncached)
 
@@ -63,6 +63,6 @@ def test_pandas_snapshot(xo_con, alltypes_df):
 def test_caching_pandas(csv_dir):
     diamonds_path = csv_dir / "diamonds.csv"
     pandas_con = xo.pandas.connect()
-    cache = SourceCache(source=pandas_con)
+    cache = SourceCache.from_kwargs(source=pandas_con)
     t = pandas_con.read_csv(diamonds_path).cache(storage=cache)
     assert t.execute() is not None

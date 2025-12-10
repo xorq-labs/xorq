@@ -30,7 +30,7 @@ def test_out_into_backend(quotes_table, quotes_df):
 
 
 def test_caching(iceberg_con, quotes_table):
-    storage = SourceCache(source=iceberg_con)
+    storage = SourceCache.from_kwargs(source=iceberg_con)
     uncached_expr = quotes_table.select("symbol", "bid").filter(xo._.symbol == "GOOGL")
     expr = uncached_expr.cache(storage)
 

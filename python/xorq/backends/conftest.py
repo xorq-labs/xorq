@@ -166,7 +166,7 @@ def con_snapshot(xo_con, alltypes_df):
         cached_expr = (
             table.group_by(group_by)
             .agg({f"count_{col}": table[col].count() for col in table.columns})
-            .cache(storage=SourceSnapshotCache(source=_xo_con))
+            .cache(storage=SourceSnapshotCache.from_kwargs(source=_xo_con))
         )
         (storage, uncached) = get_storage_uncached(cached_expr)
         # test preconditions
@@ -183,7 +183,8 @@ def con_snapshot(xo_con, alltypes_df):
         executed3 = cached_expr.ls.uncached.execute()
         assert executed0.equals(executed2)
         assert not executed0.equals(executed3)
-        assert storage.get_key(uncached).count(KEY_PREFIX) == 1
+        # key does not have key prefix
+        assert storage.strategy.calc_key(uncached).count(KEY_PREFIX) == 1
 
     return functools.partial(_con_snapshot, alltypes_df, xo_con)
 
@@ -195,7 +196,7 @@ def con_cross_source_snapshot(xo_con, alltypes_df):
         name = ibis.util.gen_name("tmp_table")
         # create a temp table we can mutate
         table = expr_con.create_table(name, _alltypes_df)
-        storage = ParquetSnapshotCache(source=_con)
+        storage = ParquetSnapshotCache.from_kwargs(source=_con)
         expr = table.group_by(group_by).agg(
             {f"count_{col}": table[col].count() for col in table.columns}
         )
@@ -224,7 +225,7 @@ def con_cross_source_snapshot(xo_con, alltypes_df):
 def con_cache_find_backend(parquet_dir):
     def _con_cache_find_backend(_parquet_dir, cls, conn):
         astronauts_path = _parquet_dir / "astronauts.parquet"
-        storage = cls(source=conn)
+        storage = cls.from_kwargs(source=conn)
         expr = conn.read_parquet(astronauts_path).cache(storage=storage)
         assert expr._find_backend()._profile == conn._profile
 

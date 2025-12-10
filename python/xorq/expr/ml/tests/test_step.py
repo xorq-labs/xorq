@@ -53,7 +53,7 @@ def make_exprs(X_train, X_test, y_train, y_test):
 
 @pytest.mark.parametrize("storage_cls", (None, ParquetCache, SourceCache))
 def test_fittedstep_model(storage_cls):
-    storage = storage_cls() if storage_cls else storage_cls
+    storage = storage_cls.from_kwargs() if storage_cls else storage_cls
     X_train, X_test, y_train, y_test = make_data()
     train, test, features, target = make_exprs(X_train, X_test, y_train, y_test)
     xorq_pipeline = Pipeline.from_instance(make_pipeline())
