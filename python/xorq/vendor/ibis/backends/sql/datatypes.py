@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 from functools import partial
 from typing import NoReturn
 
@@ -44,7 +45,6 @@ _from_sqlglot_types = {
     typecode.MEDIUMTEXT: dt.String,
     typecode.MONEY: dt.Decimal(19, 4),
     typecode.NCHAR: dt.String,
-    typecode.UUID: dt.UUID,
     typecode.NAME: dt.String,
     typecode.NULL: dt.Null,
     typecode.NVARCHAR: dt.String,
@@ -66,7 +66,6 @@ _from_sqlglot_types = {
     typecode.VARBINARY: dt.Binary,
     typecode.VARCHAR: dt.String,
     typecode.VARIANT: dt.JSON,
-    typecode.UNIQUEIDENTIFIER: dt.UUID,
     typecode.SET: partial(dt.Array, dt.string),
     #############################
     # Unsupported sqlglot types #
@@ -101,6 +100,9 @@ _from_sqlglot_types = {
     # USERDEFINED = "USER-DEFINED"
     # XML = auto()
 }
+
+with contextlib.suppress(AttributeError):
+    _from_sqlglot_types[typecode.UNIQUEIDENTIFIER] = dt.UUID
 
 _to_sqlglot_types = {
     dt.Null: typecode.NULL,
