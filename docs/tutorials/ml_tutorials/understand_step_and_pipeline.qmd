@@ -2,17 +2,310 @@
 title: 'Understand Step and Pipeline'
 ---
 
-## Coming soon
+This tutorial explains how Xorq wraps scikit-learn models through the `Step` and `Pipeline` classes. You'll learn why these abstractions exist and how they make ML workflows work with deferred execution.
 
-This tutorial will explain how Xorq wraps scikit-learn pipelines through the Step and Pipeline classes.
+By the end, you'll understand the core ML building blocks in Xorq and when to use each one.
 
-You will understand the core ML abstractions that make Xorq's deferred execution work with machine learning.
+## Why wrap scikit-learn?
 
-**What you'll learn:**
-- What Step and Pipeline are
-- How they differ from scikit-learn
-- Benefits of the Xorq wrapper
-- When to use each class
+Scikit-learn expects immediate data—you call `.fit()` with a pandas DataFrame or numpy array, and it trains right away. But Xorq works with expressions that defer execution until you explicitly ask for results.
 
-Check back soon for the complete tutorial.
+`Step` and `Pipeline` bridge this gap. They let you write scikit-learn-style ML code that works with Xorq's deferred execution.
 
+:::{.callout-tip}
+### The benefit
+With `Step` and `Pipeline`, you get all the benefits of deferred execution (caching, multi-backend support, optimization) while using familiar scikit-learn APIs.
+:::
+
+## What is a Step?
+
+A `Step` wraps a single scikit-learn estimator (like `LinearRegression` or `KNeighborsClassifier`) so it works with Xorq expressions.
+
+Think of it as a deferred version of a scikit-learn model.
+
+```{python}
+import xorq.api as xo
+from xorq.expr.ml import Step
+from sklearn.preprocessing import StandardScaler
+
+# <1>
+sklearn_scaler = StandardScaler()
+print(f"scikit-learn scaler: {sklearn_scaler}")
+
+# <2>
+xorq_step = Step(typ=StandardScaler)
+print(f"Xorq step: {xorq_step}")
+print(f"Step type: {xorq_step.typ}")
+```
+1. Create a standard scikit-learn scaler.
+2. Create a Xorq `Step` wrapping the same scaler type.
+
+The `Step` stores the estimator class and parameters, but doesn't create an instance until you call `.fit()`.
+
+## How Step works
+
+When you fit a `Step`, Xorq:
+1. Executes the expression to get training data
+2. Creates an instance of the scikit-learn estimator
+3. Calls `.fit()` on that instance
+4. Wraps the fitted estimator in a `FittedStep`
+
+Let's see this in action:
+
+```{python}
+# <1>
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+# <2>
+target = "species"
+features = tuple(iris.drop(target).columns)
+
+# <3>
+scaler_step = Step(typ=StandardScaler)
+
+# <4>
+fitted_scaler = scaler_step.fit_transform_step(
+    expr=iris,
+    features=features
+)
+
+# <5>
+print(f"Fitted step type: {type(fitted_scaler)}")
+print("The step is now fitted and ready to transform data")
+```
+1. Load the Iris dataset.
+2. Define features (we're not using the target for scaling).
+3. Create a `Step` for StandardScaler.
+4. Fit the scaler to the data—this executes and learns the scaling parameters.
+5. The result is a fitted step that can transform new data.
+
+:::{.callout-note}
+### FittedStep
+When you fit a `Step`, you get a `FittedStep`. This fitted version holds the trained model and can make predictions or transformations.
+:::
+
+## Step vs scikit-learn: key differences
+
+Here's how `Step` differs from a regular scikit-learn estimator:
+
+| Aspect | scikit-learn | Xorq Step |
+|--------|-------------|-----------|
+| When it fits | Immediately when you call `.fit()` | When expression executes |
+| What it accepts | pandas DataFrame, numpy array | Xorq table expression |
+| Caching | Not available | Can cache fitted models |
+| Backends | Runs wherever you call it | Can run on different backends |
+
+## What is a Pipeline?
+
+A `Pipeline` combines multiple steps into a single workflow. It's Xorq's version of `sklearn.pipeline.Pipeline`.
+
+Use `Pipeline` when you have multiple preprocessing steps or a preprocessing + model workflow.
+
+```{python}
+from sklearn.neighbors import KNeighborsClassifier
+from xorq.expr.ml import Pipeline
+
+# <1>
+steps = [
+    ("scaler", StandardScaler()),
+    ("classifier", KNeighborsClassifier(n_neighbors=5))
+]
+
+# <2>
+xorq_pipeline = Pipeline.from_instance(
+    sklearn.pipeline.Pipeline(steps)
+)
+
+# <3>
+print(f"Pipeline steps: {len(xorq_pipeline.steps)}")
+print(f"Step names: {[name for name, _ in xorq_pipeline.steps]}")
+```
+1. Define a list of steps (scaler, then classifier).
+2. Create a Xorq `Pipeline` from a scikit-learn pipeline.
+3. Inspect the pipeline structure.
+
+:::{.callout-tip}
+### Pipeline.from_instance()
+The easiest way to create a Xorq `Pipeline` is with `.from_instance()`. Pass it any scikit-learn pipeline, and it converts the pipeline to work with Xorq expressions.
+:::
+
+## Fit and predict with Pipeline
+
+Let's use the pipeline for training and prediction:
+
+```{python}
+import sklearn.pipeline
+
+# <1>
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=7))
+])
+
+# <2>
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# <3>
+fitted_pipeline = xorq_pipeline.fit(
+    expr=iris,
+    features=features,
+    target=target
+)
+
+# <4>
+predictions = iris.pipe(fitted_pipeline.predict)
+
+# <5>
+result = predictions.execute()
+print("\nPredictions:")
+print(result[["species", "predicted"]].head(5))
+```
+1. Create a scikit-learn pipeline with scaling and classification.
+2. Convert it to a Xorq `Pipeline`.
+3. Fit the entire pipeline—this scales data, then trains the classifier.
+4. Use `.pipe()` to apply the fitted pipeline's predictions.
+5. Execute to see results.
+
+The `Pipeline` handles the full workflow: it scales your features, then feeds the scaled data to the classifier.
+
+## Pipeline vs manual steps
+
+You can achieve the same result with manual steps, but `Pipeline` is cleaner:
+
+```{python}
+# <1>
+# Manual approach: fit scaler, transform, fit classifier separately
+scaler_step = Step(typ=StandardScaler)
+fitted_scaler = scaler_step.fit_transform_step(expr=iris, features=features)
+
+# Transform data manually (more complex)
+# ... additional transform logic here ...
+
+# <2>
+# Pipeline approach: one call handles everything
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=7))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+fitted = xorq_pipeline.fit(expr=iris, features=features, target=target)
+
+print("Pipeline approach is simpler and more maintainable")
+```
+1. Manual approach requires managing each step individually.
+2. Pipeline approach bundles everything into one clean workflow.
+
+Use `Pipeline` for multi-step workflows. Use `Step` directly when you have a single transformation or model.
+
+## When to use Step vs Pipeline
+
+Choose `Step` when:
+- You have a single model or transformer
+- You want fine-grained control over each stage
+- You're building custom workflows
+
+Choose `Pipeline` when:
+- You have multiple preprocessing steps
+- You're migrating from scikit-learn pipelines
+- You want a clean, maintainable workflow
+
+```{python}
+# <1>
+# Use Step for single operations
+single_step = Step(typ=KNeighborsClassifier, n_neighbors=3)
+
+# <2>
+# Use Pipeline for multi-step workflows
+multi_step = Pipeline.from_instance(
+    sklearn.pipeline.Pipeline([
+        ("normalize", StandardScaler()),
+        ("classify", KNeighborsClassifier(n_neighbors=3))
+    ])
+)
+
+print("Step: best for single operations")
+print("Pipeline: best for workflows")
+```
+1. `Step` wraps one estimator.
+2. `Pipeline` chains multiple estimators.
+
+:::{.callout-warning}
+### Parameters stay the same
+When you create a `Step` or convert a `Pipeline`, use the exact same parameters you'd pass to scikit-learn. Xorq doesn't change the underlying model behavior.
+:::
+
+## Benefits over plain scikit-learn
+
+Here's what you gain by using `Step` and `Pipeline`:
+
+1. **Caching:** Fitted models can be cached and reused
+2. **Deferred execution:** Build the full workflow before running anything
+3. **Expression composition:** Chain ML with data operations
+4. **Backend flexibility:** Train on different compute backends
+
+```{python}
+from xorq.caching import ParquetStorage
+
+# <1>
+storage = ParquetStorage(source=con)
+
+# <2>
+cached_fitted = xorq_pipeline.fit(
+    expr=iris,
+    features=features,
+    target=target,
+    storage=storage
+)
+
+print("Model is now cached for reuse!")
+```
+1. Create a storage backend for caching.
+2. Fit with caching—subsequent fits with the same data hit the cache.
+
+## Complete example
+
+Here's a full workflow using `Pipeline`:
+
+```python
+import sklearn.pipeline
+import xorq.api as xo
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from xorq.expr.ml import Pipeline
+
+# Load data
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+target = "species"
+features = tuple(iris.drop(target).columns)
+
+# Create scikit-learn pipeline
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=5))
+])
+
+# Convert to Xorq Pipeline
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Fit
+fitted_pipeline = xorq_pipeline.fit(
+    expr=iris,
+    features=features,
+    target=target
+)
+
+# Predict
+predictions = iris.pipe(fitted_pipeline.predict)
+result = predictions.execute()
+print(result[["species", "predicted"]].head())
+```
+
+## Next steps
+
+Now you understand `Step` and `Pipeline`. Continue exploring:
+
+- [Use deferred fit and predict](use_deferred_fit_predict.qmd) shows advanced patterns for deferred ML execution
+- [Train your first model](train_your_first_model.qmd) walks through a complete training workflow
+- [Explore model evaluation](explore_model_evaluation.qmd) demonstrates how to compare multiple models
