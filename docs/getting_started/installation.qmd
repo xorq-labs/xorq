@@ -1,5 +1,8 @@
 ---
 title: 'Install Xorq'
+description: "Set up Xorq in your environment with Python 3.10 or higher"
+icon: "download"
+headline: "Get Xorq running on your machine"
 ---
 
 This guide shows you how to install Xorq and configure it for your environment.

@@ -1,5 +1,8 @@
 ---
 title: 'Your first build'
+description: "Create portable, versioned artifacts from your Xorq pipelines"
+icon: "box-seam"
+headline: "Package your pipeline"
 ---
 
 This tutorial helps you understand what Xorq builds are and why they matter. You'll create your first build and inspect the generated artifacts.

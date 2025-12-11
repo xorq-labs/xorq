@@ -153,6 +153,32 @@ pre>code.sourceCode {
     color: $white;
 }
 
+/* Dropdown menu styling - scrollable like Ibis */
+.dropdown-menu {
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  
+  /* Custom scrollbar styling */
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: rgba($gray-300, 0.1);
+    border-radius: 4px;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: rgba($gray-300, 0.5);
+    border-radius: 4px;
+    
+    &:hover {
+      background: rgba($gray-300, 0.7);
+    }
+  }
+}
+
 
 .card-text {
     border: 1px solid $gray-300;
@@ -233,4 +259,167 @@ pre>code.sourceCode {
   font-weight: 500;
   font-style: normal;
   font-display: swap;
+}
+
+/* HOMEPAGE STYLES */
+
+/* Hero Section */
+.hero-section {
+  background: $navbar-bg;
+  padding: 6rem 2rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-content {
+  max-width: 800px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+  
+  h1 {
+    font-size: 4.5rem;
+    margin-bottom: 1.5rem;
+    color: $white;
+  }
+  
+  p {
+    font-size: 1.4rem;
+    color: rgba($white, 0.85);
+    margin-bottom: 2.5rem;
+    line-height: 1.6;
+  }
+}
+
+/* Hero Buttons */
+.hero-btn {
+  display: inline-block;
+  padding: 1rem 2rem;
+  margin: 0.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-family: $font-family-monospace;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  
+  &.hero-btn-primary {
+    background: $gray-300;
+    color: $black;
+    
+    &:hover {
+      background: darken($gray-300, 10%);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba($gray-300, 0.4);
+    }
+  }
+  
+  &.hero-btn-secondary {
+    background: transparent;
+    color: $white;
+    border: 1px solid $gray-300;
+    
+    &:hover {
+      border-color: $gray-300;
+      background: rgba($gray-300, 0.1);
+      transform: translateY(-2px);
+    }
+  }
+}
+
+/* Content Section */
+.content-section {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 4rem 2rem;
+  
+  h2 {
+    font-size: 2.2rem;
+    margin-top: 3rem;
+    margin-bottom: 1rem;
+  }
+  
+  > p {
+    color: rgba($white, 0.7);
+    margin-bottom: 1.5rem;
+  }
+}
+
+/* Features Grid */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 4rem;
+}
+
+.feature-card {
+  background: rgba($gray-300, 0.08);
+  border: 1px solid rgba($gray-300, 0.2);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+  
+  h3 {
+    font-size: 1.2rem;
+    color: $gray-300;
+    margin-bottom: 0.75rem;
+    border: none !important;
+  }
+  
+  p {
+    font-size: 0.95rem;
+    color: rgba($white, 0.7);
+    margin: 0;
+    line-height: 1.5;
+  }
+  
+  &:hover {
+    border-color: $gray-300;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.1);
+  }
+}
+
+/* Docs Grid */
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.doc-card {
+  border: 1px solid $gray-300;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease-in-out;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  
+  a {
+    color: $white;
+    text-decoration: none;
+    
+    &:hover {
+      color: $gray-300;
+    }
+  }
+  
+  p {
+    font-size: 0.9rem;
+    color: rgba($white, 0.6);
+    margin: 0.5rem 0 0 0;
+  }
+  
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+    border-color: $white;
+  }
 }

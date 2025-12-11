@@ -1,5 +1,8 @@
 ---
 title: 'Train your first model'
+description: "Build a classifier with the Iris dataset using Xorq's ML workflow"
+icon: "stars"
+headline: "Start your ML journey"
 ---
 
 This tutorial guides you through training your first machine learning model with Xorq. You'll use the classic Iris dataset to build a classifier that predicts flower species.

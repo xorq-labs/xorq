@@ -1,5 +1,8 @@
 ---
 title: 'Use deferred fit and predict'
+description: "Defer model training and cache fitted models for faster iterations"
+icon: "clock-history"
+headline: "Optimize ML execution"
 ---
 
 This tutorial shows you how to use deferred execution for model fitting and prediction. You'll learn when computation actually happens and how to leverage caching for ML workflows.

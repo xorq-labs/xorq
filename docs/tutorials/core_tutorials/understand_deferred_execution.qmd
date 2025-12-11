@@ -1,5 +1,8 @@
 ---
 title: 'Understand deferred execution'
+description: "Learn when Xorq builds expressions versus when it runs computation"
+icon: "hourglass-split"
+headline: "Master deferred execution"
 ---
 
 This tutorial helps you understand when Xorq runs computation versus when it builds expressions. You'll see hands-on how deferred execution works and why it matters.
