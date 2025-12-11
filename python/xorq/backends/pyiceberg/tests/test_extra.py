@@ -30,13 +30,13 @@ def test_out_into_backend(quotes_table, quotes_df):
 
 
 def test_caching(iceberg_con, quotes_table):
-    storage = SourceCache.from_kwargs(source=iceberg_con)
+    cache = SourceCache.from_kwargs(source=iceberg_con)
     uncached_expr = quotes_table.select("symbol", "bid").filter(xo._.symbol == "GOOGL")
-    expr = uncached_expr.cache(storage)
+    expr = uncached_expr.cache(cache)
 
-    assert not storage.exists(uncached_expr)
+    assert not cache.exists(uncached_expr)
     assert not expr.execute().empty
-    assert storage.exists(uncached_expr)
+    assert cache.exists(uncached_expr)
 
 
 def test_upsert(iceberg_con, quotes_table):

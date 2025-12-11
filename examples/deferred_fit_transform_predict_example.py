@@ -60,7 +60,7 @@ def make_splits(con):
 
 
 def make_pipeline(
-    train_expr, test_expr, transform_col, target, target_predicted, storage=None
+    train_expr, test_expr, transform_col, target, target_predicted, cache=None
 ):
     predict_features = (transformed_col,) = (f"{transform_col}_transformed",)
     transform_step = Step(TfidfVectorizer)
@@ -73,14 +73,14 @@ def make_pipeline(
         train_expr,
         features=(transform_col,),
         dest_col=transformed_col,
-        storage=storage,
+        cache=cache,
     )
     fitted_predict = predict_step.fit(
         fitted_transform.transformed,
         features=predict_features,
         target=target,
         dest_col=target_predicted,
-        storage=storage,
+        cache=cache,
     )
     fitted_pipeline = FittedPipeline((fitted_transform, fitted_predict), train_expr)
     test_predicted = fitted_pipeline.predict(test_expr)
@@ -91,10 +91,10 @@ transform_col = "title"
 target = "descendants"
 target_predicted = f"{target}_predicted"
 con = xo.connect()
-storage = ParquetCache.from_kwargs(source=con)
+cache = ParquetCache.from_kwargs(source=con)
 (train_expr, test_expr) = make_splits(con)
 fitted_pipeline, test_predicted = make_pipeline(
-    train_expr, test_expr, transform_col, target, target_predicted, storage
+    train_expr, test_expr, transform_col, target, target_predicted, cache
 )
 
 

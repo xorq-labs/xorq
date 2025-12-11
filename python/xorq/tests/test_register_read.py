@@ -171,7 +171,7 @@ def test_deferred_read_parquet_from_gcs(tmp_path):
     expr = (
         xo.deferred_read_parquet(path, con)
         .cache(
-            storage=ParquetCache.from_kwargs(
+            cache=ParquetCache.from_kwargs(
                 source=xo.duckdb.connect(), relative_path=tmp_path
             )
         )
@@ -211,7 +211,7 @@ def test_read_csv_from_s3_and_cache(tmp_path):
     )
 
     expr = t.cache(
-        storage=ParquetCache.from_kwargs(
+        cache=ParquetCache.from_kwargs(
             source=xo.duckdb.connect(), relative_path=tmp_path
         )
     ).limit(10)

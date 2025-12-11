@@ -50,20 +50,20 @@ def asof_join_flight_data(con, tail, flight, airborne_only=True):
 @pytest.mark.skip
 @pytest.mark.parametrize("cls", [ParquetSnapshotCache, ParquetCache])
 @pytest.mark.parametrize("cross_source_caching", [True, False])
-def test_complex_storage(cls, cross_source_caching, tmp_path):
+def test_complex_cache(cls, cross_source_caching, tmp_path):
     tail = "Tail_652_1"
     flight = "652200101120916"
 
     con = xo.connect()
-    storage_con = xo.connect() if cross_source_caching else con
-    storage = cls(source=storage_con, path=tmp_path)
+    cache_con = xo.connect() if cross_source_caching else con
+    cache = cls(source=cache_con, path=tmp_path)
 
     expr = asof_join_flight_data(con, tail, flight)
-    cached = expr.cache(storage=storage)
-    assert not storage.cache.exists(expr)
+    cached = expr.cache(cache=cache)
+    assert not cache.exists(expr)
     out = cached.count().execute()
     assert out == 44260
     assert cached.ls.exists()
-    assert storage.exists(cached)
+    assert cache.exists(cached)
     # ParquetCache has an issue with this, regardless of cross_source_caching
-    assert storage.cache.exists(expr)
+    assert cache.exists(expr)

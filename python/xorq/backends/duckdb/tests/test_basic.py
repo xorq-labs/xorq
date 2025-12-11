@@ -22,7 +22,7 @@ def test_duckdb_cache_parquet(con, parquet_dir, tmp_path):
     expr = (
         xo.duckdb.connect()
         .read_parquet(parquet_path)[lambda t: t.number > 22]
-        .cache(storage=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
+        .cache(cache=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -32,7 +32,7 @@ def test_duckdb_cache_csv(con, csv_dir, tmp_path):
     expr = (
         xo.duckdb.connect()
         .read_csv(csv_path)[lambda t: t.number > 22]
-        .cache(storage=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
+        .cache(cache=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
     )
     expr.execute()
 
@@ -42,7 +42,7 @@ def test_duckdb_cache_arrow(con, tmp_path):
     expr = (
         xo.duckdb.connect()
         .create_table(name, con.table(name).to_pyarrow())[lambda t: t.number > 22]
-        .cache(storage=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
+        .cache(cache=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
     )
     expr.execute()
 

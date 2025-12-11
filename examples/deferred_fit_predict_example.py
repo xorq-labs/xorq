@@ -28,7 +28,7 @@ step = Step(typ=LinearRegression)
 
 
 con = xo.connect()
-storage = ParquetCache.from_kwargs(source=con)
+cache = ParquetCache.from_kwargs(source=con)
 (df, features, target) = make_data()
 t = con.register(df, "t")
 kwargs = {
@@ -45,13 +45,13 @@ predicted = t.mutate(predict.on_expr(t).name("predicted"))
 
 # cached run
 (cached_deferred_model, cached_model_udaf, cached_predict) = deferred_linear_regression(
-    storage=storage,
+    cache=cache,
     **kwargs,
 )
 cached_predicted = t.mutate(cached_predict.on_expr(t).name("predicted"))
 
 # as step
-fitted_step = step.fit(storage=storage, **kwargs)
+fitted_step = step.fit(cache=cache, **kwargs)
 step_predicted = t.mutate(fitted_step.predict_raw(t, name="predicted"))
 
 

@@ -24,7 +24,7 @@ from xorq.common.utils.postgres_utils import (
 def test_source_caching(name, pg, parquet_dir):
     con = xo.connect()
     example = xo.deferred_read_parquet(parquet_dir / f"{name}.parquet", con)
-    expr = example.cache(storage=SourceCache.from_kwargs(source=pg))
+    expr = example.cache(cache=SourceCache.from_kwargs(source=pg))
     assert not expr.ls.exists()
     actual = expr.execute()
     expected = example.execute()
@@ -64,13 +64,13 @@ def test_postgres_cache_invalidation(pg, con):
         pg_t.group_by("playerID")
         .size()
         .order_by("playerID")
-        .cache(storage=SourceCache.from_kwargs(source=con))
+        .cache(cache=SourceCache.from_kwargs(source=con))
     )
     dt = pg_t.op()
-    (storage, uncached) = (expr_cached.ls.storage, expr_cached.ls.uncached_one)
+    (cache, uncached) = (expr_cached.ls.cache, expr_cached.ls.uncached_one)
 
     # assert initial state
-    assert not storage.exists(uncached)
+    assert not cache.exists(uncached)
     n_scans_before = get_postgres_n_scans(dt)
     assert n_scans_before == 0
 
@@ -79,7 +79,7 @@ def test_postgres_cache_invalidation(pg, con):
     n_scans_after = assert_n_scans_changes(dt, n_scans_before)
     # should we test that SourceCache.get is called?
     assert n_scans_after == 1
-    assert storage.exists(uncached)
+    assert cache.exists(uncached)
 
     # assert no change after re-execution of cached expr
     expr_cached.execute()
@@ -115,15 +115,15 @@ def test_postgres_snapshot(pg, con):
     if to_name in pg.tables:
         pg.drop_table(to_name)
     pg_t = pg.create_table(to_name, obj=pg.table(from_name).limit(1000))
-    storage = SourceSnapshotCache.from_kwargs(source=con)
+    cache = SourceSnapshotCache.from_kwargs(source=con)
     expr_cached = (
-        pg_t.group_by("playerID").size().order_by("playerID").cache(storage=storage)
+        pg_t.group_by("playerID").size().order_by("playerID").cache(cache=cache)
     )
     dt = pg_t.op()
-    (storage, uncached) = (expr_cached.ls.storage, expr_cached.ls.uncached_one)
+    (cache, uncached) = (expr_cached.ls.cache, expr_cached.ls.uncached_one)
 
     # assert initial state
-    assert not storage.exists(uncached)
+    assert not cache.exists(uncached)
     n_scans_before = get_postgres_n_scans(dt)
     assert n_scans_before == 0
 
@@ -132,7 +132,7 @@ def test_postgres_snapshot(pg, con):
     n_scans_after = assert_n_scans_changes(dt, n_scans_before)
     # should we test that SourceCache.get is called?
     assert n_scans_after == 1
-    assert storage.exists(uncached)
+    assert cache.exists(uncached)
 
     # assert no change after re-execution of cached expr
     executed1 = expr_cached.execute()
@@ -174,16 +174,16 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
     if to_name in pg.tables:
         pg.drop_table(to_name)
     pg_t = pg.create_table(to_name, obj=pg.table(from_name).limit(1000))
-    storage = ParquetSnapshotCache.from_kwargs(
+    cache = ParquetSnapshotCache.from_kwargs(
         relative_path=tmp_path.joinpath("parquet-snapshot-storage")
     )
     expr = pg_t.group_by("playerID").size().order_by("playerID")
-    expr_cached = expr.cache(storage=storage)
+    expr_cached = expr.cache(cache=cache)
     dt = pg_t.op()
-    (storage, uncached) = (expr_cached.ls.storage, expr_cached.ls.uncached_one)
+    (cache, uncached) = (expr_cached.ls.cache, expr_cached.ls.uncached_one)
 
     # assert initial state
-    assert not storage.exists(uncached)
+    assert not cache.exists(uncached)
     n_scans_before = get_postgres_n_scans(dt)
     assert n_scans_before == 0
 
@@ -192,8 +192,8 @@ def test_postgres_parquet_snapshot(pg, tmp_path):
     n_scans_after = assert_n_scans_changes(dt, n_scans_before)
     # should we test that SourceCache.get is called?
     assert n_scans_after == 1
-    assert storage.exists(uncached)
-    assert storage.exists(expr)
+    assert cache.exists(uncached)
+    assert cache.exists(expr)
 
     # assert no change after re-execution of cached expr
     executed1 = expr_cached.execute()

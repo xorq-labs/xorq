@@ -40,7 +40,7 @@ train_expr, test_expr = (
 
 (deferred_model, model_udaf, deferred_transform) = deferred_fit_transform_tfidf(
     train_expr,
-    storage=ParquetCache.from_kwargs(source=con),
+    cache=ParquetCache.from_kwargs(source=con),
 )
 bound_expr = test_expr.mutate(**{"transformed": deferred_transform.on_expr})
 

@@ -106,17 +106,17 @@ do_train_test_split = curry(
 )
 
 
-def do_fit(expr, storage=None):
+def do_fit(expr, cache=None):
     (_, _, deferred_transform) = do_deferred_fit_transform_tfidf(
         expr,
-        storage=storage,
+        cache=cache,
     )
     transformed = expr.mutate(
         **{f"{transform_col}_transformed": deferred_transform.on_expr}
     )
     (_, _, deferred_predict) = do_deferred_fit_predict_xgb(
         transformed,
-        storage=storage,
+        cache=cache,
     )
     predicted = (
         transformed
@@ -163,7 +163,7 @@ def do_serve(expr, deferred_transform, deferred_predict, transform_port, predict
 def make_exprs():
     name = "hn-fetcher-input-large"
     con = xo.connect()
-    storage = ParquetCache.from_kwargs(source=con)
+    cache = ParquetCache.from_kwargs(source=con)
     # pg.postgres.connect_env().create_catalog("caching")
     pg = xo.postgres.connect_env(database="caching")
 
@@ -175,10 +175,10 @@ def make_exprs():
         )
         .pipe(do_hackernews_fetcher_udxf)
         .filter(xo._.text.notnull())
-        .cache(storage=SourceCache.from_kwargs(source=pg))
+        .cache(cache=SourceCache.from_kwargs(source=pg))
         .pipe(do_hackernews_sentiment_udxf, con=con)
-        .cache(storage=SourceCache.from_kwargs(source=pg))
-        .cache(storage=ParquetCache.from_kwargs(source=con))
+        .cache(cache=SourceCache.from_kwargs(source=pg))
+        .cache(cache=ParquetCache.from_kwargs(source=con))
         .filter(~xo._[SENTIMENT].contains("ERROR"))
         .mutate(
             **{
@@ -197,9 +197,7 @@ def make_exprs():
         )
         .pipe(do_train_test_split)
     )
-    (train_predicted, deferred_transform, deferred_predict) = do_fit(
-        train_expr, storage
-    )
+    (train_predicted, deferred_transform, deferred_predict) = do_fit(train_expr, cache)
     test_predicted = do_transform_predict(
         test_expr, deferred_transform, deferred_predict
     )

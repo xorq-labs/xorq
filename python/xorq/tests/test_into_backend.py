@@ -566,10 +566,10 @@ def test_multiple_pipes(pg, backend_name):
 @pytest.mark.parametrize("remote", [True, False])
 def test_duckdb_datafusion_roundtrip(ls_con, pg, duckdb_con, function, remote):
     source = pg if remote else ls_con
-    storage = SourceCache.from_kwargs(source=source)
+    cache = SourceCache.from_kwargs(source=source)
 
     table_name = "batting"
-    pg_t = pg.table(table_name)[lambda t: t.yearID == 2015].cache(storage)
+    pg_t = pg.table(table_name)[lambda t: t.yearID == 2015].cache(cache)
 
     db_t = duckdb_con.create_table(f"ls-{table_name}", xo.to_pyarrow(pg_t))[
         lambda t: t.yearID == 2014
@@ -642,23 +642,23 @@ def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
     left, right = map(request.getfixturevalue, tables)
     source = right.op().source
 
-    left_storage = SourceCache.from_kwargs(source=left.op().source)
-    right_storage = SourceCache.from_kwargs(source=right.op().source)
+    left_cache = SourceCache.from_kwargs(source=left.op().source)
+    right_cache = SourceCache.from_kwargs(source=right.op().source)
 
     left_t = ls_con.register(left, table_name=f"left-{table_name}")[
         lambda t: t.yearID == 2015
-    ].cache(right_storage)
+    ].cache(right_cache)
 
     right_t = ls_con.register(right, table_name=f"right-{table_name}")[
         lambda t: t.yearID == 2014
-    ].cache(left_storage)
+    ].cache(left_cache)
 
     actual = (
         left_t.join(
             right_t.into_backend(source),
             "playerID",
         )
-        .cache(left_storage)
+        .cache(left_cache)
         .execute()
     )
 
@@ -702,7 +702,7 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
         db_t,
         db_t.columns,
     ).cache(
-        storage=ParquetCache.from_kwargs(
+        cache=ParquetCache.from_kwargs(
             source=ls_con,
             relative_path=tmp_path,
         )

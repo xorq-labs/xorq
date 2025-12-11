@@ -24,7 +24,7 @@ deferred_fit_transform_tfidf = deferred_fit_transform_series_sklearn(
 
 
 con = xo.connect()
-storage = ParquetCache.from_kwargs(source=con)
+cache = ParquetCache.from_kwargs(source=con)
 train_expr, test_expr = (
     deferred_read_parquet(
         xo.options.pins.get_path("hn-fetcher-input-small.parquet"),
@@ -45,7 +45,7 @@ train_expr, test_expr = (
     train_expr,
 )
 (cached_deferred_model, cached_model_udaf, cached_deferred_transform) = (
-    deferred_fit_transform_tfidf(train_expr, storage=storage)
+    deferred_fit_transform_tfidf(train_expr, cache=cache)
 )
 
 

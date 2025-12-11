@@ -12,7 +12,7 @@ batting = pg.table("batting")
 integer = 1
 
 backend = xo.duckdb.connect()
-storage = ParquetCache.from_kwargs(source=backend)
+cache = ParquetCache.from_kwargs(source=backend)
 awards_players = deferred_read_parquet(
     xo.config.options.pins.get_path("awards_players"),
     backend,
@@ -22,4 +22,4 @@ left = batting.filter(batting.yearID == 2015)
 right = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 expr = left.join(
     into_backend(right, pg, "pg-filtered-table"), ["playerID"], how="semi"
-)[["yearID", "stint"]].cache(storage=storage)
+)[["yearID", "stint"]].cache(cache=cache)

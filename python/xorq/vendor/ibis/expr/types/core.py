@@ -719,15 +719,15 @@ class LETSQLAccessor:
         )
 
     @property
-    def storage(self):
+    def cache(self):
         if self.is_cached:
-            return self.op.storage
+            return self.op.cache
         else:
             return None
 
     @property
-    def storages(self):
-        return tuple(node.storage for node in self.cached_nodes)
+    def caches(self):
+        return tuple(node.cache for node in self.cached_nodes)
 
     @property
     def backends(self):
@@ -817,9 +817,9 @@ class LETSQLAccessor:
         return patched_tokenize(self.expr)
 
     def get_cache_path(self):
-        if self.is_cached and hasattr(self.storage.storage, "get_path"):
+        if self.is_cached and hasattr(self.cache.storage, "get_path"):
             cn = self.op
-            return cn.storage.storage.get_path(cn.storage.calc_key(cn.parent))
+            return cn.cache.storage.get_path(cn.cache.calc_key(cn.parent))
         else:
             return None
 
@@ -840,19 +840,19 @@ class LETSQLAccessor:
     @property
     def cached_dt(self):
         if self.exists():
-            return self.storage.get(self.uncached_one)
+            return self.cache.get(self.uncached_one)
         else:
             return None
 
     def get_key(self):
         if self.is_cached:
-            return self.storage.calc_key(self.uncached_one)
+            return self.cache.calc_key(self.uncached_one)
         else:
             return None
 
     def get_keys(self):
         if self.has_cached and self.cached_nodes[0].to_expr().ls.exists():
-            # FIXME: yield storage with key
+            # FIXME: yield cache with key
             return tuple(op.to_expr().ls.get_key() for op in self.cached_nodes)
         else:
             return None
@@ -860,7 +860,7 @@ class LETSQLAccessor:
     def exists(self):
         if self.is_cached:
             cn = self.op
-            return cn.storage.exists(cn.parent)
+            return cn.cache.exists(cn.parent)
         else:
             return None
 

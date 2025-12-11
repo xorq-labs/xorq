@@ -51,14 +51,14 @@ def make_exprs(X_train, X_test, y_train, y_test):
     return train, test, features, target
 
 
-@pytest.mark.parametrize("storage_cls", (None, ParquetCache, SourceCache))
-def test_fittedstep_model(storage_cls):
-    storage = storage_cls.from_kwargs() if storage_cls else storage_cls
+@pytest.mark.parametrize("cache_cls", (None, ParquetCache, SourceCache))
+def test_fittedstep_model(cache_cls):
+    cache = cache_cls.from_kwargs() if cache_cls else cache_cls
     X_train, X_test, y_train, y_test = make_data()
     train, test, features, target = make_exprs(X_train, X_test, y_train, y_test)
     xorq_pipeline = Pipeline.from_instance(make_pipeline())
     fitted_pipeline = xorq_pipeline.fit(
-        train, features=features, target=target, storage=storage
+        train, features=features, target=target, cache=cache
     )
     for fitted_step in (*fitted_pipeline.transform_steps, fitted_pipeline.predict_step):
         fitted_step.model

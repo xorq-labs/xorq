@@ -119,11 +119,11 @@ def mutate_csv(path, line=None):
 def test_deferred_read_cache_key_check(con, tmp_path, pins_resource, request):
     # check that we don't invoke read when we calc key
     pins_resource = request.getfixturevalue(pins_resource)
-    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
 
     assert pins_resource.table_name not in con.tables
     t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
-    storage.strategy.calc_key(t)
+    cache.strategy.calc_key(t)
     assert pins_resource.table_name not in con.tables
 
 
@@ -203,20 +203,20 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
 
     con = get_con()
     pins_resource = request.getfixturevalue(pins_resource)
-    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
 
     df = pins_resource.df[filter_].reset_index(drop=True)
     t = pins_resource.deferred_reader(pins_resource.path, con, pins_resource.table_name)
-    expr = t[filter_].cache(storage=storage)
+    expr = t[filter_].cache(cache=cache)
 
     # no work is done yet
     assert pins_resource.table_name not in con.tables
-    assert not storage.exists(expr)
+    assert not cache.exists(expr)
 
-    # something exists in both con and storage
+    # something exists in both con and cache
     assert xo.execute(expr).equals(df)
     assert pins_resource.table_name in con.tables
-    assert storage.exists(expr)
+    assert cache.exists(expr)
 
     # we read from cache even if the table disappears
     try:
@@ -228,16 +228,16 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
     assert pins_resource.table_name not in con.tables
 
     # we repopulate the cache
-    storage.drop(expr)
+    cache.drop(expr)
     assert xo.execute(expr).equals(df)
     assert pins_resource.table_name in con.tables
-    assert storage.exists(expr)
+    assert cache.exists(expr)
 
     if con.name == "postgres":
         # we are mode="create" by default, which means losing cache creates collision
         mode = get_partial_arguments(pins_resource.get_underlying_method(con))["mode"]
         assert mode == "create"
-        storage.drop(expr)
+        cache.drop(expr)
         with pytest.raises(
             ProgrammingError,
             match=f'relation "{pins_resource.table_name}" already exists',
@@ -248,12 +248,12 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
         t = pins_resource.deferred_reader(
             pins_resource.path, con, pins_resource.table_name, mode="replace"
         )
-        expr = t[filter_].cache(storage=storage)
+        expr = t[filter_].cache(cache=cache)
         assert xo.execute(expr).equals(df)
-        assert storage.exists(expr)
+        assert cache.exists(expr)
         assert pins_resource.table_name in con.tables
         # this fails above, but works here because of mode="replace"
-        storage.drop(expr)
+        cache.drop(expr)
         assert xo.execute(expr).equals(df)
 
 
@@ -264,7 +264,7 @@ def test_cached_deferred_read(get_con, pins_resource, filter_, request, tmp_path
 def test_cached_csv_mutate(get_con, iris_csv, tmp_path):
     con = get_con()
     target_path = ensure_tmp_csv(iris_csv.name, tmp_path)
-    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
     # make sure the con is "clean"
     if iris_csv.table_name in con.tables:
         con.drop_table(iris_csv.table_name, force=True)
@@ -272,23 +272,23 @@ def test_cached_csv_mutate(get_con, iris_csv, tmp_path):
     df = iris_csv.df
     kwargs = {"mode": "replace"} if con.name == "postgres" else {}
     t = iris_csv.deferred_reader(target_path, con, iris_csv.table_name, **kwargs)
-    expr = t.cache(storage=storage)
+    expr = t.cache(cache=cache)
 
     # nothing exists yet
     assert iris_csv.table_name not in con.tables
-    assert not storage.exists(expr)
+    assert not cache.exists(expr)
 
     # initial cache population
     assert xo.execute(expr).equals(df)
     assert iris_csv.table_name in con.tables
-    assert storage.exists(expr)
+    assert cache.exists(expr)
 
     # mutate
     mutate_csv(target_path)
     df = iris_csv.immediate_reader(target_path)
-    assert not storage.exists(expr)
+    assert not cache.exists(expr)
     assert xo.execute(expr).equals(df)
-    assert storage.exists(expr)
+    assert cache.exists(expr)
 
 
 @pytest.mark.parametrize(
@@ -309,15 +309,15 @@ def test_cached_csv_mutate(get_con, iris_csv, tmp_path):
     [True, False],
 )
 def test_deferred_read_cache(con, tmp_path, method_name, path, remote):
-    storage = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=xo.connect(), relative_path=tmp_path)
     read_method = getattr(xo, method_name)
     connection = con if remote else xo.duckdb.connect()
 
     t = read_method(path, connection)
     uncached = t.head(10)
-    assert storage.strategy.calc_key(uncached) is not None
+    assert cache.strategy.calc_key(uncached) is not None
 
-    expr = uncached.cache(storage=storage)
+    expr = uncached.cache(cache=cache)
     assert not expr.execute().empty
 
 

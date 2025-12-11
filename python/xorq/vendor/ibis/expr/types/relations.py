@@ -3318,21 +3318,21 @@ class Table(Expr, _FixedTextJupyterMixin):
         """
         return self.execute(**kwargs)
 
-    def cache(self, storage=None) -> Table:
+    def cache(self, cache=None) -> Table:
         """Cache the results of a computation to improve performance on subsequent executions.
         This method allows you to cache the results of a computation either in memory, on disk
-        using Parquet files, or in a database table. The caching strategy and storage location
-        are determined by the storage parameter.
+        using Parquet files, or in a database table. The caching strategy and cache location
+        are determined by the cache parameter.
 
         Parameters
         ----------
-        storage : CacheStorage, optional
-            The storage strategy to use for caching. Can be one of:
+        cache : CacheStorage, optional
+            The cache strategy to use for caching. Can be one of:
             - ParquetCache: Caches results as Parquet files on disk
             - SourceCache: Caches results in the source database
             - ParquetSnapshotCache: Creates a snapshot of data in Parquet format
             - SourceSnapshotCache: Creates a snapshot in the source database
-            If None, uses the default storage configuration.
+            If None, uses the default cache configuration.
 
         Returns
         -------
@@ -3345,7 +3345,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         1. ModificationTimeStrategy: Tracks changes based on modification time
         2. SnapshotStrategy: Creates point-in-time snapshots of the data
 
-        Each strategy can be combined with either Parquet or database storage.
+        Each strategy can be combined with either Parquet or database cache.
 
         Examples
         --------
@@ -3355,11 +3355,11 @@ class Table(Expr, _FixedTextJupyterMixin):
         >>> from pathlib import Path
         >>> pg = xo.postgres.connect_examples()
         >>> con = xo.connect()
-        >>> storage = ParquetCache.from_kwargs(source=con, relative_path=Path.cwd())
+        >>> cache = ParquetCache.from_kwargs(source=con, relative_path=Path.cwd())
         >>> alltypes = pg.table("functional_alltypes")
         >>> cached = (alltypes
         ...     .select(alltypes.smallint_col, alltypes.int_col, alltypes.float_col)
-        ...     .cache(storage=storage)) # doctest: +SKIP
+        ...     .cache(cache=cache)) # doctest: +SKIP
 
         Using SourceCache with PostgreSQL:
         >>> from xorq.caching import SourceCache
@@ -3376,7 +3376,7 @@ class Table(Expr, _FixedTextJupyterMixin):
         >>> expr = left.join(right, "playerID").cache(SourceCache.from_kwargs(source=pg)) # doctest: +SKIP
 
         Using cache with filtering:
-        >>> cached = alltypes.cache(storage=storage)
+        >>> cached = alltypes.cache(cache=cache)
         >>> expr = cached.filter([
         ...     cached.float_col > 0,
         ...     cached.smallint_col > 4,
@@ -3405,19 +3405,19 @@ class Table(Expr, _FixedTextJupyterMixin):
         from xorq.common.utils.caching_utils import find_backend
         from xorq.expr.relations import CachedNode
 
-        if storage:
-            expr = maybe_prevent_cross_source_caching(self, storage)
+        if cache:
+            expr = maybe_prevent_cross_source_caching(self, cache)
         else:
             expr = self
 
         current_backend, _ = find_backend(expr.op(), use_default=True)
-        storage = storage or SourceCache.from_kwargs(source=current_backend)
+        cache = cache or SourceCache.from_kwargs(source=current_backend)
         op = CachedNode(
             name=CACHED_NODE_NAME_PLACEHOLDER,
             schema=expr.schema(),
             parent=expr,
             source=current_backend,
-            storage=storage,
+            cache=cache,
         )
         return op.to_expr()
 

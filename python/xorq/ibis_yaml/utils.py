@@ -117,44 +117,44 @@ def diff_ibis_exprs(expr1, expr2):
     return diffs
 
 
-def translate_storage(storage, translation_context: Any) -> Dict:
-    if isinstance(storage, SourceCache):
+def translate_cache(cache, translation_context: Any) -> Dict:
+    if isinstance(cache, SourceCache):
         return {
             "type": "SourceCache",
-            "source": storage.storage.source._profile.hash_name,
+            "source": cache.storage.source._profile.hash_name,
         }
-    elif isinstance(storage, ParquetCache):
+    elif isinstance(cache, ParquetCache):
         return {
             "type": "ParquetCache",
-            "source": storage.storage.source._profile.hash_name,
-            "relative_path": str(storage.storage.relative_path),
+            "source": cache.storage.source._profile.hash_name,
+            "relative_path": str(cache.storage.relative_path),
         }
-    elif isinstance(storage, ParquetSnapshotCache):
+    elif isinstance(cache, ParquetSnapshotCache):
         return {
             "type": "ParquetSnapshotCache",
-            "source": storage.storage.source._profile.hash_name,
-            "relative_path": str(storage.storage.relative_path),
+            "source": cache.storage.source._profile.hash_name,
+            "relative_path": str(cache.storage.relative_path),
         }
     else:
-        raise NotImplementedError(f"Unknown storage type: {type(storage)}")
+        raise NotImplementedError(f"Unknown cache type: {type(cache)}")
 
 
-def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
-    if storage_yaml["type"] == "SourceCache":
-        source_profile_name = storage_yaml["source"]
+def load_cache_from_yaml(cache_yaml: Dict, compiler: Any):
+    if cache_yaml["type"] == "SourceCache":
+        source_profile_name = cache_yaml["source"]
         source = compiler.profiles[source_profile_name]
         return SourceCache.from_kwargs(source=source)
-    elif storage_yaml["type"] == "ParquetCache":
-        source_profile_name = storage_yaml["source"]
+    elif cache_yaml["type"] == "ParquetCache":
+        source_profile_name = cache_yaml["source"]
         source = compiler.profiles[source_profile_name]
         return ParquetCache.from_kwargs(
-            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+            source=source, relative_path=pathlib.Path(cache_yaml["relative_path"])
         )
-    elif storage_yaml["type"] == "ParquetSnapshotCache":
-        source_profile_name = storage_yaml["source"]
+    elif cache_yaml["type"] == "ParquetSnapshotCache":
+        source_profile_name = cache_yaml["source"]
         source = compiler.profiles[source_profile_name]
         return ParquetSnapshotCache.from_kwargs(
-            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+            source=source, relative_path=pathlib.Path(cache_yaml["relative_path"])
         )
     else:
-        raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")
+        raise NotImplementedError(f"Unknown cache type: {cache_yaml['type']}")

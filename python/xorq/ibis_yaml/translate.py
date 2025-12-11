@@ -37,8 +37,8 @@ from xorq.ibis_yaml.common import (
 from xorq.ibis_yaml.udf import _scalar_udf_from_yaml, _scalar_udf_to_yaml
 from xorq.ibis_yaml.utils import (
     freeze,
-    load_storage_from_yaml,
-    translate_storage,
+    load_cache_from_yaml,
+    translate_cache,
 )
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.datashape import Columnar
@@ -469,7 +469,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
             "name": op.name,
             "parent": translate_to_yaml(op.parent, context),
             "source": op.source._profile.hash_name,
-            "storage": translate_storage(op.storage, context),
+            "cache": translate_cache(op.cache, context),
         }
     )
 
@@ -495,14 +495,14 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
         source = context.profiles[profile_name]
     except KeyError:
         raise ValueError(f"Profile {profile_name!r} not found in context.profiles")
-    storage = load_storage_from_yaml(yaml_dict["storage"], context)
+    cache = load_cache_from_yaml(yaml_dict["cache"], context)
 
     op = CachedNode(
         schema=schema,
         name=name,
         parent=parent_expr,
         source=source,
-        storage=storage,
+        cache=cache,
     )
     return op.to_expr()
 
