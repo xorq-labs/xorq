@@ -41,6 +41,10 @@ class ClickHouse(_ClickHouse):
             )
 
 
+with contextlib.suppress(AttributeError):
+    ClickHouse.Generator.TRANSFORMS[sge.Median] = rename_func("median")
+
+
 class DataFusion(Postgres):
     class Generator(Postgres.Generator):
         TRANSFORMS = Postgres.Generator.TRANSFORMS.copy() | {
@@ -54,6 +58,10 @@ class DataFusion(Postgres):
             sge.ArrayContains: rename_func("array_has"),
             sge.ArraySize: rename_func("array_length"),
         }
+
+
+with contextlib.suppress(AttributeError):
+    DataFusion.Generator.TRANSFORMS[sge.Median] = rename_func("median")
 
 
 class Druid(Postgres):

@@ -73,6 +73,13 @@ array_types_df = pd.DataFrame(
     ],
 )
 
+win = pd.DataFrame(
+    {
+        "g": ["a", "a", "a", "a", "a"],
+        "x": [0, 1, 2, 3, 4],
+        "y": [3, 2, 0, 1, 1],
+    }
+)
 
 expected_tables = (
     "array_types",

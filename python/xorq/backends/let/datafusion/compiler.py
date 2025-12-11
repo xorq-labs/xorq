@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import calendar
+import contextlib
 import math
 from functools import partial
 from itertools import starmap
@@ -77,6 +78,10 @@ class DataFusion(Postgres):
         TYPE_MAPPING = Postgres.Generator.TYPE_MAPPING.copy() | {
             exp.DataType.Type.LONGTEXT: "'LargeUtf8'",
         }
+
+
+with contextlib.suppress(AttributeError):
+    DataFusion.Generator.TRANSFORMS[sge.Median] = rename_func("median")
 
 
 class DataFusionCompiler(SQLGlotCompiler):
@@ -675,6 +680,9 @@ class DataFusionCompiler(SQLGlotCompiler):
     def visit_TimestampDelta(self, op, *, part, left, right):
         unit = part.this.lower()
         return self.f.timestamp_delta(unit, right, left)
+
+    def visit_RegexReplace(self, op, *, arg, pattern, replacement):
+        return self.f.regexp_replace(arg, pattern, replacement)
 
     visit_DateDelta = visit_TimestampDelta
 

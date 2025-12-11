@@ -1,5 +1,6 @@
 import ibis
 import pytest
+from packaging import version
 from pytest import param
 
 from xorq.common.utils.ibis_utils import from_ibis
@@ -57,6 +58,16 @@ def test_string_endswith():
     q = t.filter(t.name.endswith("X"))
 
     assert from_ibis(q) is not None
+
+
+def cases(t):
+    args = [(1, "abcd"), (2, "ABCD")]
+    kwargs = {"else_": "dabc"}
+    if version.parse(ibis.__version__) <= version.parse("9.5.0"):
+        args = [[(1, "abcd"), (2, "ABCD")]]
+        kwargs = {"default": "dabc"}
+
+    return t.int_col.cases(*args, **kwargs).startswith("abc")
 
 
 @pytest.mark.parametrize(
@@ -171,9 +182,7 @@ def test_string_endswith():
             id="length",
         ),
         param(
-            lambda t: t.int_col.cases(
-                (1, "abcd"), (2, "ABCD"), else_="dabc"
-            ).startswith("abc"),
+            cases,
             id="startswith",
         ),
         param(

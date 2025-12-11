@@ -1,0 +1,78 @@
+name: ci-test-ibis-compatibility
+
+on:
+  push:
+    paths-ignore:
+      - "docs/**"
+      - "**/*.md"
+      - "**/*.qmd"
+      - "*.md"
+      - "codecov.yml"
+      - ".envrc"
+    branches:
+      - main
+    tags:
+      - '*'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [ x86_64 ]
+        python-version: [ "3.12" ]
+        dependencies:
+          - name: 950
+            ibis-version: "9.5.0"
+            duckdb-version: "1.1.3"
+          - name: 1080
+            ibis-version: "10.8.0"
+            duckdb-version: "1.3.*"
+          - name: 1100
+            ibis-version: "11.0.0"
+            duckdb-version: "1.4.2"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: extractions/setup-just@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: download test data
+        run: just download-data
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: create build virtual environment
+        run: uv venv .venv
+
+      - name: build package
+        run: uv build
+
+      - name: get wheel filename
+        run: echo "WHEEL_FILE=$(ls dist/*.whl)" >> $GITHUB_ENV
+
+      - name: start services
+        run: docker compose up --build --wait
+
+      - name: test from_ibis compatibility with ibis ${{ matrix.dependencies.ibis-version }}
+        run: |
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with "${{ env.WHEEL_FILE }}[postgres]" --with "ibis-framework==${{ matrix.dependencies.ibis-version }}" --with pytest -- python -c "import xorq; import ibis; print(f'xorq version: {xorq.__version__}, ibis version: {ibis.__version__}')"
+          uv run --isolated --no-project -p ${{ matrix.python-version }} --with "${{ env.WHEEL_FILE }}[postgres]" --with "ibis-framework==${{ matrix.dependencies.ibis-version }}" --with pytest --with datafusion --with "duckdb==${{ matrix.dependencies.duckdb-version }}" -- pytest --import-mode=importlib python/xorq/common/utils/tests/ibis_utils/ -v
+        working-directory: ${{ github.workspace }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_HOST: localhost
+          POSTGRES_PORT: 5432
+          POSTGRES_DATABASE: ibis_testing

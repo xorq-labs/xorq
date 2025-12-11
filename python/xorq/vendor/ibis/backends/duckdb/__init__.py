@@ -29,7 +29,12 @@ from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import CanCreateDatabase, CanCreateSchema, UrlFromPath
 from xorq.vendor.ibis.backends.duckdb.converter import DuckDBPandasData
 from xorq.vendor.ibis.backends.sql import SQLBackend
-from xorq.vendor.ibis.backends.sql.compilers.base import STAR, AlterTable, C
+from xorq.vendor.ibis.backends.sql.compilers.base import (
+    STAR,
+    AlterTable,
+    C,
+    RenameTable,
+)
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
 from xorq.vendor.ibis.expr.operations.udf import InputType
 from xorq.vendor.ibis.util import deprecated
@@ -233,7 +238,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                     cur.execute(
                         AlterTable(
                             this=initial_table,
-                            actions=[sge.RenameTable(this=final_table)],
+                            actions=[RenameTable(this=final_table)],
                         ).sql(self.name)
                     )
 
