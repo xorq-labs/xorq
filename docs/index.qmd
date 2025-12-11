@@ -12,7 +12,7 @@ listing:
       - "getting_started/installation.qmd"
       - "getting_started/your_first_expression.qmd"
     type: grid
-    grid-columns: 3
+    grid-columns: 4
     fields: [title, description]
   - id: general-tutorials-cards
     template: "style/gallery.ejs"
@@ -22,7 +22,7 @@ listing:
       - "tutorials/core_tutorials/switch_backends.qmd"
       - "tutorials/core_tutorials/your_first_build.qmd"
     type: grid
-    grid-columns: 2
+    grid-columns: 4
     fields: [title, description]
   - id: ml-tutorials-cards
     template: "style/gallery.ejs"
@@ -119,8 +119,4 @@ Every command you need to build, run, and serve pipelines
 [**Python API**](reference/)
 
 Full reference for Xorq's Python API
-:::
-
-:::
-
 :::
