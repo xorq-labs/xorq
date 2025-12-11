@@ -118,7 +118,6 @@ class ParquetTTLStorage(ParquetStorage):
         return delta < self.ttl
 
 
-# named with underscore prefix until we swap out SourceStorage
 @frozen
 class SourceStorage(CacheStorage):
     source = field(

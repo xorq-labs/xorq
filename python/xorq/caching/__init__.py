@@ -176,7 +176,7 @@ class GCSCache(Cache):
     def __attrs_post_init__(self):
         from xorq.common.utils.gcloud_utils import GCStorage
 
-        assert isinstance(self.strategy, ModificationTimeStrategy)
+        assert isinstance(self.strategy, self.strategy_typ)
         assert isinstance(self.storage, GCStorage)
 
     @classmethod
