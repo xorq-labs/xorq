@@ -1,7 +1,9 @@
+import pyarrow as pa
 import pytest
 
 import xorq.api as xo
 from xorq.common.utils.ibis_utils import from_ibis
+from xorq.tests.util import assert_frame_equal
 
 
 ibis = pytest.importorskip("ibis")
@@ -16,6 +18,17 @@ def test_basic_ops():
     t = ibis.memtable({"id": [1, 2, 3]})
     xorq_t = from_ibis(t)
     assert xorq_t is not None
+
+
+def test_pyarrow_table_proxy():
+    table = pa.table({"id": [1, 2, 3, 4, 5], "value": [10.0, 20.0, 30.0, 40.0, 50.0]})
+
+    t = ibis.memtable(table)
+    expr = t.filter(t.id > 2)
+
+    xorq_expr = from_ibis(expr)
+
+    assert_frame_equal(expr.execute(), xorq_expr.execute())
 
 
 @pytest.mark.parametrize(

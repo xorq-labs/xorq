@@ -783,7 +783,7 @@ class Value(Expr):
                 order_by=order_by,
             )
         elif not isinstance(window, bl.WindowBuilder):
-            raise com.XorqTypeError("Unexpected window type: {window!r}")
+            raise com.XorqTypeError(f"Unexpected window type: {window!r}")
 
         node = self.op()
         if len(node.relations) == 0:
