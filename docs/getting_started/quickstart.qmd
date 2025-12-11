@@ -145,7 +145,7 @@ Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with th
 
 ::: {.callout-warning}
 ### Windows users
-Skip the first tab and go straight to "Save to file". Running without an output file may cause issues on Windows.
+Skip the first tab and go straight to "Save to file." Running without an output file may cause issues on Windows.
 :::
 
 ::: {.panel-tabset}
