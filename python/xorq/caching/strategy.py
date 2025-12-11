@@ -52,6 +52,12 @@ class SnapshotStrategy(CacheStrategy):
 
     @contextlib.contextmanager
     def normalization_context(self, expr):
+        ### hack: begin: deal with patch_normalize_token side effect
+        import numpy as np
+
+        dask.base.tokenize(np.dtypes.Float64DType())
+        ### hack: end: deal with patch_normalize_token side effect
+
         typs = map(type, expr.ls.backends)
         with patch_normalize_token(*typs, f=self.normalize_backend):
             with patch_normalize_token(
