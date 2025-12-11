@@ -1,5 +1,5 @@
 ---
-title: Supported Backends
+title: Supported backends
 ---
 
 xorq currently supports:

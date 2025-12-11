@@ -1,7 +1,8 @@
 ---
 title: "Introduction"
 description: "Understand what Xorq is, why it exists, and how it fits into your ML infrastructure"
-icon: "circle-info"
+icon: "compass"
+headline: "Discover what Xorq can do"
 ---
 
 Xorq is an open source compute catalog for AI. It helps teams catalog, compose, reuse, and observe transformations, features, models, and pipelines across multiple engines.
@@ -89,6 +90,5 @@ The core expression and build logic remains open source.
 Now that you understand what Xorq is and why it exists, choose your path:
 
 - [Quickstart](/tutorials/getting_started/quickstart) to build your first pipeline in under five minutes
-- [10-minute tour](/tutorials/getting_started/10_minutes_xorq_tour) to explore Xorq features in depth
 - [GitHub](https://github.com/xorq-labs/xorq) to star the repo and contribute
 - [Discord](https://discord.gg/8Kma9DhcJG) to join the community

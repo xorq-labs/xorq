@@ -3,9 +3,11 @@ project:
 
 website:
   page-navigation: true
-  title: "Xorq"
-  description: "A modern data processing library focused on composability, portability and performance in critical path of ML."
+  title: "Xorq Documentation"
+  description: "Xorq documentation — build portable, multi-engine ML pipelines with deferred execution, caching, and lineage tracking. Tutorials, API reference, and guides."
   favicon: "style/favicon.ico"
+  open-graph: true
+  twitter-card: true
 
   page-footer:
     center: "This page is built with [Quarto](https://quarto.org/)."
@@ -27,17 +29,17 @@ website:
       - sidebar:guides
       - sidebar:concepts
       - sidebar:reference
+      - sidebar:troubleshooting
       - href: release_notes.qmd
-        text: "Release Notes"
+        text: "Release notes"
       - href: faq.qmd
         text: "FAQ"
-      - sidebar:contributors
 
 
 
   sidebar:
     - id: getting-started
-      title: "Getting Started"
+      title: "Getting started"
       collapse-level: 1
       contents:
         - href: getting_started/introduction.qmd
@@ -52,14 +54,14 @@ website:
       collapse-level: 2
       contents:
         - id: core-tutorials-section
-          section: "Core Tutorials"
+          section: "General tutorials"
           contents:
             - href: tutorials/core_tutorials/understand_deferred_execution.qmd
             - href: tutorials/core_tutorials/explore_caching.qmd
             - href: tutorials/core_tutorials/switch_backends.qmd
             - href: tutorials/core_tutorials/your_first_build.qmd
         - id: ml-tutorials-section
-          section: "ML Tutorials"
+          section: "ML tutorials"
           contents:
             - href: tutorials/ml_tutorials/train_your_first_model.qmd
             - href: tutorials/ml_tutorials/understand_step_and_pipeline.qmd
@@ -68,14 +70,14 @@ website:
             - href: tutorials/ml_tutorials/explore_model_evaluation.qmd
             - href: tutorials/ml_tutorials/deploy_your_first_model.qmd
         - id: ai-tutorials-section
-          section: "AI Tutorials"
+          section: "AI tutorials"
           contents:
             - href: tutorials/ai_tutorials/your_first_udxf.qmd
             - href: tutorials/ai_tutorials/call_llms_from_expressions.qmd
             - href: tutorials/ai_tutorials/build_an_mcp_tool.qmd
             - href: tutorials/ai_tutorials/understand_flight_protocol.qmd
         - id: analytics-tutorials-section
-          section: "Analytics Tutorials"
+          section: "Analytics tutorials"
           contents:
             - href: tutorials/analytics_tutorials/query_across_engines.qmd
             - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
@@ -95,7 +97,7 @@ website:
             - href: guides/data_workflows/transform_data_custom_udfs.qmd
             - href: guides/data_workflows/build_feature_pipelines.qmd
         - id: ml-workflows-section
-          section: "ML Workflows"
+          section: "ML workflows"
           contents:
             - href: guides/ml_workflows/train_models_at_scale.qmd
             - href: guides/ml_workflows/evaluate_model_performance.qmd
@@ -103,14 +105,14 @@ website:
             - href: guides/ml_workflows/deploy_models_to_production.qmd
             - href: guides/ml_workflows/integrate_sklearn_pipelines.qmd
         - id: performance-workflows-section
-          section: "Performance Workflows"
+          section: "Performance workflows"
           contents:
             - href: guides/performance_workflows/optimize_pipeline_performance.qmd
             - href: guides/performance_workflows/optimize_model_serving.qmd
             - href: guides/performance_workflows/switch_backends_dynamically.qmd
             - href: guides/performance_workflows/manage_llm_costs.qmd
         - id: platform-workflows-section
-          section: "Platform Workflows"
+          section: "Platform workflows"
           contents:
             - href: guides/platform_workflows/build_reproducible_environments.qmd
             - href: guides/platform_workflows/manage_compute_catalog.qmd
@@ -119,7 +121,7 @@ website:
             - href: guides/platform_workflows/handle_production_errors.qmd
             - href: guides/platform_workflows/debug_pipeline_failures.qmd
         - id: advanced-workflows-section
-          section: "Advanced Workflows"
+          section: "Advanced workflows"
           contents:
             - href: guides/advanced_workflows/track_data_lineage.qmd
             - href: guides/advanced_workflows/build_feature_store.qmd
@@ -138,9 +140,8 @@ website:
             - concepts/understanding_xorq/multi_engine_execution.qmd
             - concepts/understanding_xorq/intelligent_caching_system.qmd
             - concepts/understanding_xorq/expression_format.qmd
-            - concepts/understanding_xorq/when_to_use_xorq.qmd
         - id: core-concepts-section
-          section: "Core Concepts"
+          section: "Core concepts"
           contents:
             - concepts/core_concepts/content_addressed_hashing.qmd
             - concepts/core_concepts/build_system.qmd
@@ -159,34 +160,10 @@ website:
       collapse-level: 2
       contents:
         - reference/glossary.qmd
-        - id: backend-config-section
-          section: "Backend Configuration"
-          contents:
-            - api_reference/backend_configuration/overview.qmd
-            - api_reference/backend_configuration/profiles_api.qmd
-            - api_reference/backend_configuration/env_variables.qmd
-            - api_reference/backend_configuration/supported_backends.qmd
-        - id: cli-commands-section
-          section: "CLI Commands"
-          contents:
-            - api_reference/cli/index.qmd
-            - api_reference/cli/init.qmd
-            - api_reference/cli/build.qmd
-            - api_reference/cli/uv-build.qmd
-            - api_reference/cli/run.qmd
-            - api_reference/cli/uv-run.qmd
-            - api_reference/cli/serve-flight-udxf.qmd
-            - api_reference/cli/serve-unbound.qmd
-            - api_reference/cli/lineage.qmd
-            - api_reference/cli/ps.qmd
-            - id: catalog-subsection
-              section: "catalog"
-              contents:
-                - api_reference/cli/catalog/add.qmd
-                - api_reference/cli/catalog/ls.qmd
-                - api_reference/cli/catalog/info.qmd
-                - api_reference/cli/catalog/rm.qmd
-                - api_reference/cli/catalog/diff-builds.qmd
+        - href: api_reference/backends/index.qmd
+          text: "Backends"
+        - href: api_reference/cli/index.qmd
+          text: "CLI commands"
         - reference/index.qmd
 
     - id: api-reference
@@ -195,7 +172,7 @@ website:
       contents:
         - reference/index.qmd
         - id: core-operations-section
-          section: "Core Operations"
+          section: "Core operations"
           contents:
             - reference/connect.qmd
             - reference/execute.qmd
@@ -213,12 +190,12 @@ website:
             - reference/register.qmd
             - reference/get_plans.qmd
         - id: types-schemas-section
-          section: "Types and Schemas"
+          section: "Types and schemas"
           contents:
             - reference/datatypes.qmd
             - reference/schemas.qmd
         - id: data-operations-section
-          section: "Data Operations"
+          section: "Data operations"
           contents:
             - reference/Column.qmd
             - reference/DateValue.qmd
@@ -237,7 +214,7 @@ website:
             - reference/window.qmd
             - reference/selectors.qmd
         - id: udf-system-section
-          section: "UDF System"
+          section: "UDF system"
           contents:
             - reference/agg.pandas_df.qmd
             - reference/agg.pyarrow.qmd
@@ -246,7 +223,7 @@ website:
             - reference/make_pandas_udf.qmd
             - reference/pyarrow_udwf.qmd
         - id: ml-operations-section
-          section: "ML Operations"
+          section: "ML operations"
           contents:
             - reference/deferred_fit_predict.qmd
             - reference/deferred_fit_transform.qmd
@@ -266,14 +243,14 @@ website:
             - reference/build_tree.qmd
             - reference/print_tree.qmd
         - id: flight-operations-section
-          section: "Flight Operations"
+          section: "Flight operations"
           contents:
             - reference/FlightServer.qmd
             - reference/FlightUrl.qmd
             - reference/connect_flight.qmd
             - reference/make_udxf.qmd
         - id: catalog-operations-section
-          section: "Catalog Operations"
+          section: "Catalog operations"
           contents:
             - reference/XorqCatalog.qmd
             - reference/Build.qmd
@@ -302,6 +279,18 @@ website:
             - api_reference/cli/catalog/info.qmd
             - api_reference/cli/catalog/rm.qmd
             - api_reference/cli/catalog/diff-builds.qmd
+    
+    - id: troubleshooting
+      title: "Troubleshooting"
+      collapse-level: 1
+      contents:
+        - href: troubleshooting/index.qmd
+        - href: troubleshooting/common_errors.qmd
+        - href: troubleshooting/installation_issues.qmd
+        - href: troubleshooting/pipeline_failures.qmd
+        - href: troubleshooting/performance_problems.qmd
+        - href: troubleshooting/backend_connection_issues.qmd
+        - href: troubleshooting/caching_issues.qmd
     
     - id: contributors
       title: "Contributors"

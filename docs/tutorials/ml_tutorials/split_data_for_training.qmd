@@ -1,5 +1,8 @@
 ---
 title: 'Split data for training'
+description: "Create deterministic train, test, and validation splits for ML workflows"
+icon: "scissors"
+headline: "Split data properly"
 ---
 
 This tutorial teaches you how to split data for model training and evaluation. You'll learn how to create train, test, validation, and holdout splits with Xorq's deterministic splitting functions.

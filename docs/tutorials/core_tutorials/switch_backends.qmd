@@ -1,5 +1,8 @@
 ---
 title: 'Switch backends'
+description: "Run the same expression on DuckDB, Pandas, DataFusion, and more"
+icon: "arrow-left-right"
+headline: "Master multi-engine execution"
 ---
 
 This tutorial shows you how to run the same expression on different execution engines. You'll learn when to choose each backend and see how Xorq moves data between them using Apache Arrow.

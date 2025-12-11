@@ -1,5 +1,8 @@
 ---
 title: 'Explore caching'
+description: "See cache hits and misses in real time and speed up your workflows"
+icon: "lightning-charge"
+headline: "Leverage intelligent caching"
 ---
 
 This tutorial shows you how Xorq's caching system works through hands-on examples. You'll see cache hits and misses in real time, and understand when Xorq reuses results versus recomputing them.

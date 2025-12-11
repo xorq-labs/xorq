@@ -1,5 +1,8 @@
 ---
 title: 'Understand Step and Pipeline'
+description: "Learn how Xorq wraps scikit-learn for deferred ML execution"
+icon: "diagram-3"
+headline: "Master ML abstractions"
 ---
 
 This tutorial explains how Xorq wraps scikit-learn models through the `Step` and `Pipeline` classes. You'll learn why these abstractions exist and how they make ML workflows work with deferred execution.

@@ -1,51 +1,126 @@
 ---
-title: Welcome to Xorq!
+pagetitle: "Xorq Documentation"
+description: "Official Xorq documentation. Learn how to build portable, multi-engine ML pipelines with deferred execution, caching, lineage tracking, and deployment-ready artifacts."
+toc: false
+page-layout: custom
 listing:
-  - id: getting-started
+  - id: getting-started-cards
     template: "style/gallery.ejs"
-    contents: 
-      - "tutorials/getting_started/quickstart.qmd"
-      - "tutorials/getting_started/10_minutes_xorq_tour.qmd"
+    contents:
+      - "getting_started/introduction.qmd"
+      - "getting_started/quickstart.qmd"
+      - "getting_started/installation.qmd"
+      - "getting_started/your_first_expression.qmd"
+    type: grid
+    grid-columns: 3
+    fields: [title, description]
+  - id: general-tutorials-cards
+    template: "style/gallery.ejs"
+    contents:
+      - "tutorials/core_tutorials/understand_deferred_execution.qmd"
+      - "tutorials/core_tutorials/explore_caching.qmd"
+      - "tutorials/core_tutorials/switch_backends.qmd"
+      - "tutorials/core_tutorials/your_first_build.qmd"
     type: grid
     grid-columns: 2
-    fields: [title]
-  - id: dive-deeper
+    fields: [title, description]
+  - id: ml-tutorials-cards
     template: "style/gallery.ejs"
-    contents: 
-      - "tutorials/getting_started/hn_data_prep.qmd"
-      - "tutorials/getting_started/hn_transform_tfidf.qmd"
-      - "tutorials/getting_started/hn_training_xgb.qmd"
-      - "tutorials/getting_started/hn_serving.qmd"
+    contents:
+      - "tutorials/ml_tutorials/train_your_first_model.qmd"
+      - "tutorials/ml_tutorials/understand_step_and_pipeline.qmd"
+      - "tutorials/ml_tutorials/use_deferred_fit_predict.qmd"
+      - "tutorials/ml_tutorials/split_data_for_training.qmd"
     type: grid
     grid-columns: 2
-    fields: [title]
+    fields: [title, description]
 ---
 
-Xorq is an opinionated framework for cataloging composable compute expressions that enables you to build portable, multi-engine ML pipelines 
-with deferred execution. Write expressive, pandas-style transformations that seamlessly move between SQL engines and Python, 
-with built-in caching, lineage tracking, and deployment-ready artifacts. Xorq is built on top of [Ibis](https://ibis-project.org/) 
-and [Apache DataFusion](https://datafusion.apache.org/).
+::: {.hero-section}
+::: {.hero-content}
+# Xorq Documentation
 
+Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, and multi-engine execution automatically.
 
-## Getting started
-
-:::{#getting-started}
+[Get started](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
+[View on GitHub](https://github.com/xorq-labs/xorq){.hero-btn .hero-btn-secondary}
+:::
 :::
 
-## Dive deeper
+::: {.content-section}
 
-Multipart series on how to build an end-to-end ML pipeline using live data from the [HackerNews API](https://github.com/HackerNews/API).
+## <i class="bi bi-rocket-takeoff"></i> Getting started
 
-:::{#dive-deeper}
+New to Xorq? Start here to build your first pipeline.
+
+:::{#getting-started-cards}
 :::
 
-## Why Xorq?
+## <i class="bi bi-book"></i> General tutorials
 
-xorq was developed to solve the frustrating complexities of building reliable ML pipelines across multiple engines and environments. Traditional approaches force you to choose between the expressiveness of pandas and the scalability of SQL engines, leading to SQL-pandas impedance mismatches, wasteful recomputation, and pipelines that work in notebooks but fail in production.
-The xorq computational framework provides a quantum leap in ML development by:
+Learn how Xorq's deferred execution, caching, and multi-engine support work together.
 
-- **Unifying multi-engine workflows** - seamlessly combine Snowflake, DuckDB, and Python within a single declarative pipeline, eliminating engine-specific rewrites.
-- **Enabling true portability** - write UDFs once and run them consistently across any supported engine, with automatic serialization to diff-able YAML artifacts for reproducibility.
-- **Accelerating iteration** - intelligent caching of intermediate results means no more waiting for expensive joins or full pipeline re-runs after every change.
-- **Making deployment seamless** - moving a working pipeline from local development to production requires no rewriting, with built-in compile-time validation and lineage tracking.
-- **Providing observability** - automatic column-level lineage tracking and fail-fast pipelines give you the visibility and confidence needed for production ML systems.
+:::{#general-tutorials-cards}
+:::
+
+## <i class="bi bi-cpu"></i> ML tutorials
+
+Train models, split data, and deploy predictions with Xorq's ML workflow.
+
+:::{#ml-tutorials-cards}
+:::
+
+## <i class="bi bi-grid-3x3"></i> Explore the docs
+
+::: {.docs-grid}
+::: {.doc-card}
+<i class="bi bi-robot"></i>
+
+[**AI tutorials**](tutorials/ai_tutorials/)
+
+Call LLMs, build MCP tools, and process data with AI
+:::
+
+::: {.doc-card}
+<i class="bi bi-bar-chart"></i>
+
+[**Analytics tutorials**](tutorials/analytics_tutorials/)
+
+Query across engines, write UDFs, and build analytics workflows
+:::
+
+::: {.doc-card}
+<i class="bi bi-list-check"></i>
+
+[**Guides**](guides/)
+
+Production-ready patterns for deploying and scaling your pipelines
+:::
+
+::: {.doc-card}
+<i class="bi bi-lightbulb"></i>
+
+[**Concepts**](core_concepts/)
+
+Deep dives into deferred execution, caching, and architecture
+:::
+
+::: {.doc-card}
+<i class="bi bi-terminal"></i>
+
+[**CLI reference**](api_reference/cli/)
+
+Every command you need to build, run, and serve pipelines
+:::
+
+::: {.doc-card}
+<i class="bi bi-code-square"></i>
+
+[**Python API**](reference/)
+
+Full reference for Xorq's Python API
+:::
+
+:::
+
+:::

@@ -1,5 +1,8 @@
 ---
 title: 'Your first Xorq expression'
+description: "Write and execute a basic Xorq expression with filters and aggregations"
+icon: "file-code"
+headline: "Build your first expression graph"
 ---
 
 This tutorial shows you how to write and execute your first Xorq expression. You'll load data, apply a filter, and see results.
