@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import inspect
 import pathlib
+import time
 import uuid
+from datetime import timedelta
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -14,6 +16,7 @@ import xorq.expr.datatypes as dt
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
+    ParquetTTLSnapshotCache,
     SourceCache,
     SourceSnapshotCache,
 )
@@ -496,3 +499,35 @@ def test_cache_find_embedded_backend(cls, parquet_dir):
     storage = cls.from_kwargs(source=con)
     expr = con.read_parquet(astronauts_path).cache(storage=storage)
     assert expr._find_backend()._profile == con._profile
+
+
+def test_parquet_ttl_snapshot_cache(ls_con, batting, tmp_path):
+    n_rows = 1
+    seconds = 1
+    tmp_path = pathlib.Path(tmp_path)
+    all_rows_path = tmp_path.joinpath("all_rows.parquet")
+    n_rows_path = tmp_path.joinpath("n_rows.parquet")
+    path = tmp_path.joinpath("data.parquet")
+    expr = batting[lambda t: t.yearID > 2014][lambda t: t.stint == 1]
+    expr.to_parquet(all_rows_path)
+    assert xo.read_parquet(all_rows_path).count().execute() != n_rows
+    expr.limit(n_rows).to_parquet(n_rows_path)
+    path.write_bytes(all_rows_path.read_bytes())
+
+    cache = ParquetTTLSnapshotCache.from_kwargs(
+        source=ls_con, relative_path=tmp_path, ttl=timedelta(seconds=1)
+    )
+    expr = xo.deferred_read_parquet(
+        path=path,
+        con=ls_con,
+    ).cache(storage=cache)
+    assert not expr.ls.exists()
+    m = expr.count().execute()
+    assert expr.ls.exists()
+    path.write_bytes(n_rows_path.read_bytes())
+    assert expr.ls.exists()
+    assert expr.count().execute() == m
+    assert ls_con.read_parquet(path).count().execute() == n_rows
+    time.sleep(seconds)
+    assert not expr.ls.exists()
+    assert expr.count().execute() == n_rows
