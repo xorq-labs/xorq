@@ -13,6 +13,7 @@ LIBRARY_SCRIPTS = (
     "flight_dummy_exchanger",
 )
 GCS_SCRIPTS = ("gcstorage_example",)
+WEATHER_SCRIPTS = ("weather_flight",)
 NON_TESTABLE = (
     "mcp_flight_server.py",
     "duckdb_flight_example.py",
@@ -42,8 +43,21 @@ def maybe_gcs(name: str):
     return pytest.mark.gcs if name in GCS_SCRIPTS else ()
 
 
+def maybe_weather(name: str):
+    import os
+
+    return (
+        pytest.mark.skipif(
+            not os.environ.get("OPENWEATHER_API_KEY"),
+            reason="OPENWEATHER_API_KEY not set",
+        )
+        if name in WEATHER_SCRIPTS
+        else ()
+    )
+
+
 def maybe_marks(name: str):
-    fs = (maybe_library, maybe_gcs)
+    fs = (maybe_library, maybe_gcs, maybe_weather)
     return tuple(filter(None, (f(name) for f in fs)))
 
 
