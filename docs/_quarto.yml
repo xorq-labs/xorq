@@ -35,8 +35,6 @@ website:
       - href: faq.qmd
         text: "FAQ"
 
-
-
   sidebar:
     - id: getting-started
       title: "Getting started"
