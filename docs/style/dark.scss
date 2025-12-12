@@ -175,6 +175,19 @@ pre code {
   }
 }
 
+.quarto-listing-container-grid .list.grid {
+  display: grid;
+  gap: 1rem;
+  
+  &.quarto-listing-cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  &.quarto-listing-cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .card-text {
     border: 1px solid $gray-300;
     border-radius: 16px;
@@ -187,36 +200,26 @@ pre code {
     text-decoration: none;
     color: inherit;
 
+    a {
+      color: $white;
+      text-decoration: none;
+      
+      &:hover {
+        color: $cyan;
+      }
+    }
+
+    p {
+      font-size: 0.9rem;
+      color: rgba($white, 0.6);
+      margin: 0.5rem 0 0 0;
+    }
+
     &:hover {
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
       transform: translateY(-2px);
       border-color: $white;
     }
-}
-
-.card-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 1.5rem;
-  position: relative;
-  text-align: center;
-}
-
-
-.card-icon {
-  font-size: 4rem;
-  color: $white;
-  transition: color 0.2s ease;
-  margin-bottom: 1rem;
-}
-
-.listing-title-text {
-  display: block;
-  line-height: 1.4;
-  font-weight: 500;
 }
 
 .icon-title-row {
@@ -261,10 +264,14 @@ pre code {
 /* Hero Section */
 .hero-section {
   background: $navbar-bg;
-  padding: 6rem 2rem;
+  padding: 4rem 2rem;
   text-align: center;
   position: relative;
   overflow: hidden;
+  
+  @media (max-width: 768px) {
+    padding: 3rem 1.5rem;
+  }
 }
 
 .hero-content {
@@ -274,16 +281,31 @@ pre code {
   z-index: 1;
   
   h1 {
-    font-size: 4.5rem;
-    margin-bottom: 1.5rem;
+    font-size: 3.5rem;
+    margin-bottom: 1rem;
     color: $white;
+    font-weight: 500;
+    line-height: 1.2;
+    
+    @media (max-width: 768px) {
+      font-size: 2.5rem;
+    }
+    
+    @media (max-width: 480px) {
+      font-size: 2rem;
+    }
   }
   
   p {
-    font-size: 1.4rem;
+    font-size: 1.125rem;
     color: rgba($white, 0.85);
-    margin-bottom: 2.5rem;
+    margin-bottom: 2rem;
     line-height: 1.6;
+    
+    @media (max-width: 768px) {
+      font-size: 1rem;
+      margin-bottom: 1.5rem;
+    }
   }
 }
 
@@ -396,6 +418,7 @@ pre code {
   flex-direction: column;
   text-decoration: none;
   color: inherit;
+  max-width: 280px;
   
   a {
     color: $white;
