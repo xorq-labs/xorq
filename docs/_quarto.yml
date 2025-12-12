@@ -291,15 +291,6 @@ website:
         - href: troubleshooting/performance_problems.qmd
         - href: troubleshooting/backend_connection_issues.qmd
         - href: troubleshooting/caching_issues.qmd
-    
-    - id: contributors
-      title: "Contributors"
-      collapse-level: 2
-      contents:
-        - contributors/getting_started.qmd
-        - contributors/code_guidelines.qmd
-        - contributors/documentation_guidelines.qmd
-        - contributors/testing.qmd
       
 
 format:
