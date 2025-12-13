@@ -10,7 +10,7 @@ import toolz
 import xorq.api as xo
 import xorq.common.utils.dask_normalize  # noqa: F401
 from xorq.caching import (
-    SourceSnapshotStorage,
+    SourceSnapshotCache,
 )
 from xorq.common.utils.dask_normalize import (
     get_normalize_token_subset,
@@ -107,8 +107,8 @@ def test_tokenize_duckdb_expr(batting, snapshot):
 def test_pandas_snapshot_key(alltypes_df, snapshot):
     con = xo.pandas.connect()
     t = con.create_table("t", alltypes_df)
-    storage = SourceSnapshotStorage(source=con)
-    actual = storage.get_key(t)
+    cache = SourceSnapshotCache.from_kwargs(source=con)
+    actual = cache.strategy.calc_key(t)
     snapshot.assert_match(actual, "pandas_snapshot_key.txt")
 
 
@@ -116,8 +116,8 @@ def test_pandas_snapshot_key(alltypes_df, snapshot):
 def test_duckdb_snapshot_key(batting, snapshot):
     con = xo.duckdb.connect()
     t = con.register(batting.to_pyarrow(), "dashed-name")
-    storage = SourceSnapshotStorage(source=con)
-    actual = storage.get_key(t)
+    cache = SourceSnapshotCache.from_kwargs(source=con)
+    actual = cache.strategy.calc_key(t)
     snapshot.assert_match(actual, "duckdb_snapshot_key.txt")
 
 

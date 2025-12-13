@@ -2,10 +2,10 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceSnapshotStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
 )
 
 
@@ -41,7 +41,7 @@ def test_cross_source_snapshot(con_cross_source_snapshot):
 
 @pytest.mark.parametrize(
     "cls",
-    [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
+    [ParquetSnapshotCache, ParquetCache, SourceSnapshotCache, SourceCache],
 )
 def test_cache_find_backend(cls, parquet_dir, con_cache_find_backend):
     con_cache_find_backend(cls, xo.datafusion.connect())

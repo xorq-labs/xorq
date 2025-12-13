@@ -1,6 +1,6 @@
 import xorq.api as xo
 from xorq.api import _
-from xorq.caching import SourceStorage
+from xorq.caching import SourceCache
 
 
 con = xo.connect()
@@ -19,7 +19,7 @@ left = pg.table(name).filter(_.yearID == 2015).into_backend(con)
 expr = left.join(
     right,
     "playerID",
-).cache(SourceStorage(source=pg))
+).cache(SourceCache.from_kwargs(source=pg))
 
 
 if __name__ == "__pytest_main__":

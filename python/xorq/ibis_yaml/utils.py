@@ -2,7 +2,7 @@ import pathlib
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict
 
-from xorq.caching import ParquetSnapshotStorage, ParquetStorage, SourceStorage
+from xorq.caching import ParquetCache, ParquetSnapshotCache, SourceCache
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -117,44 +117,44 @@ def diff_ibis_exprs(expr1, expr2):
     return diffs
 
 
-def translate_storage(storage, translation_context: Any) -> Dict:
-    if isinstance(storage, SourceStorage):
+def translate_cache(cache, translation_context: Any) -> Dict:
+    if isinstance(cache, SourceCache):
         return {
-            "type": "SourceStorage",
-            "source": storage.source._profile.hash_name,
+            "type": "SourceCache",
+            "source": cache.storage.source._profile.hash_name,
         }
-    elif isinstance(storage, ParquetStorage):
+    elif isinstance(cache, ParquetCache):
         return {
-            "type": "ParquetStorage",
-            "source": storage.source._profile.hash_name,
-            "relative_path": str(storage.relative_path),
+            "type": "ParquetCache",
+            "source": cache.storage.source._profile.hash_name,
+            "relative_path": str(cache.storage.relative_path),
         }
-    elif isinstance(storage, ParquetSnapshotStorage):
+    elif isinstance(cache, ParquetSnapshotCache):
         return {
-            "type": "ParquetSnapshotStorage",
-            "source": storage.source._profile.hash_name,
-            "relative_path": str(storage.relative_path),
+            "type": "ParquetSnapshotCache",
+            "source": cache.storage.source._profile.hash_name,
+            "relative_path": str(cache.storage.relative_path),
         }
     else:
-        raise NotImplementedError(f"Unknown storage type: {type(storage)}")
+        raise NotImplementedError(f"Unknown cache type: {type(cache)}")
 
 
-def load_storage_from_yaml(storage_yaml: Dict, compiler: Any):
-    if storage_yaml["type"] == "SourceStorage":
-        source_profile_name = storage_yaml["source"]
+def load_cache_from_yaml(cache_yaml: Dict, compiler: Any):
+    if cache_yaml["type"] == "SourceCache":
+        source_profile_name = cache_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return SourceStorage(source=source)
-    elif storage_yaml["type"] == "ParquetStorage":
-        source_profile_name = storage_yaml["source"]
+        return SourceCache.from_kwargs(source=source)
+    elif cache_yaml["type"] == "ParquetCache":
+        source_profile_name = cache_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetStorage(
-            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+        return ParquetCache.from_kwargs(
+            source=source, relative_path=pathlib.Path(cache_yaml["relative_path"])
         )
-    elif storage_yaml["type"] == "ParquetSnapshotStorage":
-        source_profile_name = storage_yaml["source"]
+    elif cache_yaml["type"] == "ParquetSnapshotCache":
+        source_profile_name = cache_yaml["source"]
         source = compiler.profiles[source_profile_name]
-        return ParquetSnapshotStorage(
-            source=source, relative_path=pathlib.Path(storage_yaml["relative_path"])
+        return ParquetSnapshotCache.from_kwargs(
+            source=source, relative_path=pathlib.Path(cache_yaml["relative_path"])
         )
     else:
-        raise NotImplementedError(f"Unknown storage type: {storage_yaml['type']}")
+        raise NotImplementedError(f"Unknown cache type: {cache_yaml['type']}")

@@ -170,3 +170,7 @@ def mark_as_unsupported(f: Callable) -> Callable:
     _mark_as_unsupported.__name__ = f.__name__
 
     return _mark_as_unsupported
+
+
+class TableNotFound(XorqError):
+    """TableNotFound."""

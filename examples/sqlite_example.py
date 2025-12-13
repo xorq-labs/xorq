@@ -3,7 +3,7 @@ import pandas as pd
 import pyarrow as pa
 
 import xorq.api as xo
-from xorq.caching import SourceStorage
+from xorq.caching import SourceCache
 
 
 np.random.seed(42)
@@ -48,7 +48,7 @@ expr = (
         "annual_income",
         "purchase_amount",
     )
-    .cache(SourceStorage(sqlite_con))
+    .cache(SourceCache.from_kwargs(source=sqlite_con))
 )
 
 

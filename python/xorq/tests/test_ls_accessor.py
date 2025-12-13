@@ -6,17 +6,17 @@ import xorq.api as xo
 import xorq.vendor.ibis.expr.operations.relations as rel
 from xorq.backends.let import Backend
 from xorq.caching import (
-    ParquetStorage,
+    ParquetCache,
 )
 
 
 @pytest.fixture
 def cached_two(con, pg, tmp_path):
-    parquet_storage = ParquetStorage(source=con, relative_path=tmp_path)
+    parquet_cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
     return (
         pg.table("batting")[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
-        .cache(storage=parquet_storage)
+        .cache(cache=parquet_cache)
     )
 
 
@@ -50,14 +50,14 @@ def test_ls_cache_nodes(cached_two):
     assert len(cached_two.ls.cached_nodes) == 2
 
 
-def test_storage(cached_two):
+def test_cache(cached_two):
     assert cached_two.ls.is_cached
-    assert cached_two.ls.storage
+    assert cached_two.ls.cache
 
 
-def test_storages(cached_two):
+def test_caches(cached_two):
     assert cached_two.ls.is_cached
-    assert len(cached_two.ls.storages) == len(cached_two.ls.cached_nodes)
+    assert len(cached_two.ls.caches) == len(cached_two.ls.cached_nodes)
 
 
 def test_backends(duck_batting_raw, cached_two, cached_two_joined):
@@ -107,23 +107,23 @@ def test_uncached_one(cached_two):
 
 
 def test_exists(cached_two):
-    storage = cached_two.ls.storage
+    cache = cached_two.ls.cache
 
     assert not cached_two.ls.exists()
-    assert not tuple(storage.path.iterdir())
+    assert not tuple(cache.storage.path.iterdir())
 
     xo.execute(cached_two)
     assert cached_two.ls.exists()
-    assert len(tuple(storage.path.iterdir())) == 1
+    assert len(tuple(cache.storage.path.iterdir())) == 1
 
-    (path,) = storage.path.iterdir()
+    (path,) = cache.storage.path.iterdir()
     path.unlink()
     assert not cached_two.ls.exists()
 
 
 def test_cache_properties(parquet_dir, tmp_path):
     con = xo.connect()
-    storage = ParquetStorage(
+    cache = ParquetCache.from_kwargs(
         source=con, relative_path="./tmp-cache", base_path=tmp_path
     )
     t = xo.deferred_read_parquet(
@@ -132,11 +132,11 @@ def test_cache_properties(parquet_dir, tmp_path):
         table_name="t",
     )
     expr = (
-        t.cache(storage)
+        t.cache(cache)
         .mutate(a=1)
-        .cache(storage)
+        .cache(cache)
         .mutate(b=2)
-        .cache(storage)
+        .cache(cache)
         .mutate(b=3)
         .cache()
     )
@@ -144,13 +144,13 @@ def test_cache_properties(parquet_dir, tmp_path):
     expr.execute()
     assert all(p.exists() for p in expr.ls.get_cache_paths())
     (ssn, psn0, psn1, psn2) = expr.ls.cached_nodes
-    (ss, ps, *rest) = expr.ls.storages
+    (ss, ps, *rest) = expr.ls.caches
     assert (ps,) == tuple(set(rest))
-    p = storage.cache.storage.path
+    p = cache.storage.path
 
     # downstream is still cached even if upstream caches don't exist
     (*to_remove, last) = sorted(
-        storage.cache.storage.path.iterdir(), key=lambda p: p.stat().st_ctime
+        cache.storage.path.iterdir(), key=lambda p: p.stat().st_ctime
     )
     for p in to_remove:
         p.unlink()

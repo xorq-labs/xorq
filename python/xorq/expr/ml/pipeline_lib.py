@@ -19,9 +19,10 @@ from toolz.curried import (
 import xorq.expr.datatypes as dt
 from xorq.backends.let import connect
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    ParquetTTLSnapshotCache,
+    SourceCache,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_attrs,
@@ -177,7 +178,7 @@ class Step:
 
         return self.typ(**dict(self.params_tuple))
 
-    def fit(self, expr, features=None, target=None, storage=None, dest_col=None):
+    def fit(self, expr, features=None, target=None, cache=None, dest_col=None):
         """
         Fit this step to the given expression data.
 
@@ -189,7 +190,7 @@ class Step:
             Column names to use as features. If None, infers from expr.columns.
         target : str, optional
             Target column name. Required for prediction steps.
-        storage : Storage, optional
+        cache : Cache, optional
             Storage backend for caching fitted models.
         dest_col : str, optional
             Destination column name for transformed output.
@@ -208,7 +209,7 @@ class Step:
             expr=expr,
             features=features,
             target=target,
-            storage=storage,
+            cache=cache,
             dest_col=dest_col,
         )
 
@@ -348,9 +349,16 @@ class FittedStep:
         converter=tuple,
     )
     target = field(validator=optional(instance_of(str)), default=None)
-    storage = field(
+    cache = field(
         validator=optional(
-            instance_of((ParquetStorage, SourceStorage, ParquetSnapshotStorage))
+            instance_of(
+                (
+                    ParquetCache,
+                    SourceCache,
+                    ParquetSnapshotCache,
+                    ParquetTTLSnapshotCache,
+                )
+            )
         ),
         default=None,
     )
@@ -384,7 +392,7 @@ class FittedStep:
             "features": self.features,
             "cls": self.step.typ,
             "params": self.step.params_tuple,
-            "storage": self.storage,
+            "cache": self.cache,
         }
         (deferred_transform, deferred_predict) = (None, None)
         if self.is_transform:
@@ -665,7 +673,7 @@ class Pipeline:
         (*_, last_step) = self.steps
         return last_step if hasattr(last_step.instance, "predict") else None
 
-    def fit(self, expr, features=None, target=None, storage=None):
+    def fit(self, expr, features=None, target=None, cache=None):
         """
         Fit the pipeline to training data.
 
@@ -681,7 +689,7 @@ class Pipeline:
             excluding the target.
         target : str, optional
             Target column name. Required if pipeline has a prediction step.
-        storage : Storage, optional
+        cache : Cache, optional
             Storage backend for caching fitted models.
 
         Returns
@@ -713,7 +721,7 @@ class Pipeline:
                 transformed,
                 features=features,
                 target=target,
-                storage=storage,
+                cache=cache,
             )
             fitted_steps += (fitted_step,)
             transformed = fitted_step.transform(transformed)
@@ -725,7 +733,7 @@ class Pipeline:
                 transformed,
                 features=features,
                 target=target,
-                storage=storage,
+                cache=cache,
             )
             fitted_steps += (fitted_step,)
             # transformed = fitted_step.transform(transformed)
