@@ -2,7 +2,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.import_utils import import_python
 from xorq.expr.ml import (
@@ -40,7 +40,7 @@ train_expr, test_expr = (
 
 (deferred_model, model_udaf, deferred_transform) = deferred_fit_transform_tfidf(
     train_expr,
-    storage=ParquetStorage(source=con),
+    cache=ParquetCache.from_kwargs(source=con),
 )
 bound_expr = test_expr.mutate(**{"transformed": deferred_transform.on_expr})
 

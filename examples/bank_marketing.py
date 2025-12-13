@@ -19,7 +19,7 @@ import xorq.api as xo
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.datatypes as dt
 from xorq.caching import (
-    ParquetStorage,
+    ParquetCache,
 )
 from xorq.common.utils.defer_utils import deferred_read_csv
 from xorq.expr.ml import (
@@ -117,7 +117,7 @@ xgbee_step = Step(
 )
 
 
-def make_pipeline(dataset_name, target_column, predicted_col, con=None, storage=None):
+def make_pipeline(dataset_name, target_column, predicted_col, con=None, cache=None):
     con = con or xo.connect()
     expr = deferred_read_csv(
         path=xo.options.pins.get_path(dataset_name),
@@ -141,14 +141,14 @@ def make_pipeline(dataset_name, target_column, predicted_col, con=None, storage=
         train_table,
         features=train_table.select(s.of_type(str)).columns,
         dest_col=ENCODED,
-        storage=storage,
+        cache=cache,
     )
     fitted_xgbee_step = xgbee_step.fit(
         expr=train_table.mutate(fitted_one_hot_step.mutate),
         features=numeric_features + (ENCODED,),
         target=target_column,
         dest_col=predicted_col,
-        storage=storage,
+        cache=cache,
     )
     fitted_pipeline = FittedPipeline(
         (fitted_one_hot_step, fitted_xgbee_step),
@@ -158,7 +158,7 @@ def make_pipeline(dataset_name, target_column, predicted_col, con=None, storage=
 
 
 con = xo.connect()
-storage = ParquetStorage(
+cache = ParquetCache.from_kwargs(
     source=con,
     relative_path="./tmp-cache",
     base_path=Path(".").absolute(),
@@ -169,7 +169,7 @@ storage = ParquetStorage(
     "predicted",
 )
 train_table, test_table, fitted_pipeline = make_pipeline(
-    dataset_name, target_column, predicted_col, con=con, storage=storage
+    dataset_name, target_column, predicted_col, con=con, cache=cache
 )
 encoded_test = fitted_pipeline.transform(test_table)
 predicted_test = fitted_pipeline.predict(test_table)

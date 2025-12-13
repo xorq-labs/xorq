@@ -1,12 +1,12 @@
 from pathlib import Path
 
 import xorq.api as xo
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 
 
 pg = xo.postgres.connect_examples()
 con = xo.connect()
-storage = ParquetStorage(
+cache = ParquetCache.from_kwargs(
     source=con,
     relative_path=Path("./parquet-cache"),
 )
@@ -16,7 +16,7 @@ cached = (
     pg.table("functional_alltypes")
     .into_backend(con)
     .select(xo._.smallint_col, xo._.int_col, xo._.float_col)
-    .cache(storage=storage)
+    .cache(cache=cache)
 )
 expr = cached.filter(
     [
@@ -28,7 +28,7 @@ expr = cached.filter(
 
 
 if __name__ == "__pytest_main__":
-    path = storage.get_loc(cached.ls.get_key())
+    path = cache.storage.get_path(cached.ls.get_key())
     print(f"{path} exists?: {path.exists()}")
     result = xo.execute(expr)
     print(f"{path} exists?: {path.exists()}")

@@ -5,7 +5,7 @@ import toolz
 import xorq.api as xo
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.caching import SourceStorage
+from xorq.caching import SourceCache
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     walk_nodes,
@@ -33,7 +33,7 @@ def make_expr():
 
     read_node0 = xo.examples.awards_players.fetch(con0)
     remote_node0 = read_node0.into_backend(con1)
-    cached_node0 = remote_node0.cache(SourceStorage(source=con1))
+    cached_node0 = remote_node0.cache(SourceCache.from_kwargs(source=con1))
     read_node1 = xo.examples.batting.fetch(con2)
     remote_node1 = read_node1.into_backend(con1)
     remote_node2 = cached_node0.join(

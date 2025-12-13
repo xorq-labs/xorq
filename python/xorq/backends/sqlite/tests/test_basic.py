@@ -6,10 +6,10 @@ import pytest
 
 import xorq.api as xo
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceSnapshotStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
 )
 from xorq.tests.util import assert_frame_equal
 
@@ -51,7 +51,7 @@ def test_can_cache(sqlite_con, astronauts_parquet_path):
     astronauts = ddb.read_parquet(astronauts_parquet_path)
 
     expr = (
-        astronauts.cache(SourceStorage(sqlite_con))
+        astronauts.cache(SourceCache.from_kwargs(source=sqlite_con))
         .filter(xo._.number == 104)
         .select(xo._.id, xo._.number, xo._.nationwide_number, xo._.name)
     )
@@ -69,7 +69,7 @@ def test_can_cache(sqlite_con, astronauts_parquet_path):
 def test_can_be_cached(sqlite_con, astronauts_parquet_path):
     astronauts = sqlite_con.read_parquet(astronauts_parquet_path)
     expr = (
-        astronauts.cache(SourceStorage(xo.duckdb.connect()))
+        astronauts.cache(SourceCache.from_kwargs(source=xo.duckdb.connect()))
         .filter(xo._.number == 104)
         .select(xo._.id, xo._.number, xo._.nationwide_number, xo._.name)
     )
@@ -130,7 +130,7 @@ def test_cross_source_snapshot(con_cross_source_snapshot):
 
 @pytest.mark.parametrize(
     "cls",
-    [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
+    [ParquetSnapshotCache, ParquetCache, SourceSnapshotCache, SourceCache],
 )
 def test_cache_find_backend(cls, con_cache_find_backend):
     con_cache_find_backend(cls, xo.sqlite.connect())
