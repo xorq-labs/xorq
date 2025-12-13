@@ -166,7 +166,7 @@ def run_command(
     Parameters
     ----------
     expr_path : str
-        Path to the expr in the builds dir
+        Path to the expr in the builds dir, or catalog reference (alias or entry_id[@revision])
     output_path : str
         Path to write output. Defaults to os.devnull
     output_format : str, optional
@@ -194,7 +194,13 @@ def run_command(
     if output_path is None:
         output_path = os.devnull
 
-    expr_path = Path(expr_path)
+    # Resolve build identifier (alias, entry_id@revision, or path) to an actual build directory
+    build_dir = resolve_build_dir(expr_path)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+    expr_path = Path(build_dir)
+
     build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
     expr = build_manager.load_expr(expr_path.name)
     if limit is not None:
@@ -505,9 +511,12 @@ def parse_args(override=None):
     )
 
     run_parser = subparsers.add_parser(
-        "run", help="Run a build from a builds directory"
+        "run", help="Run a build from a builds directory or catalog"
     )
-    run_parser.add_argument("build_path", help="Path to the build script")
+    run_parser.add_argument(
+        "build_path",
+        help="Path to the build script, catalog alias, or entry_id[@revision]",
+    )
     run_parser.add_argument(
         "--cache-dir",
         required=False,

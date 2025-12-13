@@ -453,19 +453,30 @@ load_catalog = toolz.compose(XorqCatalog.from_path, get_catalog_path)
 def resolve_build_dir(
     token: str, catalog: Optional[XorqCatalog] = None
 ) -> Optional[Path]:
-    """Resolve build directory from raw catalog dict."""
+    """Resolve build directory from catalog or file path.
+
+    Prioritizes catalog resolution over direct path checking.
+    """
 
     def absolutify(path):
         if not path.is_absolute():
             path = get_default_catalog_path().parent.joinpath(path)
         return path
 
-    path = Path(token)
-    if path.exists() and path.is_dir():
-        return path
+    # Load catalog if not provided
+    if catalog is None:
+        catalog = load_catalog()
+
+    # First try to resolve from catalog
     revision = catalog.maybe_get_revision_by_token(token)
     if revision and revision.build and revision.build.path:
         return absolutify(revision.build.path)
+
+    # Fall back to direct path if it exists
+    path = Path(token)
+    if path.exists() and path.is_dir():
+        return path
+
     return None
 
 
