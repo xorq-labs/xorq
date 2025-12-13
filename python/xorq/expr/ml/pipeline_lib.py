@@ -21,6 +21,7 @@ from xorq.backends.let import connect
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
+    ParquetTTLSnapshotCache,
     SourceCache,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
@@ -350,7 +351,14 @@ class FittedStep:
     target = field(validator=optional(instance_of(str)), default=None)
     cache = field(
         validator=optional(
-            instance_of((ParquetCache, SourceCache, ParquetSnapshotCache))
+            instance_of(
+                (
+                    ParquetCache,
+                    SourceCache,
+                    ParquetSnapshotCache,
+                    ParquetTTLSnapshotCache,
+                )
+            )
         ),
         default=None,
     )
