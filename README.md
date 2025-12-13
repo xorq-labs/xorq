@@ -22,9 +22,9 @@ serve agentic AI—which needs context and skills, not categories.
 
 # Xorq
 
-**Manifest = Context.** Every ML computation becomes a structured, addressable YAML manifest.
+**Manifest = Context.** Every ML computation becomes a structured, input addressed YAML manifest.
 
-**Tools = Skills.** A catalog to discover. A build system to execute anywhere.
+**Tools = Skills.** A catalog to discover. A build system to deterministically execute anywhere.
 
 ## Quick Start
 ```bash
@@ -34,7 +34,7 @@ xorq init -t penguins
 
 ## The Manifest
 
-Write [Ibis](https://ibis-project.org) expressions, get addressable manifests.
+Write [Ibis](https://ibis-project.org) expressions, get human-diffable manifests.
 
 ```python
 
@@ -68,9 +68,10 @@ builds/4f98390ba42c
 ├── profiles.yaml
 └── sdist.tar.gz
 ```
+
 Reproducible build artifacts with `uv` based environments.
 
-And roundtrippable, human-diffable YAML.
+And roundtrippable and machine-readable.
 
 ```expr.yaml
 # Addressable, composable, portable
@@ -118,8 +119,12 @@ nodes:
     snapshot_hash: e1fcd64eb0e8c9d39aa07787ed7523ca
 ```
 
-Same computation = same hash. The manifest *is* the version. The hash *is*
-the address.
+Same computation = same hash. "Input addressing" means the address the
+expression by the way it was made rather than what it is. The manifest *is* the
+version. The hash *is* the address.
+
+#### Portable UDFs
+
 
 #### Multi-Engine
 
