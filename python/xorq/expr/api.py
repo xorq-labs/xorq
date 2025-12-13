@@ -255,8 +255,8 @@ def _register_and_transform_cache_tables(expr):
         if kwargs:
             node = node.__recreate__(kwargs)
         if isinstance(node, CachedNode):
-            uncached, storage = node.parent, node.storage
-            node = storage.set_default(uncached, uncached.op())
+            uncached, cache = node.parent, node.cache
+            node = cache.set_default(uncached, uncached.op())
         return node
 
     op = expr.op()

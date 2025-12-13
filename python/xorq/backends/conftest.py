@@ -7,7 +7,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.backends import _get_backend_names
-from xorq.caching import ParquetSnapshotStorage, SourceSnapshotStorage
+from xorq.caching import ParquetSnapshotCache, SourceSnapshotCache
 from xorq.vendor import ibis
 
 
@@ -119,11 +119,11 @@ def pytest_runtest_setup(item):
             pytest.fail(f"cannot decrpyt snowflake creds '{e}'")
 
 
-def get_storage_uncached(expr):
+def get_cache_uncached(expr):
     assert expr.ls.is_cached
-    storage = expr.ls.storage
+    cache = expr.ls.cache
     uncached = expr.ls.uncached_one
-    return (storage, uncached)
+    return (cache, uncached)
 
 
 @pytest.fixture(scope="session")
@@ -166,14 +166,14 @@ def con_snapshot(xo_con, alltypes_df):
         cached_expr = (
             table.group_by(group_by)
             .agg({f"count_{col}": table[col].count() for col in table.columns})
-            .cache(storage=SourceSnapshotStorage(source=_xo_con))
+            .cache(cache=SourceSnapshotCache.from_kwargs(source=_xo_con))
         )
-        (storage, uncached) = get_storage_uncached(cached_expr)
+        (cache, uncached) = get_cache_uncached(cached_expr)
         # test preconditions
-        assert not storage.exists(uncached)
+        assert not cache.exists(uncached)
         # test cache creation
         executed0 = cached_expr.execute()
-        assert storage.exists(uncached)
+        assert cache.exists(uncached)
         # test cache use
         executed1 = cached_expr.execute()
         assert executed0.equals(executed1)
@@ -183,7 +183,8 @@ def con_snapshot(xo_con, alltypes_df):
         executed3 = cached_expr.ls.uncached.execute()
         assert executed0.equals(executed2)
         assert not executed0.equals(executed3)
-        assert storage.get_key(uncached).count(KEY_PREFIX) == 1
+        # key does not have key prefix
+        assert cache.calc_key(uncached).count(KEY_PREFIX) == 1
 
     return functools.partial(_con_snapshot, alltypes_df, xo_con)
 
@@ -195,18 +196,18 @@ def con_cross_source_snapshot(xo_con, alltypes_df):
         name = ibis.util.gen_name("tmp_table")
         # create a temp table we can mutate
         table = expr_con.create_table(name, _alltypes_df)
-        storage = ParquetSnapshotStorage(source=_con)
+        cache = ParquetSnapshotCache.from_kwargs(source=_con)
         expr = table.group_by(group_by).agg(
             {f"count_{col}": table[col].count() for col in table.columns}
         )
-        cached_expr = expr.cache(storage=storage)
+        cached_expr = expr.cache(cache=cache)
         # test preconditions
-        assert not storage.exists(expr)  # the expr is not cached
-        assert storage.source is not expr_con  # the cache is cross source
+        assert not cache.exists(expr)  # the expr is not cached
+        assert cache.storage.source is not expr_con  # the cache is cross source
         # test cache creation
         df = cached_expr.execute()
         assert not df.empty
-        assert storage.exists(expr)
+        assert cache.exists(expr)
         # test cache use
         executed1 = cached_expr.execute()
         assert df.equals(executed1)
@@ -224,8 +225,8 @@ def con_cross_source_snapshot(xo_con, alltypes_df):
 def con_cache_find_backend(parquet_dir):
     def _con_cache_find_backend(_parquet_dir, cls, conn):
         astronauts_path = _parquet_dir / "astronauts.parquet"
-        storage = cls(source=conn)
-        expr = conn.read_parquet(astronauts_path).cache(storage=storage)
+        cache = cls.from_kwargs(source=conn)
+        expr = conn.read_parquet(astronauts_path).cache(cache=cache)
         assert expr._find_backend()._profile == conn._profile
 
     return functools.partial(_con_cache_find_backend, parquet_dir)

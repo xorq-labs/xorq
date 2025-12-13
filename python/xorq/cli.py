@@ -350,10 +350,11 @@ def serve_command(
 def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
+    branch="main",
 ):
     from xorq.common.utils.download_utils import download_unpacked_xorq_template
 
-    path = download_unpacked_xorq_template(path, template)
+    path = download_unpacked_xorq_template(path, template, branch=branch)
     print(f"initialized xorq template `{template}` to {path}")
     return path
 
@@ -563,6 +564,11 @@ def parse_args(override=None):
         choices=tuple(InitTemplates),
         default=InitTemplates.cached_fetcher,
     )
+    init_parser.add_argument(
+        "-b",
+        "--branch",
+        default="main",
+    )
     lineage_parser = subparsers.add_parser(
         "lineage",
         help="Print lineage trees of all columns for a build",
@@ -704,7 +710,7 @@ def main():
             case "init":
                 f, f_args = (
                     init_command,
-                    (args.path, args.template),
+                    (args.path, args.template, args.branch),
                 )
             case "lineage":
                 f, f_args = (

@@ -1,5 +1,5 @@
 import xorq.api as xo
-from xorq.caching import SourceStorage
+from xorq.caching import SourceCache
 
 
 con = xo.connect()
@@ -11,7 +11,7 @@ expr = (
     t.join(t, "playerID")
     .limit(15)
     .select(player_id="playerID", year_id="yearID_right")
-    .cache(SourceStorage(source=con))
+    .cache(SourceCache.from_kwargs(source=con))
 )
 
 

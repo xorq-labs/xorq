@@ -371,18 +371,24 @@ def replace_base_path(expr, base_path):
     from attr import evolve
 
     from xorq.caching import (
-        ParquetSnapshotStorage,
-        ParquetStorage,
+        ParquetCache,
+        ParquetSnapshotCache,
     )
     from xorq.expr.relations import CachedNode
 
     def replace(node, kwargs):
         if isinstance(node, CachedNode) and isinstance(
-            node.storage, (ParquetStorage, ParquetSnapshotStorage)
+            node.cache, (ParquetCache, ParquetSnapshotCache)
         ):
+            evolved = evolve(
+                node.cache,
+                storage=evolve(
+                    node.cache.storage,
+                    base_path=base_path,
+                ),
+            )
             return node.__recreate__(
-                dict(zip(node.argnames, node.args))
-                | {"storage": evolve(node.storage, base_path=base_path)}
+                dict(zip(node.argnames, node.args)) | {"cache": evolved}
             )
         elif kwargs:
             return node.__recreate__(kwargs)

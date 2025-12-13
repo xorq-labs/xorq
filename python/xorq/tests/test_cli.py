@@ -684,6 +684,8 @@ def test_serve_penguins_template(tmpdir, tmp_path):
         str(path),
         "--template",
         "penguins",
+        "--branch",
+        "fix/xorq-caching-refactor",
     )
 
     (returncode, stdout, stderr) = subprocess_run(init_args)

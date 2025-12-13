@@ -1,18 +1,18 @@
 import xorq.api as xo
 from xorq.api import _
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 
 
 pg = xo.postgres.connect_examples()
 con = xo.connect()
-storage = ParquetStorage(source=con)
+cache = ParquetCache.from_kwargs(source=con)
 
 
 expr = (
     pg.table("batting")
     .mutate(row_number=xo.row_number().over(group_by=[_.playerID], order_by=[_.yearID]))
     .filter(_.row_number == 1)
-    .cache(storage=storage)
+    .cache(cache=cache)
 )
 
 

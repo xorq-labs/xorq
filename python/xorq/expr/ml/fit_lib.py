@@ -63,7 +63,7 @@ def _deferred_fit_other(
     other,
     return_type,
     name_infix,
-    storage=None,
+    cache=None,
 ):
     @toolz.curry
     def inner_fit(df, fit, target, features):
@@ -95,8 +95,8 @@ def _deferred_fit_other(
         name=make_name(f"fit_{name_infix}", (fit, other)),
     )
     deferred_model = model_udaf.on_expr(expr)
-    if storage:
-        deferred_model = deferred_model.as_table().cache(storage=storage)
+    if cache:
+        deferred_model = deferred_model.as_table().cache(cache=cache)
 
     deferred_predict = make_pandas_expr_udf(
         computed_kwargs_expr=deferred_model,
@@ -118,7 +118,7 @@ def deferred_fit_predict(
     predict,
     return_type,
     name_infix="predict",
-    storage=None,
+    cache=None,
 ):
     deferred_model, model_udaf, deferred_predict = _deferred_fit_other(
         expr=expr,
@@ -128,7 +128,7 @@ def deferred_fit_predict(
         other=predict,
         return_type=return_type,
         name_infix=name_infix,
-        storage=storage,
+        cache=cache,
     )
     return deferred_model, model_udaf, deferred_predict
 
@@ -142,7 +142,7 @@ def deferred_fit_transform(
     return_type,
     target=None,
     name_infix="transform",
-    storage=None,
+    cache=None,
 ):
     deferred_model, model_udaf, deferred_transform = _deferred_fit_other(
         expr=expr,
@@ -152,7 +152,7 @@ def deferred_fit_transform(
         other=transform,
         return_type=return_type,
         name_infix=name_infix,
-        storage=storage,
+        cache=cache,
     )
     return deferred_model, model_udaf, deferred_transform
 
@@ -166,7 +166,7 @@ def deferred_fit_transform_sklearn(
     return_type,
     params=(),
     name_infix="transformed",
-    storage=None,
+    cache=None,
 ):
     deferred_model, model_udaf, deferred_transform = _deferred_fit_other(
         expr=expr,
@@ -176,7 +176,7 @@ def deferred_fit_transform_sklearn(
         other=transform_sklearn,
         return_type=return_type,
         name_infix=name_infix,
-        storage=storage,
+        cache=cache,
     )
     return deferred_model, model_udaf, deferred_transform
 
@@ -190,7 +190,7 @@ def deferred_fit_predict_sklearn(
     return_type,
     params=(),
     name_infix="predicted",
-    storage=None,
+    cache=None,
 ):
     deferred_model, model_udaf, deferred_predict = _deferred_fit_other(
         expr=expr,
@@ -200,14 +200,14 @@ def deferred_fit_predict_sklearn(
         other=predict_sklearn,
         return_type=return_type,
         name_infix=name_infix,
-        storage=storage,
+        cache=cache,
     )
     return deferred_model, model_udaf, deferred_predict
 
 
 @toolz.curry
 def deferred_fit_transform_series_sklearn(
-    expr, col, cls, return_type, params=(), name="predicted", storage=None
+    expr, col, cls, return_type, params=(), name="predicted", cache=None
 ):
     deferred_model, model_udaf, deferred_transform = _deferred_fit_other(
         expr=expr,
@@ -217,14 +217,14 @@ def deferred_fit_transform_series_sklearn(
         other=transform_sklearn_series(col=col),
         return_type=return_type,
         name_infix=name,
-        storage=storage,
+        cache=cache,
     )
     return deferred_model, model_udaf, deferred_transform
 
 
 @toolz.curry
 def deferred_fit_transform_sklearn_struct(
-    expr, features, cls, params=(), target=None, name_infix="transformed", storage=None
+    expr, features, cls, params=(), target=None, name_infix="transformed", cache=None
 ):
     @toolz.curry
     def fit(df, *args, cls, params):
@@ -246,5 +246,5 @@ def deferred_fit_transform_sklearn_struct(
         return_type=structer.return_type,
         target=target,
         name_infix=name_infix,
-        storage=storage,
+        cache=cache,
     )

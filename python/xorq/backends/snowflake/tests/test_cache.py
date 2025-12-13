@@ -8,15 +8,15 @@ import pytest
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.backends.conftest import (
-    get_storage_uncached,
+    get_cache_uncached,
 )
 from xorq.backends.snowflake.tests.conftest import (
     generate_mock_get_conn,
     inside_temp_schema,
 )
 from xorq.caching import (
-    ParquetStorage,
-    SourceSnapshotStorage,
+    ParquetCache,
+    SourceSnapshotCache,
 )
 from xorq.common.utils.snowflake_utils import (
     SnowflakeADBC,
@@ -55,7 +55,7 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
     con = xo.connect()
-    storage = ParquetStorage(source=con, relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
@@ -66,8 +66,8 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
         uncached = table.group_by(group_by).agg(
             {f"min_{col}": table[col].min() for col in table.columns}
         )
-        cached_expr = uncached.cache(storage)
-        (storage, _) = get_storage_uncached(cached_expr)
+        cached_expr = uncached.cache(cache)
+        (cache, _) = get_cache_uncached(cached_expr)
         unbound_sql = re.sub(
             r"\s+",
             " ",
@@ -76,13 +76,13 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
         query_df = get_session_query_df(sf_con)
 
         # test preconditions
-        assert not storage.exists(uncached)
+        assert not cache.exists(uncached)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 0
 
         # test cache creation
         xo.execute(cached_expr)
         query_df = get_session_query_df(sf_con)
-        assert storage.exists(uncached)
+        assert cache.exists(uncached)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 1
 
         # test cache use
@@ -91,7 +91,7 @@ def test_snowflake_cache_invalidation(sf_con, temp_catalog, temp_db, tmp_path):
 
         # test cache invalidation
         sf_con.insert(name, df, database=f"{temp_catalog}.{temp_db}")
-        assert not storage.exists(uncached)
+        assert not cache.exists(uncached)
 
 
 @pytest.mark.snowflake
@@ -100,7 +100,7 @@ def test_snowflake_simple_cache(sf_con, tmp_path):
     with inside_temp_schema(sf_con, "SNOWFLAKE_SAMPLE_DATA", "TPCH_SF1"):
         table = sf_con.table("CUSTOMER")
         expr = table.limit(1).cache(
-            ParquetStorage(source=db_con, relative_path=tmp_path)
+            ParquetCache.from_kwargs(source=db_con, relative_path=tmp_path)
         )
         xo.execute(expr)
 
@@ -110,7 +110,7 @@ def test_snowflake_native_cache(sf_con, temp_catalog, temp_db, tmp_path):
     group_by = "key"
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
-    storage = ParquetStorage(source=sf_con, relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=sf_con, relative_path=tmp_path)
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
@@ -122,7 +122,7 @@ def test_snowflake_native_cache(sf_con, temp_catalog, temp_db, tmp_path):
         cached_expr = (
             table.group_by(group_by)
             .agg({f"count_{col}": table[col].count() for col in table.columns})
-            .cache(storage)
+            .cache(cache)
         )
         xo.execute(cached_expr)
 
@@ -132,7 +132,7 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
     group_by = "key"
     df = pd.DataFrame({group_by: list("abc"), "value": [1, 2, 3]})
     name = gen_name("tmp_table")
-    storage = SourceSnapshotStorage(source=xo.duckdb.connect())
+    cache = SourceSnapshotCache.from_kwargs(source=xo.duckdb.connect())
 
     # must explicitly invoke USE SCHEMA: use of temp_* DOESN'T impact internal create_table's CREATE TEMP STAGE
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
@@ -144,8 +144,8 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
         uncached = table.group_by(group_by).agg(
             {f"count_{col}": table[col].count() for col in table.columns}
         )
-        cached_expr = uncached.cache(storage)
-        (storage, _) = get_storage_uncached(cached_expr)
+        cached_expr = uncached.cache(cache)
+        (cache, _) = get_cache_uncached(cached_expr)
         unbound_sql = re.sub(
             r"\s+",
             " ",
@@ -154,13 +154,13 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
         query_df = get_session_query_df(sf_con)
 
         # test preconditions
-        assert not storage.exists(uncached)
+        assert not cache.exists(uncached)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 0
 
         # test cache creation
         executed0 = xo.execute(cached_expr)
         query_df = get_session_query_df(sf_con)
-        assert storage.exists(uncached)
+        assert cache.exists(uncached)
         assert query_df.QUERY_TEXT.eq(unbound_sql).sum() == 1
 
         # test cache use
@@ -170,8 +170,8 @@ def test_snowflake_snapshot(sf_con, temp_catalog, temp_db):
 
         # test NO cache invalidation
         sf_con.insert(name, df, database=f"{temp_catalog}.{temp_db}")
-        (storage, uncached) = get_storage_uncached(cached_expr)
-        assert storage.exists(uncached)
+        (cache, uncached) = get_cache_uncached(cached_expr)
+        assert cache.exists(uncached)
         executed2 = xo.execute(cached_expr.ls.uncached)
         assert not executed0.equals(executed2)
 
@@ -182,7 +182,7 @@ def test_snowflake_cross_source_native_cache(
 ):
     group_by = "number"
     table = pg.table("astronauts")
-    storage = ParquetStorage(source=sf_con, relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=sf_con, relative_path=tmp_path)
 
     mocker.patch.object(
         SnowflakeADBC,
@@ -197,13 +197,13 @@ def test_snowflake_cross_source_native_cache(
         cached_expr = (
             table.group_by(group_by)
             .agg({f"count_{col}": table[col].count() for col in table.columns})
-            .cache(storage)
+            .cache(cache)
         )
         actual = cached_expr.execute()
 
     assert not actual.empty
     assert any(tmp_path.glob(f"{KEY_PREFIX}*")), (
-        "The ParquetStorage MUST write a parquet file to the given directory"
+        "The ParquetCache MUST write a parquet file to the given directory"
     )
 
 
@@ -212,7 +212,7 @@ def test_snowflake_with_failing_name(sf_con, pg, temp_catalog, temp_db, mocker):
     table = pg.table("functional_alltypes")
 
     # caches
-    snow_storage = SourceSnapshotStorage(sf_con)
+    snow_cache = SourceSnapshotCache.from_kwargs(source=sf_con)
 
     mocker.patch.object(
         SnowflakeADBC,
@@ -225,7 +225,7 @@ def test_snowflake_with_failing_name(sf_con, pg, temp_catalog, temp_db, mocker):
 
     with inside_temp_schema(sf_con, temp_catalog, temp_db):
         cached_expr = (
-            table.group_by(group_by).agg(xo._.float_col.mean()).cache(snow_storage)
+            table.group_by(group_by).agg(xo._.float_col.mean()).cache(snow_cache)
         )
         actual = cached_expr.execute()
 

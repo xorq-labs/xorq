@@ -143,7 +143,7 @@ class DatabaseTableView(ops.DatabaseTable):
 
 class CachedNode(DatabaseTableView):
     parent: Any = None
-    storage: Any = None
+    cache: Any = None
 
 
 gen_name_namespace = "rbr-placeholder"
@@ -660,30 +660,30 @@ def render_backend(con):
     return f"{con.name}-{id(con)}"
 
 
-def get_storage_params(storage):
+def get_cache_params(cache):
     from xorq.caching import (
-        ParquetSnapshotStorage,
-        ParquetStorage,
-        SourceSnapshotStorage,
-        SourceStorage,
+        ParquetCache,
+        ParquetSnapshotCache,
+        SourceCache,
+        SourceSnapshotCache,
     )
 
-    storage_repr = None, None
-    match storage:
-        case ParquetStorage():
-            storage_repr = "modification_time", True
-        case ParquetSnapshotStorage():
-            storage_repr = "snapshot", True
-        case SourceStorage():
-            storage_repr = "modification_time", False
-        case SourceSnapshotStorage():
-            storage_repr = "snapshot", False
-    return storage_repr + (render_backend(storage.source),)
+    cache_repr = None, None
+    match cache:
+        case ParquetCache():
+            cache_repr = "modification_time", True
+        case ParquetSnapshotCache():
+            cache_repr = "snapshot", True
+        case SourceCache():
+            cache_repr = "modification_time", False
+        case SourceSnapshotCache():
+            cache_repr = "snapshot", False
+    return cache_repr + (render_backend(cache.storage.source),)
 
 
 @fmt.register(CachedNode)
-def _fmt_cache_node(op, schema, parent, source, storage, **kwargs):
-    strategy, parquet, backend = get_storage_params(storage)
+def _fmt_cache_node(op, schema, parent, source, cache, **kwargs):
+    strategy, parquet, backend = get_cache_params(cache)
     name = f"{op.__class__.__name__}[{parent}, strategy={strategy}, parquet={parquet}, source={backend}]\n"
     return name + render_schema(schema, 1)
 

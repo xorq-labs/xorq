@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import inspect
 import pathlib
+import time
 import uuid
+from datetime import timedelta
 
 import pyarrow as pa
 import pyarrow.compute as pc
@@ -12,10 +14,11 @@ import toolz
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.caching import (
-    ParquetSnapshotStorage,
-    ParquetStorage,
-    SourceSnapshotStorage,
-    SourceStorage,
+    ParquetCache,
+    ParquetSnapshotCache,
+    ParquetTTLSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
 )
 from xorq.common.utils.inspect_utils import get_python_version_no_dot
 from xorq.expr.udf import (
@@ -33,11 +36,11 @@ KEY_PREFIX = xo.config.options.cache.key_prefix
 
 @pytest.fixture
 def cached_two(ls_con, batting, tmp_path):
-    parquet_storage = ParquetStorage(source=ls_con, relative_path=tmp_path)
+    parquet_cache = ParquetCache.from_kwargs(source=ls_con, relative_path=tmp_path)
     return (
         batting[lambda t: t.yearID > 2014]
         .cache()[lambda t: t.stint == 1]
-        .cache(storage=parquet_storage)
+        .cache(cache=parquet_cache)
     )
 
 
@@ -58,7 +61,7 @@ def test_cache_simple(con, alltypes, alltypes_df):
             alltypes.int_col < alltypes.float_col * 2,
         ]
     )
-    cached = expr.cache(storage=SourceStorage(source=con))
+    cached = expr.cache(cache=SourceCache.from_kwargs(source=con))
     tables_after_caching = con.list_tables()
 
     expected = alltypes_df[
@@ -188,7 +191,7 @@ def test_cache_recreate(alltypes):
 
     for con, expr in zip(cons, exprs):
         # FIXME: execute one, simply check the other returns true for `expr.ls.exists()`
-        expr.cache(storage=SourceStorage(source=con)).execute()
+        expr.cache(cache=SourceCache.from_kwargs(source=con)).execute()
 
     (con_cached_tables0, con_cached_tables1) = (
         set(
@@ -251,11 +254,11 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     expr = t[cols]
     expected = alltypes_df[cols]
     source = expr._find_backend()
-    storage = ParquetStorage(
+    cache = ParquetCache.from_kwargs(
         source=source,
         relative_path=tmp_path.joinpath("parquet-cache-storage"),
     )
-    cached = expr.cache(storage=storage)
+    cached = expr.cache(cache=cache)
     actual = cached.execute()
     assert_frame_equal(actual, expected)
 
@@ -289,11 +292,11 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
             alltypes.int_col < alltypes.float_col * 2,
         ]
     )
-    storage = ParquetStorage(
+    cache = ParquetCache.from_kwargs(
         source=con,
-        relative_path=tmp_path.joinpath("parquet-cache-storage"),
+        relative_path=tmp_path.joinpath("parquet-cache-cache"),
     )
-    cached = expr.cache(storage=storage)
+    cached = expr.cache(cache=cache)
     expected = expr.execute()
     actual = cached.execute()
     assert_frame_equal(actual, expected)
@@ -302,14 +305,16 @@ def test_parquet_remote_to_local(con, alltypes, tmp_path):
 def test_read_parquet_and_cache(con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
+    expr = t.cache(cache=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
     assert expr.execute() is not None
 
 
 def test_read_parquet_and_cache_xorq(ls_con, parquet_dir, tmp_path):
     batting_path = parquet_dir / "batting.parquet"
     t = ls_con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
+    expr = t.cache(
+        cache=ParquetCache.from_kwargs(source=ls_con, relative_path=tmp_path)
+    )
     assert expr.execute() is not None
 
 
@@ -318,7 +323,7 @@ def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
     t = con.read_parquet(batting_path, table_name=f"parquet_batting-{uuid.uuid4()}")
     expr = (
         t[t.yearID == 2015]
-        .cache(storage=ParquetStorage(source=con, relative_path=tmp_path))
+        .cache(cache=ParquetCache.from_kwargs(source=con, relative_path=tmp_path))
         .cache()
     )
     assert expr.execute() is not None
@@ -327,7 +332,9 @@ def test_read_parquet_compute_and_cache(con, parquet_dir, tmp_path):
 def test_read_csv_and_cache(ls_con, csv_dir, tmp_path):
     batting_path = csv_dir / "batting.csv"
     t = ls_con.read_csv(batting_path, table_name=f"csv_batting-{uuid.uuid4()}")
-    expr = t.cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
+    expr = t.cache(
+        cache=ParquetCache.from_kwargs(source=ls_con, relative_path=tmp_path)
+    )
     assert expr.execute() is not None
 
 
@@ -340,21 +347,21 @@ def test_read_csv_compute_and_cache(ls_con, csv_dir, tmp_path):
     )
     expr = (
         t[t.yearID == 2015]
-        .cache(storage=ParquetStorage(source=ls_con, relative_path=tmp_path))
+        .cache(cache=ParquetCache.from_kwargs(source=ls_con, relative_path=tmp_path))
         .cache()
     )
     assert expr.execute() is not None
 
 
 def test_repeated_cache(con, ls_con, tmp_path):
-    storage = ParquetStorage(
+    cache = ParquetCache.from_kwargs(
         source=ls_con,
         relative_path=tmp_path,
     )
     t = (
         con.table("batting")[lambda t: t.yearID > 2014]
-        .cache(storage=storage)[lambda t: t.stint == 1]
-        .cache(storage=storage)
+        .cache(cache=cache)[lambda t: t.stint == 1]
+        .cache(cache=cache)
     )
 
     actual = t.execute()
@@ -366,11 +373,11 @@ def test_repeated_cache(con, ls_con, tmp_path):
 def test_cache_default_path_set(batting, ls_con, tmp_path):
     xo.options.cache.default_relative_path = tmp_path
 
-    storage = ParquetStorage(
+    cache = ParquetCache.from_kwargs(
         source=ls_con,
     )
 
-    expr = batting[lambda t: t.yearID > 2014].limit(1).cache(storage=storage)
+    expr = batting[lambda t: t.yearID > 2014].limit(1).cache(cache=cache)
 
     result = expr.execute()
 
@@ -462,33 +469,65 @@ def test_udaf_caching(ls_con, alltypes_df, snapshot):
     snapshot.assert_match(on_expr.ls.get_key(), f"{py_version}_test_udaf_caching.txt")
 
 
-def test_storage_exists_doesnt_materialize(cached_two):
-    storage = cached_two.ls.storage
-    assert not storage.exists(cached_two)
-    assert not storage.exists(cached_two)
+def test_cache_exists_doesnt_materialize(cached_two):
+    cache = cached_two.ls.cache
+    assert not cache.exists(cached_two)
+    assert not cache.exists(cached_two)
     assert not cached_two.ls.exists()
     cached_two.count().execute()
     assert cached_two.ls.exists()
-    assert storage.exists(cached_two)
+    assert cache.exists(cached_two)
 
 
 def test_ls_exists_doesnt_materialize(cached_two):
-    storage = cached_two.ls.storage
+    cache = cached_two.ls.cache
     assert not cached_two.ls.exists()
     assert not cached_two.ls.exists()
-    assert not storage.exists(cached_two)
+    assert not cache.exists(cached_two)
     cached_two.count().execute()
     assert cached_two.ls.exists()
-    assert storage.exists(cached_two)
+    assert cache.exists(cached_two)
 
 
 @pytest.mark.parametrize(
     "cls",
-    [ParquetSnapshotStorage, ParquetStorage, SourceSnapshotStorage, SourceStorage],
+    [ParquetSnapshotCache, ParquetCache, SourceSnapshotCache, SourceCache],
 )
 def test_cache_find_embedded_backend(cls, parquet_dir):
     con = xo.connect()
     astronauts_path = parquet_dir / "astronauts.parquet"
-    storage = cls(source=con)
-    expr = con.read_parquet(astronauts_path).cache(storage=storage)
+    cache = cls.from_kwargs(source=con)
+    expr = con.read_parquet(astronauts_path).cache(cache=cache)
     assert expr._find_backend()._profile == con._profile
+
+
+def test_parquet_ttl_snapshot_cache(ls_con, batting, tmp_path):
+    n_rows = 1
+    seconds = 1
+    tmp_path = pathlib.Path(tmp_path)
+    all_rows_path = tmp_path.joinpath("all_rows.parquet")
+    n_rows_path = tmp_path.joinpath("n_rows.parquet")
+    path = tmp_path.joinpath("data.parquet")
+    expr = batting[lambda t: t.yearID > 2014][lambda t: t.stint == 1]
+    expr.to_parquet(all_rows_path)
+    assert xo.read_parquet(all_rows_path).count().execute() != n_rows
+    expr.limit(n_rows).to_parquet(n_rows_path)
+    path.write_bytes(all_rows_path.read_bytes())
+
+    cache = ParquetTTLSnapshotCache.from_kwargs(
+        source=ls_con, relative_path=tmp_path, ttl=timedelta(seconds=1)
+    )
+    expr = xo.deferred_read_parquet(
+        path=path,
+        con=ls_con,
+    ).cache(cache=cache)
+    assert not expr.ls.exists()
+    m = expr.count().execute()
+    assert expr.ls.exists()
+    path.write_bytes(n_rows_path.read_bytes())
+    assert expr.ls.exists()
+    assert expr.count().execute() == m
+    assert ls_con.read_parquet(path).count().execute() == n_rows
+    time.sleep(seconds)
+    assert not expr.ls.exists()
+    assert expr.count().execute() == n_rows

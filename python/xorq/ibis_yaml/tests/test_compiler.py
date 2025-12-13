@@ -10,7 +10,7 @@ import yaml
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
-from xorq.caching import ParquetSnapshotStorage, ParquetStorage, SourceStorage
+from xorq.caching import ParquetCache, ParquetSnapshotCache, SourceCache
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
@@ -269,13 +269,13 @@ def test_multi_engine_with_caching_with_parquet(
     con0 = xo.connect()
     con1 = xo.connect()
 
-    storage = ParquetStorage(source=con1, relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=con1, relative_path=tmp_path)
 
     expr = (
         deferred_read_parquet(parquet_dir / "awards_players.parquet", con=con0)
         .into_backend(con1)
         .filter(xo._.playerID == "bondto01")
-        .cache(storage=storage)
+        .cache(cache=cache)
     )
 
     expected_cache_dir = tmp_path
@@ -334,12 +334,10 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetStorage(source=ddb, relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=ddb, relative_path=tmp_path)
 
     t = table_from_df(original, users_df)
-    expr = (
-        t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(storage=storage)
-    )
+    expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
 
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)
@@ -364,12 +362,12 @@ def test_roundtrip_database_table_behind_cache(
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetStorage(source=ddb, relative_path=tmp_path)
+    cache = ParquetCache.from_kwargs(source=ddb, relative_path=tmp_path)
 
     t = table_from_df(original, users_df)
     expr = (
         t.filter(t.age > 30)
-        .cache(storage=storage)
+        .cache(cache=cache)
         .select(xo._.user_id, xo._.name, xo._.age * 2)
     )
 
@@ -566,7 +564,7 @@ def test_into_backend_with_array_filter(build_dir):
 
     t = duckdb_con.create_table("array_types", array_types_df)
     expr = t.mutate(filtered=t.x.filter(xo._ > 1)).cache(
-        SourceStorage(source=xo.connect())
+        SourceCache.from_kwargs(source=xo.connect())
     )
 
     compiler = BuildManager(build_dir, debug=False)
@@ -579,16 +577,14 @@ def test_into_backend_with_array_filter(build_dir):
     )
 
 
-def test_roundtrip_parquet_snapshot_storage(build_dir, tmp_path, users_df):
+def test_roundtrip_parquet_snapshot_cache(build_dir, tmp_path, users_df):
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
-    storage = ParquetSnapshotStorage(source=ddb, relative_path=tmp_path)
+    cache = ParquetSnapshotCache.from_kwargs(source=ddb, relative_path=tmp_path)
 
     t = original.register(users_df, table_name="users")
-    expr = (
-        t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(storage=storage)
-    )
+    expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
 
     compiler = BuildManager(build_dir)
     expr_hash = compiler.compile_expr(expr)

@@ -1,7 +1,7 @@
 import pytest
 
 import xorq.api as xo
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 
 
 def test_put_get_drop(tmp_path, parquet_dir):
@@ -10,16 +10,16 @@ def test_put_get_drop(tmp_path, parquet_dir):
     con = xo.datafusion.connect()
     t = con.read_parquet(astronauts_path, table_name="astronauts")
 
-    storage = ParquetStorage(relative_path=tmp_path, source=con)
-    put_node = storage.put(t, t.op())
+    cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con)
+    put_node = cache.put(t, t.op())
     assert put_node is not None
 
-    get_node = storage.get(t)
+    get_node = cache.get(t)
     assert get_node is not None
 
-    storage.drop(t)
+    cache.drop(t)
     with pytest.raises(KeyError):
-        storage.get(t)
+        cache.get(t)
 
 
 def test_default_connection(tmp_path, parquet_dir):
@@ -28,11 +28,11 @@ def test_default_connection(tmp_path, parquet_dir):
     con = xo.datafusion.connect()
     t = con.read_parquet(batting_path, table_name="astronauts")
 
-    # if we do cross source caching, then we get a random name and storage.get_key result isn't stable
-    storage = ParquetStorage(source=con, relative_path=tmp_path)
-    storage.put(t, t.op())
+    # if we do cross source caching, then we get a random name and cache.calc_key result isn't stable
+    cache = ParquetCache.from_kwargs(source=con, relative_path=tmp_path)
+    cache.put(t, t.op())
 
-    get_node = storage.get(t)
+    get_node = cache.get(t)
     assert get_node is not None
     assert get_node.source.name == con.name
     assert xo.options.backend is not None

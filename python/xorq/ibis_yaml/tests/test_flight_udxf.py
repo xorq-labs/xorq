@@ -5,7 +5,7 @@ import pytest
 import toolz
 
 import xorq.api as xo
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 from xorq.expr.udf import make_pandas_udf
 from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 from xorq.tests.util import assert_frame_equal
@@ -146,7 +146,7 @@ def test_flight_udxf_cached(con, diamonds, baseline):
     ddb_con = xo.duckdb.connect()
     expr = (
         raw_expr.filter(xo._.cut.notnull())
-        .cache(storage=ParquetStorage(ddb_con))
+        .cache(cache=ParquetCache.from_kwargs(source=ddb_con))
         .filter(~xo._.cut.contains("ERROR"))
         .order_by("cut")
     )

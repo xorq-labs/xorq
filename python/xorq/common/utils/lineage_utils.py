@@ -164,7 +164,7 @@ def _(node: rel.RemoteTable, cfg: Dict[str, Any] | None = None) -> str:
 def _(node: rel.CachedNode, cfg: Dict[str, Any] | None = None) -> str:
     palette: ColorScheme = (cfg or {}).get("palette", default_palette)
     col = palette.get("cached_table")
-    store = getattr(node.storage, "kind", "cache")
+    store = getattr(node.cache, "kind", "cache")
     return f"{col}Cache[{store}] {getattr(node, 'name', '')}[/]"
 
 
