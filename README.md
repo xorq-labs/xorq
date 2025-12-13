@@ -24,7 +24,7 @@ serve agentic AI—which needs context and skills, not categories.
 
 **Manifest = Context.** Every ML computation becomes a structured, input addressed YAML manifest.
 
-**Tools = Skills.** A catalog to discover. A build system to deterministically execute anywhere.
+**Tools = Skills.** A catalog to discover. A build system to deterministically cache and execute anywhere.
 
 ## Quick Start
 ```bash
@@ -37,22 +37,24 @@ xorq init -t penguins
 Write [Ibis](https://ibis-project.org) expressions, get human-diffable manifests.
 
 ```python
-
 import ibis
-
 from xorq.common.utils.ibis_utils import from_ibis
 from xorq.caching import ParquetStorage
 
-penguins_tbl = ibis.examples.penguins.fetch()
 
-penguins_expr = (
-    penguins_tbl
+penguins = ibis.examples.penguins.fetch()
+
+penguins_agg = (
+    penguins
     .filter(ibis._.species.notnull())
     .group_by("species")
     .agg(avg_bill_length=ibis._.bill_length_mm.mean())
 )
 
-xo_expr = from_ibis(penguins_expr)
+expr = (
+    from_ibis(penguins_agg)
+    .cache(storage=ParquetStorage())
+)
 ```
 
 ```bash
@@ -125,14 +127,31 @@ version. The hash *is* the address.
 
 #### Portable UDFs
 
+```
+# FIXME
+import pandas as pd
+import xorq.api as xo
 
+schema_in = xo.schema({"bill_length_mm": float, "bill_depth_mm": float})
+schema_out = xo.schema({"bill_ratio": float})
+
+def compute_ratio(df: pd.DataFrame) -> pd.DataFrame:
+    return pd.DataFrame({"bill_ratio": df["bill_length_mm"] / df["bill_depth_mm"]})
+
+bill_ratio_udxf = xo.expr.relations.flight_udxf(
+    process_df=compute_ratio,
+    maybe_schema_in=schema_in,
+    maybe_schema_out=schema_out,
+    name="BillRatio",
+)
+
+penguins = xo.memtable({"bill_length_mm": [39.1, 46.5], "bill_depth_mm": [18.7, 17.4]})
+expr = bill_ratio_udxf(penguins)
+
+```
 #### Multi-Engine
-
-Manifests are portable. Execute on DuckDB locally, compile to multi-engine
-Snowflake for production, and use Python  with Xorq's embedded engine, based
-on DataFusion.
-
-One manifest, many engines.
+One manifest, many engines. Execute on DuckDB locally, compile to Snowflake
+for production, run Python UDFs on Xorq's embedded DataFusion engine.
 
 ```profiles.yaml
 2eca7579af9a9d8e315faf6af1ddb59a_2:
@@ -169,13 +188,12 @@ f7f2b329-4263-410b-9cd7-fba894e1f637    r1      4f98390ba42c
 # Run
 ❯ xorq catalog run penguins-dev -o
 
-# Serve
-❯
 ```
 ### xorq-template-sklearn
 
+WIP
 
-## The Composable Architecture
+## The Horizontal Stack
 
 Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
 engine built on DataFusion. Universal UDFs via Arrow Flight.
