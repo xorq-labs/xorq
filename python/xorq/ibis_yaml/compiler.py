@@ -31,7 +31,6 @@ from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
 from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import (
-    SchemaRegistry,
     TranslationContext,
     translate_from_yaml,
     translate_to_yaml,
@@ -151,10 +150,9 @@ class YamlExpressionTranslator:
     def __init__(self):
         pass
 
-    def to_yaml(self, expr: ir.Expr, profiles=None, cache_dir=None) -> Dict[str, Any]:
+    def to_yaml(self, expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
         context = TranslationContext(
-            schema_registry=SchemaRegistry(),
-            profiles=freeze(profiles or {}),
+            profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
         )
 
@@ -175,11 +173,10 @@ class YamlExpressionTranslator:
     def from_yaml(
         self,
         yaml_dict: Dict[str, Any],
-        profiles=None,
+        profiles=(),
     ) -> ir.Expr:
         context = TranslationContext(
-            schema_registry=SchemaRegistry(),
-            profiles=freeze(profiles or {}),
+            profiles=freeze(dict(profiles)),
         )
 
         context = context.update_definitions(freeze(yaml_dict.get("definitions", {})))
