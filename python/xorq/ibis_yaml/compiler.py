@@ -15,6 +15,7 @@ import xorq.common.utils.logging_utils as lu
 import xorq.ibis_yaml.translate  #  noqa: F401
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
+from xorq.caching import SnapshotStrategy
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     file_digest,
@@ -132,7 +133,8 @@ class ArtifactStore:
         return self.get_path(*path_parts).exists()
 
     def get_expr_hash(self, expr) -> str:
-        expr_hash = dask.base.tokenize(expr)
+        with SnapshotStrategy().normalization_context(expr):
+            expr_hash = dask.base.tokenize(expr)
         hash_length = config.hash_length
         return expr_hash[:hash_length]
 
@@ -155,20 +157,18 @@ class YamlExpressionTranslator:
             profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
         )
+        with SnapshotStrategy().normalization_context(expr):
+            schema_ref = context.schema_registry._register_expr_schema(expr)
 
-        schema_ref = context.schema_registry._register_expr_schema(expr)
-
-        expr_dict = translate_to_yaml(expr, context)
-        expr_dict = freeze({**dict(expr_dict), "schema_ref": schema_ref})
-
-        context = context.finalize_definitions()
-
-        return freeze(
-            {
-                "definitions": context.definitions,
-                "expression": expr_dict,
-            }
-        )
+            expr_dict = translate_to_yaml(expr, context)
+            expr_dict = freeze({**dict(expr_dict), "schema_ref": schema_ref})
+            context = context.finalize_definitions()
+            return freeze(
+                {
+                    "definitions": context.definitions,
+                    "expression": expr_dict,
+                }
+            )
 
     def from_yaml(
         self,
