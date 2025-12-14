@@ -4,6 +4,7 @@ import pathlib
 import re
 from unittest.mock import (
     Mock,
+    patch,
 )
 
 import dask
@@ -192,3 +193,50 @@ def test_file_digest():
     actual = manual_file_digest(path)
     expected = file_digest(path)
     assert actual == expected
+
+
+def test_patch_normalize_token():
+    def make_type(name):
+        cls = type(name, (), {})
+        cls.__module__ = name
+        return cls
+
+    names = ("to_retain", "to_drop")
+    name_to_cls = {name: make_type(name) for name in names}
+    name_to_mock = {
+        cls.__module__: Mock(
+            side_effect=toolz.partial(
+                dask.base.normalize_token.register,
+                cls,
+                toolz.functoolz.return_none,
+            ),
+        )
+        for cls in name_to_cls.values()
+    }
+
+    assert not any(
+        cls.__module__ in dask.base.normalize_token._lazy
+        for cls in name_to_cls.values()
+    )
+    assert not any(
+        cls in dask.base.normalize_token._lookup for cls in name_to_cls.values()
+    )
+    values = {name: name_to_mock[name] for name in ("to_retain",)}
+    with patch.dict(
+        dask.base.normalize_token._lazy,
+        values=values,
+    ):
+        with patch_normalize_token(
+            name_to_cls["to_drop"],
+            f=toolz.functoolz.return_none,
+        ):
+            assert name_to_cls["to_retain"] not in dask.base.normalize_token._lookup
+            for name in names:
+                dask.base.tokenize(name_to_cls[name]())
+            for cls in name_to_cls.values():
+                assert cls in dask.base.normalize_token._lookup
+        assert name_to_cls["to_drop"] not in dask.base.normalize_token._lookup
+        assert name_to_cls["to_retain"] in dask.base.normalize_token._lookup
+
+    assert "to_retain" not in dask.base.normalize_token._lookup
+    assert name_to_cls["to_retain"] in dask.base.normalize_token._lookup
