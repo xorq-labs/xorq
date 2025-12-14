@@ -78,7 +78,7 @@ class TranslationContext:
     schema_registry: SchemaRegistry = field(factory=SchemaRegistry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
     definitions: FrozenOrderedDict = field(
-        factory=lambda: freeze({"schemas": {}, "nodes": {}})
+        factory=functools.partial(freeze, {"schemas": {}, "nodes": {}}),
     )
     cache_dir: Path = field(
         default=None,
