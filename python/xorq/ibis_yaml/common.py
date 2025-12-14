@@ -4,10 +4,10 @@ import itertools
 from pathlib import Path
 from typing import Any
 
-import attr
 import cloudpickle
 import toolz
 from attr import (
+    evolve,
     field,
     frozen,
 )
@@ -87,13 +87,13 @@ class TranslationContext:
     )
 
     def update_definitions(self, new_definitions: FrozenOrderedDict):
-        return attr.evolve(self, definitions=new_definitions)
+        return evolve(self, definitions=new_definitions)
 
     def finalize_definitions(self):
         updated_defs = dict(self.definitions)
         updated_defs["schemas"] = self.schema_registry.schemas
         updated_defs["nodes"] = self.schema_registry.nodes
-        return attr.evolve(self, definitions=freeze(updated_defs))
+        return evolve(self, definitions=freeze(updated_defs))
 
 
 def register_from_yaml_handler(*op_names: str):
