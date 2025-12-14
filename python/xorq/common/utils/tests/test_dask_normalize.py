@@ -2,6 +2,9 @@ import hashlib
 import operator
 import pathlib
 import re
+from unittest.mock import (
+    Mock,
+)
 
 import dask
 import pytest
@@ -49,11 +52,11 @@ def batting(pg):
 @pytest.mark.snapshot_check
 def test_tokenize_datafusion_memory_expr(alltypes_df, snapshot):
     con = xo.datafusion.connect()
-    typ = type(con)
     t = con.register(alltypes_df, "t")
-    with patch_normalize_token(type(con)) as mocks:
+    f = Mock(side_effect=toolz.functoolz.return_none)
+    with patch_normalize_token(type(con), f=f):
         actual = dask.base.tokenize(t)
-    mocks[typ].assert_not_called()
+    f.assert_not_called()
     snapshot.assert_match(actual, "datafusion_memory_key.txt")
 
 
@@ -83,22 +86,22 @@ def test_tokenize_datafusion_parquet_expr(alltypes_df, tmp_path, snapshot):
 @pytest.mark.snapshot_check
 def test_tokenize_pandas_expr(alltypes_df, snapshot):
     con = xo.pandas.connect()
-    typ = type(con)
     t = con.create_table("t", alltypes_df)
-    with patch_normalize_token(type(t.op().source)) as mocks:
+    f = Mock(side_effect=toolz.functoolz.return_none)
+    with patch_normalize_token(type(t.op().source), f=f):
         actual = dask.base.tokenize(t)
-    mocks[typ].assert_not_called()
+    f.assert_not_called()
     snapshot.assert_match(actual, "pandas_key.txt")
 
 
 @pytest.mark.snapshot_check
 def test_tokenize_duckdb_expr(batting, snapshot):
     con = xo.duckdb.connect()
-    typ = type(con)
     t = con.register(batting.to_pyarrow(), "dashed-name")
-    with patch_normalize_token(type(con)) as mocks:
+    f = Mock(side_effect=toolz.functoolz.return_none)
+    with patch_normalize_token(type(con), f=f):
         actual = dask.base.tokenize(t)
-    mocks[typ].assert_not_called()
+    f.assert_not_called()
 
     snapshot.assert_match(actual, "duckdb_key.txt")
 

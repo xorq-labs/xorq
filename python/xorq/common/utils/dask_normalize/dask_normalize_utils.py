@@ -4,7 +4,6 @@ import pathlib
 import pdb
 from contextlib import contextmanager
 from unittest.mock import (
-    Mock,
     patch,
 )
 
@@ -18,13 +17,12 @@ def normalize_attrs(attrs):
 
 
 @contextmanager
-def patch_normalize_token(*typs, f=toolz.functoolz.return_none):
+def patch_normalize_token(*typs, f):
     with patch.dict(
         dask.base.normalize_token._lookup,
-        {typ: Mock(side_effect=f) for typ in typs},
+        values={typ: f for typ in typs},
     ) as dct:
-        mocks = {typ: dct[typ] for typ in typs}
-        yield mocks
+        yield dct
 
 
 def normalize_seq_with_caller(*args, caller=""):
