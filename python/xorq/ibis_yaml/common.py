@@ -4,10 +4,10 @@ import itertools
 from pathlib import Path
 from typing import Any
 
-import attr
 import cloudpickle
 import toolz
 from attr import (
+    evolve,
     field,
     frozen,
 )
@@ -78,7 +78,7 @@ class TranslationContext:
     schema_registry: SchemaRegistry = field(factory=SchemaRegistry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
     definitions: FrozenOrderedDict = field(
-        factory=lambda: freeze({"schemas": {}, "nodes": {}})
+        factory=functools.partial(freeze, {"schemas": {}, "nodes": {}}),
     )
     cache_dir: Path = field(
         default=None,
@@ -87,13 +87,19 @@ class TranslationContext:
     )
 
     def update_definitions(self, new_definitions: FrozenOrderedDict):
-        return attr.evolve(self, definitions=new_definitions)
+        return evolve(self, definitions=new_definitions)
 
     def finalize_definitions(self):
         updated_defs = dict(self.definitions)
         updated_defs["schemas"] = self.schema_registry.schemas
         updated_defs["nodes"] = self.schema_registry.nodes
-        return attr.evolve(self, definitions=freeze(updated_defs))
+        return evolve(self, definitions=freeze(updated_defs))
+
+    def translate_from_yaml(self, yaml_dict: dict) -> Any:
+        return translate_from_yaml(yaml_dict, self)
+
+    def translate_to_yaml(self, op: Any) -> dict:
+        return translate_to_yaml(op, self)
 
 
 def register_from_yaml_handler(*op_names: str):
