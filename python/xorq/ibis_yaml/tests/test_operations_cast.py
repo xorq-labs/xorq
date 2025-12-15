@@ -7,8 +7,8 @@ def test_explicit_cast(compiler):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Cast"
-    assert expression["args"][0]["op"] == "Literal"
-    assert expression["args"][0]["value"] == 42
+    assert expression["arg"]["op"] == "Literal"
+    assert expression["arg"]["value"] == 42
     assert expression["type"]["type"] == "Float64"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -23,8 +23,8 @@ def test_implicit_cast(compiler):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Add"
-    assert expression["args"][0]["type"]["type"] == "Int8"
-    assert expression["args"][1]["type"]["type"] == "Float64"
+    assert expression["left"]["type"]["type"] == "Int8"
+    assert expression["right"]["type"]["type"] == "Float64"
     assert expression["type"]["type"] == "Float64"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -37,7 +37,7 @@ def test_string_cast(compiler):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Cast"
-    assert expression["args"][0]["value"] == "42"
+    assert expression["arg"]["value"] == "42"
     assert expression["type"]["type"] == "Int64"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -50,7 +50,7 @@ def test_timestamp_cast(compiler):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Cast"
-    assert expression["args"][0]["value"] == "2024-01-01"
+    assert expression["arg"]["value"] == "2024-01-01"
     assert expression["type"]["type"] == "Timestamp"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)

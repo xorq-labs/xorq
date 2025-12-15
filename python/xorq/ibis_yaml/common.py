@@ -14,6 +14,7 @@ from attr import (
 from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
+import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -104,6 +105,17 @@ def register_from_yaml_handler(*op_names: str):
     return decorator
 
 
+def default_handler(yaml_dict: dict, context: TranslationContext):
+    spec = dict(yaml_dict)
+    cls = getattr(ops, spec["op"])
+    return cls(
+        **{
+            key: translate_from_yaml(spec[key], context)
+            for key in tuple(cls.__signature__.parameters)
+        }
+    ).to_expr()
+
+
 @functools.cache
 @functools.singledispatch
 def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
@@ -122,14 +134,12 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
                 raise ValueError(f"Node reference {node_ref} not found in definitions")
             return translate_from_yaml(node_dict, context)
         case {"op": op_type, **_kwargs}:
-            if op_type not in FROM_YAML_HANDLERS:
-                raise NotImplementedError(f"No handler for operation {op_type}")
-            return FROM_YAML_HANDLERS[op_type](yaml_dict, context)
+            return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
         case _:
             raise ValueError
 
 
-@functools.cache
+@functools.lru_cache(maxsize=None, typed=True)
 @functools.singledispatch
 def translate_to_yaml(op: Any, context: TranslationContext) -> dict:
     raise NotImplementedError(f"No translation rule for {type(op)}")
