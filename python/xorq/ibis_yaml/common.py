@@ -95,6 +95,12 @@ class TranslationContext:
         updated_defs["nodes"] = self.schema_registry.nodes
         return evolve(self, definitions=freeze(updated_defs))
 
+    def translate_from_yaml(self, yaml_dict: dict) -> Any:
+        return translate_from_yaml(yaml_dict, self)
+
+    def translate_to_yaml(self, op: Any) -> dict:
+        return translate_to_yaml(op, self)
+
 
 def register_from_yaml_handler(*op_names: str):
     def decorator(func):
