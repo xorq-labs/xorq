@@ -502,7 +502,7 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 
 
 @translate_to_yaml.register(RemoteTable)
-def _remotetable_to_yaml(op: RemoteTable, context: any) -> dict:
+def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
     profile_name = op.source._profile.hash_name
     remote_expr_yaml = translate_to_yaml(op.remote_expr, context)
     schema_id = context.schema_registry.register_schema(op.schema)
@@ -519,7 +519,7 @@ def _remotetable_to_yaml(op: RemoteTable, context: any) -> dict:
 
 
 @register_from_yaml_handler("RemoteTable")
-def _remotetable_from_yaml(yaml_dict: dict, context: any) -> dict:
+def _remotetable_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     profile_name = yaml_dict.get("profile")
     table_name = yaml_dict.get("table")
     remote_expr_yaml = yaml_dict.get("remote_expr")
