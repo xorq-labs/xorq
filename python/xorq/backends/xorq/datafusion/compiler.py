@@ -726,5 +726,16 @@ class DataFusionCompiler(SQLGlotCompiler):
         res = sg.select(*selcols).from_(parent)
         return res
 
+    def visit_Quantile(self, op, *, arg, quantile, where):
+        suffix = "cont" if op.arg.dtype.is_numeric() else "disc"
+        func_name = f"percentile_{suffix}"
+        expr = sge.WithinGroup(
+            this=self.f[func_name](quantile),
+            expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
+        )
+        # if where is not None:
+        #     expr = sge.Filter(this=expr, expression=sge.Where(this=where))
+        return expr
+
 
 compiler = DataFusionCompiler()
