@@ -14,7 +14,7 @@ def test_date_extract(compiler):
     year_yaml = compiler.to_yaml(year)
     expression = year_yaml["expression"]
     assert expression["op"] == "ExtractYear"
-    assert expression["args"][0]["value"] == "2024-03-14T15:09:26"
+    assert expression["arg"]["value"] == "2024-03-14T15:09:26"
     assert expression["type"]["type"] == "Int32"
     roundtrip_year = compiler.from_yaml(year_yaml)
     assert roundtrip_year.equals(year)
@@ -41,7 +41,7 @@ def test_time_extract(compiler):
     hour_yaml = compiler.to_yaml(hour)
     hour_expression = hour_yaml["expression"]
     assert hour_expression["op"] == "ExtractHour"
-    assert hour_expression["args"][0]["value"] == "2024-03-14T15:09:26"
+    assert hour_expression["arg"]["value"] == "2024-03-14T15:09:26"
     assert hour_expression["type"]["type"] == "Int32"
     roundtrip_hour = compiler.from_yaml(hour_yaml)
     assert roundtrip_hour.equals(hour)
@@ -70,7 +70,7 @@ def test_timestamp_arithmetic(compiler):
     expression = yaml_dict["expression"]
     assert expression["op"] == "TimestampAdd"
     assert expression["type"]["type"] == "Timestamp"
-    assert expression["args"][1]["type"]["type"] == "Interval"
+    assert expression["right"]["type"]["type"] == "Interval"
     roundtrip_plus = compiler.from_yaml(yaml_dict)
     assert roundtrip_plus.equals(plus_day)
 
@@ -79,7 +79,7 @@ def test_timestamp_arithmetic(compiler):
     expression = yaml_dict["expression"]
     assert expression["op"] == "TimestampSub"
     assert expression["type"]["type"] == "Timestamp"
-    assert expression["args"][1]["type"]["type"] == "Interval"
+    assert expression["right"]["type"]["type"] == "Interval"
     roundtrip_minus = compiler.from_yaml(yaml_dict)
     assert roundtrip_minus.equals(minus_day)
 

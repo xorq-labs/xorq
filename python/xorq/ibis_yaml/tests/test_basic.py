@@ -60,7 +60,7 @@ def test_binary_op(t, compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Add"
-    assert expression["args"][1]["op"] == "Literal"
+    assert expression["right"]["op"] == "Literal"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
