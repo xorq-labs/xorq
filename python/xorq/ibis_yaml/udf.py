@@ -117,10 +117,7 @@ def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
         {
             "op": schema.__class__.__name__,
             "value": freeze(
-                {
-                    key: translate_to_yaml(value, context)
-                    for key, value in schema.items()
-                }
+                {key: context.translate_to_yaml(value) for key, value in schema.items()}
             ),
         }
     )
@@ -130,7 +127,7 @@ def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
 def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
     return Schema(
         {
-            key: translate_from_yaml(value, context)
+            key: context.translate_from_yaml(value)
             for key, value in yaml_dict["value"].items()
         }
     )
@@ -142,14 +139,14 @@ def _dict_to_yaml(dct: dict, context: TranslationContext) -> dict:
         {
             "op": "dict",
         }
-        | {key: translate_to_yaml(value, context) for key, value in dct.items()}
+        | {key: context.translate_to_yaml(value) for key, value in dct.items()}
     )
 
 
 @register_from_yaml_handler("dict")
 def _dict_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
     dct = {
-        key: translate_from_yaml(value, context)
+        key: context.translate_from_yaml(value)
         for key, value in toolz.dissoc(yaml_dict, "op").items()
     }
     return dct
@@ -326,8 +323,8 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 
 @translate_to_yaml.register(FlightExpr)
 def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
-    input_expr_yaml = translate_to_yaml(op.input_expr, context)
-    unbound_expr_yaml = translate_to_yaml(op.unbound_expr, context)
+    input_expr_yaml = context.translate_to_yaml(op.input_expr)
+    unbound_expr_yaml = context.translate_to_yaml(op.unbound_expr)
 
     schema_id = context.schema_registry.register_schema(op.schema)
 
@@ -357,8 +354,8 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     make_connection_pickle = yaml_dict.get("make_connection")
     do_instrument_reader = yaml_dict.get("do_instrument_reader", False)
 
-    input_expr = translate_from_yaml(input_expr_yaml, context)
-    unbound_expr = translate_from_yaml(unbound_expr_yaml, context)
+    input_expr = context.translate_from_yaml(input_expr_yaml)
+    unbound_expr = context.translate_from_yaml(unbound_expr_yaml)
 
     make_server = (
         deserialize_callable(make_server_pickle) if make_server_pickle else None
@@ -379,7 +376,7 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
 
 @translate_to_yaml.register(FlightUDXF)
 def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
-    input_expr_yaml = translate_to_yaml(op.input_expr, context)
+    input_expr_yaml = context.translate_to_yaml(op.input_expr)
     schema_id = context.schema_registry.register_schema(op.schema)
     udxf_pickle = serialize_callable(op.udxf)
     make_server_pickle = serialize_callable(op.make_server)
@@ -408,7 +405,7 @@ def flight_udxf_from_yaml(yaml_dict: Dict, context: Any) -> Any:
     make_connection_pickle = yaml_dict.get("make_connection")
     do_instrument_reader = yaml_dict.get("do_instrument_reader", False)
 
-    input_expr = translate_from_yaml(input_expr_yaml, context)
+    input_expr = context.translate_from_yaml(input_expr_yaml)
     udxf = deserialize_callable(udxf_pickle)
     make_server = (
         deserialize_callable(make_server_pickle) if make_server_pickle else None

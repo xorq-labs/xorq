@@ -12,6 +12,7 @@ import yaml
 
 import xorq
 import xorq.common.utils.logging_utils as lu
+import xorq.ibis_yaml.translate  #  noqa: F401
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
@@ -29,13 +30,13 @@ from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
 from xorq.expr.udf import InputType
-from xorq.ibis_yaml.common import SchemaRegistry, TranslationContext
-from xorq.ibis_yaml.config import config
-from xorq.ibis_yaml.sql import generate_sql_plans
-from xorq.ibis_yaml.translate import (
+from xorq.ibis_yaml.common import (
+    TranslationContext,
     translate_from_yaml,
     translate_to_yaml,
 )
+from xorq.ibis_yaml.config import config
+from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.backends import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
@@ -149,10 +150,9 @@ class YamlExpressionTranslator:
     def __init__(self):
         pass
 
-    def to_yaml(self, expr: ir.Expr, profiles=None, cache_dir=None) -> Dict[str, Any]:
+    def to_yaml(self, expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
         context = TranslationContext(
-            schema_registry=SchemaRegistry(),
-            profiles=freeze(profiles or {}),
+            profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
         )
 
@@ -173,11 +173,10 @@ class YamlExpressionTranslator:
     def from_yaml(
         self,
         yaml_dict: Dict[str, Any],
-        profiles=None,
+        profiles=(),
     ) -> ir.Expr:
         context = TranslationContext(
-            schema_registry=SchemaRegistry(),
-            profiles=freeze(profiles or {}),
+            profiles=freeze(dict(profiles)),
         )
 
         context = context.update_definitions(freeze(yaml_dict.get("definitions", {})))
