@@ -415,9 +415,7 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
         }
     )
 
-    if should_register_node(node_dict) and hasattr(
-        context.schema_registry, "register_node"
-    ):
+    if should_register_node(node_dict):
         node_hash = context.schema_registry.register_node(node_dict)
         return freeze({"node_ref": node_hash})
 
@@ -773,9 +771,7 @@ def _filter_to_yaml(op: ops.Filter, context: TranslationContext) -> dict:
         }
     )
 
-    if should_register_node(node_dict) and hasattr(
-        context.schema_registry, "register_node"
-    ):
+    if should_register_node(node_dict):
         node_hash = context.schema_registry.register_node(node_dict)
         return freeze({"node_ref": node_hash})
 
