@@ -44,9 +44,8 @@ class SchemaRegistry:
         frozen_schema = freeze(
             {name: translate_to_yaml(dtype, None) for name, dtype in schema.items()}
         )
-        for schema_id, existing_schema in self.schemas.items():
-            if existing_schema == frozen_schema:
-                return schema_id
+        if (schema_id := self.schemas.get(frozen_schema)) is not None:
+            return schema_id
         schema_id = f"schema_{next(self.counter)}"
         self.schemas[schema_id] = frozen_schema
         return schema_id
