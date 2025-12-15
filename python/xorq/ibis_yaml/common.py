@@ -16,8 +16,11 @@ from dask.base import tokenize
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.types as ir
+from xorq.caching.strategy import SnapshotStrategy
+from xorq.expr.relations import Tag
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.schema import Schema
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
@@ -56,15 +59,29 @@ class SchemaRegistry:
             return self.register_schema(schema)
         return None
 
-    def register_node(self, node_dict):
-        frozen_node = freeze(node_dict)
+    def register_node(self, node, node_dict):
+        """Register a node and return its name.
 
-        node_hash = tokenize(frozen_node)
+        Returns a name like '@read_{hash}', '@filter_{hash}', etc.
+        """
 
-        if node_hash not in self.nodes:
-            self.nodes[node_hash] = frozen_node
-
-        return node_hash
+        match node:
+            case Tag():
+                untagged_repr = ("Tag", node.parent.to_expr(), node_dict["metadata"])
+                with SnapshotStrategy().normalization_context(node.to_expr()):
+                    node_hash = tokenize(untagged_repr)
+            case Schema():
+                untagged_repr = ("Schema", tuple(node.items()))
+                node_hash = tokenize(node)
+            case _:
+                untagged_repr = node.to_expr().ls.untagged
+                with SnapshotStrategy().normalization_context(node.to_expr()):
+                    node_hash = tokenize(untagged_repr)
+        op_name = node_dict.get("op", "unknown").lower()
+        node_name = f"@{op_name}_{node_hash[:16]}"
+        node_dict_with_hash = freeze(dict(node_dict) | {"snapshot_hash": node_hash})
+        self.nodes.setdefault(node_name, node_dict_with_hash)
+        return node_name
 
 
 def _is_absolute_path(instance, attribute, value):
