@@ -158,10 +158,15 @@ class YamlExpressionTranslator:
             cache_dir=cache_dir,
         )
         with SnapshotStrategy().normalization_context(expr):
-            schema_ref = context.schema_registry._register_expr_schema(expr)
-
             expr_dict = translate_to_yaml(expr, context)
-            expr_dict = freeze({**dict(expr_dict), "schema_ref": schema_ref})
+            expr_dict = freeze(
+                {
+                    **dict(expr_dict),
+                    "schema_ref": context.schema_registry.register_schema(expr.schema())
+                    if hasattr(expr, "schema")
+                    else None,
+                }
+            )
             context = context.finalize_definitions()
             return freeze(
                 {

@@ -15,7 +15,6 @@ from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-import xorq.vendor.ibis.expr.types as ir
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.expr.relations import Tag
 from xorq.ibis_yaml.utils import freeze
@@ -52,12 +51,6 @@ class SchemaRegistry:
         schema_id = f"schema_{next(self.counter)}"
         self.schemas[schema_id] = frozen_schema
         return schema_id
-
-    def _register_expr_schema(self, expr: ir.Expr) -> str:
-        if hasattr(expr, "schema"):
-            schema = expr.schema()
-            return self.register_schema(schema)
-        return None
 
     def register_node(self, node, node_dict):
         """Register a node and return its name.
