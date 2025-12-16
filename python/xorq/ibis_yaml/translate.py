@@ -41,6 +41,7 @@ from xorq.ibis_yaml.utils import (
 from xorq.vendor.ibis.common.collections import FrozenDict, FrozenOrderedDict
 from xorq.vendor.ibis.expr.datashape import Columnar
 from xorq.vendor.ibis.expr.operations.relations import Namespace
+from xorq.vendor.ibis.expr.schema import Schema
 from xorq.vendor.ibis.util import normalize_filenames
 
 
@@ -55,6 +56,7 @@ def should_register_node(op):
         ops.Filter,
         ops.Project,
         ops.JoinChain,  # ops
+        Schema,  # other
     )
     return isinstance(op, typs)
 
@@ -1504,3 +1506,27 @@ def _columnar_to_yaml(op, context) -> dict:
 @register_from_yaml_handler("Columnar")
 def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> Any:
     return Columnar()
+
+
+@translate_to_yaml.register(Schema)
+@maybe_convert_to_node_ref
+def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
+    context.schema_registry.register_schema(schema)
+    return freeze(
+        {
+            "op": schema.__class__.__name__,
+            "value": freeze(
+                {key: context.translate_to_yaml(value) for key, value in schema.items()}
+            ),
+        }
+    )
+
+
+@register_from_yaml_handler(Schema.__name__)
+def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
+    return Schema(
+        {
+            key: context.translate_from_yaml(value)
+            for key, value in yaml_dict["value"].items()
+        }
+    )
