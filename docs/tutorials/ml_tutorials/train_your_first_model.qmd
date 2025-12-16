@@ -5,4 +5,297 @@ icon: "stars"
 headline: "Start your ML journey"
 ---
 
-Coming soon.
+This tutorial walks you through training your first classification model with Xorq. You'll use the Iris dataset to build a flower species classifier and see how deferred execution works in action.
+
+After completing this tutorial, you'll know how to wrap scikit-learn pipelines with Xorq and make predictions using deferred execution.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed: `pip install "xorq[examples]"`
+- Basic familiarity with scikit-learn
+
+## How to follow along
+
+This tutorial builds code incrementally. Each section adds to the same Python file (`train_classifier.py`). You can:
+
+- **Python interactive shell (recommended)**: Open a terminal, run `python`, then copy and paste each code block sequentially
+- **Run as a script**: Add each code block to `train_classifier.py`, then run `python train_classifier.py` after each section
+- **Jupyter notebook**: Create a new notebook and run each code block in a separate cell
+
+The code blocks build on each other. Variables like `iris`, `xorq_pipeline`, and `fitted_pipeline` are created in earlier blocks and used in later ones.
+
+:::{.callout-tip}
+### How deferred execution works
+When you call `.fit()` in Xorq, training doesn't happen immediately. Xorq builds a computation graph. Training only runs when you call `.execute()`. This lets Xorq cache trained models and reuse them across runs.
+:::
+
+## Load data and define your target
+
+Here's what you need to know: you'll load the Iris dataset and separate features from the target.
+
+```python
+# train_classifier.py
+import xorq.api as xo
+
+# <1>
+iris = xo.examples.iris.fetch()
+
+# <2>
+target = "species"
+features = tuple(iris.drop(target).schema())
+
+# <3>
+print(f"Loaded {iris.count().execute()} rows")
+print(f"Target: {target}")
+print(f"Features: {len(features)} columns")
+```
+1. Load the Iris dataset. This returns an expression, not actual data.
+2. Define what you're predicting (target) and what the model uses (features).
+3. Check what you loaded.
+
+
+You'll see:
+
+```
+Loaded 150 rows
+Target: species
+Features: 4 columns
+```
+
+**What just happened?** The `iris` variable is an expression. It's a description of data, not the data itself. Nothing executes until you call `.execute()`. This is deferred execution in action.
+
+Once you've got your data loaded, you can move on to building the pipeline.
+
+## Build and wrap your pipeline
+
+Now you'll create a scikit-learn pipeline and wrap it with Xorq. Think of it this way: you're taking a standard scikit-learn workflow and adding Xorq's caching layer.
+
+Add this to `train_classifier.py`:
+
+```python
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.pipeline import Pipeline as SklearnPipeline
+from xorq.expr.ml import Pipeline
+
+# <1>
+sklearn_pipeline = SklearnPipeline([
+    ('scaler', StandardScaler()),
+    ('classifier', KNeighborsClassifier(n_neighbors=5))
+])
+
+# <2>
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+print("Pipeline wrapped with Xorq!")
+```
+1. Create a standard scikit-learn pipeline. It normalizes features, then classifies with k-nearest neighbors.
+2. Wrap it with `Pipeline.from_instance()`. This adds deferred execution.
+
+**Why normalize first?** K-nearest neighbors is distance-based. If one feature ranges from 0 to 100 and another from 0 to 1, then the first feature dominates. Normalization fixes this.
+
+## Train the model (but don't execute yet)
+
+Here's the thing: when you call `.fit()`, you're not actually training yet. You're describing the training.
+
+Add this to `train_classifier.py`:
+
+```python
+# <1>
+fitted_pipeline = xorq_pipeline.fit(
+    iris,
+    features=features,
+    target=target
+)
+
+print("Training described (but hasn't run yet)!")
+```
+1. Describe the training operation. Xorq builds a graph node, but doesn't execute.
+
+**The key insight:** You've told Xorq what to do, but it hasn't done it yet. Training only happens when you call `.execute()`.
+
+Understanding this timing helps you optimize workflows. You can describe complex pipelines, then execute once.
+
+## Make predictions and see results
+
+Now for the payoff. You'll make predictions, and that's when everything executes.
+
+Add this to `train_classifier.py`:
+
+```python
+# <1>
+def as_struct(expr, name=None):
+    struct = xo.struct({c: expr[c] for c in expr.columns})
+    if name:
+        struct = struct.name(name)
+    return struct
+
+# <2>
+ORIGINAL_ROW = "original_row"
+predictions_expr = (
+    iris.mutate(as_struct(iris, name=ORIGINAL_ROW))
+    .pipe(fitted_pipeline.predict)
+    .drop(target)
+    .unpack(ORIGINAL_ROW)
+)
+
+# <3>
+predictions = predictions_expr.execute()
+
+print("\nFirst 10 predictions:")
+print(predictions[["species", "predicted"]].head(10))
+```
+1. Create a helper that packages data into a struct. This preserves original values.
+2. Build the prediction expression. Still deferred.
+3. Execute! Training and prediction happen now, in one optimized pass.
+
+You'll see:
+
+```
+First 10 predictions:
+      species predicted
+0      setosa    setosa
+1      setosa    setosa
+2      setosa    setosa
+3      setosa    setosa
+...
+```
+
+**What does success look like?** Your predictions match the actual species. When you called `.execute()`, Xorq trained the pipeline and made predictions in one shot.
+
+Next, you'll check how accurate your model is.
+
+## Check your accuracy
+
+Now check how well your model performed. Add this to `train_classifier.py`:
+
+```python
+# <1>
+accuracy_expr = (
+    predictions_expr
+    .mutate(correct=xo._.species == xo._.predicted)
+    .agg(
+        total=xo._.species.count(),
+        correct_count=xo._.correct.sum().cast("int64"),
+    )
+    .mutate(accuracy=xo._.correct_count / xo._.total)
+)
+
+# <2>
+result = accuracy_expr.execute()
+accuracy = result["accuracy"][0]
+correct = result["correct_count"][0]
+total = result["total"][0]
+
+print(f"\nAccuracy: {accuracy:.1%}")
+print(f"Got {correct} out of {total} correct")
+```
+1. Build an accuracy calculation. Create a boolean for correct predictions, count them, compute the ratio.
+2. Execute and display results.
+
+You'll typically see:
+
+```
+Accuracy: 96.7%
+Got 145 out of 150 correct
+```
+
+**Why this pattern matters:** Evaluation is also deferred. You describe metrics, then execute once. Most teams find that this simplifies evaluation code.
+
+## Complete example
+
+Here's everything in one file. This is what you built:
+
+```python
+# train_classifier.py
+import xorq.api as xo
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.pipeline import Pipeline as SklearnPipeline
+from xorq.expr.ml import Pipeline
+
+# Load data
+iris = xo.examples.iris.fetch()
+target = "species"
+features = tuple(iris.drop(target).schema())
+
+# Build and wrap pipeline
+sklearn_pipeline = SklearnPipeline([
+    ('scaler', StandardScaler()),
+    ('classifier', KNeighborsClassifier(n_neighbors=5))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# Train (deferred)
+fitted_pipeline = xorq_pipeline.fit(iris, features=features, target=target)
+
+# Predict (deferred)
+def as_struct(expr, name=None):
+    struct = xo.struct({c: expr[c] for c in expr.columns})
+    if name:
+        struct = struct.name(name)
+    return struct
+
+ORIGINAL_ROW = "original_row"
+predictions_expr = (
+    iris.mutate(as_struct(iris, name=ORIGINAL_ROW))
+    .pipe(fitted_pipeline.predict)
+    .drop(target)
+    .unpack(ORIGINAL_ROW)
+)
+
+# Evaluate (deferred)
+accuracy_expr = (
+    predictions_expr
+    .mutate(correct=xo._.species == xo._.predicted)
+    .agg(
+        total=xo._.species.count(),
+        correct_count=xo._.correct.sum().cast("int64"),
+    )
+    .mutate(accuracy=xo._.correct_count / xo._.total)
+)
+
+# Execute and show results
+result = accuracy_expr.execute()
+accuracy = result["accuracy"][0]
+correct = result["correct_count"][0]
+total = result["total"][0]
+
+print(f"Accuracy: {accuracy:.1%}")
+print(f"Got {correct} out of {total} correct")
+
+# Show sample predictions
+predictions = predictions_expr.execute()
+print("\nSample predictions:")
+print(predictions[["species", "predicted"]].head(10))
+```
+
+Run it:
+
+```bash
+python train_classifier.py
+```
+
+Notice how you built multiple deferred operations (training, predictions, accuracy), then executed. Xorq optimized the entire graph.
+
+## What you learned
+
+You built a complete ML workflow with deferred execution. Here's what you accomplished:
+
+- Loaded data as expressions (deferred)
+- Wrapped a scikit-learn pipeline with Xorq
+- Trained a model without immediate execution
+- Made predictions using the struct pattern
+- Evaluated accuracy with deferred metrics
+
+The key insight? Deferred execution lets you describe complex workflows, then Xorq handles optimization and caching automatically.
+
+## Next steps
+
+Now that you've trained your first model, continue learning:
+
+- [Split data for training](split_data_for_training.qmd) shows how to create proper train/test splits
+- [Understand the catalog](understand_catalog.qmd) explains how to save and reuse trained models
+- [Cache ML computations](cache_ml_computations.qmd) covers caching strategies for expensive operations

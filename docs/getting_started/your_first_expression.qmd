@@ -1,24 +1,21 @@
 ---
 title: 'Your first Xorq expression'
-description: "Write and execute a basic Xorq expression with filters and aggregations"
-icon: "file-code"
-headline: "Build your first expression graph"
 ---
 
-This tutorial shows you how to write and execute your first Xorq expression. You'll load data, apply a filter, and see results.
+This tutorial shows you how to write and run your first Xorq expression. You'll load data, apply a filter, and see results.
 
-By the end, you'll understand how Xorq builds expression graphs before executing them.
+After completing this tutorial, you'll understand how Xorq builds expression graphs before executing them.
 
 ## What you'll build
 
 You'll create an expression that:
 
-1. Loads the iris dataset
-2. Filters rows where sepal length is greater than 5
-3. Groups by species
-4. Sums the sepal widths for each group
+1. Loads the iris dataset.
+2. Filters rows where sepal length is greater than five.
+3. Groups by species.
+4. Sums the sepal widths for each group.
 
-The entire process takes about 2 minutes.
+The entire process takes about two minutes.
 
 ::: {.callout-note}
 ### Prerequisites
@@ -38,12 +35,12 @@ Run the code examples using any of these methods:
 - **Jupyter notebook**: Create a new notebook and run each code block in a separate cell
 - **Python script**: Copy all code blocks into a `.py` file and run it with `python script.py`
 
-Run the code blocks in order since they build on each other. Variables like `iris` and `expr` are created in earlier blocks and used in later ones.
+Run the code blocks in order, because they build on each other. Variables like `iris` and `expr` are created in earlier blocks and used in later ones.
 :::
 
 ## Load data
 
-Let's start by loading the iris dataset. This dataset contains measurements of iris flowers across three species.
+You’ll start by loading the iris dataset. This dataset contains measurements of iris flowers across three species.
 
 ```{python}
 import xorq.api as xo
@@ -59,13 +56,13 @@ print(iris.head(5).execute())
 ```
 1. Connect to the embedded backend.
 2. Load the iris dataset from Xorq's examples.
-3. Preview the first 5 rows to see the data structure.
+3. Preview the first five rows to see the data structure.
 
 The dataset has columns for `sepal_length`, `sepal_width`, `petal_length`, `petal_width`, and `species`. You'll work with these columns to build your expression.
 
 ## Build an expression
 
-Now let's build an expression that filters and aggregates the data. Here's where Xorq's deferred execution model shows its power.
+Now you’ll build an expression that filters and aggregates the data. Here's where Xorq's deferred execution model shows its power.
 
 ```{python}
 # <1>
@@ -81,12 +78,12 @@ print(type(expr))
 print(expr)
 ```
 1. Start building an expression from the iris table.
-2. Filter rows where sepal length is greater than 5.
+2. Filter rows where sepal length is greater than five.
 3. Group the filtered data by species.
 4. Sum the sepal widths for each species group.
 5. Print the expression type and structure.
 
-Notice that nothing has executed yet. Xorq builds an expression graph that describes what you want to do, but it doesn't run the computation until you explicitly ask for it.
+Notice that nothing has run yet. Xorq builds an expression graph that describes what you want to do, but it doesn't run the computation until you explicitly ask for it.
 
 :::{.callout-note}
 The `xo._` accessor lets you reference columns without knowing the full table schema ahead of time. It's shorthand for creating column references.
@@ -111,13 +108,13 @@ The result is a PyArrow Table with two columns: `species` and the summed sepal w
 
 ## Understand what happened
 
-Let's break down what Xorq did behind the scenes:
+Here’s what Xorq did:
 
-1. **Built an expression graph**: When you chained `.filter()`, `.group_by()`, and `.agg()`, Xorq created a graph representing these operations
-2. **Waited for execution**: No computation happened until you called `.execute()`
-3. **Optimized the plan**: Xorq compiled your expression into an efficient execution plan
-4. **Ran the query**: The embedded DataFusion backend executed the plan
-5. **Returned results**: You got back a PyArrow Table with your aggregated data
+1. **Built an expression graph**: When you chained `.filter()`, `.group_by()`, and `.agg()`, Xorq created a graph representing these operations.
+2. **Waited for execution**: No computation happened until you called `.execute()`.
+3. **Optimized the plan**: Xorq compiled your expression into an efficient execution plan.
+4. **Ran the query**: The embedded DataFusion backend executed the plan.
+5. **Returned results**: You got back a PyArrow Table with your aggregated data.
 
 This deferred execution model gives Xorq room to optimize your queries before running them.
 
@@ -156,4 +153,6 @@ Now that you've written your first expression, explore these concepts:
 - [Understand deferred execution](../tutorials/core_tutorials/understand_deferred_execution.qmd) explains when computation happens versus when expressions are built
 - [Explore caching](../tutorials/core_tutorials/explore_caching.qmd) shows you how to speed up repeated queries
 - [Switch backends](../tutorials/core_tutorials/switch_backends.qmd) teaches you how to run the same expression on different engines
+
+
 
