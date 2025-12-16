@@ -352,6 +352,13 @@ def load_expr(expr_path, cache_dir=None):
     return BuildManager(expr_path.parent, cache_dir=cache_dir).load_expr(expr_path.name)
 
 
+def build_expr(expr, build_dir="builds", cache_dir=None, **kwargs):
+    build_manager = BuildManager(build_dir=build_dir, cache_dir=cache_dir, **kwargs)
+    expr_hash = build_manager.compile_expr(expr)
+    path = build_manager.artifact_store.get_path(expr_hash)
+    return path
+
+
 IS_INMEMORY = "is-inmemory"
 IS_DATABASE_TABLE = "is-database-table"
 
