@@ -1,13 +1,10 @@
 ---
-title: 'Switch backends'
-description: "Run the same expression on DuckDB, Pandas, DataFusion, and more"
-icon: "arrow-left-right"
-headline: "Master multi-engine execution"
+title: 'Switch between backends'
 ---
 
 This tutorial shows you how to run the same expression on different execution engines. You'll learn when to choose each backend and see how Xorq moves data between them using Apache Arrow.
 
-By the end, you'll know how to pick the right backend for your workload.
+After completing this tutorial, you'll know how to pick the right backend for your workload.
 
 ## Why switch backends?
 
@@ -20,10 +17,11 @@ Xorq lets you write your expression once and run it anywhere. Same code, differe
 Xorq uses Apache Arrow to move data between backends without serialization overhead. This makes backend switching fast and memory-efficient.
 :::
 
+You'll see this portability in action by running the same expression across three backends: embedded, DuckDB, and Pandas. Start with the default.
+
 ## Run on the embedded backend
 
-Let's start with Xorq's default embedded backend. This uses a modified DataFusion engine optimized for Arrow operations.
-
+You'll start with Xorq's default embedded backend. This uses a modified DataFusion engine optimized for Arrow operations.
 ```{python}
 import xorq.api as xo
 
@@ -55,8 +53,7 @@ The embedded backend is the default. It's fast, supports all Xorq features, and 
 
 ## Switch to DuckDB
 
-Now let's run the same expression on DuckDB. DuckDB excels at analytical queries and works well with larger datasets.
-
+Now you'll run the same expression on DuckDB. DuckDB excels at analytical queries and works well with larger datasets.
 ```{python}
 # <1>
 duckdb_con = xo.duckdb.connect()
@@ -91,8 +88,7 @@ This DuckDB connection is in-memory. To use a persistent database file, pass `da
 
 ## Switch to Pandas
 
-Pandas is great for small datasets and interactive analysis. Let's run the expression there.
-
+Pandas is great for small datasets and interactive analysis. You'll run the expression there.
 ```{python}
 # <1>
 pandas_con = xo.pandas.connect()
@@ -120,10 +116,11 @@ print(pandas_result)
 
 The Pandas backend is perfect for prototyping and working with small datasets that fit in memory.
 
+So far, you've loaded data separately into each backend. But what if you start analysis in one backend and need to switch to another mid-workflow? That's where data transfer comes in.
+
 ## Move data between backends
 
 Sometimes you need to move data from one backend to another. Xorq makes this easy with `.into_backend()`.
-
 ```{python}
 # <1>
 con = xo.connect()
@@ -156,8 +153,7 @@ Move data to a different backend when you need specific features (like DuckDB's 
 
 ## Compare backend performance
 
-Let's time the same query on different backends to see performance characteristics.
-
+You'll time the same query on different backends to see performance characteristics.
 ```{python}
 import time
 
@@ -210,32 +206,33 @@ For small datasets like iris, performance differences are minimal. With larger d
 Here's when to use each backend:
 
 **Embedded (DataFusion):**
-- Default choice for most workloads
-- Excellent UDF support
-- Fast analytical queries
-- No external dependencies
+- Default choice for most workloads.
+- Excellent UDF support.
+- Fast analytical queries.
+- No external dependencies.
 
 **DuckDB:**
-- Analytical queries on moderate-to-large datasets
-- AsOf joins and time-series operations
-- Efficient with Parquet files
-- Persistent storage needs
+- Analytical queries on moderate-to-large datasets.
+- AsOf joins and time-series operations.
+- Efficient with Parquet files.
+- Persistent storage needs.
 
 **Pandas:**
-- Small datasets (<1GB)
-- Interactive prototyping
-- Integration with existing Pandas code
-- Quick exploration
+- Small datasets (<1GB).
+- Interactive prototyping.
+- Integration with existing Pandas code.
+- Quick exploration.
 
 :::{.callout-warning}
 ### Backend capabilities
 Not all backends support every operation. For example, some complex window functions might work in DuckDB but not in Pandas. Check the documentation if you hit an unsupported operation error.
 :::
 
+Now that you understand when to use each backend, here's a complete workflow that ties everything together.
+
 ## Complete example
 
 Here's a full example showing backend switching:
-
 ```python
 import xorq.api as xo
 
@@ -277,4 +274,5 @@ Now you know how to switch backends. Continue learning:
 - [Your first build](your_first_build.qmd) shows how to package expressions for deployment across backends
 - [Optimize pipeline performance](/guides/performance_workflows/optimize_pipeline_performance.qmd) covers backend selection strategies
 - [Switch backends dynamically](/guides/performance_workflows/switch_backends_dynamically.qmd) teaches advanced backend-switching patterns
+
 
