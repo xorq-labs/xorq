@@ -398,6 +398,7 @@ def test_build_pandas_backend(build_dir, users_df):
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.snapshot_check
 def test_build_file_stability_https(build_dir, snapshot):
     def with_profile_idx(con, idx):
         profile = con._profile
@@ -447,6 +448,7 @@ def test_build_file_stability_https(build_dir, snapshot):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
+@pytest.mark.snapshot_check
 def test_build_file_stability_local(
     build_dir,
     parquet_dir,
