@@ -572,7 +572,7 @@ def test_into_backend_with_array_filter(build_dir):
     roundtrip_expr = compiler.load_expr(expr_hash)
 
     assert_frame_equal(expr.execute(), roundtrip_expr.execute())
-    assert {"duckdb", "let"}.intersection(
+    assert {"duckdb", "xorq"}.intersection(
         source.name for source in find_all_sources(roundtrip_expr)
     )
 

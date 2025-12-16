@@ -4,7 +4,7 @@ import pytest
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.operations.relations as rel
-from xorq.backends.let import Backend
+from xorq.backends.xorq import Backend
 from xorq.caching import (
     ParquetCache,
 )

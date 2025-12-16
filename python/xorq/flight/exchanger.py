@@ -11,7 +11,7 @@ import toolz
 
 import xorq.expr.relations as rel
 import xorq.vendor.ibis.expr.operations as ops
-from xorq.backends.let import connect as xo_connect
+from xorq.backends.xorq import connect as xo_connect
 from xorq.common.utils import classproperty
 from xorq.common.utils.func_utils import (
     return_constant,

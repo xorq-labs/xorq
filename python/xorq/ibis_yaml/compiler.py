@@ -472,7 +472,7 @@ def replace_database_tables(build_dir, expr):
             "pandas",
             "duckdb",
             "datafusion",
-            "let",
+            "xorq",
         ):
             dr_op = database_table_to_read_op(build_dir, table, con=table.source)
             op = replace_nodes(replace_from_to(table, dr_op), expr)

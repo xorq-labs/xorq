@@ -150,7 +150,7 @@ docs = [
 ]
 
 [project.entry-points."xorq.backends"]
-let = "xorq.backends.let"
+xorq = "xorq.backends.xorq"
 postgres = "xorq.backends.postgres"
 snowflake = "xorq.backends.snowflake"
 datafusion = "xorq.backends.datafusion"
