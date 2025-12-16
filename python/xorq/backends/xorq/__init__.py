@@ -8,7 +8,7 @@ import pyarrow as pa
 import pyarrow_hotfix  # noqa: F401
 from sqlglot import exp, parse_one
 
-from xorq.backends.let.datafusion import Backend as DataFusionBackend
+from xorq.backends.xorq.datafusion import Backend as DataFusionBackend
 from xorq.common.collections import SourceDict
 from xorq.internal import SessionConfig, WindowUDF
 from xorq.vendor.ibis.expr import schema as sch
@@ -36,7 +36,7 @@ def _get_datafusion_dataframe(con, expr, **kwargs):
 
 
 class Backend(DataFusionBackend):
-    name = "let"
+    name = "xorq"
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -2,7 +2,7 @@ import ast
 import pathlib
 from typing import Any, Optional, Union
 
-from xorq.backends.let import connect
+from xorq.backends.xorq import connect
 from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
@@ -155,7 +155,7 @@ class Options(IbisOptions):
     ----------
     cache : Cache
         Options controlling caching.
-    backend : Optional[xorq.backends.let.Backend]
+    backend : Optional[xorq.backends.xorq.Backend]
         The backend to use for execution.
     repr : Repr
         Options controlling expression printing.

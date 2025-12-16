@@ -21,8 +21,8 @@ import xorq.internal as df
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.let.datafusion.compiler import compiler
-from xorq.backends.let.datafusion.provider import IbisTableProvider
+from xorq.backends.xorq.datafusion.compiler import compiler
+from xorq.backends.xorq.datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
 from xorq.common.utils.aws_utils import (
     make_s3_connection,
@@ -261,7 +261,7 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         )
 
     def _register_builtin_udfs(self):
-        from xorq.backends.let.datafusion import udfs
+        from xorq.backends.xorq.datafusion import udfs
 
         for name, func in inspect.getmembers(
             udfs,

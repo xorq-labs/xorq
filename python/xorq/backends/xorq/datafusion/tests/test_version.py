@@ -1,6 +1,6 @@
 import xorq
 import xorq.api as xo
-from xorq.backends.let.datafusion import Backend
+from xorq.backends.xorq.datafusion import Backend
 
 
 def test_version():

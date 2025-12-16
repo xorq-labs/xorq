@@ -69,6 +69,7 @@ def bfs(node):
 
 
 def walk_nodes(node_types, expr):
+    # TODO should this function use an ordered set
     visited = set()
     to_visit = [to_node(expr)]
     result = ()

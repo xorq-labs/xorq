@@ -709,7 +709,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
     assert returncode == 0, stderr
 
     if match := re.search(f"{target_dir}/([0-9a-f]+)", stdout.decode("ascii")):
-        serve_hash = "da8ba93cc97709f4ad9502e16d71e8e3"  # RemoteTable 2
+        serve_hash = "095d91cc1e3ccfed6e77503a163f1f7e"  # RemoteTable
 
         serve_args = (
             "xorq",
