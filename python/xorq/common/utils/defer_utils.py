@@ -9,7 +9,7 @@ import pyarrow as pa
 import toolz
 
 import xorq.vendor.ibis.expr.types as ir
-from xorq.backends.let import connect as xo_connect
+from xorq.backends.xorq import connect as xo_connect
 from xorq.common.utils.inspect_utils import (
     get_arguments,
 )
@@ -26,7 +26,7 @@ from xorq.vendor.ibis.util import (
 
 
 if TYPE_CHECKING:
-    from xorq.backends.let import Backend
+    from xorq.backends.xorq import Backend
 
 
 DEFAULT_CHUNKSIZE = 10_000

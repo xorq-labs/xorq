@@ -50,7 +50,7 @@ def normalize_inmemorytable(dt):
 
 
 def normalize_memory_databasetable(dt):
-    if dt.source.name not in ("pandas", "let", "datafusion", "duckdb", "sqlite"):
+    if dt.source.name not in ("pandas", "xorq", "datafusion", "duckdb", "sqlite"):
         raise ValueError
     return normalize_seq_with_caller(
         # we are normalizing the data, we don't care about the connection
@@ -72,7 +72,7 @@ def normalize_pandas_databasetable(dt):
 
 
 def normalize_datafusion_databasetable(dt):
-    if dt.source.name not in ("datafusion", "let"):
+    if dt.source.name not in ("datafusion", "xorq"):
         raise ValueError
     table = dt.source.con.table(dt.name)
     ep_str = str(table.execution_plan())
@@ -239,13 +239,13 @@ def rename_unbound_static(op, prefix="static-name"):
     return op.replace(rename_unbound)
 
 
-def normalize_letsql_databasetable(dt):
-    if dt.source.name != "let":
+def normalize_xorq_databasetable(dt):
+    if dt.source.name != "xorq":
         raise ValueError
     if isinstance(dt, rel.FlightExpr):
         return dask.base.normalize_token(
             (
-                "normalize_letsql_databasetable",
+                "normalize_xorq_databasetable",
                 dt.input_expr,
                 # we need to "stabilize" the name of the tables in the unbound expr
                 rename_unbound_static(dt.unbound_expr.op()).to_expr(),
@@ -255,7 +255,7 @@ def normalize_letsql_databasetable(dt):
     elif isinstance(dt, rel.FlightUDXF):
         return dask.base.normalize_token(
             (
-                "normalize_letsql_databasetable",
+                "normalize_xorq_databasetable",
                 dt.input_expr,
                 dt.udxf.exchange_f,
                 dt.make_connection,
@@ -263,7 +263,7 @@ def normalize_letsql_databasetable(dt):
         )
     native_source = dt.source._sources.get_backend(dt)
 
-    if native_source.name == "let":
+    if native_source.name == "xorq":
         return normalize_datafusion_databasetable(dt)
     new_dt = rel.make_native_op(dt)
     return dask.base.normalize_token(new_dt)
@@ -354,7 +354,7 @@ def normalize_databasetable(dt):
         "datafusion": normalize_datafusion_databasetable,
         "postgres": normalize_postgres_databasetable,
         "snowflake": normalize_snowflake_databasetable,
-        "let": normalize_letsql_databasetable,
+        "xorq": normalize_xorq_databasetable,
         "duckdb": normalize_duckdb_databasetable,
         "trino": normalize_remote_databasetable,
         "bigquery": normalize_bigquery_databasetable,
@@ -389,7 +389,7 @@ def normalize_backend(con):
         con_details = {k: con_dct[k] for k in ("host", "port", "dbname")}
     elif name == "pandas":
         con_details = id(con.dictionary)
-    elif name in ("datafusion", "duckdb", "let"):
+    elif name in ("datafusion", "duckdb", "xorq"):
         con_details = id(con.con)
     elif name == "trino":
         con_details = con.con.host

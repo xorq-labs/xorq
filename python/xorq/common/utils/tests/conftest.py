@@ -1,1 +1,1 @@
-../../../backends/let/tests/conftest.py
+../../../backends/xorq/tests/conftest.py

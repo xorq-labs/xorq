@@ -38,7 +38,7 @@ jobs:
             services: false
             extras:
               - --extra duckdb
-          - name: let
+          - name: xorq
             services: false
             extras: []
           - name: pyiceberg

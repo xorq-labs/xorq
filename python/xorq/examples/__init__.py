@@ -1,4 +1,4 @@
-from xorq.backends.let import connect as xo_connect
+from xorq.backends.xorq import connect as xo_connect
 from xorq.examples.core import (
     get_name_to_suffix,
     get_table_from_name,

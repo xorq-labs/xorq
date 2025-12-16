@@ -615,7 +615,7 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
         "playerID",
     )
 
-    native_backend = left_backend is right_backend and left_backend.name != "let"
+    native_backend = left_backend is right_backend and left_backend.name != "xorq"
     spy = mocker.spy(left_backend, "to_pyarrow_batches") if native_backend else None
 
     assert expr.execute() is not None

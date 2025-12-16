@@ -104,7 +104,7 @@ def test_train_test_split():
 @pytest.mark.parametrize(
     "con_name,unique_key",
     itertools.product(
-        (None, "pandas", "let", "sqlite"),
+        (None, "pandas", "xorq", "sqlite"),
         (
             "key1",
             ("key1",),
