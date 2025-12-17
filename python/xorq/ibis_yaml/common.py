@@ -1,6 +1,5 @@
 import base64
 import functools
-import itertools
 from pathlib import Path
 from typing import Any
 
@@ -39,17 +38,14 @@ def deserialize_callable(encoded_fn: str) -> callable:
 class SchemaRegistry:
     def __init__(self):
         self.schemas = {}
-        self.counter = itertools.count()
         self.nodes = {}
 
     def register_schema(self, schema):
         frozen_schema = freeze(
             {name: translate_to_yaml(dtype, None) for name, dtype in schema.items()}
         )
-        if (schema_id := self.schemas.get(frozen_schema)) is not None:
-            return schema_id
-        schema_id = f"schema_{next(self.counter)}"
-        self.schemas[schema_id] = frozen_schema
+        schema_id = f"schema_{tokenize(frozen_schema)[:8]}"
+        self.schemas.setdefault(schema_id, frozen_schema)
         return schema_id
 
     def register_node(self, node, node_dict):
