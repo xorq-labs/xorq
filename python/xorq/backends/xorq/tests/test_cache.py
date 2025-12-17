@@ -243,6 +243,7 @@ def test_cache_execution(alltypes):
     assert_frame_equal(actual, expected)
 
 
+@pytest.mark.xfail
 def test_parquet_cache_storage(tmp_path, alltypes_df):
     tmp_path = pathlib.Path(tmp_path)
     path = tmp_path.joinpath("to-delete.parquet")

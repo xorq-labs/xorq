@@ -550,8 +550,8 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_ArraySlice(self, op, *, arg, start, stop):
         array_length = self.f.array_length(arg)
-        start = self.f.coalesce(start, 0)
-        stop = self.f.coalesce(stop, array_length + 1)
+        start = self.cast(self.f.coalesce(start, 0), dt.int32)
+        stop = self.cast(self.f.coalesce(stop, array_length + 1), dt.int32)
         return self.f.array_slice(
             arg,
             self.if_(
@@ -733,8 +733,8 @@ class DataFusionCompiler(SQLGlotCompiler):
             this=self.f[func_name](quantile),
             expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
         )
-        # if where is not None:
-        #     expr = sge.Filter(this=expr, expression=sge.Where(this=where))
+        if where is not None:
+            expr = sge.Filter(this=expr, expression=sge.Where(this=where))
         return expr
 
 

@@ -87,7 +87,7 @@ def normalize_datafusion_databasetable(dt):
         )
     elif ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
         return normalize_memory_databasetable(dt)
-    elif ep_str.startswith("PyRecordBatchProviderExec"):
+    elif ep_str.startswith(("PyRecordBatchProviderExec", "EmptyExec")):
         return normalize_seq_with_caller(
             dt.schema.to_pandas(),
             dt.name,
