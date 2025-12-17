@@ -231,10 +231,10 @@ website:
         - id: caching-section
           section: "Caching"
           contents:
-            - reference/ParquetStorage.qmd
-            - reference/ParquetSnapshotStorage.qmd
-            - reference/SourceStorage.qmd
-            - reference/SourceSnapshotStorage.qmd
+            - reference/ParquetCache.qmd
+            - reference/ParquetSnapshotCache.qmd
+            - reference/SourceCache.qmd
+            - reference/SourceSnapshotCache.qmd
         - id: lineage-section
           section: "Lineage"
           contents:
@@ -411,12 +411,12 @@ quartodoc:
 
     - title: Caching
       package: xorq.caching
-      desc: "Caching Storage"
+      desc: "Caching"
       contents:
-         - ParquetStorage
-         - ParquetSnapshotStorage
-         - SourceStorage
-         - SourceSnapshotStorage
+         - ParquetCache
+         - ParquetSnapshotCache
+         - SourceCache
+         - SourceSnapshotCache
 
     - title: Data Operations
       desc: "Table, column, and value types"
