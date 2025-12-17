@@ -37,7 +37,7 @@ result = recent_batting.execute()
 
 ### Cache keys and hashing
 
-Xorq uses different hashing strategies to determine when cached data is still valid. Cache keys are generated using [cityhash](https://github.com/escherba/python-cityhash) based on different components depending on the storage type:
+Xorq uses different hashing strategies to determine when cached data is still valid. Cache keys are generated using [cityhash](https://github.com/escherba/python-cityhash) based on different components depending on the cache type:
 
 | Storage Type | Hash Components                       |
 |-------------|---------------------------------------|
@@ -47,9 +47,9 @@ Xorq uses different hashing strategies to determine when cached data is still va
 
 Additionally, when data freshness is required, i.e. automatic cache invalidation on data changes it uses the last modified time of files both disk-based and remote
 
-## Storage types
+## Cache types
 
-Xorq supports four types of storage, each optimized for different use cases:
+Xorq supports four types of cache, each optimized for different use cases:
 
 ### SourceCache
 
@@ -165,6 +165,8 @@ result = cached_analysis.execute()
 Xorq excels at caching data across different backends using `into_backend()`:
 
 ```{python}
+from xorq.caching import ParquetCache
+
 # Read from Postgres and cache in xorq backend
 awards = pg.table("awards_players").into_backend(con, "awards")
 

@@ -231,10 +231,10 @@ website:
         - id: caching-section
           section: "Caching"
           contents:
-            - reference/ParquetStorage.qmd
-            - reference/ParquetSnapshotStorage.qmd
-            - reference/SourceStorage.qmd
-            - reference/SourceSnapshotStorage.qmd
+            - reference/ParquetCache.qmd
+            - reference/ParquetSnapshotCache.qmd
+            - reference/SourceCache.qmd
+            - reference/SourceSnapshotCache.qmd
         - id: lineage-section
           section: "Lineage"
           contents:
