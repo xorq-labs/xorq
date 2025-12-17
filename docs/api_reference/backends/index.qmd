@@ -1,0 +1,17 @@
+---
+title: 'Backends'
+---
+
+## Overview
+
+Xorq supports multiple execution engines (backends) for running your data and ML workloads. Configure and use different backends to execute your pipelines.
+
+### Configuration
+
+|                                              |                                                                                   |
+|----------------------------------------------|-----------------------------------------------------------------------------------|
+| [Overview](overview.qmd)                     | Introduction to backend configuration and how to choose between backends.          |
+| [Profiles](profiles_api.qmd)                 | The Profiles API securely manages database connections via environment variables. |
+| [Environment Variables](env_variables.qmd)   | The available environment variables for backend configuration.                   |
+| [Supported Backends](supported_backends.qmd) | The supported backends and how to choose between them.                            |
+

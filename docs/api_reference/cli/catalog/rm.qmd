@@ -1,0 +1,12 @@
+---
+title: 'catalog rm'
+---
+
+## Coming soon
+
+Documentation for the `xorq catalog rm` CLI command.
+
+This command removes a build or alias from the compute catalog.
+
+Check back soon for complete documentation.
+

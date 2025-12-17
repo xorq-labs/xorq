@@ -1,0 +1,22 @@
+---
+title: 'Debug pipeline failures'
+---
+
+## Coming soon
+
+This guide will show you how to diagnose and fix pipeline failures in production.
+
+You will learn debugging techniques specific to Xorq's deferred execution model.
+
+**What you'll accomplish:**
+- Inspect expression graphs
+- Use lineage for debugging
+- Identify failure points
+- Reproduce issues locally
+
+**Prerequisites:**
+- Failed pipeline to debug
+- Understanding of Xorq execution model
+
+Check back soon for the complete guide.
+

@@ -1,0 +1,22 @@
+---
+title: 'Set up CI/CD pipelines'
+---
+
+## Coming soon
+
+This guide will show you how to integrate Xorq into your CI/CD workflows.
+
+You will learn how to automate testing, building, and deployment of Xorq projects.
+
+**What you'll accomplish:**
+- Set up automated testing
+- Configure build automation
+- Deploy to production
+- Implement rollback strategies
+
+**Prerequisites:**
+- CI/CD platform access (GitHub Actions, GitLab CI, etc.)
+- Xorq project ready for deployment
+
+Check back soon for the complete guide.
+

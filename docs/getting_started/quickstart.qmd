@@ -1,0 +1,403 @@
+---
+title: "Quickstart"
+description: "Build and run your first Xorq ML pipeline in under five minutes"
+icon: "pencil-square"
+headline: "Get a first taste of Xorq"
+---
+
+After completing this guide, you have a working ML pipeline. This pipeline loads data, trains a model, and generates predictions. It uses Xorq's deferred execution model.
+
+## What you'll build
+
+In this quickstart, you:
+
+1. Set up your environment and install Xorq
+2. Initialize a project
+3. Build a pipeline expression
+4. Run your pipeline and save results
+5. Serve a UDXF expression as an endpoint
+
+The entire process takes about five minutes. By the end, you understand how Xorq transforms Python code into executable, servable pipelines.
+
+## Step 1: Set up your environment and install Xorq
+
+This step covers environment setup, Xorq installation, and verification.
+
+### Check your Python version
+
+::: {.callout-tip}
+### Python version
+Xorq requires Python 3.10 or higher, but also no higher than 3.13. Check your version with `python --version`. If you need to install or update Python, then visit the [official Python downloads page](https://www.python.org/downloads/).
+:::
+
+### Create a virtual environment
+
+Create and activate a virtual environment:
+
+::: {.panel-tabset}
+
+### macOS/Linux
+```bash
+python -m venv .venv
+source .venv/bin/activate
+```
+
+### Windows
+```bash
+python -m venv .venv
+.venv\Scripts\activate
+```
+
+:::
+
+### Update pip
+
+Before installing Xorq, update pip to the latest version. This avoids compatibility issues:
+```bash
+python -m pip install --upgrade pip
+```
+
+### Install Xorq
+
+Now install Xorq using your preferred package manager:
+
+::: {.panel-tabset}
+
+### pip (macOS/Linux/Windows)
+```bash
+pip install "xorq[examples]"
+```
+
+### nix
+```bash
+nix run github:xorq-labs/xorq
+```
+
+:::
+
+### Verify installation
+
+Verify your installation by checking the version. Open a Python shell:
+```bash
+python
+```
+
+::: {.callout-note}
+If `python` does not work, then try `python3` instead.
+:::
+
+Import Xorq and check the version:
+```python
+import xorq
+xorq.__version__
+```
+
+You see a version number like `'0.3.4'`.
+
+Exit the Python shell:
+```python
+exit()
+```
+
+If you see a version number, then Xorq is installed correctly.
+
+With Xorq installed, the next step is to create your first project.
+
+## Step 2: Initialize a project
+
+Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the Palmer Penguins dataset:
+```bash
+xorq init -t penguins -p penguins_example # <1>
+cd penguins_example # <2>
+```
+1. Creates a new project called penguins_example using the penguins template.
+2. Moves into the project directory.
+
+The template generates an `expr.py` file. This file contains a complete ML pipeline with data loading, train/test splitting, model training, and prediction.
+
+
+With your project initialized, the next step is to build it into an executable format.
+
+## Step 3: Build your expression
+
+Convert your pipeline into a serialized, executable format using the `build` command:
+```bash
+xorq build expr.py
+```
+
+This serializes your pipeline and generates a content-addressed build directory.
+
+**Output:**
+```
+Building expr from expr.py
+Written 'expr' to builds/12287e173c17
+builds/12287e173c17
+```
+
+The build creates a directory (like `builds/12287e173c17`) containing your serialized pipeline. This hash uniquely identifies your build.
+
+![](../../images/quickstart/build-output-hash.png)
+
+Save this hash as an environment variable:
+
+::: {.panel-tabset}
+
+### macOS/Linux
+```bash
+export BUILD_HASH=12287e173c17
+```
+
+Replace `12287e173c17` with your actual hash.
+
+### Windows (PowerShell)
+```powershell
+$env:BUILD_HASH="12287e173c17"
+```
+
+Replace `12287e173c17` with your actual hash.
+
+### Windows (CMD)
+```cmd
+set BUILD_HASH=12287e173c17
+```
+
+Replace `12287e173c17` with your actual hash.
+
+:::
+
+::: {.callout-important}
+### Replace with your hash
+The hash `12287e173c17` is an example. Copy the actual hash from your build output.
+:::
+
+## Step 4: Run your pipeline
+
+Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with the hash from your build output in step 3:
+
+::: {.callout-warning}
+### Windows users
+Skip the first tab and go straight to "Save to file." Running without an output file might cause issues on Windows.
+:::
+
+::: {.panel-tabset}
+
+### View results (macOS/Linux)
+```bash
+xorq run builds/$BUILD_HASH
+```
+
+Runs the pipeline and displays results in your terminal.
+
+### Save to file (macOS/Linux)
+```bash
+xorq run builds/$BUILD_HASH -o predictions.parquet
+```
+
+Runs the pipeline and saves results to `predictions.parquet`.
+
+### Save to file (Windows PowerShell)
+```powershell
+xorq run builds/$env:BUILD_HASH -o predictions.parquet
+```
+
+Runs the pipeline and saves results to `predictions.parquet`.
+
+### Save to file (Windows CMD)
+```cmd
+xorq run builds/%BUILD_HASH% -o predictions.parquet
+```
+
+Runs the pipeline and saves results to `predictions.parquet`.
+
+:::
+
+The command saves prediction results to `predictions.parquet`. You can open this file with pandas, DuckDB, or Polars.
+
+## Step 5: Deploy your pipeline as an API endpoint
+
+Deploy the pipeline you built in step 3 as a live API endpoint.
+
+::: {.callout-important}
+### Using your build hash
+This step uses the same `BUILD_HASH` from step 3. You're deploying the exact pipeline you just built and ran.
+:::
+
+### Start the server
+
+Run the server with your build hash:
+
+::: {.panel-tabset}
+
+### macOS/Linux
+```bash
+xorq serve-unbound builds/$BUILD_HASH \
+  --host localhost \
+  --port 8001 \
+  --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
+```
+
+### Windows (PowerShell)
+```powershell
+xorq serve-unbound builds/$env:BUILD_HASH `
+  --host localhost `
+  --port 8001 `
+  --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
+```
+
+### Windows (CMD)
+```cmd
+xorq serve-unbound builds/%BUILD_HASH% --host localhost --port 8001 --to_unbind_hash da8ba93cc97709f4ad9502e16d71e8e3
+```
+
+:::
+
+The command saves prediction results to `predictions.parquet`. You can open this file with any Parquet-compatible tool. Compatible tools include pandas, DuckDB, or Polars.
+
+With your pipeline running locally, the next step is to serve a UDXF expression as an endpoint.
+
+
+## Step 5: Serve a UDXF expression
+
+::: {.callout-note}
+### New terminal setup
+Open a new terminal window. Activate the same virtual environment (`.venv`) and navigate to the same directory (`penguins_example`) where your server is running.
+:::
+
+Create a file called `query_endpoint.py`:
+
+```python
+# udxf_example.py
+import pandas as pd
+import xorq.api as xo
+
+# <1>
+def add_computed_column(df: pd.DataFrame) -> pd.DataFrame:
+    """Add a computed column that doubles the input value."""
+    result = df.copy()
+    result["doubled"] = result["value"] * 2
+    return result
+
+# <2>
+input_schema = xo.schema({"value": "int64"})
+output_schema = xo.schema({"value": "int64", "doubled": "int64"})
+
+# <3>
+con = xo.connect()
+input_table = xo.memtable({"value": [1, 2, 3, 4, 5]}, schema=input_schema)
+
+# <4>
+expr = xo.expr.relations.flight_udxf(
+    input_table,
+    process_df=add_computed_column,
+    maybe_schema_in=input_schema,
+    maybe_schema_out=output_schema,
+    con=con,
+    make_udxf_kwargs={
+        "name": "double_value",
+        "command": "double_value"
+    }
+)
+```
+1. Defines a transformation function that doubles input values.
+2. Specifies input and output schemas for type safety.
+3. Creates a simple input table with test data.
+4. Creates the UDXF expression with the transformation function.
+
+### Build the UDXF expression
+
+Build the expression:
+
+```bash
+xorq build udxf_example.py --expr-name expr
+```
+
+This creates a second `<HASH>` in your `builds/<HASH>/` directory with your serialized UDXF expression. 
+
+![](../../images/quickstart/second-hash.png)
+
+### Start the Flight server
+
+Start the Flight server with your built UDXF expression. Replace `<BUILD_HASH>` with the second hash from your build output:
+
+```bash
+xorq serve-flight-udxf --port 8001 builds/<BUILD_HASH>
+```
+
+Your UDXF is now running as an endpoint on `localhost:8001`. Keep this terminal window open while you query it.
+
+### Query your served UDXF
+
+With the server running, create a new Python file called `query_udxf.py`:
+
+```python
+# query_udxf.py
+import xorq.api as xo
+
+# <1>
+client = xo.flight.client.FlightClient(port=8001)
+
+# <2>
+data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
+
+# <3>
+expr = (
+    xo.deferred_read_parquet(
+        con=xo.duckdb.connect(),
+        path=data_url,
+        table_name="penguins",
+    )
+    .select("bill_length_mm", "bill_depth_mm", "species")
+    .drop_null()
+    .limit(5)
+)
+
+# <4>
+print("Executing via Flight do_exchange...")
+fut, rbr = client.do_exchange("default", expr)
+
+# <5>
+result_df = rbr.read_pandas()
+print(result_df)
+```
+1. Connect to the Flight server running on port 8001. This establishes communication with your deployed server.
+2. Define the data source URL. This points to a penguins dataset stored in cloud storage.
+3. Build an expression that reads the parquet file, selects specific columns, removes null values, and limits to 5 rows. This expression is deferred; it describes what to compute, not the actual data.
+4. Send the expression to the server via `do_exchange`. The server executes this expression remotely and prepares the results.
+5. Convert the Flight response to a pandas DataFrame and display the results. The server returns data in Arrow format.
+
+### Run the query script
+
+Run your query script:
+
+```bash
+python query_udxf.py
+```
+
+**Output:**
+```
+Executing via Flight do_exchange...
+  predicted
+0    Adelie
+1    Adelie
+2    Adelie
+3    Adelie
+4    Adelie
+```
+
+Your pipeline now runs as a live API. You sent penguin measurements to the server, the server executed your trained model, and you received species predictions back—all via Flight protocol.
+
+## What you built
+
+You just built your first Xorq ML pipeline. You initialized a project, built it into a portable format, ran it to generate predictions, and served it as an API endpoint.
+
+The entire workflow uses Xorq's deferred execution model. No computation runs until you explicitly execute or query the pipeline.
+
+## Next steps
+
+Continue learning:
+
+- [Your first expression](/getting_started/your_first_expression.qmd) shows you how to build expressions from scratch without templates.
+- [Understand deferred execution](/tutorials/core_tutorials/understand_deferred_execution.qmd) explains how Xorq builds computation graphs before executing them.
+- [Explore caching](/tutorials/core_tutorials/explore_caching.qmd) demonstrates how Xorq caches results to speed up your workflows.
+- [Your first UDXF](/tutorials/ai_tutorials/your_first_udxf.qmd) teaches you how to create custom exchange functions like the one you just served.
+- [Join the community](https://discord.gg/8Kma9DhcJG) on Discord to get help and share your projects.

@@ -1,0 +1,22 @@
+---
+title: 'Monitor production deployments'
+---
+
+## Coming soon
+
+This guide will show you how to monitor Xorq deployments in production.
+
+You will learn how to track execution, detect issues, and maintain system health.
+
+**What you'll accomplish:**
+- Monitor pipeline execution
+- Track build usage via catalog
+- Set up alerting
+- Analyze system metrics
+
+**Prerequisites:**
+- Production Xorq deployment
+- Monitoring infrastructure available
+
+Check back soon for the complete guide.
+

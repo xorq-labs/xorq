@@ -1,0 +1,22 @@
+---
+title: 'Transform data with custom UDFs'
+---
+
+## Coming soon
+
+This guide will show you how to extend SQL with custom business logic through UDFs.
+
+You will learn production patterns for managing and deploying custom transformations.
+
+**What you'll accomplish:**
+- Write production-ready UDFs
+- Test and validate UDFs
+- Version and deploy UDFs
+- Monitor UDF performance
+
+**Prerequisites:**
+- Completed "Create your first UDF" tutorial
+- Python knowledge
+
+Check back soon for the complete guide.
+

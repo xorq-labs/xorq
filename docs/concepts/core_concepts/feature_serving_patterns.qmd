@@ -1,0 +1,18 @@
+---
+title: 'Feature serving patterns'
+---
+
+## Coming soon
+
+This page will explain patterns for serving features in online and offline contexts.
+
+You will understand how to build feature stores and feature serving systems with Xorq.
+
+**What you'll learn:**
+- Online vs offline feature serving
+- Point-in-time correctness
+- Feature caching strategies
+- Integration with ML systems
+
+Check back soon for the complete concept guide.
+

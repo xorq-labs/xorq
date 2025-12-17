@@ -1,0 +1,22 @@
+---
+title: 'Build feature pipelines'
+---
+
+## Coming soon
+
+This guide will show you how to build production feature engineering pipelines with Xorq.
+
+You will learn how to create reusable, cached feature transformations.
+
+**What you'll accomplish:**
+- Design feature pipelines
+- Implement caching strategies
+- Handle temporal features
+- Ensure point-in-time correctness
+
+**Prerequisites:**
+- Completed Quickstart
+- Understanding of feature engineering
+
+Check back soon for the complete guide.
+
