@@ -85,15 +85,15 @@ Xorq provides a caching mechanism that can write to Parquet or a source (DuckDB,
 
 ```{python}
 from pathlib import Path
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 
 con = xo.connect()
 
 # Set up caching
-cache_storage = ParquetStorage(source=con, base_path=Path.cwd())
+cache = ParquetCache.from_kwargs(source=con, base_path=Path.cwd())
 
 # Cache the result
-cached_enriched = enriched.cache(storage=cache_storage)
+cached_enriched = enriched.cache(cache=cache)
 
 # First execution computes and caches
 result1 = cached_enriched.execute()
