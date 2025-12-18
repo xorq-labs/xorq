@@ -16,6 +16,7 @@ import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.expr.relations import Tag
+from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.schema import Schema
@@ -44,7 +45,7 @@ class SchemaRegistry:
         frozen_schema = freeze(
             {name: translate_to_yaml(dtype, None) for name, dtype in schema.items()}
         )
-        schema_id = f"schema_{tokenize(frozen_schema)[:8]}"
+        schema_id = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
         self.schemas.setdefault(schema_id, frozen_schema)
         return schema_id
 
@@ -67,7 +68,7 @@ class SchemaRegistry:
                 with SnapshotStrategy().normalization_context(node.to_expr()):
                     node_hash = tokenize(untagged_repr)
         op_name = node_dict.get("op", "unknown").lower()
-        node_name = f"@{op_name}_{node_hash[:16]}"
+        node_name = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(dict(node_dict) | {"snapshot_hash": node_hash})
         self.nodes.setdefault(node_name, node_dict_with_hash)
         return node_name
