@@ -158,8 +158,7 @@ class SdistBuilder:
     def _uv_tool_run_xorq_build(self):
         args = self.args if self.args else ("xorq", "build", str(self.script_path))
         popened = uv_tool_run(
-            *args,
-            with_=str(self.untgzed_path),
+            *args, with_=self.sdist_path, with_requirements=self.requirements_path
         )
         return popened
 
