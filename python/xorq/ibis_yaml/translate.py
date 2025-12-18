@@ -388,19 +388,10 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) ->
 @register_from_yaml_handler("UnboundTable")
 def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
     table_name = yaml_dict["name"]
-
-    schema_ref = yaml_dict["schema_ref"]
-    try:
-        schema_def = context.definitions["schemas"][schema_ref]
-    except KeyError:
-        raise ValueError(f"Schema {schema_ref} not found in definitions")
     namespace_dict = yaml_dict.get("namespace", {})
     catalog = namespace_dict.get("catalog")
     database = namespace_dict.get("database")
-    schema = {
-        name: context.translate_from_yaml(dtype_yaml)
-        for name, dtype_yaml in schema_def.items()
-    }
+    schema = context.get_schema(yaml_dict["schema_ref"])
     # TODO: use UnboundTable node to construct instead of builder API
     return ibis.table(schema, name=table_name, catalog=catalog, database=database)
 
@@ -437,13 +428,7 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
     catalog = namespace_dict.get("catalog")
     database = namespace_dict.get("database")
     # we should validate that schema is the same
-    schema_ref = yaml_dict.get("schema_ref")
-    schema_def = context.definitions["schemas"][schema_ref]
-    fields = []
-    for name, dtype_yaml in schema_def.items():
-        dtype = context.translate_from_yaml(dtype_yaml)
-        fields.append((name, dtype))
-    schema = ibis.Schema.from_tuples(fields)
+    schema = context.get_schema(yaml_dict.get("schema_ref"))
 
     try:
         con = context.profiles[profile_name]
@@ -477,17 +462,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
 
 @register_from_yaml_handler("CachedNode")
 def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
-    schema_ref = yaml_dict["schema_ref"]
-    try:
-        schema_def = context.definitions["schemas"][schema_ref]
-    except KeyError:
-        raise ValueError(f"Schema {schema_ref} not found in definitions")
-
-    schema = {
-        name: context.translate_from_yaml(dtype_yaml)
-        for name, dtype_yaml in schema_def.items()
-    }
-
+    schema = context.get_schema(yaml_dict["schema_ref"])
     name = yaml_dict["name"]
 
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
@@ -589,13 +564,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
 
 @register_from_yaml_handler("Read")
 def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    schema_ref = yaml_dict["schema_ref"]
-    schema_def = context.definitions["schemas"][schema_ref]
-    schema = {
-        name: context.translate_from_yaml(dtype_yaml)
-        for name, dtype_yaml in schema_def.items()
-    }
-
+    schema = context.get_schema(yaml_dict["schema_ref"])
     source = context.profiles[yaml_dict["profile"]]
     read_kwargs = tuple(
         (k, ibis.schema(v)) if k == "schema" else (k, v)
@@ -1432,16 +1401,7 @@ def _tag_to_yaml(op: Tag, context: Any) -> dict:
 
 @register_from_yaml_handler("Tag")
 def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
-    schema_ref = yaml_dict["schema_ref"]
-    try:
-        schema_def = context.definitions["schemas"][schema_ref]
-    except KeyError:
-        raise ValueError(f"Schema {schema_ref} not found in definitions")
-
-    schema = {
-        name: context.translate_from_yaml(dtype_yaml)
-        for name, dtype_yaml in schema_def.items()
-    }
+    schema = context.get_schema(yaml_dict["schema_ref"])
 
     # fixme: enable translation of nodes
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
@@ -1496,18 +1456,11 @@ def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
     return freeze(
         {
             "op": schema.__class__.__name__,
-            "value": freeze(
-                {key: context.translate_to_yaml(value) for key, value in schema.items()}
-            ),
+            "value": freeze(toolz.valmap(context.translate_to_yaml, schema)),
         }
     )
 
 
 @register_from_yaml_handler(Schema.__name__)
 def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
-    return Schema(
-        {
-            key: context.translate_from_yaml(value)
-            for key, value in yaml_dict["value"].items()
-        }
-    )
+    return Schema(toolz.valmap(context.translate_from_yaml, yaml_dict["value"]))

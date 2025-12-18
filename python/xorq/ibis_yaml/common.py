@@ -43,7 +43,10 @@ class SchemaRegistry:
 
     def register_schema(self, schema):
         frozen_schema = freeze(
-            {name: translate_to_yaml(dtype, None) for name, dtype in schema.items()}
+            toolz.valmap(
+                functools.partial(translate_to_yaml, context=None),
+                schema,
+            )
         )
         schema_id = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
         self.schemas.setdefault(schema_id, frozen_schema)
@@ -106,6 +109,14 @@ class TranslationContext:
 
     def translate_to_yaml(self, op: Any) -> dict:
         return translate_to_yaml(op, self)
+
+    def get_schema(self, schema_ref):
+        try:
+            schema_def = self.definitions["schemas"][schema_ref]
+        except KeyError:
+            raise ValueError(f"Schema {schema_ref} not found in definitions")
+        schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
+        return schema
 
 
 def register_from_yaml_handler(*op_names: str):
