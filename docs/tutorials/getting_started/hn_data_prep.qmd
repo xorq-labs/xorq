@@ -128,7 +128,7 @@ t = (
     # Apply model-assisted labeling with OpenAI
     .pipe(o.do_hackernews_sentiment_udxf, con=con)
     # Cache the labeled data to Parquet
-    .cache(storage=ParquetStorage(con))
+    .cache(ParquetCache.from_kwargs(source=con))
     # Filter out any labeling errors
     .filter(~xo._.sentiment.contains("ERROR"))
     # Convert sentiment strings to integer codes (useful for future ML tasks)

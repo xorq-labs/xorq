@@ -229,12 +229,12 @@ quartodoc:
 
     - title: Caching
       package: xorq.caching
-      desc: "Caching Storage"
+      desc: "Caching"
       contents:
-         - ParquetStorage
-         - ParquetSnapshotStorage
-         - SourceStorage
-         - SourceSnapshotStorage
+         - ParquetCache
+         - ParquetSnapshotCache
+         - SourceCache
+         - SourceSnapshotCache
 
     - title: Machine Learning Operations
       package: xorq.expr.ml

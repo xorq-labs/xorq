@@ -14,9 +14,9 @@ Xorq provides a sophisticated caching system that enables efficient iterative de
 
 ### Storage types
 
-Xorq supports two main types of cache storage:
+Xorq supports three main types of cache storage:
 
-#### 1. SourceStorage
+#### 1. Source Cache
 
 - Automatically invalidates cache when upstream data changes
 - Persistence depends on the source backend
@@ -24,14 +24,14 @@ Xorq supports two main types of cache storage:
 
 ```python
 import xorq.api as xo
-from xorq.caching import SourceStorage
+from xorq.caching import SourceCache
 
 # Connect to source database
 pg = xo.postgres.connect_env()
 con = xo.connect()  # empty connection
 
 # Create source storage
-storage = SourceStorage(source=con)
+cache = SourceCache.from_kwargs(source=con)
 
 # Register table from postgres and cache it
 batting = pg.table("batting")
@@ -39,22 +39,22 @@ batting = pg.table("batting")
 # Cache the filtered data in the source backend
 cached = (
     batting.filter(batting.yearID == 2015)
-    .cache(storage=storage)  # cache expression
+    .cache(cache)  # cache expression
 )
 
 # Execute the query - results will be cached
 result = xo.execute(cached)
 ```
 
-#### 2. SnapshotStorage
+#### 2. Snapshot Cache
 
 - No automatic invalidation
 - Ideal for one-off analyses
 - Persistence depends on source backend
 
-#### 3. ParquetStorage
+#### 3. Parquet Cache
 
-- Special case of SourceStorage
+- Special case of Source Cache
 - Caches results as Parquet files on local disk
 - Uses source backend for writing
 - Ensures durable persistence

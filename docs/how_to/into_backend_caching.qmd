@@ -21,7 +21,7 @@ First, let's set up our environment and create connections to different backends
 ```{python}
 import xorq.api as xo
 from xorq.api import _  # Column reference accessor
-from xorq.caching import ParquetStorage, SourceStorage
+from xorq.caching import ParquetCache, SourceCache
 from pathlib import Path
 import pandas as pd
 
@@ -146,13 +146,13 @@ ParquetStorage provides durable persistence by caching results as Parquet files 
 from pathlib import Path
 
 # Create ParquetStorage for caching
-cache_storage = ParquetStorage(source=con, base_path=Path.cwd() / "cache")
+cache = ParquetCache.from_kwargs(source=con, base_path=Path.cwd() / "cache")
 
 # Cache the cleaned penguins data
-cached_penguins = clean_penguins.cache(storage=cache_storage)
+cached_penguins = clean_penguins.cache(cache)
 
 print("Data cached using ParquetStorage!")
-print(f"Cache storage location: {cache_storage.base_path}")
+print(f"Cache storage location: {cache.storage.base_path}")
 
 # Subsequent operations will use cached data
 print("\nFirst execution (writes to cache):")
@@ -170,7 +170,7 @@ SourceStorage automatically invalidates cache when upstream data changes and use
 
 ```{python}
 # Create SourceStorage using DuckDB as the caching backend
-ddb_storage = SourceStorage(source=ddb)
+ddb_storage = SourceCache.from_kwargs(source=ddb)
 
 # Cache a complex aggregation using DuckDB
 complex_analysis = (
@@ -187,7 +187,7 @@ complex_analysis = (
         bill_length_cv=_.std_bill_length / _.avg_bill_length,
         bill_depth_cv=_.std_bill_depth / _.avg_bill_depth
     )
-    .cache(storage=ddb_storage)  # Cache in DuckDB
+    .cache(ddb_storage)  # Cache in DuckDB
 )
 
 print("Complex analysis cached in DuckDB!")
@@ -202,15 +202,15 @@ One of Xorq's powerful features is the ability to chain caches across different 
 # Create a pipeline with multiple cache points across different backends
 pipeline_result = (
     clean_penguins
-    .cache(storage=ParquetStorage(con))  # Cache initial data
+    .cache(ParquetCache.from_kwargs(source=con))  # Cache initial data
     .into_backend(ddb, "temp_penguins")  # Move to DuckDB
     .mutate(
         bmi=_.body_mass_g / (_.flipper_length_mm / 1000) ** 2,  # Calculate BMI-like metric
         bill_size_index=_.bill_length_mm * _.bill_depth_mm
     )
-    .cache(storage=SourceStorage(ddb))  # Cache in DuckDB
+    .cache(SourceCache.from_kwargs(source=ddb))  # Cache in DuckDB
     .into_backend(pg, "enriched_penguins")  # Move to PostgreSQL
-    .cache(storage=SourceStorage(pg))  # Final cache in PostgreSQL
+    .cache(SourceCache.from_kwargs(source=pg))  # Final cache in PostgreSQL
 )
 
 print("Multi-stage pipeline with cross-backend caching created!")

@@ -137,7 +137,7 @@ deferred_fit_predict_xgb = deferred_fit_predict(
 
 name = "hn-fetcher-input-small"
 con = xo.connect()
-storage = ParquetStorage(source=con)
+storage = ParquetCache.from_kwargs(source=con)
 # xo.postgres.connect_env().create_catalog("caching")
 pg = xo.postgres.connect_env(database="caching")
 
@@ -154,10 +154,10 @@ raw_expr = (
 t = (
     raw_expr
     .filter(xo._.text.notnull())
-    .cache(storage=SourceStorage(pg))
+    .cache(SourceCache.from_kwargs(source=pg))
     .pipe(o.do_hackernews_sentiment_udxf, con=con)
-    .cache(storage=SourceStorage(pg))
-    .cache(storage=ParquetStorage(con))
+    .cache(SourceCache.from_kwargs(source=pg))
+    .cache(ParquetCache.from_kwargs(source=con))
     .filter(~xo._.sentiment.contains("ERROR"))
     .mutate(
         sentiment_int=xo._.sentiment.cases(
@@ -455,7 +455,7 @@ do_hackernews_fetcher_udxf = xo.expr.relations.flight_udxf(
 
 name = "hn-fetcher-input-small"
 con = xo.connect()
-storage = ParquetStorage(source=con)
+storage = ParquetCache.from_kwargs(source=con)
 xo.postgres.connect_env().create_catalog("caching")
 pg = xo.postgres.connect_env(database="caching")
 raw_expr = (
@@ -472,12 +472,12 @@ t = (
     # most stories have a tile, but few have text
     # df.groupby("type").apply(lambda t: t.notnull().sum().div(len(t)))
     .filter(xo._.text.notnull())
-    .cache(storage=SourceStorage(pg))
+    .cache(SourceCache.from_kwargs(source=pg))
     # .limit(100)
     .pipe(o.do_hackernews_sentiment_udxf, con=con)
     # commenting out this cache changes the hash of the subsequent hash
-    .cache(storage=SourceStorage(pg))
-    .cache(storage=ParquetStorage(con))
+    .cache(SourceCache.from_kwargs(source=pg))
+    .cache(ParquetCache.from_kwargs(source=con))
     .filter(~xo._.sentiment.contains("ERROR"))
     .mutate(
         sentiment_int=xo._.sentiment.cases(
