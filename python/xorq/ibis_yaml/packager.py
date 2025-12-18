@@ -134,6 +134,13 @@ class SdistBuilder:
     def requirements_path(self):
         return self.tmpdir.joinpath(REQUIREMENTS_NAME)
 
+    @property
+    @functools.cache
+    def untgzed_path(self):
+        tp = TGZProxy(self.sdist_path)
+        untgzed_path = tp.extract_toplevel(self.tmpdir)
+        return untgzed_path
+
     def ensure_requirements_path(self):
         if not self.requirements_path.exists():
             if TGZProxy(self.sdist_path).toplevel_name_exists(REQUIREMENTS_NAME):
@@ -151,7 +158,8 @@ class SdistBuilder:
     def _uv_tool_run_xorq_build(self):
         args = self.args if self.args else ("xorq", "build", str(self.script_path))
         popened = uv_tool_run(
-            *args, with_=self.sdist_path, with_requirements=self.requirements_path
+            *args,
+            with_=str(self.untgzed_path),
         )
         return popened
 

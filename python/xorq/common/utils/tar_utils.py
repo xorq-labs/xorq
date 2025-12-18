@@ -138,6 +138,25 @@ class TGZProxy:
                 ofh.write(ifh.read())
         return dest
 
+    @property
+    def members(self):
+        with self.open() as tf:
+            return tf.getmembers()
+
+    def extract_toplevel(self, dest):
+        dest = Path(dest).absolute()
+        names = (
+            info["name"]
+            for info in (member.get_info() for member in self.members)
+            if info["type"] != b"5"
+        )
+        for name in names:
+            relpath = Path(name).relative_to(self.root_dir)
+            destpath = dest.joinpath(relpath)
+            destpath.parent.mkdir(exist_ok=True, parents=True)
+            self.extract_toplevel_name(str(relpath), destpath)
+        return dest
+
 
 @frozen
 class TGZAppender:
