@@ -424,9 +424,31 @@ rowwise = {
 
 
 def custom_hash(arg):
-    from cityhash import CityHash64
+    import pyarrow as pa
 
-    return pd.Series([CityHash64(v) for v in arg], name="custom_hash")
+    from xorq.internal import SessionContext
+
+    name = "custom_hash"
+    table_name = f"table_{name}"
+    row_id_name = f"row_id_{name}"
+
+    ctx = SessionContext()
+    ctx.register_record_batches(
+        table_name,
+        [
+            pa.Table.from_pandas(
+                arg.rename(name).to_frame().reset_index(names=row_id_name)
+            ).to_batches()
+        ],
+    )
+
+    return (
+        ctx.sql(
+            f"select hash_int({name}) as col_name from {table_name} order by {row_id_name}"
+        )
+        .to_pandas()
+        .squeeze()
+    )
 
 
 serieswise = {
