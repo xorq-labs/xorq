@@ -131,3 +131,8 @@ def test_map_contains_null(con):
     expr = xo.map(["a"], xo.literal([None], type="array<string>"))
     assert con.execute(expr.contains("a"))
     assert not con.execute(expr.contains("b"))
+
+
+def test_map_length(con):
+    expr = xo.literal(dict(a="A", b="B")).length()
+    assert con.execute(expr) == 2

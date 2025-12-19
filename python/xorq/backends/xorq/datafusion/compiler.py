@@ -736,9 +736,6 @@ class DataFusionCompiler(SQLGlotCompiler):
             expr = sge.Filter(this=expr, expression=sge.Where(this=where))
         return expr
 
-    def visit_RandomUUID(self, op, **kwargs):
-        return self.f.anon.uuid()
-
     def visit_ArrayConcat(self, op, *, arg):
         return reduce(
             lambda x, y: self.if_(
