@@ -127,6 +127,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.StringToDate: "to_date",
         ops.StringToTimestamp: "to_timestamp",
         ops.MapKeys: "map_keys",
+        ops.MapValues: "map_values",
     }
 
     def _to_timestamp(self, value, target_dtype, literal=False):
