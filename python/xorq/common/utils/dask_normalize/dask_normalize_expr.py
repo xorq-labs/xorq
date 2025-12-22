@@ -87,12 +87,13 @@ def normalize_datafusion_databasetable(dt):
         )
     elif ep_str.startswith(("MemoryExec:", "DataSourceExec:")):
         return normalize_memory_databasetable(dt)
-    elif ep_str.startswith("EmptyExec") or ("PyRecordBatchProviderExec" in ep_str):
+    elif "PyRecordBatchProviderExec" in ep_str:
         return normalize_seq_with_caller(
             dt.schema.to_pandas(),
             dt.name,
         )
-
+    elif ep_str.startswith("EmptyExec"):
+        raise ValueError("No data to cache")
     else:
         raise ValueError
 
