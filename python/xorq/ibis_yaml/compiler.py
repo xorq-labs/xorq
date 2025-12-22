@@ -32,6 +32,7 @@ from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
 from xorq.ibis_yaml.common import (
     RefEnum,
+    RegistryEnum,
     TranslationContext,
     translate_from_yaml,
     translate_to_yaml,
@@ -48,6 +49,9 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
     def ignore_aliases(self, data):
         return True
 
+    def represent_enum(self, data):
+        return self.represent_scalar("tag:yaml.org,2002:str", data.name)
+
     def represent_frozenordereddict(self, data):
         return self.represent_dict(dict(data))
 
@@ -59,6 +63,8 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
         return self.represent_scalar("tag:yaml.org,2002:str", str(data))
 
     yaml_representer_pairs = (
+        (RefEnum, represent_enum),
+        (RegistryEnum, represent_enum),
         (FrozenOrderedDict, represent_frozenordereddict),
         (ibis.Schema, represent_ibis_schema),
         (pathlib.PosixPath, represent_posix_path),
