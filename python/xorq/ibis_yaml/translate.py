@@ -1444,7 +1444,7 @@ def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> Any:
 
 
 @translate_to_yaml.register(Schema)
-@convert_to_ref("nodes")
+@convert_to_ref("schemas")
 def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
     return freeze(
         {
