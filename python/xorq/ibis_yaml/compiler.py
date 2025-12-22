@@ -152,7 +152,7 @@ class YamlExpressionTranslator:
             expr_dict = freeze(
                 expr_dict
                 | {
-                    "schema_ref": context.schema_registry.register_schema(expr.schema())
+                    "schema_ref": context.registry.register_schema(expr.schema())
                     if hasattr(expr, "schema")
                     else None,
                 }

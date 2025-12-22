@@ -36,12 +36,12 @@ def deserialize_callable(encoded_fn: str) -> callable:
     return cloudpickle.loads(pickled)
 
 
-class SchemaRegistry:
+class Registry:
     def __init__(self):
         self.schemas = {}
         self.nodes = {}
 
-    def register_schema(self, schema, _frozen=None):
+    def register_schema(self, schema):
         frozen_schema = freeze(
             toolz.valmap(
                 functools.partial(translate_to_yaml, context=None),
@@ -85,7 +85,7 @@ def _is_absolute_path(instance, attribute, value):
 
 @frozen
 class TranslationContext:
-    schema_registry: SchemaRegistry = field(factory=SchemaRegistry)
+    registry: Registry = field(factory=Registry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
     definitions: FrozenOrderedDict = field(
         factory=functools.partial(freeze, {"schemas": {}, "nodes": {}}),
@@ -96,21 +96,12 @@ class TranslationContext:
         validator=_is_absolute_path,
     )
 
-    def register(self, which, op, frozen=None):
-        match which:
-            case "nodes":
-                return self.schema_registry.register_node(op, frozen)
-            case "schemas":
-                return self.schema_registry.register_schema(op)
-            case _:
-                raise ValueError(f"don't know how to register {which}")
-
     def finalize_definitions(self):
         definitions = freeze(
             self.definitions
             | {
-                "schemas": self.schema_registry.schemas,
-                "nodes": self.schema_registry.nodes,
+                "schemas": self.registry.schemas,
+                "nodes": self.registry.nodes,
             }
         )
         return evolve(self, definitions=definitions)
@@ -120,6 +111,17 @@ class TranslationContext:
 
     def translate_to_yaml(self, op: Any) -> dict:
         return translate_to_yaml(op, self)
+
+    def register(self, which, op, frozen=None):
+        match which:
+            case "nodes":
+                return self.registry.register_node(op, frozen)
+            case "schemas":
+                if frozen is not None:
+                    raise ValueError("register_schema does not take `frozen`")
+                return self.registry.register_schema(op)
+            case _:
+                raise ValueError(f"don't know how to register {which}")
 
     def get_definition(self, which, ref):
         try:
