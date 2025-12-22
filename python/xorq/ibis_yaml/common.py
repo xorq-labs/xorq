@@ -128,8 +128,6 @@ class TranslationContext:
             case "nodes":
                 return self.registry.register_node(op, frozen)
             case "schemas":
-                if frozen is not None:
-                    raise ValueError("register_schema does not take `frozen`")
                 return self.registry.register_schema(op)
             case _:
                 raise ValueError(f"don't know how to register {which}")
