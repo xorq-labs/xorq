@@ -50,11 +50,16 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
     def represent_frozenordereddict(self, data):
         return self.represent_dict(dict(data))
 
+    def represent_ibis_schema(self, data):
+        schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
+        return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
+
     def represent_posix_path(self, data):
         return self.represent_scalar("tag:yaml.org,2002:str", str(data))
 
     yaml_representer_pairs = (
         (FrozenOrderedDict, represent_frozenordereddict),
+        (ibis.Schema, represent_ibis_schema),
         (pathlib.PosixPath, represent_posix_path),
     )
 
