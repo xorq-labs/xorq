@@ -1,5 +1,9 @@
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.operations as ops
+from xorq.ibis_yaml.common import (
+    RefEnum,
+    RegistryEnum,
+)
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
@@ -26,8 +30,8 @@ def test_exists_subquery(compiler):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "ExistsSubquery"
-    node_ref = expression["rel"]["node_ref"]
-    assert yaml_dict["definitions"]["nodes"][node_ref]["op"] == "Filter"
+    node_ref = expression["rel"][RefEnum.node_ref]
+    assert yaml_dict["definitions"][RegistryEnum.nodes][node_ref]["op"] == "Filter"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)

@@ -4,16 +4,20 @@ import decimal
 import pytest
 
 import xorq.vendor.ibis as ibis
+from xorq.ibis_yaml.common import (
+    RefEnum,
+    RegistryEnum,
+)
 from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
 def test_unbound_table(t, compiler):
     yaml_dict = compiler.to_yaml(t)
-    node_ref = yaml_dict["expression"]["node_ref"]
-    expression = yaml_dict["definitions"]["nodes"][node_ref]
+    node_ref = yaml_dict["expression"][RefEnum.node_ref]
+    expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
     assert expression["op"] == "UnboundTable"
     assert expression["name"] == "test_table"
-    assert expression["schema_ref"]
+    assert expression[RefEnum.schema_ref]
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.schema() == t.schema()
@@ -45,7 +49,9 @@ def test_literal(compiler):
     expression = yaml_dict["expression"]
     assert expression["op"] == "Literal"
     assert expression["value"] == 42
-    dtype_yaml = yaml_dict["definitions"]["dtypes"][expression["type"]["dtype_ref"]]
+    dtype_yaml = yaml_dict["definitions"][RegistryEnum.dtypes][
+        expression["type"][RefEnum.dtype_ref]
+    ]
     assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",

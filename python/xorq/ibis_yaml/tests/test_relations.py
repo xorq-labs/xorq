@@ -1,17 +1,21 @@
 import xorq.vendor.ibis as ibis
+from xorq.ibis_yaml.common import (
+    RefEnum,
+    RegistryEnum,
+)
 
 
 def test_filter(compiler, t):
     expr = t.filter(t.a > 0)
     yaml_dict = compiler.to_yaml(expr)
-    node_ref = yaml_dict["expression"]["node_ref"]
+    node_ref = yaml_dict["expression"][RefEnum.node_ref]
 
-    expression = yaml_dict["definitions"]["nodes"][node_ref]
+    expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
 
     assert expression["op"] == "Filter"
     assert expression["predicates"][0]["op"] == "Greater"
-    parent_ref = expression["parent"]["node_ref"]
-    parent = yaml_dict["definitions"]["nodes"][parent_ref]
+    parent_ref = expression["parent"][RefEnum.node_ref]
+    parent = yaml_dict["definitions"][RegistryEnum.nodes][parent_ref]
     assert parent["op"] == "UnboundTable"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -21,13 +25,13 @@ def test_filter(compiler, t):
 def test_projection(compiler, t):
     expr = t.select(["a", "b"])
     yaml_dict = compiler.to_yaml(expr)
-    node_ref = yaml_dict["expression"]["node_ref"]
+    node_ref = yaml_dict["expression"][RefEnum.node_ref]
 
-    expression = yaml_dict["definitions"]["nodes"][node_ref]
+    expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
 
     assert expression["op"] == "Project"
-    parent_ref = expression["parent"]["node_ref"]
-    parent = yaml_dict["definitions"]["nodes"][parent_ref]
+    parent_ref = expression["parent"][RefEnum.node_ref]
+    parent = yaml_dict["definitions"][RegistryEnum.nodes][parent_ref]
     assert parent["op"] == "UnboundTable"
     assert set(expression["values"]) == {"a", "b"}
 
@@ -54,8 +58,8 @@ def test_join(compiler):
     t2 = ibis.table(dict(b="string", c="float"), name="t2")
     expr = t1.join(t2, t1.b == t2.b)
     yaml_dict = compiler.to_yaml(expr)
-    node_ref = yaml_dict["expression"]["node_ref"]
-    expression = yaml_dict["definitions"]["nodes"][node_ref]
+    node_ref = yaml_dict["expression"][RefEnum.node_ref]
+    expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
 
     assert expression["op"] == "JoinChain"
     assert expression["rest"][0]["predicates"][0]["op"] == "Equals"

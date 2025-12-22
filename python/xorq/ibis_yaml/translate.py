@@ -25,6 +25,8 @@ from xorq.expr.relations import (
     into_backend,
 )
 from xorq.ibis_yaml.common import (
+    RefEnum,
+    RegistryEnum,
     TranslationContext,
     _translate_type,
     deserialize_callable,
@@ -57,6 +59,11 @@ def convert_to_ref(which, wrapped):
             return ref
 
     return wrapper
+
+
+convert_to_dtype_ref = convert_to_ref(RegistryEnum.dtypes)
+convert_to_node_ref = convert_to_ref(RegistryEnum.nodes)
+convert_to_schema_ref = convert_to_ref(RegistryEnum.schemas)
 
 
 @translate_to_yaml.register(ops.Node)
@@ -260,7 +267,7 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
 
 
 @translate_to_yaml.register(dt.DataType)
-@convert_to_ref("dtypes")
+@convert_to_dtype_ref
 def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
     return freeze(
         {
@@ -370,7 +377,7 @@ def _struct_field_to_yaml(op: ops.Node, context: TranslationContext) -> dict:
 
 
 @translate_to_yaml.register(ops.UnboundTable)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) -> dict:
     namespace_dict = freeze(
         {
@@ -394,13 +401,13 @@ def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
     namespace_dict = yaml_dict.get("namespace", {})
     catalog = namespace_dict.get("catalog")
     database = namespace_dict.get("database")
-    schema = context.get_schema(yaml_dict["schema_ref"])
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     # TODO: use UnboundTable node to construct instead of builder API
     return ibis.table(schema, name=table_name, catalog=catalog, database=database)
 
 
 @translate_to_yaml.register(ops.DatabaseTable)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) -> dict:
     profile_name = op.source._profile.hash_name
     namespace_dict = freeze(
@@ -430,7 +437,7 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
     catalog = namespace_dict.get("catalog")
     database = namespace_dict.get("database")
     # we should validate that schema is the same
-    schema = context.get_schema(yaml_dict.get("schema_ref"))
+    schema = context.get_schema(yaml_dict.get(RefEnum.schema_ref))
 
     try:
         con = context.profiles[profile_name]
@@ -445,7 +452,7 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
 
 
 @translate_to_yaml.register(CachedNode)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
     # source should be called profile_name
     return freeze(
@@ -462,7 +469,7 @@ def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
 
 @register_from_yaml_handler("CachedNode")
 def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
-    schema = context.get_schema(yaml_dict["schema_ref"])
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     name = yaml_dict["name"]
 
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
@@ -484,7 +491,7 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 
 
 @translate_to_yaml.register(RemoteTable)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
     deterministic_name = dask.base.tokenize(op)
     profile_name = op.source._profile.hash_name
@@ -539,7 +546,7 @@ def warn_on_local_path(items: dict) -> None:
 
 
 @translate_to_yaml.register(Read)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
     profile_hash_name = (
         op.source._profile.hash_name if hasattr(op.source, "_profile") else None
@@ -562,7 +569,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
 
 @register_from_yaml_handler("Read")
 def _read_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
-    schema = context.get_schema(yaml_dict["schema_ref"])
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
     source = context.profiles[yaml_dict["profile"]]
     read_kwargs = tuple(
         (k, ibis.schema(v)) if k == "schema" else (k, v)
@@ -739,7 +746,7 @@ def _binary_op_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Exp
 
 
 @translate_to_yaml.register(ops.Filter)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _filter_to_yaml(op: ops.Filter, context: TranslationContext) -> dict:
     node_dict = freeze(
         {
@@ -760,7 +767,7 @@ def _filter_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Expr:
 
 
 @translate_to_yaml.register(ops.Project)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _project_to_yaml(op: ops.Project, context: TranslationContext) -> dict:
     node_dict = {
         "op": "Project",
@@ -837,7 +844,7 @@ def _aggregate_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.Exp
 
 
 @translate_to_yaml.register(ops.JoinChain)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _join_to_yaml(op: ops.JoinChain, context: TranslationContext) -> dict:
     node_dict = {
         "op": "JoinChain",
@@ -1384,7 +1391,7 @@ def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> Froze
 
 
 @translate_to_yaml.register(Tag)
-@convert_to_ref("nodes")
+@convert_to_node_ref
 def _tag_to_yaml(op: Tag, context: Any) -> dict:
     return freeze(
         {
@@ -1398,7 +1405,7 @@ def _tag_to_yaml(op: Tag, context: Any) -> dict:
 
 @register_from_yaml_handler("Tag")
 def _tag_from_yaml(yaml_dict: dict, context: Any) -> ibis.Expr:
-    schema = context.get_schema(yaml_dict["schema_ref"])
+    schema = context.get_schema(yaml_dict[RefEnum.schema_ref])
 
     # fixme: enable translation of nodes
     parent_expr = context.translate_from_yaml(yaml_dict["parent"])
@@ -1448,7 +1455,7 @@ def _array_filter_from_yaml(yaml_dict: dict, context: Any) -> Any:
 
 
 @translate_to_yaml.register(Schema)
-@convert_to_ref("schemas")
+@convert_to_schema_ref
 def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
     return freeze(
         {

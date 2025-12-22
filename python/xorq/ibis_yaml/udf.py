@@ -8,6 +8,8 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.rules as rlz
 from xorq.expr.relations import FlightExpr, FlightUDXF
 from xorq.ibis_yaml.common import (
+    RefEnum,
+    RegistryEnum,
     TranslationContext,
     deserialize_callable,
     register_from_yaml_handler,
@@ -77,8 +79,10 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     for i, arg_yaml in enumerate(args_yaml):
         arg_name = f"arg{i}"
 
-        if "node_ref" in arg_yaml and (
-            node := compiler.definitions["nodes"].get(arg_yaml["node_ref"])
+        if RefEnum.node_ref in arg_yaml and (
+            node := compiler.definitions[RegistryEnum.nodes].get(
+                arg_yaml[RefEnum.node_ref]
+            )
         ):
             if node.get("op") == "Field" and "name" in node:
                 arg_name = node["name"]

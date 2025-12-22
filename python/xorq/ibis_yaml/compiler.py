@@ -31,6 +31,7 @@ from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
 from xorq.ibis_yaml.common import (
+    RefEnum,
     TranslationContext,
     translate_from_yaml,
     translate_to_yaml,
@@ -157,7 +158,7 @@ class YamlExpressionTranslator:
             expr_dict = freeze(
                 expr_dict
                 | {
-                    "schema_ref": context.registry.register_schema(expr.schema())
+                    RefEnum.schema_ref: context.registry.register_schema(expr.schema())
                     if hasattr(expr, "schema")
                     else None,
                 }

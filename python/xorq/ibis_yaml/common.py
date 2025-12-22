@@ -22,6 +22,24 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.schema import Schema
 
 
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
+
+class RefEnum(StrEnum):
+    dtype_ref = "dtype_ref"
+    node_ref = "node_ref"
+    schema_ref = "schema_ref"
+
+
+class RegistryEnum(StrEnum):
+    dtypes = "dtypes"
+    nodes = "nodes"
+    schemas = "schemas"
+
+
 FROM_YAML_HANDLERS: dict[str, Any] = {}
 
 
@@ -44,15 +62,15 @@ class Registry:
 
     def getstate(self):
         return {
-            "dtypes": self.dtypes,
-            "nodes": self.nodes,
-            "schemas": self.schemas,
+            RegistryEnum.dtypes: self.dtypes,
+            RegistryEnum.nodes: self.nodes,
+            RegistryEnum.schemas: self.schemas,
         }
 
     def register_dtype(self, dtype, dtype_dict):
         dtype_ref = f"dtype_{tokenize(dtype_dict)[: config.hash_length]}"
         self.dtypes.setdefault(dtype_ref, dtype_dict)
-        frozen = freeze({"dtype_ref": dtype_ref})
+        frozen = freeze({RefEnum.dtype_ref: dtype_ref})
         return frozen
 
     def register_node(self, node, node_dict):
@@ -77,7 +95,7 @@ class Registry:
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
         self.nodes.setdefault(node_ref, node_dict_with_hash)
-        frozen = freeze({"node_ref": node_ref})
+        frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen
 
     def register_schema(self, schema):
@@ -89,7 +107,7 @@ class Registry:
         )
         schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
         self.schemas.setdefault(schema_ref, frozen_schema)
-        frozen = freeze({"schema_ref": schema_ref})
+        frozen = freeze({RefEnum.schema_ref: schema_ref})
         return frozen
 
 
@@ -123,11 +141,11 @@ class TranslationContext:
 
     def register(self, which, op, frozen=None):
         match which:
-            case "dtypes":
+            case RegistryEnum.dtypes:
                 return self.registry.register_dtype(op, frozen)
-            case "nodes":
+            case RegistryEnum.nodes:
                 return self.registry.register_node(op, frozen)
-            case "schemas":
+            case RegistryEnum.schemas:
                 return self.registry.register_schema(op)
             case _:
                 raise ValueError(f"don't know how to register {which}")
@@ -139,15 +157,15 @@ class TranslationContext:
             raise ValueError(f"ref {ref} not found in definitions for {which}")
 
     def get_dtype(self, dtype_ref):
-        dtype_def = self.get_definition("dtypes", dtype_ref)
+        dtype_def = self.get_definition(RegistryEnum.dtypes, dtype_ref)
         return self.translate_from_yaml(dtype_def)
 
     def get_node(self, node_ref):
-        node_def = self.get_definition("nodes", node_ref)
+        node_def = self.get_definition(RegistryEnum.nodes, node_ref)
         return self.translate_from_yaml(node_def)
 
     def get_schema(self, schema_ref):
-        schema_def = self.get_definition("schemas", schema_ref)
+        schema_def = self.get_definition(RegistryEnum.schemas, schema_ref)
         schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
         return schema
 
@@ -178,19 +196,19 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
-        case {"dtype_ref": dtype_ref, **rest}:
+        case {RefEnum.dtype_ref: dtype_ref, **rest}:
             if rest:
                 raise ValueError(
                     f"don't know how to handle additional keys ({tuple(rest)}"
                 )
             return context.get_dtype(dtype_ref)
-        case {"node_ref": node_ref, "schema_ref": _schema_ref, **rest}:
+        case {RefEnum.node_ref: node_ref, RefEnum.schema_ref: _schema_ref, **rest}:
             if rest:
                 raise ValueError(
                     f"don't know how to handle additional keys ({tuple(rest)}"
                 )
             return context.get_node(node_ref)
-        case {"node_ref": node_ref, **rest}:
+        case {RefEnum.node_ref: node_ref, **rest}:
             if rest:
                 raise ValueError(
                     f"don't know how to handle additional keys ({tuple(rest)}"
@@ -198,7 +216,7 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
             return context.get_node(node_ref)
         case {"op": op_type}:
             return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
-        case {"schema_ref": schema_ref, **rest}:
+        case {RefEnum.schema_ref: schema_ref, **rest}:
             if rest:
                 raise ValueError(
                     f"don't know how to handle additional keys ({tuple(rest)}"
