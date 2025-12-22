@@ -95,9 +95,6 @@ class TranslationContext:
         validator=_is_absolute_path,
     )
 
-    def update_definitions(self, new_definitions: FrozenOrderedDict):
-        return evolve(self, definitions=new_definitions)
-
     def finalize_definitions(self):
         updated_defs = dict(self.definitions)
         updated_defs["schemas"] = self.schema_registry.schemas

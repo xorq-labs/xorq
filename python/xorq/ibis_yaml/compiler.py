@@ -182,12 +182,10 @@ class YamlExpressionTranslator:
     ) -> ir.Expr:
         context = TranslationContext(
             profiles=freeze(dict(profiles)),
+            definitions=freeze(yaml_dict.get("definitions", {})),
         )
-
-        context = context.update_definitions(freeze(yaml_dict.get("definitions", {})))
-
         expr_dict = freeze(yaml_dict["expression"])
-        return translate_from_yaml(expr_dict, freeze(context))
+        return translate_from_yaml(expr_dict, context)
 
 
 class BuildManager:
