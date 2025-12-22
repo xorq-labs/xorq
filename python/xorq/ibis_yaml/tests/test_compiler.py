@@ -6,6 +6,7 @@ import pathlib
 import dask
 import pandas as pd
 import pytest
+import toolz
 import yaml
 
 import xorq.api as xo
@@ -16,11 +17,19 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources
-from xorq.ibis_yaml.compiler import ArtifactStore, BuildManager
+from xorq.ibis_yaml.compiler import (
+    ArtifactStore,
+    BuildManager,
+    build_expr,
+    load_expr,
+)
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import find_relations
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+
+
+do_roundtrip_expr = toolz.compose(load_expr, build_expr)
 
 
 @pytest.mark.snapshot_check
@@ -86,11 +95,7 @@ none: null
 def test_ibis_compiler(t, build_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
@@ -101,10 +106,7 @@ def test_ibis_compiler_parquet_reader(build_dir, parquet_dir):
         parquet_path, backend, table_name="award_players"
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
@@ -216,11 +218,7 @@ def test_multi_engine_deferred_reads(build_dir, parquet_dir):
         .into_backend(con3)
         .filter(xo._.G == 1)
     )
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
@@ -241,11 +239,7 @@ def test_multi_engine_with_caching(build_dir, parquet_dir):
         .into_backend(con3)
         .filter(xo._.G == 1)
     )
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
@@ -313,11 +307,7 @@ def test_roundtrip_database_table(build_dir, users_df, table_from_df):
 
     t = table_from_df(original, users_df)
     expr = t.filter(t.age > 30).select(t.user_id, t.name)
-
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
 
 
@@ -338,12 +328,7 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
 
     t = table_from_df(original, users_df)
     expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
-
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
 
 
@@ -370,12 +355,7 @@ def test_roundtrip_database_table_behind_cache(
         .cache(cache=cache)
         .select(xo._.user_id, xo._.name, xo._.age * 2)
     )
-
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
 
 
@@ -389,15 +369,12 @@ def test_build_pandas_backend(build_dir, users_df):
         .select(t.user_id, t.name, t.age * 2)
         .into_backend(pandas_con, name="pandas_users")
     )
-
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expected)
-    actual = compiler.load_expr(expr_hash)
-
+    actual = do_roundtrip_expr(expected, build_dir=build_dir)
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.snapshot_check
 def test_build_file_stability_https(build_dir, snapshot):
     def with_profile_idx(con, idx):
         profile = con._profile
@@ -447,6 +424,7 @@ def test_build_file_stability_https(build_dir, snapshot):
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
+@pytest.mark.snapshot_check
 def test_build_file_stability_local(
     build_dir,
     parquet_dir,
@@ -524,16 +502,11 @@ def test_build_pandas_backend_behind_into_backend(build_dir, users_df):
         .into_backend(pandas_con, name="pandas_users")
         .select(xo._.user_id, xo._.name, xo._.age * 2)
     )
-
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expected)
-    actual = compiler.load_expr(expr_hash)
-
+    actual = do_roundtrip_expr(expected, build_dir=build_dir)
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
 def test_struct_field(build_dir, tmpdir):
-    compiler = BuildManager(build_dir)
     path = pathlib.Path(tmpdir).joinpath("t.parquet")
     xo.memtable({"a": [{"b": 1, "c": "string"}]}).to_parquet(path)
     t = xo.deferred_read_parquet(
@@ -542,8 +515,7 @@ def test_struct_field(build_dir, tmpdir):
         table_name="t",
     )
     expr = t.select(t.a.b.name("a-b"))
-    expr_hash = compiler.compile_expr(expr)
-    roundtrip_expr = compiler.load_expr(expr_hash)
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert_frame_equal(expr.execute(), roundtrip_expr.execute())
 
 
@@ -566,11 +538,7 @@ def test_into_backend_with_array_filter(build_dir):
     expr = t.mutate(filtered=t.x.filter(xo._ > 1)).cache(
         SourceCache.from_kwargs(source=xo.connect())
     )
-
-    compiler = BuildManager(build_dir, debug=False)
-    expr_hash = compiler.compile_expr(expr)
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir, debug=False)
     assert_frame_equal(expr.execute(), roundtrip_expr.execute())
     assert {"duckdb", "xorq"}.intersection(
         source.name for source in find_all_sources(roundtrip_expr)
@@ -585,10 +553,5 @@ def test_roundtrip_parquet_snapshot_cache(build_dir, tmp_path, users_df):
 
     t = original.register(users_df, table_name="users")
     expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
-
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())

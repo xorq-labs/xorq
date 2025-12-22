@@ -10,7 +10,9 @@ def test_filter(compiler, t):
 
     assert expression["op"] == "Filter"
     assert expression["predicates"][0]["op"] == "Greater"
-    assert expression["parent"]["op"] == "UnboundTable"
+    parent_ref = expression["parent"]["node_ref"]
+    parent = yaml_dict["definitions"]["nodes"][parent_ref]
+    assert parent["op"] == "UnboundTable"
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
@@ -24,7 +26,9 @@ def test_projection(compiler, t):
     expression = yaml_dict["definitions"]["nodes"][node_ref]
 
     assert expression["op"] == "Project"
-    assert expression["parent"]["op"] == "UnboundTable"
+    parent_ref = expression["parent"]["node_ref"]
+    parent = yaml_dict["definitions"]["nodes"][parent_ref]
+    assert parent["op"] == "UnboundTable"
     assert set(expression["values"]) == {"a", "b"}
 
     roundtrip_expr = compiler.from_yaml(yaml_dict)
@@ -37,11 +41,10 @@ def test_aggregation(compiler, t):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Aggregate"
-    node_ref = expression["by"]["a"]["node_ref"]
-    assert yaml_dict["definitions"]["nodes"][node_ref]["name"] == "a"
+    assert expression["by"]["a"]["op"] == "Field"
+    assert expression["by"]["a"]["name"] == "a"
     assert expression["metrics"]["avg_c"]["op"] == "Mean"
 
-    # Roundtrip test
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
@@ -51,13 +54,13 @@ def test_join(compiler):
     t2 = ibis.table(dict(b="string", c="float"), name="t2")
     expr = t1.join(t2, t1.b == t2.b)
     yaml_dict = compiler.to_yaml(expr)
-    expression = yaml_dict["expression"]
+    node_ref = yaml_dict["expression"]["node_ref"]
+    expression = yaml_dict["definitions"]["nodes"][node_ref]
 
     assert expression["op"] == "JoinChain"
     assert expression["rest"][0]["predicates"][0]["op"] == "Equals"
     assert expression["rest"][0]["how"] == "inner"
 
-    # Roundtrip test
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
 
