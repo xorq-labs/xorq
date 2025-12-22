@@ -18,7 +18,6 @@ from xorq.ibis_yaml.common import (
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor import ibis
 from xorq.vendor.ibis.common.annotations import Argument
-from xorq.vendor.ibis.expr.schema import Schema
 
 
 @translate_to_yaml.register(ops.ScalarUDF)
@@ -108,29 +107,6 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     )
 
     return node(*args).to_expr()
-
-
-@translate_to_yaml.register(Schema)
-def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
-    context.schema_registry.register_schema(schema)
-    return freeze(
-        {
-            "op": schema.__class__.__name__,
-            "value": freeze(
-                {key: context.translate_to_yaml(value) for key, value in schema.items()}
-            ),
-        }
-    )
-
-
-@register_from_yaml_handler(Schema.__name__)
-def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
-    return Schema(
-        {
-            key: context.translate_from_yaml(value)
-            for key, value in yaml_dict["value"].items()
-        }
-    )
 
 
 @translate_to_yaml.register(dict)

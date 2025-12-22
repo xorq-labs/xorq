@@ -8,7 +8,8 @@ import xorq.vendor.ibis as ibis
 
 def test_unbound_table(t, compiler):
     yaml_dict = compiler.to_yaml(t)
-    expression = yaml_dict["expression"]
+    node_ref = yaml_dict["expression"]["node_ref"]
+    expression = yaml_dict["definitions"]["nodes"][node_ref]
     assert expression["op"] == "UnboundTable"
     assert expression["name"] == "test_table"
     assert expression["schema_ref"]
@@ -22,9 +23,7 @@ def test_field(t, compiler):
     expr = t.a
     yaml_dict = compiler.to_yaml(expr)
 
-    node_ref = yaml_dict["expression"]["node_ref"]
-
-    expression = yaml_dict["definitions"]["nodes"][node_ref]
+    expression = yaml_dict["expression"]
     assert expression["op"] == "Field"
     assert expression["name"] == "a"
     assert expression["type"] == {
