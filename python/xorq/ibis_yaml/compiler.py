@@ -30,7 +30,6 @@ from xorq.common.utils.graph_utils import (
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
-from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import (
     TranslationContext,
     translate_from_yaml,
@@ -45,36 +44,27 @@ from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
 
 class CleanDictYAMLDumper(yaml.SafeDumper):
-    def represent_frozenordereddict(self, data):
-        return self.represent_dict(dict(data))
-
     def ignore_aliases(self, data):
         return True
 
-    def represent_enum(self, data):
-        return self.represent_scalar("tag:yaml.org,2002:str", data.name)
-
-    def represent_ibis_schema(self, data):
-        schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
-        return self.represent_mapping("tag:yaml.org,2002:map", schema_dict)
+    def represent_frozenordereddict(self, data):
+        return self.represent_dict(dict(data))
 
     def represent_posix_path(self, data):
         return self.represent_scalar("tag:yaml.org,2002:str", str(data))
 
+    yaml_representer_pairs = (
+        (FrozenOrderedDict, represent_frozenordereddict),
+        (pathlib.PosixPath, represent_posix_path),
+    )
 
-CleanDictYAMLDumper.add_representer(
-    FrozenOrderedDict, CleanDictYAMLDumper.represent_frozenordereddict
-)
+    @classmethod
+    def add_representers(cls):
+        for to_register, representer in cls.yaml_representer_pairs:
+            cls.add_representer(to_register, representer)
 
-CleanDictYAMLDumper.add_representer(
-    ibis.Schema, CleanDictYAMLDumper.represent_ibis_schema
-)
 
-CleanDictYAMLDumper.add_representer(InputType, CleanDictYAMLDumper.represent_enum)
-
-CleanDictYAMLDumper.add_representer(
-    pathlib.PosixPath, CleanDictYAMLDumper.represent_posix_path
-)
+CleanDictYAMLDumper.add_representers()
 
 
 class ArtifactStore:
