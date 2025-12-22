@@ -38,19 +38,8 @@ def deserialize_callable(encoded_fn: str) -> callable:
 
 class Registry:
     def __init__(self):
-        self.schemas = {}
         self.nodes = {}
-
-    def register_schema(self, schema):
-        frozen_schema = freeze(
-            toolz.valmap(
-                functools.partial(translate_to_yaml, context=None),
-                schema,
-            )
-        )
-        schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
-        self.schemas.setdefault(schema_ref, frozen_schema)
-        return schema_ref
+        self.schemas = {}
 
     def register_node(self, node, node_dict):
         """Register a node and return its name.
@@ -76,6 +65,20 @@ class Registry:
         self.nodes.setdefault(node_ref, node_dict_with_hash)
         frozen = freeze({"node_ref": node_ref})
         return frozen
+
+    def register_schema(self, schema):
+        frozen_schema = freeze(
+            toolz.valmap(
+                functools.partial(translate_to_yaml, context=None),
+                schema,
+            )
+        )
+        schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
+        self.schemas.setdefault(schema_ref, frozen_schema)
+        return schema_ref
+
+    def register_dtype(self, dtype):
+        raise NotImplementedError
 
 
 def _is_absolute_path(instance, attribute, value):
