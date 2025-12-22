@@ -50,7 +50,7 @@ class Registry:
         }
 
     def register_dtype(self, dtype, dtype_dict):
-        dtype_ref = tokenize(dtype_dict)
+        dtype_ref = f"dtype_{tokenize(dtype_dict)[: config.hash_length]}"
         self.dtypes.setdefault(dtype_ref, dtype_dict)
         frozen = freeze({"dtype_ref": dtype_ref})
         return frozen
