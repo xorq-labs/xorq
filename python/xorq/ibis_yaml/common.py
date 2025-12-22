@@ -1,6 +1,5 @@
 import base64
 import functools
-import itertools
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +14,12 @@ from dask.base import tokenize
 
 import xorq.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations as ops
-import xorq.vendor.ibis.expr.types as ir
+from xorq.caching.strategy import SnapshotStrategy
+from xorq.expr.relations import Tag
+from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
+from xorq.vendor.ibis.expr.schema import Schema
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
@@ -37,35 +39,42 @@ def deserialize_callable(encoded_fn: str) -> callable:
 class SchemaRegistry:
     def __init__(self):
         self.schemas = {}
-        self.counter = itertools.count()
         self.nodes = {}
 
     def register_schema(self, schema):
         frozen_schema = freeze(
-            {name: translate_to_yaml(dtype, None) for name, dtype in schema.items()}
+            toolz.valmap(
+                functools.partial(translate_to_yaml, context=None),
+                schema,
+            )
         )
-        for schema_id, existing_schema in self.schemas.items():
-            if existing_schema == frozen_schema:
-                return schema_id
-        schema_id = f"schema_{next(self.counter)}"
-        self.schemas[schema_id] = frozen_schema
+        schema_id = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
+        self.schemas.setdefault(schema_id, frozen_schema)
         return schema_id
 
-    def _register_expr_schema(self, expr: ir.Expr) -> str:
-        if hasattr(expr, "schema"):
-            schema = expr.schema()
-            return self.register_schema(schema)
-        return None
+    def register_node(self, node, node_dict):
+        """Register a node and return its name.
 
-    def register_node(self, node_dict):
-        frozen_node = freeze(node_dict)
+        Returns a name like '@read_{hash}', '@filter_{hash}', etc.
+        """
 
-        node_hash = tokenize(frozen_node)
-
-        if node_hash not in self.nodes:
-            self.nodes[node_hash] = frozen_node
-
-        return node_hash
+        match node:
+            case Tag():
+                untagged_repr = ("Tag", node.parent.to_expr(), node_dict["metadata"])
+                with SnapshotStrategy().normalization_context(node.to_expr()):
+                    node_hash = tokenize(untagged_repr)
+            case Schema():
+                untagged_repr = ("Schema", tuple(node.items()))
+                node_hash = tokenize(node)
+            case _:
+                untagged_repr = node.to_expr().ls.untagged
+                with SnapshotStrategy().normalization_context(node.to_expr()):
+                    node_hash = tokenize(untagged_repr)
+        op_name = node_dict.get("op", "unknown").lower()
+        node_name = f"@{op_name}_{node_hash[: config.hash_length]}"
+        node_dict_with_hash = freeze(dict(node_dict) | {"snapshot_hash": node_hash})
+        self.nodes.setdefault(node_name, node_dict_with_hash)
+        return node_name
 
 
 def _is_absolute_path(instance, attribute, value):
@@ -100,6 +109,14 @@ class TranslationContext:
 
     def translate_to_yaml(self, op: Any) -> dict:
         return translate_to_yaml(op, self)
+
+    def get_schema(self, schema_ref):
+        try:
+            schema_def = self.definitions["schemas"][schema_ref]
+        except KeyError:
+            raise ValueError(f"Schema {schema_ref} not found in definitions")
+        schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
+        return schema
 
 
 def register_from_yaml_handler(*op_names: str):
