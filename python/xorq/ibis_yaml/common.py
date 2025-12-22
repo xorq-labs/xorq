@@ -121,11 +121,18 @@ class TranslationContext:
     def translate_to_yaml(self, op: Any) -> dict:
         return translate_to_yaml(op, self)
 
-    def get_schema(self, schema_ref):
+    def get_definition(self, which, ref):
         try:
-            schema_def = self.definitions["schemas"][schema_ref]
+            return self.definitions[which][ref]
         except KeyError:
-            raise ValueError(f"Schema {schema_ref} not found in definitions")
+            raise ValueError(f"ref {ref} not found in definitions for {which}")
+
+    def get_node(self, node_ref):
+        node_def = self.get_definition("nodes", node_ref)
+        return self.translate_from_yaml(node_def)
+
+    def get_schema(self, schema_ref):
+        schema_def = self.get_definition("schemas", schema_ref)
         schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
         return schema
 
@@ -156,17 +163,10 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
-        case {"node_ref": node_ref, **_kwargs}:
-            if "nodes" not in context.definitions:
-                raise ValueError(
-                    f"Missing 'nodes' in definitions for reference {node_ref}"
-                )
-
-            try:
-                node_dict = context.definitions["nodes"][node_ref]
-            except KeyError:
-                raise ValueError(f"Node reference {node_ref} not found in definitions")
-            return translate_from_yaml(node_dict, context)
+        case {"node_ref": node_ref, **rest}:
+            if rest and tuple(rest) != ("schema_ref",):
+                raise ValueError("'node_ref' should be the only key")
+            return context.get_node(node_ref)
         case {"op": op_type, **_kwargs}:
             return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
         case _:
