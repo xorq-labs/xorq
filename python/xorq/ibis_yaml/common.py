@@ -41,6 +41,12 @@ class SchemaRegistry:
         self.schemas = {}
         self.nodes = {}
 
+    def register(self, which, op, frozen):
+        if not (f := getattr(self, f"register_{which}", None)):
+            raise ValueError(f"don't know how to register {which}")
+        ref = f(op, frozen)
+        return ref
+
     def register_schema(self, schema):
         frozen_schema = freeze(
             toolz.valmap(
@@ -74,7 +80,8 @@ class SchemaRegistry:
         node_name = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(dict(node_dict) | {"snapshot_hash": node_hash})
         self.nodes.setdefault(node_name, node_dict_with_hash)
-        return node_name
+        frozen = freeze({"node_ref": node_name})
+        return frozen
 
 
 def _is_absolute_path(instance, attribute, value):
