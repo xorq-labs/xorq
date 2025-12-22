@@ -50,7 +50,7 @@ def convert_to_ref(which, wrapped):
     @functools.wraps(wrapped)
     def wrapper(op, context):
         frozen = wrapped(op, context)
-        ref = context.schema_registry.register(which, op, frozen)
+        ref = context.register(which, op, frozen)
         return ref
 
     return wrapper

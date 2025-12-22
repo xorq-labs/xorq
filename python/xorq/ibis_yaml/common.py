@@ -41,12 +41,6 @@ class SchemaRegistry:
         self.schemas = {}
         self.nodes = {}
 
-    def register(self, which, op, frozen):
-        if not (f := getattr(self, f"register_{which}", None)):
-            raise ValueError(f"don't know how to register {which}")
-        ref = f(op, frozen)
-        return ref
-
     def register_schema(self, schema, _frozen=None):
         frozen_schema = freeze(
             toolz.valmap(
@@ -101,6 +95,15 @@ class TranslationContext:
         converter=toolz.excepts(TypeError, Path),
         validator=_is_absolute_path,
     )
+
+    def register(self, which, op, frozen=None):
+        match which:
+            case "node":
+                return self.schema_registry.register_node(op, frozen)
+            case "schema":
+                return self.schema_registry.register_schema(op)
+            case _:
+                raise ValueError(f"don't know how to register {which}")
 
     def finalize_definitions(self):
         definitions = freeze(
