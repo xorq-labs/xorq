@@ -77,10 +77,10 @@ class SchemaRegistry:
                 with SnapshotStrategy().normalization_context(node.to_expr()):
                     node_hash = tokenize(untagged_repr)
         op_name = node_dict.get("op", "unknown").lower()
-        node_name = f"@{op_name}_{node_hash[: config.hash_length]}"
+        node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(dict(node_dict) | {"snapshot_hash": node_hash})
-        self.nodes.setdefault(node_name, node_dict_with_hash)
-        frozen = freeze({"node_ref": node_name})
+        self.nodes.setdefault(node_ref, node_dict_with_hash)
+        frozen = freeze({"node_ref": node_ref})
         return frozen
 
 
