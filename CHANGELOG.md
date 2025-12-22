@@ -5,6 +5,58 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.5] - 2025-12-22
+### Details
+#### Added
+- Add Working with the documentation section by @mesejo in [#1392](https://github.com/xorq-labs/xorq/pull/1392)
+- Added windows installation across tutorials by @Olamideod in [#1402](https://github.com/xorq-labs/xorq/pull/1402)
+- Added an official style guide by @Olamideod in [#1403](https://github.com/xorq-labs/xorq/pull/1403)
+- Add Vale linter configuration files by @Olamideod in [#1408](https://github.com/xorq-labs/xorq/pull/1408)
+- Add temporal delta ops compiling by @mesejo in [#1399](https://github.com/xorq-labs/xorq/pull/1399)
+- Added vale linter integration guide to the repo by @Olamideod in [#1410](https://github.com/xorq-labs/xorq/pull/1410)
+- Add FillNull and NullIf translations by @mesejo in [#1437](https://github.com/xorq-labs/xorq/pull/1437)
+- Add missing ops by @mesejo in [#1441](https://github.com/xorq-labs/xorq/pull/1441)
+- Add TableUnnest op by @mesejo in [#1436](https://github.com/xorq-labs/xorq/pull/1436)
+- Add ParquetSnapshotStorage by @hussainsultan in [#1449](https://github.com/xorq-labs/xorq/pull/1449)
+
+#### Changed
+- Reference the Style Guide in CONTRIBUTING.m by @Olamideod in [#1405](https://github.com/xorq-labs/xorq/pull/1405)
+- Update README by @hussainsultan in [#1286](https://github.com/xorq-labs/xorq/pull/1286)
+- Update dependency blackdoc to v0.4.6 by @renovate[bot] in [#1421](https://github.com/xorq-labs/xorq/pull/1421)
+- Update dependency ruff to v0.14.7 by @renovate[bot] in [#1422](https://github.com/xorq-labs/xorq/pull/1422)
+- Update pre-commit hook astral-sh/ruff-pre-commit to v0.14.7 by @renovate[bot] in [#1423](https://github.com/xorq-labs/xorq/pull/1423)
+- Update pre-commit hook astral-sh/uv-pre-commit to v0.9.13 by @renovate[bot] in [#1424](https://github.com/xorq-labs/xorq/pull/1424)
+- Update actions/create-github-app-token action to v2.2.0 by @renovate[bot] in [#1425](https://github.com/xorq-labs/xorq/pull/1425)
+- Update dependency black to v25.11.0 by @renovate[bot] in [#1426](https://github.com/xorq-labs/xorq/pull/1426)
+- Update dependency coverage to v7.12.0 by @renovate[bot] in [#1427](https://github.com/xorq-labs/xorq/pull/1427)
+- Update dependency ipython to <9.8.0,>=8.19.0 by @renovate[bot] in [#1428](https://github.com/xorq-labs/xorq/pull/1428)
+- Update dependency pre-commit to v4.5.0 by @renovate[bot] in [#1429](https://github.com/xorq-labs/xorq/pull/1429)
+- Update actions/checkout action to v6 by @renovate[bot] in [#1432](https://github.com/xorq-labs/xorq/pull/1432)
+- Apply sentence case per style guide by @Olamideod in [#1420](https://github.com/xorq-labs/xorq/pull/1420)
+- Update postgres docker tag to v17.7 by @renovate[bot] in [#1430](https://github.com/xorq-labs/xorq/pull/1430)
+- Update astral-sh/setup-uv action to v7 by @renovate[bot] in [#1433](https://github.com/xorq-labs/xorq/pull/1433)
+- Update dependency ipykernel to v7 by @renovate[bot] in [#1434](https://github.com/xorq-labs/xorq/pull/1434)
+- Update dependency pytest to v9 by @renovate[bot] in [#1435](https://github.com/xorq-labs/xorq/pull/1435)
+- Make walk nodes deterministic by @mesejo in [#1453](https://github.com/xorq-labs/xorq/pull/1453)
+- Parquet ttl cache by @dlovell in [#1455](https://github.com/xorq-labs/xorq/pull/1455)
+- Simplify translate by @mesejo in [#1457](https://github.com/xorq-labs/xorq/pull/1457)
+- Translation context methods by @dlovell in [#1460](https://github.com/xorq-labs/xorq/pull/1460)
+- Rename let to xorq by @mesejo in [#1450](https://github.com/xorq-labs/xorq/pull/1450)
+- Update hexdigest snapshot by @mesejo in [#1466](https://github.com/xorq-labs/xorq/pull/1466)
+
+#### Fixed
+- Asof_join with different column names by @mesejo in [#1414](https://github.com/xorq-labs/xorq/pull/1414)
+- Update dependency fsspec to >=2024.6.1,<2025.10.1 by @renovate[bot] in [#1431](https://github.com/xorq-labs/xorq/pull/1431)
+- Example with named memtable by @mesejo in [#1458](https://github.com/xorq-labs/xorq/pull/1458)
+- Patch normalize token retain lazy by @dlovell in [#1461](https://github.com/xorq-labs/xorq/pull/1461)
+- SdistBuilder: use untgzed dir as --with arg to uv by @dlovell in [#1465](https://github.com/xorq-labs/xorq/pull/1465)
+- Update caching examples by @mesejo in [#1463](https://github.com/xorq-labs/xorq/pull/1463)
+
+#### Removed
+- Remove unused ls command by @mesejo in [#1394](https://github.com/xorq-labs/xorq/pull/1394)
+
+## New Contributors
+* @Olamideod made their first contribution in [#1420](https://github.com/xorq-labs/xorq/pull/1420)
 ## [0.3.4] - 2025-11-19
 ### Details
 #### Added
