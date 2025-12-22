@@ -301,23 +301,19 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
     unbound_expr_yaml = context.translate_to_yaml(op.unbound_expr)
-
-    schema_ref = context.registry.register_schema(op.schema)
-
     make_server_pickle = serialize_callable(op.make_server)
     make_connection_pickle = serialize_callable(op.make_connection)
-
     return freeze(
         {
             "op": "FlightExpr",
             "name": op.name,
-            "schema_ref": schema_ref,
             "input_expr": input_expr_yaml,
             "unbound_expr": unbound_expr_yaml,
             "make_server": make_server_pickle,
             "make_connection": make_connection_pickle,
             "do_instrument_reader": op.do_instrument_reader,
         }
+        | context.registry.register_schema(op.schema)
     )
 
 
@@ -353,7 +349,6 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
 @translate_to_yaml.register(FlightUDXF)
 def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
-    schema_ref = context.registry.register_schema(op.schema)
     udxf_pickle = serialize_callable(op.udxf)
     make_server_pickle = serialize_callable(op.make_server)
     make_connection_pickle = serialize_callable(op.make_connection)
@@ -362,13 +357,13 @@ def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
         {
             "op": "FlightUDXF",
             "name": op.name,
-            "schema_ref": schema_ref,
             "input_expr": input_expr_yaml,
             "udxf": udxf_pickle,
             "make_server": make_server_pickle,
             "make_connection": make_connection_pickle,
             "do_instrument_reader": op.do_instrument_reader,
         }
+        | context.registry.register_schema(op.schema)
     )
 
 

@@ -75,7 +75,8 @@ class Registry:
         )
         schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
         self.schemas.setdefault(schema_ref, frozen_schema)
-        return schema_ref
+        frozen = freeze({"schema_ref": schema_ref})
+        return frozen
 
     def register_dtype(self, dtype):
         raise NotImplementedError
