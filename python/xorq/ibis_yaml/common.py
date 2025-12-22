@@ -203,9 +203,6 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
                 raise ValueError(
                     f"don't know how to handle additional keys ({tuple(rest)}"
                 )
-            import pdb
-
-            pdb.set_trace()  # noqa
             return context.get_schema(schema_ref)
         case _:
             raise ValueError(f"don't know how to handle keys ({tuple(yaml_dict)})")
