@@ -98,9 +98,9 @@ class TranslationContext:
 
     def register(self, which, op, frozen=None):
         match which:
-            case "node":
+            case "nodes":
                 return self.schema_registry.register_node(op, frozen)
-            case "schema":
+            case "schemas":
                 return self.schema_registry.register_schema(op)
             case _:
                 raise ValueError(f"don't know how to register {which}")
