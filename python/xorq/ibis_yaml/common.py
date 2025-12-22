@@ -41,6 +41,12 @@ class Registry:
         self.nodes = {}
         self.schemas = {}
 
+    def getstate(self):
+        return {
+            "nodes": self.nodes,
+            "schemas": self.schemas,
+        }
+
     def register_node(self, node, node_dict):
         """Register a node and return its name.
 
@@ -92,7 +98,7 @@ class TranslationContext:
     registry: Registry = field(factory=Registry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
     definitions: FrozenOrderedDict = field(
-        factory=functools.partial(freeze, {"schemas": {}, "nodes": {}}),
+        factory=functools.partial(freeze, Registry().getstate()),
     )
     cache_dir: Path = field(
         default=None,
@@ -101,13 +107,7 @@ class TranslationContext:
     )
 
     def finalize_definitions(self):
-        definitions = freeze(
-            self.definitions
-            | {
-                "schemas": self.registry.schemas,
-                "nodes": self.registry.nodes,
-            }
-        )
+        definitions = freeze(self.definitions | self.registry.getstate())
         return evolve(self, definitions=definitions)
 
     def translate_from_yaml(self, yaml_dict: dict) -> Any:
