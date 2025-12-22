@@ -163,11 +163,19 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
-        case {"node_ref": node_ref, **rest}:
-            if rest and tuple(rest) != ("schema_ref",):
-                raise ValueError("'node_ref' should be the only key")
+        case {"node_ref": node_ref, "schema_ref": _schema_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
             return context.get_node(node_ref)
-        case {"op": op_type, **_kwargs}:
+        case {"node_ref": node_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_node(node_ref)
+        case {"op": op_type}:
             return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
         case _:
             raise ValueError
