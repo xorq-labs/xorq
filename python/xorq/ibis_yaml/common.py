@@ -78,7 +78,7 @@ class SchemaRegistry:
                     node_hash = tokenize(untagged_repr)
         op_name = node_dict.get("op", "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
-        node_dict_with_hash = freeze(dict(node_dict) | {"snapshot_hash": node_hash})
+        node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
         self.nodes.setdefault(node_ref, node_dict_with_hash)
         frozen = freeze({"node_ref": node_ref})
         return frozen
@@ -103,10 +103,14 @@ class TranslationContext:
     )
 
     def finalize_definitions(self):
-        updated_defs = dict(self.definitions)
-        updated_defs["schemas"] = self.schema_registry.schemas
-        updated_defs["nodes"] = self.schema_registry.nodes
-        return evolve(self, definitions=freeze(updated_defs))
+        definitions = freeze(
+            self.definitions
+            | {
+                "schemas": self.schema_registry.schemas,
+                "nodes": self.schema_registry.nodes,
+            }
+        )
+        return evolve(self, definitions=definitions)
 
     def translate_from_yaml(self, yaml_dict: dict) -> Any:
         return translate_from_yaml(yaml_dict, self)

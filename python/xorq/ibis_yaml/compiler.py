@@ -150,17 +150,17 @@ class YamlExpressionTranslator:
         with SnapshotStrategy().normalization_context(expr):
             expr_dict = translate_to_yaml(expr, context)
             expr_dict = freeze(
-                {
-                    **dict(expr_dict),
+                expr_dict
+                | {
                     "schema_ref": context.schema_registry.register_schema(expr.schema())
                     if hasattr(expr, "schema")
                     else None,
                 }
             )
-            context = context.finalize_definitions()
+            definitions = context.finalize_definitions().definitions
             return freeze(
                 {
-                    "definitions": context.definitions,
+                    "definitions": definitions,
                     "expression": expr_dict,
                 }
             )
