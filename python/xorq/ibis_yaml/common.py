@@ -47,16 +47,16 @@ class SchemaRegistry:
         ref = f(op, frozen)
         return ref
 
-    def register_schema(self, schema):
+    def register_schema(self, schema, _frozen=None):
         frozen_schema = freeze(
             toolz.valmap(
                 functools.partial(translate_to_yaml, context=None),
                 schema,
             )
         )
-        schema_id = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
-        self.schemas.setdefault(schema_id, frozen_schema)
-        return schema_id
+        schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
+        self.schemas.setdefault(schema_ref, frozen_schema)
+        return schema_ref
 
     def register_node(self, node, node_dict):
         """Register a node and return its name.
