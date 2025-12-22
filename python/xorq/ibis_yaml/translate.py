@@ -368,7 +368,7 @@ def _struct_field_to_yaml(op: ops.Node, context: TranslationContext) -> dict:
 @translate_to_yaml.register(ops.UnboundTable)
 @convert_to_ref("node")
 def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) -> dict:
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
     namespace_dict = freeze(
         {
             "catalog": op.namespace.catalog,
@@ -379,7 +379,7 @@ def _unbound_table_to_yaml(op: ops.UnboundTable, context: TranslationContext) ->
         {
             "op": "UnboundTable",
             "name": op.name,
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "namespace": namespace_dict,
         }
     )
@@ -400,7 +400,7 @@ def _unbound_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir
 @convert_to_ref("node")
 def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) -> dict:
     profile_name = op.source._profile.hash_name
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
     namespace_dict = freeze(
         {
             "catalog": op.namespace.catalog,
@@ -412,7 +412,7 @@ def _database_table_to_yaml(op: ops.DatabaseTable, context: TranslationContext) 
         {
             "op": "DatabaseTable",
             "table": op.name,
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "profile": profile_name,
             "namespace": namespace_dict,
         }
@@ -445,13 +445,13 @@ def database_table_from_yaml(yaml_dict: dict, context: TranslationContext) -> ib
 @translate_to_yaml.register(CachedNode)
 @convert_to_ref("node")
 def _cached_node_to_yaml(op: CachedNode, context: any) -> dict:
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
     # source should be called profile_name
 
     return freeze(
         {
             "op": "CachedNode",
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "name": op.name,
             "parent": context.translate_to_yaml(op.parent),
             "source": op.source._profile.hash_name,
@@ -487,14 +487,14 @@ def _cached_node_from_yaml(yaml_dict: dict, context: any) -> ibis.Expr:
 @convert_to_ref("node")
 def _remotetable_to_yaml(op: RemoteTable, context: TranslationContext) -> dict:
     deterministic_name = dask.base.tokenize(op)
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
     profile_name = op.source._profile.hash_name
     remote_expr_yaml = context.translate_to_yaml(op.remote_expr)
     return freeze(
         {
             "op": "RemoteTable",
             "table": deterministic_name,
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "profile": profile_name,
             "remote_expr": remote_expr_yaml,
         }
@@ -542,7 +542,7 @@ def warn_on_local_path(items: dict) -> None:
 @translate_to_yaml.register(Read)
 @convert_to_ref("node")
 def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
     profile_hash_name = (
         op.source._profile.hash_name if hasattr(op.source, "_profile") else None
     )
@@ -554,7 +554,7 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
             "op": "Read",
             "method_name": op.method_name,
             "name": op.name,
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "profile": profile_hash_name,
             "read_kwargs": freeze(op.read_kwargs if op.read_kwargs else {}),
             "normalize_method": serialize_callable(op.normalize_method),
@@ -1388,11 +1388,11 @@ def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> Froze
 @translate_to_yaml.register(Tag)
 @convert_to_ref("node")
 def _tag_to_yaml(op: Tag, context: Any) -> dict:
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
     return freeze(
         {
             "op": "Tag",
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "parent": context.translate_to_yaml(op.parent),
             "metadata": context.translate_to_yaml(op.metadata),
         }

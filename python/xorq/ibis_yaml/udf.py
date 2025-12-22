@@ -302,7 +302,7 @@ def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
     unbound_expr_yaml = context.translate_to_yaml(op.unbound_expr)
 
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
 
     make_server_pickle = serialize_callable(op.make_server)
     make_connection_pickle = serialize_callable(op.make_connection)
@@ -311,7 +311,7 @@ def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
         {
             "op": "FlightExpr",
             "name": op.name,
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "input_expr": input_expr_yaml,
             "unbound_expr": unbound_expr_yaml,
             "make_server": make_server_pickle,
@@ -353,7 +353,7 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
 @translate_to_yaml.register(FlightUDXF)
 def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
-    schema_id = context.schema_registry.register_schema(op.schema)
+    schema_ref = context.schema_registry.register_schema(op.schema)
     udxf_pickle = serialize_callable(op.udxf)
     make_server_pickle = serialize_callable(op.make_server)
     make_connection_pickle = serialize_callable(op.make_connection)
@@ -362,7 +362,7 @@ def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
         {
             "op": "FlightUDXF",
             "name": op.name,
-            "schema_ref": schema_id,
+            "schema_ref": schema_ref,
             "input_expr": input_expr_yaml,
             "udxf": udxf_pickle,
             "make_server": make_server_pickle,
