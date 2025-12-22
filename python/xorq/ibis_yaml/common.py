@@ -38,14 +38,22 @@ def deserialize_callable(encoded_fn: str) -> callable:
 
 class Registry:
     def __init__(self):
+        self.dtypes = {}
         self.nodes = {}
         self.schemas = {}
 
     def getstate(self):
         return {
+            "dtypes": self.dtypes,
             "nodes": self.nodes,
             "schemas": self.schemas,
         }
+
+    def register_dtype(self, dtype, dtype_dict):
+        dtype_ref = tokenize(dtype_dict)
+        self.dtypes.setdefault(dtype_ref, dtype_dict)
+        frozen = freeze({"dtype_ref": dtype_ref})
+        return frozen
 
     def register_node(self, node, node_dict):
         """Register a node and return its name.
@@ -84,9 +92,6 @@ class Registry:
         frozen = freeze({"schema_ref": schema_ref})
         return frozen
 
-    def register_dtype(self, dtype):
-        raise NotImplementedError
-
 
 def _is_absolute_path(instance, attribute, value):
     if value and not Path(value).is_absolute():
@@ -118,6 +123,8 @@ class TranslationContext:
 
     def register(self, which, op, frozen=None):
         match which:
+            case "dtypes":
+                return self.registry.register_dtype(op, frozen)
             case "nodes":
                 return self.registry.register_node(op, frozen)
             case "schemas":
@@ -132,6 +139,10 @@ class TranslationContext:
             return self.definitions[which][ref]
         except KeyError:
             raise ValueError(f"ref {ref} not found in definitions for {which}")
+
+    def get_dtype(self, dtype_ref):
+        dtype_def = self.get_definition("dtypes", dtype_ref)
+        return self.translate_from_yaml(dtype_def)
 
     def get_node(self, node_ref):
         node_def = self.get_definition("nodes", node_ref)
@@ -169,6 +180,12 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
+        case {"dtype_ref": dtype_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_dtype(dtype_ref)
         case {"node_ref": node_ref, "schema_ref": _schema_ref, **rest}:
             if rest:
                 raise ValueError(
@@ -183,8 +200,17 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
             return context.get_node(node_ref)
         case {"op": op_type}:
             return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
+        case {"schema_ref": schema_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            import pdb
+
+            pdb.set_trace()  # noqa
+            return context.get_schema(schema_ref)
         case _:
-            raise ValueError
+            raise ValueError(f"don't know how to handle keys ({tuple(yaml_dict)})")
 
 
 @functools.lru_cache(maxsize=None, typed=True)

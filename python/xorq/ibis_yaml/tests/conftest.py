@@ -9,6 +9,19 @@ import xorq.vendor.ibis as ibis
 # Fixtures from: https://github.com/ibis-project/ibis-substrait/blob/main/ibis_substrait/tests/compiler/test_tpch.py
 
 
+def get_dtype_yaml(yaml_dict, expression, key="type"):
+    # FIXME: add a generalized yaml replacement?
+    match tuple((expression_type := expression[key]).items()):
+        case (("dtype_ref", dtype_ref),):
+            pass
+        case _:
+            raise ValueError(
+                f"don't know how to handle expression_type: {expression_type}"
+            )
+    dtype_yaml = yaml_dict["definitions"]["dtypes"][dtype_ref]
+    return dtype_yaml
+
+
 @pytest.fixture
 def t():
     return ibis.table(

@@ -50,8 +50,11 @@ def convert_to_ref(which, wrapped):
     @functools.wraps(wrapped)
     def wrapper(op, context):
         frozen = wrapped(op, context)
-        ref = context.register(which, op, frozen)
-        return ref
+        if context is None:
+            return frozen
+        else:
+            ref = context.register(which, op, frozen)
+            return ref
 
     return wrapper
 
@@ -257,6 +260,7 @@ def _translate_literal_value(value: Any, dtype: dt.DataType) -> Any:
 
 
 @translate_to_yaml.register(dt.DataType)
+@convert_to_ref("dtypes")
 def _datatype_to_yaml(dtype: dt.DataType, context: TranslationContext) -> dict:
     return freeze(
         {
