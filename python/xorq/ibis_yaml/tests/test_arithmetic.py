@@ -1,4 +1,5 @@
 import xorq.vendor.ibis as ibis
+from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
 def test_add(compiler):
@@ -13,7 +14,8 @@ def test_add(compiler):
     assert expression["left"]["value"] == 5
     assert expression["right"]["op"] == "Literal"
     assert expression["right"]["value"] == 3
-    assert expression["type"] == {
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",
         "nullable": {"op": "bool", "value": True},
@@ -35,7 +37,8 @@ def test_subtract(compiler):
     assert expression["left"]["value"] == 5
     assert expression["right"]["op"] == "Literal"
     assert expression["right"]["value"] == 3
-    assert expression["type"] == {
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",
         "nullable": {"op": "bool", "value": True},
@@ -57,7 +60,8 @@ def test_multiply(compiler):
     assert expression["left"]["value"] == 5
     assert expression["right"]["op"] == "Literal"
     assert expression["right"]["value"] == 3
-    assert expression["type"] == {
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "Int8",
         "nullable": {"op": "bool", "value": True},
@@ -79,7 +83,8 @@ def test_divide(compiler):
     assert expression["left"]["value"] == 6.0
     assert expression["right"]["op"] == "Literal"
     assert expression["right"]["value"] == 2.0
-    assert expression["type"] == {
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "Float64",
         "nullable": {"op": "bool", "value": True},
@@ -97,7 +102,8 @@ def test_mixed_arithmetic(compiler):
     yaml_dict = compiler.to_yaml(expr)
     expression = yaml_dict["expression"]
     assert expression["op"] == "Multiply"
-    assert expression["type"] == {
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "Float64",
         "nullable": {"op": "bool", "value": True},

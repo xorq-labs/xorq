@@ -6,7 +6,6 @@ from typing import Any
 import cloudpickle
 import toolz
 from attr import (
-    evolve,
     field,
     frozen,
 )
@@ -20,6 +19,24 @@ from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.schema import Schema
+
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
+
+class RefEnum(StrEnum):
+    dtype_ref = "dtype_ref"
+    node_ref = "node_ref"
+    schema_ref = "schema_ref"
+
+
+class RegistryEnum(StrEnum):
+    dtypes = "dtypes"
+    nodes = "nodes"
+    schemas = "schemas"
 
 
 FROM_YAML_HANDLERS: dict[str, Any] = {}
@@ -36,21 +53,26 @@ def deserialize_callable(encoded_fn: str) -> callable:
     return cloudpickle.loads(pickled)
 
 
-class SchemaRegistry:
-    def __init__(self):
-        self.schemas = {}
-        self.nodes = {}
+class Registry:
+    def __init__(self, dtypes=(), nodes=(), schemas=()):
+        self.dtypes = dict(dtypes)
+        self.nodes = dict(nodes)
+        self.schemas = dict(schemas)
 
-    def register_schema(self, schema):
-        frozen_schema = freeze(
-            toolz.valmap(
-                functools.partial(translate_to_yaml, context=None),
-                schema,
-            )
+    def getstate(self):
+        return freeze(
+            {
+                RegistryEnum.dtypes: self.dtypes,
+                RegistryEnum.nodes: self.nodes,
+                RegistryEnum.schemas: self.schemas,
+            }
         )
-        schema_id = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
-        self.schemas.setdefault(schema_id, frozen_schema)
-        return schema_id
+
+    def register_dtype(self, dtype, dtype_dict):
+        dtype_ref = f"dtype_{tokenize(dtype_dict)[: config.hash_length]}"
+        self.dtypes.setdefault(dtype_ref, dtype_dict)
+        frozen = freeze({RefEnum.dtype_ref: dtype_ref})
+        return frozen
 
     def register_node(self, node, node_dict):
         """Register a node and return its name.
@@ -71,10 +93,38 @@ class SchemaRegistry:
                 with SnapshotStrategy().normalization_context(node.to_expr()):
                     node_hash = tokenize(untagged_repr)
         op_name = node_dict.get("op", "unknown").lower()
-        node_name = f"@{op_name}_{node_hash[: config.hash_length]}"
-        node_dict_with_hash = freeze(dict(node_dict) | {"snapshot_hash": node_hash})
-        self.nodes.setdefault(node_name, node_dict_with_hash)
-        return node_name
+        node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
+        node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
+        self.nodes.setdefault(node_ref, node_dict_with_hash)
+        frozen = freeze({RefEnum.node_ref: node_ref})
+        return frozen
+
+    def register_schema(self, schema):
+        frozen_schema = freeze(
+            toolz.valmap(
+                functools.partial(translate_to_yaml, context=None),
+                schema,
+            )
+        )
+        schema_ref = f"schema_{tokenize(frozen_schema)[: config.hash_length]}"
+        self.schemas.setdefault(schema_ref, frozen_schema)
+        frozen = freeze({RefEnum.schema_ref: schema_ref})
+        return frozen
+
+    def get(self, which, ref):
+        match which:
+            case RegistryEnum.dtypes:
+                dct = self.dtypes
+            case RegistryEnum.nodes:
+                dct = self.nodes
+            case RegistryEnum.schemas:
+                dct = self.schemas
+            case _:
+                raise ValueError(f"don't know how to handle which={which}")
+        try:
+            return freeze(dct[ref])
+        except KeyError:
+            raise ValueError(f"ref {ref} not found in definitions for which={which}")
 
 
 def _is_absolute_path(instance, attribute, value):
@@ -84,25 +134,17 @@ def _is_absolute_path(instance, attribute, value):
 
 @frozen
 class TranslationContext:
-    schema_registry: SchemaRegistry = field(factory=SchemaRegistry)
+    registry: Registry = field(factory=Registry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
-    definitions: FrozenOrderedDict = field(
-        factory=functools.partial(freeze, {"schemas": {}, "nodes": {}}),
-    )
     cache_dir: Path = field(
         default=None,
         converter=toolz.excepts(TypeError, Path),
         validator=_is_absolute_path,
     )
 
-    def update_definitions(self, new_definitions: FrozenOrderedDict):
-        return evolve(self, definitions=new_definitions)
-
-    def finalize_definitions(self):
-        updated_defs = dict(self.definitions)
-        updated_defs["schemas"] = self.schema_registry.schemas
-        updated_defs["nodes"] = self.schema_registry.nodes
-        return evolve(self, definitions=freeze(updated_defs))
+    @property
+    def definitions(self):
+        return self.registry.getstate()
 
     def translate_from_yaml(self, yaml_dict: dict) -> Any:
         return translate_from_yaml(yaml_dict, self)
@@ -110,11 +152,30 @@ class TranslationContext:
     def translate_to_yaml(self, op: Any) -> dict:
         return translate_to_yaml(op, self)
 
+    def register(self, which, op, frozen=None):
+        match which:
+            case RegistryEnum.dtypes:
+                return self.registry.register_dtype(op, frozen)
+            case RegistryEnum.nodes:
+                return self.registry.register_node(op, frozen)
+            case RegistryEnum.schemas:
+                return self.registry.register_schema(op)
+            case _:
+                raise ValueError(f"don't know how to register {which}")
+
+    def get_definition(self, which, ref):
+        return self.registry.get(which, ref)
+
+    def get_dtype(self, dtype_ref):
+        dtype_def = self.get_definition(RegistryEnum.dtypes, dtype_ref)
+        return self.translate_from_yaml(dtype_def)
+
+    def get_node(self, node_ref):
+        node_def = self.get_definition(RegistryEnum.nodes, node_ref)
+        return self.translate_from_yaml(node_def)
+
     def get_schema(self, schema_ref):
-        try:
-            schema_def = self.definitions["schemas"][schema_ref]
-        except KeyError:
-            raise ValueError(f"Schema {schema_ref} not found in definitions")
+        schema_def = self.get_definition(RegistryEnum.schemas, schema_ref)
         schema = Schema(toolz.valmap(self.translate_from_yaml, schema_def))
         return schema
 
@@ -145,21 +206,34 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     match yaml_dict:
         case None:
             return None
-        case {"node_ref": node_ref, **_kwargs}:
-            if "nodes" not in context.definitions:
+        case {RefEnum.dtype_ref: dtype_ref, **rest}:
+            if rest:
                 raise ValueError(
-                    f"Missing 'nodes' in definitions for reference {node_ref}"
+                    f"don't know how to handle additional keys ({tuple(rest)}"
                 )
-
-            try:
-                node_dict = context.definitions["nodes"][node_ref]
-            except KeyError:
-                raise ValueError(f"Node reference {node_ref} not found in definitions")
-            return translate_from_yaml(node_dict, context)
-        case {"op": op_type, **_kwargs}:
+            return context.get_dtype(dtype_ref)
+        case {RefEnum.node_ref: node_ref, RefEnum.schema_ref: _schema_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_node(node_ref)
+        case {RefEnum.node_ref: node_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_node(node_ref)
+        case {"op": op_type}:
             return FROM_YAML_HANDLERS.get(op_type, default_handler)(yaml_dict, context)
+        case {RefEnum.schema_ref: schema_ref, **rest}:
+            if rest:
+                raise ValueError(
+                    f"don't know how to handle additional keys ({tuple(rest)}"
+                )
+            return context.get_schema(schema_ref)
         case _:
-            raise ValueError
+            raise ValueError(f"don't know how to handle keys ({tuple(yaml_dict)})")
 
 
 @functools.lru_cache(maxsize=None, typed=True)

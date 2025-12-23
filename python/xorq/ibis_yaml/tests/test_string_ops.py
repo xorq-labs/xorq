@@ -3,18 +3,21 @@ from pytest import param
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
+from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
 def test_string_concat(compiler):
     s1 = ibis.literal("hello")
     s2 = ibis.literal("world")
     expr = s1 + s2
-    yaml_dict = compiler.to_yaml(expr)["expression"]
+    yaml_dict = compiler.to_yaml(expr)
+    expression = yaml_dict["expression"]
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
 
-    assert yaml_dict["op"] == "StringConcat"
-    assert yaml_dict["arg"]["values"][0]["value"] == "hello"
-    assert yaml_dict["arg"]["values"][1]["value"] == "world"
-    assert yaml_dict["type"] == {
+    assert expression["op"] == "StringConcat"
+    assert expression["arg"]["values"][0]["value"] == "hello"
+    assert expression["arg"]["values"][1]["value"] == "world"
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "String",
         "nullable": {"op": "bool", "value": True},
@@ -54,11 +57,13 @@ def test_string_to_date(compiler):
 def test_string_length(compiler):
     s = ibis.literal("hello")
     expr = s.length()
-    yaml_dict = compiler.to_yaml(expr)["expression"]
+    yaml_dict = compiler.to_yaml(expr)
+    expression = yaml_dict["expression"]
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
 
-    assert yaml_dict["op"] == "StringLength"
-    assert yaml_dict["arg"]["value"] == "hello"
-    assert yaml_dict["type"] == {
+    assert expression["op"] == "StringLength"
+    assert expression["arg"]["value"] == "hello"
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "Int32",
         "nullable": {"op": "bool", "value": True},
@@ -68,12 +73,13 @@ def test_string_length(compiler):
 def test_string_substring(compiler):
     s = ibis.literal("hello world")
     expr = s.substr(0, 5)
-    yaml_dict = compiler.to_yaml(expr)["expression"]
+    yaml_dict = compiler.to_yaml(expr)
+    expression = yaml_dict["expression"]
 
-    assert yaml_dict["op"] == "Substring"
-    assert yaml_dict["arg"]["value"] == "hello world"
-    assert yaml_dict["start"]["value"] == 0
-    assert yaml_dict["length"]["value"] == 5
+    assert expression["op"] == "Substring"
+    assert expression["arg"]["value"] == "hello world"
+    assert expression["start"]["value"] == 0
+    assert expression["length"]["value"] == 5
 
 
 def test_string_startswith(compiler):
