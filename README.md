@@ -9,7 +9,7 @@
 
 **A compute manifest and tools for ML.**
 
-[Documentation](https://docs.xorq.dev) • [Discord](https://discord.gg/8Kma9DhcJG) • [Website](https://www.xorq.dev)
+[Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev)
 
 </div>
 
