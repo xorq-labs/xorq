@@ -7,144 +7,327 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
+**A compute manifest and tools for ML.**
 
-**The periodic table for ML computation.**
-
-Everything is an expression. Addressable. Composable. Portable.
-
-Write high-level expression. Execute as SQL on DuckDB, Snowflake, BigQuery, or
-any engine. Every computation addressable, versioned, and reusable.
-
-[Documentation](https://docs.xorq.dev) • [Discord](https://discord.gg/8Kma9DhcJG) • [Website](https://www.xorq.dev)
+[Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev)
 
 </div>
 
 ---
 
-## What is Xorq?
+# The Problem
 
-Machine learning (ML) infrastructure is fragmented—features in one system, models in another,
-lineage reconstructed through archaeology.
+You write a feature pipeline. It works on your laptop with DuckDB. Now deploy
+it to Snowflake—rewrite. Cache intermediate results—add infrastructure. Track
+what changed—add a metadata store. Serve the model—add a serving layer.
 
-What if features, models, and pipelines aren't different things?
+Six months later: five tools that don't talk to each other, a pipeline only one
+person understands.
 
-A feature is a computation. A model is a computation. A pipeline is
-computations composed. The vendor categories aren't computational
-truths—they're commercial territories. Strip away the product boundaries and
-everything reduces to the same primitive: the expression.
+| Pain | Symptom |
+|------|---------|
+| **Glue code everywhere** | Each engine is a silo. Moving between them means rewriting, not composing. |
+| **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
+| **Opaque Lineages** | Feature logic, metadata, lineage—all in different systems. Debugging means archaeology. |
+| **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup. |
+| **Stateful orchestrators** | Retry logic, task states, failure recovery—all in an external database. Another system to manage, another thing that breaks.
 
-Xorq is the composability layer for compute expressed as relational plans.
+Feature stores. Model registries. Orchestrators. Vertical silos that don't
+serve agentic AI—which needs context and skills, not categories.
 
-## Installation
+# Xorq
+
+![intro](docs/images/intro-light.svg#gh-light-mode-only)
+![intro](docs/images/intro-dark.svg#gh-dark-mode-only)
+
+**Manifest = Context.** Every ML computation becomes a structured,
+input-addressed YAML manifest.
+
+**Tools = Skills.** A catalog to discover. A build system to deterministically
+cache and execute anywhere.
 
 ```bash
 pip install xorq[examples]
 xorq init -t penguins
 ```
 
-[Full tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
+---
 
-## Quickstart
+# The Expression
+
+Write [Ibis](https://ibis-project.org) expressions. Xorq extends Ibis with
+caching, multi-engine execution, and UDFs.
+
+```python
+import ibis
+from xorq.common.utils.ibis_utils import from_ibis
+from xorq.caching import ParquetCache
+
+penguins = ibis.examples.penguins.fetch()
+
+penguins_agg = (
+    penguins
+    .filter(ibis._.species.notnull())
+    .group_by("species")
+    .agg(avg_bill_length=ibis._.bill_length_mm.mean())
+)
+
+expr = (
+    from_ibis(penguins_agg)
+    .cache(ParquetCache.from_kwargs())
+)
+```
+
+Declare `.cache()` on any node. Xorq handles the rest—no cache keys to manage,
+no invalidation logic to write.
+
+## Compose across engines
+
+One expression, many engines. Part of your pipeline runs on DuckDB, part on
+Xorq's embedded [DataFusion](https://datafusion.apache.org) engine, UDFs
+via Arrow Flight. No glue code between them.
+
+```python
+expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
+expr.ls.backends
+```
+```
+(<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
+ <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
+```
+
+## Only recompute what changed
+
+The manifest is input-addressed: it describes *how* the computation was made,
+not just what it is. Same inputs = same hash. Change an input, get a new hash.
+
+```python
+expr.ls.get_cache_paths()
+```
+```
+(PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
+```
+
+The hash *is* the cache key. No invalidation logic to debug.
+If the expression is the same, the hash is the same, and the cache is valid.
+Change an input, get a new hash, trigger recomputation.
+
+Traditional caching asks "has this expired?" Input-addressed caching asks "is
+this the same computation?" The second question has a deterministic answer.
+
+---
+
+# The Manifest
+
+Build an expression, get a manifest.
+
+```bash
+xorq build expr.py
+```
+
+```
+builds/28ecab08754e
+├── database_tables
+│   └── f2ac274df56894cb1505bfe8cb03940e.parquet
+├── expr.yaml
+├── metadata.json
+└── profiles.yaml
+```
+
+No external metadata store. No separate lineage tool. The build directory *is*
+the versioned, cached, portable artifact.
+
+```yaml
+# Input-addressed, composable, portable
+# Abridged expr.yaml
+nodes:
+  '@read_31f0a5be3771':
+    op: Read
+    name: penguins
+    source: builds/28ecab08754e/.../f2ac274df56894cb1505bfe8cb03940e.parquet
+
+  '@filter_23e7692b7128':
+    op: Filter
+    parent: '@read_31f0a5be3771'
+    predicates:
+      - NotNull(species)
+
+  '@remotetable_9a92039564d4':
+    op: RemoteTable
+    remote_expr:
+      op: Aggregate
+      parent: '@filter_23e7692b7128'
+      by: [species]
+      metrics:
+        avg_bill_length: Mean(bill_length_mm)
+
+  '@cachednode_e7b5fd7cd0a9':
+    op: CachedNode
+    parent: '@remotetable_9a92039564d4'
+    cache:
+      type: ParquetCache
+      path: parquet
+```
+
+### Reproducible builds
+
+The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
+your pipelines. Code review your features. Rebuild from YAML alone.
+
+```bash
+xorq uv-build builds/28ecab08754e/
+
+builds/28ecab08754e/dist/xorq_build-0.1.0.tar.gz
+```
+
+The build captures everything: expression graph, dependencies, memory tables.
+Share the build that has sdist, get identical results. No "works on my machine."
+
+### Debug with confidence
+
+No more archaeology. Lineage is encoded in the manifest—not scattered across
+tools—and queryable from the CLI.
+
+```bash
+xorq lineage penguins-agg
+
+Lineage for column 'avg_bill_length':
+Field:avg_bill_length #1
+└── Cache xorq_cached_node_name_placeholder #2
+    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
+        └── Aggregate #4
+            ├── Filter #5
+            │   ├── Read #6
+            │   └── NotNull #7
+            │       └── Field:species #8
+            │           └── ↻ see #6
+            ├── Field:species #9
+            │   └── ↻ see #5
+            └── Mean #10
+                └── Field:bill_length_mm #11
+                    └── ↻ see #5
+```
+
+
+---
+
+# The Tools
+
+The manifest provides context. The tools provide skills: catalog, introspect,
+serve, execute.
+
+## Catalog
+
+```bash
+# Add to catalog
+xorq catalog add builds/28ecab08754e/ --alias penguins-agg
+Added build 28ecab08754e as entry a498016e-5bea-4036-aec0-a6393d1b7c0f revision r1
+
+# List entries
+xorq catalog ls
+Aliases:
+penguins-agg    a498016e-5bea-4036-aec0-a6393d1b7c0f    r1
+Entries:
+a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
+```
+
+## Stateless orchestration
+
+No task states. No retry logic. No failure recovery database.
+
+Xorq executes expressions as Arrow RecordBatch streams. There's no DAG of tasks
+to checkpoint—just data flowing through operators. If something fails, rerun
+from the manifest. Cached nodes resolve instantly; the rest recomputes.
+
+### Run
+
+```bash
+xorq run builds/28ecab08754e -o out.parquet
+```
+
+## Serve
+
+Serve expressions anywhere via Arrow Flight:
+
+```bash
+xorq serve-unbound builds/28ecab08754e/ \
+  --to_unbind_hash 31f0a5be37713fe2c1a2d8ad8fdea69f \
+  --host localhost --port 9002
+```
 
 ```python
 import xorq.api as xo
-from sklearn.ensemble import RandomForestClassifier
 
-data = xo.read_parquet('s3://bucket/penguins.parquet')
-train, test = xo.test_train_splits(data, test_size=0.2)
+backend = xo.flight.connect(host="localhost", port=9002)
+f = backend.get_exchange("default")
 
-model = xo.Pipeline.from_instance(RandomForestClassifier())
-fitted = model.fit(train, features=['bill_length_mm', 'bill_depth_mm'],
-                   target='species')
+data = {
+    "species": ["Adelie", "Gentoo", "Chinstrap"],
+    "island": ["Torgersen", "Biscoe", "Dream"],
+    "bill_length_mm": [39.1, 47.5, 49.0],
+    "bill_depth_mm": [18.7, 14.2, 18.5],
+    "flipper_length_mm": [181, 217, 195],
+    "body_mass_g": [3750, 5500, 4200],
+    "sex": ["male", "female", "male"],
+    "year": [2007, 2008, 2009],
+}
 
-predictions = fitted.predict(test).cache(storage=ParquetStorage())  # deferred
-predictions.execute()  # do work
+xo.memtable(data).pipe(f).execute()
 ```
 
-**CLI:**
+```
+     species  avg_bill_length
+0     Adelie             39.1
+1  Chinstrap             49.0
+2     Gentoo             47.5
+```
+---
+
+## Templates
+
+Ready-to-start projects:
 
 ```bash
-xorq build expr.py -e predictions
-xorq run builds/
+# Penguins aggregation
+xorq init -t penguins
+
+# Sklearn digits classification
+xorq init -t sklearn
 ```
 
-## How it works
+## Scikit-learn Integration
 
-Xorq captures your ML computation as an **input-addressed manifest**—a
-declarative representation where each node is identified by the hash of its
-computation specification, not its results.
+Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
 
-```yaml
-# Manifest snippet: fit → predict lineage
-predicted:
-  op: ExprScalarUDF            # Model inference
-  kwargs:
-    bill_length_mm: ...        # Feature inputs
-    bill_depth_mm: ...
-  meta:
-    __config__:
-      computed_kwargs_expr:    # Training lineage preserved
-        op: AggUDF             # Model training
-        kwargs:
-          species: ...         # Original training target
+```python
+from xorq.expr.ml.pipeline_lib import Pipeline
+
+sklearn_pipeline = ...
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 ```
+---
 
-### What This Enables
+## The Horizontal Stack
 
-| Capability | How |
-|------------|-----|
-| **Version by intent** | Same computation = same hash, regardless of input data |
-| **Precise caching** | Cache based on what you're computing, not when |
-| **Structural lineage** | Provenance is the graph itself, not reconstructed logs |
-| **Portable execution** | Manifest compiles to optimized SQL for any engine |
+Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
+engine built on DataFusion. Universal UDFs via Arrow Flight.
 
-### Input-Addressing
+![Architecture](docs/images/architecture-light.svg#gh-light-mode-only)
+![Architecture](docs/images/architecture-dark.svg#gh-dark-mode-only)
 
-Every computation gets a unique hash based on its logic:
+Lineage, caching, and versioning travel with the manifest—cataloged, not locked
+in a vendor's database.
 
-- Same feature engineering on different days → **same hash** (reusable)
-- Different feature logic → **different hash** (new version)
+**Integrations:** Ibis • scikit-learn • Feast(wip) • dbt (upcoming)
 
-If anyone on your team has run this exact computation before, Xorq reuses it
-automatically. The hash is the truth.
+---
 
-## The Catalog
-
-Your team's shared ledger of ML compute—versioned, discoverable, composable.
-Below is an example of what it looks like to add an expr to the catalog.
-
-```bash
-# Register a build with an alias.
-❯ xorq catalog add builds/7061dd65ff3c --alias fraud-model
-
-# Discover what exists.
-❯ xorq catalog ls
-Aliases:
-fraud-model                  7061dd65ff3c     r2
-customer-features            dbf90860-88b3    r1
-recommendation-pipeline      52f987594254     r1
-
-# Trace lineage.
-❯ xorq lineage fraud-model
-
-# Serve for inference.
-xorq serve-unbound  fraud-model --port 8001 405154f690d20f4adbcc375252628b75
-```
-
-The catalog isn't a database. It's an addressing system—discoverable by humans,
-navigable by agents.
-
-## The Architecture
-![Architecture](docs/images/architecture-light.png#gh-light-mode-only)
-![Architecture](docs/images/architecture-dark.png#gh-dark-mode-only)
-
-
-## Learn more
+## Learn More
 
 - [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
-- [Why xorq?](https://docs.xorq.dev/#why-xorq)
+- [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 - [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 
-## Status
+---
 
 Pre-1.0. Expect breaking changes with migration guides.

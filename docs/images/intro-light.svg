@@ -1,0 +1,108 @@
+<svg viewBox="0 0 720 220" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background - Blue Sky -->
+  <rect width="720" height="220" fill="#C1F0FF"/>
+
+  <!-- ==================== LEFT: Python Expressions ==================== -->
+  <g transform="translate(20, 20)">
+    <text x="80" y="0" text-anchor="middle" fill="#05181A" font-family="Space Mono, monospace" font-size="10" font-weight="bold">[WRITE]</text>
+
+    <!-- Code block - Midnight background -->
+    <rect x="0" y="12" width="160" height="145" rx="6" fill="#05181A"/>
+    <text x="12" y="32" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="9" opacity="0.6"># expr.py</text>
+    <text x="12" y="48" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="9">import</text>
+    <text x="52" y="48" fill="#F0FBFF" font-family="Space Mono, monospace" font-size="9">xorq</text>
+
+    <text x="12" y="68" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="9" opacity="0.7">penguins = read(...)</text>
+    <text x="12" y="84" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="9" opacity="0.7">.filter(...)</text>
+    <text x="12" y="100" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="9" opacity="0.7">.aggregate(...)</text>
+    <text x="12" y="116" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="9" opacity="0.7">.cache(...)</text>
+
+    <line x1="12" y1="128" x2="148" y2="128" stroke="#C1F0FF" stroke-opacity="0.3"/>
+    <text x="12" y="145" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="8">Ibis IR + UDFs</text>
+  </g>
+
+  <!-- Arrow: Write to Manifest -->
+  <g transform="translate(190, 95)">
+    <line x1="0" y1="0" x2="50" y2="0" stroke="#05181A" stroke-width="2"/>
+    <polygon points="50,-4 60,0 50,4" fill="#05181A"/>
+    <text x="30" y="-8" text-anchor="middle" fill="#05181A" font-family="Space Mono, monospace" font-size="8">xorq build</text>
+  </g>
+
+  <!-- ==================== CENTER: The Manifest (Hero) ==================== -->
+  <g transform="translate(260, 20)">
+    <text x="75" y="0" text-anchor="middle" fill="#05181A" font-family="Space Mono, monospace" font-size="10" font-weight="bold">[MANIFEST]</text>
+
+    <!-- Manifest card with glow - Midnight background -->
+    <g filter="url(#glow)">
+      <rect x="0" y="12" width="150" height="175" rx="6" fill="#05181A" stroke="#C1F0FF" stroke-width="2"/>
+    </g>
+
+    <!-- Hash badge -->
+    <rect x="20" y="24" width="110" height="22" rx="11" fill="#C1F0FF" fill-opacity="0.15" stroke="#C1F0FF" stroke-opacity="0.5"/>
+    <text x="75" y="40" text-anchor="middle" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="10" font-weight="bold">28ecab08754e</text>
+
+    <!-- expr.yaml preview -->
+    <text x="12" y="62" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="8" opacity="0.6">expr.yaml</text>
+    <text x="12" y="76" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7">nodes:</text>
+    <text x="16" y="88" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7" opacity="0.7">@read_31f0...</text>
+    <text x="16" y="99" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7" opacity="0.7">@filter_23e7...</text>
+    <text x="16" y="110" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7" opacity="0.7">@agg_9a92...</text>
+    <text x="16" y="121" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7" opacity="0.7">@cached_e7b5...</text>
+
+    <line x1="12" y1="130" x2="138" y2="130" stroke="#C1F0FF" stroke-opacity="0.3"/>
+
+    <!-- Properties -->
+    <text x="12" y="144" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7">✓ input-addressed</text>
+    <text x="12" y="155" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7">✓ lineage tracked</text>
+    <text x="12" y="166" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7">✓ deterministic cache</text>
+    <text x="12" y="177" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="7">✓ human diffable</text>
+  </g>
+
+  <!-- Arrow: Manifest to Engines -->
+  <g transform="translate(420, 95)">
+    <line x1="0" y1="0" x2="50" y2="0" stroke="#05181A" stroke-width="2"/>
+    <polygon points="50,-4 60,0 50,4" fill="#05181A"/>
+    <text x="30" y="-8" text-anchor="middle" fill="#05181A" font-family="Space Mono, monospace" font-size="8">xorq run</text>
+  </g>
+
+  <!-- ==================== RIGHT: Execute Anywhere ==================== -->
+  <g transform="translate(490, 20)">
+    <text x="105" y="0" text-anchor="middle" fill="#05181A" font-family="Space Mono, monospace" font-size="10" font-weight="bold">[EXECUTE]</text>
+
+    <!-- Engine stack - Midnight backgrounds -->
+    <g transform="translate(0, 12)">
+      <!-- DuckDB -->
+      <rect x="0" y="0" width="210" height="42" rx="5" fill="#05181A"/>
+      <text x="105" y="18" text-anchor="middle" fill="#C1F0FF" font-family="Inter Tight, sans-serif" font-size="11" font-weight="600">DuckDB</text>
+      <text x="105" y="32" text-anchor="middle" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="8" opacity="0.6">local development</text>
+
+      <!-- Snowflake -->
+      <rect x="0" y="50" width="210" height="42" rx="5" fill="#05181A"/>
+      <text x="105" y="68" text-anchor="middle" fill="#C1F0FF" font-family="Inter Tight, sans-serif" font-size="11" font-weight="600">Snowflake</text>
+      <text x="105" y="82" text-anchor="middle" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="8" opacity="0.6">production scale</text>
+
+      <!-- DataFusion (highlighted) -->
+      <rect x="0" y="100" width="210" height="42" rx="5" fill="#05181A" stroke="#C1F0FF" stroke-width="2"/>
+      <text x="105" y="118" text-anchor="middle" fill="#C1F0FF" font-family="Inter Tight, sans-serif" font-size="11" font-weight="600">DataFusion</text>
+      <text x="105" y="132" text-anchor="middle" fill="#C1F0FF" font-family="Space Mono, monospace" font-size="8" opacity="0.6">embedded + UDFs via Flight</text>
+    </g>
+
+    <!-- Same manifest badge -->
+    <g transform="translate(35, 162)">
+      <rect x="0" y="0" width="140" height="24" rx="12" fill="#F0FBFF" stroke="#05181A" stroke-dasharray="4,2"/>
+      <text x="70" y="16" text-anchor="middle" fill="#05181A" font-family="Space Mono, monospace" font-size="8">same manifest</text>
+    </g>
+  </g>
+
+
+</svg>
