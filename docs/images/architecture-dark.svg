@@ -97,26 +97,24 @@
 
     <!-- Available Blocks Palette -->
     <g transform="translate(15, 38)">
-      <rect x="0" y="0" width="70" height="28" rx="4" fill="#C1F0FF"/>
-      <text x="35" y="12" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" font-weight="700">FEATURE</text>
-      <text x="35" y="22" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" font-weight="700">VIEW</text>
+      <rect x="0" y="0" width="55" height="28" rx="4" fill="#C1F0FF"/>
+      <text x="27" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="8" font-weight="700">READ</text>
 
-      <rect x="75" y="0" width="70" height="28" rx="4" fill="#C1F0FF"/>
-      <text x="110" y="12" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" font-weight="700">SEMANTIC</text>
-      <text x="110" y="22" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" font-weight="700">MODEL</text>
+      <rect x="60" y="0" width="55" height="28" rx="4" fill="#C1F0FF"/>
+      <text x="87" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="8" font-weight="700">FILTER</text>
 
-      <rect x="150" y="0" width="55" height="28" rx="4" fill="#C1F0FF"/>
-      <text x="177" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7" font-weight="700">TABLES</text>
+      <rect x="120" y="0" width="55" height="28" rx="4" fill="#C1F0FF"/>
+      <text x="147" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="8" font-weight="700">AGG</text>
 
-      <rect x="210" y="0" width="60" height="28" rx="4" fill="#C1F0FF"/>
-      <text x="240" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7" font-weight="700">PROFILES</text>
+      <rect x="180" y="0" width="55" height="28" rx="4" fill="#C1F0FF"/>
+      <text x="207" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="8" font-weight="700">UDF</text>
 
-      <rect x="275" y="0" width="70" height="28" rx="4" fill="#C1F0FF"/>
-      <text x="310" y="12" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" font-weight="700">SCIKIT-</text>
-      <text x="310" y="22" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" font-weight="700">LEARN</text>
+      <rect x="240" y="0" width="55" height="28" rx="4" fill="#C1F0FF"/>
+      <text x="267" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="8" font-weight="700">CACHE</text>
 
-      <rect x="350" y="0" width="45" height="28" rx="4" fill="#C1F0FF"/>
-      <text x="372" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7" font-weight="700">dbt</text>
+      <rect x="300" y="0" width="90" height="28" rx="4" fill="#C1F0FF" stroke="#05181A" stroke-width="0.5"/>
+      <text x="345" y="12" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" font-weight="700">INTO_BACKEND</text>
+      <text x="345" y="22" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="6" opacity="0.6">(engine)</text>
     </g>
 
     <!-- Composition area - width 450 to match LLM box below -->
