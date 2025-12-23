@@ -411,3 +411,33 @@ def test_table_unnest_array_of_struct_of_array(con):
     result = con.execute(expr)
     expected = pd.DataFrame({"x": [1, 1, 1, 2, 2, 2, 3, 3, 3]})
     assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize("op", [lambda x, y: x + y, lambda x, y: y + x])
+def test_array_concat_scalar(con, op):
+    raw_left = [1, 2, 3]
+    raw_right = [3, 4]
+    left = xo.literal(raw_left)
+    right = xo.literal(raw_right)
+    expr = op(left, right)
+    result = con.execute(expr)
+    assert result == op(raw_left, raw_right)
+
+
+@pytest.mark.parametrize(
+    "op", [lambda x, y: x + y, lambda x, y: y + x], ids=["left", "right"]
+)
+def test_array_concat_with_null(con, op):
+    non_null_value = xo.array([2**31 - 1])
+    null_value = xo.null(non_null_value.type())
+    expr = op(non_null_value, null_value)
+    result = con.execute(expr)
+    isna = pd.isna(result)
+    assert isna is True or isna is np.True_
+
+
+def test_array_concat_with_null_non_constant(con):
+    t = xo.memtable({"a": [None]}, schema={"a": "array<int32>"})
+    expr = t.a + t.a
+    result = con.execute(expr)
+    assert all(pd.isna(result))

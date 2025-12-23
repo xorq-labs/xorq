@@ -268,14 +268,8 @@ def test_parquet_cache_storage(tmp_path, alltypes_df):
     assert_frame_equal(actual, expected)
 
     path.unlink()
-    pattern = "".join(
-        (
-            "Object Store error: Object at location",
-            ".*",
-            "not found: No such file or directory",
-        )
-    )
-    with pytest.raises(Exception, match=pattern):
+    pattern = "No data to cache"
+    with pytest.raises(ValueError, match=pattern):
         # if the file doesn't exist, we get a failure, even for cached
         cached.execute()
 

@@ -429,3 +429,38 @@ def test_value_counts_on_expr(alltypes, alltypes_df):
     expected.columns = columns
     expected = expected.sort_values(by=columns).reset_index(drop=True)
     assert_frame_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("result_fn", "expected_fn"),
+    [
+        param(
+            lambda t, where: t.double_col.quantile(0.5, where=where),
+            lambda t, where: t.double_col[where].quantile(0.5),
+            id="quantile",
+        ),
+    ],
+)
+@pytest.mark.parametrize(
+    ("ibis_cond", "pandas_cond"),
+    [
+        param(lambda _: None, lambda _: slice(None), id="no_cond"),
+        param(
+            lambda t: t.string_col.isin(["1", "7"]),
+            lambda t: t.string_col.isin(["1", "7"]),
+            id="is_in",
+        ),
+    ],
+)
+def test_quantile(
+    alltypes,
+    alltypes_df,
+    result_fn,
+    expected_fn,
+    ibis_cond,
+    pandas_cond,
+):
+    expr = alltypes.agg(tmp=result_fn(alltypes, ibis_cond(alltypes))).tmp
+    result = expr.execute().squeeze()
+    expected = expected_fn(alltypes_df, pandas_cond(alltypes_df))
+    assert pytest.approx(result) == expected

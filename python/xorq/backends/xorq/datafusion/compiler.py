@@ -3,7 +3,7 @@ from __future__ import annotations
 import calendar
 import contextlib
 import math
-from functools import partial
+from functools import partial, reduce
 from itertools import starmap
 
 import sqlglot as sg
@@ -126,6 +126,8 @@ class DataFusionCompiler(SQLGlotCompiler):
         ops.Unnest: "unnest",
         ops.StringToDate: "to_date",
         ops.StringToTimestamp: "to_timestamp",
+        ops.MapKeys: "map_keys",
+        ops.MapValues: "map_values",
     }
 
     def _to_timestamp(self, value, target_dtype, literal=False):
@@ -550,8 +552,8 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_ArraySlice(self, op, *, arg, start, stop):
         array_length = self.f.array_length(arg)
-        start = self.f.coalesce(start, 0)
-        stop = self.f.coalesce(stop, array_length + 1)
+        start = self.cast(self.f.coalesce(start, 0), dt.int64)
+        stop = self.cast(self.f.coalesce(stop, array_length + 1), dt.int64)
         return self.f.array_slice(
             arg,
             self.if_(
@@ -725,6 +727,34 @@ class DataFusionCompiler(SQLGlotCompiler):
 
         res = sg.select(*selcols).from_(parent)
         return res
+
+    def visit_Quantile(self, op, *, arg, quantile, where):
+        expr = sge.WithinGroup(
+            this=self.f.percentile_cont(quantile),
+            expression=sge.Order(expressions=[sge.Ordered(this=arg)]),
+        )
+        if where is not None:
+            expr = sge.Filter(this=expr, expression=sge.Where(this=where))
+        return expr
+
+    def visit_ArrayConcat(self, op, *, arg):
+        return reduce(
+            lambda x, y: self.if_(
+                x.is_(NULL).or_(y.is_(NULL)), NULL, self.f.array_cat(x, y)
+            ),
+            map(partial(self.cast, to=op.dtype), arg),
+        )
+
+    def visit_MapGet(self, op, *, arg, key, default):
+        if op.dtype.is_null():
+            return NULL
+        return self.f.coalesce(self.f.map_extract(arg, key)[1], default)
+
+    def visit_MapContains(self, op, *, arg, key):
+        return self.f.array_has(self.f.map_keys(arg), key)
+
+    def visit_MapLength(self, op, *, arg):
+        return self.f.array_length(self.f.map_keys(arg))
 
 
 compiler = DataFusionCompiler()
