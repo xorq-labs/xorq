@@ -101,17 +101,24 @@ expr.ls.backends
  <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
 ```
 
-### Scikit-learn Integration
+### Only recompute what changed
 
-Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
+The manifest is input-addressed: it describes *how* the computation was made,
+not just what it is. Same inputs = same hash. Change an input, get a new hash.
 
 ```python
-from xorq.expr.ml.pipeline_lib import Pipeline
-
-sklearn_pipeline = ...
-xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+expr.ls.get_cache_paths()
+```
+```
+(PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
 ```
 
+The hash *is* the cache key. No TTLs to tune. No invalidation logic to debug.
+If the expression is the same, the hash is the same, and the cache is valid.
+Change an input, get a new hash, trigger recomputation.
+
+Traditional caching asks "has this expired?" Input-addressed caching asks "is
+this the same computation?" The second question has a deterministic answer.
 ---
 
 ## The Manifest
@@ -171,28 +178,15 @@ nodes:
 The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
 your pipelines. Code review your features. Rebuild from YAML alone.
 
-Xorq uses `uv` to lock Python environments. The build captures everything:
-expression graph, dependencies, cached data. Share a build directory, get
-identical results. No "works on my machine."
+```bash
+xorq uv-build builds/28ecab08754e/
 
-### Only recompute what changed
-
-The manifest is input-addressed: it describes *how* the computation was made,
-not just what it is. Same inputs = same hash. Change an input, get a new hash.
-
-```python
-expr.ls.get_cache_paths()
-```
-```
-(PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
+builds/28ecab08754e/dist/xorq_build-0.1.0.tar.gz
 ```
 
-The hash *is* the cache key. No TTLs to tune. No invalidation logic to debug.
-If the expression is the same, the hash is the same, and the cache is valid.
-Change an input, get a new hash, trigger recomputation.
+The build captures everything: expression graph, dependencies, memory tables.
+Share the build that has sdist, get identical results. No "works on my machine."
 
-Traditional caching asks "has this expired?" Input-addressed caching asks "is
-this the same computation?" The second question has a deterministic answer.
 
 ---
 
@@ -214,31 +208,6 @@ Aliases:
 penguins-agg    a498016e-5bea-4036-aec0-a6393d1b7c0f    r1
 Entries:
 a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
-```
-
-### Debug with confidence
-
-No more archaeology. Lineage is encoded in the manifest—not scattered across
-tools—and queryable from the CLI.
-
-```bash
-xorq lineage penguins-agg
-
-Lineage for column 'avg_bill_length':
-Field:avg_bill_length #1
-└── Cache xorq_cached_node_name_placeholder #2
-    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
-        └── Aggregate #4
-            ├── Filter #5
-            │   ├── Read #6
-            │   └── NotNull #7
-            │       └── Field:species #8
-            │           └── ↻ see #6
-            ├── Field:species #9
-            │   └── ↻ see #5
-            └── Mean #10
-                └── Field:bill_length_mm #11
-                    └── ↻ see #5
 ```
 
 ### Serve
@@ -284,6 +253,31 @@ xo.memtable(data).pipe(f).execute()
 xorq run builds/28ecab08754e -o out.parquet
 ```
 
+### Debug with confidence
+
+No more archaeology. Lineage is encoded in the manifest—not scattered across
+tools—and queryable from the CLI.
+
+```bash
+xorq lineage penguins-agg
+
+Lineage for column 'avg_bill_length':
+Field:avg_bill_length #1
+└── Cache xorq_cached_node_name_placeholder #2
+    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
+        └── Aggregate #4
+            ├── Filter #5
+            │   ├── Read #6
+            │   └── NotNull #7
+            │       └── Field:species #8
+            │           └── ↻ see #6
+            ├── Field:species #9
+            │   └── ↻ see #5
+            └── Mean #10
+                └── Field:bill_length_mm #11
+                    └── ↻ see #5
+```
+
 ---
 
 ## Templates
@@ -298,6 +292,16 @@ xorq init -t penguins
 xorq init -t sklearn
 ```
 
+### Scikit-learn Integration
+
+Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
+
+```python
+from xorq.expr.ml.pipeline_lib import Pipeline
+
+sklearn_pipeline = ...
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+```
 ---
 
 ## The Horizontal Stack
@@ -311,7 +315,7 @@ engine built on DataFusion. Universal UDFs via Arrow Flight.
 Lineage, caching, and versioning travel with the manifest—cataloged, not locked
 in a vendor's database.
 
-**Integrations:** Ibis • scikit-learn • Feast • dbt
+**Integrations:** Ibis • scikit-learn • Feast(wip) • dbt (upcoming)
 
 ---
 
