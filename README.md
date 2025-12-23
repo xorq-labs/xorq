@@ -115,7 +115,7 @@ version. The hash *is* the address.
 
 #### Portable UDFs
 
-```
+```python
 import pandas as pd
 import xorq.api as xo
 
@@ -140,7 +140,7 @@ expr = bill_ratio_udxf(penguins)
 One manifest, many engines. Execute on DuckDB locally, translate to Snowflake
 for production, run Python UDFs on Xorq's embedded [DataFusion](https://datafusion.apache.org) engine.
 
-```
+```python
 expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
 expr.ls.backends
 ```
@@ -148,6 +148,9 @@ expr.ls.backends
 (<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
  <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
 ```
+
+#### Deterministic Caching
+
 
 ## The Tools
 ```bash
