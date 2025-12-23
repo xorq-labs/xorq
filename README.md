@@ -140,20 +140,13 @@ expr = bill_ratio_udxf(penguins)
 One manifest, many engines. Execute on DuckDB locally, translate to Snowflake
 for production, run Python UDFs on Xorq's embedded [DataFusion](https://datafusion.apache.org) engine.
 
-```profiles.yaml
-2eca7579af9a9d8e315faf6af1ddb59a_2:
-  con_name: duckdb
-  idx: 2
-  kwargs_tuple:
-    database: ':memory:'
-    extensions: null
-    read_only: false
-    temp_directory: null
-feda6956a9ca4d2bda0fbc8e775042c3_3:
-  con_name: let
-  idx: 3
-  kwargs_tuple:
-    config: null
+```
+expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
+expr.ls.backends
+```
+```bash
+(<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
+ <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
 ```
 
 ## The Tools
@@ -171,7 +164,6 @@ a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 
 # Introspect
 
-hussainsultan in 🌐 lets-pop in xorq hussain/docs/readme-updates*​​ ⇕≡
 ❯ xorq lineage penguins-agg
 
 Lineage for column 'avg_bill_length':
@@ -193,13 +185,15 @@ Field:avg_bill_length #1
 # Run
 ❯ xorq run builds/28ecab08754e -o out.parquet
 
+# Serve
+
 ```
 ### xorq-template-sklearn
 
 Xorq provides utilities to translate `scikit-learn`'s `Pipeline` objects to a
 deferred Xorq objects.
 
-```
+```python
 from xorq.expr.ml.pipeline_lib import (
     Pipeline,
 )
