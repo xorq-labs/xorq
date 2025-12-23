@@ -6,7 +6,6 @@ from typing import Any
 import cloudpickle
 import toolz
 from attr import (
-    evolve,
     field,
     frozen,
 )
@@ -55,17 +54,19 @@ def deserialize_callable(encoded_fn: str) -> callable:
 
 
 class Registry:
-    def __init__(self):
-        self.dtypes = {}
-        self.nodes = {}
-        self.schemas = {}
+    def __init__(self, dtypes=(), nodes=(), schemas=()):
+        self.dtypes = dict(dtypes)
+        self.nodes = dict(nodes)
+        self.schemas = dict(schemas)
 
     def getstate(self):
-        return {
-            RegistryEnum.dtypes: self.dtypes,
-            RegistryEnum.nodes: self.nodes,
-            RegistryEnum.schemas: self.schemas,
-        }
+        return freeze(
+            {
+                RegistryEnum.dtypes: self.dtypes,
+                RegistryEnum.nodes: self.nodes,
+                RegistryEnum.schemas: self.schemas,
+            }
+        )
 
     def register_dtype(self, dtype, dtype_dict):
         dtype_ref = f"dtype_{tokenize(dtype_dict)[: config.hash_length]}"
@@ -110,6 +111,21 @@ class Registry:
         frozen = freeze({RefEnum.schema_ref: schema_ref})
         return frozen
 
+    def get(self, which, ref):
+        match which:
+            case RegistryEnum.dtypes:
+                dct = self.dtypes
+            case RegistryEnum.nodes:
+                dct = self.nodes
+            case RegistryEnum.schemas:
+                dct = self.schemas
+            case _:
+                raise ValueError(f"don't know how to handle which={which}")
+        try:
+            return freeze(dct[ref])
+        except KeyError:
+            raise ValueError(f"ref {ref} not found in definitions for which={which}")
+
 
 def _is_absolute_path(instance, attribute, value):
     if value and not Path(value).is_absolute():
@@ -120,18 +136,15 @@ def _is_absolute_path(instance, attribute, value):
 class TranslationContext:
     registry: Registry = field(factory=Registry)
     profiles: FrozenOrderedDict = field(factory=FrozenOrderedDict)
-    definitions: FrozenOrderedDict = field(
-        factory=functools.partial(freeze, Registry().getstate()),
-    )
     cache_dir: Path = field(
         default=None,
         converter=toolz.excepts(TypeError, Path),
         validator=_is_absolute_path,
     )
 
-    def finalize_definitions(self):
-        definitions = freeze(self.definitions | self.registry.getstate())
-        return evolve(self, definitions=definitions)
+    @property
+    def definitions(self):
+        return self.registry.getstate()
 
     def translate_from_yaml(self, yaml_dict: dict) -> Any:
         return translate_from_yaml(yaml_dict, self)
@@ -151,10 +164,7 @@ class TranslationContext:
                 raise ValueError(f"don't know how to register {which}")
 
     def get_definition(self, which, ref):
-        try:
-            return self.definitions[which][ref]
-        except KeyError:
-            raise ValueError(f"ref {ref} not found in definitions for {which}")
+        return self.registry.get(which, ref)
 
     def get_dtype(self, dtype_ref):
         dtype_def = self.get_definition(RegistryEnum.dtypes, dtype_ref)

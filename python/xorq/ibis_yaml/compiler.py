@@ -32,6 +32,7 @@ from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
 from xorq.ibis_yaml.common import (
     RefEnum,
+    Registry,
     RegistryEnum,
     TranslationContext,
     translate_from_yaml,
@@ -169,10 +170,9 @@ class YamlExpressionTranslator:
                     else None,
                 }
             )
-            definitions = context.finalize_definitions().definitions
             return freeze(
                 {
-                    "definitions": definitions,
+                    "definitions": context.definitions,
                     "expression": expr_dict,
                 }
             )
@@ -183,8 +183,8 @@ class YamlExpressionTranslator:
         profiles=(),
     ) -> ir.Expr:
         context = TranslationContext(
+            registry=Registry(**yaml_dict.get("definitions", {})),
             profiles=freeze(dict(profiles)),
-            definitions=freeze(yaml_dict.get("definitions", {})),
         )
         expr_dict = freeze(yaml_dict["expression"])
         return translate_from_yaml(expr_dict, context)
