@@ -30,6 +30,7 @@ person understands.
 | **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
 | **Opaque Lineages** | Feature logic, metadata, lineage—all in different systems. Debugging means archaeology. |
 | **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup. |
+| **Stateful orchestrators** | Retry logic, task states, failure recovery—all in an external database. Another system to manage, another thing that breaks.
 
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
 serve agentic AI—which needs context and skills, not categories.
@@ -230,7 +231,15 @@ Entries:
 a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 ```
 
-## Run
+## Stateless orchestration
+
+No task states. No retry logic. No failure recovery database.
+
+Xorq executes expressions as Arrow RecordBatch streams. There's no DAG of tasks
+to checkpoint—just data flowing through operators. If something fails, rerun
+from the manifest. Cached nodes resolve instantly; the rest recomputes.
+
+### Run
 
 ```bash
 xorq run builds/28ecab08754e -o out.parquet
