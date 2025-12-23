@@ -37,9 +37,10 @@ xorq init -t penguins
 Write [Ibis](https://ibis-project.org) expressions, get human-diffable manifests.
 
 ```python
+# expr.py
 import ibis
 from xorq.common.utils.ibis_utils import from_ibis
-from xorq.caching import ParquetStorage
+from xorq.caching import ParquetCache
 
 
 penguins = ibis.examples.penguins.fetch()
@@ -53,22 +54,21 @@ penguins_agg = (
 
 expr = (
     from_ibis(penguins_agg)
-    .cache(storage=ParquetStorage())
+    .cache(ParquetCache.from_kwargs())
 )
 ```
 
 ```bash
-xorq build expr.py -e xo_expr
+xorq build expr.py
 ```
 ```bash
-❯ lt builds/4f98390ba42c
-builds/4f98390ba42c
+❯ lt builds/28ecab08754e/
+builds/28ecab08754e
 ├── database_tables
-│   └── 254da96e3615d9080b4a17d8a3116f36.parquet
+│   └── f2ac274df56894cb1505bfe8cb03940e.parquet
 ├── expr.yaml
 ├── metadata.json
-├── profiles.yaml
-└── sdist.tar.gz
+└── profiles.yaml
 ```
 
 Reproducible build artifacts with `uv` based environments.
@@ -76,49 +76,35 @@ Reproducible build artifacts with `uv` based environments.
 And roundtrippable and machine-readable.
 
 ```expr.yaml
-# Addressable, composable, portable
+# Input addressed, composable, portable
+# Abridged expr.yaml
 nodes:
-  '@cachednode_195db4d1':
-    name: xorq_cached_node_name_placeholder
-    op: CachedNode
-    parent:
-      node_ref: '@remotetable_e189a774'
-    schema_ref: schema_0
-    snapshot_hash: 195db4d132b665301c77ca86ec7010f3
-    source: feda6956a9ca4d2bda0fbc8e775042c3_3
-    storage:
-      relative_path: parquet
-      source: feda6956a9ca4d2bda0fbc8e775042c3_3
-      type: ParquetStorage
-  '@filter_68655050':
-    op: Filter
-    parent:
-      node_ref: '@read_e1fcd64e'
-    predicates:
-    - args:
-      - name: species
-        op: Field
-        relation:
-          node_ref: '@read_e1fcd64e'
-        type:
-          type_ref: type_1
-      op: NotNull
-      type:
-        type_ref: type_0
-    snapshot_hash: 68655050dd9e691abb7b31308eed1f3f
-  '@read_e1fcd64e':
-    method_name: read_parquet
-    name: penguins
-    normalize_method: gAWVWAAAAAAAAACMNXhvcnEuY29tbW9uLnV0aWxzLmRhc2tfbm9ybWFsaXplLmRhc2tfbm9ybWFsaXplX3V0aWxzlIwabm9ybWFsaXplX3JlYWRfcGF0aF9tZDVzdW2Uk5Qu
+  '@read_31f0a5be3771':
     op: Read
-    profile: 2eca7579af9a9d8e315faf6af1ddb59a_2
-    read_kwargs:
-    - - source_list
-      - builds/4f98390ba42c/database_tables/254da96e3615d9080b4a17d8a3116f36.parquet
-    - - table_name
-      - penguins
-    schema_ref: schema_1
-    snapshot_hash: e1fcd64eb0e8c9d39aa07787ed7523ca
+    name: penguins
+    source: builds/28ecab08754e/.../f2ac274df56894cb1505bfe8cb03940e.parquet
+
+  '@filter_23e7692b7128':
+    op: Filter
+    parent: '@read_31f0a5be3771'
+    predicates:
+      - NotNull(species)
+
+  '@remotetable_9a92039564d4':
+    op: RemoteTable
+    remote_expr:
+      op: Aggregate
+      parent: '@filter_23e7692b7128'
+      by: [species]
+      metrics:
+        avg_bill_length: Mean(bill_length_mm)
+
+  '@cachednode_e7b5fd7cd0a9':
+    op: CachedNode
+    parent: '@remotetable_9a92039564d4'
+    cache:
+      type: ParquetCache
+      path: parquet
 ```
 
 Same computation = same hash. "Input addressing" means the address the
@@ -128,7 +114,6 @@ version. The hash *is* the address.
 #### Portable UDFs
 
 ```
-# FIXME
 import pandas as pd
 import xorq.api as xo
 
@@ -150,8 +135,8 @@ expr = bill_ratio_udxf(penguins)
 
 ```
 #### Multi-Engine
-One manifest, many engines. Execute on DuckDB locally, compile to Snowflake
-for production, run Python UDFs on Xorq's embedded DataFusion engine.
+One manifest, many engines. Execute on DuckDB locally, translate to Snowflake
+for production, run Python UDFs on Xorq's embedded [DataFusion](https://datafusion.apache.org) engine.
 
 ```profiles.yaml
 2eca7579af9a9d8e315faf6af1ddb59a_2:
@@ -172,34 +157,76 @@ feda6956a9ca4d2bda0fbc8e775042c3_3:
 ## The Tools
 ```bash
 # Add
-❯ xorq catalog add builds/4f98390ba42c --alias penguins-dev
-Added build 4f98390ba42c as entry f7f2b329-4263-410b-9cd7-fba894e1f637 revision r1
+❯ xorq catalog add builds/28ecab08754e/ --alias penguins-agg
+Added build 28ecab08754e as entry a498016e-5bea-4036-aec0-a6393d1b7c0f revision r1
 
 # List
 ❯ xorq catalog ls
 Aliases:
-penguins-dev    f7f2b329-4263-410b-9cd7-fba894e1f637    r1
+penguins-agg    a498016e-5bea-4036-aec0-a6393d1b7c0f    r1
 Entries:
-f7f2b329-4263-410b-9cd7-fba894e1f637    r1      4f98390ba42c
+a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 
 # Introspect
-❯ xorq lineage penguins-dev
+
+hussainsultan in 🌐 lets-pop in xorq hussain/docs/readme-updates*​​ ⇕≡
+❯ xorq lineage penguins-agg
+
+Lineage for column 'avg_bill_length':
+Field:avg_bill_length #1
+└── Cache xorq_cached_node_name_placeholder #2
+    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
+        └── Aggregate #4
+            ├── Filter #5
+            │   ├── Read #6
+            │   └── NotNull #7
+            │       └── Field:species #8
+            │           └── ↻ see #6
+            ├── Field:species #9
+            │   └── ↻ see #5
+            └── Mean #10
+                └── Field:bill_length_mm #11
+                    └── ↻ see #5
 
 # Run
-❯ xorq catalog run penguins-dev -o
+❯ xorq run builds/28ecab08754e -o out.parquet
 
 ```
 ### xorq-template-sklearn
 
-WIP
+Xorq provides utilities to translate `scikit-learn`'s `Pipeline` objects to a
+deferred Xorq objects.
+
+```
+from xorq.expr.ml.pipeline_lib import (
+    Pipeline,
+)
+sklearn_pipeline = ...
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+```
+
+## Templates
+
+Templates provide ready to start projects that can be customized for your ML use-case:
+
+1. **Penguins** template
+```
+xorq init -t penguins
+```
+
+2. **Sklearn Digits** template
+
+```
+xorq init -t sklearn
+```
 
 ## The Horizontal Stack
 
 Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
 engine built on DataFusion. Universal UDFs via Arrow Flight.
 
-![Architecture](docs/images/architecture-light.png#gh-light-mode-only)
-![Architecture](docs/images/architecture-dark.png#gh-dark-mode-only)
+![Architecture](docs/images/architecture-light.svg#gh-light-mode-only)
+![Architecture](docs/images/architecture-dark.svg#gh-dark-mode-only)
 
 Lineage, caching, and versioning travel with the manifest—cataloged, not
 locked in a vendor's database.
