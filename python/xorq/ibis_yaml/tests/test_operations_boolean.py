@@ -1,4 +1,5 @@
 import xorq.vendor.ibis as ibis
+from xorq.ibis_yaml.tests.conftest import get_dtype_yaml
 
 
 def test_equals(compiler):
@@ -10,7 +11,8 @@ def test_equals(compiler):
     assert expression["op"] == "Equals"
     assert expression["left"]["value"] == 5
     assert expression["right"]["value"] == 5
-    assert expression["type"] == {
+    dtype_yaml = get_dtype_yaml(yaml_dict, expression)
+    assert dtype_yaml == {
         "op": "DataType",
         "type": "Boolean",
         "nullable": {"op": "bool", "value": True},

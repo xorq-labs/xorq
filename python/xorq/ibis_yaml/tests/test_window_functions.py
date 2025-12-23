@@ -1,4 +1,5 @@
 import xorq.vendor.ibis as ibis
+from xorq.ibis_yaml.common import RefEnum, RegistryEnum
 
 
 def test_window_function_roundtrip(compiler, t):
@@ -37,9 +38,9 @@ def test_aggregation_window(compiler, t):
         )
 
         yaml_dict = compiler.to_yaml(expr)
-        node_ref = yaml_dict["expression"]["node_ref"]
+        node_ref = yaml_dict["expression"][RefEnum.node_ref]
 
-        expression = yaml_dict["definitions"]["nodes"][node_ref]
+        expression = yaml_dict["definitions"][RegistryEnum.nodes][node_ref]
         assert expression["op"] == "Project"
         window_func = expression["values"]["mean_c"]
         assert window_func["op"] == "WindowFunction"

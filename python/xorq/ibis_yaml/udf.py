@@ -8,6 +8,8 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.rules as rlz
 from xorq.expr.relations import FlightExpr, FlightUDXF
 from xorq.ibis_yaml.common import (
+    RefEnum,
+    RegistryEnum,
     TranslationContext,
     deserialize_callable,
     register_from_yaml_handler,
@@ -77,8 +79,10 @@ def _scalar_udf_from_yaml(yaml_dict: dict, compiler: any) -> any:
     for i, arg_yaml in enumerate(args_yaml):
         arg_name = f"arg{i}"
 
-        if "node_ref" in arg_yaml and (
-            node := compiler.definitions["nodes"].get(arg_yaml["node_ref"])
+        if RefEnum.node_ref in arg_yaml and (
+            node := compiler.definitions[RegistryEnum.nodes].get(
+                arg_yaml[RefEnum.node_ref]
+            )
         ):
             if node.get("op") == "Field" and "name" in node:
                 arg_name = node["name"]
@@ -301,23 +305,19 @@ def _aggudf_from_yaml(yaml_dict: dict, compiler: any) -> any:
 def flight_expr_to_yaml(op: FlightExpr, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
     unbound_expr_yaml = context.translate_to_yaml(op.unbound_expr)
-
-    schema_id = context.schema_registry.register_schema(op.schema)
-
     make_server_pickle = serialize_callable(op.make_server)
     make_connection_pickle = serialize_callable(op.make_connection)
-
     return freeze(
         {
             "op": "FlightExpr",
             "name": op.name,
-            "schema_ref": schema_id,
             "input_expr": input_expr_yaml,
             "unbound_expr": unbound_expr_yaml,
             "make_server": make_server_pickle,
             "make_connection": make_connection_pickle,
             "do_instrument_reader": op.do_instrument_reader,
         }
+        | context.registry.register_schema(op.schema)
     )
 
 
@@ -353,7 +353,6 @@ def flight_expr_from_yaml(yaml_dict: Dict, context: Any) -> Any:
 @translate_to_yaml.register(FlightUDXF)
 def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
     input_expr_yaml = context.translate_to_yaml(op.input_expr)
-    schema_id = context.schema_registry.register_schema(op.schema)
     udxf_pickle = serialize_callable(op.udxf)
     make_server_pickle = serialize_callable(op.make_server)
     make_connection_pickle = serialize_callable(op.make_connection)
@@ -362,13 +361,13 @@ def flight_udxf_to_yaml(op: FlightUDXF, context: any) -> dict:
         {
             "op": "FlightUDXF",
             "name": op.name,
-            "schema_ref": schema_id,
             "input_expr": input_expr_yaml,
             "udxf": udxf_pickle,
             "make_server": make_server_pickle,
             "make_connection": make_connection_pickle,
             "do_instrument_reader": op.do_instrument_reader,
         }
+        | context.registry.register_schema(op.schema)
     )
 
 

@@ -30,8 +30,10 @@ from xorq.common.utils.graph_utils import (
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
 from xorq.expr.relations import Read
-from xorq.expr.udf import InputType
 from xorq.ibis_yaml.common import (
+    RefEnum,
+    Registry,
+    RegistryEnum,
     TranslationContext,
     translate_from_yaml,
     translate_to_yaml,
@@ -45,14 +47,14 @@ from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
 
 class CleanDictYAMLDumper(yaml.SafeDumper):
-    def represent_frozenordereddict(self, data):
-        return self.represent_dict(dict(data))
-
     def ignore_aliases(self, data):
         return True
 
     def represent_enum(self, data):
         return self.represent_scalar("tag:yaml.org,2002:str", data.name)
+
+    def represent_frozenordereddict(self, data):
+        return self.represent_dict(dict(data))
 
     def represent_ibis_schema(self, data):
         schema_dict = {name: str(dtype) for name, dtype in zip(data.names, data.types)}
@@ -61,20 +63,21 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
     def represent_posix_path(self, data):
         return self.represent_scalar("tag:yaml.org,2002:str", str(data))
 
+    yaml_representer_pairs = (
+        (RefEnum, represent_enum),
+        (RegistryEnum, represent_enum),
+        (FrozenOrderedDict, represent_frozenordereddict),
+        (ibis.Schema, represent_ibis_schema),
+        (pathlib.PosixPath, represent_posix_path),
+    )
 
-CleanDictYAMLDumper.add_representer(
-    FrozenOrderedDict, CleanDictYAMLDumper.represent_frozenordereddict
-)
+    @classmethod
+    def add_representers(cls):
+        for to_register, representer in cls.yaml_representer_pairs:
+            cls.add_representer(to_register, representer)
 
-CleanDictYAMLDumper.add_representer(
-    ibis.Schema, CleanDictYAMLDumper.represent_ibis_schema
-)
 
-CleanDictYAMLDumper.add_representer(InputType, CleanDictYAMLDumper.represent_enum)
-
-CleanDictYAMLDumper.add_representer(
-    pathlib.PosixPath, CleanDictYAMLDumper.represent_posix_path
-)
+CleanDictYAMLDumper.add_representers()
 
 
 class ArtifactStore:
@@ -160,14 +163,13 @@ class YamlExpressionTranslator:
         with SnapshotStrategy().normalization_context(expr):
             expr_dict = translate_to_yaml(expr, context)
             expr_dict = freeze(
-                {
-                    **dict(expr_dict),
-                    "schema_ref": context.schema_registry.register_schema(expr.schema())
+                expr_dict
+                | {
+                    RefEnum.schema_ref: context.registry.register_schema(expr.schema())
                     if hasattr(expr, "schema")
                     else None,
                 }
             )
-            context = context.finalize_definitions()
             return freeze(
                 {
                     "definitions": context.definitions,
@@ -181,13 +183,11 @@ class YamlExpressionTranslator:
         profiles=(),
     ) -> ir.Expr:
         context = TranslationContext(
+            registry=Registry(**yaml_dict.get("definitions", {})),
             profiles=freeze(dict(profiles)),
         )
-
-        context = context.update_definitions(freeze(yaml_dict.get("definitions", {})))
-
         expr_dict = freeze(yaml_dict["expression"])
-        return translate_from_yaml(expr_dict, freeze(context))
+        return translate_from_yaml(expr_dict, context)
 
 
 class BuildManager:

@@ -20,6 +20,7 @@ from xorq.common.utils.graph_utils import find_all_sources
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     BuildManager,
+    RefEnum,
     build_expr,
     load_expr,
 )
@@ -198,7 +199,7 @@ def test_ibis_compiler_expr_schema_ref(t, build_dir):
     with open(build_dir / expr_hash / "expr.yaml") as f:
         yaml_dict = yaml.safe_load(f)
 
-    assert yaml_dict["expression"]["schema_ref"]
+    assert yaml_dict["expression"][RefEnum.schema_ref]
 
 
 def test_multi_engine_deferred_reads(build_dir, parquet_dir):
