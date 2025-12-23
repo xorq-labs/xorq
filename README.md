@@ -24,18 +24,12 @@ what changed—add a metadata store. Serve the model—add a serving layer.
 Six months later: five tools that don't talk to each other, a pipeline only one
 person understands.
 
-**Unnecessary recomputations.** No shared understanding of what changed, so
-everything runs from scratch. Cache invalidation is manual and error-prone.
-
-**Opaque lineages.** Feature logic lives in one system, metadata in another,
-lineage in a third. Debugging means archaeology across tools.
-
-**Glue code everywhere.** Each engine is a silo. Moving between them means
-rewriting transforms, not composing them.
-
-**"Works on my machine."** Python environments drift. The YAML that worked
-yesterday fails today. Reproducing a colleague's results requires reverse
-engineering their setup.
+| Pain | Symptom |
+|------|---------|
+| **Glue code everywhere** | Each engine is a silo. Moving between them means rewriting, not composing. |
+| **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
+| **Opaque Lineages** | Feature logic, metadata, lineage—all in different systems. Debugging means archaeology. |
+| **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup. |
 
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
 serve agentic AI—which needs context and skills, not categories.
