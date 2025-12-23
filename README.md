@@ -113,12 +113,13 @@ expr.ls.get_cache_paths()
 (PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
 ```
 
-The hash *is* the cache key. No TTLs to tune. No invalidation logic to debug.
+The hash *is* the cache key. No invalidation logic to debug.
 If the expression is the same, the hash is the same, and the cache is valid.
 Change an input, get a new hash, trigger recomputation.
 
 Traditional caching asks "has this expired?" Input-addressed caching asks "is
 this the same computation?" The second question has a deterministic answer.
+
 ---
 
 ## The Manifest
