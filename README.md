@@ -58,7 +58,7 @@ xorq init -t penguins
 
 ---
 
-## The Expression
+# The Expression
 
 Write [Ibis](https://ibis-project.org) expressions. Xorq extends Ibis with
 caching, multi-engine execution, and UDFs.
@@ -86,7 +86,7 @@ expr = (
 Declare `.cache()` on any node. Xorq handles the rest—no cache keys to manage,
 no invalidation logic to write.
 
-### Compose across engines
+## Compose across engines
 
 One expression, many engines. Part of your pipeline runs on DuckDB, part on
 Xorq's embedded [DataFusion](https://datafusion.apache.org) engine, UDFs
@@ -101,7 +101,7 @@ expr.ls.backends
  <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
 ```
 
-### Only recompute what changed
+## Only recompute what changed
 
 The manifest is input-addressed: it describes *how* the computation was made,
 not just what it is. Same inputs = same hash. Change an input, get a new hash.
@@ -122,7 +122,7 @@ this the same computation?" The second question has a deterministic answer.
 
 ---
 
-## The Manifest
+# The Manifest
 
 Build an expression, get a manifest.
 
@@ -188,15 +188,40 @@ builds/28ecab08754e/dist/xorq_build-0.1.0.tar.gz
 The build captures everything: expression graph, dependencies, memory tables.
 Share the build that has sdist, get identical results. No "works on my machine."
 
+### Debug with confidence
+
+No more archaeology. Lineage is encoded in the manifest—not scattered across
+tools—and queryable from the CLI.
+
+```bash
+xorq lineage penguins-agg
+
+Lineage for column 'avg_bill_length':
+Field:avg_bill_length #1
+└── Cache xorq_cached_node_name_placeholder #2
+    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
+        └── Aggregate #4
+            ├── Filter #5
+            │   ├── Read #6
+            │   └── NotNull #7
+            │       └── Field:species #8
+            │           └── ↻ see #6
+            ├── Field:species #9
+            │   └── ↻ see #5
+            └── Mean #10
+                └── Field:bill_length_mm #11
+                    └── ↻ see #5
+```
+
 
 ---
 
-## The Tools
+# The Tools
 
 The manifest provides context. The tools provide skills: catalog, introspect,
 serve, execute.
 
-### Catalog
+## Catalog
 
 ```bash
 # Add to catalog
@@ -211,7 +236,13 @@ Entries:
 a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 ```
 
-### Serve
+## Run
+
+```bash
+xorq run builds/28ecab08754e -o out.parquet
+```
+
+## Serve
 
 Serve expressions anywhere via Arrow Flight:
 
@@ -247,38 +278,6 @@ xo.memtable(data).pipe(f).execute()
 1  Chinstrap             49.0
 2     Gentoo             47.5
 ```
-
-### Run
-
-```bash
-xorq run builds/28ecab08754e -o out.parquet
-```
-
-### Debug with confidence
-
-No more archaeology. Lineage is encoded in the manifest—not scattered across
-tools—and queryable from the CLI.
-
-```bash
-xorq lineage penguins-agg
-
-Lineage for column 'avg_bill_length':
-Field:avg_bill_length #1
-└── Cache xorq_cached_node_name_placeholder #2
-    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
-        └── Aggregate #4
-            ├── Filter #5
-            │   ├── Read #6
-            │   └── NotNull #7
-            │       └── Field:species #8
-            │           └── ↻ see #6
-            ├── Field:species #9
-            │   └── ↻ see #5
-            └── Mean #10
-                └── Field:bill_length_mm #11
-                    └── ↻ see #5
-```
-
 ---
 
 ## Templates
@@ -293,7 +292,7 @@ xorq init -t penguins
 xorq init -t sklearn
 ```
 
-### Scikit-learn Integration
+## Scikit-learn Integration
 
 Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
 
