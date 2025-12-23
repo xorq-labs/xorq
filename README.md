@@ -24,9 +24,17 @@ what changed—add a metadata store. Serve the model—add a serving layer.
 Six months later: five tools that don't talk to each other, a pipeline only one
 person understands.
 
+**Unnecessary recomputations.** No shared understanding of what changed, so
+everything runs from scratch. Cache invalidation is manual and error-prone.
+
+**Opaque lineages.** Feature logic lives in one system, metadata in another,
+lineage in a third. Debugging means archaeology across tools.
+
+**Glue code everywhere.** Each engine is a silo. Moving between them means
+rewriting transforms, not composing them.
+
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
-compose—and don't serve agentic AI, which needs context and skills, not
-categories.
+serve agentic AI—which needs context and skills, not categories.
 
 # Xorq
 
@@ -74,11 +82,11 @@ expr = (
 Declare `.cache()` on any node. Xorq handles the rest—no cache keys to manage,
 no invalidation logic to write.
 
-### Multi-Engine
+### Replace or compose engines
 
 One expression, many engines. Execute on DuckDB locally, translate to Snowflake
 for production, run Python UDFs on Xorq's embedded
-[DataFusion](https://datafusion.apache.org) engine.
+[DataFusion](https://datafusion.apache.org) engine. No glue code—just compose.
 
 ```python
 expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
@@ -88,8 +96,9 @@ expr.ls.backends
 (<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
  <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
 ```
+TODO: example for replacement
 
-### Scikit-learn Integration
+#### Scikit-learn Integration
 
 Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
 
@@ -155,11 +164,13 @@ nodes:
       path: parquet
 ```
 
-Git-diff your pipelines. Code review your features. The YAML is roundtrippable—machine-readable and machine-writable.
+Git-diff your pipelines. Code review your features. The YAML is
+roundtrippable—machine-readable and machine-writable.
 
-### Deterministic Caching
+### Only recompute what changed
 
-The manifest is input-addressed: it describes *how* the computation was made, not just what it is. Same inputs = same hash. Change an input, get a new hash.
+The manifest is input-addressed: it describes *how* the computation was made,
+not just what it is. Same inputs = same hash. Change an input, get a new hash.
 
 ```python
 expr.ls.get_cache_paths()
@@ -168,15 +179,19 @@ expr.ls.get_cache_paths()
 (PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
 ```
 
-The hash *is* the cache key. No TTLs to tune. No invalidation logic to debug. If the expression is the same, the hash is the same, and the cache is valid. Change an input, get a new hash, trigger recomputation.
+The hash *is* the cache key. No TTLs to tune. No invalidation logic to debug.
+If the expression is the same, the hash is the same, and the cache is valid.
+Change an input, get a new hash, trigger recomputation.
 
-Traditional caching asks "has this expired?" Input-addressed caching asks "is this the same computation?" The second question has a deterministic answer.
+Traditional caching asks "has this expired?" Input-addressed caching asks "is
+this the same computation?" The second question has a deterministic answer.
 
 ---
 
 ## The Tools
 
-The manifest provides context. The tools provide skills: catalog, introspect, serve, execute.
+The manifest provides context. The tools provide skills: catalog, introspect,
+serve, execute.
 
 ### Catalog
 
@@ -193,7 +208,9 @@ Entries:
 a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 ```
 
-### Lineage
+### Debug with confidence
+
+No more archaeology. Lineage is encoded in the manifest and queryable from the CLI.
 
 ```bash
 xorq lineage penguins-agg
@@ -276,12 +293,14 @@ xorq init -t sklearn
 
 ## The Horizontal Stack
 
-Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute engine built on DataFusion. Universal UDFs via Arrow Flight.
+Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
+engine built on DataFusion. Universal UDFs via Arrow Flight.
 
 ![Architecture](docs/images/architecture-light.svg#gh-light-mode-only)
 ![Architecture](docs/images/architecture-dark.svg#gh-dark-mode-only)
 
-Lineage, caching, and versioning travel with the manifest—cataloged, not locked in a vendor's database.
+Lineage, caching, and versioning travel with the manifest—cataloged, not locked
+in a vendor's database.
 
 **Integrations:** Ibis • scikit-learn • Feast • dbt
 
