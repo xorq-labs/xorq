@@ -22,6 +22,8 @@ serve agentic AI—which needs context and skills, not categories.
 
 # Xorq
 
+![intro](docs/images/intro-light.svg#gh-light-mode-only)
+![intro](docs/images/intro-dark.svg#gh-dark-mode-only)
 **Manifest = Context.** Every ML computation becomes a structured, input addressed YAML manifest.
 
 **Tools = Skills.** A catalog to discover. A build system to deterministically cache and execute anywhere.

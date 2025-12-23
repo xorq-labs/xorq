@@ -1,4 +1,4 @@
-<svg viewBox="0 0 1000 620" xmlns="http://www.w3.org/2000/svg">
+<svg viewBox="0 0 1000 560" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap');
@@ -6,12 +6,7 @@
   </defs>
 
   <!-- Background: Midnight -->
-  <rect width="1000" height="620" fill="#05181A"/>
-
-  <!-- Xorq Logo in corner - brand mark only -->
-  <g transform="translate(900, 555)">
-    <path fill="#C1F0FF" transform="scale(0.045)" d="M1265.28,269.75c-50.18,0-90.86,40.68-90.86,90.86v85.93c0,50.18,40.68,90.86,90.86,90.86h734.72v267.66h-827.67v-175.26c0-49.97-40.35-90.56-90.32-90.86l-162.93-.98c-50.39-.3-91.41,40.47-91.41,90.86v178.33H0v-269.75l734.95-1.86c50.09-.13,90.63-40.77,90.63-90.86v-84.07c0-50.18-40.68-90.86-90.86-90.86H0V0h827.67v178.89c0,50.18,40.68,90.86,90.86,90.86h162.93c50.18,0,90.86-40.68,90.86-90.86V0h827.67v269.75h-734.72Z"/>
-  </g>
+  <rect width="1000" height="560" fill="#05181A"/>
 
   <!-- Title -->
   <text x="500" y="45" text-anchor="middle" fill="#C1F0FF" font-family="'Inter Tight', sans-serif" font-size="28" font-weight="600">Vertical silos → Horizontal stack</text>
