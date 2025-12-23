@@ -17,33 +17,36 @@
 
 # The Problem
 
-Feature stores. Model registries. Orchestrators. Vertical silos that don't
-serve agentic AI—which needs context and skills, not categories.
+You write a feature pipeline. It works on your laptop with DuckDB. Now deploy it to Snowflake—rewrite. Cache intermediate results—add infrastructure. Track what changed—add a metadata store. Serve the model—add a serving layer.
+
+Six months later: five tools that don't talk to each other, a pipeline only one person understands.
+
+Feature stores. Model registries. Orchestrators. Vertical silos that don't compose—and don't serve agentic AI, which needs context and skills, not categories.
 
 # Xorq
 
 ![intro](docs/images/intro-light.svg#gh-light-mode-only)
 ![intro](docs/images/intro-dark.svg#gh-dark-mode-only)
-**Manifest = Context.** Every ML computation becomes a structured, input addressed YAML manifest.
+
+**Manifest = Context.** Every ML computation becomes a structured, input-addressed YAML manifest.
 
 **Tools = Skills.** A catalog to discover. A build system to deterministically cache and execute anywhere.
 
-## Quick Start
 ```bash
 pip install xorq[examples]
 xorq init -t penguins
 ```
 
-## The Manifest
+---
 
-Write [Ibis](https://ibis-project.org) expressions, get human-diffable manifests.
+## The Expression
+
+Write [Ibis](https://ibis-project.org) expressions. Xorq extends Ibis with caching, multi-engine execution, and UDFs.
 
 ```python
-# expr.py
 import ibis
 from xorq.common.utils.ibis_utils import from_ibis
 from xorq.caching import ParquetCache
-
 
 penguins = ibis.examples.penguins.fetch()
 
@@ -60,11 +63,41 @@ expr = (
 )
 ```
 
+### Multi-Engine
+
+One expression, many engines. Execute on DuckDB locally, translate to Snowflake for production, run Python UDFs on Xorq's embedded [DataFusion](https://datafusion.apache.org) engine.
+
+```python
+expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
+expr.ls.backends
+```
+```
+(<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
+ <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
+```
+
+### Scikit-learn Integration
+
+Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
+
+```python
+from xorq.expr.ml.pipeline_lib import Pipeline
+
+sklearn_pipeline = ...
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+```
+
+---
+
+## The Manifest
+
+Build an expression, get a manifest.
+
 ```bash
 xorq build expr.py
 ```
-```bash
-❯ lt builds/28ecab08754e/
+
+```
 builds/28ecab08754e
 ├── database_tables
 │   └── f2ac274df56894cb1505bfe8cb03940e.parquet
@@ -73,12 +106,12 @@ builds/28ecab08754e
 └── profiles.yaml
 ```
 
-Reproducible build artifacts with `uv` based environments.
+No external metadata store. No separate lineage tool. No cache invalidation logic. The build directory *is* the versioned, cached, portable artifact.
 
-And roundtrippable and machine-readable.
+Same computation = same hash. The manifest is the version. The hash is the address.
 
-```expr.yaml
-# Input addressed, composable, portable
+```yaml
+# Input-addressed, composable, portable
 # Abridged expr.yaml
 nodes:
   '@read_31f0a5be3771':
@@ -109,91 +142,33 @@ nodes:
       path: parquet
 ```
 
-Same computation = same hash. "Input addressing" means the address the
-expression by the way it was made rather than what it is. The manifest *is* the
-version. The hash *is* the address.
+Git-diff your pipelines. Code review your features. The YAML is roundtrippable—machine-readable and machine-writable. Reproducible builds with `uv`-based environments.
 
-#### Portable UDFs
-```bash
-❯ xorq --pdb serve-unbound builds/28ecab08754e/ --to_unbind_hash 31f0a5be37713fe2c1a2d8ad8fdea69f --host localhost --port 9002
-2025-12-23T18:41:47.489308Z [info     ] Loading expression from builds/28ecab08754e
-2025-12-23T18:41:47.504660Z [info     ] console metrics enabled, interval=2000 ms
-2025-12-23T18:41:47.814891Z [info     ] Serving expression from 'builds/28ecab08754e' on grpc://localhost:9002
-```
-#### Using Flight Backend for UDFs
-
-```python
-import xorq.api as xo
-
-
-backend = xo.flight.connect(host="localhost", port=9002)
-f = backend.get_exchange("default")
-
-
-data = {
-    "species": ["Adelie", "Gentoo", "Chinstrap"],
-    "island": ["Torgersen", "Biscoe", "Dream"],
-    "bill_length_mm": [39.1, 47.5, 49.0],
-    "bill_depth_mm": [18.7, 14.2, 18.5],
-    "flipper_length_mm": [181, 217, 195],
-    "body_mass_g": [3750, 5500, 4200],
-    "sex": ["male", "female", "male"],
-    "year": [2007, 2008, 2009],
-}
-
-xo.memtable(data).pipe(f).execute()
-```
-
-```
-Out[1]:
-     species  avg_bill_length
-0     Adelie             39.1
-1  Chinstrap             49.0
-2     Gentoo             47.5
-```
-```python
-
-```
-#### Multi-Engine
-One manifest, many engines. Execute on DuckDB locally, translate to Snowflake
-for production, run Python UDFs on Xorq's embedded [DataFusion](https://datafusion.apache.org) engine.
-
-```python
-expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
-expr.ls.backends
-```
-```bash
-(<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
- <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
-```
-
-#### Deterministic Caching
-
-```python
-expr = (
-    from_ibis(penguins_agg)
-    .cache(ParquetCache.from_kwargs()) # or use ParquetTTLCache, or ParquetSourceCache
-)
-
-expr.ls.get_cache_keys()
-```
+---
 
 ## The Tools
+
+The manifest provides context. The tools provide skills: catalog, introspect, serve, execute.
+
+### Catalog
+
 ```bash
-# Add
-❯ xorq catalog add builds/28ecab08754e/ --alias penguins-agg
+# Add to catalog
+xorq catalog add builds/28ecab08754e/ --alias penguins-agg
 Added build 28ecab08754e as entry a498016e-5bea-4036-aec0-a6393d1b7c0f revision r1
 
-# List
-❯ xorq catalog ls
+# List entries
+xorq catalog ls
 Aliases:
 penguins-agg    a498016e-5bea-4036-aec0-a6393d1b7c0f    r1
 Entries:
 a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
+```
 
-# Introspect
+### Lineage
 
-❯ xorq lineage penguins-agg
+```bash
+xorq lineage penguins-agg
 
 Lineage for column 'avg_bill_length':
 Field:avg_bill_length #1
@@ -210,54 +185,81 @@ Field:avg_bill_length #1
             └── Mean #10
                 └── Field:bill_length_mm #11
                     └── ↻ see #5
-
-# Run
-❯ xorq run builds/28ecab08754e -o out.parquet
 ```
 
-Xorq provides utilities to translate `scikit-learn`'s `Pipeline` objects to a
-deferred Xorq objects.
+### Serve
+
+Serve expressions anywhere via Arrow Flight:
+
+```bash
+xorq serve-unbound builds/28ecab08754e/ \
+  --to_unbind_hash 31f0a5be37713fe2c1a2d8ad8fdea69f \
+  --host localhost --port 9002
+```
 
 ```python
-from xorq.expr.ml.pipeline_lib import (
-    Pipeline,
-)
-sklearn_pipeline = ...
-xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+import xorq.api as xo
+
+backend = xo.flight.connect(host="localhost", port=9002)
+f = backend.get_exchange("default")
+
+data = {
+    "species": ["Adelie", "Gentoo", "Chinstrap"],
+    "island": ["Torgersen", "Biscoe", "Dream"],
+    "bill_length_mm": [39.1, 47.5, 49.0],
+    "bill_depth_mm": [18.7, 14.2, 18.5],
+    "flipper_length_mm": [181, 217, 195],
+    "body_mass_g": [3750, 5500, 4200],
+    "sex": ["male", "female", "male"],
+    "year": [2007, 2008, 2009],
+}
+
+xo.memtable(data).pipe(f).execute()
 ```
+
+```
+     species  avg_bill_length
+0     Adelie             39.1
+1  Chinstrap             49.0
+2     Gentoo             47.5
+```
+
+### Run
+
+```bash
+xorq run builds/28ecab08754e -o out.parquet
+```
+
+---
 
 ## Templates
 
-Templates provide ready to start projects that can be customized for your ML use-case:
+Ready-to-start projects:
 
-1. **Penguins** template
-```
+```bash
+# Penguins aggregation
 xorq init -t penguins
-```
 
-2. **Sklearn Digits** template
-
-```
+# Sklearn digits classification
 xorq init -t sklearn
 ```
 
+---
+
 ## The Horizontal Stack
 
-Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
-engine built on DataFusion. Universal UDFs via Arrow Flight.
+Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute engine built on DataFusion. Universal UDFs via Arrow Flight.
 
 ![Architecture](docs/images/architecture-light.svg#gh-light-mode-only)
 ![Architecture](docs/images/architecture-dark.svg#gh-dark-mode-only)
 
-Lineage, caching, and versioning travel with the manifest—cataloged, not
-locked in a vendor's database.
+Lineage, caching, and versioning travel with the manifest—cataloged, not locked in a vendor's database.
 
+**Integrations:** Ibis • scikit-learn • Feast • dbt
 
-### Integrations
+---
 
-Ibis • scikit-learn • Feast • dbt
-
-# Learn more
+## Learn More
 
 - [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
 - [Why Xorq?](https://docs.xorq.dev/#why-xorq)
