@@ -552,8 +552,8 @@ class DataFusionCompiler(SQLGlotCompiler):
 
     def visit_ArraySlice(self, op, *, arg, start, stop):
         array_length = self.f.array_length(arg)
-        start = self.cast(self.f.coalesce(start, 0), dt.int32)
-        stop = self.cast(self.f.coalesce(stop, array_length + 1), dt.int32)
+        start = self.cast(self.f.coalesce(start, 0), dt.int64)
+        stop = self.cast(self.f.coalesce(stop, array_length + 1), dt.int64)
         return self.f.array_slice(
             arg,
             self.if_(
