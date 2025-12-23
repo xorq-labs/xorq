@@ -9,7 +9,7 @@
 
 **A compute manifest and tools for ML.**
 
-[Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev)
+[Documentation](https://docs.xorq.dev) • [Discord](https://discord.gg/8Kma9DhcJG) • [Website](https://www.xorq.dev)
 
 </div>
 
@@ -17,20 +17,27 @@
 
 # The Problem
 
-You write a feature pipeline. It works on your laptop with DuckDB. Now deploy it to Snowflake—rewrite. Cache intermediate results—add infrastructure. Track what changed—add a metadata store. Serve the model—add a serving layer.
+You write a feature pipeline. It works on your laptop with DuckDB. Now deploy
+it to Snowflake—rewrite. Cache intermediate results—add infrastructure. Track
+what changed—add a metadata store. Serve the model—add a serving layer.
 
-Six months later: five tools that don't talk to each other, a pipeline only one person understands.
+Six months later: five tools that don't talk to each other, a pipeline only one
+person understands.
 
-Feature stores. Model registries. Orchestrators. Vertical silos that don't compose—and don't serve agentic AI, which needs context and skills, not categories.
+Feature stores. Model registries. Orchestrators. Vertical silos that don't
+compose—and don't serve agentic AI, which needs context and skills, not
+categories.
 
 # Xorq
 
 ![intro](docs/images/intro-light.svg#gh-light-mode-only)
 ![intro](docs/images/intro-dark.svg#gh-dark-mode-only)
 
-**Manifest = Context.** Every ML computation becomes a structured, input-addressed YAML manifest.
+**Manifest = Context.** Every ML computation becomes a structured,
+input-addressed YAML manifest.
 
-**Tools = Skills.** A catalog to discover. A build system to deterministically cache and execute anywhere.
+**Tools = Skills.** A catalog to discover. A build system to deterministically
+cache and execute anywhere.
 
 ```bash
 pip install xorq[examples]
@@ -41,7 +48,8 @@ xorq init -t penguins
 
 ## The Expression
 
-Write [Ibis](https://ibis-project.org) expressions. Xorq extends Ibis with caching, multi-engine execution, and UDFs.
+Write [Ibis](https://ibis-project.org) expressions. Xorq extends Ibis with
+caching, multi-engine execution, and UDFs.
 
 ```python
 import ibis
@@ -63,9 +71,14 @@ expr = (
 )
 ```
 
+Declare `.cache()` on any node. Xorq handles the rest—no cache keys to manage,
+no invalidation logic to write.
+
 ### Multi-Engine
 
-One expression, many engines. Execute on DuckDB locally, translate to Snowflake for production, run Python UDFs on Xorq's embedded [DataFusion](https://datafusion.apache.org) engine.
+One expression, many engines. Execute on DuckDB locally, translate to Snowflake
+for production, run Python UDFs on Xorq's embedded
+[DataFusion](https://datafusion.apache.org) engine.
 
 ```python
 expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
@@ -106,9 +119,9 @@ builds/28ecab08754e
 └── profiles.yaml
 ```
 
-No external metadata store. No separate lineage tool. No cache invalidation logic. The build directory *is* the versioned, cached, portable artifact.
-
-Same computation = same hash. The manifest is the version. The hash is the address.
+No external metadata store. No separate lineage tool. The build directory *is*
+the versioned, cached, portable artifact. Reproducible builds with `uv`-based
+environments.
 
 ```yaml
 # Input-addressed, composable, portable
@@ -142,7 +155,22 @@ nodes:
       path: parquet
 ```
 
-Git-diff your pipelines. Code review your features. The YAML is roundtrippable—machine-readable and machine-writable. Reproducible builds with `uv`-based environments.
+Git-diff your pipelines. Code review your features. The YAML is roundtrippable—machine-readable and machine-writable.
+
+### Deterministic Caching
+
+The manifest is input-addressed: it describes *how* the computation was made, not just what it is. Same inputs = same hash. Change an input, get a new hash.
+
+```python
+expr.ls.get_cache_paths()
+```
+```
+(PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
+```
+
+The hash *is* the cache key. No TTLs to tune. No invalidation logic to debug. If the expression is the same, the hash is the same, and the cache is valid. Change an input, get a new hash, trigger recomputation.
+
+Traditional caching asks "has this expired?" Input-addressed caching asks "is this the same computation?" The second question has a deterministic answer.
 
 ---
 
