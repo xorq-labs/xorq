@@ -33,6 +33,10 @@ lineage in a third. Debugging means archaeology across tools.
 **Glue code everywhere.** Each engine is a silo. Moving between them means
 rewriting transforms, not composing them.
 
+**"Works on my machine."** Python environments drift. The YAML that worked
+yesterday fails today. Reproducing a colleague's results requires reverse
+engineering their setup.
+
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
 serve agentic AI—which needs context and skills, not categories.
 
@@ -82,11 +86,11 @@ expr = (
 Declare `.cache()` on any node. Xorq handles the rest—no cache keys to manage,
 no invalidation logic to write.
 
-### Replace or compose engines
+### Compose across engines
 
-One expression, many engines. Execute on DuckDB locally, translate to Snowflake
-for production, run Python UDFs on Xorq's embedded
-[DataFusion](https://datafusion.apache.org) engine. No glue code—just compose.
+One expression, many engines. Part of your pipeline runs on DuckDB, part on
+Xorq's embedded [DataFusion](https://datafusion.apache.org) engine, UDFs
+via Arrow Flight. No glue code between them.
 
 ```python
 expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
@@ -96,9 +100,8 @@ expr.ls.backends
 (<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
  <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
 ```
-TODO: example for replacement
 
-#### Scikit-learn Integration
+### Scikit-learn Integration
 
 Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
 
@@ -129,8 +132,7 @@ builds/28ecab08754e
 ```
 
 No external metadata store. No separate lineage tool. The build directory *is*
-the versioned, cached, portable artifact. Reproducible builds with `uv`-based
-environments.
+the versioned, cached, portable artifact.
 
 ```yaml
 # Input-addressed, composable, portable
@@ -164,8 +166,14 @@ nodes:
       path: parquet
 ```
 
-Git-diff your pipelines. Code review your features. The YAML is
-roundtrippable—machine-readable and machine-writable.
+### Reproducible builds
+
+The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
+your pipelines. Code review your features. Rebuild from YAML alone.
+
+Xorq uses `uv` to lock Python environments. The build captures everything:
+expression graph, dependencies, cached data. Share a build directory, get
+identical results. No "works on my machine."
 
 ### Only recompute what changed
 
@@ -210,7 +218,8 @@ a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 
 ### Debug with confidence
 
-No more archaeology. Lineage is encoded in the manifest and queryable from the CLI.
+No more archaeology. Lineage is encoded in the manifest—not scattered across
+tools—and queryable from the CLI.
 
 ```bash
 xorq lineage penguins-agg
