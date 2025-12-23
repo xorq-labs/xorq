@@ -114,26 +114,44 @@ expression by the way it was made rather than what it is. The manifest *is* the
 version. The hash *is* the address.
 
 #### Portable UDFs
+```bash
+❯ xorq --pdb serve-unbound builds/28ecab08754e/ --to_unbind_hash 31f0a5be37713fe2c1a2d8ad8fdea69f --host localhost --port 9002
+2025-12-23T18:41:47.489308Z [info     ] Loading expression from builds/28ecab08754e
+2025-12-23T18:41:47.504660Z [info     ] console metrics enabled, interval=2000 ms
+2025-12-23T18:41:47.814891Z [info     ] Serving expression from 'builds/28ecab08754e' on grpc://localhost:9002
+```
+#### Using Flight Backend for UDFs
 
 ```python
-import pandas as pd
 import xorq.api as xo
 
-schema_in = xo.schema({"bill_length_mm": float, "bill_depth_mm": float})
-schema_out = xo.schema({"bill_ratio": float})
 
-def compute_ratio(df: pd.DataFrame) -> pd.DataFrame:
-    return pd.DataFrame({"bill_ratio": df["bill_length_mm"] / df["bill_depth_mm"]})
+backend = xo.flight.connect(host="localhost", port=9002)
+f = backend.get_exchange("default")
 
-bill_ratio_udxf = xo.expr.relations.flight_udxf(
-    process_df=compute_ratio,
-    maybe_schema_in=schema_in,
-    maybe_schema_out=schema_out,
-    name="BillRatio",
-)
 
-penguins = xo.memtable({"bill_length_mm": [39.1, 46.5], "bill_depth_mm": [18.7, 17.4]})
-expr = bill_ratio_udxf(penguins)
+data = {
+    "species": ["Adelie", "Gentoo", "Chinstrap"],
+    "island": ["Torgersen", "Biscoe", "Dream"],
+    "bill_length_mm": [39.1, 47.5, 49.0],
+    "bill_depth_mm": [18.7, 14.2, 18.5],
+    "flipper_length_mm": [181, 217, 195],
+    "body_mass_g": [3750, 5500, 4200],
+    "sex": ["male", "female", "male"],
+    "year": [2007, 2008, 2009],
+}
+
+xo.memtable(data).pipe(f).execute()
+```
+
+```
+Out[1]:
+     species  avg_bill_length
+0     Adelie             39.1
+1  Chinstrap             49.0
+2     Gentoo             47.5
+```
+```python
 
 ```
 #### Multi-Engine
@@ -151,6 +169,14 @@ expr.ls.backends
 
 #### Deterministic Caching
 
+```python
+expr = (
+    from_ibis(penguins_agg)
+    .cache(ParquetCache.from_kwargs()) # or use ParquetTTLCache, or ParquetSourceCache
+)
+
+expr.ls.get_cache_keys()
+```
 
 ## The Tools
 ```bash
@@ -187,11 +213,7 @@ Field:avg_bill_length #1
 
 # Run
 ❯ xorq run builds/28ecab08754e -o out.parquet
-
-# Serve
-
 ```
-### xorq-template-sklearn
 
 Xorq provides utilities to translate `scikit-learn`'s `Pipeline` objects to a
 deferred Xorq objects.
