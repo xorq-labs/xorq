@@ -56,8 +56,8 @@ xorq init -t penguins
 
 # The Expression
 
-Write [Ibis](https://ibis-project.org) expressions. Xorq extends Ibis with
-caching, multi-engine execution, and UDFs.
+Write declarative [Ibis](https://ibis-project.org) expressions. Xorq extends
+Ibis with caching, multi-engine execution, and UDFs.
 
 ```python
 import ibis
@@ -79,7 +79,7 @@ expr = (
 )
 ```
 
-Declare `.cache()` on any node. Xorq handles the rest—no cache keys to manage,
+Declare `.cache()` on any node. Xorq handles the rest. No cache keys to manage,
 no invalidation logic to write.
 
 ## Compose across engines
@@ -159,7 +159,7 @@ nodes:
       path: parquet
 ```
 
-## Only works, everywhere!
+## Reproducible builds
 
 The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
 your pipelines. Code review your features. Rebuild from YAML alone.
