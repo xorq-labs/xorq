@@ -9,7 +9,6 @@ import pytest
 
 import xorq.api as xo
 from xorq.cli import (
-    InitTemplates,
     build_command,
 )
 from xorq.common.utils.node_utils import (
@@ -26,6 +25,7 @@ from xorq.flight.client import (
 from xorq.ibis_yaml.compiler import (
     load_expr,
 )
+from xorq.init_templates import InitTemplates
 
 
 build_run_examples_expr_names = (
