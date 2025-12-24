@@ -138,6 +138,7 @@ def build_command(
         f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",
         file=sys.stderr,
     )
+    print(build_path)
 
 
 @tracer.start_as_current_span("cli.run_command")
