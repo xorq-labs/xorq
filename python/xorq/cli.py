@@ -135,7 +135,7 @@ def build_command(
     copy_path(sdister.sdist_path, sdist_target)
 
     print(
-        f"Written '{expr_name}' to {build_path}",
+        f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",
         file=sys.stderr,
     )
 
