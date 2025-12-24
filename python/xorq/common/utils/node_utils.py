@@ -47,12 +47,20 @@ def get_typs(maybe_typs):
     return typs
 
 
-def find_by_expr_hash(expr, to_replace_hash, typs=None):
+def find_by_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
     typs = get_typs(typs)
+
+    def matches_hash(node):
+        node_expr = node.to_expr()
+        if strategy is None:
+            node_hash = node_expr.ls.tokenized
+        else:
+            with strategy.normalization_context(node_expr):
+                node_hash = dask.base.tokenize(node_expr.ls.untagged)
+        return node_hash == to_replace_hash
+
     (to_replace, *rest) = (
-        node
-        for node in walk_nodes(typs, expr)
-        if node.to_expr().ls.tokenized == to_replace_hash
+        node for node in walk_nodes(typs, expr) if matches_hash(node)
     )
     if rest:
         raise ValueError
@@ -63,14 +71,14 @@ def find_by_expr_tag(expr, tag):
     yield from (node for node in walk_nodes(rel.Tag, expr) if node.tag == tag)
 
 
-def find_node(expr, hash, tag, typs=None):
+def find_node(expr, hash, tag, typs=None, strategy=None):
     match [hash, tag]:
         case [None, None]:
             raise ValueError
         case [_, None]:
             if isinstance(typs, tuple) and rel.Tag in typs:
                 raise ValueError
-            return find_by_expr_hash(expr, hash, typs=typs)
+            return find_by_expr_hash(expr, hash, typs=typs, strategy=strategy)
         case [None, _]:
             (node, *rest) = find_by_expr_tag(expr, tag)
             if rest:
@@ -81,9 +89,9 @@ def find_node(expr, hash, tag, typs=None):
             raise ValueError
 
 
-def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=None):
+def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=None, strategy=None):
     typs = get_typs(typs)
-    to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs)
+    to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs, strategy=strategy)
     replaced = replace_nodes(
         do_replace_dct(
             replace_dct={to_replace: replace_with},
@@ -93,9 +101,9 @@ def replace_by_expr_hash(expr, to_replace_hash, replace_with, typs=None):
     return replaced.to_expr()
 
 
-def unbind_expr_hash(expr, to_replace_hash, typs=None):
+def unbind_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
     typs = get_typs(typs)
-    to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs)
+    to_replace = find_by_expr_hash(expr, to_replace_hash, typs=typs, strategy=strategy)
     replace_with = ops.UnboundTable("unbound", to_replace.schema)
     unbound_expr = replace_nodes(
         do_replace_dct(
@@ -136,7 +144,7 @@ def elide_downstream_cached_node(expr, downstream_of):
     return elide_cached_node
 
 
-def expr_to_unbound(expr, hash, tag, typs):
+def expr_to_unbound(expr, hash, tag, typs, strategy=None):
     """create an unbound expr that only needs to have a source of record batches fed in"""
 
     from xorq.common.utils.graph_utils import (
@@ -144,9 +152,16 @@ def expr_to_unbound(expr, hash, tag, typs):
         walk_nodes,
     )
 
-    found = find_node(expr, hash=hash, tag=tag, typs=typs)
+    found = find_node(expr, hash=hash, tag=tag, typs=typs, strategy=strategy)
     found_expr = found.to_expr()
-    to_unbind_hash = hash or dask.base.tokenize(found_expr)
+    if hash:
+        to_unbind_hash = hash
+    else:
+        if strategy is None:
+            to_unbind_hash = dask.base.tokenize(found_expr)
+        else:
+            with strategy.normalization_context(found_expr):
+                to_unbind_hash = dask.base.tokenize(found_expr.ls.untagged)
     match find_all_sources(found_expr):
         case []:
             raise ValueError("found no connections")
@@ -158,7 +173,7 @@ def expr_to_unbound(expr, hash, tag, typs):
     unbound_table = UnboundTable("unbound", found.schema)
     replace_with = unbound_table.to_expr().into_backend(found_con).op()
     replaced = replace_by_expr_hash(
-        expr, to_unbind_hash, replace_with, typs=(type(found),)
+        expr, to_unbind_hash, replace_with, typs=(type(found),), strategy=strategy
     )
     (found,) = walk_nodes(UnboundTable, replaced)
     elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
