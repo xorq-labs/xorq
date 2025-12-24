@@ -17,9 +17,9 @@
 
 # The Problem
 
-You write a feature pipeline. It works on your laptop with DuckDB. Now deploy
-it to Snowflake—rewrite. Cache intermediate results—add infrastructure. Track
-what changed—add a metadata store. Serve the model—add a serving layer.
+You write a feature pipeline. It works on your laptop with DuckDB. Now deploying
+it to Snowflake ends up in a rewrite. Cache intermediate results, add infrastructure. Track
+what changed, add a metadata store. Serve the model, add a serving layer.
 
 Six months later: five tools that don't talk to each other, a pipeline only one
 person understands.
@@ -28,12 +28,12 @@ person understands.
 |------|---------|
 | **Glue code everywhere** | Each engine is a silo. Moving between them means rewriting, not composing. |
 | **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
-| **Opaque Lineages** | Feature logic, metadata, lineage—all in different systems. Debugging means archaeology. |
+| **Opaque Lineages** | Feature logic, metadata, lineage. All in different systems. Debugging means archaeology. |
 | **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup. |
-| **Stateful orchestrators** | Retry logic, task states, failure recovery—all in an external database. Another system to manage, another thing that breaks.
+| **Stateful orchestrators** | Retry logic, task states, failure recovery. Another system to manage, another thing that breaks.
 
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
-serve agentic AI—which needs context and skills, not categories.
+serve agentic AI, which needs context and skills, not categories.
 
 # Xorq
 
@@ -169,7 +169,7 @@ nodes:
       path: parquet
 ```
 
-### Reproducible builds
+### "Only works, everywhere!"
 
 The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
 your pipelines. Code review your features. Rebuild from YAML alone.
@@ -231,14 +231,6 @@ Entries:
 a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 ```
 
-## Stateless orchestration
-
-No task states. No retry logic. No failure recovery database.
-
-Xorq executes expressions as Arrow RecordBatch streams. There's no DAG of tasks
-to checkpoint—just data flowing through operators. If something fails, rerun
-from the manifest. Cached nodes resolve instantly; the rest recomputes.
-
 ### Run
 
 ```bash
@@ -281,6 +273,15 @@ xo.memtable(data).pipe(f).execute()
 1  Chinstrap             49.0
 2     Gentoo             47.5
 ```
+
+## Workflows, without state
+
+No task states. Just retry on failure.
+
+Xorq executes expressions as Arrow RecordBatch streams. There's no DAG of tasks
+to checkpoint, just data flowing through operators. If something fails, rerun
+from the manifest. Cached nodes resolve instantly; the rest recomputes.
+
 ---
 
 ## Templates
@@ -295,7 +296,7 @@ xorq init -t penguins
 xorq init -t sklearn
 ```
 
-## Scikit-learn Integration
+### Scikit-learn Integration
 
 Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
 
@@ -315,7 +316,7 @@ engine built on DataFusion. Universal UDFs via Arrow Flight.
 ![Architecture](docs/images/architecture-light.svg#gh-light-mode-only)
 ![Architecture](docs/images/architecture-dark.svg#gh-dark-mode-only)
 
-Lineage, caching, and versioning travel with the manifest—cataloged, not locked
+Lineage, caching, and versioning travel with the manifest; cataloged, not locked
 in a vendor's database.
 
 **Integrations:** Ibis • scikit-learn • Feast(wip) • dbt (upcoming)
