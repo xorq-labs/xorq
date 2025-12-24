@@ -7,9 +7,6 @@ from pathlib import (
 
 import pytest
 
-from xorq.cli import (
-    InitTemplates,
-)
 from xorq.common.utils.download_utils import (
     download_xorq_template,
 )
@@ -21,6 +18,7 @@ from xorq.ibis_yaml.packager import (
     Sdister,
     SdistRunner,
 )
+from xorq.init_templates import InitTemplates
 
 
 @functools.cache

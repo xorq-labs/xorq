@@ -4,12 +4,13 @@ from tarfile import TarFile
 from tempfile import TemporaryDirectory
 from urllib.request import urlretrieve
 
+from xorq.init_templates import InitTemplates
+
 
 def download_github_archive(org, repo, branch, suffix=".tar.gz", target=None):
-    archive_name = f"{branch}{suffix}"
-    target = Path(target or archive_name)
+    target = Path(target or f"{branch}{suffix}")
     assert not target.exists()
-    archive_url = f"https://github.com/{org}/{repo}/archive/refs/heads/{archive_name}"
+    archive_url = f"https://github.com/{org}/{repo}/archive/{branch}.tar.gz"
     _, _ = urlretrieve(archive_url, target)
     return target
 
@@ -27,7 +28,8 @@ def extract_tar(source, target):
     return target
 
 
-def download_xorq_template(template, branch="main", target=None):
+def download_xorq_template(template, branch=None, target=None):
+    branch = branch or InitTemplates.get_default_branch(template)
     return download_github_archive(
         org="xorq-labs",
         repo=f"xorq-template-{template}",
@@ -36,7 +38,7 @@ def download_xorq_template(template, branch="main", target=None):
     )
 
 
-def download_unpacked_xorq_template(target, template, branch="main"):
+def download_unpacked_xorq_template(target, template, branch=None):
     target = Path(target)
     if target.exists():
         raise ValueError(
