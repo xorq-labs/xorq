@@ -31,6 +31,7 @@ person understands.
 | **Opaque Lineages** | Feature logic, metadata, lineage. All in different systems. Debugging means archaeology. |
 | **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup. |
 | **Stateful orchestrators** | Retry logic, task states, failure recovery. Another system to manage, another thing that breaks.
+| **Runtime Feedback** | Imperative Python code where you can only tell if something will fail while running the job.
 
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
 serve agentic AI, which needs context and skills, not categories.
@@ -96,24 +97,14 @@ expr.ls.backends
  <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
 ```
 
-## Only recompute what changed
+## Translate Python to many SQLs
 
-The manifest is input-addressed: it describes *how* the computation was made,
-not just what it is. Same inputs = same hash. Change an input, get a new hash.
+Expressions are declarative—you describe what, not how. When bound to a
+backend, Ibis translates to that engine's SQL dialect and calls
+to_pyarrow_batches. Errors surface at translation time, not mid-job.
+Custom Python logic runs as UDFs, but the relational core is always SQL.
+One expression, many dialects, early feedback.
 
-```python
-expr.ls.get_cache_paths()
-```
-```
-(PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
-```
-
-The hash *is* the cache key. No invalidation logic to debug.
-If the expression is the same, the hash is the same, and the cache is valid.
-Change an input, get a new hash, trigger recomputation.
-
-Traditional caching asks "has this expired?" Input-addressed caching asks "is
-this the same computation?" The second question has a deterministic answer.
 
 ---
 
@@ -169,7 +160,7 @@ nodes:
       path: parquet
 ```
 
-### "Only works, everywhere!"
+## Only works, everywhere!
 
 The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
 your pipelines. Code review your features. Rebuild from YAML alone.
@@ -183,30 +174,24 @@ builds/28ecab08754e/dist/xorq_build-0.1.0.tar.gz
 The build captures everything: expression graph, dependencies, memory tables.
 Share the build that has sdist, get identical results. No "works on my machine."
 
-### Debug with confidence
+## Only recompute what changed
 
-No more archaeology. Lineage is encoded in the manifest—not scattered across
-tools—and queryable from the CLI.
+The manifest is input-addressed: it describes *how* the computation was made,
+not just what it is. Same inputs = same hash. Change an input, get a new hash.
 
-```bash
-xorq lineage penguins-agg
-
-Lineage for column 'avg_bill_length':
-Field:avg_bill_length #1
-└── Cache xorq_cached_node_name_placeholder #2
-    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
-        └── Aggregate #4
-            ├── Filter #5
-            │   ├── Read #6
-            │   └── NotNull #7
-            │       └── Field:species #8
-            │           └── ↻ see #6
-            ├── Field:species #9
-            │   └── ↻ see #5
-            └── Mean #10
-                └── Field:bill_length_mm #11
-                    └── ↻ see #5
+```python
+expr.ls.get_cache_paths()
 ```
+```
+(PosixPath('/home/user/.cache/xorq/parquet/letsql_cache-7c3df7ccce5ed4b64c02fbf8af462e70.parquet'),)
+```
+
+The hash *is* the cache key. No invalidation logic to debug.
+If the expression is the same, the hash is the same, and the cache is valid.
+Change an input, get a new hash, trigger recomputation.
+
+Traditional caching asks "has this expired?" Input-addressed caching asks "is
+this the same computation?" The second question has a deterministic answer.
 
 
 ---
@@ -272,6 +257,31 @@ xo.memtable(data).pipe(f).execute()
 0     Adelie             39.1
 1  Chinstrap             49.0
 2     Gentoo             47.5
+```
+
+## Debug with confidence
+
+No more archaeology. Lineage is encoded in the manifest—not scattered across
+tools—and queryable from the CLI.
+
+```bash
+xorq lineage penguins-agg
+
+Lineage for column 'avg_bill_length':
+Field:avg_bill_length #1
+└── Cache xorq_cached_node_name_placeholder #2
+    └── RemoteTable:236af67d399a4caaf17e0bf5e1ac4c0f #3
+        └── Aggregate #4
+            ├── Filter #5
+            │   ├── Read #6
+            │   └── NotNull #7
+            │       └── Field:species #8
+            │           └── ↻ see #6
+            ├── Field:species #9
+            │   └── ↻ see #5
+            └── Mean #10
+                └── Field:bill_length_mm #11
+                    └── ↻ see #5
 ```
 
 ## Workflows, without state
