@@ -84,11 +84,14 @@ def build_command(
     expr_name : The name of the expression to build
     builds_dir : Directory where artifacts will be generated
     cache_dir : Directory where the parquet cache files will be generated
+    debug : Output SQL files and other debug artifacts
 
     Returns
     -------
 
     """
+    from xorq.common.utils.tar_utils import copy_path
+    from xorq.ibis_yaml.packager import BUILD_SDIST_NAME, Sdister
 
     span = trace.get_current_span()
     span.add_event(
@@ -124,11 +127,17 @@ def build_command(
 
     expr_hash = build_manager.compile_expr(expr)
     span.add_event("build.outputs", {"expr_hash": expr_hash})
+
+    build_path = build_manager.artifact_store.get_path(expr_hash)
+
+    sdister = Sdister.from_script_path(script_path)
+    sdist_target = build_path.joinpath(BUILD_SDIST_NAME)
+    copy_path(sdister.sdist_path, sdist_target)
+
     print(
-        f"Written '{expr_name}' to {build_manager.artifact_store.get_path(expr_hash)}",
+        f"Written '{expr_name}' to {build_path}",
         file=sys.stderr,
     )
-    print(build_manager.artifact_store.get_path(expr_hash))
 
 
 @tracer.start_as_current_span("cli.run_command")
