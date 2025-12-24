@@ -43,6 +43,7 @@ def prep_template_tmpdir(template, tmpdir):
 
 
 @pytest.mark.slow(level=1)
+@pytest.mark.snapshot_check
 @pytest.mark.parametrize("template", tuple(InitTemplates))
 def test_sdist_path_hexdigest(template, tmpdir, snapshot):
     tgz_path, project_path = prep_template_tmpdir(template, tmpdir)
