@@ -231,7 +231,7 @@ Entries:
 a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 ```
 
-### Run
+## Run
 
 ```bash
 xorq run builds/28ecab08754e -o out.parquet
