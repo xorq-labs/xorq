@@ -27,11 +27,11 @@ person understands.
 | Pain | Symptom |
 |------|---------|
 | **Glue code everywhere** | Each engine is a silo. Moving between them means rewriting, not composing. |
+| **Runtime Feedback** | Imperative Python code where you can only tell if something will fail while running the job.
 | **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
 | **Opaque Lineages** | Feature logic, metadata, lineage. All in different systems. Debugging means archaeology. |
 | **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup. |
 | **Stateful orchestrators** | Retry logic, task states, failure recovery. Another system to manage, another thing that breaks.
-| **Runtime Feedback** | Imperative Python code where you can only tell if something will fail while running the job.
 
 Feature stores. Model registries. Orchestrators. Vertical silos that don't
 serve agentic AI, which needs context and skills, not categories.
@@ -99,12 +99,11 @@ expr.ls.backends
 
 ## Translate Python to many SQLs
 
-Expressions are declarative—you describe what, not how. When bound to a
+Expressions are declarative i.e. you describe what, not how. When bound to a
 backend, Ibis translates to that engine's SQL dialect and calls
 to_pyarrow_batches. Errors surface at translation time, not mid-job.
 Custom Python logic runs as UDFs, but the relational core is always SQL.
 One expression, many dialects, early feedback.
-
 
 ---
 
