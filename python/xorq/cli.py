@@ -17,7 +17,6 @@ from xorq.catalog import (
     ps_command,
     resolve_build_dir,
 )
-from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
@@ -32,27 +31,12 @@ from xorq.ibis_yaml.packager import (
     SdistBuilder,
     SdistRunner,
 )
+from xorq.init_templates import InitTemplates
 from xorq.loader import load_backend
 from xorq.vendor.ibis import Expr
 
 
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
-
 logger = get_print_logger()
-
-
-class InitTemplates(StrEnum):
-    cached_fetcher = "cached-fetcher"
-    sklearn = "sklearn"
-    penguins = "penguins"
-
-    @classproperty
-    def default(self):
-        return self.cached_fetcher
 
 
 @tracer.start_as_current_span("cli.uv_build_command")
@@ -350,7 +334,7 @@ def serve_command(
 def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
-    branch="main",
+    branch=None,
 ):
     from xorq.common.utils.download_utils import download_unpacked_xorq_template
 
@@ -567,7 +551,7 @@ def parse_args(override=None):
     init_parser.add_argument(
         "-b",
         "--branch",
-        default="main",
+        default=None,
     )
     lineage_parser = subparsers.add_parser(
         "lineage",
