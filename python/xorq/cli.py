@@ -138,6 +138,8 @@ def run_command(
     output_format="parquet",
     cache_dir=get_xorq_cache_dir(),
     limit=None,
+    input_format="none",
+    batch_size=None,
 ):
     """
     Execute an artifact
@@ -149,16 +151,21 @@ def run_command(
     output_path : str
         Path to write output. Defaults to os.devnull
     output_format : str, optional
-        Output format, either "csv", "json", or "parquet". Defaults to "parquet"
+        Output format, either "csv", "json", "parquet", or "arrow". Defaults to "parquet"
     cache_dir : Path, optional
         Directory where the parquet cache files will be generated
     limit : int, optional
         Limit number of rows to output. Defaults to None (no limit).
+    input_format : str, optional
+        Input format for reading from stdin, either "arrow" or "none". Defaults to "none"
+    batch_size : int, optional
+        Batch size for Arrow streaming output. Defaults to None (use table default)
 
     Returns
     -------
 
     """
+    from xorq.cli.io import read_arrow_stream, write_arrow_stream
 
     span = trace.get_current_span()
     span.add_event(
@@ -167,6 +174,7 @@ def run_command(
             "expr_path": str(expr_path),
             "output_path": str(output_path),
             "output_format": output_format,
+            "input_format": input_format,
         },
     )
 
@@ -176,10 +184,43 @@ def run_command(
     expr_path = Path(expr_path)
     build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
     expr = build_manager.load_expr(expr_path.name)
+
+    # Handle input from stdin if specified
+    if input_format == "arrow":
+        input_table = read_arrow_stream()
+        # Bind the input table to the expression
+        # This assumes the expression has an unbound parameter named "input"
+        expr = expr.bind(input=input_table)
+
     if limit is not None:
         expr = expr.limit(limit)
 
     match output_format:
+        case "arrow":
+            # For arrow output, write to stdout.buffer or the specified path
+            if output_path == os.devnull:
+                # If no output specified, write to stdout
+                output_stream = sys.stdout.buffer
+            elif hasattr(output_path, "write"):
+                # Already a file-like object
+                output_stream = output_path
+            else:
+                # Open the file for writing
+                output_stream = open(output_path, "wb")
+
+            try:
+                # Use to_pyarrow_batches if available (Ibis expression)
+                # Otherwise convert result to Arrow
+
+                if batch_size is not None:
+                    batches = expr.to_pyarrow_batches(chunk_size=batch_size)
+                else:
+                    batches = expr.to_pyarrow_batches()
+
+                write_arrow_stream(batches, out=output_stream)
+            finally:
+                if not hasattr(output_path, "write") and output_path != os.devnull:
+                    output_stream.close()
         case "csv":
             expr.to_csv(output_path)
         case "json":
@@ -188,6 +229,195 @@ def run_command(
             expr.to_parquet(output_path)
         case _:
             raise ValueError(f"Unknown output_format: {output_format}")
+
+
+@tracer.start_as_current_span("cli.run_unbound_command")
+def run_unbound_command(
+    expr_path,
+    to_unbind_hash=None,
+    to_unbind_tag=None,
+    output_path=None,
+    output_format="parquet",
+    cache_dir=get_xorq_cache_dir(),
+    limit=None,
+    batch_size=None,
+    typ=None,
+):
+    """
+    Execute an unbound expression by reading Arrow IPC from stdin and binding it
+
+    Parameters
+    ----------
+    expr_path : str
+        Path to the expr in the builds dir
+    to_unbind_hash : str, optional
+        Hash of the node to unbind
+    to_unbind_tag : str, optional
+        Tag of the node to unbind
+    output_path : str, optional
+        Path to write output. Defaults to stdout for arrow, os.devnull otherwise
+    output_format : str, optional
+        Output format, either "csv", "json", "parquet", or "arrow". Defaults to "parquet"
+    cache_dir : Path, optional
+        Directory where the parquet cache files will be generated
+    limit : int, optional
+        Limit number of rows to output. Defaults to None (no limit).
+    batch_size : int, optional
+        Batch size for Arrow streaming output. Defaults to None (use table default)
+    typ : str, optional
+        Type of the node to unbind
+
+    Returns
+    -------
+
+    """
+    from xorq.cli.io import read_arrow_stream
+
+    span = trace.get_current_span()
+    span.add_event(
+        "run_unbound.params",
+        {
+            "expr_path": str(expr_path),
+            "to_unbind_hash": to_unbind_hash,
+            "to_unbind_tag": to_unbind_tag,
+            "output_format": output_format,
+        },
+    )
+
+    if output_path is None:
+        output_path = os.devnull
+
+    # Resolve build identifier
+    build_dir = resolve_build_dir(expr_path)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+
+    expr_path = Path(build_dir)
+    # Log to stderr to avoid polluting Arrow streams
+    print(f"[run-unbound] Loading expression from {expr_path}", file=sys.stderr)
+
+    # Load the expression and make it unbound
+    expr = load_expr(expr_path)
+    unbound_op = expr_to_unbound(expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ)
+    unbound_expr = unbound_op.to_expr()
+
+    # Read Arrow IPC from stdin
+    print("[run-unbound] Reading Arrow IPC from stdin...", file=sys.stderr)
+    input_table = read_arrow_stream()
+    print(
+        f"[run-unbound] Received table: {input_table.num_rows} rows, {input_table.num_columns} columns",
+        file=sys.stderr,
+    )
+
+    # Bind the input table to the unbound expression
+    import xorq.api as xo
+    from xorq.flight.exchanger import replace_one_unbound
+
+    # Create a connection and register the input table
+    con = xo.connect()
+    input_ibis_table = con.read_record_batches(input_table)
+
+    # Replace the unbound node with the input table
+    bound_expr = replace_one_unbound(unbound_expr, input_ibis_table)
+
+    if limit is not None:
+        bound_expr = bound_expr.limit(limit)
+
+    # Execute and output using the same logic as run_command
+    match output_format:
+        case "arrow":
+            if output_path == os.devnull:
+                output_stream = sys.stdout.buffer
+            elif hasattr(output_path, "write"):
+                output_stream = output_path
+            else:
+                output_stream = open(output_path, "wb")
+
+            try:
+                if batch_size is not None:
+                    batches = bound_expr.to_pyarrow_batches(chunk_size=batch_size)
+                else:
+                    batches = bound_expr.to_pyarrow_batches()
+
+                from xorq.cli.io import write_arrow_stream
+
+                write_arrow_stream(batches, out=output_stream)
+            finally:
+                if not hasattr(output_path, "write") and output_path != os.devnull:
+                    output_stream.close()
+        case "csv":
+            bound_expr.to_csv(output_path)
+        case "json":
+            bound_expr.to_json(output_path)
+        case "parquet":
+            bound_expr.to_parquet(output_path)
+        case _:
+            raise ValueError(f"Unknown output_format: {output_format}")
+
+
+@tracer.start_as_current_span("cli.tee_command")
+def tee_command(
+    output_paths,
+    input_format="arrow",
+    append=False,
+):
+    """
+    Read Arrow IPC from stdin and write to both stdout and file(s) (like Unix tee)
+
+    Parameters
+    ----------
+    output_paths : list[str]
+        List of file paths to write to (in addition to stdout)
+    input_format : str, optional
+        Input format, currently only "arrow" is supported
+    append : bool, optional
+        Append to files instead of overwriting (default: False)
+
+    Returns
+    -------
+
+    """
+    import pyarrow as pa
+
+    if input_format != "arrow":
+        raise ValueError("tee command currently only supports Arrow IPC streams")
+
+    # Read Arrow stream from stdin (streaming, not buffered)
+    # Note: No logging here to avoid polluting stdout Arrow stream
+    reader = pa.ipc.open_stream(sys.stdin.buffer)
+    schema = reader.schema
+
+    # Open all output files
+    mode = "ab" if append else "wb"
+    output_files = [open(path, mode) for path in output_paths]
+
+    # Create writers for stdout and all files
+    stdout_writer = pa.ipc.new_stream(sys.stdout.buffer, schema)
+    file_writers = [pa.ipc.new_stream(f, schema) for f in output_files]
+    all_writers = [stdout_writer] + file_writers
+
+    try:
+        # Stream batches incrementally
+        batch_count = 0
+        for batch in reader:
+            # Write the same batch to all outputs simultaneously
+            for writer in all_writers:
+                writer.write_batch(batch)
+            batch_count += 1
+
+        # Log to stderr after all Arrow data is written
+        print(
+            f"[tee] Streamed {batch_count} batches to {len(output_paths) + 1} destination(s)",
+            file=sys.stderr,
+        )
+    finally:
+        # Close all writers
+        for writer in all_writers:
+            writer.close()
+        # Close all file handles
+        for f in output_files:
+            f.close()
 
 
 @tracer.start_as_current_span("cli.unbind_and_serve_command")
@@ -441,9 +671,16 @@ def parse_args(override=None):
         help=f"Path to write output (default: {os.devnull})",
     )
     run_parser.add_argument(
+        "-i",
+        "--input",
+        choices=["arrow", "none"],
+        default="none",
+        help="Input format for reading from stdin (default: none)",
+    )
+    run_parser.add_argument(
         "-f",
         "--format",
-        choices=["csv", "json", "parquet"],
+        choices=["csv", "json", "parquet", "arrow"],
         default="parquet",
         help="Output format (default: parquet)",
     )
@@ -452,6 +689,78 @@ def parse_args(override=None):
         type=int,
         default=None,
         help="Limit number of rows to output",
+    )
+    run_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Batch size for Arrow streaming output (default: use table default)",
+    )
+
+    run_unbound_parser = subparsers.add_parser(
+        "run-unbound", help="Run an unbound expr by reading Arrow IPC from stdin"
+    )
+    run_unbound_parser.add_argument(
+        "build_path",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
+    run_unbound_parser.add_argument(
+        "--to_unbind_hash", default=None, help="Hash of the node to unbind"
+    )
+    run_unbound_parser.add_argument(
+        "--to_unbind_tag", default=None, help="Tag of the node to unbind"
+    )
+    run_unbound_parser.add_argument(
+        "--typ",
+        required=False,
+        default=None,
+        help="Type of the node to unbind",
+    )
+    run_unbound_parser.add_argument(
+        "-o",
+        "--output-path",
+        default=None,
+        help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)",
+    )
+    run_unbound_parser.add_argument(
+        "-f",
+        "--format",
+        choices=["csv", "json", "parquet", "arrow"],
+        default="arrow",
+        help="Output format (default: arrow)",
+    )
+    run_unbound_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of rows to output",
+    )
+    run_unbound_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Batch size for Arrow streaming output (default: use table default)",
+    )
+    run_unbound_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+
+    tee_parser = subparsers.add_parser(
+        "tee", help="Read Arrow IPC from stdin and write to both stdout and file(s)"
+    )
+    tee_parser.add_argument(
+        "output_paths",
+        nargs="+",
+        help="File path(s) to write to (in addition to stdout)",
+    )
+    tee_parser.add_argument(
+        "-a",
+        "--append",
+        action="store_true",
+        help="Append to files instead of overwriting",
     )
 
     serve_unbound_parser = subparsers.add_parser(
@@ -662,6 +971,32 @@ def main():
                         args.format,
                         args.cache_dir,
                         args.limit,
+                        args.input,
+                        getattr(args, "batch_size", None),
+                    ),
+                )
+            case "run-unbound":
+                f, f_args = (
+                    run_unbound_command,
+                    (
+                        args.build_path,
+                        args.to_unbind_hash,
+                        args.to_unbind_tag,
+                        args.output_path,
+                        args.format,
+                        args.cache_dir,
+                        args.limit,
+                        getattr(args, "batch_size", None),
+                        args.typ,
+                    ),
+                )
+            case "tee":
+                f, f_args = (
+                    tee_command,
+                    (
+                        args.output_paths,
+                        "arrow",
+                        args.append,
                     ),
                 )
             case "serve-unbound":
