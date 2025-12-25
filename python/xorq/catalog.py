@@ -33,9 +33,25 @@ def get_default_catalog_path():
     )
 
 
+def get_project_catalog_path() -> Optional[Path]:
+    project_catalog = Path.cwd() / "xorq-catalog.yaml"
+    return project_catalog if project_catalog.exists() else None
+
+
 def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
-    """Return the catalog file path, using XDG_CONFIG_HOME if set or default to ~/.config."""
-    return Path(path) if path else get_default_catalog_path()
+    """Return the catalog file path, checking project-local first, then user default."""
+    if path:
+        return Path(path)
+    if project_catalog := get_project_catalog_path():
+        return project_catalog
+    return get_default_catalog_path()
+
+
+def get_builds_dir_for_catalog(catalog_path: Path) -> Path:
+    """Get builds directory based on catalog type."""
+    if catalog_path.name == "xorq-catalog.yaml":
+        return catalog_path.parent / "xorq-catalog-entries"
+    return catalog_path.parent / "catalog-builds"
 
 
 get_now_utc = functools.partial(datetime.now, timezone.utc)
@@ -457,7 +473,8 @@ def resolve_build_dir(
 
     def absolutify(path):
         if not path.is_absolute():
-            path = get_default_catalog_path().parent.joinpath(path)
+            catalog_path = get_catalog_path()
+            path = catalog_path.parent.joinpath(path)
         return path
 
     path = Path(token)
@@ -609,8 +626,9 @@ class CatalogPaths:
 
     @classmethod
     def create(cls) -> "CatalogPaths":
-        config_path, config_dir = _get_catalog_paths()
-        builds_dir = config_dir / "catalog-builds"
+        config_path = get_catalog_path()
+        config_dir = config_path.parent
+        builds_dir = get_builds_dir_for_catalog(config_path)
         return cls(
             config_path=config_path, config_dir=config_dir, builds_dir=builds_dir
         )
@@ -632,8 +650,13 @@ def validate_build(request: AddBuildRequest) -> BuildInfo:
     )
 
 
-def make_build_object(build_info: BuildInfo) -> Build:
-    build_path_str = str(Path("catalog-builds") / build_info.build_id)
+def make_build_object(build_info: BuildInfo, catalog_path: Path) -> Build:
+    builds_dir_name = (
+        "xorq-catalog-entries"
+        if catalog_path.name == "xorq-catalog.yaml"
+        else "catalog-builds"
+    )
+    build_path_str = str(Path(builds_dir_name) / build_info.build_id)
     return Build.from_dict({"build_id": build_info.build_id, "path": build_path_str})
 
 
@@ -641,8 +664,9 @@ def make_revision(
     build_info: BuildInfo,
     revision_id: str,
     timestamp: str,
+    catalog_path: Path,
 ) -> Revision:
-    build_obj = make_build_object(build_info)
+    build_obj = make_build_object(build_info, catalog_path)
     revision_data = {
         "revision_id": revision_id,
         "created_at": timestamp,
@@ -669,10 +693,12 @@ def compute_next_revision_id(entry: Entry) -> str:
     return f"r{next_num}"
 
 
-def create_new_entry(build_info: BuildInfo, timestamp: str) -> Tuple[Entry, str]:
+def create_new_entry(
+    build_info: BuildInfo, timestamp: str, catalog_path: Path
+) -> Tuple[Entry, str]:
     entry_id = str(uuid.uuid4())
     revision_id = "r1"
-    revision = make_revision(build_info, revision_id, timestamp)
+    revision = make_revision(build_info, revision_id, timestamp, catalog_path)
 
     entry_data = {
         "entry_id": entry_id,
@@ -687,9 +713,10 @@ def update_existing_entry(
     entry: Entry,
     build_info: BuildInfo,
     timestamp: str,
+    catalog_path: Path,
 ) -> Tuple[Entry, str]:
     revision_id = compute_next_revision_id(entry)
-    revision = make_revision(build_info, revision_id, timestamp)
+    revision = make_revision(build_info, revision_id, timestamp, catalog_path)
     updated_entry = entry.with_revision(revision)
     return updated_entry, revision_id
 
@@ -721,15 +748,16 @@ def process_catalog_update(
     build_info: BuildInfo,
     alias: Optional[str],
     timestamp: str,
+    catalog_path: Path,
 ) -> Tuple[XorqCatalog, str, str]:
     existing_entry = maybe_find_existing_entry(catalog, alias)
 
     if existing_entry:
         entry, revision_id = update_existing_entry(
-            existing_entry, build_info, timestamp
+            existing_entry, build_info, timestamp, catalog_path
         )
     else:
-        entry, revision_id = create_new_entry(build_info, timestamp)
+        entry, revision_id = create_new_entry(build_info, timestamp, catalog_path)
 
     updated_catalog = update_catalog_with_entry(
         catalog, entry, revision_id, alias, timestamp
@@ -764,9 +792,10 @@ def do_save_catalog(catalog: XorqCatalog, config_path: Path) -> None:
     catalog.save(path=config_path)
 
 
-def do_print_result(result: AddBuildResult) -> None:
+def do_print_result(result: AddBuildResult, catalog_path: Path) -> None:
+    catalog_type = "project" if catalog_path.name == "xorq-catalog.yaml" else "user"
     print(
-        f"Added build {result.build_id} as entry {result.entry_id} revision {result.revision_id}"
+        f"Added build {result.build_id} to {catalog_type} catalog as entry {result.entry_id} revision {result.revision_id}"
     )
 
 
@@ -783,14 +812,14 @@ def do_catalog_add(args) -> None:
 
     catalog = load_catalog(path=paths.config_path)
     updated_catalog, entry_id, revision_id = process_catalog_update(
-        catalog, build_info, request.alias, timestamp
+        catalog, build_info, request.alias, timestamp, paths.config_path
     )
 
     do_save_catalog(updated_catalog, paths.config_path)
     result = AddBuildResult(
         entry_id=entry_id, revision_id=revision_id, build_id=build_info.build_id
     )
-    do_print_result(result)
+    do_print_result(result, paths.config_path)
 
 
 def do_catalog_ls(args):
@@ -830,6 +859,8 @@ def compute_build_dir(
 def do_catalog_info(args):
     config_path, _ = _get_catalog_paths()
     catalog = load_catalog(path=config_path)
+    catalog_type = "project" if config_path.name == "xorq-catalog.yaml" else "user"
+    print(f"Catalog type: {catalog_type}")
     print(f"Catalog path: {config_path}")
     print(f"Entries: {len(catalog.entries)}")
     print(f"Aliases: {len(catalog.aliases)}")

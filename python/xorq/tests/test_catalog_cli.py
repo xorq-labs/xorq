@@ -62,7 +62,10 @@ def test_rm_entry(tmp_path, capsys):
     args = parse_args(["catalog", "add", str(build_dir)])
     catalog_command(args)
     out_add = capsys.readouterr().out
-    entry_id = out_add.split()[5]
+    # Extract entry_id from output like "Added build X to Y catalog as entry UUID revision rN"
+    words = out_add.split()
+    entry_idx = words.index("entry") + 1
+    entry_id = words[entry_idx]
     # Remove entry
     args = parse_args(["catalog", "rm", entry_id])
     catalog_command(args)
