@@ -57,6 +57,14 @@ class OutputFormats(StrEnum):
 logger = get_print_logger()
 
 
+def ensure_build_dir(expr_path):
+    build_dir = resolve_build_dir(expr_path)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+    return build_dir
+
+
 @tracer.start_as_current_span("cli.uv_build_command")
 def uv_build_command(
     script_path,
@@ -188,15 +196,25 @@ def run_command(
         },
     )
 
-    if output_path is None:
-        output_path = os.devnull
-
     expr_path = Path(expr_path)
     build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
     expr = build_manager.load_expr(expr_path.name)
     if limit is not None:
         expr = expr.limit(limit)
+    arbitrate_output_format(expr, output_path, output_format)
 
+
+def arbitrate_output_format(expr, output_path, output_format):
+    match (output_path, output_format):
+        case (None, _):
+            output_path = os.devnull
+        case ("-", OutputFormats.json):
+            # FIXME: deal with windows
+            output_path = sys.stdout
+        case ("-", _):
+            output_path = sys.stdout.buffer
+        case _:
+            pass
     match output_format:
         case OutputFormats.csv:
             expr.to_csv(output_path)
@@ -219,16 +237,10 @@ def unbind_and_serve_command(
     cache_dir=get_xorq_cache_dir(),
     typ=None,
 ):
-    import functools
-
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
-    build_dir = resolve_build_dir(expr_path)
-    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
-        print(f"Build target not found: {expr_path}")
-        sys.exit(2)
-    expr_path = Path(build_dir)
+    expr_path = ensure_build_dir(expr_path)
     logger.info(f"Loading expression from {expr_path}")
     try:
         # initialize console and optional Prometheus metrics
@@ -245,7 +257,7 @@ def unbind_and_serve_command(
         expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
     )
     flight_url = xorq.flight.FlightUrl(host=host, port=port)
-    make_server = functools.partial(
+    make_server = partial(
         xorq.flight.FlightServer,
         flight_url=flight_url,
     )
@@ -296,11 +308,7 @@ def serve_command(
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
-    build_dir = resolve_build_dir(expr_path)
-    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
-        print(f"Build target not found: {expr_path}")
-        sys.exit(2)
-    expr_path = build_dir
+    expr_path = ensure_build_dir(expr_path)
     span = trace.get_current_span()
     params = {
         "build_path": expr_path,
@@ -633,12 +641,6 @@ def parse_args(override=None):
     )
 
     args = parser.parse_args(override)
-    if getattr(args, "output_path", None) == "-":
-        if args.format == "json":
-            # FIXME: deal with windows
-            args.output_path = sys.stdout
-        else:
-            args.output_path = sys.stdout.buffer
     return args
 
 
