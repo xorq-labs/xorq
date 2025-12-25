@@ -33,9 +33,10 @@ dependencies = [
     "cloudpickle>=3.1.1",
     "envyaml>=1.10.211231",
     "xorq-datafusion==0.2.5",
-    "opentelemetry-sdk>=1.32.1",
-    "opentelemetry-exporter-otlp>=1.32.1",
-    "opentelemetry-exporter-prometheus>=0.55b1",
+    "opentelemetry-sdk==1.26.0",
+    "opentelemetry-api==1.26.0",
+    "opentelemetry-exporter-otlp==1.26.0",
+    "opentelemetry-exporter-prometheus==0.47b0",
     "prometheus-client>=0.22.1",
     "cryptography>=45.0.3",
     "strenum>=0.4.15 ; python_version <= '3.10'",
@@ -84,6 +85,7 @@ datafusion = [
 snowflake = [
     "adbc-driver-snowflake>=1.5.0",
     "snowflake-connector-python>=3.10.1,<4 ; python_version >= '3.10' and python_version < '4.0'",
+    "snowflake-telemetry-python==0.7.1",
 ]
 quickgrove = [
     "quickgrove>=0.1.2",
