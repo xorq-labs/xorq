@@ -230,6 +230,80 @@ def arbitrate_output_format(expr, output_path, output_format):
             raise ValueError(f"Unknown output_format: {output_format}")
 
 
+@tracer.start_as_current_span("cli.run_unbound_command")
+def run_unbound_command(
+    expr_path,
+    to_unbind_hash=None,
+    to_unbind_tag=None,
+    output_path=None,
+    output_format=OutputFormats.default,
+    cache_dir=get_xorq_cache_dir(),
+    limit=None,
+    typ=None,
+):
+    """
+    Execute an unbound expression by reading Arrow IPC from stdin and binding it
+
+    Parameters
+    ----------
+    expr_path : str
+        Path to the expr in the builds dir
+    to_unbind_hash : str, optional
+        Hash of the node to unbind
+    to_unbind_tag : str, optional
+        Tag of the node to unbind
+    output_path : str, optional
+        Path to write output. Defaults to stdout for arrow, os.devnull otherwise
+    output_format : str, optional
+        Output format, either "csv", "json", "parquet", or "arrow". Defaults to "parquet"
+    cache_dir : Path, optional
+        Directory where the parquet cache files will be generated
+    limit : int, optional
+        Limit number of rows to output. Defaults to None (no limit).
+    typ : str, optional
+        Type of the node to unbind
+
+    Returns
+    -------
+
+    """
+    from xorq.expr.api import read_pyarrow_stream
+    from xorq.flight.exchanger import replace_one_unbound
+
+    span = trace.get_current_span()
+    span.add_event(
+        "run_unbound.params",
+        {
+            "expr_path": str(expr_path),
+            "to_unbind_hash": str(to_unbind_hash),
+            "to_unbind_tag": str(to_unbind_tag),
+            "output_format": str(output_format),
+        },
+    )
+
+    # Resolve build identifier
+    expr_path = ensure_build_dir(expr_path)
+    # Log to stderr to avoid polluting Arrow streams
+    print(f"[run-unbound] Loading expression from {expr_path}", file=sys.stderr)
+
+    # Load the expression and make it unbound
+    expr = load_expr(expr_path)
+    unbound_expr = expr_to_unbound(
+        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+    ).to_expr()
+
+    # Read Arrow IPC from stdin
+    print("[run-unbound] Reading Arrow IPC from stdin...", file=sys.stderr)
+    # Create a connection and register the input table
+    input_expr = read_pyarrow_stream(sys.stdin.buffer)
+    # Replace the unbound node with the input table
+    bound_expr = replace_one_unbound(unbound_expr, input_expr)
+
+    if limit is not None:
+        bound_expr = bound_expr.limit(limit)
+    arbitrate_output_format(expr, output_path, output_format)
+
+
 @tracer.start_as_current_span("cli.unbind_and_serve_command")
 def unbind_and_serve_command(
     expr_path,
@@ -484,6 +558,58 @@ def parse_args(override=None):
         help="Limit number of rows to output",
     )
 
+    run_unbound_parser = subparsers.add_parser(
+        "run-unbound", help="Run an unbound expr by reading Arrow IPC from stdin"
+    )
+    run_unbound_parser.add_argument(
+        "build_path",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
+    run_unbound_parser.add_argument(
+        "--to_unbind_hash", default=None, help="Hash of the node to unbind"
+    )
+    run_unbound_parser.add_argument(
+        "--to_unbind_tag", default=None, help="Tag of the node to unbind"
+    )
+    run_unbound_parser.add_argument(
+        "--typ",
+        required=False,
+        default=None,
+        help="Type of the node to unbind",
+    )
+    run_unbound_parser.add_argument(
+        "-o",
+        "--output-path",
+        default=None,
+        help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)",
+    )
+    run_unbound_parser.add_argument(
+        "-f",
+        "--format",
+        choices=OutputFormats,
+        # why was this arrow before and why did we fail when it was arrow?
+        default=OutputFormats.default,
+        help=f"Output format (default: {OutputFormats.default})",
+    )
+    run_unbound_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of rows to output",
+    )
+    run_unbound_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Batch size for Arrow streaming output (default: use table default)",
+    )
+    run_unbound_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
+    )
+
     serve_unbound_parser = subparsers.add_parser(
         "serve-unbound", help="Serve an an unbound expr via Flight Server"
     )
@@ -686,6 +812,20 @@ def main():
                         args.format,
                         args.cache_dir,
                         args.limit,
+                    ),
+                )
+            case "run-unbound":
+                f, f_args = (
+                    run_unbound_command,
+                    (
+                        args.build_path,
+                        args.to_unbind_hash,
+                        args.to_unbind_tag,
+                        args.output_path,
+                        args.format,
+                        args.cache_dir,
+                        args.limit,
+                        args.typ,
                     ),
                 )
             case "serve-unbound":
