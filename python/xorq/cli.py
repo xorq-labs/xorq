@@ -220,6 +220,10 @@ def arbitrate_output_format(expr, output_path, output_format):
             expr.to_csv(output_path)
         case OutputFormats.json:
             expr.to_json(output_path)
+        case OutputFormats.arrow:
+            from xorq.expr.api import to_pyarrow_stream
+
+            to_pyarrow_stream(expr, output_path)
         case OutputFormats.parquet:
             expr.to_parquet(output_path)
         case _:
