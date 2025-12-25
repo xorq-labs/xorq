@@ -222,9 +222,15 @@ def unbind_and_serve_command(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
 
+    from xorq.caching.strategy import SnapshotStrategy
+
     expr = load_expr(expr_path)
     unbound_expr = expr_to_unbound(
-        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+        expr,
+        hash=to_unbind_hash,
+        tag=to_unbind_tag,
+        typs=typ,
+        strategy=SnapshotStrategy(),
     )
     flight_url = xorq.flight.FlightUrl(host=host, port=port)
     make_server = functools.partial(
