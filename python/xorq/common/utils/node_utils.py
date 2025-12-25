@@ -50,14 +50,21 @@ def get_typs(maybe_typs):
 def find_by_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
     typs = get_typs(typs)
 
+    def compute_hash_with_strategy(node_expr):
+        """Compute hash with normalization strategy."""
+        with strategy.normalization_context(node_expr):
+            return dask.base.tokenize(node_expr.ls.untagged)
+
+    def compute_hash(node_expr):
+        """Compute node hash with optional normalization strategy."""
+        return (
+            node_expr.ls.tokenized
+            if strategy is None
+            else compute_hash_with_strategy(node_expr)
+        )
+
     def matches_hash(node):
-        node_expr = node.to_expr()
-        if strategy is None:
-            node_hash = node_expr.ls.tokenized
-        else:
-            with strategy.normalization_context(node_expr):
-                node_hash = dask.base.tokenize(node_expr.ls.untagged)
-        return node_hash == to_replace_hash
+        return compute_hash(node.to_expr()) == to_replace_hash
 
     (to_replace, *rest) = (
         node for node in walk_nodes(typs, expr) if matches_hash(node)
@@ -152,16 +159,16 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
         walk_nodes,
     )
 
+    def compute_unbind_hash(found_expr, strategy):
+        """Compute hash for unbinding with optional normalization strategy."""
+        if strategy is None:
+            return dask.base.tokenize(found_expr)
+        with strategy.normalization_context(found_expr):
+            return dask.base.tokenize(found_expr.ls.untagged)
+
     found = find_node(expr, hash=hash, tag=tag, typs=typs, strategy=strategy)
     found_expr = found.to_expr()
-    if hash:
-        to_unbind_hash = hash
-    else:
-        if strategy is None:
-            to_unbind_hash = dask.base.tokenize(found_expr)
-        else:
-            with strategy.normalization_context(found_expr):
-                to_unbind_hash = dask.base.tokenize(found_expr.ls.untagged)
+    to_unbind_hash = hash if hash else compute_unbind_hash(found_expr, strategy)
     match find_all_sources(found_expr):
         case []:
             raise ValueError("found no connections")
