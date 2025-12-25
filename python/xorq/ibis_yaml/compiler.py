@@ -22,6 +22,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
 from xorq.common.utils.graph_utils import (
+    bfs,
     find_all_sources,
     opaque_ops,
     replace_nodes,
@@ -232,7 +233,82 @@ class BuildManager:
 
         return updated_plans
 
-    def _make_metadata(self) -> str:
+    def _extract_dag_metadata(self, expr: ir.Expr) -> Dict[str, Any]:
+        """
+        Extract essential DAG metadata: graph structure, node count, and UDF information.
+        """
+        import xorq.expr.udf as udf
+
+        # Build the full graph using BFS
+        graph = bfs(expr)
+        nodes = list(graph.keys())
+
+        # Check for UDFs
+        has_udfs = any(isinstance(n, udf.ExprScalarUDF) for n in nodes)
+
+        # Build graph structure
+        node_to_id = {}
+        graph_nodes = []
+
+        for i, node in enumerate(nodes):
+            node_id = f"node_{i}"
+            node_to_id[id(node)] = node_id
+
+            # Compute snapshot hash for this node
+            snapshot_hash = None
+            try:
+                if hasattr(node, "to_expr"):
+                    expr_obj = node.to_expr()
+                    if hasattr(expr_obj, "ls") and hasattr(expr_obj.ls, "untagged"):
+                        untagged_repr = expr_obj.ls.untagged
+                    else:
+                        untagged_repr = node
+                else:
+                    untagged_repr = node
+                snapshot_hash = dask.base.tokenize(untagged_repr)
+            except Exception:
+                pass
+
+            # Build node info
+            node_info = {
+                "id": node_id,
+                "type": type(node).__name__,
+            }
+
+            if snapshot_hash:
+                node_info["snapshot_hash"] = snapshot_hash
+
+            # Add name if available
+            if hasattr(node, "name") and node.name:
+                node_info["name"] = node.name
+
+            graph_nodes.append(node_info)
+
+        # Build edges
+        graph_edges = []
+        for node, children in graph.items():
+            parent_id = node_to_id.get(id(node))
+            if parent_id:
+                for child in children:
+                    child_id = node_to_id.get(id(child))
+                    if child_id:
+                        graph_edges.append(
+                            {
+                                "from": child_id,
+                                "to": parent_id,
+                            }
+                        )
+
+        return {
+            "node_count": len(nodes),
+            "has_udfs": has_udfs,
+            "graph": {
+                "nodes": graph_nodes,
+                "edges": graph_edges,
+            },
+        }
+
+    def _make_metadata(self, expr: ir.Expr = None) -> str:
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
@@ -241,6 +317,11 @@ class BuildManager:
             else None,
             "sys-version_info": tuple(sys.version_info),
         }
+
+        # Add DAG metadata if expression is provided
+        if expr is not None:
+            metadata["dag_metadata"] = self._extract_dag_metadata(expr)
+
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
@@ -292,7 +373,8 @@ class BuildManager:
                 updated_deferred_reads, expr_hash, "deferred_reads.yaml"
             )
 
-        metadata_json = self._make_metadata()
+        # Generate metadata with DAG information
+        metadata_json = self._make_metadata(expr)
         self.artifact_store.write_text(metadata_json, expr_hash, "metadata.json")
 
         return expr_hash
