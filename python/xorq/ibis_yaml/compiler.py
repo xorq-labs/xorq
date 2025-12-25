@@ -239,72 +239,49 @@ class BuildManager:
         """
         import xorq.expr.udf as udf
 
-        # Build the full graph using BFS
+        def compute_snapshot_hash(node):
+            """Compute a deterministic hash for a node."""
+            untagged_expr = (
+                node.to_expr().ls.untagged if hasattr(node, "to_expr") else node
+            )
+            with SnapshotStrategy().normalization_context(untagged_expr):
+                return dask.base.tokenize(untagged_expr)
+
+        def build_node_info(idx, node):
+            """Build metadata for a single node."""
+            return toolz.merge(
+                {
+                    "id": f"node_{idx}",
+                    "type": type(node).__name__,
+                },
+                {"snapshot_hash": snapshot_hash}
+                if (snapshot_hash := compute_snapshot_hash(node))
+                else {},
+                {"name": node.name} if (hasattr(node, "name") and node.name) else {},
+            )
+
+        def build_edges(graph, nodes):
+            """Build edge list from graph structure."""
+            node_id_map = {id(node): idx for idx, node in enumerate(nodes)}
+
+            return [
+                {"from": f"node_{child_idx}", "to": f"node_{parent_idx}"}
+                for parent, children in graph.items()
+                if (parent_idx := node_id_map.get(id(parent))) is not None
+                for child in children
+                if (child_idx := node_id_map.get(id(child))) is not None
+            ]
+
+        # Build graph and extract nodes
         graph = bfs(expr)
         nodes = list(graph.keys())
 
-        # Check for UDFs
-        has_udfs = any(isinstance(n, udf.ExprScalarUDF) for n in nodes)
-
-        # Build graph structure
-        node_to_id = {}
-        graph_nodes = []
-
-        for i, node in enumerate(nodes):
-            node_id = f"node_{i}"
-            node_to_id[id(node)] = node_id
-
-            # Compute snapshot hash for this node
-            snapshot_hash = None
-            try:
-                if hasattr(node, "to_expr"):
-                    expr_obj = node.to_expr()
-                    if hasattr(expr_obj, "ls") and hasattr(expr_obj.ls, "untagged"):
-                        untagged_repr = expr_obj.ls.untagged
-                    else:
-                        untagged_repr = node
-                else:
-                    untagged_repr = node
-                snapshot_hash = dask.base.tokenize(untagged_repr)
-            except Exception:
-                pass
-
-            # Build node info
-            node_info = {
-                "id": node_id,
-                "type": type(node).__name__,
-            }
-
-            if snapshot_hash:
-                node_info["snapshot_hash"] = snapshot_hash
-
-            # Add name if available
-            if hasattr(node, "name") and node.name:
-                node_info["name"] = node.name
-
-            graph_nodes.append(node_info)
-
-        # Build edges
-        graph_edges = []
-        for node, children in graph.items():
-            parent_id = node_to_id.get(id(node))
-            if parent_id:
-                for child in children:
-                    child_id = node_to_id.get(id(child))
-                    if child_id:
-                        graph_edges.append(
-                            {
-                                "from": child_id,
-                                "to": parent_id,
-                            }
-                        )
-
         return {
             "node_count": len(nodes),
-            "has_udfs": has_udfs,
+            "has_udfs": any(isinstance(n, udf.ExprScalarUDF) for n in nodes),
             "graph": {
-                "nodes": graph_nodes,
-                "edges": graph_edges,
+                "nodes": [build_node_info(i, node) for i, node in enumerate(nodes)],
+                "edges": build_edges(graph, nodes),
             },
         }
 
