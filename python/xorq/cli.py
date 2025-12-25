@@ -17,6 +17,7 @@ from xorq.catalog import (
     ps_command,
     resolve_build_dir,
 )
+from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
@@ -34,6 +35,23 @@ from xorq.ibis_yaml.packager import (
 from xorq.init_templates import InitTemplates
 from xorq.loader import load_backend
 from xorq.vendor.ibis import Expr
+
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
+
+class OutputFormats(StrEnum):
+    csv = "csv"
+    json = "json"
+    parquet = "parquet"
+    arrow = "arrow"
+
+    @classproperty
+    def default(self):
+        return self.parquet
 
 
 logger = get_print_logger()
@@ -135,7 +153,7 @@ def build_command(
 def run_command(
     expr_path,
     output_path=None,
-    output_format="parquet",
+    output_format=OutputFormats.default,
     cache_dir=get_xorq_cache_dir(),
     limit=None,
 ):
@@ -148,8 +166,8 @@ def run_command(
         Path to the expr in the builds dir
     output_path : str
         Path to write output. Defaults to os.devnull
-    output_format : str, optional
-        Output format, either "csv", "json", or "parquet". Defaults to "parquet"
+    output_format : OutputFormats | str, optional
+        Output format, either "csv", "json", "arrow", or "parquet". Defaults to "parquet"
     cache_dir : Path, optional
         Directory where the parquet cache files will be generated
     limit : int, optional
@@ -180,11 +198,11 @@ def run_command(
         expr = expr.limit(limit)
 
     match output_format:
-        case "csv":
+        case OutputFormats.csv:
             expr.to_csv(output_path)
-        case "json":
+        case OutputFormats.json:
             expr.to_json(output_path)
-        case "parquet":
+        case OutputFormats.parquet:
             expr.to_parquet(output_path)
         case _:
             raise ValueError(f"Unknown output_format: {output_format}")
@@ -394,8 +412,8 @@ def parse_args(override=None):
     uv_run_parser.add_argument(
         "-f",
         "--format",
-        choices=["csv", "json", "parquet"],
-        default="parquet",
+        choices=OutputFormats,
+        default=OutputFormats.default,
         help="Output format (default: parquet)",
     )
 
@@ -443,8 +461,8 @@ def parse_args(override=None):
     run_parser.add_argument(
         "-f",
         "--format",
-        choices=["csv", "json", "parquet"],
-        default="parquet",
+        choices=OutputFormats,
+        default=OutputFormats.default,
         help="Output format (default: parquet)",
     )
     run_parser.add_argument(
