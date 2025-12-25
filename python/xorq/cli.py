@@ -285,7 +285,7 @@ def run_unbound_command(
     print(f"[run-unbound] Loading expression from {expr_path}", file=sys.stderr)
 
     # Load the expression and make it unbound
-    expr = load_expr(expr_path)
+    expr = load_expr(expr_path, cache_dir=cache_dir)
     unbound_expr = expr_to_unbound(
         expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
     ).to_expr()
@@ -328,7 +328,7 @@ def unbind_and_serve_command(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
 
-    expr = load_expr(expr_path)
+    expr = load_expr(expr_path, cache_dir=cache_dir)
     unbound_expr = expr_to_unbound(
         expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
     )
@@ -397,7 +397,7 @@ def serve_command(
 
     expr_path = Path(expr_path)
     logger.info(f"Loading expression from {expr_path}")
-    expr = load_expr(expr_path)
+    expr = load_expr(expr_path, cache_dir=cache_dir)
 
     db_path = Path(duckdb_path or "xorq_serve.db")  # FIXME what should be the default?
 
