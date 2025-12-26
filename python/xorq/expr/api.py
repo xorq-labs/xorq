@@ -19,7 +19,10 @@ from xorq.common.utils.defer_utils import (  # noqa: F403
     deferred_read_parquet,
     rbr_wrapper,
 )
-from xorq.common.utils.io_utils import extract_suffix
+from xorq.common.utils.io_utils import (
+    extract_suffix,
+    maybe_open,
+)
 from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import otel_instrument_reader
 from xorq.expr.ml import (
@@ -51,6 +54,7 @@ __all__ = (
     "read_csv",
     "read_parquet",
     "read_postgres",
+    "read_pyarrow_stream",
     "register",
     "train_test_splits",
     "to_parquet",
@@ -58,6 +62,7 @@ __all__ = (
     "to_json",
     "to_pyarrow",
     "to_pyarrow_batches",
+    "to_pyarrow_stream",
     "to_sql",
     "get_plans",
     "deferred_read_csv",
@@ -65,6 +70,19 @@ __all__ = (
     "get_object_metadata",
     *api.__all__,
 )
+
+
+def read_pyarrow_stream(
+    source,
+    con=None,
+    table_name=None,
+    **kwargs,
+) -> ir.Table:
+    from xorq.config import _backend_init
+
+    con = con or _backend_init()
+    rbr = pa.ipc.open_stream(source, **kwargs)
+    return con.read_record_batches(rbr, table_name=table_name)
 
 
 def read_csv(
@@ -457,6 +475,17 @@ def to_pyarrow(expr: ir.Expr, **kwargs: Any):
     batch_reader = to_pyarrow_batches(expr, **kwargs)
     arrow_table = batch_reader.read_all()
     return expr.__pyarrow_result__(arrow_table)
+
+
+def to_pyarrow_stream(expr: ir.Expr, sink: Any, **kwargs: Any):
+    rbr = expr.to_pyarrow_batches()
+    with maybe_open(sink, "wb") as fh:
+        try:
+            writer = pa.ipc.new_stream(fh, rbr.schema, **kwargs)
+            for batch in rbr:
+                writer.write_batch(batch)
+        finally:
+            writer.close()
 
 
 def to_parquet(
