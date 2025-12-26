@@ -196,9 +196,7 @@ def run_command(
         },
     )
 
-    expr_path = Path(expr_path)
-    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
-    expr = build_manager.load_expr(expr_path.name)
+    expr = load_expr(expr_path, cache_dir=cache_dir)
     if limit is not None:
         expr = expr.limit(limit)
     arbitrate_output_format(expr, output_path, output_format)
