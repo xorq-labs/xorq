@@ -21,6 +21,9 @@ from xorq.tests.util import (
 )
 
 
+pa = pytest.importorskip("pyarrow")
+
+
 @pytest.mark.parametrize("attr", ["year", "month", "day"])
 @pytest.mark.parametrize(
     "expr_fn",
@@ -801,3 +804,30 @@ def test_delta_using_ddb_standard(con, start, end, unit):
     ddb_con = xo.duckdb.connect()
     expr = end.delta(start, unit)
     assert ddb_con.execute(expr) == con.execute(expr)
+
+
+@pytest.mark.parametrize(
+    "pattern",
+    [
+        "%Y-%m-%d",
+        "%Y:%m:%d",
+        "%Y%m%d",
+        "%d-%m-%Y",
+        "%Y-%b-%d",
+        "%Y-%B-%d",
+        "%Y-%B-%d-%a",
+        "%F",
+        "%Y:%m:%d:%H:%M:%S",
+    ],
+)
+def test_strftime_multiple_patterns(con, pattern):
+    df = pd.DataFrame({"time_col": pa.array([18506, 18507, 18508, 18509], pa.date32())})
+
+    t = xo.memtable(df)
+
+    name = "formatted"
+    expr = t.time_col.strftime(pattern).name(name)
+    expected = df.time_col.dt.strftime(pattern).rename(name)
+
+    result = con.execute(expr)
+    assert_series_equal(result, expected)
