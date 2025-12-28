@@ -195,12 +195,11 @@ def test_case_where(alltypes, alltypes_df):
     table = alltypes
     table = table.mutate(
         new_col=(
-            xo.case()
-            .when(table["int_col"] == 1, 20)
-            .when(table["int_col"] == 0, 10)
-            .else_(0)
-            .end()
-            .cast("int64")
+            xo.cases(
+                (table["int_col"] == 1, 20),
+                (table["int_col"] == 0, 10),
+                else_=0,
+            ).cast("int64")
         )
     )
 

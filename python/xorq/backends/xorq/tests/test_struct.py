@@ -83,7 +83,7 @@ def test_struct_column(alltypes, alltypes_df):
 
 def test_field_access_after_case(con):
     s = xo.struct({"a": 3})
-    x = xo.case().when(True, s).else_(xo.struct({"a": 4})).end()
+    x = xo.cases((True, s), else_=xo.struct({"a": 4}))
     y = x.a
     assert con.to_pandas(y) == 3
 

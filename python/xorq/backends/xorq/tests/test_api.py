@@ -68,3 +68,11 @@ def test_with_config(
 
     assert isinstance(result, pd.DataFrame)
     assert len(result) == 10
+
+
+def test_cases(alltypes):
+    expr = xo.cases((alltypes["bool_col"], alltypes["string_col"]), else_=None).substr(
+        0, 2
+    )
+
+    assert expr.execute() is not None

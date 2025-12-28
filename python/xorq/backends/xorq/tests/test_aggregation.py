@@ -412,7 +412,7 @@ def test_agg_name_in_output_column(alltypes):
 def test_grouped_case(con):
     table = xo.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
 
-    case_expr = xo.case().when(table.value < 25, table.value).else_(xo.null()).end()
+    case_expr = xo.cases((table.value < 25, table.value), else_=xo.null())
 
     expr = table.group_by("key").aggregate(mx=case_expr.max()).order_by("key")
     result = con.execute(expr)
