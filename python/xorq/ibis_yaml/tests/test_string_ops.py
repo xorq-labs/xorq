@@ -212,9 +212,9 @@ def test_string_endswith(compiler):
             id="length",
         ),
         param(
-            lambda t: t.int_col.cases([(1, "abcd"), (2, "ABCD")], "dabc").startswith(
-                "abc"
-            ),
+            lambda t: t.int_col.cases(
+                *[(1, "abcd"), (2, "ABCD")], else_="dabc"
+            ).startswith("abc"),
             id="startswith",
         ),
         param(

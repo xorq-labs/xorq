@@ -41,7 +41,7 @@ from xorq.vendor.ibis.expr.types import (
     null,
     struct,
 )
-from xorq.vendor.ibis.util import experimental
+from xorq.vendor.ibis.util import deprecated, experimental
 
 
 if TYPE_CHECKING:
@@ -68,6 +68,7 @@ __all__ = (
     "array",
     "asc",
     "case",
+    "cases",
     "coalesce",
     "connect",
     "cross_join",
@@ -1118,6 +1119,7 @@ def interval(
     return functools.reduce(operator.add, intervals)
 
 
+@deprecated(instead="use cases instead")
 def case() -> bl.SearchedCaseBuilder:
     """Begin constructing a case expression.
 
@@ -1168,6 +1170,77 @@ def case() -> bl.SearchedCaseBuilder:
 
     """
     return bl.SearchedCaseBuilder()
+
+
+def cases(
+    branch: tuple[Any, Any], *branches: tuple[Any, Any], else_: Any | None = None
+) -> ir.Value:
+    """Create a multi-branch if-else expression.
+
+    Equivalent to a SQL `CASE` statement.
+
+    Parameters
+    ----------
+    branch
+        First (`condition`, `result`) pair. Required.
+    branches
+        Additional (`condition`, `result`) pairs. We look through the test
+        values in order and return the result corresponding to the first
+        test value that matches `self`. If none match, we return `else_`.
+    else_
+        Value to return if none of the case conditions evaluate to `True`.
+        Defaults to `NULL`.
+
+    Returns
+    -------
+    Value
+        A value expression
+
+    See Also
+    --------
+    [`Value.cases()`](./expression-generic.qmd#ibis.expr.types.generic.Value.cases)
+    [`Value.substitute()`](./expression-generic.qmd#ibis.expr.types.generic.Value.substitute)
+
+    Examples
+    --------
+    >>> import ibis
+    >>> ibis.options.interactive = True
+    >>> v = ibis.memtable({"values": [1, 2, 1, 2, 3, 2, 4]}).values
+    >>> ibis.cases((v == 1, "a"), (v > 2, "b"), else_="unk").name("cases")
+    ┏━━━━━━━━┓
+    ┃ cases  ┃
+    ┡━━━━━━━━┩
+    │ string │
+    ├────────┤
+    │ a      │
+    │ unk    │
+    │ a      │
+    │ unk    │
+    │ b      │
+    │ unk    │
+    │ b      │
+    └────────┘
+    >>> ibis.cases(
+    ...     (v % 2 == 0, "divisible by 2"),
+    ...     (v % 3 == 0, "divisible by 3"),
+    ...     (v % 4 == 0, "shadowed by the 2 case"),
+    ... ).name("cases")
+    ┏━━━━━━━━━━━━━━━━┓
+    ┃ cases          ┃
+    ┡━━━━━━━━━━━━━━━━┩
+    │ string         │
+    ├────────────────┤
+    │ NULL           │
+    │ divisible by 2 │
+    │ NULL           │
+    │ divisible by 2 │
+    │ divisible by 3 │
+    │ divisible by 2 │
+    │ divisible by 2 │
+    └────────────────┘
+    """
+    cases, results = zip(branch, *branches)
+    return ops.SearchedCase(cases=cases, results=results, default=else_).to_expr()
 
 
 def now() -> ir.TimestampScalar:
