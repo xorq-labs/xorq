@@ -107,34 +107,9 @@ if custom_endpoint and localhost_and_listening(custom_endpoint):
 elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
 ):
-    # Check if OTLP export is disabled (useful for SPCS where endpoints aren't accessible)
-    if os.getenv("XORQ_DISABLE_OTLP_EXPORT"):
-        logger.info(
-            "OTLP export disabled by XORQ_DISABLE_OTLP_EXPORT environment variable"
-        )
-        # Use stdout so SPCS can capture traces
-        processor = BatchSpanProcessor(ConsoleSpanExporter(out=sys.stdout))
-    # Auto-detect SPCS - SPCS sets both SNOWFLAKE_ACCOUNT and OTLP endpoints
-    # but the OTLP endpoints are not directly accessible from user containers
-    elif os.getenv("SNOWFLAKE_ACCOUNT"):
-        # Running in SPCS - disable direct OTLP export to avoid connection reset
-        # SPCS will capture telemetry through stdout/event tables instead
-        logger.info(
-            "SPCS environment detected (SNOWFLAKE_ACCOUNT set) - using console export for event tables"
-        )
-        logger.info(
-            "Traces will be sent to stdout for SPCS to capture. To force OTLP, set XORQ_FORCE_OTLP_EXPORT=1"
-        )
-        if not os.getenv("XORQ_FORCE_OTLP_EXPORT"):
-            # Output to stdout so SPCS can capture traces and send to event tables
-            processor = BatchSpanProcessor(ConsoleSpanExporter(out=sys.stdout))
-        else:
-            # Force OTLP export even in SPCS (for debugging)
-            logger.warning("Forcing OTLP export in SPCS environment")
-            processor = BatchSpanProcessor(OTLPSpanExporter())
-    else:
-        # Non-SPCS environment with OTEL env vars - use OTLP
-        processor = BatchSpanProcessor(OTLPSpanExporter())
+    # Environment has OTEL env vars set - use OTLP export
+    # The SDK will automatically read OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS
+    processor = BatchSpanProcessor(OTLPSpanExporter())
 else:
     # Fallback to console exporter
     processor = BatchSpanProcessor(
