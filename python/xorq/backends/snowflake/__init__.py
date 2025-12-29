@@ -207,6 +207,35 @@ class Backend(IbisSnowflakeBackend):
     def _setup_session(self, *, session_parameters, create_object_udfs: bool):
         con = self.con
 
+        # Configure Snowflake telemetry to use xorq's TracerProvider
+        # This ensures Snowpark operations create child spans under the current trace
+        # instead of creating separate root traces (preventing trace fragmentation)
+        try:
+            from opentelemetry import trace
+
+            tracer_provider = trace.get_tracer_provider()
+
+            # Snowflake connector uses OpenTelemetry internally
+            # We need to ensure it uses our TracerProvider
+            if hasattr(con, "_telemetry_client"):
+                # Set the tracer provider on the connection's telemetry client
+                con._telemetry_client._tracer_provider = tracer_provider
+                logger.debug(
+                    "Configured Snowflake telemetry to use xorq's TracerProvider"
+                )
+
+            # Also configure the global snowflake.connector telemetry
+            try:
+                import snowflake.connector
+
+                if hasattr(snowflake.connector, "telemetry"):
+                    snowflake.connector.telemetry.set_tracer_provider(tracer_provider)
+            except (ImportError, AttributeError):
+                pass
+
+        except Exception as e:
+            logger.debug(f"Could not configure Snowflake telemetry: {e}")
+
         # enable multiple SQL statements by default
         session_parameters.setdefault("MULTI_STATEMENT_COUNT", 0)
         # don't format JSON output by default

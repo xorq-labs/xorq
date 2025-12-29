@@ -48,29 +48,45 @@ def localhost_and_listening(uri):
     return None
 
 
+def should_use_snowflake_trace_id():
+    """Determine if we should use Snowflake's trace ID generator.
+
+    Returns True if:
+    - Running in Snowpark context
+    - OTEL_USE_SNOWFLAKE_TRACE_ID env var is set
+    - Or SNOWFLAKE_ACCOUNT is set (indicating Snowflake environment)
+    """
+    return (
+        os.getenv("OTEL_USE_SNOWFLAKE_TRACE_ID") is not None
+        or os.getenv("SNOWFLAKE_ACCOUNT") is not None
+        or os.getenv("SNOWPARK_SESSION") is not None
+    )
+
+
 OTELConfig = EnvConfigable.subclass_from_env_file(
     env_templates_dir.joinpath(".env.otel.template")
 )
 otel_config = OTELConfig.from_env()
 
+# Build resource attributes
+resource_attributes = {
+    SERVICE_NAME: otel_config.OTEL_SERVICE_NAME,
+}
 
-resource = Resource(
-    attributes={
-        SERVICE_NAME: otel_config.OTEL_SERVICE_NAME,
-    }
-)
+# Add execution ID if available (for SPCS and other execution contexts)
+# This enables filtering traces by specific runs in Snowflake Trail
+execution_id = os.environ.get("EXECUTION_ID")
+if execution_id:
+    resource_attributes["execution.id"] = execution_id
+    logger.debug(f"Added execution.id={execution_id} to telemetry resource attributes")
 
-# Detect if we're in a Snowflake environment (SPCS or using Snowflake OTLP)
-is_snowflake_env = (
-    os.getenv("SNOWFLAKE_ACCOUNT") is not None
-    or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") is not None
-    or os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") is not None
-)
+resource = Resource(attributes=resource_attributes)
 
 # Create TracerProvider with Snowflake trace ID generator if needed
 provider_kwargs = {"resource": resource}
-if HAS_SNOWFLAKE_TELEMETRY and is_snowflake_env:
+if HAS_SNOWFLAKE_TELEMETRY and should_use_snowflake_trace_id():
     # Use Snowflake-compatible trace IDs for proper Trail integration
+    # Format: 16-byte big-endian with timestamp in 4 highest-order bytes
     provider_kwargs["id_generator"] = SnowflakeTraceIdGenerator()
     logger.info("Using SnowflakeTraceIdGenerator for Snowflake Trail compatibility")
 
