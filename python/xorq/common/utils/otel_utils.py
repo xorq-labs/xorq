@@ -172,14 +172,37 @@ elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
             logger.warning("Changed port 4317 (gRPC) to 4318 (HTTP) for compatibility")
             logger.warning("=" * 80)
         elif base_endpoint and ":4317" in base_endpoint:
+            # For base endpoints, we need to ensure /v1/traces is used
             fixed_endpoint = base_endpoint.replace(":4317", ":4318")
-            os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = fixed_endpoint
-            logger.warning("=" * 80)
-            logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
-            logger.warning(f"Original endpoint: {base_endpoint}")
-            logger.warning(f"Fixed endpoint:    {fixed_endpoint}")
-            logger.warning("Changed port 4317 (gRPC) to 4318 (HTTP) for compatibility")
-            logger.warning("=" * 80)
+            # Convert to traces-specific endpoint to avoid 404
+            if not fixed_endpoint.endswith("/v1/traces"):
+                traces_specific = (
+                    f"{fixed_endpoint}/v1/traces"
+                    if not fixed_endpoint.endswith("/")
+                    else f"{fixed_endpoint}v1/traces"
+                )
+                os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = traces_specific
+                # Clear the base endpoint to avoid confusion
+                if "OTEL_EXPORTER_OTLP_ENDPOINT" in os.environ:
+                    del os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"]
+                logger.warning("=" * 80)
+                logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
+                logger.warning(f"Original endpoint: {base_endpoint}")
+                logger.warning(f"Fixed endpoint:    {traces_specific}")
+                logger.warning(
+                    "Changed port 4317 (gRPC) to 4318 (HTTP) and added /v1/traces path"
+                )
+                logger.warning("=" * 80)
+            else:
+                os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = fixed_endpoint
+                logger.warning("=" * 80)
+                logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
+                logger.warning(f"Original endpoint: {base_endpoint}")
+                logger.warning(f"Fixed endpoint:    {fixed_endpoint}")
+                logger.warning(
+                    "Changed port 4317 (gRPC) to 4318 (HTTP) for compatibility"
+                )
+                logger.warning("=" * 80)
 
     # Log all OTLP-related environment variables for debugging
     logger.info("=" * 80)
