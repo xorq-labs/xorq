@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 
@@ -14,6 +15,20 @@ from xorq.common.utils.env_utils import (
     EnvConfigable,
     env_templates_dir,
 )
+
+
+# Set up logging for telemetry issues
+logger = logging.getLogger(__name__)
+
+# Import Snowflake Trace ID generator for SPCS/Snowflake Trail compatibility
+# This is required for proper trace ID format in SPCS
+try:
+    from snowflake.telemetry.trace import SnowflakeTraceIdGenerator
+
+    HAS_SNOWFLAKE_TELEMETRY = True
+except ImportError:
+    HAS_SNOWFLAKE_TELEMETRY = False
+    logger.debug("snowflake-telemetry-python not available, using standard trace IDs")
 
 
 def localhost_and_listening(uri):
@@ -45,8 +60,21 @@ resource = Resource(
     }
 )
 
-# Create TracerProvider with standard configuration
-provider = TracerProvider(resource=resource)
+# Detect if we're in a Snowflake environment (SPCS or using Snowflake OTLP)
+is_snowflake_env = (
+    os.getenv("SNOWFLAKE_ACCOUNT") is not None
+    or os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") is not None
+    or os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") is not None
+)
+
+# Create TracerProvider with Snowflake trace ID generator if needed
+provider_kwargs = {"resource": resource}
+if HAS_SNOWFLAKE_TELEMETRY and is_snowflake_env:
+    # Use Snowflake-compatible trace IDs for proper Trail integration
+    provider_kwargs["id_generator"] = SnowflakeTraceIdGenerator()
+    logger.info("Using SnowflakeTraceIdGenerator for Snowflake Trail compatibility")
+
+provider = TracerProvider(**provider_kwargs)
 
 # OTEL SDK automatically reads standard environment variables:
 # - OTEL_EXPORTER_OTLP_ENDPOINT (set by SPCS)
