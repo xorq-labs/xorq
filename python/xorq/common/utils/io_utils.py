@@ -20,7 +20,7 @@ from xorq.common.utils.func_utils import (
 
 @contextmanager
 def maybe_open(obj, *args, **kwargs):
-    if isinstance(obj, io.TextIOWrapper):
+    if isinstance(obj, io.TextIOWrapper) | hasattr(obj, "write"):
         yield obj
     else:
         with open(obj, *args, **kwargs) as fh:
