@@ -5,6 +5,17 @@ import sys
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+
+
+# Try to import gRPC exporter - will be used if available and needed
+try:
+    from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+        OTLPSpanExporter as OTLPSpanExporterGRPC,
+    )
+
+    HAS_GRPC_EXPORTER = True
+except ImportError:
+    HAS_GRPC_EXPORTER = False
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import (
     BatchSpanProcessor,
@@ -156,45 +167,25 @@ elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
     base_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
     protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
 
-    # Detect SPCS misconfiguration: port 4317 without gRPC protocol
+    # Detect SPCS misconfiguration: port 4317 with wrong protocol
+    # Port 4317 is the standard gRPC port, but SPCS doesn't set the protocol correctly
     if (
         (traces_endpoint and ":4317" in traces_endpoint)
         or (base_endpoint and ":4317" in base_endpoint)
-    ) and not protocol:
-        # Fix by using port 4318 for HTTP
-        if traces_endpoint and ":4317" in traces_endpoint:
-            fixed_endpoint = traces_endpoint.replace(":4317", ":4318")
-            os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = fixed_endpoint
-            logger.warning("=" * 80)
-            logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
-            logger.warning(f"Original endpoint: {traces_endpoint}")
-            logger.warning(f"Fixed endpoint:    {fixed_endpoint}")
-            logger.warning("Changed port 4317 (gRPC) to 4318 (HTTP) for compatibility")
-            logger.warning("=" * 80)
-        elif base_endpoint and ":4317" in base_endpoint:
-            # For base endpoints, ALWAYS convert to traces-specific endpoint
-            # to ensure we hit the right path and avoid 404 errors
-            fixed_base = base_endpoint.replace(":4317", ":4318")
-
-            # Always create traces-specific endpoint for base endpoints
-            if fixed_base.endswith("/"):
-                traces_specific = f"{fixed_base}v1/traces"
-            else:
-                traces_specific = f"{fixed_base}/v1/traces"
-
-            # Set as traces endpoint and clear base to avoid confusion
-            os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = traces_specific
-            if "OTEL_EXPORTER_OTLP_ENDPOINT" in os.environ:
-                del os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"]
-
-            logger.warning("=" * 80)
-            logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
-            logger.warning(f"Original endpoint: {base_endpoint}")
-            logger.warning(f"Fixed endpoint:    {traces_specific}")
-            logger.warning(
-                "Changed port 4317 (gRPC) to 4318 (HTTP) and added /v1/traces path"
-            )
-            logger.warning("=" * 80)
+    ) and protocol != "grpc":
+        # Fix by setting the protocol to gRPC for port 4317
+        os.environ["OTEL_EXPORTER_OTLP_PROTOCOL"] = "grpc"
+        logger.warning("=" * 80)
+        logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
+        if traces_endpoint:
+            logger.warning(f"Endpoint: {traces_endpoint}")
+        else:
+            logger.warning(f"Endpoint: {base_endpoint}")
+        logger.warning(
+            f"Port 4317 detected with wrong protocol: {protocol or 'not set'}"
+        )
+        logger.warning("Fixed by setting OTEL_EXPORTER_OTLP_PROTOCOL=grpc")
+        logger.warning("=" * 80)
 
     # Log all OTLP-related environment variables for debugging
     logger.info("=" * 80)
@@ -285,20 +276,65 @@ elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
         f"  Compression: {os.getenv('OTEL_EXPORTER_OTLP_COMPRESSION') or 'none'}"
     )
 
-    # Create OTLP exporter with logging
+    # Create OTLP exporter with logging - use gRPC for port 4317
     try:
-        logger.info("\nCreating LoggingOTLPSpanExporter (with debug logging)...")
-        otlp_exporter = LoggingOTLPSpanExporter()
+        # Check if we should use gRPC exporter
+        protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL") or "http/protobuf"
 
-        # Log exporter configuration if available
-        if hasattr(otlp_exporter, "_endpoint"):
-            logger.info(
-                f"LoggingOTLPSpanExporter created with endpoint: {otlp_exporter._endpoint}"
+        if protocol == "grpc" and HAS_GRPC_EXPORTER:
+            logger.info("\nCreating gRPC OTLP exporter for protocol=grpc...")
+            # Use gRPC exporter for gRPC protocol
+            from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+                OTLPSpanExporter as OTLPSpanExporterGRPC,
             )
-        if hasattr(otlp_exporter, "_headers"):
-            logger.info(
-                f"LoggingOTLPSpanExporter headers configured: {'yes' if otlp_exporter._headers else 'no'}"
-            )
+
+            # Create a logging wrapper for gRPC exporter
+            class LoggingGRPCSpanExporter(OTLPSpanExporterGRPC):
+                def export(self, spans):
+                    logger.debug(
+                        f"Attempting to export {len(spans)} spans via gRPC to OTLP endpoint"
+                    )
+                    try:
+                        result = super().export(spans)
+                        logger.debug(
+                            f"Successfully exported {len(spans)} spans via gRPC"
+                        )
+                        return result
+                    except Exception as e:
+                        logger.error("=" * 80)
+                        logger.error(
+                            "OTLP gRPC EXPORT FAILED - CONNECTION ERROR DETAILS"
+                        )
+                        logger.error("=" * 80)
+                        logger.error(f"Error type: {type(e).__name__}")
+                        logger.error(f"Error message: {str(e)}")
+                        logger.error("Protocol: gRPC")
+                        logger.error(f"Number of spans attempted: {len(spans)}")
+                        if spans:
+                            first_span = spans[0]
+                            logger.error(f"First span name: {first_span.name}")
+                            logger.error(
+                                f"First span trace_id: {hex(first_span.context.trace_id)}"
+                            )
+                        logger.error("=" * 80)
+                        raise
+
+            otlp_exporter = LoggingGRPCSpanExporter()
+            logger.info("gRPC OTLP exporter created successfully")
+        else:
+            # Use HTTP exporter (default)
+            logger.info("\nCreating HTTP OTLP exporter (LoggingOTLPSpanExporter)...")
+            otlp_exporter = LoggingOTLPSpanExporter()
+
+            # Log exporter configuration if available
+            if hasattr(otlp_exporter, "_endpoint"):
+                logger.info(
+                    f"HTTP OTLP exporter created with endpoint: {otlp_exporter._endpoint}"
+                )
+            if hasattr(otlp_exporter, "_headers"):
+                logger.info(
+                    f"HTTP OTLP exporter headers configured: {'yes' if otlp_exporter._headers else 'no'}"
+                )
 
         processor = BatchSpanProcessor(otlp_exporter)
         logger.info("BatchSpanProcessor created successfully")
