@@ -299,7 +299,7 @@ def run_unbound_command(
 
     if limit is not None:
         bound_expr = bound_expr.limit(limit)
-    arbitrate_output_format(expr, output_path, output_format)
+    arbitrate_output_format(bound_expr, output_path, output_format)
 
 
 @tracer.start_as_current_span("cli.unbind_and_serve_command")
