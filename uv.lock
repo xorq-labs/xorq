@@ -4703,19 +4703,6 @@ wheels = [
 ]
 
 [[package]]
-name = "snowflake-telemetry-python"
-version = "0.7.1"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-sdk" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/21/1f/1b4f7a81e294d26bac5aec077245cb308dff8506524302d6c5202c51d170/snowflake_telemetry_python-0.7.1.tar.gz", hash = "sha256:6b0af6902d7650072c944c0ea41d3e194b7a139df9bdd6dc79ef7a5b0c0c99ce", size = 44829, upload-time = "2025-07-16T21:44:17.764Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5d/14/0824047554cbbe57bea01ba9a3a2bb37f634d233e27c8ed8e69a0b35326d/snowflake_telemetry_python-0.7.1-py3-none-any.whl", hash = "sha256:32fd3d935836d5f93e6a7872e2288a8db28725a90e48fd4ea75975976e544b1b", size = 52412, upload-time = "2025-07-16T21:44:16.889Z" },
-]
-
-[[package]]
 name = "sortedcontainers"
 version = "2.4.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5447,7 +5434,6 @@ quickgrove = [
 snowflake = [
     { name = "adbc-driver-snowflake" },
     { name = "snowflake-connector-python", marker = "python_full_version < '4'" },
-    { name = "snowflake-telemetry-python" },
 ]
 sqlite = [
     { name = "adbc-driver-sqlite" },
@@ -5533,7 +5519,6 @@ requires-dist = [
     { name = "rich", specifier = ">=13.9.4" },
     { name = "scikit-learn", marker = "extra == 'examples'", specifier = ">=1.4.0,<2.0.0" },
     { name = "snowflake-connector-python", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'snowflake'", specifier = ">=3.10.1,<4" },
-    { name = "snowflake-telemetry-python", marker = "extra == 'snowflake'", specifier = "==0.7.1" },
     { name = "sqlglot", specifier = ">=23.4,!=26.32.0" },
     { name = "strenum", marker = "python_full_version < '3.11'", specifier = ">=0.4.15" },
     { name = "structlog", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=24.2.0,<26" },

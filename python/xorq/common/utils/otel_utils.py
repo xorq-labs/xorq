@@ -16,15 +16,6 @@ from xorq.common.utils.env_utils import (
 )
 
 
-# Import Snowflake Trace ID generator for SPCS compatibility
-try:
-    from snowflake.telemetry.trace_id_generator import SnowflakeTraceIdGenerator
-
-    HAS_SNOWFLAKE_TELEMETRY = True
-except ImportError:
-    HAS_SNOWFLAKE_TELEMETRY = False
-
-
 def localhost_and_listening(uri):
     import socket
     import urllib
@@ -54,12 +45,8 @@ resource = Resource(
     }
 )
 
-# Use Snowflake Trace ID generator for SPCS/Snowflake Trail compatibility
-provider_kwargs = {"resource": resource}
-if HAS_SNOWFLAKE_TELEMETRY:
-    provider_kwargs["id_generator"] = SnowflakeTraceIdGenerator()
-
-provider = TracerProvider(**provider_kwargs)
+# Create TracerProvider with standard configuration
+provider = TracerProvider(resource=resource)
 
 # OTEL SDK automatically reads standard environment variables:
 # - OTEL_EXPORTER_OTLP_ENDPOINT (set by SPCS)
