@@ -580,6 +580,20 @@ class Binary(Variadic, Singleton):
 
 
 @public
+class BinaryView(Binary):
+    """A type representing a binary view.
+
+    Notes
+    -----
+    BinaryView is a representation for variable-length binary data that uses an
+    inline buffer for small values and references for larger values.
+    """
+
+    scalar = "BinaryScalar"
+    column = "BinaryColumn"
+
+
+@public
 class Temporal(DataType):
     """Data types related to time."""
 
@@ -1074,6 +1088,7 @@ float32 = Float32()
 float64 = Float64()
 string = String()
 binary = Binary()
+binary_view = BinaryView()
 date = Date()
 time = Time()
 timestamp = Timestamp()
@@ -1116,6 +1131,7 @@ public(
     float64=float64,
     string=string,
     binary=binary,
+    binary_view=binary_view,
     date=date,
     time=time,
     timestamp=timestamp,
