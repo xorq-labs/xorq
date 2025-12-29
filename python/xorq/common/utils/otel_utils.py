@@ -20,6 +20,48 @@ from xorq.common.utils.env_utils import (
 # Set up logging for telemetry issues
 logger = logging.getLogger(__name__)
 
+
+class LoggingOTLPSpanExporter(OTLPSpanExporter):
+    """Wrapper around OTLPSpanExporter that logs export attempts for debugging."""
+
+    def export(self, spans):
+        """Export spans with detailed logging."""
+        logger.debug(f"Attempting to export {len(spans)} spans to OTLP endpoint")
+        try:
+            result = super().export(spans)
+            logger.debug(f"Successfully exported {len(spans)} spans")
+            return result
+        except Exception as e:
+            logger.error("=" * 80)
+            logger.error("OTLP EXPORT FAILED - CONNECTION ERROR DETAILS")
+            logger.error("=" * 80)
+            logger.error(f"Error type: {type(e).__name__}")
+            logger.error(f"Error message: {str(e)}")
+            logger.error(
+                f"Endpoint: {self._endpoint if hasattr(self, '_endpoint') else 'unknown'}"
+            )
+            logger.error(f"Number of spans attempted: {len(spans)}")
+
+            # Log first span details for debugging
+            if spans:
+                first_span = spans[0]
+                logger.error(f"First span name: {first_span.name}")
+                logger.error(f"First span trace_id: {hex(first_span.context.trace_id)}")
+
+            logger.error("=" * 80)
+            logger.error("This error typically indicates:")
+            logger.error("1. The OTLP endpoint is not reachable from the container")
+            logger.error("2. Network policies may be blocking the connection")
+            logger.error(
+                "3. The endpoint requires authentication that's not configured"
+            )
+            logger.error(
+                "4. The endpoint is internal to SPCS and not accessible from user containers"
+            )
+            logger.error("=" * 80)
+            raise
+
+
 # Import Snowflake Trace ID generator for SPCS/Snowflake Trail compatibility
 # This is required for proper trace ID format in SPCS
 try:
@@ -103,13 +145,124 @@ custom_endpoint = otel_config.get("OTEL_ENDPOINT_URI")
 # Use custom endpoint for local development, otherwise let OTEL auto-configure
 if custom_endpoint and localhost_and_listening(custom_endpoint):
     # Local development with OTEL collector running
-    processor = BatchSpanProcessor(OTLPSpanExporter(endpoint=custom_endpoint))
+    logger.info(f"Using custom local endpoint: {custom_endpoint}")
+    processor = BatchSpanProcessor(LoggingOTLPSpanExporter(endpoint=custom_endpoint))
 elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
 ):
-    # Environment has OTEL env vars set - use OTLP export
-    # The SDK will automatically read OTEL_EXPORTER_OTLP_ENDPOINT and OTEL_EXPORTER_OTLP_HEADERS
-    processor = BatchSpanProcessor(OTLPSpanExporter())
+    # Log all OTLP-related environment variables for debugging
+    logger.info("=" * 80)
+    logger.info("OTLP CONFIGURATION DETECTED - LOGGING FOR DEBUGGING")
+    logger.info("=" * 80)
+
+    # Log all OTEL environment variables
+    otel_env_vars = {
+        "OTEL_EXPORTER_OTLP_ENDPOINT": os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT"),
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": os.getenv(
+            "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+        ),
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT": os.getenv(
+            "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+        ),
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT": os.getenv(
+            "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+        ),
+        "OTEL_EXPORTER_OTLP_HEADERS": os.getenv("OTEL_EXPORTER_OTLP_HEADERS"),
+        "OTEL_EXPORTER_OTLP_TRACES_HEADERS": os.getenv(
+            "OTEL_EXPORTER_OTLP_TRACES_HEADERS"
+        ),
+        "OTEL_EXPORTER_OTLP_TIMEOUT": os.getenv("OTEL_EXPORTER_OTLP_TIMEOUT"),
+        "OTEL_EXPORTER_OTLP_PROTOCOL": os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL"),
+        "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL": os.getenv(
+            "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL"
+        ),
+        "OTEL_EXPORTER_OTLP_COMPRESSION": os.getenv("OTEL_EXPORTER_OTLP_COMPRESSION"),
+        "OTEL_EXPORTER_OTLP_CERTIFICATE": os.getenv("OTEL_EXPORTER_OTLP_CERTIFICATE"),
+        "OTEL_SERVICE_NAME": os.getenv("OTEL_SERVICE_NAME"),
+        "OTEL_RESOURCE_ATTRIBUTES": os.getenv("OTEL_RESOURCE_ATTRIBUTES"),
+        "SNOWFLAKE_ACCOUNT": os.getenv("SNOWFLAKE_ACCOUNT"),
+        "SNOWFLAKE_HOST": os.getenv("SNOWFLAKE_HOST"),
+        "SNOWPARK_SESSION": os.getenv("SNOWPARK_SESSION"),
+        "EXECUTION_ID": os.getenv("EXECUTION_ID"),
+        "SPCS_IMAGE_REPOSITORY": os.getenv("SPCS_IMAGE_REPOSITORY"),
+        "SPCS_CONTAINER_NAME": os.getenv("SPCS_CONTAINER_NAME"),
+    }
+
+    logger.info("OTEL Environment Variables:")
+    for key, value in otel_env_vars.items():
+        if value is not None:
+            # Mask sensitive headers but show structure
+            if "HEADERS" in key and value:
+                # Show header keys but mask values
+                try:
+                    headers = [h.split("=")[0] for h in value.split(",")]
+                    logger.info(f"  {key}: <headers present: {', '.join(headers)}>")
+                except Exception:
+                    logger.info(f"  {key}: <headers present but format unclear>")
+            else:
+                logger.info(f"  {key}: {value}")
+
+    # Determine which endpoint will be used
+    traces_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+    base_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+
+    if traces_endpoint:
+        effective_endpoint = traces_endpoint
+        logger.info(f"\nUsing traces-specific endpoint: {traces_endpoint}")
+    elif base_endpoint:
+        # SDK will append /v1/traces to base endpoint
+        effective_endpoint = (
+            f"{base_endpoint}/v1/traces"
+            if not base_endpoint.endswith("/v1/traces")
+            else base_endpoint
+        )
+        logger.info(
+            f"\nUsing base endpoint (SDK will append /v1/traces): {base_endpoint}"
+        )
+        logger.info(f"Effective traces endpoint will be: {effective_endpoint}")
+    else:
+        effective_endpoint = "UNKNOWN"
+        logger.warning("No OTLP endpoint found - this should not happen")
+
+    # Log protocol information
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL") or "http/protobuf"
+    logger.info(f"\nOTLP Protocol: {protocol}")
+
+    # Log connection details for debugging
+    logger.info("\nConnection attempt will be made to:")
+    logger.info(f"  Endpoint: {effective_endpoint}")
+    logger.info(f"  Protocol: {protocol}")
+    logger.info(
+        f"  Timeout: {os.getenv('OTEL_EXPORTER_OTLP_TIMEOUT') or 'default (10s)'}"
+    )
+    logger.info(
+        f"  Compression: {os.getenv('OTEL_EXPORTER_OTLP_COMPRESSION') or 'none'}"
+    )
+
+    # Create OTLP exporter with logging
+    try:
+        logger.info("\nCreating LoggingOTLPSpanExporter (with debug logging)...")
+        otlp_exporter = LoggingOTLPSpanExporter()
+
+        # Log exporter configuration if available
+        if hasattr(otlp_exporter, "_endpoint"):
+            logger.info(
+                f"LoggingOTLPSpanExporter created with endpoint: {otlp_exporter._endpoint}"
+            )
+        if hasattr(otlp_exporter, "_headers"):
+            logger.info(
+                f"LoggingOTLPSpanExporter headers configured: {'yes' if otlp_exporter._headers else 'no'}"
+            )
+
+        processor = BatchSpanProcessor(otlp_exporter)
+        logger.info("BatchSpanProcessor created successfully")
+
+    except Exception as e:
+        logger.error(f"Failed to create OTLP exporter: {e}", exc_info=True)
+        logger.error("Falling back to console exporter")
+        processor = BatchSpanProcessor(ConsoleSpanExporter(out=sys.stdout))
+
+    logger.info("=" * 80)
 else:
     # Fallback to console exporter
     processor = BatchSpanProcessor(
@@ -123,6 +276,14 @@ else:
 provider.add_span_processor(processor)
 trace.set_tracer_provider(provider)
 
+# Log final configuration
+logger.info("=" * 80)
+logger.info("TELEMETRY INITIALIZATION COMPLETE")
+logger.info(f"TracerProvider: {provider}")
+logger.info(f"Processor type: {processor.__class__.__name__}")
+if hasattr(processor, "span_exporter"):
+    logger.info(f"Exporter type: {processor.span_exporter.__class__.__name__}")
+logger.info("=" * 80)
 
 # Creates a tracer from the global tracer provider
 tracer = trace.get_tracer("xorq.tracer")
