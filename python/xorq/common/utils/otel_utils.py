@@ -96,22 +96,22 @@ elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
         logger.info(
             "OTLP export disabled by XORQ_DISABLE_OTLP_EXPORT environment variable"
         )
-        processor = BatchSpanProcessor(ConsoleSpanExporter(out=open(os.devnull, "w")))
+        # Use stdout so SPCS can capture traces
+        processor = BatchSpanProcessor(ConsoleSpanExporter(out=sys.stdout))
     # Auto-detect SPCS - SPCS sets both SNOWFLAKE_ACCOUNT and OTLP endpoints
     # but the OTLP endpoints are not directly accessible from user containers
     elif os.getenv("SNOWFLAKE_ACCOUNT"):
         # Running in SPCS - disable direct OTLP export to avoid connection reset
         # SPCS will capture telemetry through stdout/event tables instead
         logger.info(
-            "SPCS environment detected (SNOWFLAKE_ACCOUNT set) - disabling direct OTLP export"
+            "SPCS environment detected (SNOWFLAKE_ACCOUNT set) - using console export for event tables"
         )
         logger.info(
-            "To override this, unset SNOWFLAKE_ACCOUNT or set XORQ_FORCE_OTLP_EXPORT=1"
+            "Traces will be sent to stdout for SPCS to capture. To force OTLP, set XORQ_FORCE_OTLP_EXPORT=1"
         )
         if not os.getenv("XORQ_FORCE_OTLP_EXPORT"):
-            processor = BatchSpanProcessor(
-                ConsoleSpanExporter(out=open(os.devnull, "w"))
-            )
+            # Output to stdout so SPCS can capture traces and send to event tables
+            processor = BatchSpanProcessor(ConsoleSpanExporter(out=sys.stdout))
         else:
             # Force OTLP export even in SPCS (for debugging)
             logger.warning("Forcing OTLP export in SPCS environment")
