@@ -150,6 +150,37 @@ if custom_endpoint and localhost_and_listening(custom_endpoint):
 elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
     "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
 ):
+    # Fix SPCS misconfiguration: port 4317 requires gRPC but SPCS doesn't set protocol
+    # Check if we have the SPCS misconfiguration and fix it
+    traces_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
+    base_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL")
+
+    # Detect SPCS misconfiguration: port 4317 without gRPC protocol
+    if (
+        (traces_endpoint and ":4317" in traces_endpoint)
+        or (base_endpoint and ":4317" in base_endpoint)
+    ) and not protocol:
+        # Fix by using port 4318 for HTTP
+        if traces_endpoint and ":4317" in traces_endpoint:
+            fixed_endpoint = traces_endpoint.replace(":4317", ":4318")
+            os.environ["OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"] = fixed_endpoint
+            logger.warning("=" * 80)
+            logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
+            logger.warning(f"Original endpoint: {traces_endpoint}")
+            logger.warning(f"Fixed endpoint:    {fixed_endpoint}")
+            logger.warning("Changed port 4317 (gRPC) to 4318 (HTTP) for compatibility")
+            logger.warning("=" * 80)
+        elif base_endpoint and ":4317" in base_endpoint:
+            fixed_endpoint = base_endpoint.replace(":4317", ":4318")
+            os.environ["OTEL_EXPORTER_OTLP_ENDPOINT"] = fixed_endpoint
+            logger.warning("=" * 80)
+            logger.warning("SPCS ENDPOINT MISCONFIGURATION DETECTED AND FIXED")
+            logger.warning(f"Original endpoint: {base_endpoint}")
+            logger.warning(f"Fixed endpoint:    {fixed_endpoint}")
+            logger.warning("Changed port 4317 (gRPC) to 4318 (HTTP) for compatibility")
+            logger.warning("=" * 80)
+
     # Log all OTLP-related environment variables for debugging
     logger.info("=" * 80)
     logger.info("OTLP CONFIGURATION DETECTED - LOGGING FOR DEBUGGING")
@@ -202,7 +233,7 @@ elif os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT") or os.getenv(
             else:
                 logger.info(f"  {key}: {value}")
 
-    # Determine which endpoint will be used
+    # Re-read endpoints after potential fix
     traces_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT")
     base_endpoint = os.getenv("OTEL_EXPORTER_OTLP_ENDPOINT")
 
