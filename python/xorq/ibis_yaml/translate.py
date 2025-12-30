@@ -60,6 +60,20 @@ def convert_to_ref(which, wrapped):
 
     return wrapper
 
+@translate_to_yaml.register(ops.Node)
+def _node_to_yaml(obj: ops.Node, context: Any) -> dict:
+    return freeze(
+        {"op": obj.__class__.__name__}
+        | {
+            name: translate_to_yaml(arg, context)
+            for name, arg in zip(obj.argnames, obj.args)
+        }
+        | {
+            name: translate_to_yaml(getattr(obj, attribute), context)
+            for name, attribute in (("type", "dtype"),)
+            if hasattr(obj, attribute)
+        }
+    )
 
 convert_to_dtype_ref = convert_to_ref(RegistryEnum.dtypes)
 convert_to_node_ref = convert_to_ref(RegistryEnum.nodes)
@@ -107,6 +121,23 @@ def _tuple_to_yaml(tpl: tuple, context: TranslationContext) -> dict:
 @register_from_yaml_handler("tuple")
 def _tuple_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
     return tuple(context.translate_from_yaml(value) for value in yaml_dict["values"])
+
+
+@translate_to_yaml.register(frozenset)
+def _frozenset_to_yaml(tpl: tuple, context: TranslationContext) -> dict:
+    return freeze(
+        {
+            "op": "frozenset",
+            "values": [translate_to_yaml(value, context) for value in tpl],
+        }
+    )
+
+
+@register_from_yaml_handler("frozenset")
+def _frozenset_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
+    return frozenset(
+        translate_from_yaml(value, context) for value in yaml_dict["values"]
+    )
 
 
 @translate_to_yaml.register(tm.IntervalUnit)
@@ -1286,70 +1317,6 @@ def _structfield_from_yaml(yaml_dict: dict, context: TranslationContext) -> ir.E
     return ops.StructField(*args).to_expr()
 
 
-def _type_from_yaml(yaml_dict: dict) -> dt.DataType:
-    type_name = yaml_dict["name"]
-    base_type = REVERSE_TYPE_REGISTRY.get(type_name)
-    if base_type is None:
-        raise ValueError(f"Unknown type: {type_name}")
-    if callable(base_type) and not isinstance(base_type, dt.DataType):
-        base_type = base_type(yaml_dict)
-    elif (
-        "nullable" in yaml_dict
-        and isinstance(base_type, dt.DataType)
-        and not isinstance(base_type, (tm.IntervalUnit, dt.Timestamp))
-    ):
-        base_type = base_type.copy(nullable=yaml_dict["nullable"])
-    return base_type
-
-
-REVERSE_TYPE_REGISTRY = {
-    "Int8": dt.Int8(),
-    "Int16": dt.Int16(),
-    "Int32": dt.Int32(),
-    "Int64": dt.Int64(),
-    "UInt8": dt.UInt8(),
-    "UInt16": dt.UInt16(),
-    "UInt32": dt.UInt32(),
-    "UInt64": dt.UInt64(),
-    "Float32": dt.Float32(),
-    "Float64": dt.Float64(),
-    "String": dt.String(),
-    "Boolean": dt.Boolean(),
-    "Date": dt.Date(),
-    "Time": dt.Time(),
-    "Binary": dt.Binary(),
-    "JSON": dt.JSON(),
-    "Null": dt.null,
-    "Timestamp": lambda yaml_dict: dt.Timestamp(
-        nullable=yaml_dict.get("nullable", True)
-    ),
-    "Decimal": lambda yaml_dict: dt.Decimal(
-        precision=yaml_dict.get("precision"),
-        scale=yaml_dict.get("scale"),
-        nullable=yaml_dict.get("nullable", True),
-    ),
-    "IntervalUnit": lambda yaml_dict: tm.IntervalUnit(
-        yaml_dict["value"] if isinstance(yaml_dict, dict) else yaml_dict
-    ),
-    "Interval": lambda yaml_dict: dt.Interval(
-        unit=_type_from_yaml(yaml_dict["unit"]),
-        nullable=yaml_dict.get("nullable", True),
-    ),
-    "DateUnit": lambda yaml_dict: tm.DateUnit(yaml_dict["value"]),
-    "TimeUnit": lambda yaml_dict: tm.TimeUnit(yaml_dict["value"]),
-    "TimestampUnit": lambda yaml_dict: tm.TimestampUnit(yaml_dict["value"]),
-    "Array": lambda yaml_dict: dt.Array(
-        _type_from_yaml(yaml_dict["value_type"]),
-        nullable=yaml_dict.get("nullable", True),
-    ),
-    "Map": lambda yaml_dict: dt.Map(
-        _type_from_yaml(yaml_dict["key_type"]),
-        _type_from_yaml(yaml_dict["value_type"]),
-        nullable=yaml_dict.get("nullable", True),
-    ),
-}
-
-
 @translate_to_yaml.register(FrozenDict)
 @translate_to_yaml.register(FrozenOrderedDict)
 def _frozenordereddict_to_yaml(dct: dict, context: TranslationContext) -> dict:
@@ -1384,6 +1351,17 @@ def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> Froze
     dct = FrozenDict(
         {
             key: context.translate_from_yaml(value)
+            for key, value in toolz.dissoc(yaml_dict, "op").items()
+        }
+    )
+    return dct
+
+
+@register_from_yaml_handler("FrozenDict")
+def _frozendict_from_yaml(yaml_dict: dict, context: TranslationContext) -> FrozenDict:
+    dct = FrozenDict(
+        {
+            key: translate_from_yaml(value, context)
             for key, value in toolz.dissoc(yaml_dict, "op").items()
         }
     )
