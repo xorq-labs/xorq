@@ -156,9 +156,17 @@ class SQLBackend(BaseBackend, _DatabaseSchemaHandler):
         pretty: bool = False,
     ):
         """Compile an Ibis expression to a SQL string."""
+        span = trace.get_current_span()
+
+        # Add node_ref for this expression
+        from xorq.expr.api import _calculate_node_ref
+
+        node_ref = _calculate_node_ref(expr)
+        span.set_attribute("node_ref", node_ref)
+
         query = self.compiler.to_sqlglot(expr, limit=limit, params=params)
         sql = query.sql(dialect=self.dialect, pretty=pretty, copy=False)
-        trace.get_current_span().add_event("compile.sql", {"sql": sql})
+        span.add_event("compile.sql", {"sql": sql, "node_ref": node_ref})
         self._log(sql)
         return sql
 

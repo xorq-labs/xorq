@@ -31,8 +31,10 @@ from xorq.expr.relations import (
     Tag,
     register_and_transform_remote_tables,
 )
+from xorq.ibis_yaml.config import config
 from xorq.vendor.ibis.expr import api
 from xorq.vendor.ibis.expr.api import *  # noqa: F403
+from xorq.vendor.ibis.expr.schema import Schema
 from xorq.vendor.ibis.expr.sql import SQLString
 
 
@@ -65,6 +67,129 @@ __all__ = (
     "get_object_metadata",
     *api.__all__,
 )
+
+
+def _calculate_node_ref(expr: ir.Expr) -> str:
+    """Calculate the node_ref for a single expression node.
+
+    This creates a deterministic reference for telemetry purposes.
+
+    Parameters
+    ----------
+    expr : ir.Expr
+        The expression to calculate node_ref for
+
+    Returns
+    -------
+    str
+        The node_ref string in format @{operation}_{hash_prefix}
+    """
+    import hashlib
+
+    node = expr.op()
+
+    # Determine the operation name
+    op_name = node.__class__.__name__.lower()
+
+    # Create a deterministic string representation for hashing
+    if isinstance(node, Tag):
+        hash_input = (
+            f"Tag:{node.parent.__class__.__name__}:{getattr(node, 'metadata', {})}"
+        )
+    elif isinstance(node, Schema):
+        hash_input = f"Schema:{tuple(node.items())}"
+    else:
+        # For regular nodes, use the string representation
+        # This includes the operation type and key attributes
+        hash_input = repr(node)
+
+    # Calculate hash using hashlib for consistency
+    node_hash = hashlib.sha256(hash_input.encode()).hexdigest()
+
+    # Return the node_ref
+    hash_length = getattr(config, "hash_length", 12)
+    return f"@{op_name}_{node_hash[:hash_length]}"
+
+
+def _collect_all_node_refs(expr: ir.Expr) -> list[str]:
+    """Collect all node_refs from an expression tree.
+
+    Traverses the entire expression tree and calculates node_ref for each node.
+
+    Parameters
+    ----------
+    expr : ir.Expr
+        The root expression to traverse
+
+    Returns
+    -------
+    list[str]
+        List of all node_refs in the expression tree, ordered by traversal
+    """
+    from xorq.common.utils.graph_utils import bfs
+
+    node_refs = []
+    visited = set()
+
+    # Use BFS to traverse the expression tree
+    graph = bfs(expr)
+
+    for node in graph.keys():
+        # Convert node back to expression for node_ref calculation
+        node_expr = node.to_expr()
+
+        # Calculate node_ref for this node
+        node_ref = _calculate_node_ref(node_expr)
+
+        # Avoid duplicates (same node can appear multiple times in the tree)
+        if node_ref not in visited:
+            visited.add(node_ref)
+            node_refs.append(node_ref)
+
+    return node_refs
+
+
+def _get_node_to_sql_mapping(expr: ir.Expr, con=None) -> dict[str, str]:
+    """Get mapping of node_refs to their compiled SQL.
+
+    For each node in the expression tree, compile it to SQL if possible.
+
+    Parameters
+    ----------
+    expr : ir.Expr
+        The root expression to traverse
+    con : Backend, optional
+        The backend connection to use for SQL compilation
+
+    Returns
+    -------
+    dict[str, str]
+        Mapping of node_ref to compiled SQL string
+    """
+    from xorq.common.utils.graph_utils import bfs
+
+    if con is None:
+        con, _ = find_backend(expr.op(), use_default=True)
+
+    node_to_sql = {}
+
+    # Use BFS to traverse the expression tree
+    graph = bfs(expr)
+
+    for node_expr in graph.keys():
+        # Calculate node_ref for this node
+        node_ref = _calculate_node_ref(node_expr)
+
+        # Try to compile this node to SQL
+        try:
+            if hasattr(con, "compile"):
+                sql = con.compile(node_expr)
+                node_to_sql[node_ref] = str(sql)
+        except Exception:
+            # Some nodes may not be compilable to SQL
+            pass
+
+    return node_to_sql
 
 
 def read_csv(
@@ -338,6 +463,11 @@ def execute(expr: ir.Expr, **kwargs: Any):
     <BLANKLINE>
     [3 rows x 8 columns]
     """
+    span = trace.get_current_span()
+
+    # Add node_ref for the expression being executed
+    node_ref = _calculate_node_ref(expr)
+    span.set_attribute("node_ref", node_ref)
 
     if (con := expr._find_backend(use_default=True)).name == "pandas":
         return _pandas_execute(con, expr, **kwargs)
@@ -366,10 +496,22 @@ def _remove_tag_nodes(expr):
 
 @tracer.start_as_current_span("_transform_expr")
 def _transform_expr(expr, **kwargs):
+    span = trace.get_current_span()
+
+    # Capture node_ref before transformation
+    initial_node_ref = _calculate_node_ref(expr)
+    span.set_attribute("initial_node_ref", initial_node_ref)
+
     expr = _remove_tag_nodes(expr)
     expr = _register_and_transform_cache_tables(expr)
     expr, created = register_and_transform_remote_tables(expr, **kwargs)
     expr, dt_to_read = _transform_deferred_reads(expr)
+
+    # Capture node_ref after transformation
+    final_node_ref = _calculate_node_ref(expr)
+    span.set_attribute("final_node_ref", final_node_ref)
+    span.set_attribute("transformed", initial_node_ref != final_node_ref)
+
     return (expr, created)
 
 
@@ -417,6 +559,14 @@ def to_pyarrow_batches(
     from xorq.expr.relations import FlightExpr, FlightUDXF
 
     span = trace.get_current_span()
+
+    # Capture node_refs before transformation
+    node_ref = _calculate_node_ref(expr)
+    node_refs = _collect_all_node_refs(expr)
+
+    span.set_attribute("node_ref", node_ref)
+    span.set_attribute("node_refs", ",".join(node_refs))
+    span.set_attribute("node_refs_count", len(node_refs))
 
     if isinstance(expr.op(), (FlightExpr, FlightUDXF)):
         # TODO: verify correct caching behavior
