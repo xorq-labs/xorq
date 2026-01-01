@@ -297,21 +297,65 @@ class BuildManager:
 
         return expr_hash
 
-    def load_expr(self, expr_hash: str) -> ir.Expr:
+    @staticmethod
+    def _normalize_profile_data(values):
+        dct = dict(values)
+        if isinstance(dct["kwargs_tuple"], dict):
+            dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
+        else:
+            dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
+        return dct
+
+    def _find_profile_hash(self, name, profiles_dict):
+        if name in profiles_dict:
+            return name
+        return next(
+            (
+                profile_hash
+                for profile_hash, profile_data in profiles_dict.items()
+                if profile_data.get("alias") == name or profile_hash.startswith(name)
+            ),
+            None,
+        )
+
+    def _get_target_profile(self, target_name, profiles_dict):
+        target_hash = self._find_profile_hash(target_name, profiles_dict)
+        if target_hash:
+            profile_data = profiles_dict[target_hash]
+            return Profile(**self._normalize_profile_data(profile_data)).get_con()
+
+        profile = Profile.load(target_name)
+        return profile.get_con()
+
+    def _apply_connection_replacements(
+        self, profiles, replace_connections, profiles_dict
+    ):
+        profiles_copy = profiles.copy()
+        for source_name, target_name in replace_connections:
+            source_hash = self._find_profile_hash(source_name, profiles_dict)
+            if source_hash is None:
+                raise ValueError(
+                    f"Source connection '{source_name}' not found in build profiles. "
+                    f"Available profiles: {list(profiles_dict.keys())}"
+                )
+            profiles_copy[source_hash] = self._get_target_profile(
+                target_name, profiles_dict
+            )
+        return profiles_copy
+
+    def load_expr(self, expr_hash: str, replace_connections=None) -> ir.Expr:
         profiles_dict = self.artifact_store.load_yaml(expr_hash, "profiles.yaml")
 
-        def f(values):
-            dct = dict(values)
-            if isinstance(dct["kwargs_tuple"], dict):
-                dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
-            else:
-                dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-            return dct
-
         profiles = {
-            profile: Profile(**f(values)).get_con()
+            profile: Profile(**self._normalize_profile_data(values)).get_con()
             for profile, values in profiles_dict.items()
         }
+
+        if replace_connections:
+            profiles = self._apply_connection_replacements(
+                profiles, replace_connections, profiles_dict
+            )
+
         translator = YamlExpressionTranslator()
 
         yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
@@ -352,9 +396,11 @@ class BuildManager:
         return build_id, meta_digest
 
 
-def load_expr(expr_path, cache_dir=None):
+def load_expr(expr_path, cache_dir=None, replace_connections=None):
     expr_path = Path(expr_path)
-    return BuildManager(expr_path.parent, cache_dir=cache_dir).load_expr(expr_path.name)
+    return BuildManager(expr_path.parent, cache_dir=cache_dir).load_expr(
+        expr_path.name, replace_connections=replace_connections
+    )
 
 
 def build_expr(expr, build_dir="builds", cache_dir=None, **kwargs):
