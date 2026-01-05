@@ -1,4 +1,3 @@
-import logging
 import os
 import sys
 
@@ -41,8 +40,6 @@ OTELConfig = EnvConfigable.subclass_from_env_file(
     env_templates_dir.joinpath(".env.otel.template")
 )
 otel_config = OTELConfig.from_env()
-
-logger = logging.getLogger(__name__)
 
 
 def get_otlp_exporter():
