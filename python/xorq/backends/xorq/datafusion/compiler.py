@@ -673,7 +673,7 @@ class DataFusionCompiler(SQLGlotCompiler):
         )
 
     def visit_Strftime(self, op, *, arg, format_str):
-        return self.f.temporal_strftime(arg, format_str)
+        return self.f.date_format(arg, format_str)
 
     def visit_TimeDelta(self, op, *, part, left, right):
         unit = part.this.lower()
