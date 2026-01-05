@@ -83,7 +83,7 @@ def convert_build(value):
         case None:
             return None
         case dict():
-            return Build(**value)
+            return Build.from_dict(value)
         case Build():
             return value
         case _:
@@ -106,9 +106,7 @@ class CatalogMetadata:
         """Return new metadata with updated timestamp."""
         return self.evolve(updated_at=get_now_utc())
 
-    def evolve(self, **kwargs) -> "CatalogMetadata":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(catalog_id=str)
 
@@ -128,9 +126,7 @@ class Build:
         converter=toolz.curried.excepts(Exception, Path),
     )
 
-    def evolve(self, **kwargs) -> "Build":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(path=if_not_none(str))
 
@@ -165,9 +161,7 @@ class Revision:
         default=None, validator=optional(instance_of(str))
     )
 
-    def evolve(self, **kwargs) -> "Revision":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(build=if_not_none(Build.to_dict))
 
@@ -210,9 +204,7 @@ class Entry:
             return None
         return self.maybe_get_revision(self.current_revision)
 
-    def evolve(self, **kwargs) -> "Entry":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(
         history=toolz.compose(tuple, functools.partial(map, Revision.to_dict))
@@ -246,9 +238,7 @@ class Alias:
         converter=convert_datetime,
     )
 
-    def evolve(self, **kwargs) -> "Alias":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict
 
@@ -316,9 +306,7 @@ class XorqCatalog:
         """Get all entry IDs."""
         return tuple(e.entry_id for e in self.entries)
 
-    def evolve(self, **kwargs) -> "XorqCatalog":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     def resolve_target(self, target: str):
         return Target.from_str(target, self)
