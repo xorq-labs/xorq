@@ -17,6 +17,7 @@ from xorq.catalog import (
     ps_command,
     resolve_build_dir,
 )
+from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
@@ -25,7 +26,6 @@ from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.tar_utils import copy_path
 from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import (
-    BuildManager,
     build_expr,
     load_expr,
 )
@@ -39,7 +39,32 @@ from xorq.loader import load_backend
 from xorq.vendor.ibis import Expr
 
 
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
+
+class OutputFormats(StrEnum):
+    csv = "csv"
+    json = "json"
+    parquet = "parquet"
+    arrow = "arrow"
+
+    @classproperty
+    def default(self):
+        return self.parquet
+
+
 logger = get_print_logger()
+
+
+def ensure_build_dir(expr_path):
+    build_dir = resolve_build_dir(expr_path)
+    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
+        print(f"Build target not found: {expr_path}")
+        sys.exit(2)
+    return build_dir
 
 
 @tracer.start_as_current_span("cli.uv_build_command")
@@ -131,7 +156,7 @@ def build_command(
 def run_command(
     expr_path,
     output_path=None,
-    output_format="parquet",
+    output_format=OutputFormats.default,
     cache_dir=get_xorq_cache_dir(),
     limit=None,
 ):
@@ -144,8 +169,8 @@ def run_command(
         Path to the expr in the builds dir
     output_path : str
         Path to write output. Defaults to os.devnull
-    output_format : str, optional
-        Output format, either "csv", "json", or "parquet". Defaults to "parquet"
+    output_format : OutputFormats | str, optional
+        Output format, either "csv", "json", "arrow", or "parquet". Defaults to "parquet"
     cache_dir : Path, optional
         Directory where the parquet cache files will be generated
     limit : int, optional
@@ -166,24 +191,110 @@ def run_command(
         },
     )
 
-    if output_path is None:
-        output_path = os.devnull
-
-    expr_path = Path(expr_path)
-    build_manager = BuildManager(expr_path.parent, cache_dir=cache_dir)
-    expr = build_manager.load_expr(expr_path.name)
+    expr = load_expr(expr_path, cache_dir=cache_dir)
     if limit is not None:
         expr = expr.limit(limit)
+    arbitrate_output_format(expr, output_path, output_format)
 
+
+def arbitrate_output_format(expr, output_path, output_format):
+    match (output_path, output_format):
+        case (None, _):
+            output_path = os.devnull
+        case ("-", OutputFormats.json):
+            # FIXME: deal with windows
+            output_path = sys.stdout
+        case ("-", _):
+            output_path = sys.stdout.buffer
+        case _:
+            pass
     match output_format:
-        case "csv":
+        case OutputFormats.csv:
             expr.to_csv(output_path)
-        case "json":
+        case OutputFormats.json:
             expr.to_json(output_path)
-        case "parquet":
+        case OutputFormats.arrow:
+            from xorq.expr.api import to_pyarrow_stream
+
+            to_pyarrow_stream(expr, output_path)
+        case OutputFormats.parquet:
             expr.to_parquet(output_path)
         case _:
             raise ValueError(f"Unknown output_format: {output_format}")
+
+
+@tracer.start_as_current_span("cli.run_unbound_command")
+def run_unbound_command(
+    expr_path,
+    to_unbind_hash=None,
+    to_unbind_tag=None,
+    output_path=None,
+    output_format=OutputFormats.default,
+    cache_dir=get_xorq_cache_dir(),
+    limit=None,
+    typ=None,
+):
+    """
+    Execute an unbound expression by reading Arrow IPC from stdin and binding it
+
+    Parameters
+    ----------
+    expr_path : str
+        Path to the expr in the builds dir
+    to_unbind_hash : str, optional
+        Hash of the node to unbind
+    to_unbind_tag : str, optional
+        Tag of the node to unbind
+    output_path : str, optional
+        Path to write output. Defaults to stdout for arrow, os.devnull otherwise
+    output_format : str, optional
+        Output format, either "csv", "json", "parquet", or "arrow". Defaults to "parquet"
+    cache_dir : Path, optional
+        Directory where the parquet cache files will be generated
+    limit : int, optional
+        Limit number of rows to output. Defaults to None (no limit).
+    typ : str, optional
+        Type of the node to unbind
+
+    Returns
+    -------
+
+    """
+    from xorq.expr.api import read_pyarrow_stream
+    from xorq.flight.exchanger import replace_one_unbound
+
+    span = trace.get_current_span()
+    span.add_event(
+        "run_unbound.params",
+        {
+            "expr_path": str(expr_path),
+            "to_unbind_hash": str(to_unbind_hash),
+            "to_unbind_tag": str(to_unbind_tag),
+            "output_format": str(output_format),
+        },
+    )
+
+    # Resolve build identifier
+    expr_path = ensure_build_dir(expr_path)
+    # Log to stderr to avoid polluting Arrow streams
+    print(f"[run-unbound] Loading expression from {expr_path}", file=sys.stderr)
+
+    # Load the expression and make it unbound
+    expr = load_expr(expr_path, cache_dir=cache_dir)
+    unbound_expr = expr_to_unbound(
+        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+    ).to_expr()
+
+    # Read Arrow IPC from stdin
+    print("[run-unbound] Reading Arrow IPC from stdin...", file=sys.stderr)
+    # Create a connection and register the input table
+    input_expr = read_pyarrow_stream(sys.stdin.buffer)
+    # Replace the unbound node with the input table
+    bound_expr = replace_one_unbound(unbound_expr, input_expr)
+
+    if limit is not None:
+        bound_expr = bound_expr.limit(limit)
+    arbitrate_output_format(bound_expr, output_path, output_format)
 
 
 @tracer.start_as_current_span("cli.unbind_and_serve_command")
@@ -197,16 +308,10 @@ def unbind_and_serve_command(
     cache_dir=get_xorq_cache_dir(),
     typ=None,
 ):
-    import functools
-
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
-    build_dir = resolve_build_dir(expr_path)
-    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
-        print(f"Build target not found: {expr_path}")
-        sys.exit(2)
-    expr_path = Path(build_dir)
+    expr_path = ensure_build_dir(expr_path)
     logger.info(f"Loading expression from {expr_path}")
     try:
         # initialize console and optional Prometheus metrics
@@ -218,12 +323,12 @@ def unbind_and_serve_command(
             "Metrics support requires 'opentelemetry-sdk' and console exporter"
         )
 
-    expr = load_expr(expr_path)
+    expr = load_expr(expr_path, cache_dir=cache_dir)
     unbound_expr = expr_to_unbound(
         expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
     )
     flight_url = xorq.flight.FlightUrl(host=host, port=port)
-    make_server = functools.partial(
+    make_server = partial(
         xorq.flight.FlightServer,
         flight_url=flight_url,
     )
@@ -274,11 +379,7 @@ def serve_command(
     # Preserve original target token for server listing
     orig_target = expr_path
     # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
-    build_dir = resolve_build_dir(expr_path)
-    if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
-        print(f"Build target not found: {expr_path}")
-        sys.exit(2)
-    expr_path = build_dir
+    expr_path = ensure_build_dir(expr_path)
     span = trace.get_current_span()
     params = {
         "build_path": expr_path,
@@ -291,7 +392,7 @@ def serve_command(
 
     expr_path = Path(expr_path)
     logger.info(f"Loading expression from {expr_path}")
-    expr = load_expr(expr_path)
+    expr = load_expr(expr_path, cache_dir=cache_dir)
 
     db_path = Path(duckdb_path or "xorq_serve.db")  # FIXME what should be the default?
 
@@ -390,8 +491,8 @@ def parse_args(override=None):
     uv_run_parser.add_argument(
         "-f",
         "--format",
-        choices=["csv", "json", "parquet"],
-        default="parquet",
+        choices=OutputFormats,
+        default=OutputFormats.default,
         help="Output format (default: parquet)",
     )
 
@@ -439,8 +540,8 @@ def parse_args(override=None):
     run_parser.add_argument(
         "-f",
         "--format",
-        choices=["csv", "json", "parquet"],
-        default="parquet",
+        choices=OutputFormats,
+        default=OutputFormats.default,
         help="Output format (default: parquet)",
     )
     run_parser.add_argument(
@@ -448,6 +549,58 @@ def parse_args(override=None):
         type=int,
         default=None,
         help="Limit number of rows to output",
+    )
+
+    run_unbound_parser = subparsers.add_parser(
+        "run-unbound", help="Run an unbound expr by reading Arrow IPC from stdin"
+    )
+    run_unbound_parser.add_argument(
+        "build_path",
+        help="Build target: alias, entry_id, build_id, or path to build dir",
+    )
+    run_unbound_parser.add_argument(
+        "--to_unbind_hash", default=None, help="Hash of the node to unbind"
+    )
+    run_unbound_parser.add_argument(
+        "--to_unbind_tag", default=None, help="Tag of the node to unbind"
+    )
+    run_unbound_parser.add_argument(
+        "--typ",
+        required=False,
+        default=None,
+        help="Type of the node to unbind",
+    )
+    run_unbound_parser.add_argument(
+        "-o",
+        "--output-path",
+        default=None,
+        help=f"Path to write output (default: stdout for arrow, {os.devnull} otherwise)",
+    )
+    run_unbound_parser.add_argument(
+        "-f",
+        "--format",
+        choices=OutputFormats,
+        # why was this arrow before and why did we fail when it was arrow?
+        default=OutputFormats.default,
+        help=f"Output format (default: {OutputFormats.default})",
+    )
+    run_unbound_parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="Limit number of rows to output",
+    )
+    run_unbound_parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=None,
+        help="Batch size for Arrow streaming output (default: use table default)",
+    )
+    run_unbound_parser.add_argument(
+        "--cache-dir",
+        required=False,
+        default=get_xorq_cache_dir(),
+        help="Directory for all generated parquet files cache",
     )
 
     serve_unbound_parser = subparsers.add_parser(
@@ -611,12 +764,6 @@ def parse_args(override=None):
     )
 
     args = parser.parse_args(override)
-    if getattr(args, "output_path", None) == "-":
-        if args.format == "json":
-            # FIXME: deal with windows
-            args.output_path = sys.stdout
-        else:
-            args.output_path = sys.stdout.buffer
     return args
 
 
@@ -658,6 +805,20 @@ def main():
                         args.format,
                         args.cache_dir,
                         args.limit,
+                    ),
+                )
+            case "run-unbound":
+                f, f_args = (
+                    run_unbound_command,
+                    (
+                        args.build_path,
+                        args.to_unbind_hash,
+                        args.to_unbind_tag,
+                        args.output_path,
+                        args.format,
+                        args.cache_dir,
+                        args.limit,
+                        args.typ,
                     ),
                 )
             case "serve-unbound":

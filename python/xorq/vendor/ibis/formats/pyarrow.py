@@ -39,13 +39,10 @@ _from_pyarrow_types = {
     pa.date32(): dt.Date,
     pa.date64(): dt.Date,
     pa.null(): dt.Null,
-    pa.string(): dt.String,
     pa.large_binary(): dt.Binary,
-    pa.large_string(): dt.String,
-    pa.binary(): dt.Binary,
-    pa.binary_view(): dt.Binary,
-    pa.string_view(): dt.String,
     pa.large_string(): dt.LargeString,
+    pa.binary_view(): dt.BinaryView,
+    pa.string_view(): dt.String,
 }
 
 
@@ -65,7 +62,6 @@ _to_pyarrow_types = {
     dt.Float32: pa.float32(),
     dt.Float64: pa.float64(),
     dt.String: pa.string(),
-    dt.Binary: pa.binary(),
     # assume unknown types can be converted into strings
     dt.Unknown: pa.string(),
     dt.MACADDR: pa.string(),
@@ -73,6 +69,7 @@ _to_pyarrow_types = {
     dt.UUID: pa.string(),
     dt.JSON: pa.string(),
     dt.LargeString: pa.large_string(),
+    dt.BinaryView: pa.binary_view(),
 }
 
 

@@ -433,9 +433,7 @@ def tpc_h08(part, supplier, lineitem, orders, customer, region, nation):
             q.p_type == "ECONOMY ANODIZED STEEL",
         ]
     )
-    q = q.mutate(
-        nation_volume=ibis.case().when(q.nation == "BRAZIL", q.volume).else_(0).end()
-    )
+    q = q.mutate(nation_volume=ibis.cases((q.nation == "BRAZIL", q.volume), else_=0))
     gq = q.group_by([q.o_year])
     q = gq.aggregate(nation_volume_sum=q.nation_volume.sum(), volume_sum=q.volume.sum())
     q = q.mutate(mkt_share=q.nation_volume_sum / q.volume_sum)

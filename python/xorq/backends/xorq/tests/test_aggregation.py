@@ -412,7 +412,7 @@ def test_agg_name_in_output_column(alltypes):
 def test_grouped_case(con):
     table = xo.memtable({"key": [1, 1, 2, 2], "value": [10, 30, 20, 40]})
 
-    case_expr = xo.case().when(table.value < 25, table.value).else_(xo.null()).end()
+    case_expr = xo.cases((table.value < 25, table.value), else_=xo.null())
 
     expr = table.group_by("key").aggregate(mx=case_expr.max()).order_by("key")
     result = con.execute(expr)
@@ -464,3 +464,23 @@ def test_quantile(
     result = expr.execute().squeeze()
     expected = expected_fn(alltypes_df, pandas_cond(alltypes_df))
     assert pytest.approx(result) == expected
+
+
+@pytest.mark.parametrize(
+    "method,expected",
+    [
+        pytest.param(lambda col: col.first(order_by="ob"), 4, id="first_asc"),
+        pytest.param(lambda col: col.last(order_by="ob"), 5, id="last_asc"),
+        pytest.param(
+            lambda col: col.first(order_by=xo._.ob.desc()), 5, id="first_desc"
+        ),
+        pytest.param(lambda col: col.last(order_by=xo._.ob.desc()), 4, id="last_desc"),
+    ],
+)
+def test_first_last_ordered_in_mutate(alltypes, con, method, expected):
+    t = alltypes.select(
+        a=xo._.tinyint_col, val=xo._.int_col, ob=xo._.bigint_col
+    ).filter(((xo._.val == 4) & (xo._.ob == 40)) | ((xo._.val == 5) & (xo._.ob == 50)))
+    expr = t.mutate(new=method(t.val)).limit(10)
+    actual = con.to_pyarrow(expr.new).to_pylist()
+    assert actual == [expected] * 10

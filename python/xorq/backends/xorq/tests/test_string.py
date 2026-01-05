@@ -189,9 +189,9 @@ def test_string_col_is_unicode(alltypes, alltypes_df):
             id="length",
         ),
         param(
-            lambda t: t.int_col.cases([(1, "abcd"), (2, "ABCD")], "dabc").startswith(
-                "abc"
-            ),
+            lambda t: t.int_col.cases(
+                *[(1, "abcd"), (2, "ABCD")], else_="dabc"
+            ).startswith("abc"),
             lambda t: t.int_col == 1,
             id="startswith",
         ),
@@ -310,11 +310,9 @@ def test_re_replace_global(con):
 
 def test_substr_with_null_values(alltypes, alltypes_df):
     table = alltypes.mutate(
-        substr_col_null=xo.case()
-        .when(alltypes["bool_col"], alltypes["string_col"])
-        .else_(None)
-        .end()
-        .substr(0, 2)
+        substr_col_null=xo.cases(
+            (alltypes["bool_col"], alltypes["string_col"]), else_=None
+        ).substr(0, 2)
     )
     result = table.execute()
 
@@ -387,7 +385,7 @@ def test_multiple_subs(con):
 @pytest.mark.parametrize(
     "expr",
     [
-        param(xo.case().when(True, "%").end(), id="case"),
+        param(xo.cases((True, "%")), id="case"),
         param(xo.ifelse(True, "%", xo.null()), id="ifelse"),
     ],
 )

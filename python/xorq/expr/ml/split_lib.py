@@ -11,7 +11,7 @@ from xorq.vendor.ibis.common.selectors import (
     Selector,
 )
 from xorq.vendor.ibis.expr.api import (
-    case,
+    cases,
     literal,
 )
 from xorq.vendor.ibis.util import promote_tuple
@@ -213,11 +213,10 @@ def calc_split_column(
         num_buckets=num_buckets,
         random_seed=random_seed,
     )
-    col = case()
-    for i, condition in enumerate(conditions):
-        col = col.when(condition, literal(i, "int64"))
-    col = col.end().name(name)
-    return col
+
+    return cases(
+        *((condition, literal(i, "int64")) for i, condition in enumerate(conditions))
+    ).name(name)
 
 
 def train_test_splits(
