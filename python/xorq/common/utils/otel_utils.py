@@ -56,45 +56,26 @@ def get_otlp_exporter():
     """
     protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
 
-    # Support both 'grpc' and 'http/protobuf' protocol values
     if protocol == "grpc":
-        # SDK will read OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT
         return OTLPSpanExporterGRPC()
     else:
-        # Default to HTTP exporter for 'http/protobuf' or any other value
         return OTLPSpanExporter()
 
 
-# Build resource attributes
 resource_attributes = {
     SERVICE_NAME: otel_config.OTEL_SERVICE_NAME,
+    **({"execution.id": eid} if (eid := otel_config.OTEL_EXECUTION_ID) else {}),
 }
 
-# Add execution ID if available (for SPCS and other execution contexts)
-# This enables filtering traces by specific runs in Snowflake Trail
-execution_id = os.environ.get("EXECUTION_ID")
-if execution_id:
-    resource_attributes["execution.id"] = execution_id
-    logger.debug(f"Added execution.id={execution_id} to telemetry resource attributes")
+resource = Resource(resource_attributes)
 
-resource = Resource(attributes=resource_attributes)
 provider = TracerProvider(resource=resource)
 
-# Create the appropriate exporter based on configuration
-# SDK auto-configures from standard OTEL environment variables:
-# - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT (or OTEL_EXPORTER_OTLP_ENDPOINT)
-# - OTEL_EXPORTER_OTLP_PROTOCOL
-# - OTEL_EXPORTER_OTLP_HEADERS
-# - OTEL_EXPORTER_OTLP_TIMEOUT
-traces_endpoint = os.getenv("OTEL_EXPORTER_OTLP_TRACES_ENDPOINT") or os.getenv(
-    "OTEL_EXPORTER_OTLP_ENDPOINT"
-)
+traces_endpoint = otel_config.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
 
 if traces_endpoint and localhost_and_listening(traces_endpoint):
-    # Use OTLP exporter with auto-configuration from environment
     processor = BatchSpanProcessor(get_otlp_exporter())
 else:
-    # Fallback to console exporter
     processor = BatchSpanProcessor(
         ConsoleSpanExporter(
             out=sys.stdout
@@ -105,6 +86,4 @@ else:
 provider.add_span_processor(processor)
 trace.set_tracer_provider(provider)
 
-
-# Creates a tracer from the global tracer provider
 tracer = trace.get_tracer("xorq.tracer")
