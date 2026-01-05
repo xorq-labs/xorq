@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.6] - 2026-01-05
+### Details
+#### Added
+- Add new embedded backend ops by @mesejo in [#1464](https://github.com/xorq-labs/xorq/pull/1464)
+- Add cases by @mesejo in [#1480](https://github.com/xorq-labs/xorq/pull/1480)
+- Add BinaryView type by @hussainsultan in [#1481](https://github.com/xorq-labs/xorq/pull/1481)
+
+#### Changed
+- Use snapshot hash and node refs by @dlovell in [#1462](https://github.com/xorq-labs/xorq/pull/1462)
+- Update hexdigest by @mesejo
+- Dtype dedup by @dlovell in [#1469](https://github.com/xorq-labs/xorq/pull/1469)
+- Init_templates.py by @dlovell in [#1476](https://github.com/xorq-labs/xorq/pull/1476)
+- Arrow ipc pipe by @dlovell in [#1479](https://github.com/xorq-labs/xorq/pull/1479)
+- Update dependency pytest to v9.0.2 by @renovate[bot] in [#1485](https://github.com/xorq-labs/xorq/pull/1485)
+- Update actions/create-github-app-token action to v2.2.1 by @renovate[bot] in [#1482](https://github.com/xorq-labs/xorq/pull/1482)
+- Update codecov/codecov-action action to v5.5.2 by @renovate[bot] in [#1483](https://github.com/xorq-labs/xorq/pull/1483)
+- Update dependency pre-commit to v4.5.1 by @renovate[bot] in [#1484](https://github.com/xorq-labs/xorq/pull/1484)
+- Update ruff to 0.14.10 by @mesejo in [#1489](https://github.com/xorq-labs/xorq/pull/1489)
+- Use datafusion default strftime by @mesejo in [#1472](https://github.com/xorq-labs/xorq/pull/1472)
+
+#### Fixed
+- Update snapshot by @dlovell in [#1475](https://github.com/xorq-labs/xorq/pull/1475)
+- Enforce order_by arg to first and last in mutate by @mesejo in [#1470](https://github.com/xorq-labs/xorq/pull/1470)
+
 ## [0.3.5] - 2025-12-22
 ### Details
 #### Added
