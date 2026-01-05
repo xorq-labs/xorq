@@ -9,6 +9,12 @@ from typing import Any, Dict
 import dask
 import toolz
 import yaml
+from attr import (
+    evolve,
+    field,
+    frozen,
+)
+from attr.validators import instance_of, optional
 
 import xorq
 import xorq.common.utils.logging_utils as lu
@@ -80,11 +86,11 @@ class CleanDictYAMLDumper(yaml.SafeDumper):
 CleanDictYAMLDumper.add_representers()
 
 
+@frozen
 class ArtifactStore:
-    def __init__(self, root_path: pathlib.Path):
-        self.root_path = (
-            Path(root_path) if not isinstance(root_path, Path) else root_path
-        )
+    root_path = field(validator=instance_of(Path), converter=Path)
+
+    def __attrs_post_init__(self):
         self.root_path.mkdir(parents=True, exist_ok=True)
 
     def get_path(self, *parts) -> pathlib.Path:
@@ -190,22 +196,28 @@ class YamlExpressionTranslator:
         return translate_from_yaml(expr_dict, context)
 
 
+@frozen
 class BuildManager:
-    def __init__(
-        self,
-        build_dir: pathlib.Path,
-        cache_dir: pathlib.Path | str = None,
-        debug: bool = False,
-    ):
+    artifact_store = field(
+        validator=instance_of(ArtifactStore), converter=ArtifactStore
+    )
+    cache_dir = field(validator=optional(instance_of(Path)), default=None)
+    debug = field(validator=instance_of(bool), default=False)
+    profiles = field(init=False, factory=dict)
+
+    def __attrs_post_init__(self):
         """
         build_dir: root directory where build artifacts are stored
         cache_dir: optional directory for parquet cache files
         debug: when True, output SQL files and debug artifacts (sql.yaml, deferred_reads.yaml)
         """
-        self.artifact_store = ArtifactStore(build_dir)
-        self.profiles = {}
-        self.cache_dir = Path(cache_dir or get_xorq_cache_dir())
-        self.debug = debug
+        match self.cache_dir:
+            case None:
+                object.__setattr__(self, "cache_dir", get_xorq_cache_dir())
+            case Path():
+                pass
+            case _:
+                object.__setattr__(self, "cache_dir", Path(self.cache_dir))
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
         hash_length = config.hash_length
@@ -358,7 +370,7 @@ def load_expr(expr_path, cache_dir=None):
 
 
 def build_expr(expr, build_dir="builds", cache_dir=None, **kwargs):
-    build_manager = BuildManager(build_dir=build_dir, cache_dir=cache_dir, **kwargs)
+    build_manager = BuildManager(build_dir, cache_dir=cache_dir, **kwargs)
     expr_hash = build_manager.compile_expr(expr)
     path = build_manager.artifact_store.get_path(expr_hash)
     return path
@@ -379,8 +391,6 @@ def replace_from_to(from_, to_, node, kwargs):
 
 
 def replace_base_path(expr, base_path):
-    from attr import evolve
-
     from xorq.caching import (
         ParquetCache,
         ParquetSnapshotCache,
