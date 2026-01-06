@@ -155,9 +155,11 @@ class ArtifactStore:
 
     def get_expr_hash(self, expr) -> str:
         with SnapshotStrategy().normalization_context(expr):
-            expr_hash = dask.base.tokenize(expr)
-        hash_length = config.hash_length
-        return expr_hash[:hash_length]
+            expr_hash = dask.base.tokenize(expr)[: config.hash_length]
+            return expr_hash
+
+    def get_expr_path(self, expr) -> Path:
+        return self.get_path(self.get_expr_hash(expr))
 
     def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash, filename) -> pathlib.Path:
         return self.write_yaml(yaml_dict, expr_hash, filename)
@@ -234,8 +236,7 @@ class BuildManager:
         return ArtifactStore(self.root_path)
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
-        hash_length = config.hash_length
-        sql_hash = dask.base.tokenize(sql)[:hash_length]
+        sql_hash = dask.base.tokenize(sql)[: config.hash_length]
         filename = f"{sql_hash}.sql"
         sql_path = self.artifact_store.get_build_path(expr_hash) / filename
         sql_path.write_text(sql)
