@@ -203,7 +203,6 @@ class BuildManager:
     )
     cache_dir = field(validator=optional(instance_of(Path)), default=None)
     debug = field(validator=instance_of(bool), default=False)
-    profiles = field(init=False, factory=dict)
 
     def __attrs_post_init__(self):
         """
