@@ -289,19 +289,6 @@ class BuildManager:
         updated_plans = {"queries": queries}
         return updated_plans
 
-    @staticmethod
-    def _make_metadata() -> str:
-        metadata = {
-            "current_library_version": xorq.__version__,
-            "metadata_version": "0.0.0",  # TODO: make it a real thing
-            "git_state": lu.get_git_state(hash_diffs=False)
-            if lu._git_is_present()
-            else None,
-            "sys-version_info": tuple(sys.version_info),
-        }
-        metadata_json = json.dumps(metadata, indent=2)
-        return metadata_json
-
     def _process_deferred_reads(
         self, deferred_reads: Dict[str, Any], expr_hash: str
     ) -> Dict[str, Any]:
@@ -318,6 +305,19 @@ class BuildManager:
         }
         updated_reads = {"reads": reads}
         return updated_reads
+
+    @staticmethod
+    def _make_metadata() -> str:
+        metadata = {
+            "current_library_version": xorq.__version__,
+            "metadata_version": "0.0.0",  # TODO: make it a real thing
+            "git_state": lu.get_git_state(hash_diffs=False)
+            if lu._git_is_present()
+            else None,
+            "sys-version_info": tuple(sys.version_info),
+        }
+        metadata_json = json.dumps(metadata, indent=2)
+        return metadata_json
 
     def compile_expr(self, expr: ir.Expr) -> str:
         expr_build_dir = self.artifact_store.get_expr_path(expr)
