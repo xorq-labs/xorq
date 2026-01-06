@@ -15,6 +15,9 @@ from attrs import evolve, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
 
 import xorq as xo
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    file_digest,
+)
 from xorq.common.utils.func_utils import (
     if_not_none,
 )
@@ -24,7 +27,6 @@ from xorq.ibis_yaml.compiler import (
     METADATA_JSON_FILENAME,
     PROFILES_YAML_FILENAME,
     SQL_YAML_FILENAME,
-    BuildManager,
     load_expr,
 )
 
@@ -620,11 +622,28 @@ class AddBuildResult:
 
 
 def validate_build(request: AddBuildRequest) -> BuildInfo:
-    build_id, meta_digest = BuildManager.validate_build(request.build_path.resolve())
+    def get_meta_file(path):
+        build_path = Path(path)
+        meta_file = build_path / METADATA_JSON_FILENAME
+        if not build_path.exists() or not build_path.is_dir():
+            raise ValueError(f"Build path not found: {build_path}")
+        if not meta_file.exists():
+            raise ValueError(
+                f"{METADATA_JSON_FILENAME} not found in build path: {build_path}"
+            )
+        return meta_file
+
+    source_path = request.build_path.resolve()
+    meta_file = get_meta_file(source_path)
+    # The build_id is the directory name
+    build_id = meta_file.parent.name
+    # Compute meta_digest from metadata.json
+    meta_digest = f"sha1:{file_digest(meta_file)}"
+
     return BuildInfo(
         build_id=build_id,
         meta_digest=meta_digest,
-        source_path=request.build_path.resolve(),
+        source_path=source_path,
     )
 
 
