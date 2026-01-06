@@ -14,7 +14,11 @@ from attr import (
     field,
     frozen,
 )
-from attr.validators import instance_of, optional
+from attr.validators import (
+    instance_of,
+    optional,
+    or_,
+)
 
 import xorq
 import xorq.common.utils.logging_utils as lu
@@ -204,9 +208,12 @@ class YamlExpressionTranslator:
 @frozen
 class BuildManager:
     artifact_store = field(
-        validator=instance_of(ArtifactStore), converter=ArtifactStore
+        validator=instance_of(ArtifactStore),
+        converter=ArtifactStore,
     )
-    cache_dir = field(validator=optional(instance_of(Path)), default=None)
+    cache_dir = field(
+        validator=optional(or_(instance_of(Path), instance_of(str))), default=None
+    )
     debug = field(validator=instance_of(bool), default=False)
 
     def __attrs_post_init__(self):
