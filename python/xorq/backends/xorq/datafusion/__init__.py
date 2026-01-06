@@ -22,6 +22,7 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq.datafusion.compiler import compiler
+from xorq.backends.xorq.datafusion.converter import DataFusionPyArrowSchema
 from xorq.backends.xorq.datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
 from xorq.common.utils.aws_utils import (
@@ -722,15 +723,18 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ):
+        from xorq.backends.xorq.datafusion.converter import DataFusionPyArrowType
+
         pa = self._import_pyarrow()
+
         self._register_udfs(expr)
         self._register_in_memory_tables(expr)
         table_expr = expr.as_table()
         raw_sql = self.compile(table_expr, **kwargs)
         frame = self.con.sql(raw_sql)
         schema = table_expr.schema()
-        pyarrow_schema = schema.to_pyarrow()
-        struct_schema = schema.as_struct().to_pyarrow()
+        pyarrow_schema = DataFusionPyArrowSchema.from_ibis(schema)
+        struct_schema = DataFusionPyArrowType.from_ibis(schema.as_struct())
 
         def make_gen():
             yield from (
