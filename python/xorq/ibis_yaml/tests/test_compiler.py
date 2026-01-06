@@ -23,7 +23,6 @@ from xorq.ibis_yaml.compiler import (
     METADATA_JSON_FILENAME,
     SQL_YAML_FILENAME,
     ArtifactStore,
-    BuildManager,
     RefEnum,
     build_expr,
     load_expr,
@@ -61,8 +60,7 @@ def test_build_manager_roundtrip(t, build_dir):
     expr_hash = "dummy-value"
     build_manager.save_yaml(yaml_dict, expr_hash, EXPR_YAML_FILENAME)
 
-    with open(build_dir / expr_hash / EXPR_YAML_FILENAME) as f:
-        out = f.read()
+    out = build_dir.joinpath(expr_hash, EXPR_YAML_FILENAME).read_text()
     assert out == "a: string\n"
     result = build_manager.load_yaml(expr_hash, EXPR_YAML_FILENAME)
     assert result == yaml_dict
@@ -124,20 +122,18 @@ def test_compiler_sql(build_dir, parquet_dir):
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
-    compiler = BuildManager(build_dir, debug=True)
-    expr_hash = compiler.compile_expr(expr)
-    _roundtrip_expr = compiler.load_expr(expr_hash)
+    build_path = build_expr(expr, build_dir, debug=True)
+    # make sure we can load
+    load_expr(build_path)
     expected_relation = find_relations(awards_players)[0]
     expted_sql_hash = dask.base.tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
 
-    assert os.path.exists(build_dir / expr_hash / SQL_YAML_FILENAME)
-    assert os.path.exists(build_dir / expr_hash / METADATA_JSON_FILENAME)
-    metadata = compiler.artifact_store.read_json(
-        build_dir, expr_hash, METADATA_JSON_FILENAME
-    )
+    assert build_path.joinpath(SQL_YAML_FILENAME).exists()
+    assert build_path.joinpath(METADATA_JSON_FILENAME).exists()
+    metadata = json.loads(build_path.joinpath(METADATA_JSON_FILENAME).read_text())
 
     assert "current_library_version" in metadata
-    sql_text = pathlib.Path(build_dir / expr_hash / SQL_YAML_FILENAME).read_text()
+    sql_text = build_path.joinpath(SQL_YAML_FILENAME).read_text()
     expected_result = (
         "queries:\n"
         "  main:\n"
@@ -165,12 +161,10 @@ def test_deferred_reads_yaml(build_dir, parquet_dir):
     expected_relation = find_relations(awards_players)[0]
     expected_profile = backend._profile.hash_name
 
-    compiler = BuildManager(build_dir, debug=True)
-    expr_hash = compiler.compile_expr(expr)
-
-    yaml_path = build_dir / expr_hash / DEFERRED_READS_YAML_FILENAME
-    assert os.path.exists(yaml_path)
-    sql_text = pathlib.Path(yaml_path).read_text()
+    build_path = build_expr(expr, build_dir, debug=True)
+    yaml_path = build_path.joinpath(DEFERRED_READS_YAML_FILENAME)
+    assert yaml_path.exists()
+    sql_text = yaml_path.read_text()
 
     sql_str = str(ibis.to_sql(awards_players))
     expected_sql_file = dask.base.tokenize(sql_str)[: config.hash_length] + ".sql"
@@ -199,12 +193,8 @@ def test_deferred_reads_yaml(build_dir, parquet_dir):
 def test_ibis_compiler_expr_schema_ref(t, build_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
-    compiler = BuildManager(build_dir)
-    expr_hash = compiler.compile_expr(expr)
-
-    with open(build_dir / expr_hash / EXPR_YAML_FILENAME) as f:
-        yaml_dict = yaml.safe_load(f)
-
+    build_path = build_expr(expr, build_dir)
+    yaml_dict = yaml.safe_load(build_path.joinpath(EXPR_YAML_FILENAME).read_text())
     assert yaml_dict["expression"][RefEnum.schema_ref]
 
 
@@ -287,15 +277,12 @@ def test_multi_engine_with_caching_with_parquet(
 
     if cli_factory is not None:
         cli_cache_dir = cli_factory(tmp_path)
-        compiler = BuildManager(build_dir, cache_dir=cli_cache_dir)
+        cache_dir = cli_cache_dir
         expected_cache_dir = cli_cache_dir.joinpath(tmp_path)
     else:
-        compiler = BuildManager(build_dir)
+        cache_dir = None
 
-    expr_hash = compiler.compile_expr(expr)
-
-    roundtrip_expr = compiler.load_expr(expr_hash)
-
+    roundtrip_expr = load_expr(build_expr(expr, build_dir, cache_dir=cache_dir))
     assert expr.execute().equals(roundtrip_expr.execute())
     assert expected_cache_dir.exists()
 
@@ -411,13 +398,12 @@ def test_build_file_stability_https(build_dir, snapshot):
         .into_backend(con3, "joined_into")
         .filter(xo._.G == 1)
     )
-    compiler = BuildManager(build_dir, debug=True)
-    expr_hash = compiler.compile_expr(expr)
+    build_path = build_expr(expr, build_dir, debug=True)
 
     actual = json.dumps(
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_dir.joinpath(expr_hash).iterdir()
+            for p in build_path.iterdir()
             if p.name != METADATA_JSON_FILENAME
         },
         indent=2,
@@ -427,7 +413,7 @@ def test_build_file_stability_https(build_dir, snapshot):
     snapshot.assert_match(actual, "expected.json")
 
     # test that it also runs
-    roundtrip_expr = compiler.load_expr(expr_hash)
+    roundtrip_expr = load_expr(build_path)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
@@ -479,13 +465,11 @@ def test_build_file_stability_local(
         .into_backend(con3, "joined_into")
         .filter(xo._.G == 1)
     )
-    compiler = BuildManager(build_dir, debug=True)
-    expr_hash = compiler.compile_expr(expr)
-
+    build_path = build_expr(expr, build_dir, debug=True)
     actual = json.dumps(
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
-            for p in build_dir.joinpath(expr_hash).iterdir()
+            for p in build_path.iterdir()
             if p.name != METADATA_JSON_FILENAME
         },
         indent=2,
@@ -495,7 +479,7 @@ def test_build_file_stability_local(
     snapshot.assert_match(actual, "expected.json")
 
     # test that it also runs
-    roundtrip_expr = compiler.load_expr(expr_hash)
+    roundtrip_expr = load_expr(build_path)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
@@ -529,9 +513,7 @@ def test_struct_field(build_dir, tmpdir):
 def test_no_sql_or_deferred_when_debug_false(build_dir):
     t = xo.memtable({"a": [1, 2, 3]})
     expr = t.filter(t.a > 1)
-    compiler = BuildManager(build_dir, debug=False)
-    expr_hash = compiler.compile_expr(expr)
-    build_path = build_dir / expr_hash
+    build_path = build_expr(expr, build_dir, debug=False)
     assert not os.path.exists(build_path / SQL_YAML_FILENAME)
     assert not os.path.exists(build_path / DEFERRED_READS_YAML_FILENAME)
 

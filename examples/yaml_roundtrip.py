@@ -1,7 +1,10 @@
 import xorq.api as xo
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.relations import into_backend
-from xorq.ibis_yaml.compiler import BuildManager
+from xorq.ibis_yaml.compiler import (
+    build_expr,
+    load_expr,
+)
 
 
 pg = xo.postgres.connect_examples()
@@ -23,8 +26,6 @@ expr = left.join(
 
 
 if __name__ == "__pytest_main__":
-    build_manager = BuildManager("builds")
-    expr_hash = build_manager.compile_expr(expr)
-
-    roundtrip_expr = build_manager.load_expr(expr_hash)
+    build_path = build_expr(expr, "builds")
+    roundtrip_expr = load_expr(build_path)
     pytest_examples_passed = True
