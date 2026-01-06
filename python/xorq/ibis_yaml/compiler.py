@@ -1,4 +1,5 @@
 import contextlib
+import functools
 import json
 import operator
 import pathlib
@@ -207,10 +208,7 @@ class YamlExpressionTranslator:
 
 @frozen
 class BuildManager:
-    artifact_store = field(
-        validator=instance_of(ArtifactStore),
-        converter=ArtifactStore,
-    )
+    root_path = field(validator=instance_of(Path), converter=Path)
     cache_dir = field(
         validator=optional(or_(instance_of(Path), instance_of(str))), default=None
     )
@@ -229,6 +227,11 @@ class BuildManager:
                 pass
             case _:
                 object.__setattr__(self, "cache_dir", Path(self.cache_dir))
+
+    @property
+    @functools.cache
+    def artifact_store(self):
+        return ArtifactStore(self.root_path)
 
     def _write_sql_file(self, sql: str, expr_hash: str, query_name: str) -> str:
         hash_length = config.hash_length
