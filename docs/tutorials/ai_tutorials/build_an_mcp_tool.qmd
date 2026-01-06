@@ -1,0 +1,18 @@
+---
+title: 'Build an MCP tool'
+---
+
+## Coming soon
+
+This tutorial will guide you through building a Model Context Protocol server for Claude integration.
+
+You will learn how to expose Xorq functionality as an MCP tool that Claude can use.
+
+**What you'll learn:**
+- What MCP is
+- Create an MCP server
+- Expose Xorq features
+- Integrate with Claude Desktop
+
+Check back soon for the complete tutorial.
+

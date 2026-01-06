@@ -1,0 +1,22 @@
+---
+title: 'Optimize pipeline performance'
+---
+
+## Coming soon
+
+This guide will show you how to identify and fix performance bottlenecks in your data pipelines.
+
+You will learn profiling techniques and optimization strategies for production workloads.
+
+**What you'll accomplish:**
+- Profile pipeline performance
+- Identify bottlenecks
+- Optimize queries and expressions
+- Leverage caching effectively
+
+**Prerequisites:**
+- Working Xorq pipeline
+- Performance issue to resolve
+
+Check back soon for the complete guide.
+

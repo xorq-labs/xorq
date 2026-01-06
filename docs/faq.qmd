@@ -1,0 +1,17 @@
+---
+title: 'FAQ'
+---
+
+## Coming soon
+
+Frequently asked questions about Xorq.
+
+This page will cover:
+- Common installation issues
+- Usage questions
+- Troubleshooting tips
+- Performance optimization
+- Best practices
+
+Check back soon for the FAQ.
+

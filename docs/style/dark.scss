@@ -54,27 +54,13 @@ h1, h2, h3, h4, h5 {
 
 body {
     font-weight: $font-weight-normal;
+    font-size: 1rem;
+    line-height: 1.6;
 }
 
-h1 {
-    font-size: 4.5rem;
-}
-
+/* Heading sizes are controlled by typography-spacing.html for consistency */
 h2 {
-    font-size: 3rem;
     border-bottom: 1px solid $gray-300 !important;
-}
-
-h3 {
-    font-size: 2.5rem;
-}
-
-h4 {
-    font-size: 2rem;
-}
-
-h5 {
-    font-size: 1.5rem;
 }
 
 h6 {
@@ -134,6 +120,60 @@ pre code {
     color: $white;
 }
 
+/* Dropdown menu styling - scrollable like Ibis */
+.dropdown-menu {
+  max-height: 70vh;
+  overflow-y: auto;
+  overflow-x: hidden;
+  
+  /* Custom scrollbar styling */
+  &::-webkit-scrollbar {
+    width: 8px;
+  }
+  
+  &::-webkit-scrollbar-track {
+    background: rgba($gray-300, 0.1);
+    border-radius: 4px;
+  }
+  
+  &::-webkit-scrollbar-thumb {
+    background: rgba($gray-300, 0.5);
+    border-radius: 4px;
+    
+    &:hover {
+      background: rgba($cyan, 0.7);
+    }
+  }
+}
+
+/* Dropdown section headers - make visible in dark mode */
+.dropdown-header {
+  color: $cyan !important;
+  font-weight: 300;
+  font-size: 0.75rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 1rem;
+  margin-top: 0.5rem;
+  
+  &:first-child {
+    margin-top: 0;
+  }
+}
+
+.quarto-listing-container-grid .list.grid {
+  display: grid;
+  gap: 1rem;
+  
+  &.quarto-listing-cols-4 {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  
+  &.quarto-listing-cols-2 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
 .card-text {
     border: 1px solid $gray-300;
     border-radius: 16px;
@@ -146,36 +186,26 @@ pre code {
     text-decoration: none;
     color: inherit;
 
+    a {
+      color: $white;
+      text-decoration: none;
+      
+      &:hover {
+        color: $cyan;
+      }
+    }
+
+    p {
+      font-size: 0.9rem;
+      color: rgba($white, 0.6);
+      margin: 0.5rem 0 0 0;
+    }
+
     &:hover {
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
       transform: translateY(-2px);
       border-color: $white;
     }
-}
-
-.card-content {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  padding: 1.5rem;
-  position: relative;
-  text-align: center;
-}
-
-
-.card-icon {
-  font-size: 4rem;
-  color: $white;
-  transition: color 0.2s ease;
-  margin-bottom: 1rem;
-}
-
-.listing-title-text {
-  display: block;
-  line-height: 1.4;
-  font-weight: 500;
 }
 
 .icon-title-row {
@@ -213,4 +243,187 @@ pre code {
   font-weight: 500;
   font-style: normal;
   font-display: swap;
+}
+
+/* HOMEPAGE STYLES */
+
+/* Hero Section */
+.hero-section {
+  background: $navbar-bg;
+  padding: 4rem 2rem;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  
+  @media (max-width: 768px) {
+    padding: 3rem 1.5rem;
+  }
+}
+
+.hero-content {
+  max-width: 800px;
+  margin: 0 auto;
+  position: relative;
+  z-index: 1;
+  
+  h1 {
+    font-size: 3.5rem;
+    margin-bottom: 1rem;
+    color: $white;
+    font-weight: 500;
+    line-height: 1.2;
+    
+    @media (max-width: 768px) {
+      font-size: 2.5rem;
+    }
+    
+    @media (max-width: 480px) {
+      font-size: 2rem;
+    }
+  }
+  
+  p {
+    font-size: 1.125rem;
+    color: rgba($white, 0.85);
+    margin-bottom: 2rem;
+    line-height: 1.6;
+    
+    @media (max-width: 768px) {
+      font-size: 1rem;
+      margin-bottom: 1.5rem;
+    }
+  }
+}
+
+/* Hero Buttons */
+.hero-btn {
+  display: inline-block;
+  padding: 1rem 2rem;
+  margin: 0.5rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-family: $font-family-monospace;
+  font-size: 0.95rem;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  
+  &.hero-btn-primary {
+    background: $cyan;
+    color: $black;
+    
+    &:hover {
+      background: lighten($cyan, 10%);
+      transform: translateY(-2px);
+      box-shadow: 0 4px 20px rgba($cyan, 0.4);
+    }
+  }
+  
+  &.hero-btn-secondary {
+    background: transparent;
+    color: $white;
+    border: 1px solid $gray-300;
+    
+    &:hover {
+      border-color: $cyan;
+      color: $cyan;
+      transform: translateY(-2px);
+    }
+  }
+}
+
+/* Content Section */
+.content-section {
+  max-width: 1100px;
+  margin: 0 auto;
+  padding: 4rem 2rem;
+  
+  h2 {
+    font-size: 2.2rem;
+    margin-top: 3rem;
+    margin-bottom: 1rem;
+  }
+  
+  > p {
+    color: rgba($white, 0.7);
+    margin-bottom: 1.5rem;
+  }
+}
+
+/* Features Grid */
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 4rem;
+}
+
+.feature-card {
+  background: rgba($gray-300, 0.15);
+  border: 1px solid rgba($gray-300, 0.3);
+  border-radius: 12px;
+  padding: 1.5rem;
+  transition: all 0.2s ease;
+  
+  h3 {
+    font-size: 1.2rem;
+    color: $cyan;
+    margin-bottom: 0.75rem;
+    border: none !important;
+  }
+  
+  p {
+    font-size: 0.95rem;
+    color: rgba($white, 0.7);
+    margin: 0;
+    line-height: 1.5;
+  }
+  
+  &:hover {
+    border-color: $cyan;
+    transform: translateY(-3px);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.3);
+  }
+}
+
+/* Docs Grid */
+.docs-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.doc-card {
+  border: 1px solid $gray-300;
+  border-radius: 16px;
+  padding: 1.5rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease-in-out;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  text-decoration: none;
+  color: inherit;
+  max-width: 280px;
+  
+  a {
+    color: $white;
+    text-decoration: none;
+    
+    &:hover {
+      color: $cyan;
+    }
+  }
+  
+  p {
+    font-size: 0.9rem;
+    color: rgba($white, 0.6);
+    margin: 0.5rem 0 0 0;
+  }
+  
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    transform: translateY(-2px);
+    border-color: $white;
+  }
 }

@@ -1,0 +1,12 @@
+---
+title: 'catalog diff-builds'
+---
+
+## Coming soon
+
+Documentation for the `xorq catalog diff-builds` CLI command.
+
+This command compares two builds and shows differences between them.
+
+Check back soon for complete documentation.
+

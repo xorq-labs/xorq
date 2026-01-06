@@ -1,0 +1,22 @@
+---
+title: 'Manage the compute catalog'
+---
+
+## Coming soon
+
+This guide will show you how to use the catalog system to manage builds, aliases, and metadata.
+
+You will learn catalog operations for production deployment workflows.
+
+**What you'll accomplish:**
+- Add builds to the catalog
+- Create and manage aliases
+- Query catalog metadata
+- Compare builds with diff-builds
+
+**Prerequisites:**
+- Completed "Your first build" tutorial
+- Understanding of build system
+
+Check back soon for the complete guide.
+

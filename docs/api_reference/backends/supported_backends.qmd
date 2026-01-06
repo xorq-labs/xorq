@@ -1,0 +1,31 @@
+---
+title: Supported backends
+---
+
+xorq currently supports:
+
+1. **In-Process Engines**
+    - DuckDB
+    - DataFusion
+    - Pandas
+2. **Distributed Engines**
+    - Trino
+    - Snowflake
+    - BigQuery
+
+### Backend selection guidelines
+
+Choose engines based on their strengths:
+
+1. **DuckDB**: Local processing, AsOf joins, efficient file formats
+2. **DataFusion**: Custom UDFs, streaming processing
+3. **Trino**: Distributed queries, federation, security
+4. **Snowflake/BigQuery**: Managed infrastructure, scalability
+
+### Data transfer
+
+Data movement between engines is handled through:
+
+1. **Arrow Flight**: Zero-copy data transfer protocol
+2. **Memory Management**: Automatic spilling to disk
+3. **Batching**: Efficient chunk-based processing

@@ -1,0 +1,426 @@
+<!-- Bootstrap Icons -->
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
+
+<style>
+/* TOC title - use default Quarto styling (like Ibis) */
+#TOC .toc-title,
+.quarto-toc .toc-title,
+#toc-title,
+.table-of-contents h2 {
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+  letter-spacing: normal !important;
+  border-bottom: none !important;
+  margin-bottom: 0.5rem !important;
+}
+
+/* Body text sizing - standard documentation sizing */
+body {
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.quarto-content p,
+main p {
+  font-size: 1rem;
+  line-height: 1.6;
+  margin-bottom: 1rem;
+}
+
+/* Responsive heading sizes - exclude homepage */
+body:not(.homepage) .quarto-content h1,
+body:not(.homepage) main h1,
+body:not(.homepage) .page-columns h1,
+body:not(.homepage) h1 {
+  font-size: clamp(2rem, 4.5vw, 2.5rem) !important;
+  font-weight: 400;
+  line-height: 1.2;
+}
+
+body:not(.homepage) .quarto-content h2,
+body:not(.homepage) main h2,
+body:not(.homepage) .page-columns h2,
+body:not(.homepage) h2 {
+  font-size: clamp(1.5rem, 3.5vw, 2rem) !important;
+  font-weight: 400;
+  line-height: 1.3;
+}
+
+body:not(.homepage) .quarto-content h3,
+body:not(.homepage) main h3,
+body:not(.homepage) .page-columns h3,
+body:not(.homepage) h3 {
+  font-size: clamp(1.25rem, 2.5vw, 1.5rem) !important;
+  font-weight: 400;
+  line-height: 1.35;
+}
+
+body:not(.homepage) .quarto-content h4,
+body:not(.homepage) main h4,
+body:not(.homepage) .page-columns h4,
+body:not(.homepage) h4 {
+  font-size: clamp(1.125rem, 2vw, 1.25rem) !important;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+body:not(.homepage) .quarto-content h5,
+body:not(.homepage) main h5,
+body:not(.homepage) .page-columns h5,
+body:not(.homepage) h5 {
+  font-size: clamp(1rem, 2vw, 1.125rem) !important;
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+
+body:not(.homepage) .quarto-content h6,
+body:not(.homepage) main h6,
+body:not(.homepage) .page-columns h6,
+body:not(.homepage) h6 {
+  text-transform: uppercase;
+}
+
+/* Responsive heading sizing */
+@media (max-width: 992px) {
+  body:not(.homepage) .quarto-content h1,
+  body:not(.homepage) main h1,
+  body:not(.homepage) .page-columns h1,
+  body:not(.homepage) h1 {
+    font-size: 2.25rem !important;
+  }
+  
+  body:not(.homepage) .quarto-content h2,
+  body:not(.homepage) main h2,
+  body:not(.homepage) .page-columns h2,
+  body:not(.homepage) h2 {
+    font-size: 1.75rem !important;
+  }
+  
+  body:not(.homepage) .quarto-content h3,
+  body:not(.homepage) main h3,
+  body:not(.homepage) .page-columns h3,
+  body:not(.homepage) h3 {
+    font-size: 1.5rem !important;
+  }
+  
+  body:not(.homepage) .quarto-content h4,
+  body:not(.homepage) main h4,
+  body:not(.homepage) .page-columns h4,
+  body:not(.homepage) h4 {
+    font-size: 1.25rem !important;
+  }
+  
+  body:not(.homepage) .quarto-content h5,
+  body:not(.homepage) main h5,
+  body:not(.homepage) .page-columns h5,
+  body:not(.homepage) h5 {
+    font-size: 1.125rem !important;
+  }
+}
+
+@media (max-width: 576px) {
+  body:not(.homepage) .quarto-content h1,
+  body:not(.homepage) main h1,
+  body:not(.homepage) .page-columns h1,
+  body:not(.homepage) h1 {
+    font-size: clamp(1.75rem, 6vw, 2.25rem) !important;
+  }
+  
+  body:not(.homepage) .quarto-content h2,
+  body:not(.homepage) main h2,
+  body:not(.homepage) .page-columns h2,
+  body:not(.homepage) h2 {
+    font-size: clamp(1.5rem, 5.5vw, 1.875rem) !important;
+  }
+  
+  body:not(.homepage) .quarto-content h3,
+  body:not(.homepage) main h3,
+  body:not(.homepage) .page-columns h3,
+  body:not(.homepage) h3 {
+    font-size: clamp(1.25rem, 4.5vw, 1.5rem) !important;
+  }
+  
+  body:not(.homepage) .quarto-content h4,
+  body:not(.homepage) main h4,
+  body:not(.homepage) .page-columns h4,
+  body:not(.homepage) h4 {
+    font-size: 1.125rem !important;
+  }
+  
+  body:not(.homepage) .quarto-content h5,
+  body:not(.homepage) main h5,
+  body:not(.homepage) .page-columns h5,
+  body:not(.homepage) h5 {
+    font-size: 1rem !important;
+  }
+}
+
+/* Sidebar spacing - Mintlify style (left sidebar only, not TOC) */
+.sidebar-navigation,
+#quarto-sidebar {
+  border-right: 1px solid rgba(255, 255, 255, 0.1);
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+  padding-left: 0;
+  padding-right: 0;
+}
+
+/* Sidebar section headers - Mintlify spacing (left sidebar only) */
+.sidebar-navigation .sidebar-section-header,
+#quarto-sidebar .sidebar-section-header,
+.sidebar-navigation h6,
+#quarto-sidebar h6 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+  padding: 0.5rem 1rem 0.25rem 1rem;
+  padding-right: 0;
+  font-size: 0.6875rem;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sidebar-navigation .sidebar-section-header:first-child,
+#quarto-sidebar .sidebar-section-header:first-child,
+.sidebar-navigation h6:first-child,
+#quarto-sidebar h6:first-child {
+  margin-top: 0;
+}
+
+/* Sidebar links (left sidebar only) - bubble design */
+.sidebar-navigation .sidebar-item a,
+#quarto-sidebar .sidebar-item a,
+.sidebar-navigation a:not(.sidebar-section-header):not(h6),
+#quarto-sidebar a:not(.sidebar-section-header):not(h6) {
+  display: block;
+  padding: 0.5rem 1rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: all 0.2s ease;
+  margin: 0 0.5rem 0 0.5rem;
+  margin-right: 0;
+  border-radius: 0.75rem;
+}
+
+.sidebar-navigation .sidebar-item a:hover,
+#quarto-sidebar .sidebar-item a:hover,
+.sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
+#quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.75rem;
+}
+
+/* Active sidebar item - curved (left sidebar only) */
+.sidebar-navigation .sidebar-item a.active,
+#quarto-sidebar .sidebar-item a.active,
+.sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+#quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+#quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+  color: #79E2FF;
+  background: rgba(121, 226, 255, 0.1);
+  font-weight: 500;
+  border-radius: 0.75rem;
+}
+
+/* Sidebar nested items - indentation (left sidebar only) */
+.sidebar-navigation .sidebar-item .sidebar-item,
+#quarto-sidebar .sidebar-item .sidebar-item {
+  margin-left: 0.25rem;
+}
+
+.sidebar-navigation .sidebar-item .sidebar-item a,
+#quarto-sidebar .sidebar-item .sidebar-item a {
+  padding-left: 1.5rem;
+  padding-right: 1rem;
+  font-size: 0.8125rem;
+  margin-left: 0.5rem;
+  margin-right: 0;
+}
+
+/* Sidebar navigation container (left sidebar only) */
+.sidebar-navigation nav,
+#quarto-sidebar nav,
+.sidebar-navigation .sidebar-menu,
+#quarto-sidebar .sidebar-menu {
+  padding: 0;
+  margin: 0;
+}
+
+/* Sidebar item spacing (left sidebar only) */
+.sidebar-navigation .sidebar-item,
+#quarto-sidebar .sidebar-item {
+  margin: 0;
+  padding: 0;
+}
+
+/* Light mode adjustments (left sidebar only) */
+[data-bs-theme="light"] .sidebar-navigation,
+[data-bs-theme="light"] #quarto-sidebar {
+  border-right-color: rgba(5, 24, 26, 0.1);
+}
+
+[data-bs-theme="light"] .sidebar-navigation h6,
+[data-bs-theme="light"] #quarto-sidebar h6 {
+  color: rgba(5, 24, 26, 0.5);
+}
+
+[data-bs-theme="light"] .sidebar-navigation .sidebar-item a,
+[data-bs-theme="light"] #quarto-sidebar .sidebar-item a,
+[data-bs-theme="light"] .sidebar-navigation a:not(.sidebar-section-header):not(h6),
+[data-bs-theme="light"] #quarto-sidebar a:not(.sidebar-section-header):not(h6) {
+  color: rgba(5, 24, 26, 0.7);
+}
+
+[data-bs-theme="light"] .sidebar-navigation .sidebar-item a:hover,
+[data-bs-theme="light"] #quarto-sidebar .sidebar-item a:hover,
+[data-bs-theme="light"] .sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
+[data-bs-theme="light"] #quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
+  color: rgba(5, 24, 26, 0.9);
+  background: rgba(5, 24, 26, 0.05);
+  border-radius: 0.75rem;
+}
+
+[data-bs-theme="light"] .sidebar-navigation .sidebar-item a.active,
+[data-bs-theme="light"] #quarto-sidebar .sidebar-item a.active,
+[data-bs-theme="light"] .sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+[data-bs-theme="light"] #quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+[data-bs-theme="light"] .sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+[data-bs-theme="light"] #quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+  color: #19696C;
+  background: rgba(25, 105, 108, 0.1);
+  border-radius: 0.75rem;
+}
+
+/* Sidebar section icon styling (left sidebar only) */
+.sidebar-navigation .bi,
+#quarto-sidebar .bi {
+  display: inline-block;
+  vertical-align: middle;
+  line-height: 1;
+}
+
+/* Thin line after last item in each sidebar group - modern look (left sidebar only) */
+.sidebar-navigation [id] > .sidebar-item:last-child a,
+#quarto-sidebar [id] > .sidebar-item:last-child a {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+/* Light mode adjustments for separator lines (left sidebar only) */
+[data-bs-theme="light"] .sidebar-navigation [id] > .sidebar-item:last-child a,
+[data-bs-theme="light"] #quarto-sidebar [id] > .sidebar-item:last-child a {
+  border-bottom-color: rgba(5, 24, 26, 0.08);
+}
+</style>
+
+<script>
+// Add Bootstrap Icons to sidebar sections using JavaScript (more reliable)
+(function() {
+  // Wait for DOM to be ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', addSidebarIcons);
+  } else {
+    addSidebarIcons();
+  }
+
+  function addSidebarIcons() {
+    // Icon mapping for sidebar sections (Mintlify style)
+    const iconMap = {
+      'getting-started': 'rocket',
+      'tutorials': 'book',
+      'guides': 'journal-text',
+      'concepts': 'lightbulb',
+      'reference': 'list-ul',
+      'api-reference': 'code-slash',
+      'cli-reference': 'terminal',
+      'troubleshooting': 'wrench'
+    };
+
+    // Find sidebar section headers by looking for h6 elements with section titles
+    // Quarto generates sidebar sections with h6 headers containing the section title
+    const sidebarHeaders = document.querySelectorAll('.quarto-sidebar h6, .sidebar h6, .quarto-sidebar .sidebar-section-header, .sidebar .sidebar-section-header');
+    
+    sidebarHeaders.forEach(header => {
+      const headerText = header.textContent.trim().toLowerCase();
+      const parentSection = header.closest('[id]');
+      const sectionId = parentSection ? parentSection.id : '';
+      
+      // Skip if icon already exists
+      if (header.querySelector('.bi')) {
+        return;
+      }
+      
+      // Try to match by section ID first (more reliable)
+      let matchedIcon = null;
+      for (const [key, icon] of Object.entries(iconMap)) {
+        if (sectionId && sectionId.startsWith(key)) {
+          matchedIcon = icon;
+          break;
+        }
+      }
+      
+      // Fallback: match by header text
+      if (!matchedIcon) {
+        for (const [key, icon] of Object.entries(iconMap)) {
+          const keyWords = key.split('-');
+          if (keyWords.some(word => headerText.includes(word))) {
+            matchedIcon = icon;
+            break;
+          }
+        }
+      }
+      
+      if (matchedIcon) {
+        // Create icon element
+        const iconEl = document.createElement('i');
+        iconEl.className = `bi bi-${matchedIcon}`;
+        iconEl.setAttribute('aria-hidden', 'true');
+        iconEl.style.marginRight = '0.5rem';
+        iconEl.style.fontSize = '0.875rem';
+        iconEl.style.display = 'inline-block';
+        iconEl.style.verticalAlign = 'middle';
+        
+        // Insert icon before header text
+        header.insertBefore(iconEl, header.firstChild);
+      }
+    });
+    
+    // Add thin separator lines after last item in each sidebar group (fallback for complex structures)
+    addGroupSeparators();
+  }
+  
+  function addGroupSeparators() {
+    // Find all sidebar sections with IDs
+    const sidebarSections = document.querySelectorAll('.quarto-sidebar [id], .sidebar [id]');
+    
+    sidebarSections.forEach(section => {
+      // Get direct children that are sidebar items
+      const directItems = Array.from(section.children).filter(
+        el => el.classList.contains('sidebar-item')
+      );
+      
+      if (directItems.length === 0) return;
+      
+      // Find the last direct sidebar item
+      const lastItem = directItems[directItems.length - 1];
+      const link = lastItem.querySelector('a');
+      
+      if (link && !link.style.borderBottom) {
+        const isLightMode = document.documentElement.getAttribute('data-bs-theme') === 'light';
+        link.style.borderBottom = `1px solid ${isLightMode ? 'rgba(5, 24, 26, 0.08)' : 'rgba(255, 255, 255, 0.08)'}`;
+        link.style.paddingBottom = '0.75rem';
+        link.style.marginBottom = '0.5rem';
+      }
+    });
+  }
+})();
+</script>
+

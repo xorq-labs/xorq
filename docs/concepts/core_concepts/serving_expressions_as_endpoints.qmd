@@ -1,0 +1,18 @@
+---
+title: 'Serving expressions as endpoints'
+---
+
+## Coming soon
+
+This page will explain how serve-unbound exposes Xorq expressions as HTTP endpoints.
+
+You will understand how to deploy expressions as stateless services.
+
+**What you'll learn:**
+- What serve-unbound does
+- How to expose expressions
+- Request and response handling
+- Use cases for expression endpoints
+
+Check back soon for the complete concept guide.
+

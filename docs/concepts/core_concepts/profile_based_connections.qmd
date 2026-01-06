@@ -1,0 +1,18 @@
+---
+title: 'Profile-based connections'
+---
+
+## Coming soon
+
+This page will explain how Xorq manages backend connections through profiles.
+
+You will understand how to configure and switch between different backend configurations.
+
+**What you'll learn:**
+- What profiles are
+- How to configure profiles
+- Profile priority and selection
+- Managing credentials securely
+
+Check back soon for the complete concept guide.
+
