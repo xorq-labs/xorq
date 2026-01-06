@@ -297,15 +297,13 @@ class BuildManager:
         profiles = dict(
             sorted(
                 (
-                    backend._profile.hash_name,
-                    {
-                        **backend._profile.as_dict(),
-                        "kwargs_tuple": dict(
-                            backend._profile.as_dict()["kwargs_tuple"]
-                        ),
+                    profile.hash_name,
+                    profile.as_dict()
+                    | {
+                        "kwargs_tuple": dict(profile.as_dict()["kwargs_tuple"]),
                     },
                 )
-                for backend in find_all_sources(expr)
+                for profile in (backend._profile for backend in find_all_sources(expr))
             )
         )
         yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles, self.cache_dir)
