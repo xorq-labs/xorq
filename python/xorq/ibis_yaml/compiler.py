@@ -277,18 +277,16 @@ class BuildManager:
     def _process_sql_plans(
         self, sql_plans: Dict[str, Any], expr_hash: str
     ) -> Dict[str, Any]:
-        updated_plans = {"queries": {}}
-
-        for query_name, query_info in sql_plans["queries"].items():
-            sql_filename = self._write_sql_file(
-                query_info["sql"], expr_hash, query_name
-            )
-
-            updated_query_info = query_info.copy()
-            updated_query_info["sql_file"] = sql_filename
-            updated_query_info.pop("sql")
-            updated_plans["queries"][query_name] = updated_query_info
-
+        queries = {
+            query_name: toolz.dissoc(query_info, "sql")
+            | {
+                "sql_file": self._write_sql_file(
+                    query_info["sql"], expr_hash, query_name
+                ),
+            }
+            for (query_name, query_info) in sql_plans["queries"].items()
+        }
+        updated_plans = {"queries": queries}
         return updated_plans
 
     @staticmethod
@@ -307,16 +305,18 @@ class BuildManager:
     def _process_deferred_reads(
         self, deferred_reads: Dict[str, Any], expr_hash: str
     ) -> Dict[str, Any]:
-        updated_reads = {"reads": {}}
-
-        for read_name, read_info in deferred_reads["reads"].items():
-            sql_filename = self._write_sql_file(read_info["sql"], expr_hash, read_name)
-
-            updated_read_info = read_info.copy()
-            updated_read_info["sql_file"] = sql_filename
-            updated_read_info.pop("sql")
-            updated_reads["reads"][read_name] = updated_read_info
-
+        reads = {
+            read_name: toolz.dissoc(read_info, "sql")
+            | {
+                "sql_file": self._write_sql_file(
+                    read_info["sql"],
+                    expr_hash,
+                    read_name,
+                )
+            }
+            for read_name, read_info in deferred_reads["reads"].items()
+        }
+        updated_reads = {"reads": reads}
         return updated_reads
 
     def compile_expr(self, expr: ir.Expr) -> str:
