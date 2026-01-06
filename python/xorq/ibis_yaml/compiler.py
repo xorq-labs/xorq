@@ -373,11 +373,28 @@ class BuildManager:
 
         return expr_hash
 
-    def load_expr(self, expr_hash: str) -> ir.Expr:
+
+@frozen
+class ExprLoader:
+    expr_path = field(validator=instance_of(Path), converter=Path)
+    cache_dir = field(
+        validator=optional(or_(instance_of(Path), instance_of(str))), default=None
+    )
+
+    @property
+    def expr_hash(self):
+        return self.expr_path.name
+
+    @property
+    @functools.cache
+    def artifact_store(self):
+        return ArtifactStore(self.expr_path.parent)
+
+    def load_expr(self):
         profiles = hydrate_cons(
-            self.artifact_store.load_yaml(expr_hash, PROFILES_YAML_FILENAME)
+            self.artifact_store.load_yaml(self.expr_hash, PROFILES_YAML_FILENAME)
         )
-        yaml_dict = self.artifact_store.load_yaml(expr_hash, EXPR_YAML_FILENAME)
+        yaml_dict = self.artifact_store.load_yaml(self.expr_hash, EXPR_YAML_FILENAME)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = deferred_reads_to_memtables(expr)
         if self.cache_dir:
@@ -386,8 +403,9 @@ class BuildManager:
 
 
 def load_expr(expr_path, cache_dir=None):
-    expr_path = Path(expr_path)
-    return BuildManager(expr_path.parent, cache_dir=cache_dir).load_expr(expr_path.name)
+    expr_loader = ExprLoader(expr_path, cache_dir=cache_dir)
+    expr = expr_loader.load_expr()
+    return expr
 
 
 def build_expr(expr, build_dir="builds", cache_dir=None, **kwargs):
