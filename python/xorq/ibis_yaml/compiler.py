@@ -319,6 +319,17 @@ class BuildManager:
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
+    def _write_debug_info(self, expr, expr_hash):
+        sql_plans, deferred_reads = generate_sql_plans(expr)
+        updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
+        self.artifact_store.save_yaml(updated_sql_plans, expr_hash, SQL_YAML_FILENAME)
+        updated_deferred_reads = self._process_deferred_reads(deferred_reads, expr_hash)
+        self.artifact_store.save_yaml(
+            updated_deferred_reads,
+            expr_hash,
+            DEFERRED_READS_YAML_FILENAME,
+        )
+
     def compile_expr(self, expr: ir.Expr) -> str:
         expr_build_dir = self.artifact_store.get_expr_path(expr)
         expr_hash = expr_build_dir.name
@@ -336,19 +347,7 @@ class BuildManager:
 
         # write SQL plan and deferred-read artifacts if debug enabled
         if self.debug:
-            sql_plans, deferred_reads = generate_sql_plans(expr)
-            updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
-            self.artifact_store.save_yaml(
-                updated_sql_plans, expr_hash, SQL_YAML_FILENAME
-            )
-            updated_deferred_reads = self._process_deferred_reads(
-                deferred_reads, expr_hash
-            )
-            self.artifact_store.save_yaml(
-                updated_deferred_reads,
-                expr_hash,
-                DEFERRED_READS_YAML_FILENAME,
-            )
+            self._write_debug_info(expr, expr_hash)
 
         return expr_hash
 
