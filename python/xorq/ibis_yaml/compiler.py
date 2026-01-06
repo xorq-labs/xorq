@@ -287,6 +287,15 @@ class BuildManager:
         pq.write_table(table, parquet_path)
         return parquet_path
 
+    @staticmethod
+    def _table_to_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
+        dr = deferred_read_parquet(parquet_path, con, **read_kwargs)
+        op = dr.op()
+        args = dict(zip(op.__argnames__, op.__args__))
+        args["values"] = args_values
+        op = op.__recreate__(args)
+        return op
+
     def _process_sql_plans(
         self, sql_plans: Dict[str, Any], expr_hash: str
     ) -> Dict[str, Any]:
@@ -455,14 +464,15 @@ def deferred_reads_to_memtables(loaded):
 
 
 def memtables_to_deferred_reads(build_dir, expr):
-    def memtable_to_read_op(builds_dir, mt, con=_backend_init()):
+    def memtable_to_read_op(builds_dir, mt):
         parquet_path = BuildManager._write_memtable(builds_dir, mt, "memtables")
-        # FIXME: enable Path
-        dr = deferred_read_parquet(parquet_path, con, table_name=mt.name)
-        op = dr.op()
-        args = dict(zip(op.__argnames__, op.__args__))
-        args["values"] = {IS_INMEMORY: True}
-        op = op.__recreate__(args)
+        op = BuildManager._table_to_read_op(
+            parquet_path=parquet_path,
+            read_kwargs={
+                "table_name": mt.name,
+            },
+            args_values={IS_INMEMORY: True},
+        )
         return op
 
     op = expr.op()
@@ -475,19 +485,18 @@ def memtables_to_deferred_reads(build_dir, expr):
 
 
 def replace_inmemory_backend_tables(build_dir, expr):
-    def database_table_to_read_op(builds_dir, mt, con=_backend_init()):
+    def database_table_to_read_op(builds_dir, mt, con):
         parquet_path = BuildManager._write_memtable(builds_dir, mt, "database_tables")
-        # we normalize based on content so we can reproducible hash
-        dr = deferred_read_parquet(
-            parquet_path,
-            con,
-            table_name=mt.name,
-            normalize_method=normalize_read_path_md5sum,
+        op = BuildManager._table_to_read_op(
+            parquet_path=parquet_path,
+            read_kwargs={
+                "table_name": mt.name,
+                # we normalize based on content so we can reproducible hash
+                "normalize_method": normalize_read_path_md5sum,
+            },
+            args_values={IS_DATABASE_TABLE: True},
+            con=con,
         )
-        op = dr.op()
-        args = dict(zip(op.__argnames__, op.__args__))
-        args["values"] = {IS_DATABASE_TABLE: True}
-        op = op.__recreate__(args)
         return op
 
     op = expr.op()
