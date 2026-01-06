@@ -207,6 +207,39 @@ class YamlExpressionTranslator:
         return translate_from_yaml(expr_dict, context)
 
 
+def dehydrate_cons(cons):
+    dehydrated = dict(
+        sorted(
+            (
+                profile.hash_name,
+                profile.as_dict()
+                | {
+                    "kwargs_tuple": dict(profile.as_dict()["kwargs_tuple"]),
+                },
+            )
+            for profile in (con._profile for con in cons)
+        )
+    )
+    return dehydrated
+
+
+def hydrate_cons(hash_to_profile_kwargs):
+    def kwargs_to_con(kwargs):
+        match dct := dict(kwargs):
+            case {"kwargs_tuple": dict()}:
+                dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
+            case _:
+                dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
+        con = Profile(**dct).get_con()
+        return con
+
+    profiles = toolz.valmap(
+        kwargs_to_con,
+        hash_to_profile_kwargs,
+    )
+    return profiles
+
+
 @frozen
 class BuildManager:
     root_path = field(validator=instance_of(Path), converter=Path)
@@ -294,18 +327,7 @@ class BuildManager:
         expr = memtables_to_deferred_reads(expr_build_dir, expr)
         expr = replace_inmemory_backend_tables(expr_build_dir, expr)
 
-        profiles = dict(
-            sorted(
-                (
-                    profile.hash_name,
-                    profile.as_dict()
-                    | {
-                        "kwargs_tuple": dict(profile.as_dict()["kwargs_tuple"]),
-                    },
-                )
-                for profile in (backend._profile for backend in find_all_sources(expr))
-            )
-        )
+        profiles = dehydrate_cons(find_all_sources(expr))
         yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles, self.cache_dir)
         metadata_json = self._make_metadata()
         self.artifact_store.save_yaml(yaml_dict, expr_hash, EXPR_YAML_FILENAME)
@@ -331,18 +353,8 @@ class BuildManager:
         return expr_hash
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
-        def values_to_con(values):
-            match dct := dict(values):
-                case {"kwargs_tuple": dict()}:
-                    dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
-                case _:
-                    dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-            con = Profile(**dct).get_con()
-            return con
-
-        profiles = toolz.valmap(
-            values_to_con,
-            self.artifact_store.load_yaml(expr_hash, PROFILES_YAML_FILENAME),
+        profiles = hydrate_cons(
+            self.artifact_store.load_yaml(expr_hash, PROFILES_YAML_FILENAME)
         )
         yaml_dict = self.artifact_store.load_yaml(expr_hash, EXPR_YAML_FILENAME)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
