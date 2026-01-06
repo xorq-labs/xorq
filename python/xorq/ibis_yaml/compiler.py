@@ -384,13 +384,6 @@ class BuildManager:
             expr = replace_base_path(expr, base_path=self.cache_dir)
         return expr
 
-    # TODO: maybe change name
-    def load_sql_plans(self, expr_hash: str) -> Dict[str, Any]:
-        return self.artifact_store.load_yaml(expr_hash, SQL_YAML_FILENAME)
-
-    def load_deferred_reads(self, expr_hash: str) -> Dict[str, Any]:
-        return self.artifact_store.load_yaml(expr_hash, DEFERRED_READS_YAML_FILENAME)
-
 
 def load_expr(expr_path, cache_dir=None):
     expr_path = Path(expr_path)
