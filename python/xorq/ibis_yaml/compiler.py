@@ -288,27 +288,35 @@ class BuildManager:
         return updated_reads
 
     def compile_expr(self, expr: ir.Expr) -> str:
-        expr_hash = self.artifact_store.get_expr_hash(expr)
-        expr_build_dir = self.artifact_store.root_path / expr_hash
+        expr_build_dir = self.artifact_store.get_expr_path(expr)
+        expr_hash = expr_build_dir.name
+
+        # this is writing to the artifact_store?
         expr = replace_memtables(expr_build_dir, expr)
         expr = replace_database_tables(expr_build_dir, expr)
 
-        backends = find_all_sources(expr)
-        profiles = {
-            backend._profile.hash_name: {
-                **backend._profile.as_dict(),
-                "kwargs_tuple": dict(backend._profile.as_dict()["kwargs_tuple"]),
-            }
-            for backend in backends
-        }
-        profiles = dict(sorted(profiles.items()))
-
+        profiles = dict(
+            sorted(
+                (
+                    backend._profile.hash_name,
+                    {
+                        **backend._profile.as_dict(),
+                        "kwargs_tuple": dict(
+                            backend._profile.as_dict()["kwargs_tuple"]
+                        ),
+                    },
+                )
+                for backend in find_all_sources(expr)
+            )
+        )
         yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles, self.cache_dir)
+        metadata_json = self._make_metadata()
         self.artifact_store.save_yaml(yaml_dict, expr_hash, EXPR_YAML_FILENAME)
         self.artifact_store.save_yaml(profiles, expr_hash, PROFILES_YAML_FILENAME)
+        self.artifact_store.write_text(metadata_json, expr_hash, METADATA_JSON_FILENAME)
 
         # write SQL plan and deferred-read artifacts if debug enabled
-        if getattr(self, "debug", False):
+        if self.debug:
             sql_plans, deferred_reads = generate_sql_plans(expr)
             updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
             self.artifact_store.save_yaml(
@@ -322,9 +330,6 @@ class BuildManager:
                 expr_hash,
                 DEFERRED_READS_YAML_FILENAME,
             )
-
-        metadata_json = self._make_metadata()
-        self.artifact_store.write_text(metadata_json, expr_hash, METADATA_JSON_FILENAME)
 
         return expr_hash
 
