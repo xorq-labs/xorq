@@ -329,20 +329,19 @@ class BuildManager:
         return expr_hash
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
-        profiles_dict = self.artifact_store.load_yaml(expr_hash, PROFILES_YAML_FILENAME)
+        def values_to_con(values):
+            match dct := dict(values):
+                case {"kwargs_tuple": dict()}:
+                    dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
+                case _:
+                    dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
+            con = Profile(**dct).get_con()
+            return con
 
-        def f(values):
-            dct = dict(values)
-            if isinstance(dct["kwargs_tuple"], dict):
-                dct["kwargs_tuple"] = tuple(dct["kwargs_tuple"].items())
-            else:
-                dct["kwargs_tuple"] = tuple(map(tuple, dct["kwargs_tuple"]))
-            return dct
-
-        profiles = {
-            profile: Profile(**f(values)).get_con()
-            for profile, values in profiles_dict.items()
-        }
+        profiles = toolz.valmap(
+            values_to_con,
+            self.artifact_store.load_yaml(expr_hash, PROFILES_YAML_FILENAME),
+        )
         yaml_dict = self.artifact_store.load_yaml(expr_hash, EXPR_YAML_FILENAME)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = replace_deferred_reads(expr)
