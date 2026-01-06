@@ -69,27 +69,13 @@ h1, h2, h3, h4, h5 {
 
 body {
     font-weight: $font-weight-normal;
+    font-size: 1rem;
+    line-height: 1.6;
 }
 
-h1 {
-    font-size: 4.5rem;
-}
-
+/* Heading sizes are controlled by typography-spacing.html for consistency */
 h2 {
-    font-size: 3rem;
     border-bottom: 1px solid $gray-300 !important;
-}
-
-h3 {
-    font-size: 2.5rem;
-}
-
-h4 {
-    font-size: 2rem;
-}
-
-h5 {
-    font-size: 1.5rem;
 }
 
 h6 {
@@ -139,44 +125,6 @@ pre>code.sourceCode {
 
 .sidebar-navigation a:hover {
     color: $gray-300;
-}
-
-.nav-item a {
-  color: $white;
-}
-
-.nav-item a:hover {
-   color: $gray-300;
-}
-
-.quarto-navigation-tool {
-    color: $white;
-}
-
-/* Dropdown menu styling - scrollable like Ibis */
-.dropdown-menu {
-  max-height: 70vh;
-  overflow-y: auto;
-  overflow-x: hidden;
-  
-  /* Custom scrollbar styling */
-  &::-webkit-scrollbar {
-    width: 8px;
-  }
-  
-  &::-webkit-scrollbar-track {
-    background: rgba($gray-300, 0.1);
-    border-radius: 4px;
-  }
-  
-  &::-webkit-scrollbar-thumb {
-    background: rgba($gray-300, 0.5);
-    border-radius: 4px;
-    
-    &:hover {
-      background: rgba($gray-300, 0.7);
-    }
-  }
 }
 
 .quarto-listing-container-grid .list.grid {

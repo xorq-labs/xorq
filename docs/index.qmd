@@ -3,6 +3,7 @@ pagetitle: "Xorq Documentation"
 description: "Official Xorq documentation. Learn how to build portable, multi-engine ML pipelines with deferred execution, caching, lineage tracking, and deployment-ready artifacts."
 toc: false
 page-layout: custom
+classes: homepage
 listing:
   - id: getting-started-cards
     template: "style/gallery.ejs"

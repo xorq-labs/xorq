@@ -1,6 +1,9 @@
 project:
   type: website
 
+execute:
+  mermaid: true
+  
 website:
   page-navigation: true
   title: "Xorq Documentation"
@@ -24,12 +27,18 @@ website:
         href: https://github.com/xorq-labs/xorq
 
     left:
-      - sidebar:getting-started
-      - sidebar:tutorials
-      - sidebar:guides
-      - sidebar:concepts
-      - sidebar:reference
-      - sidebar:troubleshooting
+      - href: getting_started/introduction.qmd
+        text: "Getting started"
+      - href: tutorials/ml_tutorials/split_data_for_training.qmd
+        text: "Tutorials"
+      - href: guides/data_workflows/read_write_production_data.qmd
+        text: "Guides"
+      - href: concepts/understanding_xorq/overview.qmd
+        text: "Concepts"
+      - href: reference/index.qmd
+        text: "Reference"
+      - href: troubleshooting/index.qmd
+        text: "Troubleshooting"
       - href: release_notes.qmd
         text: "Release notes"
       - href: faq.qmd
@@ -39,11 +48,15 @@ website:
     - id: getting-started
       title: "Getting started"
       collapse-level: 1
+      pinned: true
       contents:
         - href: getting_started/introduction.qmd
         - href: getting_started/quickstart.qmd
         - href: getting_started/installation.qmd
           text: "Install Xorq"
+        - href: getting_started/understand_deferred_execution.qmd
+        - href: getting_started/explore_caching.qmd
+        - href: getting_started/switch_backends.qmd
         
         # - href: getting_started/your_first_expression.qmd
         #   text: "Your first expression"
@@ -51,14 +64,8 @@ website:
     - id: tutorials
       title: "Tutorials"
       collapse-level: 2
+      pinned: true
       contents:
-        - id: core-tutorials-section
-          section: "General tutorials"
-          contents:
-            - href: tutorials/core_tutorials/understand_deferred_execution.qmd
-            - href: tutorials/core_tutorials/explore_caching.qmd
-            - href: tutorials/core_tutorials/switch_backends.qmd
-            # - href: tutorials/core_tutorials/your_first_build.qmd
         - id: ml-tutorials-section
           section: "ML tutorials"
           contents:
@@ -78,15 +85,16 @@ website:
         - id: analytics-tutorials-section
           section: "Analytics tutorials"
           contents:
-            - href: tutorials/analytics_tutorials/query_across_engines.qmd
+            # - href: tutorials/analytics_tutorials/query_across_engines.qmd
             - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
-            - href: tutorials/analytics_tutorials/use_window_functions.qmd
+            # - href: tutorials/analytics_tutorials/use_window_functions.qmd
             - href: tutorials/analytics_tutorials/work_with_schemas.qmd
 
 
     - id: guides
       title: "Guides"
       collapse-level: 2
+      pinned: true
       contents:
         - id: data-workflows-section
           section: "Data Workflows"
@@ -129,27 +137,36 @@ website:
     - id: concepts
       title: "Concepts"
       collapse-level: 2
+      pinned: true
       contents:
-        - id: understanding-xorq-section
-          section: "Understanding Xorq"
+        - id: fundamentals-section
+          section: "Fundamentals"
           contents:
             - concepts/understanding_xorq/overview.qmd
             - concepts/understanding_xorq/how_xorq_works.qmd
             - concepts/understanding_xorq/why_deferred_execution.qmd
+            - concepts/understanding_xorq/expression_format.qmd
+        - id: execution-backends-section
+          section: "Execution and backends"
+          contents:
             - concepts/understanding_xorq/multi_engine_execution.qmd
             - concepts/understanding_xorq/intelligent_caching_system.qmd
-            - concepts/understanding_xorq/expression_format.qmd
-        - id: core-concepts-section
-          section: "Core concepts"
+            - concepts/core_concepts/profile_based_connections.qmd
+        - id: reproducibility-section
+          section: "Reproducibility"
           contents:
             - concepts/core_concepts/content_addressed_hashing.qmd
+            - concepts/core_concepts/input_addressed_computation.qmd
             - concepts/core_concepts/build_system.qmd
             - concepts/core_concepts/compute_catalog.qmd
-            - concepts/core_concepts/profile_based_connections.qmd
+            - concepts/core_concepts/reproducible_environments_uv.qmd
+        - id: advanced-capabilities-section
+          section: "Advanced capabilities"
+          contents:
+            - concepts/core_concepts/user_defined_functions.qmd
             - concepts/core_concepts/user_defined_exchange_functions.qmd
             - concepts/core_concepts/serving_expressions_as_endpoints.qmd
             - concepts/core_concepts/data_lineage_tracking.qmd
-            - concepts/core_concepts/reproducible_environments_uv.qmd
             - concepts/core_concepts/feature_serving_patterns.qmd
             - concepts/core_concepts/batch_processing_llms.qmd
             - concepts/core_concepts/point_in_time_correctness.qmd
@@ -157,6 +174,7 @@ website:
     - id: reference
       title: "Reference"
       collapse-level: 2
+      pinned: true
       contents:
         - reference/glossary.qmd
         - href: api_reference/backends/index.qmd
@@ -168,6 +186,7 @@ website:
     - id: api-reference
       title: "Python API"
       collapse-level: 1
+      pinned: true
       contents:
         - reference/index.qmd
         - id: core-operations-section
@@ -259,6 +278,7 @@ website:
     - id: cli-reference
       title: "CLI Commands"
       collapse-level: 2
+      pinned: true
       contents:
         - api_reference/cli/index.qmd
         - api_reference/cli/init.qmd
@@ -282,6 +302,7 @@ website:
     - id: troubleshooting
       title: "Troubleshooting"
       collapse-level: 1
+      pinned: true
       contents:
         - href: troubleshooting/index.qmd
         - href: troubleshooting/common_errors.qmd
@@ -301,7 +322,13 @@ format:
     code-copy: true
     code-overflow: wrap
     code-annotations: hover
-    include-in-header: "style/google.html"
+    mermaid:
+      theme: dark
+    execute:
+      eval: false  # Don't execute code blocks by default
+    include-in-header: 
+      - "style/google.html"
+      - "style/typography-spacing.html"
 
 quartodoc:
   package: xorq.api
