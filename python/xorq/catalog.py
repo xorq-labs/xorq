@@ -19,16 +19,24 @@ from xorq.common.utils.func_utils import (
     if_not_none,
 )
 from xorq.ibis_yaml.compiler import (
+    DEFERRED_READS_YAML_FILENAME,
+    EXPR_YAML_FILENAME,
+    METADATA_JSON_FILENAME,
+    PROFILES_YAML_FILENAME,
+    SQL_YAML_FILENAME,
     BuildManager,
     load_expr,
 )
+
+
+CATALOG_YAML_FILENAME = "catalog.yaml"
 
 
 def get_default_catalog_path():
     # dynamically retrieve: tests need to monkeypatch XDG_CONFIG_HOME
     return (
         Path(os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config"))
-        .joinpath("xorq", "catalog.yaml")
+        .joinpath("xorq", CATALOG_YAML_FILENAME)
         .absolute()
     )
 
@@ -503,16 +511,16 @@ def maybe_resolve_build_dirs(
 def get_diff_file_list(
     left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool
 ) -> tuple[str, ...]:
-    default = ("expr.yaml",)
+    default = (EXPR_YAML_FILENAME,)
     if files is not None:
         return tuple(files)
     if all_flag:
         default_files = (
-            "expr.yaml",
-            "deferred_reads.yaml",
-            "profiles.yaml",
-            "sql.yaml",
-            "metadata.json",
+            EXPR_YAML_FILENAME,
+            DEFERRED_READS_YAML_FILENAME,
+            PROFILES_YAML_FILENAME,
+            SQL_YAML_FILENAME,
+            METADATA_JSON_FILENAME,
         )
         sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {
             p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")

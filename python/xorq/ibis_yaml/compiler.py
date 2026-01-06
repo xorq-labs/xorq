@@ -52,6 +52,13 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
 
+DEFERRED_READS_YAML_FILENAME = "deferred_reads.yaml"
+EXPR_YAML_FILENAME = "expr.yaml"
+METADATA_JSON_FILENAME = "metadata.json"
+PROFILES_YAML_FILENAME = "profiles.yaml"
+SQL_YAML_FILENAME = "sql.yaml"
+
+
 class CleanDictYAMLDumper(yaml.SafeDumper):
     def ignore_aliases(self, data):
         return True
@@ -286,28 +293,32 @@ class BuildManager:
         profiles = dict(sorted(profiles.items()))
 
         yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles, self.cache_dir)
-        self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
-        self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
+        self.artifact_store.save_yaml(yaml_dict, expr_hash, EXPR_YAML_FILENAME)
+        self.artifact_store.save_yaml(profiles, expr_hash, PROFILES_YAML_FILENAME)
 
         # write SQL plan and deferred-read artifacts if debug enabled
         if getattr(self, "debug", False):
             sql_plans, deferred_reads = generate_sql_plans(expr)
             updated_sql_plans = self._process_sql_plans(sql_plans, expr_hash)
-            self.artifact_store.save_yaml(updated_sql_plans, expr_hash, "sql.yaml")
+            self.artifact_store.save_yaml(
+                updated_sql_plans, expr_hash, SQL_YAML_FILENAME
+            )
             updated_deferred_reads = self._process_deferred_reads(
                 deferred_reads, expr_hash
             )
             self.artifact_store.save_yaml(
-                updated_deferred_reads, expr_hash, "deferred_reads.yaml"
+                updated_deferred_reads,
+                expr_hash,
+                DEFERRED_READS_YAML_FILENAME,
             )
 
         metadata_json = self._make_metadata()
-        self.artifact_store.write_text(metadata_json, expr_hash, "metadata.json")
+        self.artifact_store.write_text(metadata_json, expr_hash, METADATA_JSON_FILENAME)
 
         return expr_hash
 
     def load_expr(self, expr_hash: str) -> ir.Expr:
-        profiles_dict = self.artifact_store.load_yaml(expr_hash, "profiles.yaml")
+        profiles_dict = self.artifact_store.load_yaml(expr_hash, PROFILES_YAML_FILENAME)
 
         def f(values):
             dct = dict(values)
@@ -321,7 +332,7 @@ class BuildManager:
             profile: Profile(**f(values)).get_con()
             for profile, values in profiles_dict.items()
         }
-        yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
+        yaml_dict = self.artifact_store.load_yaml(expr_hash, EXPR_YAML_FILENAME)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = replace_deferred_reads(expr)
         if self.cache_dir:
@@ -330,10 +341,10 @@ class BuildManager:
 
     # TODO: maybe change name
     def load_sql_plans(self, expr_hash: str) -> Dict[str, Any]:
-        return self.artifact_store.load_yaml(expr_hash, "sql.yaml")
+        return self.artifact_store.load_yaml(expr_hash, SQL_YAML_FILENAME)
 
     def load_deferred_reads(self, expr_hash: str) -> Dict[str, Any]:
-        return self.artifact_store.load_yaml(expr_hash, "deferred_reads.yaml")
+        return self.artifact_store.load_yaml(expr_hash, DEFERRED_READS_YAML_FILENAME)
 
     @staticmethod
     def validate_build(path) -> tuple:
@@ -344,11 +355,13 @@ class BuildManager:
 
         def validate(path):
             build_path = Path(path)
-            meta_file = build_path / "metadata.json"
+            meta_file = build_path / METADATA_JSON_FILENAME
             if not build_path.exists() or not build_path.is_dir():
                 raise ValueError(f"Build path not found: {build_path}")
             if not meta_file.exists():
-                raise ValueError(f"metadata.json not found in build path: {build_path}")
+                raise ValueError(
+                    f"{METADATA_JSON_FILENAME} not found in build path: {build_path}"
+                )
             return meta_file
 
         meta_file = validate(path)

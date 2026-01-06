@@ -1,6 +1,10 @@
 import pytest
 
 from xorq.cli import catalog_command, parse_args
+from xorq.ibis_yaml.compiler import (
+    EXPR_YAML_FILENAME,
+    METADATA_JSON_FILENAME,
+)
 
 
 LS_BASELINE = "Entries:\n"
@@ -29,7 +33,7 @@ def test_diff_builds_identical(tmp_path, capsys):
     for name in ("b1", "b2"):
         d = tmp_path / name
         d.mkdir()
-        (d / "expr.yaml").write_text("foo: bar")
+        (d / EXPR_YAML_FILENAME).write_text("foo: bar")
     # Run diff-builds
     args = parse_args(
         ["catalog", "diff-builds", str(tmp_path / "b1"), str(tmp_path / "b2")]
@@ -57,7 +61,7 @@ def test_rm_entry(tmp_path, capsys):
     # Add and then remove a build entry
     build_dir = tmp_path / "b1"
     build_dir.mkdir()
-    (build_dir / "metadata.json").write_text("{}")
+    (build_dir / METADATA_JSON_FILENAME).write_text("{}")
     # Add build
     args = parse_args(["catalog", "add", str(build_dir)])
     catalog_command(args)
@@ -79,7 +83,7 @@ def test_rm_alias(tmp_path, capsys):
     # Add build with alias, then remove alias only
     build_dir = tmp_path / "b2"
     build_dir.mkdir()
-    (build_dir / "metadata.json").write_text("{}")
+    (build_dir / METADATA_JSON_FILENAME).write_text("{}")
     alias = "myalias"
     args = parse_args(["catalog", "add", "-a", alias, str(build_dir)])
     catalog_command(args)
@@ -118,7 +122,7 @@ def test_info_after_add(tmp_path, capsys):
     # After adding one entry and one alias, info should update counts
     build_dir = tmp_path / "b1"
     build_dir.mkdir()
-    (build_dir / "metadata.json").write_text("{}")
+    (build_dir / METADATA_JSON_FILENAME).write_text("{}")
     # Add with alias
     alias = "foo"
     args = parse_args(["catalog", "add", "-a", alias, str(build_dir)])
