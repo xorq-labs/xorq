@@ -274,6 +274,19 @@ class BuildManager:
         sql_path.write_text(sql)
         return filename
 
+    @staticmethod
+    def _write_memtable(build_dir, mt, which):
+        import pyarrow.parquet as pq
+
+        assert which in ("database_tables", "memtables")
+        table = mt.to_expr().to_pyarrow()
+        parquet_path = build_dir.joinpath(which, dask.base.tokenize(table)).with_suffix(
+            ".parquet"
+        )
+        parquet_path.parent.mkdir(parents=True, exist_ok=True)
+        pq.write_table(table, parquet_path)
+        return parquet_path
+
     def _process_sql_plans(
         self, sql_plans: Dict[str, Any], expr_hash: str
     ) -> Dict[str, Any]:
@@ -443,13 +456,7 @@ def deferred_reads_to_memtables(loaded):
 
 def memtables_to_deferred_reads(build_dir, expr):
     def memtable_to_read_op(builds_dir, mt, con=_backend_init()):
-        memtables_dir = Path(builds_dir).joinpath("memtables")
-        memtables_dir.mkdir(parents=True, exist_ok=True)
-        df = mt.to_expr().execute()
-        parquet_path = memtables_dir.joinpath(dask.base.tokenize(df)).with_suffix(
-            ".parquet"
-        )
-        df.to_parquet(parquet_path)
+        parquet_path = BuildManager._write_memtable(builds_dir, mt, "memtables")
         # FIXME: enable Path
         dr = deferred_read_parquet(parquet_path, con, table_name=mt.name)
         op = dr.op()
@@ -469,15 +476,7 @@ def memtables_to_deferred_reads(build_dir, expr):
 
 def replace_inmemory_backend_tables(build_dir, expr):
     def database_table_to_read_op(builds_dir, mt, con=_backend_init()):
-        import pyarrow.parquet as pq
-
-        database_tables_dir = Path(builds_dir).joinpath("database_tables")
-        database_tables_dir.mkdir(parents=True, exist_ok=True)
-        df = mt.to_expr().to_pyarrow()
-        parquet_path = database_tables_dir.joinpath(dask.base.tokenize(df)).with_suffix(
-            ".parquet"
-        )
-        pq.write_table(df, parquet_path)
+        parquet_path = BuildManager._write_memtable(builds_dir, mt, "database_tables")
         # we normalize based on content so we can reproducible hash
         dr = deferred_read_parquet(
             parquet_path,
