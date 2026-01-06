@@ -243,7 +243,8 @@ class BuildManager:
 
         return updated_plans
 
-    def _make_metadata(self) -> str:
+    @staticmethod
+    def _make_metadata() -> str:
         metadata = {
             "current_library_version": xorq.__version__,
             "metadata_version": "0.0.0",  # TODO: make it a real thing
