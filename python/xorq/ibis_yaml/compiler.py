@@ -240,6 +240,28 @@ def hydrate_cons(hash_to_profile_kwargs):
     return profiles
 
 
+def write_memtable(build_dir, mt, which):
+    import pyarrow.parquet as pq
+
+    assert which in ("database_tables", "memtables")
+    table = mt.to_expr().to_pyarrow()
+    parquet_path = build_dir.joinpath(which, dask.base.tokenize(table)).with_suffix(
+        ".parquet"
+    )
+    parquet_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(table, parquet_path)
+    return parquet_path
+
+
+def table_to_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
+    dr = deferred_read_parquet(parquet_path, con, **read_kwargs)
+    op = dr.op()
+    args = dict(zip(op.__argnames__, op.__args__))
+    args["values"] = args_values
+    op = op.__recreate__(args)
+    return op
+
+
 @frozen
 class BuildManager:
     root_path = field(validator=instance_of(Path), converter=Path)
@@ -273,28 +295,6 @@ class BuildManager:
         sql_path = self.artifact_store.get_build_path(expr_hash) / filename
         sql_path.write_text(sql)
         return filename
-
-    @staticmethod
-    def _write_memtable(build_dir, mt, which):
-        import pyarrow.parquet as pq
-
-        assert which in ("database_tables", "memtables")
-        table = mt.to_expr().to_pyarrow()
-        parquet_path = build_dir.joinpath(which, dask.base.tokenize(table)).with_suffix(
-            ".parquet"
-        )
-        parquet_path.parent.mkdir(parents=True, exist_ok=True)
-        pq.write_table(table, parquet_path)
-        return parquet_path
-
-    @staticmethod
-    def _table_to_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
-        dr = deferred_read_parquet(parquet_path, con, **read_kwargs)
-        op = dr.op()
-        args = dict(zip(op.__argnames__, op.__args__))
-        args["values"] = args_values
-        op = op.__recreate__(args)
-        return op
 
     def _process_sql_plans(
         self, sql_plans: Dict[str, Any], expr_hash: str
@@ -476,8 +476,8 @@ def deferred_reads_to_memtables(loaded):
 
 def memtables_to_deferred_reads(build_dir, expr):
     def memtable_to_read_op(builds_dir, mt):
-        parquet_path = BuildManager._write_memtable(builds_dir, mt, "memtables")
-        op = BuildManager._table_to_read_op(
+        parquet_path = write_memtable(builds_dir, mt, "memtables")
+        op = table_to_read_op(
             parquet_path=parquet_path,
             read_kwargs={
                 "table_name": mt.name,
@@ -497,8 +497,8 @@ def memtables_to_deferred_reads(build_dir, expr):
 
 def replace_inmemory_backend_tables(build_dir, expr):
     def database_table_to_read_op(builds_dir, mt, con):
-        parquet_path = BuildManager._write_memtable(builds_dir, mt, "database_tables")
-        op = BuildManager._table_to_read_op(
+        parquet_path = write_memtable(builds_dir, mt, "database_tables")
+        op = table_to_read_op(
             parquet_path=parquet_path,
             read_kwargs={
                 "table_name": mt.name,
