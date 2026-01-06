@@ -158,10 +158,8 @@ class ArtifactStore:
 
 
 class YamlExpressionTranslator:
-    def __init__(self):
-        pass
-
-    def to_yaml(self, expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
+    @staticmethod
+    def to_yaml(expr: ir.Expr, profiles=(), cache_dir=None) -> Dict[str, Any]:
         context = TranslationContext(
             profiles=freeze(dict(profiles)),
             cache_dir=cache_dir,
@@ -183,8 +181,8 @@ class YamlExpressionTranslator:
                 }
             )
 
+    @staticmethod
     def from_yaml(
-        self,
         yaml_dict: Dict[str, Any],
         profiles=(),
     ) -> ir.Expr:
@@ -287,8 +285,7 @@ class BuildManager:
         }
         profiles = dict(sorted(profiles.items()))
 
-        translator = YamlExpressionTranslator()
-        yaml_dict = translator.to_yaml(expr, profiles, self.cache_dir)
+        yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles, self.cache_dir)
         self.artifact_store.save_yaml(yaml_dict, expr_hash, "expr.yaml")
         self.artifact_store.save_yaml(profiles, expr_hash, "profiles.yaml")
 
@@ -324,10 +321,8 @@ class BuildManager:
             profile: Profile(**f(values)).get_con()
             for profile, values in profiles_dict.items()
         }
-        translator = YamlExpressionTranslator()
-
         yaml_dict = self.artifact_store.load_yaml(expr_hash, "expr.yaml")
-        expr = translator.from_yaml(yaml_dict, profiles=profiles)
+        expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = replace_deferred_reads(expr)
         if self.cache_dir:
             expr = replace_base_path(expr, base_path=self.cache_dir)
