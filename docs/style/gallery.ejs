@@ -1,18 +1,18 @@
 ```{=html}
 
 <div class="quarto-listing quarto-listing-container-grid">
-  <div class="list grid quarto-listing-cols-2">
+  <div class="list grid quarto-listing-cols-<%= typeof gridColumns !== 'undefined' ? gridColumns : 2 %>">
     <% for (const item of items) { %>
       <div class="quarto-grid-item card-body h-100 card-left">
-        <small class="card-text">
+        <div class="card-text">
+          <i class="bi bi-<%- item.icon %>" aria-hidden="true"></i>
           <a href="<%- item.path %>" class="quarto-grid-link">
-            <div class="card-content">
-              <i class="bi bi-<%- item.icon %> card-icon" aria-hidden="true"></i>
-              <span class="listing-title-text"><%= item.title %></span>
-              <%= item.headline %>
-            </div>
+            <strong><%= item.title %></strong>
           </a>
-        </small>
+          <% if (item.headline) { %>
+          <p><%= item.headline %></p>
+          <% } %>
+        </div>
       </div>
     <% } %>
   </div>

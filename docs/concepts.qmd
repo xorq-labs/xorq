@@ -12,7 +12,7 @@ Xorq provides a sophisticated caching system that enables efficient iterative de
 - Automatically invalidate cache when source data changes
 - Chain caches across multiple engines
 
-### Storage types
+### Cache types
 
 Xorq supports three main types of cache storage:
 
@@ -61,7 +61,7 @@ result = xo.execute(cached)
 
 ### Hashing strategies
 
-Cache invalidation uses different hashing strategies based on the storage type:
+Cache invalidation uses different hashing strategies based on the cache type:
 
 | Storage Type | Hash Components |
 | --- | --- |

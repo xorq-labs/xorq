@@ -1,0 +1,22 @@
+---
+title: 'Integrate with existing tools'
+---
+
+## Coming soon
+
+This guide will show you how to integrate Xorq with your existing data and ML infrastructure.
+
+You will learn integration patterns for common tools in the modern data stack.
+
+**What you'll accomplish:**
+- Integrate with Airflow/Dagster
+- Connect to existing data warehouses
+- Export to BI tools
+- Bridge with existing ML platforms
+
+**Prerequisites:**
+- Existing tool stack to integrate with
+- Understanding of tool APIs
+
+Check back soon for the complete guide.
+

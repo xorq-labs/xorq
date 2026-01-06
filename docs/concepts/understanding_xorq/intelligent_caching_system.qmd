@@ -56,6 +56,7 @@ Xorq supports four types of cache, each optimized for different use cases:
 **SourceCache** provides automatic cache invalidation when upstream data changes:
 
 ```{python}
+#| eval: false
 import xorq.api as xo
 from xorq.caching import SourceCache
 
@@ -73,7 +74,7 @@ expr = batting.filter(batting.yearID == 2015)
 
 # Cache the filtered data in the source backend
 cached = (
-    expr.cache(storage)  # cache expression
+    expr.cache(cache=storage)  # cache expression
 )
 
 # Execute the query - results will be cached
@@ -92,14 +93,24 @@ result = xo.execute(cached)
 **SourceSnapshotCache** provides caching without automatic invalidation:
 
 ```{python}
+#| eval: false
+import xorq.api as xo
 from xorq.caching import SourceSnapshotCache
+
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
 
 # Create snapshot storage
 storage = SourceSnapshotCache.from_kwargs(source=con)
 
+# Register table from postgres
+batting = pg.table("batting")
+expr = batting.filter(batting.yearID == 2015)
+
 # Cache data without automatic invalidation
 cached_snapshot = (
-    expr.cache(storage)
+    expr.cache(cache=storage)
 )
 ```
 
@@ -112,17 +123,23 @@ cached_snapshot = (
 
 ### ParquetCache
 
-**ParquetCache** is a special case of SourceStorage that persists data as Parquet files:
+**ParquetCache** is a special case of SourceCache that persists data as Parquet files:
 
 ```{python}
+#| eval: false
+import xorq.api as xo
 from pathlib import Path
 from xorq.caching import ParquetCache
+
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
 
 # Create a storage for cached data
 cache_storage = ParquetCache.from_kwargs(source=con, base_path=Path.cwd())
 
 # Cache the results as Parquet files
-cached_awards = pg.table("awards_players").cache(cache_storage)
+cached_awards = pg.table("awards_players").cache(cache=cache_storage)
 
 # The next execution will use the cached Parquet data
 result = cached_awards.execute()
@@ -141,14 +158,24 @@ result = cached_awards.execute()
 **ParquetSnapshotCache** combines Parquet file persistence with snapshot-style caching (no automatic invalidation):
 
 ```{python}
+#| eval: false
+import xorq.api as xo
 from pathlib import Path
 from xorq.caching import ParquetSnapshotCache
+
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
 
 # Create a snapshot storage for Parquet files
 cache_storage = ParquetSnapshotCache.from_kwargs(source=con, base_path=Path.cwd())
 
+# Register table from postgres
+batting = pg.table("batting")
+expr = batting.filter(batting.yearID == 2015)
+
 # Cache the results as Parquet files without automatic invalidation
-cached_analysis = expr.cache(cache_storage)
+cached_analysis = expr.cache(cache=cache_storage)
 
 # Subsequent runs will use the cached Parquet data
 result = cached_analysis.execute()
@@ -165,7 +192,17 @@ result = cached_analysis.execute()
 Xorq excels at caching data across different backends using `into_backend()`:
 
 ```{python}
+#| eval: false
+import xorq.api as xo
 from xorq.caching import ParquetCache
+
+# Connect to source database
+pg = xo.postgres.connect_env()
+con = xo.connect()
+
+# Register table from postgres
+batting = pg.table("batting")
+expr = batting.filter(batting.yearID == 2015)
 
 # Read from Postgres and cache in xorq backend
 awards = pg.table("awards_players").into_backend(con, "awards")

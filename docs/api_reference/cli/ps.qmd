@@ -1,0 +1,12 @@
+---
+title: 'ps'
+---
+
+## Coming soon
+
+Documentation for the `xorq ps` CLI command.
+
+This command lists running Xorq processes.
+
+Check back soon for complete documentation.
+

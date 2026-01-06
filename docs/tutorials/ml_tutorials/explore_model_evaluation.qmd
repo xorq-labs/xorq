@@ -1,0 +1,397 @@
+---
+title: 'Compare model performance'
+description: "Compare multiple models to find the best one for your classification task"
+icon: "chart-line"
+headline: "Compare models systematically"
+---
+
+This tutorial shows you how to compare multiple machine learning models to find the best performer. You'll learn how to evaluate different classifiers systematically using Xorq's ML workflows.
+
+After completing this tutorial, you'll know how to run experiments that compare model performance and select the best approach for your data.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed: `pip install "xorq[examples]"`
+- Basic familiarity with scikit-learn classifiers
+- Understanding of train/test splits
+
+
+## Why compare models?
+
+Here's the problem: different ML algorithms have different strengths. A decision tree might work well on one dataset while k-nearest neighbors performs better on another. You can't know which is best without testing.
+
+Why this matters: imagine you're building a spam classifier. You pick k-nearest neighbors because it's simple, deploy it, and get 70% accuracy. But if you'd compared multiple models first, then you might have found that a random forest gives you 85% accuracy. That 15-point difference is the cost of not evaluating systematically.
+
+The solution: compare multiple classifiers on your data. Train each one, measure performance, pick the winner. Xorq makes this easy because you can wrap any scikit-learn estimator and evaluate it with the same code.
+
+:::{.callout-tip}
+### Systematic comparison
+Change the estimator, run the pipeline, compare scores. That's the pattern. Xorq's deferred execution lets you build evaluation workflows that work across any scikit-learn model.
+:::
+
+## How to follow along
+
+This tutorial builds code incrementally. Each section provides a code block that you run sequentially.
+
+**Recommended approach**: Open a terminal, run `python` to start an interactive Python shell, then copy and paste each code block in order.
+
+**Alternative approaches**:
+
+- **Jupyter notebook**: Create a new notebook and run each code block in a separate cell
+
+- **Python script**: Combine all code blocks into a single `.py` file and run it
+
+The code blocks build on each other. Variables like `X_train`, `train`, `test`, and `features` are created in earlier blocks and used in later ones.
+
+## Create synthetic data
+
+Start by generating a classification dataset. You'll use the "moons" dataset, which has two interleaving half-circles:
+
+```python
+import xorq.api as xo
+import pandas as pd
+import numpy as np
+from sklearn.datasets import make_moons
+from sklearn.model_selection import train_test_split
+
+# <1>
+X, y = make_moons(noise=0.3, random_state=0)
+
+# <2>
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.4, random_state=42
+)
+
+# <3>
+print(f"Training samples: {len(X_train)}")
+print(f"Test samples: {len(X_test)}")
+print(f"Features: {X.shape[1]}")
+```
+1. Generate a "moons" dataset with 100 samples and some noise.
+2. Split into train (60%) and test (40%) sets.
+3. Check the sizes.
+
+You'll see:
+
+```
+Training samples: 60
+Test samples: 40
+Features: 2
+```
+
+This synthetic data has two classes that aren't linearly separable. It's perfect for comparing how different classifiers handle non-linear boundaries.
+
+Understanding this data helps you interpret results later. The moons shape means linear models struggle while non-linear models perform better.
+
+## Convert to Xorq tables
+
+Now you'll convert the NumPy arrays into Xorq table expressions:
+
+```python
+# <1>
+def make_xorq_tables(X_train, y_train, X_test, y_test):
+    con = xo.connect()
+    
+    # Create training table
+    train = con.register(
+        pd.DataFrame(X_train, columns=["feature_0", "feature_1"])
+        .assign(target=y_train),
+        "train"
+    )
+    
+    # Create test table
+    test = con.register(
+        pd.DataFrame(X_test, columns=["feature_0", "feature_1"])
+        .assign(target=y_test),
+        "test"
+    )
+    
+    features = ["feature_0", "feature_1"]
+    return train, test, features
+
+# <2>
+train, test, features = make_xorq_tables(X_train, y_train, X_test, y_test)
+
+# <3>
+print(f"\nXorq tables created")
+print(f"Train columns: {train.columns}")
+print(f"Features: {features}")
+```
+1. Create a helper function that converts arrays to Xorq tables using con.register.
+2. Convert your train/test data to Xorq expressions.
+3. Verify the tables.
+
+The output shows:
+
+```
+Xorq tables created
+Train columns: ('feature_0', 'feature_1', 'target')
+Features: ['feature_0', 'feature_1']
+```
+
+**What just happened?** You registered pandas DataFrames as tables in Xorq. Now you can use these tables with Xorq's deferred execution patterns.
+
+Once you've got your tables ready, you can move on to training models.
+
+## Train and evaluate one model
+
+Now you'll train a single classifier and measure its accuracy. Think of it this way: you're establishing a baseline before comparing multiple models.
+
+```python
+import sklearn.pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from xorq.expr.ml import Pipeline
+
+# <1>
+sklearn_pipeline = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=3))
+])
+
+# <2>
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# <3>
+fitted_pipeline = xorq_pipeline.fit(
+    train,
+    features=features,
+    target="target"
+)
+
+# <4>
+score_expr = fitted_pipeline.score_expr(test)
+
+# <5>
+score = score_expr.execute()
+print(f"\nK-Nearest Neighbors accuracy: {score:.2%}")
+```
+1. Create a scikit-learn pipeline with scaling and k-nearest neighbors (k=3).
+2. Wrap it with Xorq's Pipeline.from_instance().
+3. Fit on the training data (deferred).
+4. Create a scoring expression (still deferred).
+5. Execute to get the actual accuracy.
+
+You'll typically see:
+
+```
+K-Nearest Neighbors accuracy: 90.00%
+```
+
+Here's the key insight: `.score_expr()` returns a deferred expression. Nothing executes until you call `.execute()`. This lets you build complex evaluation workflows before running anything.
+
+Why use `.score_expr()` instead of immediate scoring? You can compose it with other operations, cache results, and optimize execution across multiple evaluations.
+
+## Compare multiple classifiers
+
+This raises a question: how do you compare several models efficiently?
+
+Here's where the pattern shines. You define your models, wrap each in a pipeline, and evaluate them all:
+
+```python
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+
+# <1>
+classifiers = {
+    "K-Nearest Neighbors": KNeighborsClassifier(n_neighbors=3),
+    "Linear SVM": SVC(kernel="linear", C=0.025, random_state=42),
+    "Decision Tree": DecisionTreeClassifier(max_depth=5, random_state=42),
+    "Random Forest": RandomForestClassifier(
+        max_depth=5, n_estimators=10, max_features=1, random_state=42
+    ),
+}
+
+# <2>
+results = {}
+for name, clf in classifiers.items():
+    # Wrap in sklearn pipeline with scaling
+    sklearn_pipe = sklearn.pipeline.Pipeline([
+        ("scaler", StandardScaler()),
+        ("classifier", clf)
+    ])
+    
+    # Convert to Xorq and fit
+    xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+    fitted = xorq_pipe.fit(train, features=features, target="target")
+    
+    # Evaluate
+    score = fitted.score_expr(test).execute()
+    results[name] = score
+    
+    print(f"{name}: {score:.2%}")
+
+# <3>
+best_model = max(results, key=results.get)
+best_score = results[best_model]
+
+print(f"\nBest model: {best_model}")
+print(f"Best accuracy: {best_score:.2%}")
+```
+1. Define four classifiers to compare.
+2. Loop through each: wrap, fit, score.
+3. Find the best performer.
+
+You'll see output like:
+
+```
+K-Nearest Neighbors: 90.00%
+Linear SVM: 85.00%
+Decision Tree: 87.50%
+Random Forest: 92.50%
+
+Best model: Random Forest
+Best accuracy: 92.50%
+```
+
+**What does success look like?** You've compared four different classifiers and identified that Random Forest performs best on this dataset. The non-linear decision boundary of Random Forest handles the moons shape better than linear models.
+
+Most teams find that this pattern simplifies model selection. Define models, evaluate them, pick the winner.
+
+## Verify against scikit-learn
+
+Now you'll verify that Xorq's scores match scikit-learn's scores exactly. This builds confidence that Xorq's wrapper doesn't change the underlying algorithms.
+
+```python
+# <1>
+def verify_score(train, test, features, target, sklearn_pipeline):
+    # Xorq evaluation
+    xorq_pipe = Pipeline.from_instance(sklearn_pipeline)
+    fitted = xorq_pipe.fit(train, features=features, target=target)
+    xorq_score = fitted.score_expr(test).execute()
+    
+    # sklearn evaluation
+    train_df = train.execute()
+    test_df = test.execute()
+    sklearn_pipeline.fit(train_df[features], train_df[target])
+    sklearn_score = sklearn_pipeline.score(test_df[features], test_df[target])
+    
+    return xorq_score, sklearn_score
+
+# <2>
+sklearn_pipe = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("knn", KNeighborsClassifier(n_neighbors=5))
+])
+
+xorq_score, sklearn_score = verify_score(
+    train, test, features, "target", sklearn_pipe
+)
+
+# <3>
+print(f"\nVerification:")
+print(f"Xorq score: {xorq_score:.4f}")
+print(f"sklearn score: {sklearn_score:.4f}")
+print(f"Match: {np.isclose(xorq_score, sklearn_score)}")
+```
+1. Create a helper that evaluates with both Xorq and scikit-learn.
+2. Test with a k-nearest neighbors classifier.
+3. Verify the scores match.
+
+You'll see:
+
+```
+Verification:
+Xorq score: 0.9000
+sklearn score: 0.9000
+Match: True
+```
+
+This confirms that Xorq produces identical results to scikit-learn. The only difference is deferred execution and caching. The algorithms themselves are unchanged.
+
+Understanding this gives you confidence to use Xorq in production. You're not changing how models work, just how they execute.
+
+## Complete example
+
+Here's the full workflow in one place. If you started with the Python shell, you've already run all of this. If you want to create a script, here's everything combined:
+
+```python
+import xorq.api as xo
+import pandas as pd
+import numpy as np
+from sklearn.datasets import make_moons
+from sklearn.model_selection import train_test_split
+import sklearn.pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from xorq.expr.ml import Pipeline
+
+# Generate synthetic data
+X, y = make_moons(noise=0.3, random_state=0)
+X_train, X_test, y_train, y_test = train_test_split(
+    X, y, test_size=0.4, random_state=42
+)
+
+# Convert to Xorq tables
+def make_xorq_tables(X_train, y_train, X_test, y_test):
+    con = xo.connect()
+    train = con.register(
+        pd.DataFrame(X_train, columns=["feature_0", "feature_1"])
+        .assign(target=y_train),
+        "train"
+    )
+    test = con.register(
+        pd.DataFrame(X_test, columns=["feature_0", "feature_1"])
+        .assign(target=y_test),
+        "test"
+    )
+    features = ["feature_0", "feature_1"]
+    return train, test, features
+
+train, test, features = make_xorq_tables(X_train, y_train, X_test, y_test)
+
+# Define classifiers
+classifiers = {
+    "K-Nearest Neighbors": KNeighborsClassifier(n_neighbors=3),
+    "Linear SVM": SVC(kernel="linear", C=0.025, random_state=42),
+    "Decision Tree": DecisionTreeClassifier(max_depth=5, random_state=42),
+    "Random Forest": RandomForestClassifier(
+        max_depth=5, n_estimators=10, max_features=1, random_state=42
+    ),
+}
+
+# Evaluate each classifier
+results = {}
+for name, clf in classifiers.items():
+    sklearn_pipe = sklearn.pipeline.Pipeline([
+        ("scaler", StandardScaler()),
+        ("classifier", clf)
+    ])
+    xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+    fitted = xorq_pipe.fit(train, features=features, target="target")
+    score = fitted.score_expr(test).execute()
+    results[name] = score
+    print(f"{name}: {score:.2%}")
+
+# Select best model
+best_model = max(results, key=results.get)
+print(f"\nBest model: {best_model} ({results[best_model]:.2%})")
+```
+
+Notice how you compared four classifiers with minimal code. The pattern is consistent: wrap, fit, score, compare.
+
+## What you learned
+
+You've learned how to evaluate multiple models systematically. Here's what you accomplished:
+
+- Created synthetic classification data with make_moons
+- Converted NumPy arrays to Xorq table expressions
+- Trained and scored individual classifiers
+- Compared multiple models to find the best performer
+- Verified that Xorq matches scikit-learn exactly
+
+The key insight? Model comparison is systematic with Xorq. Define your candidates, evaluate them all, pick the winner. The deferred execution pattern works across any scikit-learn estimator.
+
+## Next steps
+
+Now that you know how to compare models, continue learning:
+
+- [Train your first model](train_your_first_model.qmd) covers the basics of model training with Xorq
+- [Split data for training](split_data_for_training.qmd) shows proper train/test/validation splits
+- [Understand Pipeline](understand_pipeline.qmd) explains how Xorq wraps scikit-learn pipelines

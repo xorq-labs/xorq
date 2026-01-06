@@ -1,0 +1,17 @@
+---
+title: 'Release Notes'
+---
+
+## Coming soon
+
+Release notes for Xorq versions, organized chronologically.
+
+This page will include:
+- Version history
+- Breaking changes
+- New features
+- Bug fixes
+- Migration guides
+
+Check back soon for release notes.
+

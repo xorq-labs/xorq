@@ -109,6 +109,127 @@ How-to guides are goal-oriented and assume the reader already has some experienc
 
 
 
+## Guide structure
+
+Every production guide (how-to guide) must follow this structure:
+
+### Required sections
+
+1. **Introduction** — State what the reader will accomplish by the end of the guide. Be specific about the outcome.
+
+   Example: "By the end of this guide, you will have a CI/CD pipeline that automatically builds, tests, and deploys Xorq pipelines to production."
+
+2. **Prerequisites** — List what the reader needs before starting. Include:
+   - Required software and versions
+   - Configuration that must be in place
+   - Knowledge or completed tutorials
+   - Access requirements (API keys, credentials)
+
+   Example:
+   - Xorq 0.3.4 or later installed
+   - GitHub repository with Actions enabled
+   - Completed the "Build reproducible environments" guide
+
+3. **Step-by-step instructions** — Walk through the task with numbered steps. Each step should:
+   - Have one clear action
+   - Include code examples or commands
+   - Explain why the step matters (briefly)
+   - Show expected output when relevant
+
+4. **Production considerations** — Cover real-world concerns:
+   - Performance implications
+   - Security best practices
+   - Cost considerations
+   - Scaling guidance
+   - When to use this approach vs alternatives
+
+5. **Troubleshooting** — Document common errors specific to this guide:
+   - Error message (quoted exactly)
+   - What it means
+   - How to fix it
+   - What to check
+
+   Format each issue as:
+   ```markdown
+   ### Issue: Server won't start
+   **Error:** `Address already in use`
+   **Cause:** Port 8001 is already occupied by another process.
+   **Solution:** Check running servers with `xorq ps`, then kill the process or choose a different port.
+   ```
+
+6. **Next steps** — Point to related guides or next logical tasks. Give the reader clear direction on where to go from here.
+
+### Guide structure example
+
+```markdown
+# Deploy models to production
+
+Learn how to deploy trained Xorq models as production-ready prediction endpoints using Apache Arrow Flight.
+
+By the end of this guide, you will have a model serving predictions with sub-100ms latency.
+
+## Prerequisites
+
+- Xorq 0.3.4 or later
+- Trained model from "Train your first model" tutorial
+- Understanding of Flight protocol (see "Understand Flight protocol" tutorial)
+
+## Step-by-step instructions
+
+### 1. Build your model
+
+Create a build with your trained model:
+
+\`\`\`bash
+xorq build train_model.py --builds-dir builds
+\`\`\`
+
+Expected output:
+\`\`\`
+Build complete: builds/45f3bdb/
+\`\`\`
+
+### 2. Serve the model
+
+Start the Flight server:
+
+\`\`\`bash
+xorq serve-unbound builds/45f3bdb --port 8001
+\`\`\`
+
+[Continue with remaining steps...]
+
+## Production considerations
+
+**Performance:** Use connection pooling for high-traffic endpoints. See "Optimize model serving" for latency tuning.
+
+**Security:** Enable TLS in production. Never expose Flight servers directly to the internet without authentication.
+
+**Monitoring:** Integrate with your observability stack using OpenTelemetry. See "Monitor production deployments."
+
+## Troubleshooting
+
+### Issue: Server won't start
+**Error:** `Address already in use`
+**Cause:** Port 8001 is already occupied.
+**Solution:** Check running servers with `xorq ps`, then kill the process or choose a different port with `--port 8002`.
+
+### Issue: Predictions return wrong schema
+**Error:** `ArrowTypeError: Expected schema X, got Y`
+**Cause:** Model output schema doesn't match client expectations.
+**Solution:** Verify model output with `xorq catalog info <build>` and update client schema.
+
+## Next steps
+
+- [Optimize model serving](optimize-model-serving.md) for production latency requirements
+- [Monitor production deployments](monitor-production.md) to track system health
+- [Version and promote models](version-promote-models.md) to manage multiple model versions
+```
+
+This structure ensures every guide is complete, production-ready, and helps users succeed the first time.
+
+
+
 ## Lists, steps, and tables
 
 ### Lists

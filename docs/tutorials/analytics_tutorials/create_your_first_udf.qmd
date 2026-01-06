@@ -1,0 +1,18 @@
+---
+title: 'Create your first UDF'
+---
+
+## Coming soon
+
+This tutorial will guide you through creating your first User-Defined Function in Xorq.
+
+You will learn how to extend SQL with custom Python logic that runs on any backend.
+
+**What you'll learn:**
+- Write a Pandas UDF
+- Register the UDF
+- Use the UDF in expressions
+- Understand UDF serialization
+
+Check back soon for the complete tutorial.
+

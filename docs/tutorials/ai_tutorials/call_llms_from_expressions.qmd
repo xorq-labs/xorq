@@ -1,0 +1,18 @@
+---
+title: 'Call LLMs from expressions'
+---
+
+## Coming soon
+
+This tutorial will show you how to integrate LLM API calls directly into your SQL expressions.
+
+You will learn how to use OpenAI models within your data pipelines for text analysis tasks.
+
+**What you'll learn:**
+- Call OpenAI API from expressions
+- Process text data with LLMs
+- Handle batching for efficiency
+- Manage API costs
+
+Check back soon for the complete tutorial.
+

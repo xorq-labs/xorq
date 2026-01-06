@@ -1,0 +1,18 @@
+---
+title: 'Work with schemas'
+---
+
+## Coming soon
+
+This tutorial will show you how to define, validate, and enforce schemas in Xorq.
+
+You will learn how to ensure data quality through schema management.
+
+**What you'll learn:**
+- Define Arrow schemas
+- Validate incoming data
+- Handle schema evolution
+- Cast data types
+
+Check back soon for the complete tutorial.
+

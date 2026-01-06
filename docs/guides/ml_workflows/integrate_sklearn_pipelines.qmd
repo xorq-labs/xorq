@@ -1,0 +1,22 @@
+---
+title: 'Integrate with scikit-learn pipelines'
+---
+
+## Coming soon
+
+This guide will show you how to integrate existing scikit-learn pipelines with Xorq.
+
+You will learn how to wrap sklearn objects for deferred execution and caching.
+
+**What you'll accomplish:**
+- Wrap sklearn pipelines
+- Preserve sklearn API compatibility
+- Enable caching for fitted pipelines
+- Deploy sklearn models
+
+**Prerequisites:**
+- Familiarity with scikit-learn
+- Existing sklearn pipeline
+
+Check back soon for the complete guide.
+
