@@ -291,8 +291,8 @@ class BuildManager:
         expr_hash = expr_build_dir.name
 
         # this is writing to the artifact_store?
-        expr = replace_memtables(expr_build_dir, expr)
-        expr = replace_database_tables(expr_build_dir, expr)
+        expr = memtables_to_deferred_reads(expr_build_dir, expr)
+        expr = replace_inmemory_backend_tables(expr_build_dir, expr)
 
         profiles = dict(
             sorted(
@@ -348,7 +348,7 @@ class BuildManager:
         )
         yaml_dict = self.artifact_store.load_yaml(expr_hash, EXPR_YAML_FILENAME)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
-        expr = replace_deferred_reads(expr)
+        expr = deferred_reads_to_memtables(expr)
         if self.cache_dir:
             expr = replace_base_path(expr, base_path=self.cache_dir)
         return expr
@@ -416,7 +416,7 @@ def replace_base_path(expr, base_path):
     return expr.op().replace(replace).to_expr()
 
 
-def replace_deferred_reads(loaded):
+def deferred_reads_to_memtables(loaded):
     def deferred_read_to_memtable(dr):
         assert dr.values.get(IS_INMEMORY)
         path = next(v for k, v in dr.read_kwargs if k == "path")
@@ -432,7 +432,7 @@ def replace_deferred_reads(loaded):
     return op.to_expr()
 
 
-def replace_memtables(build_dir, expr):
+def memtables_to_deferred_reads(build_dir, expr):
     def memtable_to_read_op(builds_dir, mt, con=_backend_init()):
         memtables_dir = Path(builds_dir).joinpath("memtables")
         memtables_dir.mkdir(parents=True, exist_ok=True)
@@ -458,7 +458,7 @@ def replace_memtables(build_dir, expr):
     return new_expr
 
 
-def replace_database_tables(build_dir, expr):
+def replace_inmemory_backend_tables(build_dir, expr):
     def database_table_to_read_op(builds_dir, mt, con=_backend_init()):
         import pyarrow.parquet as pq
 
