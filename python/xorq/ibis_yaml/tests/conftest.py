@@ -822,7 +822,7 @@ def tpc_h22(customer, orders):
 
 
 @pytest.fixture
-def build_dir(tmp_path_factory):
+def builds_dir(tmp_path_factory):
     return tmp_path_factory.mktemp("builds")
 
 

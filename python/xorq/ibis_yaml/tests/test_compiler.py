@@ -37,10 +37,10 @@ do_roundtrip_expr = toolz.compose(load_expr, build_expr)
 
 
 @pytest.mark.snapshot_check
-def test_build_manager_expr_hash(t, build_dir, snapshot):
-    build_manager = ArtifactStore(build_dir)
-    actual = build_manager.get_expr_hash(t)
-    snapshot.assert_match(actual, "build_manager_expr_hash.txt")
+def test_artifact_store_expr_hash(t, builds_dir, snapshot):
+    artifact_store = ArtifactStore.from_path_and_expr(builds_dir, t)
+    actual = artifact_store.root_path.name
+    snapshot.assert_match(actual, "artifact_store_expr_hash.txt")
 
 
 @pytest.fixture(scope="session")
@@ -54,31 +54,27 @@ def users_df():
     )
 
 
-def test_build_manager_roundtrip(t, build_dir):
-    build_manager = ArtifactStore(build_dir)
+def test_build_manager_roundtrip(t, builds_dir):
+    artifact_store = ArtifactStore.from_path_and_expr(builds_dir, t)
     yaml_dict = {"a": "string"}
-    expr_hash = "dummy-value"
-    build_manager.save_yaml(yaml_dict, expr_hash, EXPR_YAML_FILENAME)
+    artifact_store.save_yaml(yaml_dict, EXPR_YAML_FILENAME)
 
-    out = build_dir.joinpath(expr_hash, EXPR_YAML_FILENAME).read_text()
+    out = artifact_store.root_path.joinpath(EXPR_YAML_FILENAME).read_text()
     assert out == "a: string\n"
-    result = build_manager.load_yaml(expr_hash, EXPR_YAML_FILENAME)
+    result = artifact_store.load_yaml(EXPR_YAML_FILENAME)
     assert result == yaml_dict
 
 
-def test_build_manager_paths(t, build_dir):
-    new_path = build_dir / "new_path"
+def test_build_manager_paths(t, builds_dir):
+    new_path = builds_dir / "new_path"
 
-    assert not os.path.exists(new_path)
-    build_manager = ArtifactStore(new_path)
-    assert os.path.exists(new_path)
-
-    build_manager.get_build_path("hash")
-    assert os.path.exists(new_path / "hash")
+    assert not new_path.exists()
+    ArtifactStore.from_path_and_expr(new_path, t)
+    assert new_path.exists()
 
 
-def test_clean_frozen_dict_yaml(build_dir):
-    build_manager = ArtifactStore(build_dir)
+def test_clean_frozen_dict_yaml(builds_dir):
+    artifact_store = ArtifactStore(builds_dir)
     data = FrozenOrderedDict(
         {"string": "text", "integer": 42, "float": 3.14, "boolean": True, "none": None}
     )
@@ -89,31 +85,31 @@ float: 3.14
 boolean: true
 none: null
 """
-    out_path = build_manager.save_yaml(data, "hash", EXPR_YAML_FILENAME)
+    out_path = artifact_store.save_yaml(data, EXPR_YAML_FILENAME)
     result = out_path.read_text()
 
     assert expected_yaml == result
 
 
-def test_ibis_compiler(t, build_dir):
+def test_ibis_compiler(t, builds_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_ibis_compiler_parquet_reader(build_dir, parquet_dir):
+def test_ibis_compiler_parquet_reader(builds_dir, parquet_dir):
     backend = xo.duckdb.connect()
     parquet_path = parquet_dir / "awards_players.parquet"
     awards_players = deferred_read_parquet(
         parquet_path, backend, table_name="award_players"
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_compiler_sql(build_dir, parquet_dir):
+def test_compiler_sql(builds_dir, parquet_dir):
     backend = xo.datafusion.connect()
     awards_players = deferred_read_parquet(
         parquet_dir / "awards_players.parquet",
@@ -122,7 +118,7 @@ def test_compiler_sql(build_dir, parquet_dir):
     )
     expr = awards_players.filter(awards_players.lgID == "NL").drop("yearID", "lgID")
 
-    build_path = build_expr(expr, build_dir, debug=True)
+    build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
     # make sure we can load
     load_expr(build_path)
     expected_relation = find_relations(awards_players)[0]
@@ -147,7 +143,7 @@ def test_compiler_sql(build_dir, parquet_dir):
     assert sql_text == expected_result
 
 
-def test_deferred_reads_yaml(build_dir, parquet_dir):
+def test_deferred_reads_yaml(builds_dir, parquet_dir):
     backend = xo.datafusion.connect()
     # Factor out the config path
     config_path = parquet_dir / "awards_players.parquet"
@@ -161,7 +157,7 @@ def test_deferred_reads_yaml(build_dir, parquet_dir):
     expected_relation = find_relations(awards_players)[0]
     expected_profile = backend._profile.hash_name
 
-    build_path = build_expr(expr, build_dir, debug=True)
+    build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
     yaml_path = build_path.joinpath(DEFERRED_READS_YAML_FILENAME)
     assert yaml_path.exists()
     sql_text = yaml_path.read_text()
@@ -190,15 +186,15 @@ def test_deferred_reads_yaml(build_dir, parquet_dir):
     assert sql_text == expected_result
 
 
-def test_ibis_compiler_expr_schema_ref(t, build_dir):
+def test_ibis_compiler_expr_schema_ref(t, builds_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
-    build_path = build_expr(expr, build_dir)
+    build_path = build_expr(expr, builds_dir=builds_dir)
     yaml_dict = yaml.safe_load(build_path.joinpath(EXPR_YAML_FILENAME).read_text())
     assert yaml_dict["expression"][RefEnum.schema_ref]
 
 
-def test_multi_engine_deferred_reads(build_dir, parquet_dir):
+def test_multi_engine_deferred_reads(builds_dir, parquet_dir):
     con0 = xo.connect()
     con1 = xo.connect()
     con2 = xo.duckdb.connect()
@@ -215,11 +211,11 @@ def test_multi_engine_deferred_reads(build_dir, parquet_dir):
         .into_backend(con3)
         .filter(xo._.G == 1)
     )
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_multi_engine_with_caching(build_dir, parquet_dir):
+def test_multi_engine_with_caching(builds_dir, parquet_dir):
     con0 = xo.connect()
     con1 = xo.connect()
     con2 = xo.duckdb.connect()
@@ -236,7 +232,7 @@ def test_multi_engine_with_caching(build_dir, parquet_dir):
         .into_backend(con3)
         .filter(xo._.G == 1)
     )
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
@@ -255,7 +251,7 @@ def test_multi_engine_with_caching(build_dir, parquet_dir):
     ),
 )
 def test_multi_engine_with_caching_with_parquet(
-    build_dir, tmp_path, environment_factory, cli_factory, monkeypatch, parquet_dir
+    builds_dir, tmp_path, environment_factory, cli_factory, monkeypatch, parquet_dir
 ):
     con0 = xo.connect()
     con1 = xo.connect()
@@ -282,7 +278,9 @@ def test_multi_engine_with_caching_with_parquet(
     else:
         cache_dir = None
 
-    roundtrip_expr = load_expr(build_expr(expr, build_dir, cache_dir=cache_dir))
+    roundtrip_expr = load_expr(
+        build_expr(expr, builds_dir=builds_dir, cache_dir=cache_dir)
+    )
     assert expr.execute().equals(roundtrip_expr.execute())
     assert expected_cache_dir.exists()
 
@@ -296,12 +294,12 @@ def test_multi_engine_with_caching_with_parquet(
         ),
     ),
 )
-def test_roundtrip_database_table(build_dir, users_df, table_from_df):
+def test_roundtrip_database_table(builds_dir, users_df, table_from_df):
     original = xo.connect()
 
     t = table_from_df(original, users_df)
     expr = t.filter(t.age > 30).select(t.user_id, t.name)
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
 
 
@@ -314,7 +312,7 @@ def test_roundtrip_database_table(build_dir, users_df, table_from_df):
         ),
     ),
 )
-def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_from_df):
+def test_roundtrip_database_table_cached(builds_dir, tmp_path, users_df, table_from_df):
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
@@ -322,7 +320,7 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
 
     t = table_from_df(original, users_df)
     expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
 
 
@@ -336,7 +334,7 @@ def test_roundtrip_database_table_cached(build_dir, tmp_path, users_df, table_fr
     ),
 )
 def test_roundtrip_database_table_behind_cache(
-    build_dir, tmp_path, users_df, table_from_df
+    builds_dir, tmp_path, users_df, table_from_df
 ):
     original = xo.connect()
     ddb = xo.duckdb.connect()
@@ -349,11 +347,11 @@ def test_roundtrip_database_table_behind_cache(
         .cache(cache=cache)
         .select(xo._.user_id, xo._.name, xo._.age * 2)
     )
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
 
 
-def test_build_pandas_backend(build_dir, users_df):
+def test_build_pandas_backend(builds_dir, users_df):
     xo_con = xo.connect()
     pandas_con = xo.pandas.connect()
     t = xo_con.register(users_df, table_name="users")
@@ -363,13 +361,13 @@ def test_build_pandas_backend(build_dir, users_df):
         .select(t.user_id, t.name, t.age * 2)
         .into_backend(pandas_con, name="pandas_users")
     )
-    actual = do_roundtrip_expr(expected, build_dir=build_dir)
+    actual = do_roundtrip_expr(expected, builds_dir=builds_dir)
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
 @pytest.mark.slow(level=1)
 @pytest.mark.snapshot_check
-def test_build_file_stability_https(build_dir, snapshot):
+def test_build_file_stability_https(builds_dir, snapshot):
     def with_profile_idx(con, idx):
         profile = con._profile
         con._profile = profile.clone(idx=idx)
@@ -398,7 +396,7 @@ def test_build_file_stability_https(build_dir, snapshot):
         .into_backend(con3, "joined_into")
         .filter(xo._.G == 1)
     )
-    build_path = build_expr(expr, build_dir, debug=True)
+    build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
 
     actual = json.dumps(
         {
@@ -419,7 +417,7 @@ def test_build_file_stability_https(build_dir, snapshot):
 
 @pytest.mark.snapshot_check
 def test_build_file_stability_local(
-    build_dir,
+    builds_dir,
     parquet_dir,
     tmpdir,
     monkeypatch,
@@ -465,7 +463,7 @@ def test_build_file_stability_local(
         .into_backend(con3, "joined_into")
         .filter(xo._.G == 1)
     )
-    build_path = build_expr(expr, build_dir, debug=True)
+    build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
     actual = json.dumps(
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
@@ -483,7 +481,7 @@ def test_build_file_stability_local(
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
-def test_build_pandas_backend_behind_into_backend(build_dir, users_df):
+def test_build_pandas_backend_behind_into_backend(builds_dir, users_df):
     xo_con = xo.connect()
     pandas_con = xo.pandas.connect()
     t = xo_con.register(users_df, table_name="users")
@@ -493,11 +491,11 @@ def test_build_pandas_backend_behind_into_backend(build_dir, users_df):
         .into_backend(pandas_con, name="pandas_users")
         .select(xo._.user_id, xo._.name, xo._.age * 2)
     )
-    actual = do_roundtrip_expr(expected, build_dir=build_dir)
+    actual = do_roundtrip_expr(expected, builds_dir=builds_dir)
     assert_frame_equal(xo.execute(expected), actual.execute())
 
 
-def test_struct_field(build_dir, tmpdir):
+def test_struct_field(builds_dir, tmpdir):
     path = pathlib.Path(tmpdir).joinpath("t.parquet")
     xo.memtable({"a": [{"b": 1, "c": "string"}]}).to_parquet(path)
     t = xo.deferred_read_parquet(
@@ -506,19 +504,19 @@ def test_struct_field(build_dir, tmpdir):
         table_name="t",
     )
     expr = t.select(t.a.b.name("a-b"))
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert_frame_equal(expr.execute(), roundtrip_expr.execute())
 
 
-def test_no_sql_or_deferred_when_debug_false(build_dir):
+def test_no_sql_or_deferred_when_debug_false(builds_dir):
     t = xo.memtable({"a": [1, 2, 3]})
     expr = t.filter(t.a > 1)
-    build_path = build_expr(expr, build_dir, debug=False)
+    build_path = build_expr(expr, builds_dir=builds_dir, debug=False)
     assert not os.path.exists(build_path / SQL_YAML_FILENAME)
     assert not os.path.exists(build_path / DEFERRED_READS_YAML_FILENAME)
 
 
-def test_into_backend_with_array_filter(build_dir):
+def test_into_backend_with_array_filter(builds_dir):
     from xorq.conftest import array_types_df
 
     duckdb_con = xo.duckdb.connect()
@@ -527,14 +525,14 @@ def test_into_backend_with_array_filter(build_dir):
     expr = t.mutate(filtered=t.x.filter(xo._ > 1)).cache(
         SourceCache.from_kwargs(source=xo.connect())
     )
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir, debug=False)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir, debug=False)
     assert_frame_equal(expr.execute(), roundtrip_expr.execute())
     assert {"duckdb", "xorq"}.intersection(
         source.name for source in find_all_sources(roundtrip_expr)
     )
 
 
-def test_roundtrip_parquet_snapshot_cache(build_dir, tmp_path, users_df):
+def test_roundtrip_parquet_snapshot_cache(builds_dir, tmp_path, users_df):
     original = xo.connect()
     ddb = xo.duckdb.connect()
 
@@ -542,5 +540,5 @@ def test_roundtrip_parquet_snapshot_cache(build_dir, tmp_path, users_df):
 
     t = original.register(users_df, table_name="users")
     expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
-    roundtrip_expr = do_roundtrip_expr(expr, build_dir=build_dir)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())

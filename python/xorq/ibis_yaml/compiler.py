@@ -107,11 +107,6 @@ class ArtifactStore:
     def get_path(self, *parts) -> pathlib.Path:
         return self.root_path.joinpath(*parts)
 
-    def ensure_dir(self, *parts) -> pathlib.Path:
-        path = self.get_path(*parts)
-        path.mkdir(parents=True, exist_ok=True)
-        return path
-
     def _read(self, read_f, *parts):
         path = self.get_path(*parts)
         with path.open("r") as f:
@@ -152,22 +147,21 @@ class ArtifactStore:
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
 
-    def get_expr_hash(self, expr) -> str:
+    def save_yaml(self, yaml_dict: Dict[str, Any], filename) -> pathlib.Path:
+        return self.write_yaml(yaml_dict, filename)
+
+    def load_yaml(self, filename) -> Dict[str, Any]:
+        return self.read_yaml(filename)
+
+    @staticmethod
+    def get_expr_hash(expr) -> str:
         with SnapshotStrategy().normalization_context(expr):
             expr_hash = dask.base.tokenize(expr)[: config.hash_length]
             return expr_hash
 
-    def get_expr_path(self, expr) -> Path:
-        return self.get_path(self.get_expr_hash(expr))
-
-    def save_yaml(self, yaml_dict: Dict[str, Any], expr_hash, filename) -> pathlib.Path:
-        return self.write_yaml(yaml_dict, expr_hash, filename)
-
-    def load_yaml(self, expr_hash: str, filename) -> Dict[str, Any]:
-        return self.read_yaml(expr_hash, filename)
-
-    def get_build_path(self, expr_hash: str) -> pathlib.Path:
-        return self.ensure_dir(expr_hash)
+    @classmethod
+    def from_path_and_expr(cls, builds_dir, expr):
+        return cls(root_path=builds_dir.joinpath(cls.get_expr_hash(expr)))
 
 
 class YamlExpressionTranslator:
@@ -271,22 +265,28 @@ class ExprDumper:
     """
 
     expr = field(validator=instance_of(ir.Expr))
-    root_path = field(validator=instance_of(Path), converter=Path, default="./builds")
-    cache_dir = field(
-        validator=instance_of(Path), converter=Path, factory=get_xorq_cache_dir
-    )
+    builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
+    cache_dir = field(validator=optional(instance_of(Path)), default=None)
     debug = field(validator=instance_of(bool), default=False)
+
+    def __attrs_post_init__(self):
+        match self.cache_dir:
+            case None:
+                object.__setattr__(self, "cache_dir", get_xorq_cache_dir())
+            case Path():
+                pass
+            case _:
+                object.__setattr__(self, "cache_dir", Path(self.cache_dir))
 
     @property
     @functools.cache
     def artifact_store(self):
-        return ArtifactStore(self.root_path)
+        return ArtifactStore.from_path_and_expr(self.builds_dir, self.expr)
 
     @property
     @functools.cache
     def expr_path(self):
-        expr_path = self.artifact_store.get_expr_path(self.expr)
-        return expr_path
+        return self.artifact_store.root_path
 
     @property
     def expr_hash(self):
@@ -295,7 +295,7 @@ class ExprDumper:
     def _write_sql_file(self, sql: str) -> str:
         sql_hash = dask.base.tokenize(sql)[: config.hash_length]
         filename = f"{sql_hash}.sql"
-        sql_path = self.artifact_store.get_build_path(self.expr_hash) / filename
+        sql_path = self.artifact_store.get_path(filename)
         sql_path.write_text(sql)
         return filename
 
@@ -306,9 +306,7 @@ class ExprDumper:
         queries = {
             query_name: toolz.dissoc(query_info, "sql")
             | {
-                "sql_file": self._write_sql_file(
-                    query_info["sql"], self.expr_hash, query_name
-                ),
+                "sql_file": self._write_sql_file(query_info["sql"]),
             }
             for (query_name, query_info) in sql_plans["queries"].items()
         }
@@ -322,11 +320,7 @@ class ExprDumper:
         reads = {
             read_name: toolz.dissoc(read_info, "sql")
             | {
-                "sql_file": self._write_sql_file(
-                    read_info["sql"],
-                    self.expr_hash,
-                    read_name,
-                )
+                "sql_file": self._write_sql_file(read_info["sql"]),
             }
             for read_name, read_info in deferred_reads["reads"].items()
         }
@@ -346,40 +340,31 @@ class ExprDumper:
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
-    def _write_debug_info(self, expr):
-        sql_plans, deferred_reads = generate_sql_plans(expr)
-        updated_sql_plans = self._process_sql_plans(sql_plans, self.expr_hash)
+    def _write_debug_info(self):
+        sql_plans, deferred_reads = generate_sql_plans(self.expr)
+        updated_sql_plans = self._process_sql_plans(sql_plans)
+        self.artifact_store.save_yaml(updated_sql_plans, SQL_YAML_FILENAME)
+        updated_deferred_reads = self._process_deferred_reads(deferred_reads)
         self.artifact_store.save_yaml(
-            updated_sql_plans, self.expr_hash, SQL_YAML_FILENAME
-        )
-        updated_deferred_reads = self._process_deferred_reads(
-            deferred_reads, self.expr_hash
-        )
-        self.artifact_store.save_yaml(
-            updated_deferred_reads,
-            self.expr_hash,
-            DEFERRED_READS_YAML_FILENAME,
+            updated_deferred_reads, DEFERRED_READS_YAML_FILENAME
         )
 
     def dump_expr(self) -> str:
-        expr = self.expr
-
         # write in-memory data to build dir
-        expr = memtables_to_deferred_reads(self.expr_path, self.expr)
-        expr = replace_inmemory_backend_tables(self.expr_path, self.expr)
+        expr = self.expr
+        expr = memtables_to_deferred_reads(self.expr_path, expr)
+        expr = replace_inmemory_backend_tables(self.expr_path, expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
         yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles, self.cache_dir)
         metadata_json = self._make_metadata()
-        self.artifact_store.save_yaml(yaml_dict, self.expr_hash, EXPR_YAML_FILENAME)
-        self.artifact_store.save_yaml(profiles, self.expr_hash, PROFILES_YAML_FILENAME)
-        self.artifact_store.write_text(
-            metadata_json, self.expr_hash, METADATA_JSON_FILENAME
-        )
+        self.artifact_store.save_yaml(yaml_dict, EXPR_YAML_FILENAME)
+        self.artifact_store.save_yaml(profiles, PROFILES_YAML_FILENAME)
+        self.artifact_store.write_text(metadata_json, METADATA_JSON_FILENAME)
 
         # write SQL plan and deferred-read artifacts if debug enabled
         if self.debug:
-            self._write_debug_info(expr, self.expr_hash)
+            self._write_debug_info()
         return self.expr_path
 
 
@@ -397,13 +382,11 @@ class ExprLoader:
     @property
     @functools.cache
     def artifact_store(self):
-        return ArtifactStore(self.expr_path.parent)
+        return ArtifactStore(self.expr_path)
 
     def load_expr(self):
-        profiles = hydrate_cons(
-            self.artifact_store.load_yaml(self.expr_hash, PROFILES_YAML_FILENAME)
-        )
-        yaml_dict = self.artifact_store.load_yaml(self.expr_hash, EXPR_YAML_FILENAME)
+        profiles = hydrate_cons(self.artifact_store.load_yaml(PROFILES_YAML_FILENAME))
+        yaml_dict = self.artifact_store.load_yaml(EXPR_YAML_FILENAME)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = deferred_reads_to_memtables(expr)
         if self.cache_dir:
@@ -484,8 +467,8 @@ def deferred_reads_to_memtables(loaded):
 
 
 def memtables_to_deferred_reads(build_dir, expr):
-    def memtable_to_read_op(builds_dir, mt):
-        parquet_path = write_memtable(builds_dir, mt, "memtables")
+    def memtable_to_read_op(build_dir, mt):
+        parquet_path = write_memtable(build_dir, mt, "memtables")
         op = make_read_op(
             parquet_path=parquet_path,
             read_kwargs={
@@ -505,8 +488,8 @@ def memtables_to_deferred_reads(build_dir, expr):
 
 
 def replace_inmemory_backend_tables(build_dir, expr):
-    def database_table_to_read_op(builds_dir, mt, con):
-        parquet_path = write_memtable(builds_dir, mt, "database_tables")
+    def database_table_to_read_op(build_dir, mt, con):
+        parquet_path = write_memtable(build_dir, mt, "database_tables")
         op = make_read_op(
             parquet_path=parquet_path,
             read_kwargs={
