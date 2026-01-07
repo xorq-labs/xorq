@@ -63,6 +63,10 @@ PROFILES_YAML_FILENAME = "profiles.yaml"
 SQL_YAML_FILENAME = "sql.yaml"
 
 
+memory_backends = ("pandas", "duckdb", "datafusion", "xorq")
+table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
+
+
 class CleanDictYAMLDumper(yaml.SafeDumper):
     def ignore_aliases(self, data):
         return True
@@ -241,14 +245,6 @@ def hydrate_cons(hash_to_profile_kwargs):
     return profiles
 
 
-def write_memtable(build_dir, mt, which):
-    assert which in ("database_tables", "memtables")
-    table = mt.to_expr().to_pyarrow()
-    filename = f"{dask.base.tokenize(table)}.parquet"
-    parquet_path = ArtifactStore(build_dir).write_parquet(table, which, filename)
-    return parquet_path
-
-
 def make_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
     dr = deferred_read_parquet(parquet_path, con, **read_kwargs)
     op = dr.op()
@@ -294,40 +290,53 @@ class ExprDumper:
     def expr_hash(self):
         return self.expr_path.name
 
-    def _write_sql_file(self, sql: str) -> str:
+    def _prepare_sql_file(self, sql: str) -> str:
         sql_hash = dask.base.tokenize(sql)[: config.hash_length]
         filename = f"{sql_hash}.sql"
-        sql_path = self.artifact_store.get_path(filename)
-        sql_path.write_text(sql)
-        return filename
+        path = self.artifact_store.get_path(filename)
+        writer = functools.partial(self.artifact_store.write_text, sql, filename)
+        return (path, writer)
 
-    def _process_sql_plans(
+    def _prepare_memtable(self, mt, which):
+        assert which in ("database_tables", "memtables")
+        table = mt.to_expr().to_pyarrow()
+        filename = f"{dask.base.tokenize(table)}.parquet"
+        path_parts = (which, filename)
+        path = self.artifact_store.get_path(*path_parts)
+        writer = functools.partial(
+            self.artifact_store.write_parquet,
+            table,
+            *path_parts,
+        )
+        return (path, writer)
+
+    def _prepare_sql_plans(
         self,
         sql_plans: Dict[str, Any],
     ) -> Dict[str, Any]:
-        queries = {
-            query_name: toolz.dissoc(query_info, "sql")
-            | {
-                "sql_file": self._write_sql_file(query_info["sql"]),
+        queries = {}
+        path_to_writer = {}
+        for query_name, query_info in sql_plans["queries"].items():
+            path, writer = self._prepare_sql_file(query_info["sql"])
+            path_to_writer[path] = writer
+            queries[query_name] = toolz.dissoc(query_info, "sql") | {
+                "sql_file": path.name
             }
-            for (query_name, query_info) in sql_plans["queries"].items()
-        }
         updated_plans = {"queries": queries}
-        return updated_plans
+        return updated_plans, path_to_writer
 
-    def _process_deferred_reads(
+    def _prepare_deferred_reads(
         self,
         deferred_reads: Dict[str, Any],
     ) -> Dict[str, Any]:
-        reads = {
-            read_name: toolz.dissoc(read_info, "sql")
-            | {
-                "sql_file": self._write_sql_file(read_info["sql"]),
-            }
-            for read_name, read_info in deferred_reads["reads"].items()
-        }
+        reads = {}
+        path_to_writer = {}
+        for read_name, read_info in deferred_reads["reads"].items():
+            path, writer = self._prepare_sql_file(read_info["sql"])
+            path_to_writer[path] = writer
+            reads[read_name] = toolz.dissoc(read_info, "sql") | {"sql_file": path.name}
         updated_reads = {"reads": reads}
-        return updated_reads
+        return updated_reads, path_to_writer
 
     @staticmethod
     def _make_metadata() -> str:
@@ -342,31 +351,71 @@ class ExprDumper:
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
-    def _write_debug_info(self):
+    def _prepare_debug_info(self):
         sql_plans, deferred_reads = generate_sql_plans(self.expr)
-        updated_sql_plans = self._process_sql_plans(sql_plans)
-        self.artifact_store.save_yaml(updated_sql_plans, SQL_YAML_FILENAME)
-        updated_deferred_reads = self._process_deferred_reads(deferred_reads)
-        self.artifact_store.save_yaml(
-            updated_deferred_reads, DEFERRED_READS_YAML_FILENAME
+        updated_sql_plans, path_to_writer0 = self._prepare_sql_plans(sql_plans)
+        updated_deferred_reads, path_to_writer1 = self._prepare_deferred_reads(
+            deferred_reads
         )
+        path_to_writer2 = {
+            self.artifact_store.get_path(*parts): functools.partial(f, obj, *parts)
+            for (f, obj, parts) in (
+                (
+                    self.artifact_store.save_yaml,
+                    updated_sql_plans,
+                    (SQL_YAML_FILENAME,),
+                ),
+                (
+                    self.artifact_store.save_yaml,
+                    updated_deferred_reads,
+                    (DEFERRED_READS_YAML_FILENAME,),
+                ),
+            )
+        }
+        path_to_writer = path_to_writer0 | path_to_writer1 | path_to_writer2
+        return path_to_writer
 
     def dump_expr(self) -> str:
-        # write in-memory data to build dir
+        # we will mutate the expr below
         expr = self.expr
-        expr = memtables_to_deferred_reads(self.expr_path, expr)
-        expr = replace_inmemory_backend_tables(self.expr_path, expr)
+
+        # write in-memory data to build dir
+        expr, path_to_writer0 = memtables_to_deferred_reads(self, expr)
+        expr, path_to_writer1 = replace_inmemory_backend_tables(self, expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
-        yaml_dict = YamlExpressionTranslator.to_yaml(expr, profiles, self.cache_dir)
         metadata_json = self._make_metadata()
-        self.artifact_store.save_yaml(yaml_dict, EXPR_YAML_FILENAME)
-        self.artifact_store.save_yaml(profiles, PROFILES_YAML_FILENAME)
-        self.artifact_store.write_text(metadata_json, METADATA_JSON_FILENAME)
+        path_to_writer2 = {
+            self.artifact_store.get_path(*parts): functools.partial(f, obj, *parts)
+            for (f, obj, parts) in (
+                (self.artifact_store.save_yaml, profiles, (PROFILES_YAML_FILENAME,)),
+                (
+                    self.artifact_store.write_text,
+                    metadata_json,
+                    (METADATA_JSON_FILENAME,),
+                ),
+            )
+        }
 
-        # write SQL plan and deferred-read artifacts if debug enabled
+        path = self.artifact_store.get_path(EXPR_YAML_FILENAME)
+        # we can't translate to yaml until the memtable parquets are written: they will be tokenized
+        writer = toolz.compose(
+            functools.partial(
+                self.artifact_store.save_yaml, filename=EXPR_YAML_FILENAME
+            ),
+            functools.partial(
+                YamlExpressionTranslator.to_yaml, expr, profiles, self.cache_dir
+            ),
+        )
+
+        path_to_writer = (
+            path_to_writer0 | path_to_writer1 | path_to_writer2 | {path: writer}
+        )
         if self.debug:
-            self._write_debug_info()
+            # write SQL plan and deferred-read artifacts if debug enabled
+            path_to_writer |= self._prepare_debug_info()
+        for writer in path_to_writer.values():
+            writer()
         return self.expr_path
 
 
@@ -468,54 +517,59 @@ def deferred_reads_to_memtables(loaded):
     return op.to_expr()
 
 
-def memtables_to_deferred_reads(build_dir, expr):
-    def memtable_to_read_op(build_dir, mt):
-        parquet_path = write_memtable(build_dir, mt, "memtables")
+def memtables_to_deferred_reads(expr_dumper, expr):
+    def memtable_to_read_op(expr_dumper, mt):
+        path, writer = expr_dumper._prepare_memtable(mt, "memtables")
         op = make_read_op(
-            parquet_path=parquet_path,
+            parquet_path=path,
             read_kwargs={
                 "table_name": mt.name,
+                "schema": mt.schema,
             },
             args_values={IS_INMEMORY: True},
         )
-        return op
+        return op, (path, writer)
 
+    path_to_writer = {}
     op = expr.op()
     mts = walk_nodes((InMemoryTable,), expr)
     for mt in mts:
-        dr_op = memtable_to_read_op(build_dir, mt)
+        dr_op, (path, writer) = memtable_to_read_op(expr_dumper, mt)
+        path_to_writer[path] = writer
         op = replace_nodes(replace_from_to(mt, dr_op), expr)
     new_expr = op.to_expr()
-    return new_expr
+    return new_expr, path_to_writer
 
 
-def replace_inmemory_backend_tables(build_dir, expr):
-    def database_table_to_read_op(build_dir, mt, con):
-        parquet_path = write_memtable(build_dir, mt, "database_tables")
+def replace_inmemory_backend_tables(expr_dumper, expr):
+    def database_table_to_read_op(expr_dumper, mt, con):
+        path, writer = expr_dumper._prepare_memtable(mt, "database_tables")
         op = make_read_op(
-            parquet_path=parquet_path,
+            parquet_path=path,
             read_kwargs={
                 "table_name": mt.name,
                 # we normalize based on content so we can reproducible hash
                 "normalize_method": normalize_read_path_md5sum,
+                "schema": mt.schema,
             },
             args_values={IS_DATABASE_TABLE: True},
             con=con,
         )
-        return op
+        return op, (path, writer)
 
     op = expr.op()
-
-    table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
-    tables = walk_nodes((DatabaseTable,), expr)
+    tables = (
+        table
+        for table in walk_nodes((DatabaseTable,), expr)
+        if not isinstance(table, table_like_ops)
+        and table.source.name in memory_backends
+    )
+    path_to_writer = {}
     for table in tables:
-        if not isinstance(table, table_like_ops) and table.source.name in (
-            "pandas",
-            "duckdb",
-            "datafusion",
-            "xorq",
-        ):
-            dr_op = database_table_to_read_op(build_dir, table, con=table.source)
-            op = replace_nodes(replace_from_to(table, dr_op), expr)
+        dr_op, (path, writer) = database_table_to_read_op(
+            expr_dumper, table, con=table.source
+        )
+        path_to_writer[path] = writer
+        op = replace_nodes(replace_from_to(table, dr_op), expr)
     new_expr = op.to_expr()
-    return new_expr
+    return new_expr, path_to_writer
