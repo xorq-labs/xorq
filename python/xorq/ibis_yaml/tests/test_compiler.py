@@ -18,11 +18,8 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources
 from xorq.ibis_yaml.compiler import (
-    DEFERRED_READS_YAML_FILENAME,
-    EXPR_YAML_FILENAME,
-    METADATA_JSON_FILENAME,
-    SQL_YAML_FILENAME,
     ArtifactStore,
+    DumpFiles,
     RefEnum,
     build_expr,
     load_expr,
@@ -57,11 +54,11 @@ def users_df():
 def test_build_manager_roundtrip(t, builds_dir):
     artifact_store = ArtifactStore.from_path_and_expr(builds_dir, t)
     yaml_dict = {"a": "string"}
-    artifact_store.save_yaml(yaml_dict, EXPR_YAML_FILENAME)
+    artifact_store.save_yaml(yaml_dict, DumpFiles.expr)
 
-    out = artifact_store.root_path.joinpath(EXPR_YAML_FILENAME).read_text()
+    out = artifact_store.root_path.joinpath(DumpFiles.expr).read_text()
     assert out == "a: string\n"
-    result = artifact_store.load_yaml(EXPR_YAML_FILENAME)
+    result = artifact_store.load_yaml(DumpFiles.expr)
     assert result == yaml_dict
 
 
@@ -85,7 +82,7 @@ float: 3.14
 boolean: true
 none: null
 """
-    out_path = artifact_store.save_yaml(data, EXPR_YAML_FILENAME)
+    out_path = artifact_store.save_yaml(data, DumpFiles.expr)
     result = out_path.read_text()
 
     assert expected_yaml == result
@@ -124,12 +121,12 @@ def test_compiler_sql(builds_dir, parquet_dir):
     expected_relation = find_relations(awards_players)[0]
     expted_sql_hash = dask.base.tokenize(str(ibis.to_sql(expr)))[: config.hash_length]
 
-    assert build_path.joinpath(SQL_YAML_FILENAME).exists()
-    assert build_path.joinpath(METADATA_JSON_FILENAME).exists()
-    metadata = json.loads(build_path.joinpath(METADATA_JSON_FILENAME).read_text())
+    assert build_path.joinpath(DumpFiles.sql).exists()
+    assert build_path.joinpath(DumpFiles.metadata).exists()
+    metadata = json.loads(build_path.joinpath(DumpFiles.metadata).read_text())
 
     assert "current_library_version" in metadata
-    sql_text = build_path.joinpath(SQL_YAML_FILENAME).read_text()
+    sql_text = build_path.joinpath(DumpFiles.sql).read_text()
     expected_result = (
         "queries:\n"
         "  main:\n"
@@ -158,7 +155,7 @@ def test_deferred_reads_yaml(builds_dir, parquet_dir):
     expected_profile = backend._profile.hash_name
 
     build_path = build_expr(expr, builds_dir=builds_dir, debug=True)
-    yaml_path = build_path.joinpath(DEFERRED_READS_YAML_FILENAME)
+    yaml_path = build_path.joinpath(DumpFiles.deferred_reads)
     assert yaml_path.exists()
     sql_text = yaml_path.read_text()
 
@@ -190,7 +187,7 @@ def test_ibis_compiler_expr_schema_ref(t, builds_dir):
     t = xo.memtable({"a": [0, 1], "b": [0, 1]})
     expr = t.filter(t.a == 1).drop("b")
     build_path = build_expr(expr, builds_dir=builds_dir)
-    yaml_dict = yaml.safe_load(build_path.joinpath(EXPR_YAML_FILENAME).read_text())
+    yaml_dict = yaml.safe_load(build_path.joinpath(DumpFiles.expr).read_text())
     assert yaml_dict["expression"][RefEnum.schema_ref]
 
 
@@ -402,7 +399,7 @@ def test_build_file_stability_https(builds_dir, snapshot):
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
             for p in build_path.iterdir()
-            if p.name != METADATA_JSON_FILENAME
+            if p.name != DumpFiles.metadata
         },
         indent=2,
         sort_keys=True,
@@ -468,7 +465,7 @@ def test_build_file_stability_local(
         {
             p.name: hashlib.md5(p.read_bytes()).hexdigest()
             for p in build_path.iterdir()
-            if p.name != METADATA_JSON_FILENAME
+            if p.name != DumpFiles.metadata
         },
         indent=2,
         sort_keys=True,
@@ -512,8 +509,8 @@ def test_no_sql_or_deferred_when_debug_false(builds_dir):
     t = xo.memtable({"a": [1, 2, 3]})
     expr = t.filter(t.a > 1)
     build_path = build_expr(expr, builds_dir=builds_dir, debug=False)
-    assert not os.path.exists(build_path / SQL_YAML_FILENAME)
-    assert not os.path.exists(build_path / DEFERRED_READS_YAML_FILENAME)
+    assert not os.path.exists(build_path / DumpFiles.sql)
+    assert not os.path.exists(build_path / DumpFiles.deferred_reads)
 
 
 def test_into_backend_with_array_filter(builds_dir):

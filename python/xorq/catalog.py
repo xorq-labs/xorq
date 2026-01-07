@@ -22,11 +22,7 @@ from xorq.common.utils.func_utils import (
     if_not_none,
 )
 from xorq.ibis_yaml.compiler import (
-    DEFERRED_READS_YAML_FILENAME,
-    EXPR_YAML_FILENAME,
-    METADATA_JSON_FILENAME,
-    PROFILES_YAML_FILENAME,
-    SQL_YAML_FILENAME,
+    DumpFiles,
     load_expr,
 )
 
@@ -513,16 +509,16 @@ def maybe_resolve_build_dirs(
 def get_diff_file_list(
     left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool
 ) -> tuple[str, ...]:
-    default = (EXPR_YAML_FILENAME,)
+    default = (DumpFiles.expr,)
     if files is not None:
         return tuple(files)
     if all_flag:
         default_files = (
-            EXPR_YAML_FILENAME,
-            DEFERRED_READS_YAML_FILENAME,
-            PROFILES_YAML_FILENAME,
-            SQL_YAML_FILENAME,
-            METADATA_JSON_FILENAME,
+            DumpFiles.expr,
+            DumpFiles.deferred_reads,
+            DumpFiles.profiles,
+            DumpFiles.sql,
+            DumpFiles.metadata,
         )
         sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {
             p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")
@@ -624,12 +620,12 @@ class AddBuildResult:
 def validate_build(request: AddBuildRequest) -> BuildInfo:
     def get_meta_file(path):
         build_path = Path(path)
-        meta_file = build_path / METADATA_JSON_FILENAME
+        meta_file = build_path / DumpFiles.metadata
         if not build_path.exists() or not build_path.is_dir():
             raise ValueError(f"Build path not found: {build_path}")
         if not meta_file.exists():
             raise ValueError(
-                f"{METADATA_JSON_FILENAME} not found in build path: {build_path}"
+                f"{DumpFiles.metadata} not found in build path: {build_path}"
             )
         return meta_file
 

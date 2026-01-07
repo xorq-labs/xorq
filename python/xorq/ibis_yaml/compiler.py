@@ -56,11 +56,18 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
 
-DEFERRED_READS_YAML_FILENAME = "deferred_reads.yaml"
-EXPR_YAML_FILENAME = "expr.yaml"
-METADATA_JSON_FILENAME = "metadata.json"
-PROFILES_YAML_FILENAME = "profiles.yaml"
-SQL_YAML_FILENAME = "sql.yaml"
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
+
+class DumpFiles(StrEnum):
+    deferred_reads = "deferred_reads.yaml"
+    expr = "expr.yaml"
+    metadata = "metadata.json"
+    profiles = "profiles.yaml"
+    sql = "sql.yaml"
 
 
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq")
@@ -363,12 +370,12 @@ class ExprDumper:
                 (
                     self.artifact_store.save_yaml,
                     updated_sql_plans,
-                    (SQL_YAML_FILENAME,),
+                    (DumpFiles.sql,),
                 ),
                 (
                     self.artifact_store.save_yaml,
                     updated_deferred_reads,
-                    (DEFERRED_READS_YAML_FILENAME,),
+                    (DumpFiles.deferred_reads,),
                 ),
             )
         }
@@ -388,21 +395,19 @@ class ExprDumper:
         path_to_writer2 = {
             self.artifact_store.get_path(*parts): functools.partial(f, obj, *parts)
             for (f, obj, parts) in (
-                (self.artifact_store.save_yaml, profiles, (PROFILES_YAML_FILENAME,)),
+                (self.artifact_store.save_yaml, profiles, (DumpFiles.profiles,)),
                 (
                     self.artifact_store.write_text,
                     metadata_json,
-                    (METADATA_JSON_FILENAME,),
+                    (DumpFiles.metadata,),
                 ),
             )
         }
 
-        path = self.artifact_store.get_path(EXPR_YAML_FILENAME)
+        path = self.artifact_store.get_path(DumpFiles.expr)
         # we can't translate to yaml until the memtable parquets are written: they will be tokenized
         writer = toolz.compose(
-            functools.partial(
-                self.artifact_store.save_yaml, filename=EXPR_YAML_FILENAME
-            ),
+            functools.partial(self.artifact_store.save_yaml, filename=DumpFiles.expr),
             functools.partial(
                 YamlExpressionTranslator.to_yaml, expr, profiles, self.cache_dir
             ),
@@ -436,8 +441,8 @@ class ExprLoader:
         return ArtifactStore(self.expr_path)
 
     def load_expr(self):
-        profiles = hydrate_cons(self.artifact_store.load_yaml(PROFILES_YAML_FILENAME))
-        yaml_dict = self.artifact_store.load_yaml(EXPR_YAML_FILENAME)
+        profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
+        yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
         expr = deferred_reads_to_memtables(expr)
         if self.cache_dir:
