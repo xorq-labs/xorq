@@ -253,7 +253,7 @@ def write_memtable(build_dir, mt, which):
     return parquet_path
 
 
-def table_to_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
+def make_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
     dr = deferred_read_parquet(parquet_path, con, **read_kwargs)
     op = dr.op()
     args = dict(zip(op.__argnames__, op.__args__))
@@ -486,7 +486,7 @@ def deferred_reads_to_memtables(loaded):
 def memtables_to_deferred_reads(build_dir, expr):
     def memtable_to_read_op(builds_dir, mt):
         parquet_path = write_memtable(builds_dir, mt, "memtables")
-        op = table_to_read_op(
+        op = make_read_op(
             parquet_path=parquet_path,
             read_kwargs={
                 "table_name": mt.name,
@@ -507,7 +507,7 @@ def memtables_to_deferred_reads(build_dir, expr):
 def replace_inmemory_backend_tables(build_dir, expr):
     def database_table_to_read_op(builds_dir, mt, con):
         parquet_path = write_memtable(builds_dir, mt, "database_tables")
-        op = table_to_read_op(
+        op = make_read_op(
             parquet_path=parquet_path,
             read_kwargs={
                 "table_name": mt.name,
