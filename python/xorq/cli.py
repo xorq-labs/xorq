@@ -139,7 +139,9 @@ def build_command(
                 f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
             )
 
-    build_path = build_expr(expr, builds_dir, cache_dir=Path(cache_dir), debug=debug)
+    build_path = build_expr(
+        expr, builds_dir=builds_dir, cache_dir=Path(cache_dir), debug=debug
+    )
     expr_hash = build_path.name
     span.add_event("build.outputs", {"expr_hash": expr_hash})
     print(
