@@ -144,6 +144,13 @@ class ArtifactStore:
             f.write(content)
         return path
 
+    def write_parquet(self, table, *path_parts) -> pathlib.Path:
+        import pyarrow.parquet as pq
+
+        with self._write(*path_parts) as (path, f):
+            pq.write_table(table, path)
+        return path
+
     def exists(self, *path_parts) -> bool:
         return self.get_path(*path_parts).exists()
 
@@ -235,15 +242,10 @@ def hydrate_cons(hash_to_profile_kwargs):
 
 
 def write_memtable(build_dir, mt, which):
-    import pyarrow.parquet as pq
-
     assert which in ("database_tables", "memtables")
     table = mt.to_expr().to_pyarrow()
-    parquet_path = build_dir.joinpath(which, dask.base.tokenize(table)).with_suffix(
-        ".parquet"
-    )
-    parquet_path.parent.mkdir(parents=True, exist_ok=True)
-    pq.write_table(table, parquet_path)
+    filename = f"{dask.base.tokenize(table)}.parquet"
+    parquet_path = ArtifactStore(build_dir).write_parquet(table, which, filename)
     return parquet_path
 
 
