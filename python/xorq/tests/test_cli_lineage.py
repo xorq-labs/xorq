@@ -26,7 +26,7 @@ def test_lineage_simple(tmp_path, capsys):
     # build_expr writes expr.yaml, metadata.json, etc.
     build_path = build_expr(
         expr,
-        build_dir=tmp_path / "builds",
+        builds_dir=tmp_path / "builds",
         cache_dir=tmp_path / "cache",
     )
     # Invoke lineage command
