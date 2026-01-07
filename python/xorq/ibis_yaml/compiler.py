@@ -26,7 +26,11 @@ import xorq.common.utils.logging_utils as lu
 import xorq.ibis_yaml.translate  #  noqa: F401
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
-from xorq.caching import SnapshotStrategy
+from xorq.caching import (
+    ParquetCache,
+    ParquetSnapshotCache,
+    SnapshotStrategy,
+)
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
@@ -39,7 +43,10 @@ from xorq.common.utils.graph_utils import (
 )
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
-from xorq.expr.relations import Read
+from xorq.expr.relations import (
+    CachedNode,
+    Read,
+)
 from xorq.ibis_yaml.common import (
     RefEnum,
     Registry,
@@ -478,12 +485,6 @@ def replace_from_to(from_, to_, node, kwargs):
 
 
 def replace_base_path(expr, base_path):
-    from xorq.caching import (
-        ParquetCache,
-        ParquetSnapshotCache,
-    )
-    from xorq.expr.relations import CachedNode
-
     def replace(node, kwargs):
         if isinstance(node, CachedNode) and isinstance(
             node.cache, (ParquetCache, ParquetSnapshotCache)
