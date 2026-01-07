@@ -2,7 +2,7 @@ import pyarrow as pa
 
 from xorq.vendor.ibis import Schema
 from xorq.vendor.ibis.expr import datatypes as dt
-from xorq.vendor.ibis.formats.pyarrow import PyArrowSchema, PyArrowType
+from xorq.vendor.ibis.formats.pyarrow import PyArrowData, PyArrowSchema, PyArrowType
 
 
 class DataFusionPyArrowType(PyArrowType):
@@ -39,3 +39,16 @@ class DataFusionPyArrowSchema(PyArrowSchema):
             (f.name, DataFusionPyArrowType.to_ibis(f.type, f.nullable)) for f in schema
         ]
         return Schema.from_tuples(fields)
+
+
+class DataFusionPyArrowData(PyArrowData):
+    @classmethod
+    def convert_column(cls, column: pa.Array, dtype: dt.DataType) -> pa.Array:
+        desired_type = DataFusionPyArrowType.from_ibis(dtype)
+
+        if column.type != desired_type:
+            if dtype.is_interval() and dtype.unit.short == "D":
+                return pa.array([v.days for v in column.to_pylist()], type=pa.int64())
+            return column.cast(desired_type)
+        else:
+            return column

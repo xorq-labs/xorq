@@ -22,7 +22,6 @@ import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.schema as sch
 import xorq.vendor.ibis.expr.types as ir
 from xorq.backends.xorq.datafusion.compiler import compiler
-from xorq.backends.xorq.datafusion.converter import DataFusionPyArrowSchema
 from xorq.backends.xorq.datafusion.provider import IbisTableProvider
 from xorq.common.utils import classproperty
 from xorq.common.utils.aws_utils import (
@@ -723,7 +722,11 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ):
-        from xorq.backends.xorq.datafusion.converter import DataFusionPyArrowType
+        from xorq.backends.xorq.datafusion.converter import (
+            DataFusionPyArrowData,
+            DataFusionPyArrowSchema,
+            DataFusionPyArrowType,
+        )
 
         pa = self._import_pyarrow()
 
@@ -742,7 +745,13 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 pa.RecordBatch.from_struct_array(
                     # rename columns to match schema because datafusion lowercases things
                     pa.RecordBatch.from_arrays(
-                        batch.to_pyarrow().columns, schema=pyarrow_schema
+                        [
+                            DataFusionPyArrowData.convert_column(column, dtype)
+                            for column, (_, dtype) in zip(
+                                batch.to_pyarrow().columns, schema.items()
+                            )
+                        ],
+                        schema=pyarrow_schema,
                     )
                     # cast the struct array to the desired types to work around
                     # https://github.com/apache/arrow-datafusion-python/issues/534
