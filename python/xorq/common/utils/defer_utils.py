@@ -191,6 +191,7 @@ def deferred_read_parquet(
     path: str | Path,
     con: Backend | None = None,
     table_name: str | None = None,
+    schema: Schema | None = None,
     normalize_method: Callable = normalize_read_path_stat,
     **kwargs,
 ) -> ir.Table:
@@ -231,7 +232,7 @@ def deferred_read_parquet(
     method = getattr(con, method_name)
     if table_name is None:
         table_name = gen_name(f"letsql-{method_name}")
-    schema = xo_connect().read_parquet(path).schema()
+    schema = schema or xo_connect().read_parquet(path).schema()
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
     return Read(
         method_name=method_name,
