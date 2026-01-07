@@ -159,6 +159,7 @@ def run_command(
     output_format=OutputFormats.default,
     cache_dir=get_xorq_cache_dir(),
     limit=None,
+    replace_connections=None,
 ):
     """
     Execute an artifact
@@ -175,6 +176,8 @@ def run_command(
         Directory where the parquet cache files will be generated
     limit : int, optional
         Limit number of rows to output. Defaults to None (no limit).
+    replace_connections : list of tuple, optional
+        List of (source, target) pairs for connection replacement
 
     Returns
     -------
@@ -191,7 +194,9 @@ def run_command(
         },
     )
 
-    expr = load_expr(expr_path, cache_dir=cache_dir)
+    expr = load_expr(
+        expr_path, cache_dir=cache_dir, replace_connections=replace_connections
+    )
     if limit is not None:
         expr = expr.limit(limit)
     arbitrate_output_format(expr, output_path, output_format)
@@ -550,6 +555,14 @@ def parse_args(override=None):
         default=None,
         help="Limit number of rows to output",
     )
+    run_parser.add_argument(
+        "--replace-connection",
+        action="append",
+        nargs=2,
+        metavar=("SOURCE", "TARGET"),
+        dest="replace_connections",
+        help="Replace SOURCE connection with TARGET connection (can be specified multiple times)",
+    )
 
     run_unbound_parser = subparsers.add_parser(
         "run-unbound", help="Run an unbound expr by reading Arrow IPC from stdin"
@@ -805,6 +818,7 @@ def main():
                         args.format,
                         args.cache_dir,
                         args.limit,
+                        args.replace_connections,
                     ),
                 )
             case "run-unbound":
