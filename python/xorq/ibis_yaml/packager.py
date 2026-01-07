@@ -14,7 +14,10 @@ from attr.validators import (
     optional,
 )
 
-from xorq.common.utils.process_utils import Popened
+from xorq.common.utils.process_utils import (
+    Popened,
+    in_nix_shell,
+)
 from xorq.common.utils.tar_utils import (
     TGZAppender,
     TGZProxy,
@@ -281,6 +284,13 @@ def uv_tool_run(
         if capturing
         else (("stdout", None), ("stderr", None))
     )
+    if in_nix_shell():
+        import os
+
+        env = os.environ | {
+            "LD_LIBRARY_PATH": os.environ["UV_TOOL_RUN_LD_LIBRARY_PATH"]
+        }
+        kwargs_tuple = kwargs_tuple + (("env", env),)
     popened = Popened(popened_args, kwargs_tuple=kwargs_tuple)
     if check:
         popened.popen.wait()
