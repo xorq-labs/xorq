@@ -16,7 +16,7 @@ from attr.validators import (
 
 from xorq.common.utils.process_utils import (
     Popened,
-    assert_not_in_nix_shell,
+    in_nix_shell,
 )
 from xorq.common.utils.tar_utils import (
     TGZAppender,
@@ -268,7 +268,6 @@ def find_file_upwards(start, name):
 def uv_tool_run(
     *args, isolated=True, with_=None, with_requirements=None, check=True, capturing=True
 ):
-    assert_not_in_nix_shell()
     command_v_xorq = Popened.check_output("command -v xorq", shell=True).strip()
     args = tuple(el if el != command_v_xorq else "xorq" for el in args)
     popened_args = (
@@ -285,6 +284,13 @@ def uv_tool_run(
         if capturing
         else (("stdout", None), ("stderr", None))
     )
+    if in_nix_shell():
+        import os
+
+        env = os.environ | {
+            "LD_LIBRARY_PATH": os.environ["UV_TOOL_RUN_LD_LIBRARY_PATH"]
+        }
+        kwargs_tuple = kwargs_tuple + (("env", env),)
     popened = Popened(popened_args, kwargs_tuple=kwargs_tuple)
     if check:
         popened.popen.wait()
