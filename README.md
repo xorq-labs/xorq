@@ -46,8 +46,8 @@ input-addressed YAML manifest.
 execute anywhere with user directed caching.
 
 ```bash
-pip install xorq[examples]
-xorq init -t penguins
+$ pip install xorq[examples]
+$ xorq init -t penguins
 ```
 
 ---
@@ -110,10 +110,12 @@ One expression, many dialects, early feedback.
 Build an expression, get a manifest.
 
 ```bash
-xorq build expr.py
+$ xorq build expr.py
+builds/28ecab08754e
 ```
 
 ```
+$ tree builds/28ecab08754e
 builds/28ecab08754e
 ├── database_tables
 │   └── f2ac274df56894cb1505bfe8cb03940e.parquet
@@ -163,10 +165,10 @@ The manifest is roundtrippable and machine-writeable. Git-diff
 your pipelines. Code review your features. Track python dependencies. Rebuild from YAML alone.
 
 ```bash
-xorq uv-build expr.py
+$ xorq uv-build expr.py
 builds/28ecab08754e/
 
-ls builds/28ecab08754e/*.tar.gz
+$ ls builds/28ecab08754e/*.tar.gz
 builds/28ecab08754e/sdist.tar.gz  builds/28ecab08754e/my-pipeline-0.1.0.tar.gz
 ```
 
@@ -203,11 +205,11 @@ serve, execute.
 
 ```bash
 # Add to catalog
-xorq catalog add builds/28ecab08754e/ --alias penguins-agg
+$ xorq catalog add builds/28ecab08754e/ --alias penguins-agg
 Added build 28ecab08754e as entry a498016e-5bea-4036-aec0-a6393d1b7c0f revision r1
 
 # List entries
-xorq catalog ls
+$ xorq catalog ls
 Aliases:
 penguins-agg    a498016e-5bea-4036-aec0-a6393d1b7c0f    r1
 Entries:
@@ -217,7 +219,7 @@ a498016e-5bea-4036-aec0-a6393d1b7c0f    r1      28ecab08754e
 ## Run
 
 ```bash
-xorq run builds/28ecab08754e -o out.parquet
+$ xorq run builds/28ecab08754e -o out.parquet
 ```
 
 ## Serve
@@ -225,7 +227,7 @@ xorq run builds/28ecab08754e -o out.parquet
 Serve expressions anywhere via Arrow Flight:
 
 ```bash
-xorq serve-unbound builds/28ecab08754e/ \
+$ xorq serve-unbound builds/28ecab08754e/ \
   --to_unbind_hash 31f0a5be37713fe2c1a2d8ad8fdea69f \
   --host localhost --port 9002
 ```
@@ -263,7 +265,7 @@ No more archaeology. Lineage is encoded in the manifest—not scattered across
 tools—and queryable from the CLI.
 
 ```bash
-xorq lineage penguins-agg
+$ xorq lineage penguins-agg
 
 Lineage for column 'avg_bill_length':
 Field:avg_bill_length #1
@@ -298,10 +300,10 @@ Ready-to-start projects:
 
 ```bash
 # Penguins aggregation
-xorq init -t penguins
+$ xorq init -t penguins
 
 # Sklearn digits classification
-xorq init -t sklearn
+$ xorq init -t sklearn
 ```
 
 ### Scikit-learn Integration
