@@ -2,6 +2,9 @@ import os
 import sys
 
 from opentelemetry import trace
+from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import (
+    OTLPSpanExporter as OTLPSpanExporterGRPC,
+)
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
@@ -39,25 +42,45 @@ OTELConfig = EnvConfigable.subclass_from_env_file(
 otel_config = OTELConfig.from_env()
 
 
-resource = Resource(
-    attributes={
-        SERVICE_NAME: otel_config.OTEL_SERVICE_NAME,
-    }
-)
+def get_otlp_exporter():
+    """Create OTLP exporter based on protocol configuration.
+
+    SDK auto-configures from standard OTEL environment variables:
+    - OTEL_EXPORTER_OTLP_TRACES_ENDPOINT or OTEL_EXPORTER_OTLP_ENDPOINT
+    - OTEL_EXPORTER_OTLP_PROTOCOL (grpc or http/protobuf)
+    - OTEL_EXPORTER_OTLP_HEADERS
+    - OTEL_EXPORTER_OTLP_TIMEOUT
+    """
+    protocol = os.getenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+
+    if protocol == "grpc":
+        return OTLPSpanExporterGRPC()
+    else:
+        return OTLPSpanExporter()
+
+
+resource_attributes = {
+    SERVICE_NAME: otel_config.OTEL_SERVICE_NAME,
+    **({"execution.id": eid} if (eid := otel_config.OTEL_EXECUTION_ID) else {}),
+}
+
+resource = Resource(resource_attributes)
+
 provider = TracerProvider(resource=resource)
-processor = BatchSpanProcessor(
-    OTLPSpanExporter(endpoint=otel_config["OTEL_ENDPOINT_URI"])
-    if otel_config["OTEL_ENDPOINT_URI"]
-    and localhost_and_listening(otel_config["OTEL_ENDPOINT_URI"])
-    else ConsoleSpanExporter(
-        out=sys.stdout
-        if otel_config["OTEL_EXPORTER_CONSOLE_FALLBACK"]
-        else open(os.devnull, "w")
+
+traces_endpoint = otel_config.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+
+if traces_endpoint and localhost_and_listening(traces_endpoint):
+    processor = BatchSpanProcessor(get_otlp_exporter())
+else:
+    processor = BatchSpanProcessor(
+        ConsoleSpanExporter(
+            out=sys.stdout
+            if otel_config.get("OTEL_EXPORTER_CONSOLE_FALLBACK")
+            else open(os.devnull, "w")
+        )
     )
-)
 provider.add_span_processor(processor)
 trace.set_tracer_provider(provider)
 
-
-# Creates a tracer from the global tracer provider
 tracer = trace.get_tracer("xorq.tracer")
