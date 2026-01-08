@@ -346,7 +346,12 @@ class ExprDumper:
                 "sql_file": path.name
             }
         updated_plans = {"queries": queries}
-        return updated_plans, path_to_writer
+        path_to_writer[self.artifact_store.get_path(DumpFiles.sql)] = functools.partial(
+            self.artifact_store.save_yaml,
+            updated_plans,
+            filename=DumpFiles.sql,
+        )
+        return path_to_writer
 
     def _prepare_deferred_reads(
         self,
@@ -359,7 +364,14 @@ class ExprDumper:
             path_to_writer[path] = writer
             reads[read_name] = toolz.dissoc(read_info, "sql") | {"sql_file": path.name}
         updated_reads = {"reads": reads}
-        return updated_reads, path_to_writer
+        path_to_writer[self.artifact_store.get_path(DumpFiles.deferred_reads)] = (
+            functools.partial(
+                self.artifact_store.save_yaml,
+                updated_reads,
+                filename=DumpFiles.deferred_reads,
+            )
+        )
+        return path_to_writer
 
     @staticmethod
     def _make_metadata() -> str:
@@ -376,26 +388,9 @@ class ExprDumper:
 
     def _prepare_debug_info(self):
         sql_plans, deferred_reads = generate_sql_plans(self.expr)
-        updated_sql_plans, path_to_writer0 = self._prepare_sql_plans(sql_plans)
-        updated_deferred_reads, path_to_writer1 = self._prepare_deferred_reads(
-            deferred_reads
-        )
-        path_to_writer2 = {
-            self.artifact_store.get_path(*parts): functools.partial(f, obj, *parts)
-            for (f, obj, parts) in (
-                (
-                    self.artifact_store.save_yaml,
-                    updated_sql_plans,
-                    (DumpFiles.sql,),
-                ),
-                (
-                    self.artifact_store.save_yaml,
-                    updated_deferred_reads,
-                    (DumpFiles.deferred_reads,),
-                ),
-            )
-        }
-        path_to_writer = path_to_writer0 | path_to_writer1 | path_to_writer2
+        path_to_writer0 = self._prepare_sql_plans(sql_plans)
+        path_to_writer1 = self._prepare_deferred_reads(deferred_reads)
+        path_to_writer = path_to_writer0 | path_to_writer1
         return path_to_writer
 
     def _memtables_to_deferred_reads(self, expr):
