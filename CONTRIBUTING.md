@@ -19,7 +19,6 @@ git clone git@github.com:xorq-labs/xorq.git
 export UV_NO_SYNC=1
 ```
 
-
 ```bash
 # prepare development environment and install dependencies (including current package)
 uv sync --all-extras --all-groups
@@ -30,7 +29,6 @@ uv run pre-commit install
 ```
 > [!IMPORTANT]
 > Rename `.gitignore.template` to `.gitignore` 
-
 
 ## Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
