@@ -177,8 +177,7 @@ Share the build that has sdist, get identical results. No "works on my machine."
 
 ## Only recompute what changed
 
-The manifest is input-addressed: it describes *how* the computation was made,
-not just what it is. Same inputs = same hash. Change an input, get a new hash.
+The manifest is input-addressed: same inputs = same hash. Change an input, get a new hash.
 
 ```python
 expr.ls.get_cache_paths()
