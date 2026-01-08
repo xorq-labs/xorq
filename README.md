@@ -84,9 +84,7 @@ no invalidation logic to write.
 
 One expression, many engines. Part of your pipeline runs on DuckDB, part on
 Xorq's embedded [DataFusion](https://datafusion.apache.org) engine, UDFs
-
-[comment]: # not all udfs are via arrow flight
-via Arrow Flight. Xorq systematically handles data transit with low overhead. Bye byte glue code.
+via Arrow Flight. Xorq systematically handles data transit with low overhead. Bye bye glue code.
 
 ```python
 expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
