@@ -32,7 +32,7 @@ Six months later: five tools that don't talk to each other and a pipeline only o
 | **Stateful orchestrators** | Retry logic, task states, failure recovery. Another system to manage, another thing that breaks.
 
 Feature stores, Model registries, Orchestrators: Vertical silos that don't
-serve agentic processes, which needs context and skills, not categories.
+serve agentic processes, which need context and skills, not categories.
 
 # Xorq
 
