@@ -499,10 +499,49 @@ class ExprLoader:
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
-        expr = deferred_reads_to_memtables(expr)
+        expr = self.deferred_reads_to_memtables(expr)
         if self.cache_dir:
-            expr = replace_base_path(expr, base_path=Path(self.cache_dir))
+            expr = self.replace_base_path(expr, base_path=Path(self.cache_dir))
         return expr
+
+    @staticmethod
+    def deferred_reads_to_memtables(loaded):
+        def deferred_read_to_memtable(dr):
+            assert dr.values.get(IS_INMEMORY)
+            path = next(v for k, v in dr.read_kwargs if k == "path")
+            df = read_parquet(path).execute()
+            mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
+            return mt
+
+        drs = tuple(dr for dr in loaded.op().find(Read) if dr.values.get(IS_INMEMORY))
+        op = loaded.op()
+        for dr in drs:
+            mt = deferred_read_to_memtable(dr)
+            op = op.replace(replace_from_to(dr, mt))
+        return op.to_expr()
+
+    @staticmethod
+    def replace_base_path(expr, base_path):
+        def replace(node, kwargs):
+            if isinstance(node, CachedNode) and isinstance(
+                node.cache, (ParquetCache, ParquetSnapshotCache)
+            ):
+                evolved = evolve(
+                    node.cache,
+                    storage=evolve(
+                        node.cache.storage,
+                        base_path=base_path,
+                    ),
+                )
+                return node.__recreate__(
+                    dict(zip(node.argnames, node.args)) | {"cache": evolved}
+                )
+            elif kwargs:
+                return node.__recreate__(kwargs)
+            else:
+                return node
+
+        return expr.op().replace(replace).to_expr()
 
 
 def load_expr(expr_path, cache_dir=None):
@@ -530,42 +569,3 @@ def replace_from_to(from_, to_, node, kwargs):
         return node.__recreate__(kwargs)
     else:
         return node
-
-
-def replace_base_path(expr, base_path):
-    def replace(node, kwargs):
-        if isinstance(node, CachedNode) and isinstance(
-            node.cache, (ParquetCache, ParquetSnapshotCache)
-        ):
-            evolved = evolve(
-                node.cache,
-                storage=evolve(
-                    node.cache.storage,
-                    base_path=base_path,
-                ),
-            )
-            return node.__recreate__(
-                dict(zip(node.argnames, node.args)) | {"cache": evolved}
-            )
-        elif kwargs:
-            return node.__recreate__(kwargs)
-        else:
-            return node
-
-    return expr.op().replace(replace).to_expr()
-
-
-def deferred_reads_to_memtables(loaded):
-    def deferred_read_to_memtable(dr):
-        assert dr.values.get(IS_INMEMORY)
-        path = next(v for k, v in dr.read_kwargs if k == "path")
-        df = read_parquet(path).execute()
-        mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
-        return mt
-
-    drs = tuple(dr for dr in loaded.op().find(Read) if dr.values.get(IS_INMEMORY))
-    op = loaded.op()
-    for dr in drs:
-        mt = deferred_read_to_memtable(dr)
-        op = op.replace(replace_from_to(dr, mt))
-    return op.to_expr()
