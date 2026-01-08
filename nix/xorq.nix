@@ -250,6 +250,7 @@ let
           UV_NO_SYNC = "1";
           UV_PYTHON = "${virtualenv-all}/bin/python";
           UV_PYTHON_DOWNLOADS = "never";
+          UV_TOOL_RUN_LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
         };
       };
       editableShell = pkgs.mkShell {
@@ -261,6 +262,7 @@ let
           UV_NO_SYNC = "1";
           UV_PYTHON = "${virtualenv-editable}/bin/python";
           UV_PYTHON_DOWNLOADS = "never";
+          UV_TOOL_RUN_LD_LIBRARY_PATH = "${pkgs.stdenv.cc.cc.lib}/lib";
         };
       };
 
