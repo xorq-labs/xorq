@@ -7,9 +7,6 @@
   via Homebrew with:
   > `brew install cmake libomp`
 
-
-
-
 This assumes you have uv installed, otherwise please follow these [instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
