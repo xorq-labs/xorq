@@ -166,9 +166,11 @@ The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
 your pipelines. Code review your features. Track python dependencies. Rebuild from YAML alone.
 
 ```bash
-xorq uv-build builds/28ecab08754e/
+xorq uv-build expr.py
+builds/28ecab08754e/
 
-builds/28ecab08754e/dist/xorq_build-0.1.0.tar.gz
+ls builds/28ecab08754e/*.tar.gz
+builds/28ecab08754e/sdist.tar.gz  builds/28ecab08754e/my-pipeline-0.1.0.tar.gz
 ```
 
 The build captures everything: expression graph, dependencies, memory tables.
