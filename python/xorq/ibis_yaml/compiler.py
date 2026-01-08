@@ -280,13 +280,14 @@ class ExprDumper:
     debug = field(validator=instance_of(bool), default=False)
 
     def __attrs_post_init__(self):
-        match self.cache_dir:
+        attrname = "cache_dir"
+        match value := getattr(self, attrname):
             case None:
-                object.__setattr__(self, "cache_dir", get_xorq_cache_dir())
+                object.__setattr__(self, attrname, get_xorq_cache_dir())
             case Path():
                 pass
             case _:
-                object.__setattr__(self, "cache_dir", Path(self.cache_dir))
+                object.__setattr__(self, attrname, Path(value))
 
     @property
     @functools.cache
