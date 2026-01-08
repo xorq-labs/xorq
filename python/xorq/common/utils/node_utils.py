@@ -70,13 +70,13 @@ def get_typs(maybe_typs):
 
 
 def find_by_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
-    typs = get_typs(typs)
-
     def matches_hash(node):
         return compute_expr_hash(node, strategy) == to_replace_hash
 
-    (to_replace, *rest) = (
-        node for node in walk_nodes(typs, expr) if matches_hash(node)
+    typs = get_typs(typs)
+    (to_replace, *rest) = filter(
+        matches_hash,
+        walk_nodes(typs, expr),
     )
     if rest:
         raise ValueError
