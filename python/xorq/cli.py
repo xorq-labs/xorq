@@ -23,7 +23,6 @@ from xorq.common.utils.import_utils import import_from_path
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.node_utils import expr_to_unbound
 from xorq.common.utils.otel_utils import tracer
-from xorq.common.utils.tar_utils import copy_path
 from xorq.flight import FlightServer
 from xorq.ibis_yaml.compiler import (
     build_expr,
@@ -31,7 +30,6 @@ from xorq.ibis_yaml.compiler import (
 )
 from xorq.ibis_yaml.packager import (
     SdistBuilder,
-    Sdister,
     SdistRunner,
 )
 from xorq.init_templates import InitTemplates
@@ -112,12 +110,12 @@ def build_command(
     expr_name : The name of the expression to build
     builds_dir : Directory where artifacts will be generated
     cache_dir : Directory where the parquet cache files will be generated
-    debug : Output SQL files and other debug artifacts
 
     Returns
     -------
 
     """
+
     span = trace.get_current_span()
     span.add_event(
         "build.params",
@@ -127,24 +125,25 @@ def build_command(
         },
     )
 
-    print(f"Building {expr_name} from {script_path}", file=sys.stderr)
     if not os.path.exists(script_path):
         raise ValueError(f"Error: Script not found at {script_path}")
+    print(f"Building {expr_name} from {script_path}", file=sys.stderr)
     vars_module = import_from_path(script_path, module_name="__main__")
-    if not hasattr(vars_module, expr_name):
-        raise ValueError(f"Expression {expr_name} not found")
-    expr = getattr(vars_module, expr_name)
-    if not isinstance(expr, Expr):
-        raise ValueError(
-            f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
-        )
-    build_path = build_expr(
-        expr, build_dir=builds_dir, cache_dir=Path(cache_dir), debug=debug
-    )
-    span.add_event("build.outputs", {"expr_hash": build_path.name})
-    sdister = Sdister.from_script_path(script_path)
-    copy_path(sdister.sdist_path, build_path.joinpath(sdister.sdist_path.name))
+    match expr := getattr(vars_module, expr_name, None):
+        case Expr():
+            pass
+        case None:
+            raise ValueError(f"Expression {expr_name} not found")
+        case _:
+            raise ValueError(
+                f"The object {expr_name} must be an instance of {Expr.__module__}.{Expr.__name__}"
+            )
 
+    build_path = build_expr(
+        expr, builds_dir=builds_dir, cache_dir=Path(cache_dir), debug=debug
+    )
+    expr_hash = build_path.name
+    span.add_event("build.outputs", {"expr_hash": expr_hash})
     print(
         f"Written '{expr_name}' to {build_path}",
         file=sys.stderr,

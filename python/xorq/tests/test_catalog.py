@@ -1,4 +1,5 @@
 from xorq.catalog import (
+    CATALOG_YAML_FILENAME,
     XorqCatalog,
     load_catalog,
     resolve_build_dir,
@@ -6,10 +7,10 @@ from xorq.catalog import (
 
 
 def test_load_and_save_catalog(tmp_path):
-    cat = load_catalog(path=str(tmp_path / "catalog.yaml"))
+    cat = load_catalog(path=str(tmp_path / CATALOG_YAML_FILENAME))
     assert hasattr(cat, "entries") and isinstance(cat.entries, tuple)
-    cat.save(path=str(tmp_path / "catalog.yaml"))
-    cat2 = load_catalog(path=str(tmp_path / "catalog.yaml"))
+    cat.save(path=str(tmp_path / CATALOG_YAML_FILENAME))
+    cat2 = load_catalog(path=str(tmp_path / CATALOG_YAML_FILENAME))
     assert cat2.entries == cat.entries
 
 

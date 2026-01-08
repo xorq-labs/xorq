@@ -2,11 +2,11 @@ import pytest
 
 import xorq.api as xo
 from xorq.api import _
-from xorq.ibis_yaml.compiler import BuildManager
+from xorq.ibis_yaml.compiler import build_expr
 
 
 @pytest.mark.benchmark
-def test_baseball_stats_compilation(build_dir):
+def test_baseball_stats_compilation(builds_dir):
     pg = xo.postgres.connect_env()
 
     batting_old = (
@@ -44,9 +44,7 @@ def test_baseball_stats_compilation(build_dir):
         )
     )
 
-    build_manager = BuildManager(build_dir)
-
-    expr_hash = build_manager.compile_expr(prev_year_stats)
-
+    build_path = build_expr(prev_year_stats, builds_dir=builds_dir)
+    expr_hash = build_path.name
     assert isinstance(expr_hash, str)
     assert len(expr_hash) > 0

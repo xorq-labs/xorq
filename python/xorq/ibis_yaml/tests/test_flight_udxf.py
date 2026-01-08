@@ -69,8 +69,7 @@ def test_flight_expr(con, diamonds, baseline):
         name="remote-expr",
         con=con,
     )
-    compiler = YamlExpressionTranslator()
-    yaml_dict = compiler.to_yaml(expr)
+    yaml_dict = YamlExpressionTranslator.to_yaml(expr)
 
     diamonds_con = diamonds._find_backend()
 
@@ -78,7 +77,7 @@ def test_flight_expr(con, diamonds, baseline):
         con._profile.hash_name: con,
         diamonds_con._profile.hash_name: diamonds_con,
     }
-    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
+    roundtrip_expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles)
 
     df = expr.execute()
     roundtrip_df = roundtrip_expr.execute()
@@ -103,8 +102,7 @@ def test_flight_udxf(con, diamonds, baseline):
         make_udxf_kwargs={"name": my_udf.__name__},
     ).order_by("cut")
 
-    compiler = YamlExpressionTranslator()
-    yaml_dict = compiler.to_yaml(expr)
+    yaml_dict = YamlExpressionTranslator.to_yaml(expr)
 
     diamonds_con = diamonds._find_backend()
 
@@ -112,7 +110,7 @@ def test_flight_udxf(con, diamonds, baseline):
         con._profile.hash_name: con,
         diamonds_con._profile.hash_name: diamonds_con,
     }
-    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
+    roundtrip_expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles)
 
     df = expr.execute()
 
@@ -151,11 +149,10 @@ def test_flight_udxf_cached(con, diamonds, baseline):
         .order_by("cut")
     )
 
-    compiler = YamlExpressionTranslator()
-    yaml_dict = compiler.to_yaml(expr)
+    yaml_dict = YamlExpressionTranslator.to_yaml(expr)
 
     profiles = {con._profile.hash_name: con for con in find_all_sources(expr)}
-    roundtrip_expr = compiler.from_yaml(yaml_dict, profiles)
+    roundtrip_expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles)
 
     expected = expr.execute()
 
