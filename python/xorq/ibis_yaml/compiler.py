@@ -276,7 +276,7 @@ class ExprDumper:
 
     expr = field(validator=instance_of(ir.Expr))
     builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
-    cache_dir = field(validator=optional(instance_of(Path)), default=None)
+    cache_dir = field(validator=optional(instance_of(Path)), factory=get_xorq_cache_dir)
     debug = field(validator=instance_of(bool), default=False)
 
     def __attrs_post_init__(self):
@@ -542,13 +542,15 @@ class ExprLoader:
         return expr.op().replace(replace).to_expr()
 
 
-def load_expr(expr_path, cache_dir=None):
-    expr_loader = ExprLoader(expr_path, cache_dir=cache_dir)
+@functools.wraps(ExprLoader)
+def load_expr(expr_path, **kwargs):
+    expr_loader = ExprLoader(expr_path, **kwargs)
     expr = expr_loader.load_expr()
     return expr
 
 
 # todo: rename to dump_expr
+@functools.wraps(ExprDumper)
 def build_expr(expr, **kwargs):
     expr_dumper = ExprDumper(expr, **kwargs)
     expr_path = expr_dumper.dump_expr()
