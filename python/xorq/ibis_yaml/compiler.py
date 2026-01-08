@@ -260,10 +260,8 @@ def hydrate_cons(hash_to_profile_kwargs):
 
 
 def make_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
-    dr = deferred_read_parquet(parquet_path, con, **read_kwargs)
-    op = dr.op()
-    args = dict(zip(op.__argnames__, op.__args__))
-    args["values"] = args_values
+    op = deferred_read_parquet(parquet_path, con, **read_kwargs).op()
+    args = dict(zip(op.__argnames__, op.__args__)) | {"values": args_values}
     op = op.__recreate__(args)
     return op
 
