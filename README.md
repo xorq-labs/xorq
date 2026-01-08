@@ -77,14 +77,16 @@ expr = (
 )
 ```
 
-Declare `.cache()` on any node. Xorq handles the rest. No cache keys to manage,
+Declare `.cache()` on any node. Xorq handles the rest. No cache keys to generate or manage,
 no invalidation logic to write.
 
 ## Compose across engines
 
 One expression, many engines. Part of your pipeline runs on DuckDB, part on
 Xorq's embedded [DataFusion](https://datafusion.apache.org) engine, UDFs
-via Arrow Flight. No glue code between them.
+
+[comment]: # not all udfs are via arrow flight
+via Arrow Flight. Xorq systematically handles data transit with low overhead. Bye byte glue code.
 
 ```python
 expr = from_ibis(penguins).into_backend(xo.sqlite.connect())
@@ -98,8 +100,8 @@ expr.ls.backends
 ## Translate Python to many SQLs
 
 Expressions are declarative i.e. you describe what, not how. When bound to a
-backend, Ibis translates to that engine's SQL dialect and calls
-to_pyarrow_batches. Errors surface at translation time, not mid-job.
+backend, Xorq invokes that backend to generate an arrow record batch stream.
+Errors surface at definition time, not during execution time.
 Custom Python logic runs as UDFs, but the relational core is always SQL.
 One expression, many dialects, early feedback.
 
@@ -120,6 +122,7 @@ builds/28ecab08754e
 ├── expr.yaml
 ├── metadata.json
 └── profiles.yaml
+└── sdist.tar.gz
 ```
 
 No external metadata store. No separate lineage tool. The build directory *is*
@@ -160,7 +163,7 @@ nodes:
 ## Reproducible builds
 
 The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
-your pipelines. Code review your features. Rebuild from YAML alone.
+your pipelines. Code review your features. Track python dependencies. Rebuild from YAML alone.
 
 ```bash
 xorq uv-build builds/28ecab08754e/
