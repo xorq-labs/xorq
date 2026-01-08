@@ -449,26 +449,31 @@ class ExprDumper:
 
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = {
-            self.artifact_store.get_path(*parts): functools.partial(f, obj, *parts)
-            for (f, obj, parts) in (
-                (self.artifact_store.save_yaml, profiles, (DumpFiles.profiles,)),
+            self.artifact_store.get_path(filename): functools.partial(
+                f, obj, filename=filename
+            )
+            for (f, obj, filename) in (
+                (
+                    self.artifact_store.save_yaml,
+                    profiles,
+                    DumpFiles.profiles,
+                ),
                 (
                     self.artifact_store.write_text,
                     self._make_metadata(),
-                    (DumpFiles.metadata,),
+                    DumpFiles.metadata,
                 ),
             )
         }
-        path, writer = self._prepare_expr_file(expr, profiles)
-        path_to_writer = (
-            path_to_writer0 | path_to_writer1 | path_to_writer2 | {path: writer}
-        )
-
+        path_to_writer = path_to_writer0 | path_to_writer1 | path_to_writer2
         if self.debug:
             # write SQL plan and deferred-read artifacts if debug enabled
             path_to_writer |= self._prepare_debug_info()
         for writer in path_to_writer.values():
             writer()
+        # expr must be written last
+        _, writer = self._prepare_expr_file(expr, profiles)
+        writer()
         return self.expr_path
 
 
