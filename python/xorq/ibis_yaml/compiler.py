@@ -386,6 +386,24 @@ class ExprDumper:
         metadata_json = json.dumps(metadata, indent=2)
         return metadata_json
 
+    def _prepare_metadata_file(self):
+        path = self.artifact_store.get_path(DumpFiles.metadata)
+        writer = functools.partial(
+            self.artifact_store.write_text,
+            self._make_metadata(),
+            DumpFiles.metadata,
+        )
+        return path, writer
+
+    def _prepare_profiles_file(self, profiles):
+        path = self.artifact_store.get_path(DumpFiles.profiles)
+        writer = functools.partial(
+            self.artifact_store.save_yaml,
+            profiles,
+            DumpFiles.profiles,
+        )
+        return path, writer
+
     def _prepare_debug_info(self):
         sql_plans, deferred_reads = generate_sql_plans(self.expr)
         path_to_writer0 = self._prepare_sql_plans(sql_plans)
@@ -449,20 +467,10 @@ class ExprDumper:
 
         profiles = dehydrate_cons(find_all_sources(expr))
         path_to_writer2 = {
-            self.artifact_store.get_path(filename): functools.partial(
-                f, obj, filename=filename
-            )
-            for (f, obj, filename) in (
-                (
-                    self.artifact_store.save_yaml,
-                    profiles,
-                    DumpFiles.profiles,
-                ),
-                (
-                    self.artifact_store.write_text,
-                    self._make_metadata(),
-                    DumpFiles.metadata,
-                ),
+            path: writer
+            for (path, writer) in (
+                self._prepare_metadata_file(),
+                self._prepare_profiles_file(profiles),
             )
         }
         path_to_writer = path_to_writer0 | path_to_writer1 | path_to_writer2
@@ -471,6 +479,7 @@ class ExprDumper:
             path_to_writer |= self._prepare_debug_info()
         for writer in path_to_writer.values():
             writer()
+
         # expr must be written last
         _, writer = self._prepare_expr_file(expr, profiles)
         writer()
