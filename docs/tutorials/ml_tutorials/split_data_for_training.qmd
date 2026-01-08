@@ -13,22 +13,13 @@ After completing this tutorial, you'll know how to partition data properly for M
 
 You need:
 
-- Xorq installed: `pip install "xorq[examples]"`
-- Basic understanding of train/test splits in ML
+- Xorq installed (see [Install Xorq](../../getting_started/installation#install-xorq))
+- Basic understanding of [train/test splits in ML](https://scikit-learn.org/stable/modules/cross_validation.html#cross-validation)
 
 
 ## Why split your data?
 
-Here's the problem: if you train and evaluate on the same data, you can't tell if your model learned real patterns or just memorized the training set.
-
-Why this matters: imagine you're building a fraud detection model. You train it, test it on the same data, and get 99% accuracy. Great, right? But then you deploy it, and it performs terribly on new transactions. You've overfit.
-
-The solution: split your data into separate partitions. Train on one portion, evaluate on another. This gives you an honest measure of how your model performs on unseen data.
-
-:::{.callout-tip}
-### Deterministic splits
-Xorq's splits are deterministic. You get the same partitions every time with the same random seed, which makes your experiments reproducible.
-:::
+Training and evaluating on the same data prevents you from detecting overfitting. Splitting into separate partitions gives you an honest measure of model performance on unseen data.
 
 ## How to follow along
 
@@ -69,11 +60,11 @@ print(table.head(5).execute())
 1. Create a table with 100,000 rows. Each row has a unique key and a value.
 2. Preview what you created.
 
-You'll see:
+Expected output:
 
 ```
 Created table with 100000 rows
-Columns: ('key1', 'val')
+Columns: ['key1', 'val']
 
 First 5 rows:
    key1      val
@@ -84,7 +75,7 @@ First 5 rows:
 4     4  value_4
 ```
 
-This synthetic data shows you how splitting works without loading a real dataset. Once you've got your data, you can move on to splitting it.
+This synthetic data shows you how splitting works without loading a real dataset. Once you have your data, you can move on to splitting it.
 
 ## Simple train/test split
 
@@ -108,27 +99,29 @@ test_count = test.count().execute()
 total = train_count + test_count
 
 # <3>
-print(f"\nTrain size: {train_count} ({train_count/total:.1%})")
-print(f"Test size: {test_count} ({test_count/total:.1%})")
+print(f"\nTrain: {train_count} ({train_count/total:.1%})")
+print(f"Test: {test_count} ({test_count/total:.1%})")
 ```
 1. Split into train (75%) and test (25%). The unique_key determines how rows get assigned.
 2. Count rows in each partition.
 3. Verify the split ratios.
 
-You'll see:
+Expected output:
 
 ```
-Train size: 75003 (75.0%)
-Test size: 24997 (25.0%)
+Train: 74998 (75.0%)
+Test: 25002 (25.0%)
 ```
 
-**What just happened?** Xorq hashed the `key1` column for each row and assigned it to either train or test based on the hash value. With `test_sizes=0.25`, roughly 25% go to test and 75% to train.
+The exact counts may vary slightly due to hashing, but the percentages will match your specified split ratio.
+
+Xorq hashed the `key1` column for each row and assigned it to either train or test based on the hash value. With `test_sizes=0.25`, roughly 25% go to test and 75% to train.
 
 The key insight here: the same row always goes to the same partition with the same random seed. This makes your splits reproducible.
 
 ## Understanding the parameters
 
-Here's what you need to know about each parameter:
+Parameters are defined below:
 
 **unique_key:** The column Xorq hashes to assign rows to partitions. Choose a column with high cardinality (many unique values). In production, this might be a user ID, transaction ID, or timestamp.
 
@@ -138,7 +131,7 @@ Here's what you need to know about each parameter:
 
 **random_seed:** Makes splits deterministic. Same seed = same split every time.
 
-Why does this matter? In practice, you want your experiments to be reproducible. If your splits change between runs, then you can't compare model performance reliably.
+You want your experiments to be reproducible. If your splits change between runs, then you can't compare model performance reliably.
 
 ## Multi-partition splits
 
@@ -174,20 +167,22 @@ print("\nMulti-partition split:")
 for name, count in counts.items():
     print(f"{name.upper()}: {count} ({count/total:.1%})")
 ```
-1. Define partition sizes as a list. These should sum to 1.0 (10% + 20% + 30% + 40%).
+1. Define partition sizes as a list. These should sum to 1.0 (representing 100% of your data).
 2. Create four mutually exclusive partitions. Order matters: first size goes to first return value.
 3. Count rows in each partition.
 4. Verify the ratios match what you requested.
 
-You'll see:
+Expected output:
 
 ```
 Multi-partition split:
-HOLDOUT: 10003 (10.0%)
-TEST: 19995 (20.0%)
-VALIDATION: 29994 (30.0%)
-TRAINING: 40008 (40.0%)
+HOLDOUT: 9916 (9.9%)
+TEST: 20213 (20.2%)
+VALIDATION: 29958 (30.0%)
+TRAINING: 39913 (39.9%)
 ```
+
+The exact counts vary due to hashing, but the percentages approximate your specified ratios.
 
 Each partition is a separate table expression. You can use them independently for different stages of your ML workflow.
 
@@ -195,9 +190,7 @@ Understanding this pattern helps you set up proper evaluation pipelines. Train o
 
 ## Split column for manual control
 
-This raises a question: what if you want more control over how you use the splits?
-
-Here's where `calc_split_column` comes in. Instead of returning separate tables, it adds a column that labels which partition each row belongs to.
+To have more control over the splits, use `calc_split_column`. Instead of returning separate tables, it adds a column that labels which partition each row belongs to.
 
 Add this to `split_data.py`:
 
@@ -230,26 +223,24 @@ print(result)
 2. Add the split column to your table.
 3. Count how many rows are in each partition.
 
-You'll see:
+Expected output:
 
 ```
 Split column distribution:
    partition  count
-0          0  10003
-1          1  19995
-2          2  29994
-3          3  40008
+0          0   9916
+1          1  20213
+2          2  29958
+3          3  39913
 ```
 
 The partition numbers (0, 1, 2, 3) correspond to your test_sizes list order. Partition 0 gets 10%, partition 1 gets 20%, and so on.
 
-Why use this pattern? You keep all your data in one table with partition labels. You can filter dynamically, pass labels to downstream processing, or group by partition for analysis.
-
-Now that you've seen how split columns work, you can move on to deterministic splitting.
+This pattern keeps all your data in one table with partition labels. You can filter dynamically, pass labels to downstream processing, or group by partition for analysis.
 
 ## Deterministic splits with random_seed
 
-Here's the thing: you want your splits to be reproducible. Same code, same data, same splits.
+Make your splits reproducible by fixing the random seed in production. This ensures the same code and data always produce identical splits, letting you compare experiments reliably.
 
 Add this to `split_data.py`:
 
@@ -295,25 +286,23 @@ print("Different seed produces different split")
 3. The counts are identical because the seed is the same.
 4. Change the seed to get a different split.
 
-You'll see:
+Expected output:
 
 ```
 Deterministic splits (same seed):
-train_a count: 75003
-train_b count: 75003
+train_a count: 74998
+train_b count: 74998
 Counts match - splits are identical!
 
-train_c count (different seed): 74989
+train_c count (different seed): 74954
 Different seed produces different split
 ```
 
-**What does success look like?** The same seed produces identical splits. Different seeds produce different splits. This gives you reproducibility when you need it and randomness when you want it.
-
-Most teams find that fixing the random seed in production is crucial. Without it, your splits change between runs, making it impossible to compare experiments.
+The same seed produces identical splits. Different seeds produce different splits. This gives you reproducibility when you need it and randomness when you want it.
 
 ## Complete example
 
-Here's everything in one place. This shows the full workflow:
+The full workflow:
 
 ```python
 # split_data.py
@@ -401,20 +390,22 @@ Notice how you created multiple types of splits: simple train/test, multi-partit
 
 ## What you learned
 
-You've learned how to split data properly for ML workflows. Here's what you accomplished:
+You learned how to split data properly for ML workflows. You accomplished:
 
 - Created simple train/test splits with `train_test_splits()`
 - Built multi-partition splits for train/validation/test/holdout
 - Used `calc_split_column()` for manual partition control
 - Made splits deterministic with random_seed
-- Understood how unique_key determines row assignment
+- Learned how unique_key determines row assignment
 
-The key insight? Proper data splitting is fundamental to honest model evaluation. Train on one portion, evaluate on another, and always use deterministic splits for reproducibility.
+Proper data splitting is fundamental to honest model evaluation. Train on one portion, evaluate on another, and always use deterministic splits for reproducibility.
 
 ## Next steps
 
 Now that you know how to split data, continue learning:
 
-- [Train your first model](train_your_first_model.qmd) shows how to train models with Xorq
-- [Understand Pipeline](understand_pipeline.qmd) explains how Xorq wraps scikit-learn pipelines
-- [Cache ML computations](cache_ml_computations.qmd) covers caching strategies for ML workflows
+- [Train your first model](train_your_first_model.qmd) — Build and train a classification model with Xorq
+- [Compare model performance](compare_model_performance.qmd) — Learn how to evaluate and compare multiple models
+
+
+

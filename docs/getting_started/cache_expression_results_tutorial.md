@@ -1,66 +1,72 @@
----
-title: 'Cache expression results'
----
+# Cache Expression Results - Xorq Tutorial
 
-This tutorial demonstrates Xorq's caching with runnable code examples. You'll execute the same query twice and observe the performance difference between cached and uncached execution.
+This tutorial shows you how Xorq's caching system works through hands-on examples. You'll see cache hits and misses in real time, and understand when Xorq reuses results versus recomputing them.
 
-You'll learn how to add `.cache()` to expressions and understand when Xorq reuses cached results.
+After completing this tutorial, you'll know how to use caching to speed up your workflows.
 
 ## Why caching matters
 
 Running the same query twice shouldn't mean doing the work twice. Xorq caches expression results so repeated queries return instantly from the cache instead of recomputing.
 
-Caching provides the biggest benefit for expensive operations:
-
+This is especially powerful for expensive operations:
 - Loading large datasets from remote databases
 - Training machine learning models
 - Calling external APIs
 - Running complex aggregations
 
-:::{.callout-tip}
-### Smart caching
-Xorq uses content-addressed hashing to determine if an expression matches cached results. Xorq generates a hash from your expression structure. Identical expressions produce identical hashes, triggering a cache hit. 
-:::
+> **Tip:** Xorq uses content-addressed hashing to determine if an expression matches cached results. Same computation = same hash = cache hit.
+
+## Prerequisites
+
+Before starting, install Xorq:
+
+```bash
+pip install xorq jupyter
+```
 
 ## How to follow along
 
-Each code example includes complete setup, so you can run any section independently. For best learning, run them in sequence.
+Run the code examples in order using any of these methods:
 
-**Run the code using:**
+- **Jupyter notebook**: Create a new notebook and run each code block in a separate cell.
+- **Python interactive shell**: Open a terminal, run `python`, then copy and paste each code block.
+- **Python script**: Copy all code blocks into a `.py` file and run it with `python script.py`.
 
-- **Python interactive shell**: Open a terminal, run `python`, copy and paste each code block
-- **Jupyter notebook**: Run each code block in a separate cell
-- **Python script**: Copy code blocks into a `.py` file and run with `python script.py`
+The code blocks build on each other. Variables like `iris`, `storage`, and `cached_expr` are created in earlier blocks and used in later ones.
+
+---
 
 ## Set up caching
 
 You'll start by connecting to a backend and setting up a cache storage location.
 
-```{python}
-#| eval: false
+```python
 import xorq.api as xo
 from xorq.caching import SourceCache
 
-# <1>
+# Connect to the embedded backend where cached data is stored
 con = xo.connect()
 
-# <2>
+# Create a SourceCache object that manages the cache
 storage = SourceCache.from_kwargs(source=con)
 
 print(f"Connected to: {con}")
 print(f"Cache storage ready!")
 ```
+
+**What this does:**
 1. Connect to the embedded backend where cached data is stored.
 2. Create a SourceCache object that manages the cache.
 
-`SourceCache` stores cached results as tables in your backend using `create_table()`. This works with any backend that supports table creation like embedded, DuckDB, pandas, PostgreSQL, Snowflake, and more.
+`SourceCache` stores cached results in your backend as tables. When you run an expression with `.cache()`, Xorq saves the results and reuses them on subsequent runs.
+
+---
 
 ## Cache your first expression
 
 Now you'll build an expression and add caching to it.
 
-```{python}
-#| eval: false
+```python
 import xorq.api as xo
 from xorq.caching import SourceCache
 
@@ -68,30 +74,33 @@ from xorq.caching import SourceCache
 con = xo.connect()
 storage = SourceCache.from_kwargs(source=con)
 
-# <1>
+# Load the iris dataset
 iris = xo.examples.iris.fetch(backend=con)
 
-# <2>
+# Build a filter expression with caching
 cached_expr = (
     iris
     .filter(xo._.sepal_length > 6)
-    .cache(cache=storage)  # <3>
+    .cache(cache=storage)  # Add caching here
 )
 
 print(f"Expression with caching: {type(cached_expr)}")
 ```
+
+**What this does:**
 1. Load the iris dataset.
 2. Build a filter expression.
 3. Add caching with `.cache(cache=storage)`.
 
 The `.cache()` method tells Xorq to store results from this expression. On the first run, Xorq computes and caches the results. On subsequent runs, it retrieves them directly from cache.
 
-## Observe cache miss
+---
 
-You'll execute the expression for the first time. This will be a cache miss because no cached results exist yet.
+## Observe cache miss (first run)
 
-```{python}
-#| eval: false
+You'll execute the expression for the first time. This will be a cache miss, Xorq has to compute the results.
+
+```python
 import xorq.api as xo
 import time
 from xorq.caching import SourceCache
@@ -106,32 +115,30 @@ cached_expr = (
     .cache(cache=storage)
 )
 
-# <1>
+# Start timing the execution
 print("First execution (cache miss)...")
 start = time.time()
 
-# <2>
+# Execute the expression - triggers computation and caching
 result1 = cached_expr.execute()
 
-# <3>
+# Print how long it took
 elapsed = time.time() - start
 print(f"✗ Cache miss: computed in {elapsed:.4f} seconds")
 print(f"Result shape: {result1.shape}")
 print(f"\nFirst few rows:")
 print(result1.head(3))
 ```
-1. Start timing the execution.
-2. Execute the expression, triggers computation and caching.
-3. Print how long it took.
 
 Since this is the first run, Xorq computed the filter operation and stored the results in cache.
 
-## Observe cache hit 
+---
+
+## Observe cache hit (second run)
 
 Now you can run the same expression again. This time you'll see a cache hit.
 
-```{python}
-#| eval: false
+```python
 import xorq.api as xo
 import time
 from xorq.caching import SourceCache
@@ -147,34 +154,30 @@ cached_expr = (
 )
 result1 = cached_expr.execute()  # From previous step
 
-# <1>
+# Time the second execution
 print("\nSecond execution (cache hit)...")
 start = time.time()
 
-# <2>
+# Run the same expression again
 result2 = cached_expr.execute()
 
-# <3>
+# See how much faster it was
 elapsed = time.time() - start
 print(f"✓ Cache hit: returned in {elapsed:.4f} seconds")
 print(f"Results match: {result1.equals(result2)}")
 ```
-1. Time the second execution.
-2. Run the same expression again.
-3. See how much faster it was.
 
-The second execution is faster because Xorq retrieves cached results instead of recomputing the filter.
+The second execution should be significantly faster because Xorq fetched results from cache instead of recomputing the filter operation.
 
-:::{.callout-note}
-Xorq computes a hash from your expression's structure and data sources. If the expression is identical, then the hash matches, and you get a cache hit.
-:::
+> **Note:** Xorq computes a hash from your expression's structure and data sources. If the expression is identical, then the hash matches, and you get a cache hit.
+
+---
 
 ## Understand cache invalidation
 
 What happens if you change the expression? You'll modify the filter and see cache invalidation in action.
 
-```{python}
-#| eval: false
+```python
 import xorq.api as xo
 import time
 from xorq.caching import SourceCache
@@ -184,36 +187,33 @@ con = xo.connect()
 storage = SourceCache.from_kwargs(source=con)
 iris = xo.examples.iris.fetch(backend=con)
 
-# <1>
+# Create a new expression with a different filter threshold
 modified_expr = (
     iris
-    .filter(xo._.sepal_length > 6.5)  # <2>
+    .filter(xo._.sepal_length > 6.5)  # Changed from > 6 to > 6.5
     .cache(cache=storage)
 )
 
-# <3>
+# Execute the modified expression
 print("Modified expression (different filter)...")
 start = time.time()
 result3 = modified_expr.execute()
 elapsed = time.time() - start
 
-# <4>
+# Cache miss because the expression changed
 print(f"✗ Cache miss: computed in {elapsed:.4f} seconds")
 print(f"Different result shape: {result3.shape}")
 ```
-1. Create a new expression with a different filter threshold.
-2. Changed from `> 6` to `> 6.5`—this is a different computation.
-3. Execute the modified expression.
-4. Cache miss because the expression changed.
 
 Since you changed the filter threshold, Xorq computed a different hash. The cache from the previous expression doesn't match, so Xorq recomputed.
+
+---
 
 ## Compare multiple runs
 
 You'll run several executions and see the timing difference between cache hits and misses.
 
-```{python}
-#| eval: false
+```python
 import xorq.api as xo
 import time
 from xorq.caching import SourceCache
@@ -228,18 +228,18 @@ cached_expr = (
     .cache(cache=storage)
 )
 
-# <1>
+# Create a helper function to time executions
 def time_execution(expr, label):
     start = time.time()
     result = expr.execute()
     elapsed = time.time() - start
     return elapsed, len(result)
 
-# <2>
+# Print a header for the comparison
 print("\nTiming comparison:")
 print("-" * 50)
 
-# <3>
+# Run the same expression three times
 t1, rows1 = time_execution(cached_expr, "First run")
 print(f"Run 1 (miss):  {t1:.4f}s - {rows1} rows")
 
@@ -249,28 +249,22 @@ print(f"Run 2 (hit):   {t2:.4f}s - {rows2} rows")
 t3, rows3 = time_execution(cached_expr, "Third run")
 print(f"Run 3 (hit):   {t3:.4f}s - {rows3} rows")
 
-# <4>
+# Calculate the speedup from caching
 speedup = t1 / t2 if t2 > 0 else float('inf')
 print(f"\nSpeedup from caching: {speedup:.1f}x faster")
 ```
-1. Create a helper function to time executions.
-2. Print a header for the comparison.
-3. Run the same expression three times.
-4. Calculate the speedup from caching.
 
-The first execution is a cache miss. The second and third executions are cache hits and complete faster. This shows how caching eliminates redundant computation.
+The first execution is a cache miss (slower), but the second and third are cache hits (much faster). This shows how caching eliminates redundant computation.
 
-:::{.callout-warning}
-### Cache storage
-SourceCache keeps cached data in your backend as tables. Make sure you have enough storage space for cached results, especially with large datasets.
-:::
+> **Warning:** SourceCache keeps cached data in your backend as tables. Make sure you have enough storage space for cached results, especially with large datasets.
+
+---
 
 ## Chain cached expressions
 
 You can cache multiple steps in a pipeline. Each cached expression can reuse results from previous runs.
 
-```{python}
-#| eval: false
+```python
 import xorq.api as xo
 from xorq.caching import SourceCache
 
@@ -279,54 +273,51 @@ con = xo.connect()
 storage = SourceCache.from_kwargs(source=con)
 iris = xo.examples.iris.fetch(backend=con)
 
-# <1>
+# Cache the filtered dataset
 step1 = iris.filter(xo._.sepal_length > 5).cache(cache=storage)
 
-# <2>
+# Build on the cached result and cache the aggregation too
 step2 = step1.group_by("species").agg(
     avg_width=xo._.sepal_width.mean()
 ).cache(cache=storage)
 
-# <3>
+# First execution caches both steps
 print("First execution of step2...")
 result_a = step2.execute()
 
-# <4>
+# Second execution hits cache for both steps
 print("\nSecond execution of step2...")
 result_b = step2.execute()
 
 print("\nBoth steps now cached!")
 print(result_a)
 ```
-1. Cache the filtered dataset.
-2. Build on the cached result and cache the aggregation too.
-3. First execution caches both steps.
-4. Second execution hits cache for both steps.
 
-When you cache multiple steps, each cached step returns results instantly on re-execution. Xorq doesn't recompute steps that are already cached.
+When you cache multiple steps, Xorq can reuse intermediate results, making complex pipelines faster on repeated runs.
+
+---
 
 ## Use persistent ParquetCache
 
-So far, you've used SourceCache, which stores cached data in your backend. But what if you want a cache that persists across Python sessions? That's where ParquetCache comes in.
+So far, you've used SourceCache, which stores cached data in your backend. But what if you want cache that persists across Python sessions? That's where ParquetCache comes in.
 
-SourceCache stores data in your backend. Depending on your backend configuration, cached data may not persist when you restart Python.
+**The problem with SourceCache:** When you restart Python, the cached data might not persist depending on your backend configuration. You lose the cache and have to recompute.
 
-ParquetCache writes cached results as `.parquet` files to disk. These files persist across Python sessions.
+**The solution:** ParquetCache writes cached results as `.parquet` files to disk. These files survive across sessions, so your cache persists even after closing Python.
 
-```{python}
-#| eval: false
+```python
 from pathlib import Path
 from xorq.caching import ParquetCache
 import xorq.api as xo
 
-# <1>
+# Connect to backend and define a directory for cache files
 con = xo.connect()
 cache_dir = Path.cwd() / "xorq_cache"
 
-# <2>
+# Create ParquetCache with base_path pointing to the cache directory
 parquet_cache = ParquetCache.from_kwargs(source=con, base_path=cache_dir)
 
-# <3>
+# Build an expression with filtering and aggregation
 iris = xo.examples.iris.fetch(backend=con)
 cached_with_parquet = (
     iris
@@ -336,25 +327,19 @@ cached_with_parquet = (
         avg_sepal=xo._.sepal_length.mean(),
         count=xo._.species.count()
     )
-    .cache(cache=parquet_cache)  # <4>
+    .cache(cache=parquet_cache)  # Cache using ParquetCache instead of SourceCache
 )
 
-# <5>
+# Execute and cache the results to disk
 print("First execution with ParquetCache...")
 result = cached_with_parquet.execute()
 print(f"Result shape: {result.shape}")
 print(result)
 ```
-1. Connect to backend and define a directory for cache files.
-2. Create ParquetCache with `base_path` pointing to the cache directory.
-3. Build an expression with filtering and aggregation.
-4. Cache using ParquetCache instead of SourceCache.
-5. Execute and cache the results to disk.
 
 After running this, you can check the cache files on disk:
 
-```{python}
-#| eval: false
+```python
 from pathlib import Path
 import xorq.api as xo
 from xorq.caching import ParquetCache
@@ -374,36 +359,34 @@ cached_with_parquet = (
 )
 result = cached_with_parquet.execute()  # From previous step
 
-# <1>
+# Find all .parquet files in the cache directory
 cache_files = list(cache_dir.glob("*.parquet"))
 
-# <2>
+# Print information about the cached files
 print(f"\nCache files created: {len(cache_files)}")
 print(f"Cache directory: {cache_dir}")
 
 if cache_files:
     print(f"Cache file: {cache_files[0].name}")
 ```
-1. Find all `.parquet` files in the cache directory.
-2. Print information about the cached files.
 
 You'll see actual `.parquet` files in the `xorq_cache` directory. These files contain your cached results and persist even after you close Python.
 
-:::{.callout-tip}
-### When to use each cache type
-
-**SourceCache**: Fast, session-scoped. Use for temporary caching during development.
-
-**ParquetCache**: Persistent across sessions. Use when you want cache to survive Python restarts (local development, iterative analysis).
-:::
+> **Tip: When to use each cache type**
+> 
+> **SourceCache**: Fast, session-scoped. Use for temporary caching during development.
+> 
+> **ParquetCache**: Persistent across sessions. Use when you want cache to survive Python restarts (local development, iterative analysis).
 
 Now when you restart Python and rerun the same expression with ParquetCache pointing to the same directory, Xorq finds the cached `.parquet` files and returns results instantly without recomputation.
+
+---
 
 ## Complete example
 
 Here's a full caching workflow in one place:
 
-```{python}
+```python
 import xorq.api as xo
 from xorq.caching import SourceCache
 
@@ -428,11 +411,18 @@ result2 = cached_expr.execute()
 print("Second run complete (from cache)")
 ```
 
+---
+
 ## Next steps
 
-Now that you understand how caching works, continue with these tutorials:
+Now you understand how caching works. Continue learning:
 
-- [Switch between backends](switch_backends.qmd) — Move data between different execution engines
-- [Split data for training](../tutorials/ml_tutorials/split_data_for_training.qmd) — Learn how to split datasets for machine learning workflows
+- [Switch backends](switch_backends.qmd) shows how caching works when moving data between engines
+- [Your first build](../tutorials/core_tutorials/your_first_build.qmd) explains how cached expressions become portable artifacts
+- [Optimize pipeline performance](/guides/performance_workflows/optimize_pipeline_performance.qmd) covers advanced caching strategies
 
+---
+
+**Tutorial source:** [Xorq Documentation](https://xorq.dev)  
+**License:** Check the Xorq repository for license information
 

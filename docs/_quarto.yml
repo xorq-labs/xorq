@@ -1,5 +1,8 @@
 project:
   type: website
+  resources:
+    - "getting_started/*.ipynb"
+    - "getting_started/*.md"
 
 execute:
   mermaid: true
@@ -85,9 +88,8 @@ website:
         - id: analytics-tutorials-section
           section: "Analytics tutorials"
           contents:
-            # - href: tutorials/analytics_tutorials/query_across_engines.qmd
             - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
-            # - href: tutorials/analytics_tutorials/use_window_functions.qmd
+              text: "Write UDFs for SQL and Python"
             - href: tutorials/analytics_tutorials/work_with_schemas.qmd
 
 

@@ -1,7 +1,7 @@
 ---
 title: 'Compare model performance'
 description: "Compare multiple models to find the best one for your classification task"
-icon: "bar-chart-line"
+icon: "chart-line"
 headline: "Compare models systematically"
 ---
 
@@ -13,23 +13,16 @@ After completing this tutorial, you'll know how to run experiments that compare 
 
 You need:
 
-- Xorq installed: `pip install "xorq[examples]"`
+- Xorq installed (see [Install Xorq](../../getting_started/installation#install-xorq))
 - Basic familiarity with [scikit-learn classifiers](https://scikit-learn.org/stable/supervised_learning.html#supervised-learning)
 - Understanding of [train/test splits](https://scikit-learn.org/stable/modules/cross_validation.html#cross-validation)
 
 
 ## Why compare models?
 
-Here's the problem: different ML algorithms have different strengths. A decision tree might work well on one dataset while k-nearest neighbors performs better on another. You can't know which is best without testing.
+Different algorithms perform differently on different datasets. You compare multiple classifiers to find which one gives the best accuracy for your specific data.
 
-Why this matters: imagine you're building a spam classifier. You pick k-nearest neighbors because it's simple, deploy it, and get 70% accuracy. But if you'd compared multiple models first, then you might have found that a random forest gives you 85% accuracy. That 15-point difference is the cost of not evaluating systematically.
-
-The solution: compare multiple classifiers on your data. Train each one, measure performance, pick the winner. Xorq makes this easy because you can wrap any scikit-learn estimator and evaluate it with the same code.
-
-:::{.callout-tip}
-### Systematic comparison
-Change the estimator, run the pipeline, compare scores. That's the pattern. Xorq's deferred execution lets you build evaluation workflows that work across any scikit-learn model.
-:::
+This tutorial shows you how to train three models (k-nearest neighbors, decision tree, random forest) and compare their accuracy scores.
 
 ## How to follow along
 
@@ -73,7 +66,7 @@ print(f"Features: {X.shape[1]}")
 2. Split into train (60%) and test (40%) sets.
 3. Check the sizes.
 
-You'll see:
+The output shows:
 
 ```
 Training samples: 60
@@ -87,7 +80,7 @@ Understanding this data helps you interpret results later. The moons shape means
 
 ## Convert to Xorq tables
 
-Now you'll convert the NumPy arrays into Xorq table expressions:
+Convert the NumPy arrays into Xorq table expressions:
 
 ```python
 # <1>
@@ -137,7 +130,7 @@ Once you've got your tables ready, you can move on to training models.
 
 ## Train and evaluate one model
 
-Now you'll train a single classifier and measure its accuracy. Think of it this way: you're establishing a baseline before comparing multiple models.
+Train a single classifier and measure its accuracy. Think of it this way: you're establishing a baseline before comparing multiple models.
 
 ```python
 import sklearn.pipeline
@@ -174,21 +167,21 @@ print(f"\nK-Nearest Neighbors accuracy: {score:.2%}")
 4. Create a scoring expression (still deferred).
 5. Execute to get the actual accuracy.
 
-You'll typically see:
+You’ll see output like:
 
 ```
 K-Nearest Neighbors accuracy: 90.00%
 ```
 
-Here's the key insight: `.score_expr()` returns a deferred expression. Nothing executes until you call `.execute()`. This lets you build complex evaluation workflows before running anything.
+**Here's the key insight**: `.score_expr()` returns a deferred expression. Nothing executes until you call `.execute()`. This lets you build complex evaluation workflows before running anything.
 
 Why use `.score_expr()` instead of immediate scoring? You can compose it with other operations, cache results, and optimize execution across multiple evaluations.
 
 ## Compare multiple classifiers
 
-This raises a question: how do you compare several models efficiently?
+This raises a question: How do you compare several models efficiently?
 
-Here's where the pattern shines. You define your models, wrap each in a pipeline, and evaluate them all:
+Here's where the pattern shines. You define your models, wrap each in a pipeline, and then evaluate them all:
 
 ```python
 from sklearn.svm import SVC
@@ -291,7 +284,7 @@ print(f"Match: {np.isclose(xorq_score, sklearn_score)}")
 2. Test with a k-nearest neighbors classifier.
 3. Verify the scores match.
 
-You'll see:
+The output shows:
 
 ```
 Verification:
@@ -394,3 +387,6 @@ Now that you know how to compare models, continue learning:
 
 - [Train your first model](train_your_first_model.qmd) — Learn the basics of model training with Xorq
 - [Split data for training](split_data_for_training.qmd) — Create proper train/test/validation splits
+
+
+
