@@ -7,7 +7,7 @@
 ![PyPI - Version](https://img.shields.io/pypi/v/xorq)
 ![CI Status](https://img.shields.io/github/actions/workflow/status/xorq-labs/xorq/ci-test.yml)
 
-**A compute manifest and tools for ML.**
+**A compute manifest and composable tools for ML.**
 
 [Documentation](https://docs.xorq.dev) • [Website](https://www.xorq.dev)
 
@@ -17,12 +17,10 @@
 
 # The Problem
 
-You write a feature pipeline. It works on your laptop with DuckDB. Now deploying
-it to Snowflake ends up in a rewrite. Cache intermediate results, add infrastructure. Track
-what changed, add a metadata store. Serve the model, add a serving layer.
+You write a feature pipeline. It works on your laptop with DuckDB. Deploying
+it to Snowflake ends up in a rewrite. Intermediate results should be cached so you add infrastructure and a result naming system. A requirement to track pipeline changes is introduced, so you add a metadata store. Congrats, you're going to production! It's time to add a serving layer ...
 
-Six months later: five tools that don't talk to each other, a pipeline only one
-person understands.
+Six months later: five tools that don't talk to each other and a pipeline only one person understands
 
 | Pain | Symptom |
 |------|---------|
@@ -30,11 +28,11 @@ person understands.
 | **Runtime Feedback** | Imperative Python code where you can only tell if something will fail while running the job.
 | **Unnecessary recomputations** | No shared understanding of what changed. Everything runs from scratch. |
 | **Opaque Lineages** | Feature logic, metadata, lineage. All in different systems. Debugging means archaeology. |
-| **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup. |
+| **"Works on my machine"** | Environments drift. Reproducing results means reverse engineering someone's setup and interrogating your own. |
 | **Stateful orchestrators** | Retry logic, task states, failure recovery. Another system to manage, another thing that breaks.
 
-Feature stores. Model registries. Orchestrators. Vertical silos that don't
-serve agentic AI, which needs context and skills, not categories.
+Feature stores, Model registries, Orchestrators: Vertical silos that don't
+serve agentic processes, which needs context and skills, not categories.
 
 # Xorq
 
@@ -45,7 +43,7 @@ serve agentic AI, which needs context and skills, not categories.
 input-addressed YAML manifest.
 
 **Tools = Skills.** A catalog to discover. A build system to deterministically
-cache and execute anywhere.
+execute anywhere with user directed caching.
 
 ```bash
 pip install xorq[examples]
