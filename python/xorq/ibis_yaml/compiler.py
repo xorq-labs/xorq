@@ -77,6 +77,11 @@ class DumpFiles(StrEnum):
     sql = "sql.yaml"
 
 
+class MemtableTypes(StrEnum):
+    inmemory = "memtables"
+    database_table = "database_tables"
+
+
 memory_backends = ("pandas", "duckdb", "datafusion", "xorq")
 table_like_ops = tuple(o for o in opaque_ops if issubclass(o, DatabaseTable))
 
@@ -322,7 +327,7 @@ class ExprDumper:
         return (path, writer)
 
     def _prepare_memtable(self, mt, which):
-        assert which in ("database_tables", "memtables")
+        assert which in MemtableTypes
         table = mt.to_expr().to_pyarrow()
         filename = f"{dask.base.tokenize(table)}.parquet"
         path_parts = (which, filename)
@@ -417,14 +422,14 @@ class ExprDumper:
         op = expr.op()
         mts = walk_nodes((InMemoryTable,), expr)
         for mt in mts:
-            path, writer = self._prepare_memtable(mt, "memtables")
+            path, writer = self._prepare_memtable(mt, MemtableTypes.inmemory)
             dr_op = make_read_op(
                 parquet_path=path,
                 read_kwargs={
                     "table_name": mt.name,
                     "schema": mt.schema,
                 },
-                args_values={IS_INMEMORY: True},
+                args_values={MemtableTypes.inmemory: True},
             )
             path_to_writer[path] = writer
             op = replace_nodes(replace_from_to(mt, dr_op), expr)
@@ -441,7 +446,7 @@ class ExprDumper:
         )
         path_to_writer = {}
         for table in tables:
-            path, writer = self._prepare_memtable(table, "database_tables")
+            path, writer = self._prepare_memtable(table, MemtableTypes.database_table)
             dr_op = make_read_op(
                 parquet_path=path,
                 read_kwargs={
@@ -450,7 +455,7 @@ class ExprDumper:
                     "normalize_method": normalize_read_path_md5sum,
                     "schema": table.schema,
                 },
-                args_values={IS_DATABASE_TABLE: True},
+                args_values={MemtableTypes.database_table: True},
                 con=table.source,
             )
             path_to_writer[path] = writer
@@ -515,13 +520,15 @@ class ExprLoader:
     @staticmethod
     def deferred_reads_to_memtables(loaded):
         def deferred_read_to_memtable(dr):
-            assert dr.values.get(IS_INMEMORY)
+            assert dr.values.get(MemtableTypes.inmemory)
             path = next(v for k, v in dr.read_kwargs if k == "path")
             df = read_parquet(path).execute()
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt
 
-        drs = tuple(dr for dr in loaded.op().find(Read) if dr.values.get(IS_INMEMORY))
+        drs = tuple(
+            dr for dr in loaded.op().find(Read) if dr.values.get(MemtableTypes.inmemory)
+        )
         op = loaded.op()
         for dr in drs:
             mt = deferred_read_to_memtable(dr)
@@ -565,10 +572,6 @@ def build_expr(expr, **kwargs):
     expr_dumper = ExprDumper(expr, **kwargs)
     expr_path = expr_dumper.dump_expr()
     return expr_path
-
-
-IS_INMEMORY = "is-inmemory"
-IS_DATABASE_TABLE = "is-database-table"
 
 
 @toolz.curry
