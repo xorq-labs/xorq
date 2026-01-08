@@ -23,8 +23,9 @@ class InitTemplates(StrEnum):
         return dict(templates_branches).get(template, default_branch)
 
 
+# NOTE: These are commit hashes from when the template update occurred
 templates_branches = (
     (InitTemplates.cached_fetcher, "832543bcee23a6db0f835ddee64364583e156a94"),
-    (InitTemplates.sklearn, "29366e03ec07b1e8e9ee9ae8a5f99fbf40e0e07c"),
-    (InitTemplates.penguins, "089e1694792437ba56f51e69c73ede724c649286"),
+    (InitTemplates.sklearn, "64f8a2b03d582773a1bfa5879c2befba6d23f675"),
+    (InitTemplates.penguins, "56680c2fdb5745ae1a9c45394f28cf3707e26670"),
 )

@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] - 2026-01-08
+### Details
+#### Added
+- Add sdist.tar.gz as part of build artifacts by @hussainsultan in [#1477](https://github.com/xorq-labs/xorq/pull/1477)
+
+#### Changed
+- Restructure documentation and populate the Getting Started and Tutorials tabs by @Olamideod in [#1451](https://github.com/xorq-labs/xorq/pull/1451)
+- Refactor expr dump/load, naming by @dlovell in [#1492](https://github.com/xorq-labs/xorq/pull/1492)
+- Cleanup translate by @mesejo in [#1459](https://github.com/xorq-labs/xorq/pull/1459)
+
+#### Removed
+- Remove assert_not_in_nix_shell for uv_tool_run by @hussainsultan in [#1494](https://github.com/xorq-labs/xorq/pull/1494)
+
 ## [0.3.6] - 2026-01-05
 ### Details
 #### Added
