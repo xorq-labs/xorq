@@ -98,7 +98,7 @@ expr.ls.backends
 ## Translate Python to many SQLs
 
 Expressions are declarative i.e. you describe what, not how. When bound to a
-backend, Xorq invokes that backend to generate an arrow record batch stream.
+backend and executed, Xorq invokes that backend to generate an arrow record batch stream.
 Errors surface at definition time, not during execution time.
 Custom Python logic runs as UDFs, but the relational core is always SQL.
 One expression, many dialects, early feedback.
