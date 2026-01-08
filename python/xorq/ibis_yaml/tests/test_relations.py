@@ -87,6 +87,6 @@ def test_limit(compiler, t):
     expression = yaml_dict["expression"]
 
     assert expression["op"] == "Limit"
-    assert expression["n"] == 10
+    assert expression["n"]["value"] == 10
     roundtrip_expr = compiler.from_yaml(yaml_dict)
     assert roundtrip_expr.equals(expr)
