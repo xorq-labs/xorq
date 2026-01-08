@@ -159,7 +159,7 @@ nodes:
 
 ## Reproducible builds
 
-The manifest is roundtrippable—machine-readable and machine-writable. Git-diff
+The manifest is roundtrippable and machine-writeable. Git-diff
 your pipelines. Code review your features. Track python dependencies. Rebuild from YAML alone.
 
 ```bash
