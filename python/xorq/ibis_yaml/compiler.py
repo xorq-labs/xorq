@@ -274,7 +274,8 @@ def make_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
 @frozen
 class ExprDumper:
     """
-    build_dir: root directory where build artifacts are stored
+    expr: the expr to be built
+    builds_dir: root directory where expr builds are stored
     cache_dir: optional directory for parquet cache files
     debug: when True, output SQL files and debug artifacts (sql.yaml, deferred_reads.yaml)
     """
