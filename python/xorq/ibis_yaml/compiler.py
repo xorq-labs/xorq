@@ -304,6 +304,17 @@ class ExprDumper:
     def expr_hash(self):
         return self.expr_path.name
 
+    def _prepare_expr_file(self, expr, profiles):
+        path = self.artifact_store.get_path(DumpFiles.expr)
+        # we can't translate to yaml until the memtable parquets are written: they will be tokenized
+        writer = toolz.compose(
+            functools.partial(self.artifact_store.save_yaml, filename=DumpFiles.expr),
+            functools.partial(
+                YamlExpressionTranslator.to_yaml, expr, profiles, self.cache_dir
+            ),
+        )
+        return (path, writer)
+
     def _prepare_sql_file(self, sql: str) -> str:
         sql_hash = dask.base.tokenize(sql)[: config.hash_length]
         filename = f"{sql_hash}.sql"
@@ -389,40 +400,77 @@ class ExprDumper:
         path_to_writer = path_to_writer0 | path_to_writer1 | path_to_writer2
         return path_to_writer
 
+    def _memtables_to_deferred_reads(self, expr):
+        path_to_writer = {}
+        op = expr.op()
+        mts = walk_nodes((InMemoryTable,), expr)
+        for mt in mts:
+            path, writer = self._prepare_memtable(mt, "memtables")
+            dr_op = make_read_op(
+                parquet_path=path,
+                read_kwargs={
+                    "table_name": mt.name,
+                    "schema": mt.schema,
+                },
+                args_values={IS_INMEMORY: True},
+            )
+            path_to_writer[path] = writer
+            op = replace_nodes(replace_from_to(mt, dr_op), expr)
+        new_expr = op.to_expr()
+        return new_expr, path_to_writer
+
+    def _replace_inmemory_backend_tables(self, expr):
+        op = expr.op()
+        tables = (
+            table
+            for table in walk_nodes((DatabaseTable,), expr)
+            if not isinstance(table, table_like_ops)
+            and table.source.name in memory_backends
+        )
+        path_to_writer = {}
+        for table in tables:
+            path, writer = self._prepare_memtable(table, "database_tables")
+            dr_op = make_read_op(
+                parquet_path=path,
+                read_kwargs={
+                    "table_name": table.name,
+                    # we normalize based on content so we can reproducible hash
+                    "normalize_method": normalize_read_path_md5sum,
+                    "schema": table.schema,
+                },
+                args_values={IS_DATABASE_TABLE: True},
+                con=table.source,
+            )
+            path_to_writer[path] = writer
+            op = replace_nodes(replace_from_to(table, dr_op), expr)
+        new_expr = op.to_expr()
+        return new_expr, path_to_writer
+
     def dump_expr(self) -> str:
         # we will mutate the expr below
         expr = self.expr
 
         # write in-memory data to build dir
-        expr, path_to_writer0 = memtables_to_deferred_reads(self, expr)
-        expr, path_to_writer1 = replace_inmemory_backend_tables(self, expr)
+        expr, path_to_writer0 = self._memtables_to_deferred_reads(expr)
+        expr, path_to_writer1 = self._replace_inmemory_backend_tables(expr)
 
         profiles = dehydrate_cons(find_all_sources(expr))
-        metadata_json = self._make_metadata()
         path_to_writer2 = {
             self.artifact_store.get_path(*parts): functools.partial(f, obj, *parts)
             for (f, obj, parts) in (
                 (self.artifact_store.save_yaml, profiles, (DumpFiles.profiles,)),
                 (
                     self.artifact_store.write_text,
-                    metadata_json,
+                    self._make_metadata(),
                     (DumpFiles.metadata,),
                 ),
             )
         }
-
-        path = self.artifact_store.get_path(DumpFiles.expr)
-        # we can't translate to yaml until the memtable parquets are written: they will be tokenized
-        writer = toolz.compose(
-            functools.partial(self.artifact_store.save_yaml, filename=DumpFiles.expr),
-            functools.partial(
-                YamlExpressionTranslator.to_yaml, expr, profiles, self.cache_dir
-            ),
-        )
-
+        path, writer = self._prepare_expr_file(expr, profiles)
         path_to_writer = (
             path_to_writer0 | path_to_writer1 | path_to_writer2 | {path: writer}
         )
+
         if self.debug:
             # write SQL plan and deferred-read artifacts if debug enabled
             path_to_writer |= self._prepare_debug_info()
@@ -521,61 +569,3 @@ def deferred_reads_to_memtables(loaded):
         mt = deferred_read_to_memtable(dr)
         op = op.replace(replace_from_to(dr, mt))
     return op.to_expr()
-
-
-def memtables_to_deferred_reads(expr_dumper, expr):
-    def memtable_to_read_op(expr_dumper, mt):
-        path, writer = expr_dumper._prepare_memtable(mt, "memtables")
-        op = make_read_op(
-            parquet_path=path,
-            read_kwargs={
-                "table_name": mt.name,
-                "schema": mt.schema,
-            },
-            args_values={IS_INMEMORY: True},
-        )
-        return op, (path, writer)
-
-    path_to_writer = {}
-    op = expr.op()
-    mts = walk_nodes((InMemoryTable,), expr)
-    for mt in mts:
-        dr_op, (path, writer) = memtable_to_read_op(expr_dumper, mt)
-        path_to_writer[path] = writer
-        op = replace_nodes(replace_from_to(mt, dr_op), expr)
-    new_expr = op.to_expr()
-    return new_expr, path_to_writer
-
-
-def replace_inmemory_backend_tables(expr_dumper, expr):
-    def database_table_to_read_op(expr_dumper, mt, con):
-        path, writer = expr_dumper._prepare_memtable(mt, "database_tables")
-        op = make_read_op(
-            parquet_path=path,
-            read_kwargs={
-                "table_name": mt.name,
-                # we normalize based on content so we can reproducible hash
-                "normalize_method": normalize_read_path_md5sum,
-                "schema": mt.schema,
-            },
-            args_values={IS_DATABASE_TABLE: True},
-            con=con,
-        )
-        return op, (path, writer)
-
-    op = expr.op()
-    tables = (
-        table
-        for table in walk_nodes((DatabaseTable,), expr)
-        if not isinstance(table, table_like_ops)
-        and table.source.name in memory_backends
-    )
-    path_to_writer = {}
-    for table in tables:
-        dr_op, (path, writer) = database_table_to_read_op(
-            expr_dumper, table, con=table.source
-        )
-        path_to_writer[path] = writer
-        op = replace_nodes(replace_from_to(table, dr_op), expr)
-    new_expr = op.to_expr()
-    return new_expr, path_to_writer
