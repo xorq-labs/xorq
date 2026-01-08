@@ -206,13 +206,15 @@
       <text x="27" y="60" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7">DUCKDB</text>
       <rect x="0" y="74" width="55" height="24" rx="3" fill="#05181A" stroke="#C1F0FF" stroke-width="1"/>
       <text x="27" y="90" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7">DATAFUSION</text>
+      <rect x="0" y="104" width="55" height="24" rx="3" fill="#05181A" stroke="#C1F0FF" stroke-width="1" opacity="0.7"/>
+      <text x="27" y="120" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7">BIGQUERY</text>
     </g>
 
     <!-- LLM LAYER - same width as composition area, vertically aligned with left side -->
     <g transform="translate(0, 295)">
       <rect x="0" y="0" width="390" height="65" rx="4" fill="#05181A" stroke="#C1F0FF" stroke-width="1.5"/>
 
-      <text x="195" y="22" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="11" font-weight="700">[LLM / AGENT]</text>
+      <text x="195" y="23" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="11" font-weight="700">[LLM / AGENT]</text>
 
       <!-- Interaction arrows connecting to composition box above -->
       <g transform="translate(50, -12)">
@@ -236,14 +238,18 @@
         <text x="0" y="26" text-anchor="middle" fill="#C1F0FF" opacity="0.4" font-family="'Space Mono', monospace" font-size="6">EXECUTE</text>
       </g>
 
-      <!-- Context and Skills boxes -->
-      <g transform="translate(15, 36)">
-        <rect x="0" y="0" width="175" height="20" rx="2" fill="#05181A" stroke="#C1F0FF" stroke-width="0.75"/>
-        <text x="87" y="14" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">CONTEXT = MANIFEST</text>
+      <!-- Context, Skills, and Tools boxes -->
+      <g transform="translate(10, 36)">
+        <rect x="0" y="0" width="120" height="20" rx="2" fill="#05181A" stroke="#C1F0FF" stroke-width="0.75"/>
+        <text x="60" y="14" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">CONTEXT = MANIFEST</text>
       </g>
-      <g transform="translate(200, 36)">
-        <rect x="0" y="0" width="175" height="20" rx="2" fill="#05181A" stroke="#C1F0FF" stroke-width="0.75"/>
-        <text x="87" y="14" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">SKILLS = TOOLS</text>
+      <g transform="translate(135, 36)">
+        <rect x="0" y="0" width="120" height="20" rx="2" fill="#05181A" stroke="#C1F0FF" stroke-width="0.75"/>
+        <text x="60" y="14" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">SKILLS = TEMPLATES</text>
+      </g>
+      <g transform="translate(260, 36)">
+        <rect x="0" y="0" width="120" height="20" rx="2" fill="#05181A" stroke="#C1F0FF" stroke-width="0.75"/>
+        <text x="60" y="14" text-anchor="middle" fill="#C1F0FF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">TOOLS = EXPRS</text>
       </g>
     </g>
   </g>
