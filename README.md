@@ -122,7 +122,6 @@ builds/28ecab08754e
 ├── expr.yaml
 ├── metadata.json
 └── profiles.yaml
-└── sdist.tar.gz
 ```
 
 No external metadata store. No separate lineage tool. The build directory *is*
