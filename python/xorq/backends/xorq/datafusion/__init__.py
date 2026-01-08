@@ -722,15 +722,22 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
         chunk_size: int = 1_000_000,
         **kwargs: Any,
     ):
+        from xorq.backends.xorq.datafusion.converter import (
+            DataFusionPyArrowData,
+            DataFusionPyArrowSchema,
+            DataFusionPyArrowType,
+        )
+
         pa = self._import_pyarrow()
+
         self._register_udfs(expr)
         self._register_in_memory_tables(expr)
         table_expr = expr.as_table()
         raw_sql = self.compile(table_expr, **kwargs)
         frame = self.con.sql(raw_sql)
         schema = table_expr.schema()
-        pyarrow_schema = schema.to_pyarrow()
-        struct_schema = schema.as_struct().to_pyarrow()
+        pyarrow_schema = DataFusionPyArrowSchema.from_ibis(schema)
+        struct_schema = DataFusionPyArrowType.from_ibis(schema.as_struct())
 
         def make_gen():
             yield from (
@@ -738,7 +745,13 @@ class Backend(SQLBackend, CanCreateCatalog, CanCreateDatabase, CanCreateSchema, 
                 pa.RecordBatch.from_struct_array(
                     # rename columns to match schema because datafusion lowercases things
                     pa.RecordBatch.from_arrays(
-                        batch.to_pyarrow().columns, schema=pyarrow_schema
+                        [
+                            DataFusionPyArrowData.convert_column(column, dtype)
+                            for column, (_, dtype) in zip(
+                                batch.to_pyarrow().columns, schema.items()
+                            )
+                        ],
+                        schema=pyarrow_schema,
                     )
                     # cast the struct array to the desired types to work around
                     # https://github.com/apache/arrow-datafusion-python/issues/534
