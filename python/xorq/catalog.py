@@ -15,20 +15,26 @@ from attrs import evolve, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
 
 import xorq as xo
+from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+    file_digest,
+)
 from xorq.common.utils.func_utils import (
     if_not_none,
 )
 from xorq.ibis_yaml.compiler import (
-    BuildManager,
+    DumpFiles,
     load_expr,
 )
+
+
+CATALOG_YAML_FILENAME = "catalog.yaml"
 
 
 def get_default_catalog_path():
     # dynamically retrieve: tests need to monkeypatch XDG_CONFIG_HOME
     return (
         Path(os.environ.get("XDG_CONFIG_HOME") or Path.home().joinpath(".config"))
-        .joinpath("xorq", "catalog.yaml")
+        .joinpath("xorq", CATALOG_YAML_FILENAME)
         .absolute()
     )
 
@@ -83,7 +89,7 @@ def convert_build(value):
         case None:
             return None
         case dict():
-            return Build(**value)
+            return Build.from_dict(value)
         case Build():
             return value
         case _:
@@ -106,9 +112,7 @@ class CatalogMetadata:
         """Return new metadata with updated timestamp."""
         return self.evolve(updated_at=get_now_utc())
 
-    def evolve(self, **kwargs) -> "CatalogMetadata":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(catalog_id=str)
 
@@ -128,9 +132,7 @@ class Build:
         converter=toolz.curried.excepts(Exception, Path),
     )
 
-    def evolve(self, **kwargs) -> "Build":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(path=if_not_none(str))
 
@@ -165,9 +167,7 @@ class Revision:
         default=None, validator=optional(instance_of(str))
     )
 
-    def evolve(self, **kwargs) -> "Revision":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(build=if_not_none(Build.to_dict))
 
@@ -210,9 +210,7 @@ class Entry:
             return None
         return self.maybe_get_revision(self.current_revision)
 
-    def evolve(self, **kwargs) -> "Entry":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict(
         history=toolz.compose(tuple, functools.partial(map, Revision.to_dict))
@@ -246,9 +244,7 @@ class Alias:
         converter=convert_datetime,
     )
 
-    def evolve(self, **kwargs) -> "Alias":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     to_dict = to_dict
 
@@ -316,9 +312,7 @@ class XorqCatalog:
         """Get all entry IDs."""
         return tuple(e.entry_id for e in self.entries)
 
-    def evolve(self, **kwargs) -> "XorqCatalog":
-        """Create a copy with specified changes."""
-        return evolve(self, **kwargs)
+    evolve = evolve
 
     def resolve_target(self, target: str):
         return Target.from_str(target, self)
@@ -515,16 +509,16 @@ def maybe_resolve_build_dirs(
 def get_diff_file_list(
     left_dir: Path, right_dir: Path, files: list[str] | None, all_flag: bool
 ) -> tuple[str, ...]:
-    default = ("expr.yaml",)
+    default = (DumpFiles.expr,)
     if files is not None:
         return tuple(files)
     if all_flag:
         default_files = (
-            "expr.yaml",
-            "deferred_reads.yaml",
-            "profiles.yaml",
-            "sql.yaml",
-            "metadata.json",
+            DumpFiles.expr,
+            DumpFiles.deferred_reads,
+            DumpFiles.profiles,
+            DumpFiles.sql,
+            DumpFiles.metadata,
         )
         sqls = {p.relative_to(left_dir).as_posix() for p in left_dir.rglob("*.sql")} | {
             p.relative_to(right_dir).as_posix() for p in right_dir.rglob("*.sql")
@@ -624,11 +618,28 @@ class AddBuildResult:
 
 
 def validate_build(request: AddBuildRequest) -> BuildInfo:
-    build_id, meta_digest = BuildManager.validate_build(request.build_path.resolve())
+    def get_meta_file(path):
+        build_path = Path(path)
+        meta_file = build_path / DumpFiles.metadata
+        if not build_path.exists() or not build_path.is_dir():
+            raise ValueError(f"Build path not found: {build_path}")
+        if not meta_file.exists():
+            raise ValueError(
+                f"{DumpFiles.metadata} not found in build path: {build_path}"
+            )
+        return meta_file
+
+    source_path = request.build_path.resolve()
+    meta_file = get_meta_file(source_path)
+    # The build_id is the directory name
+    build_id = meta_file.parent.name
+    # Compute meta_digest from metadata.json
+    meta_digest = f"sha1:{file_digest(meta_file)}"
+
     return BuildInfo(
         build_id=build_id,
         meta_digest=meta_digest,
-        source_path=request.build_path.resolve(),
+        source_path=source_path,
     )
 
 

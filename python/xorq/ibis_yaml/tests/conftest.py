@@ -8,6 +8,7 @@ from xorq.ibis_yaml.common import (
     RefEnum,
     RegistryEnum,
 )
+from xorq.ibis_yaml.compiler import YamlExpressionTranslator
 
 
 # Fixtures from: https://github.com/ibis-project/ibis-substrait/blob/main/ibis_substrait/tests/compiler/test_tpch.py
@@ -821,12 +822,10 @@ def tpc_h22(customer, orders):
 
 
 @pytest.fixture
-def build_dir(tmp_path_factory):
+def builds_dir(tmp_path_factory):
     return tmp_path_factory.mktemp("builds")
 
 
 @pytest.fixture
-def compiler(build_dir):
-    from xorq.ibis_yaml.compiler import YamlExpressionTranslator
-
-    return YamlExpressionTranslator()
+def compiler():
+    return YamlExpressionTranslator
