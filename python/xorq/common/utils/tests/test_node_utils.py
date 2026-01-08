@@ -8,6 +8,7 @@ import xorq.vendor.ibis.expr.operations as ops
 from xorq.caching import (
     SourceCache,
 )
+from xorq.caching.strategy import SnapshotStrategy
 from xorq.common.utils.graph_utils import (
     walk_nodes,
 )
@@ -157,3 +158,28 @@ def test_expr_to_unbound(expr_to_hash, tag_value):
     unbound = expr_to_unbound(expr_cached, to_replace_hash, to_replace_tag, None)
     assert unbound is not None
     assert tuple(walk_nodes(ops.UnboundTable, unbound))
+
+
+@pytest.mark.parametrize(
+    "to_find_name",
+    (
+        "batting",
+        "batting_cached",
+        "awards_players",
+        "expr_cached",
+    ),
+)
+def test_snapshot_hash_alignment_with_ibis_yaml(to_find_name):
+    """Test that find_by_expr_hash uses snapshot hash like ibis_yaml serialization"""
+    dct = make_exprs()
+    (expr_cached, to_find) = (dct[k] for k in ("expr_cached", to_find_name))
+
+    node = to_find.op()
+    node_expr = node.to_expr()
+    with SnapshotStrategy().normalization_context(node_expr):
+        snapshot_hash = dask.base.tokenize(node_expr.ls.untagged)
+
+    typs = (type(node),)
+    found = find_by_expr_hash(expr_cached, snapshot_hash, typs=typs)
+
+    assert found == node

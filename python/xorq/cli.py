@@ -10,6 +10,7 @@ from opentelemetry import trace
 
 import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog import (
     ServerRecord,
     catalog_command,
@@ -324,7 +325,11 @@ def unbind_and_serve_command(
 
     expr = load_expr(expr_path, cache_dir=cache_dir)
     unbound_expr = expr_to_unbound(
-        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+        expr,
+        hash=to_unbind_hash,
+        tag=to_unbind_tag,
+        typs=typ,
+        strategy=SnapshotStrategy(),
     )
     flight_url = xorq.flight.FlightUrl(host=host, port=port)
     make_server = partial(
