@@ -42,8 +42,11 @@ serve agentic processes, which need context and skills, not categories.
 **Manifest = Context.** Every ML computation becomes a structured,
 input-addressed YAML manifest.
 
-**Tools = Skills.** A catalog to discover. A build system to deterministically
+**Exprs = Tools.** A catalog to discover. A build system to deterministically
 execute anywhere with user directed caching.
+
+**Templates = Skills.** Various skills to get started e.g. scikit-learn
+pipeline, feature stores, semantic layers etc.
 
 ```bash
 $ pip install xorq[examples]
@@ -54,11 +57,13 @@ $ xorq init -t penguins
 
 # The Expression
 
-Write declarative [Ibis](https://ibis-project.org) expressions. Xorq extends
-Ibis with caching, multi-engine execution, and UDFs.
+Write declarative [Ibis](https://ibis-project.org) expressions that can be
+run like a tool. Xorq extends Ibis with caching, multi-engine execution, and
+UDFs.
 
 ```python
 import ibis
+import xorq.api as xo
 from xorq.common.utils.ibis_utils import from_ibis
 from xorq.caching import ParquetCache
 
@@ -93,6 +98,16 @@ expr.ls.backends
 ```
 (<xorq.backends.sqlite.Backend at 0x7926a815caa0>,
  <xorq.backends.duckdb.Backend at 0x7926b409faa0>)
+```
+
+## Expressions are tools, Arrow is the pipe
+
+Unix gave us small programs that compose via stdout. Xorq gives you
+expressions that compose via Arrow.
+
+```
+In [6]: expr.to_pyarrow_batches()
+Out[6]: <pyarrow.lib.RecordBatchReader at 0x15dc3f570>
 ```
 
 ## Translate Python to many SQLs
@@ -193,7 +208,6 @@ Change an input, get a new hash, trigger recomputation.
 Traditional caching asks "has this expired?" Input-addressed caching asks "is
 this the same computation?" The second question has a deterministic answer.
 
-
 ---
 
 # The Tools
@@ -292,21 +306,7 @@ Xorq executes expressions as Arrow RecordBatch streams. There's no DAG of tasks
 to checkpoint, just data flowing through operators. If something fails, rerun
 from the manifest. Cached nodes resolve instantly; the rest recomputes.
 
----
-
-## Templates
-
-Ready-to-start projects:
-
-```bash
-# Penguins aggregation
-$ xorq init -t penguins
-
-# Sklearn digits classification
-$ xorq init -t sklearn
-```
-
-### Scikit-learn Integration
+## Scikit-learn Integration
 
 Xorq translates `scikit-learn` Pipeline objects to deferred expressions:
 
@@ -316,9 +316,41 @@ from xorq.expr.ml.pipeline_lib import Pipeline
 sklearn_pipeline = ...
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 ```
+
+---
+# Templates
+
+Ready-to-start code as skills:
+```bash
+$ xorq init -t <template>
+```
+
+| Template | Description |
+|----------|-------------|
+| `penguins` | Minimal example: caching, aggregation, multi-engine |
+| `sklearn` | Classification pipeline with train/predict separation |
+
+## Bring your own
+
+```
+xorq init -t ./my-template or xorq init -t git@github.com:org/template. Templates are just directories with a manifest and expr.py. No plugin system to learn.
+```
+
+## Skills for agents, not just humans
+
+Templates are LLM ingestable and runnable code. An agent can discover what templates
+exist, understand how they work, and build new exprs.
+
+### Coming Soon
+
+- `feast` — Feature store integration
+- `boring-semantic-layer` — Metrics and dimensions catalog
+- `dbt` — dbt model composition
+- Feature Selection
+
 ---
 
-## The Horizontal Stack
+# The Horizontal Stack
 
 Write in Python. Catalog as YAML. Compose anywhere via Ibis. Portable compute
 engine built on DataFusion. Universal UDFs via Arrow Flight.
@@ -333,7 +365,7 @@ in a vendor's database.
 
 ---
 
-## Learn More
+# Learn More
 
 - [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
 - [Why Xorq?](https://docs.xorq.dev/#why-xorq)
