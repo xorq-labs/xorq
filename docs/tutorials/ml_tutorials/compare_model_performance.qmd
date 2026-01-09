@@ -299,7 +299,7 @@ Understanding this gives you confidence to use Xorq in production. You're not ch
 
 ## Complete example
 
-Here's the full workflow in one place. If you started with the Python shell, you've already run all of this. If you want to create a script, here's everything combined:
+Here's the full workflow in one place. If you started with the Python shell, then you've already run all of this. If you want to create a script, then here's everything combined:
 
 ```python
 import xorq.api as xo
