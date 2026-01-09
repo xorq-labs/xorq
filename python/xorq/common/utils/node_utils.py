@@ -163,11 +163,6 @@ def elide_downstream_cached_node(expr, downstream_of):
 def expr_to_unbound(expr, hash, tag, typs, strategy=None):
     """create an unbound expr that only needs to have a source of record batches fed in"""
 
-    from xorq.common.utils.graph_utils import (
-        replace_nodes,
-        walk_nodes,
-    )
-
     found = find_node(expr, hash=hash, tag=tag, typs=typs, strategy=strategy)
     found_expr = found.to_expr()
     to_unbind_hash = hash if hash else compute_expr_hash(found_expr, strategy)
