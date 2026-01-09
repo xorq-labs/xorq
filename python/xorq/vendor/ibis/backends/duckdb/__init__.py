@@ -30,7 +30,7 @@ from xorq.vendor.ibis.backends.sql.compilers.base import (
     STAR,
     AlterTable,
     C,
-    RenameTable
+    RenameTable,
 )
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
 from xorq.vendor.ibis.expr.operations.udf import InputType
