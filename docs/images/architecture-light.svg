@@ -1,0 +1,256 @@
+<svg viewBox="22 5 910 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&amp;family=Space+Mono:wght@400;700&amp;display=swap');
+    </style>
+  </defs>
+
+  <!-- Background: Light -->
+  <rect width="1000" height="420" fill="#F0FBFF"/>
+
+  <!-- ==================== LEFT: Vertical Silos ==================== -->
+  <g transform="translate(40, 30)">
+    <text x="150" y="0" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="11" font-weight="700" letter-spacing="1">[THE OLD WAY]</text>
+    <text x="150" y="18" text-anchor="middle" fill="#05181A" opacity="0.5" font-family="'Inter Tight', sans-serif" font-size="11">Vertical silos, forced order</text>
+
+    <!-- Four silos -->
+    <g transform="translate(10, 45)">
+      <!-- Silo 1 -->
+      <g transform="translate(0, 0)">
+        <rect x="5" y="20" width="60" height="160" rx="4" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <ellipse cx="35" cy="20" rx="30" ry="10" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <line x1="5" y1="60" x2="65" y2="60" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="100" x2="65" y2="100" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="140" x2="65" y2="140" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <text x="35" y="195" text-anchor="middle" fill="#05181A" opacity="0.6" font-family="'Space Mono', monospace" font-size="7" font-weight="700">FEATURE</text>
+        <text x="35" y="206" text-anchor="middle" fill="#05181A" opacity="0.6" font-family="'Space Mono', monospace" font-size="7" font-weight="700">STORE</text>
+      </g>
+
+      <rect x="70" y="15" width="3" height="165" fill="#F0FBFF" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+
+      <!-- Silo 2 -->
+      <g transform="translate(73, 0)">
+        <rect x="5" y="20" width="60" height="160" rx="4" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <ellipse cx="35" cy="20" rx="30" ry="10" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <line x1="5" y1="60" x2="65" y2="60" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="100" x2="65" y2="100" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="140" x2="65" y2="140" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <text x="35" y="195" text-anchor="middle" fill="#05181A" opacity="0.6" font-family="'Space Mono', monospace" font-size="7" font-weight="700">MODEL</text>
+        <text x="35" y="206" text-anchor="middle" fill="#05181A" opacity="0.6" font-family="'Space Mono', monospace" font-size="7" font-weight="700">REGISTRY</text>
+      </g>
+
+      <rect x="143" y="15" width="3" height="165" fill="#F0FBFF" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+
+      <!-- Silo 3 -->
+      <g transform="translate(146, 0)">
+        <rect x="5" y="20" width="60" height="160" rx="4" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <ellipse cx="35" cy="20" rx="30" ry="10" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <line x1="5" y1="60" x2="65" y2="60" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="100" x2="65" y2="100" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="140" x2="65" y2="140" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <text x="35" y="195" text-anchor="middle" fill="#05181A" opacity="0.6" font-family="'Space Mono', monospace" font-size="7" font-weight="700">ORCH-</text>
+        <text x="35" y="206" text-anchor="middle" fill="#05181A" opacity="0.6" font-family="'Space Mono', monospace" font-size="7" font-weight="700">ESTRATOR</text>
+      </g>
+
+      <rect x="216" y="15" width="3" height="165" fill="#F0FBFF" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+
+      <!-- Silo 4 -->
+      <g transform="translate(219, 0)">
+        <rect x="5" y="20" width="60" height="160" rx="4" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <ellipse cx="35" cy="20" rx="30" ry="10" fill="#D8F3FF" stroke="#05181A" stroke-opacity="0.25" stroke-width="1"/>
+        <line x1="5" y1="60" x2="65" y2="60" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="100" x2="65" y2="100" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <line x1="5" y1="140" x2="65" y2="140" stroke="#05181A" stroke-opacity="0.1" stroke-width="1"/>
+        <text x="35" y="200" text-anchor="middle" fill="#05181A" opacity="0.6" font-family="'Space Mono', monospace" font-size="7" font-weight="700">SERVING</text>
+      </g>
+    </g>
+
+    <!-- Ground -->
+    <rect x="0" y="270" width="300" height="3" rx="1" fill="#05181A" opacity="0.15"/>
+
+    <!-- LLM (frustrated) - aligned with right side LLM box -->
+    <g transform="translate(50, 295)">
+      <rect x="0" y="0" width="200" height="65" rx="4" fill="#F0FBFF" stroke="#05181A" stroke-width="1" stroke-dasharray="4,2" opacity="0.5"/>
+      <text x="100" y="26" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="11" font-weight="700">[LLM / AGENT]</text>
+      <text x="100" y="46" text-anchor="middle" fill="#05181A" opacity="0.4" font-family="'Inter Tight', sans-serif" font-size="9">? different APIs per silo</text>
+
+      <path d="M40,-8 L40,-20" fill="none" stroke="#05181A" stroke-width="1" stroke-dasharray="3,2" opacity="0.4"/>
+      <path d="M100,-8 L100,-20" fill="none" stroke="#05181A" stroke-width="1" stroke-dasharray="3,2" opacity="0.4"/>
+      <path d="M160,-8 L160,-20" fill="none" stroke="#05181A" stroke-width="1" stroke-dasharray="3,2" opacity="0.4"/>
+
+      <text x="40" y="-25" text-anchor="middle" fill="#05181A" opacity="0.5" font-family="'Space Mono', monospace" font-size="10">✗</text>
+      <text x="100" y="-25" text-anchor="middle" fill="#05181A" opacity="0.5" font-family="'Space Mono', monospace" font-size="10">✗</text>
+      <text x="160" y="-25" text-anchor="middle" fill="#05181A" opacity="0.5" font-family="'Space Mono', monospace" font-size="10">✗</text>
+    </g>
+  </g>
+
+  <!-- Center Arrow -->
+  <g transform="translate(355, 200)">
+    <line x1="0" y1="0" x2="60" y2="0" stroke="#05181A" stroke-width="2"/>
+    <polygon points="60,-5 72,0 60,5" fill="#05181A"/>
+  </g>
+
+  <!-- ==================== RIGHT: Horizontal Stack ==================== -->
+  <g transform="translate(460, 30)">
+    <text x="195" y="0" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="11" font-weight="700" letter-spacing="1">[THE HORIZONTAL STACK]</text>
+    <text x="195" y="18" text-anchor="middle" fill="#05181A" opacity="0.5" font-family="'Inter Tight', sans-serif" font-size="11">Composable blocks, any engine</text>
+
+    <!-- Available Blocks Palette -->
+    <g transform="translate(0, 38)">
+      <rect x="0" y="0" width="55" height="28" rx="4" fill="#05181A"/>
+      <text x="27" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">READ</text>
+
+      <rect x="60" y="0" width="55" height="28" rx="4" fill="#05181A"/>
+      <text x="87" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">FILTER</text>
+
+      <rect x="120" y="0" width="55" height="28" rx="4" fill="#05181A"/>
+      <text x="147" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">AGG</text>
+
+      <rect x="180" y="0" width="55" height="28" rx="4" fill="#05181A"/>
+      <text x="207" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">JOIN</text>
+
+      <rect x="240" y="0" width="55" height="28" rx="4" fill="#05181A"/>
+      <text x="267" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">CACHE</text>
+
+      <rect x="300" y="0" width="90" height="28" rx="4" fill="#05181A" stroke="#05181A" stroke-width="0.5"/>
+      <text x="345" y="12" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="6" font-weight="700">INTO_BACKEND</text>
+      <text x="345" y="22" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="6" opacity="0.6">(engine)</text>
+    </g>
+
+    <!-- Composition area -->
+    <g transform="translate(0, 82)">
+      <rect x="0" y="0" width="390" height="188" rx="4" fill="#F0FBFF" stroke="#05181A" stroke-width="1" stroke-dasharray="4,2" opacity="0.5"/>
+
+      <!-- Composition examples -->
+      <g transform="translate(15, 18)">
+        <!-- Row 1 -->
+        <g transform="translate(0, 0)">
+          <rect x="0" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="22" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">READ</text>
+          <line x1="45" y1="14" x2="53" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="53" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="75" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">FILTER</text>
+          <line x1="98" y1="14" x2="106" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="106" y="0" width="68" height="28" rx="4" fill="#05181A" stroke="#05181A" stroke-width="0.5"/>
+          <text x="140" y="12" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="6" font-weight="700">INTO_BACKEND</text>
+          <text x="140" y="22" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="6" opacity="0.6">(snowflake)</text>
+          <line x1="174" y1="14" x2="182" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="182" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="204" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">AGG</text>
+          <line x1="227" y1="14" x2="235" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="235" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="257" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">CACHE</text>
+        </g>
+
+        <!-- Row 2 -->
+        <g transform="translate(15, 62)">
+          <rect x="0" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="22" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">READ</text>
+          <line x1="45" y1="14" x2="53" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="53" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="75" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">FILTER</text>
+          <line x1="98" y1="14" x2="106" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="106" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="128" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">UDF</text>
+          <line x1="151" y1="14" x2="159" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="159" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="181" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="7" font-weight="700">CACHE</text>
+          <line x1="204" y1="14" x2="212" y2="14" stroke="#05181A" stroke-width="1.5"/>
+          <rect x="212" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="234" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">AGG</text>
+        </g>
+
+        <!-- Row 3 - JOIN composition of expr1 and expr2 -->
+        <g transform="translate(0, 124)">
+          <!-- Reference to expr 1 (pill style) -->
+          <rect x="0" y="0" width="70" height="28" rx="14" fill="#F0FBFF" stroke="#05181A" stroke-width="1"/>
+          <text x="35" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">28ecab08</text>
+
+          <line x1="70" y1="14" x2="95" y2="14" stroke="#05181A" stroke-width="1.5"/>
+
+          <!-- JOIN block -->
+          <rect x="95" y="0" width="45" height="28" rx="4" fill="#05181A"/>
+          <text x="117" y="18" text-anchor="middle" fill="#F0FBFF" font-family="'Space Mono', monospace" font-size="8" font-weight="700">JOIN</text>
+
+          <line x1="140" y1="14" x2="165" y2="14" stroke="#05181A" stroke-width="1.5"/>
+
+          <!-- Reference to expr 2 (pill style) -->
+          <rect x="165" y="0" width="70" height="28" rx="14" fill="#F0FBFF" stroke="#05181A" stroke-width="1"/>
+          <text x="200" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">9f3a21bc</text>
+        </g>
+      </g>
+
+      <!-- Output manifests -->
+      <g transform="translate(305, 21)">
+        <line x1="-20" y1="14" x2="0" y2="14" stroke="#05181A" stroke-width="1" stroke-dasharray="3,2" opacity="0.5"/>
+        <rect x="0" y="3" width="70" height="22" rx="11" fill="#F0FBFF" stroke="#05181A" stroke-width="1"/>
+        <text x="35" y="18" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">28ecab08</text>
+
+        <line x1="-20" y1="76" x2="0" y2="76" stroke="#05181A" stroke-width="1" stroke-dasharray="3,2" opacity="0.5"/>
+        <rect x="0" y="65" width="70" height="22" rx="11" fill="#F0FBFF" stroke="#05181A" stroke-width="1"/>
+        <text x="35" y="80" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">9f3a21bc</text>
+
+        <line x1="-20" y1="138" x2="0" y2="138" stroke="#05181A" stroke-width="1" stroke-dasharray="3,2" opacity="0.5"/>
+        <rect x="0" y="127" width="70" height="22" rx="11" fill="#F0FBFF" stroke="#05181A" stroke-width="1"/>
+        <text x="35" y="142" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">e7b5fd7c</text>
+      </g>
+
+    </g>
+
+    <!-- Engines - outside composition box -->
+    <g transform="translate(400, 100)">
+      <text x="30" y="0" text-anchor="middle" fill="#05181A" opacity="0.5" font-family="'Space Mono', monospace" font-size="7">[ENGINES]</text>
+      <rect x="0" y="14" width="55" height="24" rx="3" fill="#F0FBFF" stroke="#05181A" stroke-width="1" opacity="0.7"/>
+      <text x="27" y="30" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">SNOWFLAKE</text>
+      <rect x="0" y="44" width="55" height="24" rx="3" fill="#F0FBFF" stroke="#05181A" stroke-width="1" opacity="0.7"/>
+      <text x="27" y="60" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">DUCKDB</text>
+      <rect x="0" y="74" width="55" height="24" rx="3" fill="#F0FBFF" stroke="#05181A" stroke-width="1"/>
+      <text x="27" y="90" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">DATAFUSION</text>
+      <rect x="0" y="104" width="55" height="24" rx="3" fill="#F0FBFF" stroke="#05181A" stroke-width="1" opacity="0.7"/>
+      <text x="27" y="120" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7">BIGQUERY</text>
+    </g>
+
+    <!-- LLM LAYER - same width as composition area, vertically aligned with left side -->
+    <g transform="translate(0, 295)">
+      <rect x="0" y="0" width="390" height="65" rx="4" fill="#F0FBFF" stroke="#05181A" stroke-width="1.5"/>
+
+      <text x="195" y="23" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="11" font-weight="700">[LLM / AGENT]</text>
+
+      <!-- Interaction arrows connecting to composition box above -->
+      <g transform="translate(50, -12)">
+        <line x1="0" y1="-13" x2="0" y2="12" stroke="#05181A" stroke-width="1.5"/>
+        <polygon points="-4,-13 0,-19 4,-13" fill="#05181A"/>
+        <text x="0" y="26" text-anchor="middle" fill="#05181A" opacity="0.4" font-family="'Space Mono', monospace" font-size="6">DISCOVER</text>
+      </g>
+      <g transform="translate(145, -12)">
+        <line x1="0" y1="-13" x2="0" y2="12" stroke="#05181A" stroke-width="1.5"/>
+        <polygon points="-4,12 0,18 4,12" fill="#05181A"/>
+        <text x="0" y="26" text-anchor="middle" fill="#05181A" opacity="0.4" font-family="'Space Mono', monospace" font-size="6">COMPOSE</text>
+      </g>
+      <g transform="translate(245, -12)">
+        <line x1="0" y1="-13" x2="0" y2="12" stroke="#05181A" stroke-width="1.5"/>
+        <polygon points="-4,-13 0,-19 4,-13" fill="#05181A"/>
+        <text x="0" y="26" text-anchor="middle" fill="#05181A" opacity="0.4" font-family="'Space Mono', monospace" font-size="6">READ</text>
+      </g>
+      <g transform="translate(340, -12)">
+        <line x1="0" y1="-13" x2="0" y2="12" stroke="#05181A" stroke-width="1.5"/>
+        <polygon points="-4,12 0,18 4,12" fill="#05181A"/>
+        <text x="0" y="26" text-anchor="middle" fill="#05181A" opacity="0.4" font-family="'Space Mono', monospace" font-size="6">EXECUTE</text>
+      </g>
+
+      <!-- Context, Skills, and Tools boxes -->
+      <g transform="translate(10, 36)">
+        <rect x="0" y="0" width="120" height="20" rx="2" fill="#F0FBFF" stroke="#05181A" stroke-width="0.75"/>
+        <text x="60" y="14" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7" font-weight="700">CONTEXT = MANIFEST</text>
+      </g>
+      <g transform="translate(135, 36)">
+        <rect x="0" y="0" width="120" height="20" rx="2" fill="#F0FBFF" stroke="#05181A" stroke-width="0.75"/>
+        <text x="60" y="14" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7" font-weight="700">SKILLS = TEMPLATES</text>
+      </g>
+      <g transform="translate(260, 36)">
+        <rect x="0" y="0" width="120" height="20" rx="2" fill="#F0FBFF" stroke="#05181A" stroke-width="0.75"/>
+        <text x="60" y="14" text-anchor="middle" fill="#05181A" font-family="'Space Mono', monospace" font-size="7" font-weight="700">TOOLS = EXPRS</text>
+      </g>
+    </g>
+  </g>
+</svg>
