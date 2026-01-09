@@ -55,11 +55,11 @@ website:
       contents:
         - href: getting_started/introduction.qmd
         - href: getting_started/quickstart.qmd
-        - href: getting_started/installation.qmd
+        - href: getting_started/install_xorq.qmd
           text: "Install Xorq"
-        - href: getting_started/understand_deferred_execution.qmd
-        - href: getting_started/explore_caching.qmd
-        - href: getting_started/switch_backends.qmd
+        - href: getting_started/defer_query_execution.qmd
+        - href: getting_started/cache_expression_results.qmd
+        - href: getting_started/switch_between_backends.qmd
         
         # - href: getting_started/your_first_expression.qmd
         #   text: "Your first expression"
