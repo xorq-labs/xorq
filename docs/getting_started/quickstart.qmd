@@ -332,38 +332,27 @@ With the server running, create a new Python file called `query_udxf.py`:
 ```python
 # query_udxf.py
 import xorq.api as xo
+import random as rnd
 
 # <1>
-client = xo.flight.client.FlightClient(port=8001)
+con = xo.flight.connect(port=8001)
 
 # <2>
-data_url = "https://storage.googleapis.com/letsql-pins/penguins/20250703T145709Z-c3cde/penguins.parquet"
+exchange = con.get_exchange("default")
 
 # <3>
-expr = (
-    xo.deferred_read_parquet(
-        con=xo.duckdb.connect(),
-        path=data_url,
-        table_name="penguins",
-    )
-    .select("bill_length_mm", "bill_depth_mm", "species")
-    .drop_null()
-    .limit(5)
-)
+expr = xo.memtable({ "value" : rnd.choices(tuple(range(100)), k=10) }, schema= xo.schema({"value": "int64"})).pipe(exchange)
 
 # <4>
 print("Executing via Flight do_exchange...")
-fut, rbr = client.do_exchange("default", expr)
+result_df = expr.execute()
 
-# <5>
-result_df = rbr.read_pandas()
 print(result_df)
 ```
-1. Connect to the Flight server running on port 8001. This establishes communication with your deployed server.
-2. Define the data source URL. This points to a penguins dataset stored in cloud storage.
-3. Build an expression that reads the parquet file, selects specific columns, removes null values, and limits to 5 rows. This expression is deferred; it describes what to compute, not the actual data.
-4. Send the expression to the server via `do_exchange`. The server executes this expression remotely and prepares the results.
-5. Convert the Flight response to a pandas DataFrame and display the results. The server returns data in Arrow format.
+1. Connect to the Flight server running on port 8001. This establishes a connection to communicate with your deployed server.
+2. Get the exchange named "default" from the connection. This exchange represents the UDXF transformation you deployed.
+3. Create an in-memory table with random integer values and pipe it through the exchange. This builds an expression that will apply your UDXF transformation to the input data.
+4. Execute the expression via Flight `do_exchange` and print the results. The server applies the transformation (doubling the values) and returns the result as a pandas DataFrame.
 
 ### Run the query script
 
