@@ -322,18 +322,13 @@ $ xorq init -t <template>
 | `penguins` | Minimal example: caching, aggregation, multi-engine |
 | `sklearn` | Classification pipeline with train/predict separation |
 
-## Bring your own
 
-```
-xorq init -t ./my-template or xorq init -t git@github.com:org/template. Templates are just directories with a manifest and expr.py. No plugin system to learn.
-```
+## Skills for humans
 
-## Skills for agents, not just humans
+Templates work as easy to get started components with expressions ready to be
+composed with your sources.
 
-Templates are LLM ingestable and runnable code. An agent can discover what templates
-exist, understand how they work, and build new exprs.
-
-### Coming Soon
+## Coming Soon
 
 - `feast` — Feature store integration
 - `boring-semantic-layer` — Metrics and dimensions catalog
