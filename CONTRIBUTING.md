@@ -2,13 +2,21 @@
 
 ## Setting up a development environment
 
+ > [!NOTE]
+  > **macOS users:** Some dependencies require `cmake` and `libomp`. Install them
+  via Homebrew with:
+  > `brew install cmake libomp`
+
 This assumes you have uv installed, otherwise please follow these [instructions](https://docs.astral.sh/uv/getting-started/installation/).
 
 ```bash
 # fetch this repo
 git clone git@github.com:xorq-labs/xorq.git
-# set uv run command to not sync 
+# set uv run command to not sync
 export UV_NO_SYNC=1
+```
+
+```bash
 # prepare development environment and install dependencies (including current package)
 uv sync --all-extras --all-groups
 # activate the venv
@@ -18,7 +26,6 @@ uv run pre-commit install
 ```
 > [!IMPORTANT]
 > Rename `.gitignore.template` to `.gitignore` 
-
 
 ## Running the test suite
 Install the [just](https://github.com/casey/just#installation) command runner, if needed.
@@ -37,6 +44,10 @@ export POSTGRES_USER=postgres
 export POSTGRES_PASSWORD=postgres
 export POSTGRES_PORT=5432
 ```
+
+> [!NOTE]
+> Some tests (e.g., `test_script_execution[weather_flight]`) require additional environment variables like `OPENWEATHER_API_KEY`.
+> See the [Environment Variables documentation](docs/api_reference/backends/env_variables.qmd#weather-api-configuration-envweathertemplate) for details on obtaining and configuring these variables.
 
 To test the code:
 ```bash
