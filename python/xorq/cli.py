@@ -497,6 +497,7 @@ def parse_args(override=None):
         "--format",
         choices=OutputFormats,
         default=OutputFormats.default,
+        type=OutputFormats,
         help="Output format (default: parquet)",
     )
 
@@ -546,6 +547,7 @@ def parse_args(override=None):
         "--format",
         choices=OutputFormats,
         default=OutputFormats.default,
+        type=OutputFormats,
         help="Output format (default: parquet)",
     )
     run_parser.add_argument(
@@ -586,6 +588,7 @@ def parse_args(override=None):
         choices=OutputFormats,
         # why was this arrow before and why did we fail when it was arrow?
         default=OutputFormats.default,
+        type=OutputFormats,
         help=f"Output format (default: {OutputFormats.default})",
     )
     run_unbound_parser.add_argument(
