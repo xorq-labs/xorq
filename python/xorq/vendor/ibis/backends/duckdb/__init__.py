@@ -4,12 +4,10 @@ from __future__ import annotations
 
 import ast
 import contextlib
-import os
 import urllib
 import warnings
-from operator import itemgetter
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 import duckdb
 import pyarrow as pa
@@ -27,7 +25,6 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
 from xorq.vendor.ibis.backends import CanCreateDatabase, CanCreateSchema, UrlFromPath
-from xorq.vendor.ibis.backends.duckdb.converter import DuckDBPandasData
 from xorq.vendor.ibis.backends.sql import SQLBackend
 from xorq.vendor.ibis.backends.sql.compilers.base import (
     STAR,
@@ -37,7 +34,6 @@ from xorq.vendor.ibis.backends.sql.compilers.base import (
 )
 from xorq.vendor.ibis.common.dispatch import lazy_singledispatch
 from xorq.vendor.ibis.expr.operations.udf import InputType
-from xorq.vendor.ibis.util import deprecated
 
 
 if TYPE_CHECKING:
@@ -49,6 +45,11 @@ if TYPE_CHECKING:
     from fsspec import AbstractFileSystem
 
     from xorq.vendor.ibis.expr.schema import SchemaLike
+
+try:
+    from duckdb import func as _duckdb_func
+except ImportError:
+    from duckdb import functional as _duckdb_func
 
 
 try:
@@ -85,6 +86,7 @@ class _Settings:
 class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     name = "duckdb"
     compiler = sc.duckdb.compiler
+    supports_temporary_tables = True
 
     @property
     def settings(self) -> _Settings:
@@ -111,6 +113,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def create_table(
         self,
         name: str,
+        /,
         obj: ir.Table
         | pd.DataFrame
         | pa.Table
@@ -162,18 +165,22 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         if obj is None and schema is None:
             raise ValueError("Either `obj` or `schema` must be specified")
-        if schema is not None:
-            schema = ibis.schema(schema)
+
+        quoted = self.compiler.quoted
+        dialect = self.dialect
 
         properties = []
 
         if temp:
             properties.append(sge.TemporaryProperty())
             catalog = "temp"
+            database = "main"
 
+        in_memory = False
         if obj is not None:
             if not isinstance(obj, ir.Expr):
                 table = ibis.memtable(obj)
+                in_memory = True
             else:
                 table = obj
 
@@ -183,14 +190,17 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         else:
             query = None
 
+        if schema is None:
+            schema = table.schema()
+        else:
+            schema = ibis.schema(schema)
+
         if overwrite:
             temp_name = util.gen_name("duckdb_table")
         else:
             temp_name = name
 
-        initial_table = sg.table(
-            temp_name, catalog=catalog, db=database, quoted=self.compiler.quoted
-        )
+        initial_table = sg.table(temp_name, catalog=catalog, db=database, quoted=quoted)
         target = sge.Schema(
             this=initial_table,
             expressions=(schema or table.schema()).to_sqlglot(self.dialect),
@@ -203,17 +213,27 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         )
 
         # This is the same table as initial_table unless overwrite == True
-        final_table = sg.table(
-            name, catalog=catalog, db=database, quoted=self.compiler.quoted
-        )
+        final_table = sg.table(name, catalog=catalog, db=database, quoted=quoted)
         with self._safe_raw_sql(create_stmt) as cur:
             if query is not None:
-                insert_stmt = sge.insert(query, into=initial_table).sql(self.name)
+                columns = [
+                    sge.to_identifier(col, quoted=quoted) for col in table.columns
+                ]
+                insert_stmt = sge.insert(
+                    query, into=initial_table, columns=columns
+                ).sql(dialect)
                 cur.execute(insert_stmt).fetchall()
+
+                if in_memory:
+                    cur.execute(
+                        sge.Drop(kind="VIEW", this=table.get_name(), exists=True).sql(
+                            dialect
+                        )
+                    )
 
             if overwrite:
                 cur.execute(
-                    sge.Drop(kind="TABLE", this=final_table, exists=True).sql(self.name)
+                    sge.Drop(kind="TABLE", this=final_table, exists=True).sql(dialect)
                 )
                 # TODO: This branching should be removed once DuckDB >=0.9.3 is
                 # our lower bound (there's an upstream bug in 0.9.2 that
@@ -227,11 +247,11 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                             this=final_table,
                             expression=sg.select(STAR).from_(initial_table),
                             properties=sge.Properties(expressions=properties),
-                        ).sql(self.name)
+                        ).sql(dialect)
                     )
                     cur.execute(
                         sge.Drop(kind="TABLE", this=initial_table, exists=True).sql(
-                            self.name
+                            dialect
                         )
                     )
                 else:
@@ -239,32 +259,13 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                         AlterTable(
                             this=initial_table,
                             actions=[RenameTable(this=final_table)],
-                        ).sql(self.name)
+                        ).sql(dialect)
                     )
 
         return self.table(name, database=(catalog, database))
 
-    def table(
-        self, name: str, schema: str | None = None, database: str | None = None
-    ) -> ir.Table:
-        """Construct a table expression.
-
-        Parameters
-        ----------
-        name
-            Table name
-        schema
-            [deprecated] Schema name
-        database
-            Database name
-
-        Returns
-        -------
-        Table
-            Table expression
-
-        """
-        table_loc = self._warn_and_create_table_loc(database, schema)
+    def table(self, name: str, /, *, database: str | None = None) -> ir.Table:
+        table_loc = self._to_sqlglot_table(database)
 
         # TODO: set these to better defaults
         catalog = table_loc.catalog or None
@@ -272,7 +273,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         table_schema = self.get_schema(name, catalog=catalog, database=database)
         # load geospatial only if geo columns
-        if any(typ.is_geospatial() for typ in table_schema.types):
+        if table_schema.geospatial:
             self.load_extension("spatial")
         return ops.DatabaseTable(
             name,
@@ -334,7 +335,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def _safe_raw_sql(self, *args, **kwargs):
         yield self.raw_sql(*args, **kwargs)
 
-    def list_catalogs(self, like: str | None = None) -> list[str]:
+    def list_catalogs(self, *, like: str | None = None) -> list[str]:
         col = "catalog_name"
         query = sg.select(sge.Distinct(expressions=[sg.column(col)])).from_(
             sg.table("schemata", db="information_schema")
@@ -345,7 +346,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         return self._filter_with_like(dbs.to_pylist(), like)
 
     def list_databases(
-        self, like: str | None = None, catalog: str | None = None
+        self, *, like: str | None = None, catalog: str | None = None
     ) -> list[str]:
         col = "schema_name"
         query = sg.select(sge.Distinct(expressions=[sg.column(col)])).from_(
@@ -380,11 +381,19 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         self,
         database: str | Path = ":memory:",
         read_only: bool = False,
-        temp_directory: str | Path | None = None,
         extensions: Sequence[str] | None = None,
         **config: Any,
     ) -> None:
         """Create an Ibis client connected to a DuckDB database.
+
+        ::: {.callout-note title="Changed in version 10.0.0"}
+        Before, we had special handling if the user passed the `temp_directory`
+        parameter, setting a custom default, and creating intermediate
+        directories if necessary. Now, we do nothing, and just pass the value
+        directly to DuckDB. You may need to add
+        `Path(your_temp_dir).mkdir(exists_ok=True, parents=True)`
+        to your code to maintain the old behavior.
+        :::
 
         Parameters
         ----------
@@ -392,9 +401,6 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             Path to a duckdb database.
         read_only
             Whether the database is read-only.
-        temp_directory
-            Directory to use for spilling to disk. Only set by default for
-            in-memory connections.
         extensions
             A list of duckdb extensions to install/load upon connection.
         config
@@ -412,19 +418,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             ("md:", "motherduck:", ":memory:")
         ):
             database = Path(database).absolute()
-
-        if temp_directory is None:
-            temp_directory = (
-                Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache"))
-                / "ibis-duckdb"
-                / str(os.getpid())
-            )
-        else:
-            Path(temp_directory).mkdir(parents=True, exist_ok=True)
-            config["temp_directory"] = str(temp_directory)
-
         self.con = duckdb.connect(str(database), config=config, read_only=read_only)
-
         self._post_connect(extensions)
 
     @util.experimental
@@ -432,6 +426,8 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def from_connection(
         cls,
         con: duckdb.DuckDBPyConnection,
+        /,
+        *,
         extensions: Sequence[str] | None = None,
     ) -> Backend:
         """Create an Ibis client from an existing connection to a DuckDB database.
@@ -469,17 +465,35 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     ) -> None:
         f = self.compiler.f
         query = (
-            sg.select(f.anon.unnest(f.list_append(C.aliases, C.extension_name)))
+            sg.select(
+                f.anon.unnest(
+                    f.list_intersect(
+                        f.list_append(C.aliases, C.extension_name),
+                        f.list_value(*extensions),
+                    )
+                ),
+                C.installed,
+                C.loaded,
+            )
             .from_(f.duckdb_extensions())
-            .where(C.installed, C.loaded)
+            .where(sg.not_(C.installed & C.loaded))
         )
         with self._safe_raw_sql(query) as cur:
-            installed = map(itemgetter(0), cur.fetchall())
-            # Install and load all other extensions
-            todo = frozenset(extensions).difference(installed)
-            for extension in todo:
-                cur.install_extension(extension, force_install=force_install)
-                cur.load_extension(extension)
+            if not (not_installed_or_loaded := cur.fetchall()):
+                return
+
+            commands = [
+                "FORCE " * force_install + f"INSTALL '{extension}'"
+                for extension, installed, _ in not_installed_or_loaded
+                if not installed
+            ]
+            commands.extend(
+                f"LOAD '{extension}'"
+                for extension, _, loaded in not_installed_or_loaded
+                if not loaded
+            )
+            command = ";".join(commands)
+            cur.execute(command)
 
     def load_extension(self, extension: str, force_install: bool = False) -> None:
         """Install and load a duckdb extension by name or path.
@@ -495,7 +509,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         self._load_extensions([extension], force_install=force_install)
 
     def create_database(
-        self, name: str, catalog: str | None = None, force: bool = False
+        self, name: str, /, *, catalog: str | None = None, force: bool = False
     ) -> None:
         if catalog is not None:
             raise exc.UnsupportedOperationError(
@@ -507,9 +521,9 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             pass
 
     def drop_database(
-        self, name: str, catalog: str | None = None, force: bool = False
+        self, name: str, /, *, catalog: str | None = None, force: bool = False
     ) -> None:
-        if catalog is not None:
+        if catalog is not None and catalog != self.current_catalog:
             raise exc.UnsupportedOperationError(
                 "DuckDB cannot drop a database in another catalog."
             )
@@ -518,81 +532,12 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         with self._safe_raw_sql(sge.Drop(this=name, kind="SCHEMA", replace=force)):
             pass
 
-    @deprecated(
-        as_of="9.1",
-        instead="use the explicit `read_*` method for the filetype you are trying to read, e.g., read_parquet, read_csv, etc.",
-    )
-    def register(
-        self,
-        source: str | Path | Any,
-        table_name: str | None = None,
-        **kwargs: Any,
-    ) -> ir.Table:
-        """Register a data source as a table in the current database.
-
-        Parameters
-        ----------
-        source
-            The data source(s). May be a path to a file or directory of
-            parquet/csv files, an iterable of parquet or CSV files, a pandas
-            dataframe, a pyarrow table or dataset, or a postgres URI.
-        table_name
-            An optional name to use for the created table. This defaults to a
-            sequentially generated name.
-        **kwargs
-            Additional keyword arguments passed to DuckDB loading functions for
-            CSV or parquet.  See https://duckdb.org/docs/data/csv and
-            https://duckdb.org/docs/data/parquet for more information.
-
-        Returns
-        -------
-        ir.Table
-            The just-registered table
-
-        """
-
-        if isinstance(source, (str, Path)):
-            first = str(source)
-        elif isinstance(source, (list, tuple)):
-            first = source[0]
-        else:
-            try:
-                return self.read_in_memory(source, table_name=table_name, **kwargs)
-            except (duckdb.InvalidInputException, NameError):
-                self._register_failure()
-
-        if first.startswith(("parquet://", "parq://")) or first.endswith(
-            ("parq", "parquet")
-        ):
-            return self.read_parquet(source, table_name=table_name, **kwargs)
-        elif first.startswith(
-            ("csv://", "csv.gz://", "txt://", "txt.gz://")
-        ) or first.endswith(("csv", "csv.gz", "tsv", "tsv.gz", "txt", "txt.gz")):
-            return self.read_csv(source, table_name=table_name, **kwargs)
-        elif first.startswith(("postgres://", "postgresql://")):
-            return self.read_postgres(source, table_name=table_name, **kwargs)
-        elif first.startswith("sqlite://"):
-            return self.read_sqlite(
-                first[len("sqlite://") :], table_name=table_name, **kwargs
-            )
-        else:
-            self._register_failure()  # noqa: RET503
-
-    def _register_failure(self):
-        import inspect
-
-        msg = ", ".join(
-            name for name, _ in inspect.getmembers(self) if name.startswith("read_")
-        )
-        raise ValueError(
-            f"Cannot infer appropriate read function for input, "
-            f"please call one of {msg} directly"
-        )
-
     @util.experimental
     def read_json(
         self,
-        source_list: str | list[str] | tuple[str],
+        paths: str | list[str] | tuple[str],
+        /,
+        *,
         table_name: str | None = None,
         columns: Mapping[str, str] | None = None,
         **kwargs,
@@ -605,7 +550,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         Parameters
         ----------
-        source_list
+        paths
             File or list of files
         table_name
             Optional table name
@@ -649,7 +594,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             table_name,
             sg.select(STAR).from_(
                 self.compiler.f.read_json_auto(
-                    util.normalize_filenames(source_list), *options
+                    util.normalize_filenames(paths), *options
                 )
             ),
         )
@@ -658,7 +603,9 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
     def read_csv(
         self,
-        source_list: str | list[str] | tuple[str],
+        paths: str | list[str] | tuple[str],
+        /,
+        *,
         table_name: str | None = None,
         columns: Mapping[str, str | dt.DataType] | None = None,
         types: Mapping[str, str | dt.DataType] | None = None,
@@ -668,7 +615,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         Parameters
         ----------
-        source_list
+        paths
             The data source(s). May be a path to a file or directory of CSV
             files, or an iterable of CSV files.
         table_name
@@ -735,17 +682,14 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         │     2.0 │     3.0 │ <POINT (2 3)>        │
         └─────────┴─────────┴──────────────────────┘
         """
-        source_list = util.normalize_filenames(source_list)
+        paths = util.normalize_filenames(paths)
 
         if not table_name:
             table_name = util.gen_name("read_csv")
 
         # auto_detect and columns collide, so we set auto_detect=True
         # unless COLUMNS has been specified
-        if any(
-            source.startswith(("http://", "https://", "s3://"))
-            for source in source_list
-        ):
+        if any(source.startswith(("http://", "https://", "s3://")) for source in paths):
             self._load_extensions(["httpfs"])
 
         kwargs.setdefault("header", True)
@@ -781,29 +725,25 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         self._create_temp_view(
             table_name,
-            sg.select(STAR).from_(self.compiler.f.read_csv(source_list, *options)),
+            sg.select(STAR).from_(self.compiler.f.read_csv(paths, *options)),
         )
 
         return self.table(table_name)
 
     def read_geo(
-        self,
-        source: str,
-        table_name: str | None = None,
-        **kwargs: Any,
+        self, path: str, /, *, table_name: str | None = None, **kwargs: Any
     ) -> ir.Table:
-        """Register a GEO file as a table in the current database.
+        """Register a geospatial data file as a table in the current database.
 
         Parameters
         ----------
-        source
-            The data source(s). Path to a file of geospatial files supported
-            by duckdb.
+        path
+            The data source(s). Path to a file of geospatial files supported by duckdb.
             See https://duckdb.org/docs/extensions/spatial.html#st_read---read-spatial-data-from-files
         table_name
             An optional name to use for the created table. This defaults to
             a sequentially generated name.
-        **kwargs
+        kwargs
             Additional keyword arguments passed to DuckDB loading function.
             See https://duckdb.org/docs/extensions/spatial.html#st_read---read-spatial-data-from-files
             for more information.
@@ -821,13 +761,13 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         # load geospatial extension
         self.load_extension("spatial")
 
-        source = util.normalize_filename(source)
-        if source.startswith(("http://", "https://", "s3://")):
+        path = util.normalize_filename(path)
+        if path.startswith(("http://", "https://", "s3://")):
             self._load_extensions(["httpfs"])
 
         source_expr = sg.select(STAR).from_(
             self.compiler.f.st_read(
-                source,
+                path,
                 *(sg.to_identifier(key).eq(val) for key, val in kwargs.items()),
             )
         )
@@ -844,7 +784,9 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
     def read_parquet(
         self,
-        source_list: str | Iterable[str],
+        paths: str | Path | Iterable[str | Path],
+        /,
+        *,
         table_name: str | None = None,
         **kwargs: Any,
     ) -> ir.Table:
@@ -852,7 +794,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
         Parameters
         ----------
-        source_list
+        paths
             The data source(s). May be a path to a file, an iterable of files,
             or directory of parquet files.
         table_name
@@ -868,7 +810,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             The just-registered table
 
         """
-        source_list = util.normalize_filenames(source_list)
+        paths = util.normalize_filenames(paths)
 
         table_name = table_name or util.gen_name("read_parquet")
 
@@ -876,9 +818,9 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         # If that fails because of auth issues, fall back to ingesting via
         # pyarrow dataset
         try:
-            self._read_parquet_duckdb_native(source_list, table_name, **kwargs)
+            self._read_parquet_duckdb_native(paths, table_name, **kwargs)
         except duckdb.IOException:
-            self._read_parquet_pyarrow_dataset(source_list, table_name, **kwargs)
+            self._read_parquet_pyarrow_dataset(paths, table_name, **kwargs)
 
         return self.table(table_name)
 
@@ -953,108 +895,49 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         return self.table(table_name)
 
     def read_delta(
-        self,
-        source_table: str,
-        table_name: str | None = None,
-        **kwargs: Any,
+        self, path: str | Path, /, *, table_name: str | None = None, **kwargs: Any
     ) -> ir.Table:
         """Register a Delta Lake table as a table in the current database.
 
         Parameters
         ----------
-        source_table
-            The data source. Must be a directory
-            containing a Delta Lake table.
+        path
+            The data source. Must be a directory containing a Delta Lake table.
         table_name
             An optional name to use for the created table. This defaults to
             a sequentially generated name.
-        **kwargs
+        kwargs
             Additional keyword arguments passed to deltalake.DeltaTable.
 
         Returns
         -------
         ir.Table
             The just-registered table.
-
         """
-        source_table = util.normalize_filenames(source_table)[0]
+        (path,) = util.normalize_filenames(path)
+
+        extensions = ["delta"]
+        if path.startswith(("http://", "https://", "s3://")):
+            extensions.append("httpfs")
 
         table_name = table_name or util.gen_name("read_delta")
 
-        try:
-            from deltalake import DeltaTable
-        except ImportError:
-            raise ImportError(
-                "The deltalake extra is required to use the "
-                "read_delta method. You can install it using pip:\n\n"
-                "pip install 'ibis-framework[deltalake]'\n"
-            )
+        options = [
+            sg.to_identifier(key).eq(sge.convert(val)) for key, val in kwargs.items()
+        ]
 
-        delta_table = DeltaTable(source_table, **kwargs)
+        self._load_extensions(extensions)
 
-        self.con.register(table_name, delta_table.to_pyarrow_dataset())
+        self._create_temp_view(
+            table_name,
+            sg.select(STAR).from_(self.compiler.f.delta_scan(path, *options)),
+        )
         return self.table(table_name)
 
     def list_tables(
-        self,
-        like: str | None = None,
-        database: tuple[str, str] | str | None = None,
-        schema: str | None = None,
+        self, *, like: str | None = None, database: tuple[str, str] | str | None = None
     ) -> list[str]:
-        """List tables and views.
-
-        ::: {.callout-note}
-        ## Ibis does not use the word `schema` to refer to database hierarchy.
-
-        A collection of tables is referred to as a `database`.
-        A collection of `database` is referred to as a `catalog`.
-
-        These terms are mapped onto the corresponding features in each
-        backend (where available), regardless of whether the backend itself
-        uses the same terminology.
-        :::
-
-        Parameters
-        ----------
-        like
-            Regex to filter by table/view name.
-        database
-            Database location. If not passed, uses the current database.
-
-            By default uses the current `database` (`self.current_database`) and
-            `catalog` (`self.current_catalog`).
-
-            To specify a table in a separate catalog, you can pass in the
-            catalog and database as a string `"catalog.database"`, or as a tuple of
-            strings `("catalog", "database")`.
-        schema
-            [deprecated] Schema name. If not passed, uses the current schema.
-
-        Returns
-        -------
-        list[str]
-            List of table and view names.
-
-        Examples
-        --------
-        >>> import ibis
-        >>> con = ibis.duckdb.connect()
-        >>> foo = con.create_table("foo", schema=ibis.schema(dict(a="int")))
-        >>> con.list_tables()
-        ['foo']
-        >>> bar = con.create_view("bar", foo)
-        >>> con.list_tables()
-        ['bar', 'foo']
-        >>> con.create_database("my_database")
-        >>> con.list_tables(database="my_database")
-        []
-        >>> con.raw_sql("CREATE TABLE my_database.baz (a INTEGER)")  # doctest: +ELLIPSIS
-        <duckdb.duckdb.DuckDBPyConnection object at 0x...>
-        >>> con.list_tables(database="my_database")
-        ['baz']
-
-        """
-        table_loc = self._warn_and_create_table_loc(database, schema)
+        table_loc = self._to_sqlglot_table(database)
 
         catalog = table_loc.catalog or self.current_catalog
         database = table_loc.db or self.current_database
@@ -1075,7 +958,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         return self._filter_with_like(out[col].to_pylist(), like)
 
     def read_postgres(
-        self, uri: str, *, table_name: str | None = None, database: str = "public"
+        self, uri: str, /, *, table_name: str | None = None, database: str = "public"
     ) -> ir.Table:
         """Register a table from a postgres instance into a DuckDB table.
 
@@ -1123,6 +1006,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def read_mysql(
         self,
         uri: str,
+        /,
         *,
         catalog: str,
         table_name: str | None = None,
@@ -1162,7 +1046,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         return self.table(table_name, database=(catalog, database))
 
     def read_sqlite(
-        self, path: str | Path, *, table_name: str | None = None
+        self, path: str | Path, /, *, table_name: str | None = None
     ) -> ir.Table:
         """Register a table from a SQLite database into a DuckDB table.
 
@@ -1183,15 +1067,17 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         >>> import ibis
         >>> import sqlite3
         >>> ibis.options.interactive = True
-        >>> with sqlite3.connect("/tmp/sqlite.db") as con:
+        >>> con = sqlite3.connect("/tmp/sqlite.db")
+        >>> with con:
         ...     con.execute("DROP TABLE IF EXISTS t")  # doctest: +ELLIPSIS
         ...     con.execute("CREATE TABLE t (a INT, b TEXT)")  # doctest: +ELLIPSIS
         ...     con.execute(
         ...         "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')"
         ...     )  # doctest: +ELLIPSIS
         <...>
+        >>> con.close()
         >>> con = ibis.connect("duckdb://")
-        >>> t = con.read_sqlite(path="/tmp/sqlite.db", table_name="t")
+        >>> t = con.read_sqlite("/tmp/sqlite.db", table_name="t")
         >>> t
         ┏━━━━━━━┳━━━━━━━━┓
         ┃ a     ┃ b      ┃
@@ -1219,6 +1105,126 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         )
 
         return self.table(table_name)
+
+    @util.experimental
+    def read_xlsx(
+        self,
+        path: str | Path,
+        /,
+        *,
+        sheet: str | None = None,
+        range: str | None = None,
+        **kwargs,
+    ) -> ir.Table:
+        """Read an Excel file into a DuckDB table. This requires duckdb>=1.2.0.
+
+        Parameters
+        ----------
+        path
+            The path to the Excel file.
+        sheet
+            The name of the sheet to read, eg 'Sheet3'.
+        range
+            The range of cells to read, eg 'A5:Z'.
+        kwargs
+            Additional args passed to the backend's read function.
+
+        Returns
+        -------
+        ir.Table
+            The just-registered table.
+
+        See Also
+        --------
+        [DuckDB's `excel` extension docs for reading](https://duckdb.org/docs/stable/extensions/excel.html#reading-xlsx-files)
+
+        Examples
+        --------
+        >>> import os
+        >>> import ibis
+        >>> t = ibis.memtable({"a": [1, 2, 3], "b": ["a", "b", "c"]})
+        >>> con = ibis.duckdb.connect()
+        >>> con.to_xlsx(t, "/tmp/test.xlsx", header=True)
+        >>> assert os.path.exists("/tmp/test.xlsx")
+        >>> t = con.read_xlsx("/tmp/test.xlsx")
+        >>> t.columns
+        ('a', 'b')
+        """
+        table_name = util.gen_name("read_xlsx")
+
+        if sheet:
+            kwargs["sheet"] = sheet
+
+        if range:
+            kwargs["range"] = range
+
+        options = [
+            sg.to_identifier(key).eq(sge.convert(val)) for key, val in kwargs.items()
+        ]
+
+        self.load_extension("excel")
+        self._create_temp_view(
+            table_name,
+            sg.select(STAR).from_(self.compiler.f.read_xlsx(str(path), *options)),
+        )
+        return self.table(table_name)
+
+    def to_xlsx(
+        self,
+        expr: ir.Table,
+        /,
+        path: str | Path,
+        *,
+        sheet: str = "Sheet1",
+        header: bool = False,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        **kwargs: Any,
+    ):
+        """Write a table to an Excel file.
+
+        Parameters
+        ----------
+        expr
+            Ibis table expression to write to an excel file.
+        path
+            Excel output path.
+        sheet
+            The name of the sheet to write to, eg 'Sheet3'.
+        header
+            Whether to include the column names as the first row.
+        params
+            Additional Ibis expression parameters to pass to the backend's
+            write function.
+        kwargs
+            Additional arguments passed to the backend's write function.
+
+        Notes
+        -----
+        Requires DuckDB >= 1.2.0.
+
+        See Also
+        --------
+        [DuckDB's `excel` extension docs for writing](https://duckdb.org/docs/stable/extensions/excel.html#writing-xlsx-files)
+
+        Examples
+        --------
+        >>> import os
+        >>> import ibis
+        >>> t = ibis.memtable({"a": [1, 2, 3], "b": ["a", "b", "c"]})
+        >>> con = ibis.duckdb.connect()
+        >>> con.to_xlsx(t, "/tmp/test.xlsx")
+        >>> os.path.exists("/tmp/test.xlsx")
+        True
+        """
+        self._run_pre_execute_hooks(expr)
+        query = self.compile(expr, params=params)
+        kwargs["sheet"] = sheet
+        kwargs["header"] = header
+        args = ["FORMAT 'xlsx'"]
+        args.extend(f"{k.upper()} {v!r}" for k, v in kwargs.items())
+        copy_cmd = f"COPY ({query}) TO {str(path)!r} ({', '.join(args)})"
+        self.load_extension("excel")
+        self.con.execute(copy_cmd).fetchall()
 
     def attach(
         self, path: str | Path, name: str | None = None, read_only: bool = False
@@ -1277,13 +1283,15 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         --------
         >>> import ibis
         >>> import sqlite3
-        >>> with sqlite3.connect("/tmp/attach_sqlite.db") as con:
+        >>> con = sqlite3.connect("/tmp/attach_sqlite.db")
+        >>> with con:
         ...     con.execute("DROP TABLE IF EXISTS t")  # doctest: +ELLIPSIS
         ...     con.execute("CREATE TABLE t (a INT, b TEXT)")  # doctest: +ELLIPSIS
         ...     con.execute(
         ...         "INSERT INTO t VALUES (1, 'a'), (2, 'b'), (3, 'c')"
         ...     )  # doctest: +ELLIPSIS
         <...>
+        >>> con.close()
         >>> con = ibis.connect("duckdb://")
         >>> con.list_tables()
         []
@@ -1371,6 +1379,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
+        **kwargs: Any,
     ):
         """Preprocess the expr, and return a `duckdb.DuckDBPyRelation` object.
 
@@ -1383,7 +1392,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         """
         self._run_pre_execute_hooks(expr)
         table_expr = expr.as_table()
-        sql = self.compile(table_expr, limit=limit, params=params)
+        sql = self.compile(table_expr, limit=limit, params=params, **kwargs)
         if table_expr.schema().geospatial:
             self._load_extensions(["spatial"])
         return self.con.sql(sql)
@@ -1391,6 +1400,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def to_pyarrow_batches(
         self,
         expr: ir.Expr,
+        /,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
@@ -1404,10 +1414,6 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         For analytics use cases this is usually nothing to fret about. In some cases you
         may need to explicit release the cursor.
 
-        ::: {.callout-warning}
-        ## DuckDB returns 1024 size batches regardless of what value of `chunk_size` argument is passed.
-        :::
-
         Parameters
         ----------
         expr
@@ -1419,6 +1425,8 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         chunk_size
             The number of rows to fetch per batch
         """
+        import pyarrow as pa
+
         self._run_pre_execute_hooks(expr)
         table = expr.as_table()
         sql = self.compile(table, limit=limit, params=params)
@@ -1434,26 +1442,35 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def to_pyarrow(
         self,
         expr: ir.Expr,
+        /,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
-        **_: Any,
+        **kwargs: Any,
     ) -> pa.Table:
-        table = self._to_duckdb_relation(expr, params=params, limit=limit).arrow()
-        return expr.__pyarrow_result__(table)
+        from ibis.backends.duckdb.converter import DuckDBPyArrowData
+
+        table = self._to_duckdb_relation(
+            expr, params=params, limit=limit, **kwargs
+        ).to_arrow_table()
+        return expr.__pyarrow_result__(table, data_mapper=DuckDBPyArrowData)
 
     def execute(
         self,
         expr: ir.Expr,
-        params: Mapping | None = None,
-        limit: str | None = "default",
-        **_: Any,
-    ) -> Any:
+        /,
+        *,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        **kwargs: Any,
+    ) -> pd.DataFrame | pd.Series | Any:
         """Execute an expression."""
         import pandas as pd
         import pyarrow.types as pat
+        from ibis.backends.duckdb.converter import DuckDBPandasData
 
-        table = self._to_duckdb_relation(expr, params=params, limit=limit).arrow()
+        rel = self._to_duckdb_relation(expr, params=params, limit=limit, **kwargs)
+        table = rel.to_arrow_table()
 
         df = pd.DataFrame(
             {
@@ -1461,6 +1478,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                     col.to_pylist()
                     if (
                         pat.is_nested(col.type)
+                        or pat.is_dictionary(col.type)
                         or
                         # pyarrow / duckdb type null literals columns as int32?
                         # but calling `to_pylist()` will render it as None
@@ -1478,6 +1496,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def to_torch(
         self,
         expr: ir.Expr,
+        /,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
         limit: int | str | None = None,
@@ -1502,12 +1521,15 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             A dictionary of torch tensors, keyed by column name.
 
         """
-        return self._to_duckdb_relation(expr, params=params, limit=limit).torch()
+        return self._to_duckdb_relation(
+            expr, params=params, limit=limit, **kwargs
+        ).torch()
 
     @util.experimental
     def to_parquet(
         self,
         expr: ir.Table,
+        /,
         path: str | Path,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
@@ -1566,6 +1588,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
     def to_csv(
         self,
         expr: ir.Table,
+        /,
         path: str | Path,
         *,
         params: Mapping[ir.Scalar, Any] | None = None,
@@ -1587,7 +1610,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             Mapping of scalar parameter expressions to value.
         header
             Whether to write the column names as the first line of the CSV file.
-        **kwargs
+        kwargs
             DuckDB CSV writer arguments. https://duckdb.org/docs/data/csv/overview.html#parameters
 
         """
@@ -1601,6 +1624,150 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
         copy_cmd = f"COPY ({query}) TO {str(path)!r} ({', '.join(args)})"
         with self._safe_raw_sql(copy_cmd):
             pass
+
+    @util.experimental
+    def to_geo(
+        self,
+        expr: ir.Table,
+        /,
+        path: str | Path,
+        *,
+        format: str,
+        layer_creation_options: Mapping[str, Any] | None = None,
+        params: Mapping[ir.Scalar, Any] | None = None,
+        limit: int | str | None = None,
+        **kwargs: Any,
+    ) -> None:
+        """Write the results of executing `expr` to a geospatial output.
+
+        Parameters
+        ----------
+        expr
+            Ibis expression to execute and persist to geospatial output.
+        path
+            A string or Path to the desired output file location.
+        format
+            The format of the geospatial output. One of GDAL's supported vector formats.
+            The list of vector formats is located here: https://gdal.org/en/latest/drivers/vector/index.html
+        layer_creation_options
+            A mapping of layer creation options.
+        params
+            Mapping of scalar parameter expressions to value.
+        limit
+            An integer to effect a specific row limit. A value of `None` means no limit.
+        kwargs
+            Additional keyword arguments passed to the DuckDB `COPY` command.
+
+        Examples
+        --------
+        >>> import os
+        >>> import tempfile
+        >>> import ibis
+        >>> ibis.options.interactive = True
+        >>> from ibis import _
+
+        Load some geospatial data
+
+        >>> con = ibis.duckdb.connect()
+        >>> zones = ibis.examples.zones.fetch(backend=con)
+        >>> zones[["zone", "geom"]].head()
+        ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+        ┃ zone                                  ┃ geom                                 ┃
+        ┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+        │ string                                │ geospatial:geometry                  │
+        ├───────────────────────────────────────┼──────────────────────────────────────┤
+        │                                       │ <POLYGON ((933100.918 192536.086,    │
+        │ Newark Airport                        │ 933091.011 192572.175, 933088.585    │
+        │                                       │ 192604.9...>                         │
+        │                                       │ <MULTIPOLYGON (((1033269.244         │
+        │ Jamaica Bay                           │ 172126.008, 1033439.643 170883.946,  │
+        │                                       │ 1033473.265...>                      │
+        │                                       │ <POLYGON ((1026308.77 256767.698,    │
+        │ Allerton/Pelham Gardens               │ 1026495.593 256638.616, 1026567.23   │
+        │                                       │ 256589....>                          │
+        │                                       │ <POLYGON ((992073.467 203714.076,    │
+        │ Alphabet City                         │ 992068.667 203711.502, 992061.716    │
+        │                                       │ 203711.7...>                         │
+        │                                       │ <POLYGON ((935843.31 144283.336,     │
+        │ Arden Heights                         │ 936046.565 144173.418, 936387.922    │
+        │                                       │ 143967.75...>                        │
+        └───────────────────────────────────────┴──────────────────────────────────────┘
+
+        Write to a GeoJSON file
+
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     con.to_geo(
+        ...         zones,
+        ...         path=os.path.join(tmpdir, "zones.geojson"),
+        ...         format="geojson",
+        ...     )
+
+        Write to a Shapefile
+
+        >>> with tempfile.TemporaryDirectory() as tmpdir:
+        ...     con.to_geo(
+        ...         zones,
+        ...         path=os.path.join(tmpdir, "zones.shp"),
+        ...         format="ESRI Shapefile",
+        ...     )
+        """
+        self._run_pre_execute_hooks(expr)
+        query = self.compile(expr, params=params, limit=limit)
+
+        args = ["FORMAT GDAL", f"DRIVER '{format}'"]
+
+        if layer_creation_options := " ".join(
+            f"{k.upper()}={v}" for k, v in (layer_creation_options or {}).items()
+        ):
+            args.append(f"LAYER_CREATION_OPTIONS '{layer_creation_options}'")
+
+        args.extend(f"{k.upper()} {v!r}" for k, v in (kwargs or {}).items())
+
+        copy_cmd = f"COPY ({query}) TO {str(path)!r} ({', '.join(args)})"
+
+        with self._safe_raw_sql(copy_cmd):
+            pass
+
+    @util.experimental
+    def to_json(
+        self,
+        expr: ir.Table,
+        /,
+        path: str | Path,
+        *,
+        compression: Literal["auto", "none", "gzip", "zstd"] = "auto",
+        dateformat: str | None = None,
+        timestampformat: str | None = None,
+    ) -> None:
+        """Write the results of `expr` to a json file of [{column -> value}, ...] objects.
+
+        This method is eager and will execute the associated expression
+        immediately.
+        See https://duckdb.org/docs/sql/statements/copy.html#json-options
+        for more info.
+
+        Parameters
+        ----------
+        expr
+            The ibis expression to execute and persist to Delta Lake table.
+        path
+            URLs such as S3 buckets are supported.
+        compression
+            Compression codec to use. One of "auto", "none", "gzip", "zstd".
+        dateformat
+            Date format string.
+        timestampformat
+            Timestamp format string.
+        """
+        opts = [f"COMPRESSION '{compression.upper()}'"]
+        if dateformat:
+            opts.append(f"DATEFORMAT '{dateformat}'")
+        if timestampformat:
+            opts.append(f"TIMESTAMPFORMAT '{timestampformat}'")
+
+        options = f"FORMAT JSON, ARRAY TRUE, {', '.join(opts)}"
+
+        self.raw_sql(f"COPY ({self.compile(expr)}) TO '{path!s}' ({options})")
 
     def _get_schema_using_query(self, query: str) -> sch.Schema:
         with self._safe_raw_sql(f"DESCRIBE {query}") as cur:
@@ -1618,27 +1785,16 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
             }
         )
 
-    def _in_memory_table_exists(self, name: str) -> bool:
-        try:
-            # this handles both tables and views
-            self.con.table(name)
-        except (duckdb.CatalogException, duckdb.InvalidInputException):
-            return False
-        else:
-            return True
-
     def _register_in_memory_table(self, op: ops.InMemoryTable) -> None:
-        self.con.register(op.name, op.data.to_pyarrow(op.schema))
+        data = op.data
+        schema = op.schema
 
-    def _finalize_memtable(self, name: str) -> None:
-        # if we don't aggressively unregister tables duckdb will keep a
-        # reference to every memtable ever registered, even if there's no
-        # way for a user to access the operation anymore, resulting in a
-        # memory leak
-        #
-        # we can't use drop_table, because self.con.register creates a view, so
-        # use the corresponding unregister method
-        self.con.unregister(name)
+        try:
+            obj = data.to_pyarrow_dataset(schema)
+        except AttributeError:
+            obj = data.to_pyarrow(schema)
+
+        self.con.register(op.name, obj)
 
     def _register_udfs(self, expr: ir.Expr) -> None:
         con = self.con
@@ -1655,22 +1811,20 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
                 registration_func(con)
 
     def _register_udf(self, udf_node: ops.ScalarUDF):
-        func = udf_node.__func__
-        name = type(udf_node).__name__
         type_mapper = self.compiler.type_mapper
         input_types = [
             type_mapper.to_string(param.annotation.pattern.dtype)
             for param in udf_node.__signature__.parameters.values()
         ]
-        output_type = type_mapper.to_string(udf_node.dtype)
 
         def register_udf(con):
             return con.create_function(
-                name,
-                func,
-                input_types,
-                output_type,
+                name=type(udf_node).__name__,
+                function=udf_node.__func__,
+                parameters=input_types,
+                return_type=type_mapper.to_string(udf_node.dtype),
                 type=_UDF_INPUT_TYPE_MAPPING[udf_node.__input_type__],
+                **udf_node.__config__,
             )
 
         return register_udf
@@ -1693,7 +1847,7 @@ class Backend(SQLBackend, CanCreateDatabase, CanCreateSchema, UrlFromPath):
 
 
 @lazy_singledispatch
-def _read_in_memory(source: Any, table_name: str, _conn: Backend, **kwargs: Any):
+def _read_in_memory(source: Any, table_name: str, _conn: Backend, **_: Any):
     raise NotImplementedError(
         f"The `{_conn.name}` backend currently does not support "
         f"reading data of {type(source)!r}"
@@ -1705,12 +1859,12 @@ def _read_in_memory(source: Any, table_name: str, _conn: Backend, **kwargs: Any)
 @_read_in_memory.register("pyarrow.Table")
 @_read_in_memory.register("pandas.DataFrame")
 @_read_in_memory.register("pyarrow.dataset.Dataset")
-def _default(source, table_name, _conn, **kwargs: Any):
+def _default(source, table_name, _conn, **_: Any):
     _conn.con.register(table_name, source)
 
 
 @_read_in_memory.register("pyarrow.RecordBatchReader")
-def _pyarrow_rbr(source, table_name, _conn, **kwargs: Any):
+def _pyarrow_rbr(source, table_name, _conn, **_: Any):
     _conn.con.register(table_name, source)
     # Ensure the reader isn't marked as started, in case the name is
     # being overwritten.

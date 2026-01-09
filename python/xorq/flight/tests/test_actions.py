@@ -21,7 +21,7 @@ def test_list_tables_kwargs():
         data = pa.table(
             {"id": [1, 2, 3], "name": ["Alice", "Bob", "Charlie"]}
         ).to_pandas()
-        main.con.register(data, table_name="users")
+        main.con.create_table("users", data)
         expected = ["users"]
 
         # WHEN
