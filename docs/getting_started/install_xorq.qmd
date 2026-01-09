@@ -7,15 +7,22 @@ headline: "Get Xorq running on your machine"
 
 This guide shows you how to install Xorq and configure it for your environment.
 
-You'll need Python 3.10 or higher to run Xorq. To check your current version, run this command:
-```bash
-python --version
-```
 ::: {.callout-tip}
-If the version is below 3.10, download the latest release from the [Python downloads page](https://www.python.org/downloads/).
+### Python version
+Xorq requires Python 3.10 or higher. Check your version with `python --version`. If you need to install or update Python, then visit the [official Python downloads page](https://www.python.org/downloads/).
 :::
 
 ## Install Xorq
+
+Choose the installation method that matches your needs. Start with the examples option to get all the dependencies for tutorials and ML workflows.
+
+::: {.callout-tip}
+Install Xorq with examples to follow tutorials and build ML pipelines. This option includes scikit-learn, XGBoost, DuckDB, OpenAI, and other libraries you'll need.
+
+```bash
+pip install "xorq[examples]"
+```
+:::
 
 ::: {.panel-tabset}
 
@@ -71,7 +78,9 @@ cd my-xorq-project
 uv add xorq
 ```
 
-### with nix
+### With nix
+
+This runs Xorq directly from the GitHub repository using nix.
 ```bash
 nix run github:xorq-labs/xorq
 ```
@@ -88,20 +97,28 @@ If you're just getting started, install all backends. This lets you experiment w
 
 ::: {.panel-tabset}
 
+### All backends
+
+This installs support for all backends at once. It's the fastest way to explore what Xorq can do.
+
+```bash
+pip install "xorq[examples,duckdb,snowflake,postgres,pyiceberg,datafusion,sqlite]"
+```
+
 ### DuckDB
 
-DuckDB works well for analytical workloads on local or moderate-sized datasets. It excels at AsOf joins and working with Parquet files.
+DuckDB works well for analytical workloads on local or moderate-sized datasets. It excels at asof joins and working with Parquet files.
 
 ```bash
 pip install "xorq[duckdb]"
 ```
 
-### Snowflake
+### DataFusion
 
-Snowflake works well for cloud data warehouse operations with managed infrastructure and scalability.
+DataFusion works well for in-memory analytical processing and custom UDFs. Note that an embedded DataFusion backend is included in the base installation.
 
 ```bash
-pip install "xorq[snowflake]"
+pip install "xorq[datafusion]"
 ```
 
 ### PostgreSQL
@@ -120,12 +137,12 @@ PyIceberg works well for working with Apache Iceberg tables in data lakes.
 pip install "xorq[pyiceberg]"
 ```
 
-### DataFusion
+### Snowflake
 
-DataFusion works well for in-memory analytical processing and custom UDFs. Note that an embedded DataFusion backend is included in the base installation.
+Snowflake works well for cloud data warehouse operations with managed infrastructure and scalability.
 
 ```bash
-pip install "xorq[datafusion]"
+pip install "xorq[snowflake]"
 ```
 
 ### SQLite
@@ -142,14 +159,6 @@ Trino works well for distributed queries, data federation, and enterprise securi
 
 ```bash
 pip install trino
-```
-
-### All backends
-
-This installs support for all backends at once. It's the fastest way to explore what Xorq can do.
-
-```bash
-pip install "xorq[examples,duckdb,snowflake,postgres,pyiceberg,datafusion,sqlite]"
 ```
 
 :::
@@ -175,7 +184,7 @@ print(f"Connected to: {con}")
 
 ### Pandas
 
-Pandas works well for local development and small datasets. Here's how to create a connection and load data into it.
+Pandas works well for local development and small datasets. Here's how to create a connection and load data into it:
 
 ```{python}
 import xorq.api as xo
@@ -201,7 +210,7 @@ table = pandas_con.create_table("my_table", df)
 
 PostgreSQL connections require database credentials. You can provide them directly or load them from environment variables.
 
-**Using environment variables:**
+#### Using environment variables:
 
 Set these environment variables before running your code:
 
@@ -225,7 +234,7 @@ batting_table = pg_con.table("batting")
 1. The `connect_env` function reads credentials from environment variables.
 2. Access an existing table in your PostgreSQL database.
 
-**Using direct credentials:**
+#### Using direct credentials:
 
 You can also provide credentials directly in your code:
 
@@ -252,7 +261,7 @@ Don't hardcode credentials in production code. Use environment variables or a se
 
 DuckDB connections can be in-memory or persistent. Here's how both options work.
 
-**In-memory database:**
+#### In-memory database:
 
 ```python
 import xorq.api as xo
@@ -262,9 +271,9 @@ duck_con = xo.duckdb.connect()
 ```
 1. This creates an in-memory DuckDB database.
 
-**Persistent database:**
+#### Persistent database:
 
-For a persistent database, provide the file path:
+For a persistent database, provide the path:
 
 ```python
 import xorq.api as xo
@@ -319,56 +328,50 @@ trino_con = xo.trino.connect(
 SQLite works well for lightweight databases and local development.
 
 ```python
+# This creates or opens an SQLite database file.
 import xorq.api as xo
 
-# <1>
 sqlite_con = xo.sqlite.connect(database="my_data.db")
 ```
-1. This creates or opens an SQLite database file.
 
 :::
 
-## Run your first query
+## Verify Xorq installation
 
-Let's verify your installation by running a simple query. This example loads the iris dataset and filters it.
+You can verify your installation by running a simple query. This example loads the iris dataset and filters it.
 
 :::{.callout-note}
 This query uses the embedded backend, so you don't need any additional setup. It's a good way to confirm everything is working before connecting to external databases.
 :::
 
 ```{python}
-import xorq.api as xo
+import xorq.api as xo  
 
-# <1>
-con = xo.connect()
+con = xo.connect()  # <1>
 
-# <2>
-iris = xo.examples.iris.fetch(backend=con)
+iris = xo.examples.iris.fetch(backend=con)  # <2>
 
-# <3>
-filtered = iris.filter(xo._.sepal_length > 5)
+filtered = iris.filter(xo._.sepal_length > 5)  # <3>
 
-# <4>
-grouped = filtered.group_by("species").agg(
+grouped = filtered.group_by("species").agg(   # <4>
     xo._.sepal_width.sum()
 )
 
-# <5>
-result = grouped.execute()
+result = grouped.execute()   # <5>
 print(result)
 ```
 1. Connect to the embedded backend.
 2. Load the iris dataset into your backend.
-3. Filter rows where sepal length is greater than 5.
+3. Filter rows where sepal length is greater than five.
 4. Group by species and sum the sepal widths.
 5. Execute the query and print results.
 
-If everything works correctly, you'll see output showing the aggregated sepal widths grouped by species. The result is a PyArrow Table with two columns: `species` (Versicolor , Setosa , Virginica) and the summed sepal widths for each species. This confirms Xorq can load data, apply transformations, and execute queries on your system.
+If everything works correctly, then you'll see output showing the aggregated sepal widths grouped by species. The result is a PyArrow Table with two columns: `species` (Versicolor, Setosa, Virginica) and the summed sepal widths for each species. This confirms Xorq can load data, apply transformations, and run queries on your system.
 
 ## Next steps
 
-Now you've learned how to install Xorq and connect to a backend, you can explore these other resources:
+Now that you've installed Xorq and connected to a backend, explore these tutorials:
 
-- [Your first Xorq expression](../core_tutorials/your_first_expression.qmd) shows you how to execute a basic Xorq expression
-- [Explore caching](../core_tutorials/explore_caching.qmd) teaches you about cache hits and misses, plus how invalidation works
-- [Train your first model](../ml_tutorials/train_your_first_model.qmd) walks you through training a basic classification model with Xorq
+- [Defer query execution](defer_query_execution.qmd) — Learn when Xorq builds expressions versus when it runs computation
+- [Cache expression results](explore_caching.qmd) — Understand cache hits and misses, plus how invalidation works
+- [Switch between backends](switch_backends.qmd) — Move data between different execution engines
