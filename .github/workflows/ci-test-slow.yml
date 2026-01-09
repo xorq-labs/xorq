@@ -27,9 +27,15 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        target: [x86_64]
-        python-version: ["3.12"]
-        slow-level: [1, 2, 3]
+        include:
+          - slow-level: 1
+            python-version: "3.10"
+          - slow-level: 1
+            python-version: "3.12"
+          - slow-level: 2
+            python-version: "3.12"
+          - slow-level: 3
+            python-version: "3.12"
     steps:
       - uses: actions/checkout@v6
       - uses: extractions/setup-just@v3
