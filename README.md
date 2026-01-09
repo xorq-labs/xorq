@@ -110,14 +110,6 @@ In [6]: expr.to_pyarrow_batches()
 Out[6]: <pyarrow.lib.RecordBatchReader at 0x15dc3f570>
 ```
 
-## Translate Python to many SQLs
-
-Expressions are declarative i.e. you describe what, not how. When bound to a
-backend and executed, Xorq invokes that backend to generate an arrow record batch stream.
-Errors surface at definition time, not during execution time.
-Custom Python logic runs as UDFs, but the relational core is always SQL.
-One expression, many dialects, early feedback.
-
 ---
 
 # The Manifest
