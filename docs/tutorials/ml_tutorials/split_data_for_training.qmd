@@ -37,7 +37,7 @@ The code blocks build on each other. Variables like `table`, `train`, and `test`
 
 ## Create sample data
 
-Now you'll create some sample data to work with:
+Now you'll create some sample data to work with. Save your code in this file `split_data.py`:
 
 ```python
 # split_data.py
@@ -302,7 +302,7 @@ The same seed produces identical splits. Different seeds produce different split
 
 ## Complete example
 
-The full workflow:
+The full workflow. Save it as `split_data.py`:
 
 ```python
 # split_data.py

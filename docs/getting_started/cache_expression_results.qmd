@@ -18,7 +18,6 @@ Caching provides the biggest benefit for expensive operations:
 - Running complex aggregations
 
 :::{.callout-tip}
-### Smart caching
 Xorq uses content-addressed hashing to determine if an expression matches cached results. Xorq generates a hash from your expression structure. Identical expressions produce identical hashes, triggering a cache hit. 
 :::
 
@@ -30,7 +29,7 @@ Each code example includes complete setup, so you can run any section independen
 
 - **Python interactive shell**: Open a terminal, run `python`, copy and paste each code block
 - **Jupyter notebook**: Run each code block in a separate cell
-- **Python script**: Copy code blocks into a `.py` file and run with `python script.py`
+- **Python script**: Copy code blocks into a `.py` file and run with `cache_expr.py`
 
 ## Set up caching
 
@@ -84,7 +83,7 @@ print(f"Expression with caching: {type(cached_expr)}")
 2. Build a filter expression.
 3. Add caching with `.cache(cache=storage)`.
 
-The `.cache()` method tells Xorq to store results from this expression. On the first run, Xorq computes and caches the results. On subsequent runs, it retrieves them directly from cache.
+The `.cache()` method tells Xorq to store results from this expression. On the first run, Xorq computes and caches the results. On the next execution of the same expression, it retrieves them directly from cache.
 
 ## Observe cache miss
 
@@ -390,8 +389,6 @@ if cache_files:
 You'll see actual `.parquet` files in the `xorq_cache` directory. These files contain your cached results and persist even after you close Python.
 
 :::{.callout-tip}
-### When to use each cache type
-
 **SourceCache**: Fast, session-scoped. Use for temporary caching during development.
 
 **ParquetCache**: Persistent across sessions. Use when you want cache to survive Python restarts (local development, iterative analysis).
