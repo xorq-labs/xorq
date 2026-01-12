@@ -31,7 +31,6 @@ When you call `.fit()` in Xorq, training doesn't happen immediately. Xorq builds
 :::
 
 :::{.callout-important}
-### For learning purposes only
 This tutorial trains and evaluates on the same dataset to focus on the mechanics of wrapping scikit-learn pipelines. In production, always split your data into separate training and test sets. See [Split data for training](split_data_for_training.qmd) to learn proper data splitting.
 :::
 

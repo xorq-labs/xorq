@@ -28,7 +28,7 @@ Run the code examples in order using any of these methods:
 
 - **Python interactive shell (recommended)**: Open a terminal, run `python`, then copy and paste each code block.
 - **Jupyter notebook**: Create a new notebook and run each code block in a separate cell.
-- **Python script**: Copy all code blocks into a `.py` file and run it with `python script.py`.
+- **Python script**: Copy all code blocks into a `.py` file and run it with `build_expr.py`.
 
 The code blocks build on each other. Variables like `con`, `iris`, and `filtered` are created in earlier blocks and used in later ones.
 
@@ -98,6 +98,7 @@ print(result.head(5))
 3. We now have actual results, not just an expression.
 
 The moment you called `.execute()`, Xorq:
+
 - Compiled your expression into an execution plan
 - Loaded the data from the iris dataset
 - Applied the filter

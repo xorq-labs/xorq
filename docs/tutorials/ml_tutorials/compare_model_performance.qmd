@@ -1,11 +1,13 @@
 ---
 title: 'Compare model performance'
-description: "Compare multiple models to find the best one for your classification task"
+description: "Run scikit-learn operations directly on database data and compare multiple models to find the best classifier"
 icon: "chart-line"
 headline: "Compare models systematically"
 ---
 
-This tutorial shows you how to compare multiple machine learning models to find the best performer. You'll learn how to evaluate different classifiers systematically using Xorq's ML workflows.
+This tutorial shows you how to compare multiple machine learning models to find the best performer. You'll learn how to evaluate different classifiers systematically using Xorq's ML workflows, then select the best model based on accuracy scores.
+
+You'll train four classifiers (k-nearest neighbors, linear SVM, decision tree, random forest) on the same dataset and compare their performance. Xorq lets you run these scikit-learn operations directly on data from databases (PostgreSQL, Snowflake, etc.) without loading data into memory first. This tutorial uses synthetic data for demonstration, but the same approach works with database tables.
 
 After completing this tutorial, you'll know how to run experiments that compare model performance and select the best approach for your data.
 
@@ -13,7 +15,7 @@ After completing this tutorial, you'll know how to run experiments that compare 
 
 You need:
 
-- Xorq installed (see [Install Xorq](../../getting_started/installation#install-xorq))
+- Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd))
 - Basic familiarity with [scikit-learn classifiers](https://scikit-learn.org/stable/supervised_learning.html#supervised-learning)
 - Understanding of [train/test splits](https://scikit-learn.org/stable/modules/cross_validation.html#cross-validation)
 
@@ -22,7 +24,7 @@ You need:
 
 Different algorithms perform differently on different datasets. You compare multiple classifiers to find which one gives the best accuracy for your specific data.
 
-This tutorial shows you how to train three models (k-nearest neighbors, decision tree, random forest) and compare their accuracy scores.
+This tutorial trains four models: k-nearest neighbors, linear SVM, decision tree, and random forest. It then compares their accuracy scores.
 
 ## How to follow along
 
@@ -126,11 +128,13 @@ Features: ['feature_0', 'feature_1']
 
 **What just happened?** You registered pandas DataFrames as tables in Xorq. Now you can use these tables with Xorq's deferred execution patterns.
 
-Once you've got your tables ready, you can move on to training models.
+:::{.callout-tip}
+**Using database data**: Instead of `con.register()`, you can use data directly from databases. For example, with PostgreSQL: `pg = xo.postgres.connect_env()` then `train = pg.table("training_data")`. The same scikit-learn operations work regardless of whether your data comes from a database table or an in-memory DataFrame. Xorq handles the data transfer automatically.
+:::
 
 ## Train and evaluate one model
 
-Train a single classifier and measure its accuracy. Think of it this way: you're establishing a baseline before comparing multiple models.
+Train a single classifier and measure its accuracy. This establishes a baseline before comparing multiple models.
 
 ```python
 import sklearn.pipeline
@@ -155,38 +159,33 @@ fitted_pipeline = xorq_pipeline.fit(
 )
 
 # <4>
-score_expr = fitted_pipeline.score_expr(test)
-
-# <5>
-score = score_expr.execute()
+score = fitted_pipeline.score_expr(test)
 print(f"\nK-Nearest Neighbors accuracy: {score:.2%}")
 ```
 1. Create a scikit-learn pipeline with scaling and k-nearest neighbors (k=3).
 2. Wrap it with Xorq's Pipeline.from_instance().
 3. Fit on the training data (deferred).
-4. Create a scoring expression (still deferred).
-5. Execute to get the actual accuracy.
+4. Score the model on test data. `score_expr()` executes immediately and returns the accuracy score.
 
-You’ll see output like:
+Example output:
 
 ```
 K-Nearest Neighbors accuracy: 90.00%
 ```
 
-**Here's the key insight**: `.score_expr()` returns a deferred expression. Nothing executes until you call `.execute()`. This lets you build complex evaluation workflows before running anything.
-
-Why use `.score_expr()` instead of immediate scoring? You can compose it with other operations, cache results, and optimize execution across multiple evaluations.
+**Note**: `score_expr()` executes immediately and returns a float score. The `fit()` operation is deferred, but scoring executes right away to give you the accuracy.
 
 ## Compare multiple classifiers
 
-This raises a question: How do you compare several models efficiently?
-
-Here's where the pattern shines. You define your models, wrap each in a pipeline, and then evaluate them all:
+Compare multiple models by defining each classifier, wrapping it in a pipeline, and evaluating them:
 
 ```python
+import sklearn.pipeline
+from sklearn.preprocessing import StandardScaler
 from sklearn.svm import SVC
 from sklearn.tree import DecisionTreeClassifier
 from sklearn.ensemble import RandomForestClassifier
+from xorq.expr.ml import Pipeline
 
 # <1>
 classifiers = {
@@ -212,7 +211,7 @@ for name, clf in classifiers.items():
     fitted = xorq_pipe.fit(train, features=features, target="target")
     
     # Evaluate
-    score = fitted.score_expr(test).execute()
+    score = fitted.score_expr(test)
     results[name] = score
     
     print(f"{name}: {score:.2%}")
@@ -228,7 +227,7 @@ print(f"Best accuracy: {best_score:.2%}")
 2. Loop through each: wrap, fit, score.
 3. Find the best performer.
 
-You'll see output like:
+Example output:
 
 ```
 K-Nearest Neighbors: 90.00%
@@ -240,21 +239,25 @@ Best model: Random Forest
 Best accuracy: 92.50%
 ```
 
-**What does success look like?** You've compared four different classifiers and identified that Random Forest performs best on this dataset. The non-linear decision boundary of Random Forest handles the moons shape better than linear models.
-
-Most teams find that this pattern simplifies model selection. Define models, evaluate them, pick the winner.
+You've compared four different classifiers and identified that Random Forest performs best on this dataset. The non-linear decision boundary of Random Forest handles the moons shape better than linear models.
 
 ## Verify against scikit-learn
 
 Now you'll verify that Xorq's scores match scikit-learn's scores exactly. This builds confidence that Xorq's wrapper doesn't change the underlying algorithms.
 
 ```python
+import numpy as np
+import sklearn.pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from xorq.expr.ml import Pipeline
+
 # <1>
 def verify_score(train, test, features, target, sklearn_pipeline):
     # Xorq evaluation
     xorq_pipe = Pipeline.from_instance(sklearn_pipeline)
     fitted = xorq_pipe.fit(train, features=features, target=target)
-    xorq_score = fitted.score_expr(test).execute()
+    xorq_score = fitted.score_expr(test)
     
     # sklearn evaluation
     train_df = train.execute()
@@ -284,7 +287,7 @@ print(f"Match: {np.isclose(xorq_score, sklearn_score)}")
 2. Test with a k-nearest neighbors classifier.
 3. Verify the scores match.
 
-The output shows:
+Example output:
 
 ```
 Verification:
@@ -295,11 +298,9 @@ Match: True
 
 This confirms that Xorq produces identical results to scikit-learn. The only difference is deferred execution and caching. The algorithms themselves are unchanged.
 
-Understanding this gives you confidence to use Xorq in production. You're not changing how models work, just how they execute.
-
 ## Complete example
 
-Here's the full workflow in one place. If you started with the Python shell, then you've already run all of this. If you want to create a script, then here's everything combined:
+Here's the full workflow in one place:
 
 ```python
 import xorq.api as xo
@@ -358,7 +359,7 @@ for name, clf in classifiers.items():
     ])
     xorq_pipe = Pipeline.from_instance(sklearn_pipe)
     fitted = xorq_pipe.fit(train, features=features, target="target")
-    score = fitted.score_expr(test).execute()
+    score = fitted.score_expr(test)
     results[name] = score
     print(f"{name}: {score:.2%}")
 
@@ -367,7 +368,7 @@ best_model = max(results, key=results.get)
 print(f"\nBest model: {best_model} ({results[best_model]:.2%})")
 ```
 
-Notice how you compared four classifiers with minimal code. The pattern is consistent: wrap, fit, score, compare.
+The pattern is consistent: wrap, fit, score, compare.
 
 ## What you learned
 
@@ -379,7 +380,7 @@ You've learned how to evaluate multiple models systematically. Here's what you a
 - Compared multiple models to find the best performer
 - Verified that Xorq matches scikit-learn exactly
 
-The key insight? Model comparison is systematic with Xorq. Define your candidates, evaluate them all, pick the winner. The deferred execution pattern works across any scikit-learn estimator.
+The same approach works with data from databases (PostgreSQL, Snowflake, etc.). Instead of loading data into memory, you can run scikit-learn operations directly on database tables. Model comparison is systematic with Xorq: define your candidates, evaluate them all, pick the winner. The deferred execution pattern works across any scikit-learn estimator.
 
 ## Next steps
 
