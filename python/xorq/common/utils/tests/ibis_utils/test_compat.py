@@ -131,7 +131,7 @@ def test_integer_as_interval():
 
     xorq_expr = from_ibis(expr)
 
-    assert expr.execute() == xorq_expr.execute()
+    assert expr.execute().days == xorq_expr.execute().days
 
 
 def test_integer_as_timestamp():

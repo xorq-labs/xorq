@@ -831,3 +831,68 @@ def test_strftime_multiple_patterns(con, pattern):
 
     result = con.execute(expr)
     assert_series_equal(result, expected)
+
+
+@pytest.mark.parametrize(
+    ("expr_fn", "expected_fn"),
+    [
+        param(
+            lambda t, _: t.timestamp_col + xo.interval(days=4),
+            lambda t, _: t.timestamp_col + pd.Timedelta(days=4),
+            id="timestamp-add-interval",
+        ),
+        param(
+            lambda t, _: t.timestamp_col + (xo.interval(days=4) - xo.interval(days=2)),
+            lambda t, _: t.timestamp_col
+            + (pd.Timedelta(days=4) - pd.Timedelta(days=2)),
+            id="timestamp-add-interval-binop",
+        ),
+        param(
+            lambda t, _: t.timestamp_col + (xo.interval(days=4) + xo.interval(hours=2)),
+            lambda t, _: t.timestamp_col
+            + (pd.Timedelta(days=4) + pd.Timedelta(hours=2)),
+            id="timestamp-add-interval-binop-different-units",
+        ),
+        param(
+            lambda t, _: t.timestamp_col - xo.interval(days=17),
+            lambda t, _: t.timestamp_col - pd.Timedelta(days=17),
+            id="timestamp-subtract-interval",
+        ),
+        param(
+            lambda t, _: t.timestamp_col.date() + xo.interval(days=4),
+            lambda t, _: t.timestamp_col.dt.floor("d").add(pd.Timedelta(days=4)),
+            id="date-add-interval",
+        ),
+        param(
+            lambda t, _: t.timestamp_col.date() - xo.interval(days=14),
+            lambda t, _: t.timestamp_col.dt.floor("d").sub(pd.Timedelta(days=14)),
+            id="date-subtract-interval",
+        ),
+        param(
+            lambda t, _: t.timestamp_col - xo.timestamp(timestamp_value),
+            lambda t, _: pd.Series(
+                t.timestamp_col.sub(timestamp_value).values.astype("timedelta64[s]")
+            ).dt.floor("s"),
+            id="timestamp-subtract-timestamp",
+        ),
+        param(
+            lambda t, _: t.timestamp_col.date() - xo.date(date_value),
+            lambda t, _: pd.Series(
+                (t.timestamp_col.dt.floor("d") - date_value).values.astype(
+                    "timedelta64[D]"
+                )
+            ),
+            id="date-subtract-date",
+        ),
+    ],
+)
+def test_temporal_binop(con, alltypes, alltypes_df, expr_fn, expected_fn):
+    expr = expr_fn(alltypes, None).name("tmp")
+    expected = expected_fn(alltypes_df, None)
+
+    result = con.execute(expr)
+    expected = expected.rename("tmp")
+
+    assert_series_equal(
+        result.astype(expected.dtype), expected.astype(result.dtype), check_dtype=False
+    )
