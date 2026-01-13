@@ -875,6 +875,7 @@ def raise_on_unregistered(instance, step, expr, features, target):
 def lazy_register_sklearn():
     from sklearn.base import (
         ClassifierMixin,
+        RegressorMixin,
     )
     from sklearn.linear_model import (
         LinearRegression,
@@ -888,6 +889,7 @@ def lazy_register_sklearn():
     registry.register(LogisticRegression, get_target_type)
     registry.register(KNeighborsClassifier, get_target_type)
     registry.register(ClassifierMixin, get_target_type)
+    registry.register(RegressorMixin, return_constant(dt.float))
 
 
 get_predict_return_type.register = registry.register
