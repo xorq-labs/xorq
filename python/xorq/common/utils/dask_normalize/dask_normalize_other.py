@@ -21,6 +21,51 @@ def lazy_register_pandas():
         return normalize_seq_with_caller(*objs)
 
 
+def lazy_register_sklearn():
+    from sklearn.base import BaseEstimator
+    from sklearn.pipeline import Pipeline as SklearnPipeline
+
+    @dask.base.normalize_token.register(SklearnPipeline)
+    def normalize_sklearn_pipeline(pipeline):
+        """Normalize sklearn Pipeline for dask tokenization."""
+        # Use steps and memory as the canonical representation
+        steps_data = tuple(
+            (name, dask.base.tokenize(step)) for name, step in pipeline.steps
+        )
+        return normalize_seq_with_caller(
+            "SklearnPipeline",
+            steps_data,
+            pipeline.memory,
+            caller="normalize_sklearn_pipeline",
+        )
+
+    @dask.base.normalize_token.register(BaseEstimator)
+    def normalize_sklearn_estimator(estimator):
+        """Normalize sklearn BaseEstimator for dask tokenization."""
+        # Use class name and parameters as canonical representation
+        params = estimator.get_params(deep=False)
+
+        # Convert params to a hashable form (sort items, convert lists to tuples)
+        def make_hashable(v):
+            if isinstance(v, list):
+                return tuple(make_hashable(x) for x in v)
+            elif isinstance(v, dict):
+                return tuple(sorted((k, make_hashable(val)) for k, val in v.items()))
+            elif isinstance(v, BaseEstimator):
+                return dask.base.tokenize(v)
+            return v
+
+        params_hashable = tuple(
+            sorted((k, make_hashable(v)) for k, v in params.items())
+        )
+        return normalize_seq_with_caller(
+            type(estimator).__name__,
+            type(estimator).__module__,
+            params_hashable,
+            caller="normalize_sklearn_estimator",
+        )
+
+
 def safe_lazy_register(toplevel, function):
     if existing := dask.base.normalize_token._lazy.get(toplevel):
 
@@ -35,6 +80,7 @@ def safe_lazy_register(toplevel, function):
 
 
 safe_lazy_register("pandas", lazy_register_pandas)
+safe_lazy_register("sklearn", lazy_register_sklearn)
 
 
 @dask.base.normalize_token.register(dict)
