@@ -1,5 +1,7 @@
 ---
 title: 'Deploy your first model'
+icon: "rocket-takeoff"
+headline: "Deploy models to production"
 ---
 
 Coming soon.

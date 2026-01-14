@@ -1,5 +1,7 @@
 ---
 title: 'Cache expression results'
+icon: "database-check"
+headline: "Speed up workflows with automatic caching"
 ---
 
 This tutorial shows you how Xorq's caching system works through hands-on examples. You'll see cache hits and misses in real time, and understand when Xorq reuses results versus recomputing them.

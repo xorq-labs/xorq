@@ -1,5 +1,7 @@
 ---
 title: 'Switch between backends'
+icon: "arrow-left-right"
+headline: "Run expressions on any backend"
 ---
 
 This tutorial shows you how to run the same expression on different execution engines. You'll learn when to choose each backend and see how Xorq moves data between them using Apache Arrow.

@@ -1,5 +1,5 @@
 ---
-pagetitle: "Xorq Documentation"
+pagetitle: "Xorq documentation"
 description: "Official Xorq documentation. Learn how to build portable, multi-engine ML pipelines with deferred execution, caching, lineage tracking, and deployment-ready artifacts."
 toc: false
 page-layout: custom
@@ -11,39 +11,31 @@ listing:
       - "getting_started/introduction.qmd"
       - "getting_started/quickstart.qmd"
       - "getting_started/installation.qmd"
-      - "getting_started/your_first_expression.qmd"
+      - "getting_started/understand_deferred_execution.qmd"
+      - "getting_started/explore_caching.qmd"
+      - "getting_started/switch_backends.qmd"
     type: grid
-    grid-columns: 4
-    fields: [title, description]
-  - id: general-tutorials-cards
-    template: "style/gallery.ejs"
-    contents:
-      - "tutorials/core_tutorials/understand_deferred_execution.qmd"
-      - "tutorials/core_tutorials/explore_caching.qmd"
-      - "tutorials/core_tutorials/switch_backends.qmd"
-      - "tutorials/core_tutorials/your_first_build.qmd"
-    type: grid
-    grid-columns: 4
+    grid-columns: 6
     fields: [title, description]
   - id: ml-tutorials-cards
     template: "style/gallery.ejs"
     contents:
-      - "tutorials/ml_tutorials/train_your_first_model.qmd"
-      - "tutorials/ml_tutorials/understand_step_and_pipeline.qmd"
-      - "tutorials/ml_tutorials/use_deferred_fit_predict.qmd"
       - "tutorials/ml_tutorials/split_data_for_training.qmd"
+      - "tutorials/ml_tutorials/train_your_first_model.qmd"
+      - "tutorials/ml_tutorials/explore_model_evaluation.qmd"
+      - "tutorials/ml_tutorials/deploy_your_first_model.qmd"
     type: grid
-    grid-columns: 2
+    grid-columns: 4
     fields: [title, description]
 ---
 
 ::: {.hero-section}
 ::: {.hero-content}
-# Xorq Documentation
+# Xorq documentation
 
 Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, and multi-engine execution automatically.
 
-[Get started](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
+[Get started →](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
 [View on GitHub](https://github.com/xorq-labs/xorq){.hero-btn .hero-btn-secondary}
 :::
 :::
@@ -55,13 +47,6 @@ Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, 
 New to Xorq? Start here to build your first pipeline.
 
 :::{#getting-started-cards}
-:::
-
-## <i class="bi bi-book"></i> General tutorials
-
-Learn how Xorq's deferred execution, caching, and multi-engine support work together.
-
-:::{#general-tutorials-cards}
 :::
 
 ## <i class="bi bi-cpu"></i> ML tutorials
@@ -120,4 +105,20 @@ Every command you need to build, run, and serve pipelines
 [**Python API**](reference/)
 
 Full reference for Xorq's Python API
+:::
+
+::: {.doc-card}
+<i class="bi bi-wrench"></i>
+
+[**Troubleshooting**](troubleshooting/)
+
+Resolve common issues and errors when using Xorq
+:::
+
+::: {.doc-card}
+<i class="bi bi-newspaper"></i>
+
+[**Release notes**](release_notes.qmd)
+
+Version history, breaking changes, and new features
 :::
