@@ -40,7 +40,6 @@ def prep_template_tmpdir(template, tmpdir):
     return (tgz_path, project_path)
 
 
-@pytest.mark.xfail(reason="temperorily disabling template tests until daniel returns")
 @pytest.mark.slow(level=1)
 @pytest.mark.snapshot_check
 @pytest.mark.parametrize("template", tuple(InitTemplates))
