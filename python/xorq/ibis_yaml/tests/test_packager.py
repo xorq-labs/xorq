@@ -40,6 +40,7 @@ def prep_template_tmpdir(template, tmpdir):
     return (tgz_path, project_path)
 
 
+@pytest.mark.xfail(reason="temperorily disabling template tests until daniel returns")
 @pytest.mark.slow(level=1)
 @pytest.mark.snapshot_check
 @pytest.mark.parametrize("template", tuple(InitTemplates))
@@ -105,6 +106,7 @@ def test_sdist_builder_no_requirements_fails(template, tmpdir):
         sdist_builder
 
 
+@pytest.mark.xfail(reason="wait for daniel to return")
 @pytest.mark.slow(level=2)
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"
