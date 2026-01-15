@@ -29,7 +29,7 @@ Each code example includes complete setup, so you can run any section independen
 
 - **Python interactive shell**: Open a terminal, run `python`, copy and paste each code block
 - **Jupyter notebook**: Run each code block in a separate cell
-- **Python script**: Copy code blocks into a `.py` file and run with `cache_expr.py`
+- **Python script**: Copy code blocks into a `.py` file and run with `python script.py`
 
 ## Set up caching
 
@@ -83,7 +83,7 @@ print(f"Expression with caching: {type(cached_expr)}")
 2. Build a filter expression.
 3. Add caching with `.cache(cache=storage)`.
 
-The `.cache()` method tells Xorq to store results from this expression. On the first run, Xorq computes and caches the results. On the next execution of the same expression, it retrieves them directly from cache.
+The `.cache()` method tells Xorq to store results from this expression. On the first run, Xorq computes and caches the results. On subsequent runs, it retrieves them directly from cache.
 
 ## Observe cache miss
 
@@ -260,7 +260,6 @@ print(f"\nSpeedup from caching: {speedup:.1f}x faster")
 The first execution is a cache miss. The second and third executions are cache hits and complete faster. This shows how caching eliminates redundant computation.
 
 :::{.callout-warning}
-### Cache storage
 SourceCache keeps cached data in your backend as tables. Make sure you have enough storage space for cached results, especially with large datasets.
 :::
 
@@ -389,6 +388,8 @@ if cache_files:
 You'll see actual `.parquet` files in the `xorq_cache` directory. These files contain your cached results and persist even after you close Python.
 
 :::{.callout-tip}
+### When to use each cache type
+
 **SourceCache**: Fast, session-scoped. Use for temporary caching during development.
 
 **ParquetCache**: Persistent across sessions. Use when you want cache to survive Python restarts (local development, iterative analysis).
@@ -429,7 +430,11 @@ print("Second run complete (from cache)")
 
 Now that you understand how caching works, continue with these tutorials:
 
-- [Switch between backends](switch_backends.qmd) — Move data between different execution engines
-- [Split data for training](../tutorials/ml_tutorials/split_data_for_training.qmd) — Learn how to split datasets for machine learning workflows
+- [Switch between backends](switch_backends) — Move data between different execution engines
+- [Split data for training](../tutorials/ml_tutorials/split_data_for_training) — Learn how to split datasets for machine learning workflows
+
+
+
+
 
 
