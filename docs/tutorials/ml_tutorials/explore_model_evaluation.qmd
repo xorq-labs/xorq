@@ -1,7 +1,7 @@
 ---
 title: 'Compare model performance'
 description: "Compare multiple models to find the best one for your classification task"
-icon: "chart-line"
+icon: "bar-chart-line"
 headline: "Compare models systematically"
 ---
 

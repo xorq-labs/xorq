@@ -1,6 +1,11 @@
 <!-- Bootstrap Icons -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
+<!-- Google Fonts - Brand Guidelines Fallbacks -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
 <style>
 /* TOC title - use default Quarto styling (like Ibis) */
 #TOC .toc-title,
@@ -18,13 +23,13 @@
 /* Body text sizing - standard documentation sizing */
 body {
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.3; /* Leading 1.3 per brand guidelines */
 }
 
 .quarto-content p,
 main p {
   font-size: 1rem;
-  line-height: 1.6;
+  line-height: 1.3; /* Leading 1.3 per brand guidelines */
   margin-bottom: 1rem;
 }
 
@@ -35,7 +40,8 @@ body:not(.homepage) .page-columns h1,
 body:not(.homepage) h1 {
   font-size: clamp(2rem, 4.5vw, 2.5rem) !important;
   font-weight: 400;
-  line-height: 1.2;
+  line-height: 1.0; /* Leading 1.0 per brand guidelines */
+  letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
 }
 
 body:not(.homepage) .quarto-content h2,
@@ -44,7 +50,8 @@ body:not(.homepage) .page-columns h2,
 body:not(.homepage) h2 {
   font-size: clamp(1.5rem, 3.5vw, 2rem) !important;
   font-weight: 400;
-  line-height: 1.3;
+  line-height: 1.0; /* Leading 1.0 per brand guidelines */
+  letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
 }
 
 body:not(.homepage) .quarto-content h3,
@@ -52,8 +59,10 @@ body:not(.homepage) main h3,
 body:not(.homepage) .page-columns h3,
 body:not(.homepage) h3 {
   font-size: clamp(1.25rem, 2.5vw, 1.5rem) !important;
-  font-weight: 400;
-  line-height: 1.35;
+  font-weight: 700; /* Bold per brand guidelines */
+  line-height: 1.2; /* Leading 1.2 per brand guidelines */
+  letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
+  text-transform: none; /* Sentence case per brand guidelines */
 }
 
 body:not(.homepage) .quarto-content h4,
@@ -61,8 +70,10 @@ body:not(.homepage) main h4,
 body:not(.homepage) .page-columns h4,
 body:not(.homepage) h4 {
   font-size: clamp(1.125rem, 2vw, 1.25rem) !important;
-  font-weight: 400;
-  line-height: 1.4;
+  font-weight: 700; /* Bold per brand guidelines */
+  line-height: 1.2; /* Leading 1.2 per brand guidelines */
+  letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
+  text-transform: none; /* Sentence case per brand guidelines */
 }
 
 body:not(.homepage) .quarto-content h5,
@@ -70,8 +81,10 @@ body:not(.homepage) main h5,
 body:not(.homepage) .page-columns h5,
 body:not(.homepage) h5 {
   font-size: clamp(1rem, 2vw, 1.125rem) !important;
-  font-weight: 400;
-  line-height: 1.4;
+  font-weight: 700; /* Bold per brand guidelines */
+  line-height: 1.2; /* Leading 1.2 per brand guidelines */
+  letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
+  text-transform: none; /* Sentence case per brand guidelines */
 }
 
 
@@ -191,10 +204,11 @@ body:not(.homepage) h6 {
 }
 
 /* Sidebar links (left sidebar only) - bubble design */
-.sidebar-navigation .sidebar-item a,
-#quarto-sidebar .sidebar-item a,
-.sidebar-navigation a:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a:not(.sidebar-section-header):not(h6) {
+/* Default (dark mode) sidebar styling */
+[data-bs-theme="dark"] .sidebar-navigation .sidebar-item a,
+[data-bs-theme="dark"] #quarto-sidebar .sidebar-item a,
+[data-bs-theme="dark"] .sidebar-navigation a:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a:not(.sidebar-section-header):not(h6) {
   display: block;
   padding: 0.5rem 1rem;
   color: rgba(255, 255, 255, 0.7);
@@ -207,22 +221,63 @@ body:not(.homepage) h6 {
   border-radius: 0.75rem;
 }
 
-.sidebar-navigation .sidebar-item a:hover,
-#quarto-sidebar .sidebar-item a:hover,
-.sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
+/* Fallback for when theme is not set (defaults to dark) - exclude light mode */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item a,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item a,
+:not([data-bs-theme="light"]) .sidebar-navigation a:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a:not(.sidebar-section-header):not(h6) {
+  display: block;
+  padding: 0.5rem 1rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: all 0.2s ease;
+  margin: 0 0.5rem 0 0.5rem;
+  margin-right: 0;
+  border-radius: 0.75rem;
+}
+
+/* Dark mode hover */
+[data-bs-theme="dark"] .sidebar-navigation .sidebar-item a:hover,
+[data-bs-theme="dark"] #quarto-sidebar .sidebar-item a:hover,
+[data-bs-theme="dark"] .sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
   color: rgba(255, 255, 255, 0.9);
   background: rgba(255, 255, 255, 0.05);
   border-radius: 0.75rem;
 }
 
-/* Active sidebar item - curved (left sidebar only) */
-.sidebar-navigation .sidebar-item a.active,
-#quarto-sidebar .sidebar-item a.active,
-.sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
-.sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+/* Fallback hover (when theme not set) - exclude light mode */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item a:hover,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item a:hover,
+:not([data-bs-theme="light"]) .sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.75rem;
+}
+
+/* Active sidebar item - dark mode */
+[data-bs-theme="dark"] .sidebar-navigation .sidebar-item a.active,
+[data-bs-theme="dark"] #quarto-sidebar .sidebar-item a.active,
+[data-bs-theme="dark"] .sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] .sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+  color: #79E2FF;
+  background: rgba(121, 226, 255, 0.1);
+  font-weight: 500;
+  border-radius: 0.75rem;
+}
+
+/* Fallback active (when theme not set) - exclude light mode */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item a.active,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item a.active,
+:not([data-bs-theme="light"]) .sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) .sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
   color: #79E2FF;
   background: rgba(121, 226, 255, 0.1);
   font-weight: 500;
@@ -235,13 +290,22 @@ body:not(.homepage) h6 {
   margin-left: 0.25rem;
 }
 
-.sidebar-navigation .sidebar-item .sidebar-item a,
-#quarto-sidebar .sidebar-item .sidebar-item a {
+/* Nested sidebar items - exclude light mode from default white text */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item .sidebar-item a,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item .sidebar-item a {
   padding-left: 1.5rem;
   padding-right: 1rem;
   font-size: 0.8125rem;
   margin-left: 0.5rem;
   margin-right: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Light mode nested sidebar items */
+[data-bs-theme="light"] .sidebar-navigation .sidebar-item .sidebar-item a,
+[data-bs-theme="light"] #quarto-sidebar .sidebar-item .sidebar-item a,
+[data-bs-theme="light"] .quarto-sidebar .sidebar-item .sidebar-item a {
+  color: #05181A !important;
 }
 
 /* Sidebar navigation container (left sidebar only) */
@@ -271,32 +335,9 @@ body:not(.homepage) h6 {
   color: rgba(5, 24, 26, 0.5);
 }
 
-[data-bs-theme="light"] .sidebar-navigation .sidebar-item a,
-[data-bs-theme="light"] #quarto-sidebar .sidebar-item a,
-[data-bs-theme="light"] .sidebar-navigation a:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a:not(.sidebar-section-header):not(h6) {
-  color: rgba(5, 24, 26, 0.7);
-}
+/* Light mode sidebar styling is handled by light.scss */
 
-[data-bs-theme="light"] .sidebar-navigation .sidebar-item a:hover,
-[data-bs-theme="light"] #quarto-sidebar .sidebar-item a:hover,
-[data-bs-theme="light"] .sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
-  color: rgba(5, 24, 26, 0.9);
-  background: rgba(5, 24, 26, 0.05);
-  border-radius: 0.75rem;
-}
-
-[data-bs-theme="light"] .sidebar-navigation .sidebar-item a.active,
-[data-bs-theme="light"] #quarto-sidebar .sidebar-item a.active,
-[data-bs-theme="light"] .sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] .sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
-  color: #19696C;
-  background: rgba(25, 105, 108, 0.1);
-  border-radius: 0.75rem;
-}
+/* Light mode sidebar active state is handled by light.scss */
 
 /* Sidebar section icon styling (left sidebar only) */
 .sidebar-navigation .bi,
@@ -319,6 +360,8 @@ body:not(.homepage) h6 {
 [data-bs-theme="light"] #quarto-sidebar [id] > .sidebar-item:last-child a {
   border-bottom-color: rgba(5, 24, 26, 0.08);
 }
+
+/* Light mode sidebar styling is handled by light.scss */
 </style>
 
 <script>
