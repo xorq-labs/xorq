@@ -13,13 +13,14 @@ After completing this tutorial, you'll know how to partition data properly for M
 
 You need:
 
-- Xorq installed (see [Install Xorq](../../getting_started/installation#install-xorq))
+- Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd#install-xorq))
 - Basic understanding of [train/test splits in ML](https://scikit-learn.org/stable/modules/cross_validation.html#cross-validation)
 
 
 ## Why split your data?
 
 Training and evaluating on the same data prevents you from detecting overfitting. Splitting into separate partitions gives you an honest measure of model performance on unseen data.
+
 
 ## How to follow along
 
@@ -37,7 +38,7 @@ The code blocks build on each other. Variables like `table`, `train`, and `test`
 
 ## Create sample data
 
-Now you'll create some sample data to work with. Save your code in this file `split_data.py`:
+Now you'll create some sample data to work with:
 
 ```python
 # split_data.py
@@ -60,11 +61,11 @@ print(table.head(5).execute())
 1. Create a table with 100,000 rows. Each row has a unique key and a value.
 2. Preview what you created.
 
-Expected output:
+You'll see:
 
 ```
 Created table with 100000 rows
-Columns: ['key1', 'val']
+Columns: ('key1', 'val')
 
 First 5 rows:
    key1      val
@@ -99,8 +100,8 @@ test_count = test.count().execute()
 total = train_count + test_count
 
 # <3>
-print(f"\nTrain: {train_count} ({train_count/total:.1%})")
-print(f"Test: {test_count} ({test_count/total:.1%})")
+print(f"\nTrain size: {train_count} ({train_count/total:.1%})")
+print(f"Test size: {test_count} ({test_count/total:.1%})")
 ```
 1. Split into train (75%) and test (25%). The unique_key determines how rows get assigned.
 2. Count rows in each partition.
@@ -109,11 +110,9 @@ print(f"Test: {test_count} ({test_count/total:.1%})")
 Expected output:
 
 ```
-Train: 74998 (75.0%)
-Test: 25002 (25.0%)
+Train size: 75003 (75.0%)
+Test size: 24997 (25.0%)
 ```
-
-The exact counts may vary slightly due to hashing, but the percentages will match your specified split ratio.
 
 Xorq hashed the `key1` column for each row and assigned it to either train or test based on the hash value. With `test_sizes=0.25`, roughly 25% go to test and 75% to train.
 
@@ -167,7 +166,7 @@ print("\nMulti-partition split:")
 for name, count in counts.items():
     print(f"{name.upper()}: {count} ({count/total:.1%})")
 ```
-1. Define partition sizes as a list. These should sum to 1.0 (representing 100% of your data).
+1. Define partition sizes as a list. These should sum to 1.0 (10% + 20% + 30% + 40%).
 2. Create four mutually exclusive partitions. Order matters: first size goes to first return value.
 3. Count rows in each partition.
 4. Verify the ratios match what you requested.
@@ -176,13 +175,11 @@ Expected output:
 
 ```
 Multi-partition split:
-HOLDOUT: 9916 (9.9%)
-TEST: 20213 (20.2%)
-VALIDATION: 29958 (30.0%)
-TRAINING: 39913 (39.9%)
+HOLDOUT: 10003 (10.0%)
+TEST: 19995 (20.0%)
+VALIDATION: 29994 (30.0%)
+TRAINING: 40008 (40.0%)
 ```
-
-The exact counts vary due to hashing, but the percentages approximate your specified ratios.
 
 Each partition is a separate table expression. You can use them independently for different stages of your ML workflow.
 
@@ -228,15 +225,17 @@ Expected output:
 ```
 Split column distribution:
    partition  count
-0          0   9916
-1          1  20213
-2          2  29958
-3          3  39913
+0          0  10003
+1          1  19995
+2          2  29994
+3          3  40008
 ```
 
 The partition numbers (0, 1, 2, 3) correspond to your test_sizes list order. Partition 0 gets 10%, partition 1 gets 20%, and so on.
 
 This pattern keeps all your data in one table with partition labels. You can filter dynamically, pass labels to downstream processing, or group by partition for analysis.
+
+Now that you've seen how split columns work, you can move on to deterministic splitting.
 
 ## Deterministic splits with random_seed
 
@@ -290,22 +289,22 @@ Expected output:
 
 ```
 Deterministic splits (same seed):
-train_a count: 74998
-train_b count: 74998
+train_a count: 75003
+train_b count: 75003
 Counts match - splits are identical!
 
-train_c count (different seed): 74954
+train_c count (different seed): 74989
 Different seed produces different split
 ```
 
-The same seed produces identical splits. Different seeds produce different splits. This gives you reproducibility when you need it and randomness when you want it.
+**What does success look like?** The same seed produces identical splits. Different seeds produce different splits. This gives you reproducibility when you need it and randomness when you want it.
+
 
 ## Complete example
 
-The full workflow. Save it as `split_data.py`:
+Here's the full workflow. Save it as `split_data.py`:
 
 ```python
-# split_data.py
 import xorq.api as xo
 from xorq.api import memtable
 
@@ -390,7 +389,7 @@ Notice how you created multiple types of splits: simple train/test, multi-partit
 
 ## What you learned
 
-You learned how to split data properly for ML workflows. You accomplished:
+You've learned how to split data properly for ML workflows. Here's what you accomplished:
 
 - Created simple train/test splits with `train_test_splits()`
 - Built multi-partition splits for train/validation/test/holdout
@@ -404,8 +403,9 @@ Proper data splitting is fundamental to honest model evaluation. Train on one po
 
 Now that you know how to split data, continue learning:
 
-- [Train your first model](train_your_first_model.qmd) — Build and train a classification model with Xorq
-- [Compare model performance](compare_model_performance.qmd) — Learn how to evaluate and compare multiple models
+- [Train your first model](train_your_first_model.qmd) shows how to train models with Xorq
+- [Understand Pipeline](understand_pipeline.qmd) explains how Xorq wraps scikit-learn pipelines
+- [Cache ML computations](cache_ml_computations.qmd) covers caching strategies for ML workflows
 
 
 

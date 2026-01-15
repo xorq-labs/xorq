@@ -13,10 +13,10 @@ After completing this tutorial, you know how to create scalar UDFs for transform
 
 You need:
 
-- Xorq installed (see [Install Xorq](../../getting_started/installation#install-xorq))
+- Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd#install-xorq))
 - [XGBoost](https://xgboost.readthedocs.io/) for ML example: `pip install xgboost`
 - Basic understanding of [pandas DataFrames](https://pandas.pydata.org/docs/user_guide/dsintro.html#dataframe)
-- Familiarity with Xorq expressions (see [Defer query execution](understand_deferred_execution.qmd) tutorial)
+- Familiarity with Xorq expressions (see [Defer query execution](understand_deferred_execution) tutorial)
 
 
 ## How to follow along
@@ -82,7 +82,7 @@ print(result)
 4. Create sample customer data with birthdates.
 5. Use the UDF in a Xorq expression with `.mutate()` to add an age column.
 
-You'll see:
+The output shows:
 
 ```
 Scalar UDF result:
@@ -98,9 +98,7 @@ Scalar UDF result:
 
 ## Use UDFs in SQL
 
-This raises a question: can you use the UDF in actual SQL queries?
-
-Here's where Xorq's SQL integration shines:
+UDFs work in SQL queries without any extra configuration. This example registers your table and calls the `calculate_age` UDF in both SELECT and WHERE clauses:
 
 ```python
 # <1>
@@ -126,7 +124,7 @@ print(sql_result)
 2. Register the in-memory table as a SQL table.
 3. Write SQL that calls your UDF like a built-in function, including using it in WHERE clauses.
 
-You'll see:
+The output shows:
 
 ```
 SQL with UDF:
@@ -187,7 +185,7 @@ print("XGBoost UDF functions defined")
 4. Create a curried function that takes a trained model and makes predictions.
 5. Use the model to make predictions based on new data.
 
-You'll see:
+The output shows:
 
 ```
 XGBoost UDF functions defined
@@ -243,7 +241,7 @@ print(f"Target: {target}")
 4. Create an aggregate UDF (UDAF) that trains the model on all training data and serializes it with pickle.
 5. Create an expression UDF that receives the trained model as computed input and makes predictions.
 
-You'll see:
+The output shows:
 
 ```
 Expression UDF created
@@ -331,7 +329,7 @@ print("- Output: Single value (often serialized)")
 3. Return a single value, often serialized with pickle for complex objects.
 4. Wrap as an aggregate UDF that Xorq can use in group operations.
 
-You'll see:
+The output shows:
 
 ```
 UDAF pattern:
@@ -392,7 +390,7 @@ print("- Type safety: Xorq validates before execution")
 3. Define a UDF that takes multiple typed inputs.
 4. Return a Series with explicit type (Xorq validates this matches return_type).
 
-You'll see:
+The output shows:
 
 ```
 Type system:
@@ -451,7 +449,7 @@ print("SQL result:", result_sql.execute()["output"].tolist())
 4. Use the UDF in expressions with `.mutate()`.
 5. Use the same UDF in SQL queries.
 
-You'll see:
+The output shows:
 
 ```
 Complete workflow:
@@ -482,8 +480,8 @@ The key insight? UDFs let you extend Xorq's function library with your domain lo
 
 Now that you know how to create UDFs, continue learning:
 
-- [Train your first model](../ml_tutorials/train_your_first_model.qmd) — Build complete ML training workflows
-- [Split data for training](../ml_tutorials/split_data_for_training.qmd) — Learn data preparation patterns
-- [Compare model performance](../ml_tutorials/compare_model_performance.qmd) — Evaluate models systematically
+- [Train your first model](train_your_first_model.qmd) shows complete ML training workflows
+- [Split data for training](split_data_for_training.qmd) demonstrates data preparation patterns
+- [Compare model performance](compare_model_performance.qmd) covers systematic model evaluation
 
 

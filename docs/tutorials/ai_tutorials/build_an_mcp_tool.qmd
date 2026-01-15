@@ -222,16 +222,16 @@ if __name__ == "__main__":
 3. Create placeholders for Flight server and client.
 4. Track registered UDXFs and their exchange functions.
 5. Start the Flight server that executes UDXFs.
-6. Create Flight server with specified port and registered UDXFs.
+6. Create Flight server with the specified port and registered UDXFs.
 7. Begin serving Flight requests.
 8. Get a client for calling UDXFs.
 9. Create curried exchange functions for each UDXF.
 10. Wrap a UDXF as an MCP tool that Claude can call.
-11. Extract UDXF command and set tool name.
+11. Extract the UDXF command and set the tool name.
 12. Register the UDXF.
 13. Start Flight server if not already running.
 14. Get the exchange function for this UDXF.
-15. Use default output mapper if none provided (converts DataFrame to string).
+15. Use default output mapper if none is provided (converts DataFrame to string).
 16. Define the async wrapper function that MCP calls.
 17. Map MCP inputs to Xorq table using the input mapper.
 18. Execute the UDXF via Flight protocol.
@@ -1292,7 +1292,7 @@ Open File Explorer and navigate to this file:
 2. Type: `%APPDATA%\Claude`
 3. Press Enter
 
-If you see `claude_desktop_config.json`, then open it in a text editor.
+If you see `claude_desktop_config.json`, then open it in a text editor like VS Code or Notepad++.
 
 If the file doesn't exist:
 
@@ -1313,7 +1313,7 @@ Copy this configuration into the file, replacing the example path with your actu
 
 ## macOS / Linux
 
-**Copy this into the config file:**
+Copy this into the config file:
 
 ```json
 {
@@ -1328,7 +1328,7 @@ Copy this configuration into the file, replacing the example path with your actu
 
 **Replace `/YOUR/PATH/HERE/sentiment_mcp_server.py`** with your actual path from Step 1.
 
-**Example with real path:**
+Example with real path:
 ```json
 {
   "mcpServers": {
@@ -1340,11 +1340,11 @@ Copy this configuration into the file, replacing the example path with your actu
 }
 ```
 
-**Save the file.**
+Save the file.
 
 ## Windows
 
-**Copy this into the config file:**
+Copy this into the config file:
 
 ```json
 {
@@ -1361,7 +1361,7 @@ Replace `C:\\YOUR\\PATH\\HERE\\sentiment_mcp_server.py` with your actual path fr
 
 **Important:** Use double backslashes (`\\`) between folders, not single backslashes.
 
-**Example with real path:**
+Example with real path:
 ```json
 {
   "mcpServers": {
@@ -1407,7 +1407,6 @@ If you don't see the tool indicator after restarting:
 - Check for typos in `"xorq-sentiment"` (must match `FlightMCPServer("xorq-sentiment")`)
 
 #### Test your script works:
-
 Run the script from your terminal to verify it starts without errors and registers the tool correctly.
 
 ::: {.panel-tabset}
@@ -1416,6 +1415,7 @@ Run the script from your terminal to verify it starts without errors and registe
 
 Run the script using the absolute path to your file:
 
+
 ```bash
 python /Users/yourname/projects/xorq-tutorials/sentiment_mcp_server.py
 ```
@@ -1423,7 +1423,6 @@ python /Users/yourname/projects/xorq-tutorials/sentiment_mcp_server.py
 Should show: `MCP tool registered: analyze_sentiment`
 
 ## Windows
-
 Run the script using the absolute path to your file:
 
 ```powershell
@@ -1434,10 +1433,10 @@ Should show: `MCP tool registered: analyze_sentiment`
 
 :::
 
-**Check Claude Desktop logs:**
+Check Claude Desktop logs:
 
-- macOS: `~/Library/Logs/Claude/mcp.log`
-- Windows: `%APPDATA%\Claude\logs\mcp.log`
+- **macOS**: `~/Library/Logs/Claude/mcp.log`
+- **Windows**: `%APPDATA%\Claude\logs\mcp.log`
 
 Look for errors related to your MCP server.
 :::
@@ -1789,7 +1788,7 @@ The pattern scales: create UDXF → define mappers → register with `create_mcp
 
 You've learned how to expose Xorq UDXFs as tools Claude can call through MCP. Here's what you accomplished:
 
-- Understood Model Context Protocol (MCP) and its role in Claude integrations
+- Understood MCP (Model Context Protocol) and its role in Claude integrations
 - Created FlightMCPServer to bridge MCP and Flight protocols
 - Built a sentiment analysis UDXF using OpenAI
 - Implemented input and output mappers for data transformation
@@ -1807,3 +1806,8 @@ Now that you know how to build MCP tools, continue learning:
 - [Add LLM analysis with UDXFs](add_llm_analysis_with_udxfs.qmd) explains UDXF architecture and schema patterns in depth
 - [Call LLMs from expressions](call_llms_from_expressions.qmd) shows advanced LLM integration techniques
 - [Your first build](your_first_build.qmd) covers versioning and deploying Xorq pipelines
+
+
+
+
+
