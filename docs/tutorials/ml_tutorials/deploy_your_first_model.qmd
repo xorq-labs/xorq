@@ -1,5 +1,313 @@
 ---
 title: 'Deploy your first model'
+description: "Serve your trained model as a prediction API endpoint using Apache Arrow Flight"
+icon: "rocket"
+headline: "Deploy models to production"
 ---
 
-Coming soon.
+This tutorial shows you how to deploy a trained model as a prediction service. You'll serve your model using Apache Arrow Flight, then query it from a client application.
+
+After completing this tutorial, you'll know how to deploy fitted pipelines as API endpoints and make predictions via Flight protocol.
+
+## Prerequisites
+
+You need:
+
+- Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd))
+- Completed [Train your first model](train_your_first_model.qmd) — You'll use a fitted pipeline from that tutorial
+- Basic understanding of [Apache Arrow Flight](https://arrow.apache.org/docs/python/flight.html)
+
+## How to follow along
+
+This tutorial shows you how to train a model and deploy it as a service. You'll train a model, create a prediction expression, serve it, and query it.
+
+**Recommended approach**: Open a terminal, run `python` to start an interactive Python shell, then copy and paste each code block in order.
+
+**Alternative approaches**:
+
+- **Jupyter notebook**: Create a new notebook and run each code block in a separate cell
+- **Python script**: Create `deploy_model.py` and add code blocks incrementally
+
+The code blocks build on each other. Variables created in earlier sections are used in later ones:
+
+- **"Prepare your trained model"** creates: `iris`, `target`, `features`, `fitted_pipeline`
+- **"Create a prediction expression"** creates: `prediction_expr` (uses `iris`, `fitted_pipeline`, `target`)
+- **"Serve the model"** creates: `server`, `do_exchange` (uses `prediction_expr`)
+- **"Query the deployed model"** uses: `iris`, `do_exchange` (server must be running)
+
+## Prepare your trained model
+
+Train a model that you'll deploy. This section creates a fitted pipeline ready for deployment:
+
+```python
+import xorq.api as xo
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.pipeline import Pipeline as SklearnPipeline
+from xorq.expr.ml import Pipeline
+
+# <1>
+iris = xo.examples.iris.fetch()
+target = "species"
+features = tuple(iris.drop(target).schema())
+
+# <2>
+sklearn_pipeline = SklearnPipeline([
+    ('scaler', StandardScaler()),
+    ('classifier', KNeighborsClassifier(n_neighbors=5))
+])
+
+# <3>
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+# <4>
+fitted_pipeline = xorq_pipeline.fit(iris, features=features, target=target)
+
+print("Model trained and ready for deployment")
+```
+
+1. Load the Iris dataset and define target and features.
+2. Create a scikit-learn pipeline with scaling and classification.
+3. Wrap it with Xorq's Pipeline to enable deferred execution.
+4. Fit the pipeline. Training is deferred until execution.
+
+## Create a prediction expression
+
+Create an expression that accepts new data and returns predictions. This expression will be served as an API endpoint.
+
+The expression uses `iris` as a template. When you serve it, Xorq automatically converts this to an unbound table that accepts input data from clients.
+
+```python
+# <1>
+def as_struct(expr, name=None):
+    """Preserve original columns by wrapping them in a struct."""
+    struct = xo.struct({c: expr[c] for c in expr.columns})
+    if name:
+        struct = struct.name(name)
+    return struct
+
+# <2>
+ORIGINAL_ROW = "original_row"
+prediction_expr = (
+    iris
+    .mutate(as_struct(iris, name=ORIGINAL_ROW))
+    .pipe(fitted_pipeline.predict)
+    .drop(target)
+    .unpack(ORIGINAL_ROW)
+    .select("sepal_length", "sepal_width", "petal_length", "petal_width", "predicted")
+)
+
+print("Prediction expression created")
+```
+
+1. Define a helper function that preserves original columns by wrapping them in a struct. This is needed because `.predict()` only returns predictions, so we preserve the input features for the output.
+2. Build a prediction expression. It uses `iris` as a template—when served, this becomes an unbound table that accepts any data with the same schema. The `.select()` at the end specifies which columns to return in the final output (original features plus predictions).
+
+This expression is deferred. It describes the prediction workflow but doesn't execute yet. When you serve it, `flight_serve()` automatically converts the bound `iris` table to an unbound table that accepts input from clients.
+
+## Serve the model
+
+Deploy the prediction expression as a Flight server. Apache Arrow Flight provides efficient data transfer using zero-copy protocols, making it ideal for serving ML models.
+
+```python
+# <1>
+from xorq.expr.relations import flight_serve
+
+# <2>
+server, do_exchange = flight_serve(prediction_expr)
+
+# <3>
+print(f"Model deployed on port {server.flight_url.port}")
+print("Server is running and ready to accept requests.")
+```
+
+1. Import `flight_serve` from `xorq.expr.relations`.
+2. Call `flight_serve()` with your prediction expression. This automatically unbinds the expression (converts bound tables to unbound ones) and starts a Flight server.
+3. The function returns a server object and a `do_exchange` function for querying.
+
+The server is now running and ready to accept prediction requests. The port is automatically assigned (typically between 5000-8000).
+
+**What happens**: `flight_serve()` converts your bound expression to an unbound one. The `iris` table becomes an unbound table that accepts input data from clients. When a client sends data, it replaces the unbound table and executes the prediction workflow.
+
+**Server behavior**: Unlike CLI commands that block, `flight_serve()` starts the server in the background and returns immediately. In an interactive Python shell, you can continue typing commands right away. The server stays active until you close the Python session or call `server.close()`. In a script, the server runs until the script exits or you call `server.close()`.
+
+## Query the deployed model
+
+With the server running from the previous step, use the `do_exchange` function to make predictions. Run this code in the same Python session where you started the server.
+
+:::{.callout-important}
+**Server must be running**: Make sure you've completed the "Serve the model" section above in the same Python session. The `do_exchange` function only works while the server is active. If you're using an interactive shell, you can continue typing commands after starting the server.
+:::
+
+**Important**: The test data schema must exactly match the schema of the `iris` table used in the prediction expression. This includes all columns and their types. The `iris` variable must still be in scope from the "Prepare your trained model" section.
+
+```python
+# <1>
+# Get the schema from iris to ensure exact match
+# iris must be in scope from the "Prepare your trained model" section
+iris_schema = iris.schema()
+
+# <2>
+test_data = xo.memtable({
+    "sepal_length": [5.1, 6.2, 7.3],
+    "sepal_width": [3.5, 2.8, 2.9],
+    "petal_length": [1.4, 4.8, 6.3],
+    "petal_width": [0.2, 1.8, 1.8],
+    "species": ["setosa", "versicolor", "virginica"]  # For comparison
+}, schema=iris_schema)
+
+# <3>
+predictions = do_exchange(test_data).read_pandas()
+
+# <4>
+print("\nPredictions:")
+print(predictions[["sepal_length", "sepal_width", "predicted"]])
+```
+
+1. Get the schema from the `iris` table to ensure exact type matching.
+2. Create test data as a memtable with new iris measurements, explicitly using the iris schema to match types and column order.
+3. Call `do_exchange()` with your test data expression. This sends the data to the server via Arrow Flight, replaces the unbound table in the expression, executes the prediction workflow, and returns a RecordBatchReader.
+4. Read the results as a pandas DataFrame and display predictions.
+
+Example output:
+
+```
+Predictions:
+   sepal_length  sepal_width    predicted
+0           5.1          3.5       setosa
+1           6.2          2.8    versicolor
+2           7.3          2.9     virginica
+```
+
+The server processed your input data, ran it through the trained model, and returned predictions via Arrow Flight. The data transfer uses zero-copy protocols, making it efficient even for larger datasets.
+
+**Making more predictions**: You can call `do_exchange()` multiple times with different test data while the server is running. Each call sends data to the server and returns predictions.
+
+**To stop the server**: When you're done testing, stop the server:
+
+```python
+server.close()
+print("Server stopped")
+```
+
+In an interactive shell, the server stays running until you explicitly close it or exit the Python session.
+
+## How deployment works
+
+Understanding what happens when you deploy helps you troubleshoot and optimize your deployments.
+
+**When you call `flight_serve()`:**
+
+1. **Unbinding**: Xorq automatically converts your bound expression to an unbound one. The `iris` table in your expression becomes an `UnboundTable` that accepts input data.
+2. **Server creation**: A Flight server starts and registers the unbound expression as an exchange function.
+3. **Port assignment**: The server binds to an available port (or you can specify one).
+
+**When a client calls `do_exchange()`:**
+
+1. **Schema validation**: The server validates that the client's data schema exactly matches the unbound table's schema (column names, types, and order).
+2. **Data transfer**: If validation passes, the client sends data via Arrow Flight using zero-copy protocols.
+3. **Expression binding**: The server replaces the unbound table in your expression with the client's data.
+4. **Execution**: The server executes the prediction workflow (including model inference).
+5. **Results**: Predictions are streamed back to the client via Arrow Flight.
+
+This design means your model runs on the server, not the client. Clients only send data and receive predictions, making deployment efficient and scalable.
+
+**Schema requirement**: The input data schema must exactly match the schema of the table used in your prediction expression. Use `iris.schema()` when creating test data to ensure type and column order matching.
+
+## Complete example
+
+Here's the complete deployment workflow in one script:
+
+```python
+# deploy_model.py
+import xorq.api as xo
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.pipeline import Pipeline as SklearnPipeline
+from xorq.expr.ml import Pipeline
+from xorq.expr.relations import flight_serve
+
+# Train model
+iris = xo.examples.iris.fetch()
+target = "species"
+features = tuple(iris.drop(target).schema())
+
+sklearn_pipeline = SklearnPipeline([
+    ('scaler', StandardScaler()),
+    ('classifier', KNeighborsClassifier(n_neighbors=5))
+])
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+fitted_pipeline = xorq_pipeline.fit(iris, features=features, target=target)
+
+# Create prediction expression
+def as_struct(expr, name=None):
+    struct = xo.struct({c: expr[c] for c in expr.columns})
+    if name:
+        struct = struct.name(name)
+    return struct
+
+ORIGINAL_ROW = "original_row"
+prediction_expr = (
+    iris
+    .mutate(as_struct(iris, name=ORIGINAL_ROW))
+    .pipe(fitted_pipeline.predict)
+    .drop(target)
+    .unpack(ORIGINAL_ROW)
+    .select("sepal_length", "sepal_width", "petal_length", "petal_width", "predicted")
+)
+
+# Deploy
+server, do_exchange = flight_serve(prediction_expr)
+print(f"Model deployed on port {server.flight_url.port}")
+
+# Test the deployment
+# Get schema to ensure exact match
+iris_schema = iris.schema()
+test_data = xo.memtable({
+    "sepal_length": [5.1, 6.2, 7.3],
+    "sepal_width": [3.5, 2.8, 2.9],
+    "petal_length": [1.4, 4.8, 6.3],
+    "petal_width": [0.2, 1.8, 1.8],
+    "species": ["setosa", "versicolor", "virginica"]
+}, schema=iris_schema)
+
+predictions = do_exchange(test_data).read_pandas()
+print("\nTest predictions:")
+print(predictions[["sepal_length", "sepal_width", "predicted"]])
+
+# Close server when done
+server.close()
+print("Server stopped")
+```
+
+
+Run the script:
+
+```bash
+python deploy_model.py
+```
+
+The script will deploy the model, test it with sample data, then close the server. The `do_exchange` function works in the same process where `flight_serve()` was called.
+
+## What you learned
+
+You've learned how to deploy a trained model as a prediction service. Here's what you accomplished:
+
+- Created a prediction expression from a fitted pipeline
+- Deployed the expression as a Flight server
+- Connected to the server from a client
+- Made predictions via the Flight protocol
+
+The key insight: Xorq lets you serve any expression as an API endpoint. The same deferred execution model that works for training also works for deployment. Your model runs on the server, and clients send data and receive predictions via Arrow Flight.
+
+:::{.callout-note}
+**Production deployment**: This tutorial shows programmatic deployment using `flight_serve()`. For production deployments with separate client applications, consider using the CLI approach (`xorq serve-flight-udxf`) or the production deployment guide for advanced patterns.
+:::
+
+## Next steps
+
+Now that you know how to deploy models, continue learning:
+
+- [Compare model performance](compare_model_performance.qmd) — Evaluate multiple models before deployment
+- [Train your first model](train_your_first_model.qmd) — Review the training workflow if needed
+- [Deploy models to production](../../guides/ml_workflows/deploy_models_to_production.qmd) — Learn advanced deployment patterns and production considerations
