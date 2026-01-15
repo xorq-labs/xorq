@@ -35,7 +35,7 @@ listing:
 
 Write your ML pipelines once. Run them anywhere. Xorq handles caching, lineage, and multi-engine execution automatically.
 
-[Get started →](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
+[GET STARTED →](getting_started/quickstart.qmd){.hero-btn .hero-btn-primary}
 [View on GitHub](https://github.com/xorq-labs/xorq){.hero-btn .hero-btn-secondary}
 :::
 :::
