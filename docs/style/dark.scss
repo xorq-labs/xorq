@@ -38,8 +38,8 @@ $modal-content-color: $black;
 $popover-border-color: rgba($white, .2);
 $toast-border-color: $gray-300;
 $info: $gray-300;
-$font-family-sans-serif: "ALT Riviera", "Helvetica Neue", Arial, sans-serif;
-$font-family-monospace: "FK Grotesk Mono Trial", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+$font-family-sans-serif: "ALT Riviera", "Inter Tight", "Helvetica Neue", Arial, sans-serif;
+$font-family-monospace: "FK Grotesk Mono", "Space Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 $table-bg-level: -2;
 $btn-font-family: $font-family-monospace;
 
@@ -52,10 +52,23 @@ h1, h2, h3, h4, h5 {
     font-weight: 400;
 }
 
+h1, h2 {
+    line-height: 1.0; /* Leading 1.0 per brand guidelines */
+    letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
+}
+
+h3, h4, h5 {
+    font-family: $font-family-monospace;
+    font-weight: 700; /* Bold per brand guidelines */
+    letter-spacing: -0.03125rem; /* -5 tracking */
+    line-height: 1.2; /* Leading 1.2 */
+    text-transform: none; /* Sentence case per brand guidelines */
+}
+
 body {
     font-weight: $font-weight-normal;
     font-size: 1rem;
-    line-height: 1.6;
+    line-height: 1.3; /* Leading 1.3 per brand guidelines */
 }
 
 /* Heading sizes are controlled by typography-spacing.html for consistency */
@@ -72,9 +85,9 @@ h6 {
 
 button {
     font-weight: 500;
-    line-height: 150%;
-    letter-spacing: -0.00875rem;
-    text-transform: uppercase;
+    line-height: 1.3; /* Leading 1.3 per brand guidelines */
+    letter-spacing: 0; /* Tracking 0 per brand guidelines */
+    text-transform: none; /* Sentence case per brand guidelines */
 }
 
 input {
@@ -100,12 +113,73 @@ pre code {
     border: 1px solid $gray-300 !important;
 }
 
-.sidebar-navigation a {
-    color: $white;
+/* Sidebar navigation - force white/light text in dark mode */
+#quarto-sidebar .sidebar-item a,
+#quarto-sidebar .sidebar-item .sidebar-item a,
+.quarto-sidebar .sidebar-item a,
+.quarto-sidebar .sidebar-item .sidebar-item a,
+.sidebar-navigation .sidebar-item a,
+.sidebar-navigation .sidebar-item .sidebar-item a,
+#quarto-sidebar a:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a:not(.sidebar-section-header):not(h6) {
+  color: rgba($white, 0.7) !important;
 }
 
-.sidebar-navigation a:hover {
-    color: $gray-300;
+#quarto-sidebar .sidebar-item a:hover,
+#quarto-sidebar .sidebar-item .sidebar-item a:hover,
+.quarto-sidebar .sidebar-item a:hover,
+.quarto-sidebar .sidebar-item .sidebar-item a:hover,
+.sidebar-navigation .sidebar-item a:hover,
+.sidebar-navigation .sidebar-item .sidebar-item a:hover,
+#quarto-sidebar a:hover:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a:hover:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a:hover:not(.sidebar-section-header):not(h6) {
+  color: rgba($white, 0.9) !important;
+  background: rgba($white, 0.05) !important;
+}
+
+#quarto-sidebar .sidebar-item a.active,
+#quarto-sidebar .sidebar-item a[aria-current="page"],
+#quarto-sidebar .sidebar-item .sidebar-item a.active,
+#quarto-sidebar .sidebar-item .sidebar-item a[aria-current="page"],
+.quarto-sidebar .sidebar-item a.active,
+.quarto-sidebar .sidebar-item a[aria-current="page"],
+.quarto-sidebar .sidebar-item .sidebar-item a.active,
+.quarto-sidebar .sidebar-item .sidebar-item a[aria-current="page"],
+.sidebar-navigation .sidebar-item a.active,
+.sidebar-navigation .sidebar-item a[aria-current="page"],
+.sidebar-navigation .sidebar-item .sidebar-item a.active,
+.sidebar-navigation .sidebar-item .sidebar-item a[aria-current="page"],
+#quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+#quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+  color: $cyan !important;
+  background: rgba($cyan, 0.1) !important;
+}
+
+/* Navbar links - reduce font size */
+.navbar-nav .nav-link {
+  font-size: 0.8125rem !important; /* 13px */
+}
+
+/* Panel tabs (code block tabs like macOS/Linux/Windows) */
+.panel-tabset .nav-link,
+.nav-tabs .nav-link {
+  color: rgba($white, 0.7) !important;
+}
+
+.panel-tabset .nav-link:hover,
+.nav-tabs .nav-link:hover {
+  color: $cyan !important;
+}
+
+.panel-tabset .nav-link.active,
+.nav-tabs .nav-link.active {
+  color: rgba($white, 0.9) !important;
 }
 
 .nav-item a {
@@ -202,9 +276,9 @@ pre code {
     }
 
     &:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
       transform: translateY(-2px);
-      border-color: $white;
+      border-color: $cyan;
+      background: rgba($cyan, 0.1);
     }
 }
 
@@ -313,6 +387,9 @@ pre code {
   font-family: $font-family-monospace;
   font-size: 0.95rem;
   font-weight: 500;
+  line-height: 1.3; /* Leading 1.3 per brand guidelines */
+  letter-spacing: 0; /* Tracking 0 per brand guidelines */
+  text-transform: none; /* Sentence case per brand guidelines */
   transition: all 0.2s ease;
   
   &.hero-btn-primary {
