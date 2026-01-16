@@ -10,6 +10,20 @@ from opentelemetry import trace
 
 import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.agent.onboarding import bootstrap_agent_docs
+from xorq.agent.prompts import (
+    PROMPT_TIER_DESCRIPTIONS,
+    get_prompt_spec,
+    iter_prompt_specs,
+    list_prompt_names,
+    load_prompt_text,
+)
+from xorq.agent.skills import (
+    get_skill,
+    iter_skills,
+    list_skill_names,
+    scaffold_skill,
+)
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog import (
     ServerRecord,
@@ -440,12 +454,135 @@ def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
     branch=None,
+    agent=False,
 ):
     from xorq.common.utils.download_utils import download_unpacked_xorq_template
 
-    path = download_unpacked_xorq_template(path, template, branch=branch)
+    dest_path = Path(path)
+    try:
+        path = download_unpacked_xorq_template(path, template, branch=branch)
+    except ValueError as exc:
+        msg = str(exc)
+        if agent and "already exists" in msg and dest_path.exists():
+            print(
+                f"target {dest_path} already exists; skipping template download and "
+                "only updating agent docs"
+            )
+            path = dest_path
+        else:
+            raise
+    if agent:
+        created_files = bootstrap_agent_docs(path)
+        if created_files:
+            rel_paths = ", ".join(
+                str(Path(file).relative_to(path)) for file in created_files
+            )
+            print(f"wrote agent onboarding files: {rel_paths}")
+        else:
+            print("agent onboarding files already present, skipping")
     print(f"initialized xorq template `{template}` to {path}")
     return path
+
+
+def agent_command(args):
+    match args.agent_subcommand:
+        case "prompt":
+            return agent_prompt_command(args)
+        case "onboard":
+            return agent_onboard_command(args)
+        case "skills":
+            return agent_skills_command(args)
+        case _:
+            raise ValueError(f"Unknown agent subcommand: {args.agent_subcommand}")
+
+
+def agent_prompt_command(args):
+    match args.prompt_command:
+        case "list":
+            return agent_prompt_list_command(tier=args.tier)
+        case "show":
+            return agent_prompt_show_command(args.name)
+        case _:
+            raise ValueError(f"Unknown agent prompt command: {args.prompt_command}")
+
+
+def agent_prompt_list_command(tier=None):
+    specs = list(iter_prompt_specs(tier=tier))
+    if not specs:
+        print("No prompts found for the requested tier.", file=sys.stderr)
+        return
+    print(f"{'NAME':40} {'TIER':12} PATH - DESCRIPTION")
+    for spec in specs:
+        print(f"{spec.name:40} {spec.tier:12} {spec.rel_path} - {spec.description}")
+
+
+def agent_prompt_show_command(name):
+    spec = get_prompt_spec(name)
+    text = load_prompt_text(spec)
+    header = f"# {spec.name} ({spec.tier}) - {spec.rel_path}"
+    print(header)
+    print()
+    print(text.rstrip())
+    print()
+
+
+def agent_onboard_command(args):
+    from xorq.agent.onboarding import render_onboarding_summary
+
+    summary = render_onboarding_summary(step=args.step)
+    print(summary.rstrip())
+
+
+def agent_skills_command(args):
+    match args.skills_command:
+        case "list":
+            return agent_skills_list_command()
+        case "show":
+            return agent_skills_show_command(args.name)
+        case "scaffold":
+            return agent_skills_scaffold_command(args.name, args.dest, args.overwrite)
+        case _:
+            raise ValueError(f"Unknown agent skills command: {args.skills_command}")
+
+
+def agent_skills_list_command():
+    print(f"{'NAME':20} {'TEMPLATE':18} DESCRIPTION")
+    for skill in iter_skills():
+        print(f"{skill.name:20} {skill.template.value:18} {skill.description}")
+
+
+def agent_skills_show_command(name):
+    skill = get_skill(name)
+    lines = [
+        f"# Skill: {skill.name}",
+        f"Template: {skill.template.value}",
+        f"Catalog alias hint: {skill.catalog_hint}",
+        f"Default table: {skill.default_table}",
+        "",
+        "Prompts:",
+    ]
+    lines.extend(f"- {prompt}" for prompt in skill.prompts)
+    lines.extend(
+        [
+            "",
+            "Suggested workflow:",
+            f"- Run `xorq init --template {skill.template.value}` if the project lacks this skill",
+            "- Customize the scaffolded expression and build it",
+            f"- Register with `xorq catalog add ... --alias {skill.catalog_hint}`",
+        ]
+    )
+    print("\n".join(lines))
+
+
+def agent_skills_scaffold_command(name, dest, overwrite):
+    skill = get_skill(name)
+    dest_path = Path(dest) if dest else Path("skills") / f"{skill.name}.py"
+    try:
+        written = scaffold_skill(skill, dest_path, overwrite=overwrite)
+    except FileExistsError as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
+    print(f"Wrote skill scaffold to {written}")
 
 
 def parse_args(override=None):
@@ -720,6 +857,11 @@ def parse_args(override=None):
         "--branch",
         default=None,
     )
+    init_parser.add_argument(
+        "--agent",
+        action="store_true",
+        help="Bootstrap AGENTS/CLAUDE guides using bundled prompts",
+    )
     lineage_parser = subparsers.add_parser(
         "lineage",
         help="Print lineage trees of all columns for a build",
@@ -801,6 +943,95 @@ def parse_args(override=None):
         nargs="+",
         help="Explicit list of relative files to diff (overrides --all)",
         default=None,
+    )
+
+    agent_parser = subparsers.add_parser(
+        "agent",
+        help="Agent-native helpers built on top of xorq primitives",
+    )
+    agent_subparsers = agent_parser.add_subparsers(
+        dest="agent_subcommand",
+        help="Agent helper commands",
+    )
+    agent_subparsers.required = True
+
+    prompt_parser = agent_subparsers.add_parser(
+        "prompt", help="Inspect bundled prompt guides"
+    )
+    prompt_subparsers = prompt_parser.add_subparsers(
+        dest="prompt_command",
+        help="Prompt commands",
+    )
+    prompt_subparsers.required = True
+
+    prompt_list = prompt_subparsers.add_parser(
+        "list", help="List available prompts from the bundle"
+    )
+    prompt_list.add_argument(
+        "--tier",
+        choices=tuple(PROMPT_TIER_DESCRIPTIONS),
+        default=None,
+        help="Filter prompts by tier",
+    )
+
+    prompt_show = prompt_subparsers.add_parser(
+        "show", help="Display the contents of a prompt"
+    )
+    prompt_show.add_argument(
+        "name",
+        choices=list_prompt_names(),
+        help="Prompt identifier (see `xorq agent prompt list`)",
+    )
+
+    onboard_parser = agent_subparsers.add_parser(
+        "onboard",
+        help="Guided onboarding summary for xorq agents",
+    )
+    onboard_parser.add_argument(
+        "--step",
+        choices=("init", "build", "catalog", "test", "land"),
+        default=None,
+        help="Filter onboarding instructions to a specific step",
+    )
+
+    skills_parser = agent_subparsers.add_parser(
+        "skills",
+        help="Skill registry commands",
+    )
+    skills_subparsers = skills_parser.add_subparsers(
+        dest="skills_command",
+        help="Skills commands",
+    )
+    skills_subparsers.required = True
+
+    skills_subparsers.add_parser("list", help="List registered skills")
+
+    skills_show = skills_subparsers.add_parser(
+        "show", help="Show details for a specific skill"
+    )
+    skills_show.add_argument(
+        "name",
+        choices=list_skill_names(),
+        help="Skill identifier",
+    )
+
+    skills_scaffold = skills_subparsers.add_parser(
+        "scaffold", help="Scaffold an expression file for a skill"
+    )
+    skills_scaffold.add_argument(
+        "name",
+        choices=list_skill_names(),
+        help="Skill identifier",
+    )
+    skills_scaffold.add_argument(
+        "--dest",
+        default=None,
+        help="Destination path for the scaffold (default: skills/<name>.py)",
+    )
+    skills_scaffold.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace destination file if it exists",
     )
 
     args = parser.parse_args(override)
@@ -901,7 +1132,7 @@ def main():
             case "init":
                 f, f_args = (
                     init_command,
-                    (args.path, args.template, args.branch),
+                    (args.path, args.template, args.branch, args.agent),
                 )
             case "lineage":
                 f, f_args = (
@@ -917,6 +1148,11 @@ def main():
                 f, f_args = (
                     ps_command,
                     (args.cache_dir,),
+                )
+            case "agent":
+                f, f_args = (
+                    agent_command,
+                    (args,),
                 )
             case _:
                 raise ValueError(f"Unknown command: {args.command}")
