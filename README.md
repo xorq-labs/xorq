@@ -309,6 +309,24 @@ sklearn_pipeline = ...
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 ```
 
+## Diamonds price regression example
+
+`examples/diamonds_price_prediction.py` shows how to stay deferred while
+predicting prices from the Snowflake `DIAMONDS` table:
+
+```python
+from examples.diamonds_price_prediction import build_diamonds_price_prediction
+
+artifacts = build_diamonds_price_prediction()
+predictions_expr = artifacts["predictions"]
+metrics_expr = artifacts["prediction_metrics"]
+```
+
+Both expressions keep all original columns via the struct pattern, add a
+`predicted_price` column, and compute error aggregates (MAE, mean absolute
+percentage error, share of rows above 10% error). Execute whichever expression
+you need when you're ready.
+
 ---
 # Templates
 
