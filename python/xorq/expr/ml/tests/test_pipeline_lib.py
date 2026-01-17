@@ -1,4 +1,5 @@
 import operator
+from numbers import Real
 
 import pytest
 
@@ -100,3 +101,9 @@ def test_tagging_pipeline(pairs, t, fitted_xorq_pipeline):
         if contains_any_pairs(dct)
     )
     assert actual and actual == expected
+
+
+def test_score_expr_returns_metric(t, fitted_xorq_pipeline):
+    score_expr = fitted_xorq_pipeline.score_expr(t)
+    result = score_expr.execute()
+    assert isinstance(result, Real)
