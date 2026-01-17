@@ -25,6 +25,10 @@
       url = "github:xorq-labs/nix-utils";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    roborev = {
+      url = "github:wesm/roborev";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -36,6 +40,7 @@
       uv2nix,
       pyproject-build-systems,
       nix-utils,
+      roborev,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -118,6 +123,8 @@
             drv = xorq-312.virtualenv-all;
             name = "xorq";
           };
+          roborev = roborev.apps.${system}.roborev;
+          roborevd = roborev.apps.${system}.roborevd;
         };
         lib = {
           inherit
