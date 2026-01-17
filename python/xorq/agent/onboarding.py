@@ -56,7 +56,7 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         ],
         [
             "xorq_vendor_ibis",
-            "context_blocks/must_check_schema",
+            "context_blocks/critical_rules",
         ],
     ),
     OnboardingStep(
@@ -106,10 +106,51 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
             "xorq agent prompt list --tier reliability",
         ],
         [
-            "context_blocks/phase_communication_completion_check",
+            "context_blocks/phase_checks",
         ],
     ),
 )
+
+
+def register_claude_skill() -> Path | None:
+    """Register the xorq skill with Claude Code.
+
+    Returns the path where the skill was registered, or None if already exists.
+    """
+    # Find the skill source directory (should be in the package)
+    import xorq
+
+    xorq_package_dir = Path(xorq.__file__).parent.parent.parent
+    skill_source = xorq_package_dir / "skills" / "xorq"
+
+    # Claude Code skills directory
+    claude_skills_dir = Path.home() / ".claude" / "skills"
+    skill_dest = claude_skills_dir / "xorq"
+
+    # Check if skill source exists
+    if not skill_source.exists():
+        # If not found, try relative to project root
+        import sys
+
+        for path in sys.path:
+            candidate = Path(path) / "skills" / "xorq"
+            if candidate.exists():
+                skill_source = candidate
+                break
+        else:
+            # Can't find skill source
+            return None
+
+    # Create Claude skills directory if needed
+    claude_skills_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy skill if it doesn't exist or update it
+    if skill_dest.exists():
+        # Skill already registered, optionally update it
+        shutil.rmtree(skill_dest)
+
+    shutil.copytree(skill_source, skill_dest)
+    return skill_dest
 
 
 def bootstrap_agent_docs(project_root: str | Path, max_lines: int = 60) -> list[Path]:
@@ -124,6 +165,12 @@ def bootstrap_agent_docs(project_root: str | Path, max_lines: int = 60) -> list[
             continue
         dest.write_text(content, encoding="utf-8")
         created.append(dest)
+
+    # Register the xorq skill with Claude Code
+    skill_path = register_claude_skill()
+    if skill_path:
+        print(f"Registered xorq skill with Claude Code at {skill_path}")
+
     return created
 
 

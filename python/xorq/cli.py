@@ -18,11 +18,11 @@ from xorq.agent.prompts import (
     list_prompt_names,
     load_prompt_text,
 )
-from xorq.agent.skills import (
-    get_skill,
-    iter_skills,
-    list_skill_names,
-    scaffold_skill,
+from xorq.agent.templates import (
+    get_template,
+    iter_templates,
+    list_template_names,
+    scaffold_template,
 )
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog import (
@@ -490,8 +490,8 @@ def agent_command(args):
             return agent_prompt_command(args)
         case "onboard":
             return agent_onboard_command(args)
-        case "skills":
-            return agent_skills_command(args)
+        case "templates":
+            return agent_templates_command(args)
         case _:
             raise ValueError(f"Unknown agent subcommand: {args.agent_subcommand}")
 
@@ -533,56 +533,60 @@ def agent_onboard_command(args):
     print(summary.rstrip())
 
 
-def agent_skills_command(args):
-    match args.skills_command:
+def agent_templates_command(args):
+    match args.templates_command:
         case "list":
-            return agent_skills_list_command()
+            return agent_templates_list_command()
         case "show":
-            return agent_skills_show_command(args.name)
+            return agent_templates_show_command(args.name)
         case "scaffold":
-            return agent_skills_scaffold_command(args.name, args.dest, args.overwrite)
+            return agent_templates_scaffold_command(
+                args.name, args.dest, args.overwrite
+            )
         case _:
-            raise ValueError(f"Unknown agent skills command: {args.skills_command}")
+            raise ValueError(
+                f"Unknown agent templates command: {args.templates_command}"
+            )
 
 
-def agent_skills_list_command():
-    print(f"{'NAME':20} {'TEMPLATE':18} DESCRIPTION")
-    for skill in iter_skills():
-        print(f"{skill.name:20} {skill.template.value:18} {skill.description}")
+def agent_templates_list_command():
+    print(f"{'NAME':20} {'INIT TEMPLATE':18} DESCRIPTION")
+    for template in iter_templates():
+        print(f"{template.name:20} {template.template.value:18} {template.description}")
 
 
-def agent_skills_show_command(name):
-    skill = get_skill(name)
+def agent_templates_show_command(name):
+    template = get_template(name)
     lines = [
-        f"# Skill: {skill.name}",
-        f"Template: {skill.template.value}",
-        f"Catalog alias hint: {skill.catalog_hint}",
-        f"Default table: {skill.default_table}",
+        f"# Template: {template.name}",
+        f"Init template: {template.template.value}",
+        f"Catalog alias hint: {template.catalog_hint}",
+        f"Default table: {template.default_table}",
         "",
         "Prompts:",
     ]
-    lines.extend(f"- {prompt}" for prompt in skill.prompts)
+    lines.extend(f"- {prompt}" for prompt in template.prompts)
     lines.extend(
         [
             "",
             "Suggested workflow:",
-            f"- Run `xorq init --template {skill.template.value}` if the project lacks this skill",
+            f"- Run `xorq init --template {template.template.value}` if the project lacks this template",
             "- Customize the scaffolded expression and build it",
-            f"- Register with `xorq catalog add ... --alias {skill.catalog_hint}`",
+            f"- Register with `xorq catalog add ... --alias {template.catalog_hint}`",
         ]
     )
     print("\n".join(lines))
 
 
-def agent_skills_scaffold_command(name, dest, overwrite):
-    skill = get_skill(name)
-    dest_path = Path(dest) if dest else Path("skills") / f"{skill.name}.py"
+def agent_templates_scaffold_command(name, dest, overwrite):
+    template = get_template(name)
+    dest_path = Path(dest) if dest else Path("skills") / f"{template.name}.py"
     try:
-        written = scaffold_skill(skill, dest_path, overwrite=overwrite)
+        written = scaffold_template(template, dest_path, overwrite=overwrite)
     except FileExistsError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
-    print(f"Wrote skill scaffold to {written}")
+    print(f"Wrote template scaffold to {written}")
 
 
 def parse_args(override=None):
@@ -994,41 +998,41 @@ def parse_args(override=None):
         help="Filter onboarding instructions to a specific step",
     )
 
-    skills_parser = agent_subparsers.add_parser(
-        "skills",
-        help="Skill registry commands",
+    templates_parser = agent_subparsers.add_parser(
+        "templates",
+        help="Template registry commands",
     )
-    skills_subparsers = skills_parser.add_subparsers(
-        dest="skills_command",
-        help="Skills commands",
+    templates_subparsers = templates_parser.add_subparsers(
+        dest="templates_command",
+        help="Templates commands",
     )
-    skills_subparsers.required = True
+    templates_subparsers.required = True
 
-    skills_subparsers.add_parser("list", help="List registered skills")
+    templates_subparsers.add_parser("list", help="List registered templates")
 
-    skills_show = skills_subparsers.add_parser(
-        "show", help="Show details for a specific skill"
+    templates_show = templates_subparsers.add_parser(
+        "show", help="Show details for a specific template"
     )
-    skills_show.add_argument(
+    templates_show.add_argument(
         "name",
-        choices=list_skill_names(),
-        help="Skill identifier",
+        choices=list_template_names(),
+        help="Template identifier",
     )
 
-    skills_scaffold = skills_subparsers.add_parser(
-        "scaffold", help="Scaffold an expression file for a skill"
+    templates_scaffold = templates_subparsers.add_parser(
+        "scaffold", help="Scaffold an expression file for a template"
     )
-    skills_scaffold.add_argument(
+    templates_scaffold.add_argument(
         "name",
-        choices=list_skill_names(),
-        help="Skill identifier",
+        choices=list_template_names(),
+        help="Template identifier",
     )
-    skills_scaffold.add_argument(
+    templates_scaffold.add_argument(
         "--dest",
         default=None,
         help="Destination path for the scaffold (default: skills/<name>.py)",
     )
-    skills_scaffold.add_argument(
+    templates_scaffold.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace destination file if it exists",

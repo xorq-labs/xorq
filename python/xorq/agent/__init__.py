@@ -7,11 +7,11 @@ from .prompts import (
     list_prompt_names,
     load_prompt_text,
 )
-from .skills import (
-    get_skill,
-    iter_skills,
-    list_skill_names,
-    scaffold_skill,
+from .templates import (
+    get_template,
+    iter_templates,
+    list_template_names,
+    scaffold_template,
 )
 
 
@@ -21,8 +21,8 @@ __all__ = [
     "iter_prompt_specs",
     "list_prompt_names",
     "load_prompt_text",
-    "get_skill",
-    "iter_skills",
-    "list_skill_names",
-    "scaffold_skill",
+    "get_template",
+    "iter_templates",
+    "list_template_names",
+    "scaffold_template",
 ]

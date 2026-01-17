@@ -76,22 +76,10 @@ PROMPT_SPECS: tuple[PromptSpec, ...] = (
         "Source selection and policy guardrails",
     ),
     PromptSpec(
-        "context_blocks/must_check_schema",
-        "context_blocks/must_check_schema.md",
+        "context_blocks/critical_rules",
+        "context_blocks/critical_rules.md",
         RELIABILITY_PROMPT_TIER,
-        "Schema inspection requirements",
-    ),
-    PromptSpec(
-        "context_blocks/column_case_rules",
-        "context_blocks/column_case_rules.md",
-        RELIABILITY_PROMPT_TIER,
-        "Column casing norms per backend",
-    ),
-    PromptSpec(
-        "context_blocks/avoid_pandas",
-        "context_blocks/avoid_pandas.md",
-        RELIABILITY_PROMPT_TIER,
-        "Why pandas usage must be contained",
+        "Critical rules: schema checking, column case, no pandas, vendor ibis, data sources",
     ),
     PromptSpec(
         "context_blocks/pandas_udf_patterns",
@@ -112,10 +100,10 @@ PROMPT_SPECS: tuple[PromptSpec, ...] = (
         "Workarounds for backend quirks",
     ),
     PromptSpec(
-        "context_blocks/fix_schema_errors",
-        "context_blocks/fix_schema_errors.md",
+        "context_blocks/quick_fixes",
+        "context_blocks/quick_fixes.md",
         RELIABILITY_PROMPT_TIER,
-        "Schema mismatch fixes",
+        "Quick fixes for common errors",
     ),
     PromptSpec(
         "context_blocks/fix_attribute_errors",
@@ -179,10 +167,10 @@ PROMPT_SPECS: tuple[PromptSpec, ...] = (
         "Package exploration workflow",
     ),
     PromptSpec(
-        "context_blocks/xorq_ml_complete",
-        "context_blocks/xorq_ml_complete.md",
+        "context_blocks/xorq_ml_core",
+        "context_blocks/xorq_ml_core.md",
         ADVANCED_PROMPT_TIER,
-        "Complete ML reference",
+        "Core ML workflow and critical rules",
     ),
     PromptSpec(
         "context_blocks/optimization_patterns",
@@ -209,10 +197,10 @@ PROMPT_SPECS: tuple[PromptSpec, ...] = (
         "Deliverable expectations",
     ),
     PromptSpec(
-        "context_blocks/task_understanding",
-        "context_blocks/task_understanding.md",
+        "context_blocks/phase_checks",
+        "context_blocks/phase_checks.md",
         ADVANCED_PROMPT_TIER,
-        "Task comprehension prompts",
+        "Phase completion checks",
     ),
     PromptSpec(
         "context_blocks/repl_exploration",
@@ -225,12 +213,6 @@ PROMPT_SPECS: tuple[PromptSpec, ...] = (
         "context_blocks/summary_patterns.md",
         ADVANCED_PROMPT_TIER,
         "Summary write-up patterns",
-    ),
-    PromptSpec(
-        "context_blocks/phase_initialization_completion_check",
-        "context_blocks/phase_initialization_completion_check.md",
-        ADVANCED_PROMPT_TIER,
-        "Initialization completion checklist",
     ),
     PromptSpec(
         "context_blocks/phase_data_preparation_completion_check",
@@ -249,12 +231,6 @@ PROMPT_SPECS: tuple[PromptSpec, ...] = (
         "context_blocks/phase_modeling_completion_check.md",
         ADVANCED_PROMPT_TIER,
         "Modeling completion checklist",
-    ),
-    PromptSpec(
-        "context_blocks/phase_communication_completion_check",
-        "context_blocks/phase_communication_completion_check.md",
-        ADVANCED_PROMPT_TIER,
-        "Communication completion checklist",
     ),
 )
 
