@@ -31,12 +31,9 @@ from xorq.common.utils.func_utils import (
     return_constant,
 )
 from xorq.expr.ml.fit_lib import (
-    deferred_decision_function_from_trained_model,
-    deferred_feature_importances_from_trained_model,
-    deferred_fit_predict_sklearn,
-    deferred_fit_transform_series_sklearn,
-    deferred_fit_transform_sklearn_struct,
-    deferred_predict_proba_from_trained_model,
+    decision_function_sklearn,
+    feature_importances_sklearn,
+    predict_proba_sklearn,
 )
 from xorq.expr.ml.structer import (
     Structer,
@@ -342,30 +339,6 @@ class Step:
     __dask_tokenize__ = normalize_attrs
 
 
-def _has_feature_importances(estimator_class):
-    """Check if estimator class defines feature_importances_ property."""
-    return any(
-        "feature_importances_" in cls.__dict__ for cls in estimator_class.__mro__
-    )
-
-
-def _create_deferred_method(method_name, factory_fn, schema, features, deferred_model):
-    """Create a deferred method if the estimator supports it.
-
-    Returns
-    -------
-    callable or None
-        The deferred method if supported, None otherwise
-    """
-    return factory_fn(
-        schema=schema,
-        features=features,
-        deferred_model=deferred_model,
-        return_type=dt.Array(dt.float64),
-        name_infix=method_name,
-    )
-
-
 def _get_non_feature_columns(expr, features):
     """Get columns that are not in features as a tuple."""
     return tuple(col for col in expr.columns if col not in features)
@@ -495,105 +468,40 @@ class FittedStep:
     @property
     @functools.cache
     def _pieces(self):
-        kwargs = {
-            "expr": self.expr,
-            "features": self.features,
-            "cls": self.step.typ,
-            "params": self.step.params_tuple,
-            "cache": self.cache,
-        }
+        from xorq.expr.ml.fit_lib import DeferredFitOther
+
+        instance = DeferredFitOther.from_fitted_step(self)
         (
-            deferred_transform,
-            deferred_predict,
             deferred_predict_proba,
             deferred_decision_function,
             deferred_feature_importances,
-        ) = (None, None, None, None, None)
-
-        if self.is_transform:
-            match self.step.typ:
-                # FIXME: formalize registration of non-Structer handling
-                case type(__name__="TfidfVectorizer"):
-                    f = deferred_fit_transform_series_sklearn
-                    # features must be length 1
-                    (col,) = kwargs.pop("features")
-                    kwargs = kwargs | {
-                        "col": col,
-                        "return_type": dt.Array(dt.float64),
-                    }
-                case type(__name__="SelectKBest"):
-                    # SelectKBest is a Structer special case that needs target
-                    f = deferred_fit_transform_sklearn_struct
-                    kwargs = kwargs | {
-                        "target": self.target,
-                    }
-                case typ:
-                    # FIXME: create abstract class for BaseEstimator with get_step_f_kwargs
-                    if get_step_f_kwargs := getattr(typ, "get_step_f_kwargs", None):
-                        (f, kwargs) = get_step_f_kwargs(kwargs)
-                    else:
-                        f = deferred_fit_transform_sklearn_struct
-            (deferred_model, model_udf, deferred_transform) = f(**kwargs)
-        elif self.is_predict:
-            schema = self.expr.select(self.features).schema()
-            predict_kwargs = {
-                "target": self.target,
-                "return_type": get_predict_return_type(
-                    instance=self.step.instance,
-                    step=self.step,
-                    expr=self.expr,
-                    features=self.features,
-                    target=self.target,
-                ),
-            }
-            (deferred_model, model_udf, deferred_predict) = (
-                deferred_fit_predict_sklearn(**kwargs, **predict_kwargs)
+        ) = (
+            instance.make_deferred_other(
+                fn=fn,
+                return_type=dt.Array(dt.float64),
+                name_infix=attrname.rstrip("_"),
             )
-
-            # Create deferred methods if the model supports them
-            deferred_predict_proba = (
-                _create_deferred_method(
-                    "predicted_proba",
-                    deferred_predict_proba_from_trained_model,
-                    schema,
-                    self.features,
-                    deferred_model,
-                )
-                if hasattr(self.step.instance, "predict_proba")
-                else None
-            )
-
-            deferred_decision_function = (
-                _create_deferred_method(
+            if hasattr(self.step.instance.__class__, attrname)
+            else None
+            for (attrname, fn) in (
+                ("predict_proba", predict_proba_sklearn),
+                (
                     "decision_function",
-                    deferred_decision_function_from_trained_model,
-                    schema,
-                    self.features,
-                    deferred_model,
-                )
-                if hasattr(self.step.instance, "decision_function")
-                else None
+                    decision_function_sklearn,
+                ),
+                (
+                    "feature_importances_",
+                    feature_importances_sklearn,
+                ),
             )
-
-            # feature_importances_ only exists after fitting, so we check the class hierarchy
-            deferred_feature_importances = (
-                _create_deferred_method(
-                    "feature_importances",
-                    deferred_feature_importances_from_trained_model,
-                    schema,
-                    self.features,
-                    deferred_model,
-                )
-                if _has_feature_importances(self.step.instance.__class__)
-                else None
-            )
-        else:
-            raise ValueError
+        )
         return {
-            "deferred_model": deferred_model,
-            "model_udf": model_udf,
-            "deferred_transform": deferred_transform,
-            "deferred_predict": deferred_predict,
+            "deferred_model": instance.deferred_model,
+            "model_udf": instance.deferred_other,
+            "deferred_transform": instance.deferred_other
+            if self.is_transform
+            else None,
+            "deferred_predict": instance.deferred_other if self.is_predict else None,
             "deferred_predict_proba": deferred_predict_proba,
             "deferred_decision_function": deferred_decision_function,
             "deferred_feature_importances": deferred_feature_importances,

@@ -31,24 +31,24 @@ def as_struct(expr, name=None):
 
 def make_manual_expr(train, test, features, target, scaler_step, kneighbor_step):
     (_, scaler_instance), (_, kneighbor_instance) = (scaler_step, kneighbor_step)
-    *_, deferred_transform = deferred_fit_transform_sklearn_struct(
+    deferred_transform = deferred_fit_transform_sklearn_struct(
         train,
         features=features,
         cls=scaler_instance.__class__,
         params=tuple(scaler_instance.get_params().items()),
-    )
+    ).deferred_other
     transformed = train.select(
         deferred_transform.on_expr(train).name(STRUCTED),
         target,
     ).unpack(STRUCTED)
-    *_, deferred_predict = deferred_fit_predict_sklearn(
+    deferred_predict = deferred_fit_predict_sklearn(
         transformed,
         target=target,
         features=features,
         cls=kneighbor_instance.__class__,
         return_type=iris[target].type(),
         params=tuple(kneighbor_instance.get_params().items()),
-    )
+    ).deferred_other
     test_predicted = (
         test.mutate(as_struct(name=ORIGINAL_ROW))
         .select(
