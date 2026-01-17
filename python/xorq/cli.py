@@ -486,6 +486,10 @@ def init_command(
 
 def agent_command(args):
     match args.agent_subcommand:
+        case "prime":
+            from xorq.agent.prime import agent_prime_command
+
+            return agent_prime_command(args)
         case "prompt":
             return agent_prompt_command(args)
         case "onboard":
@@ -958,6 +962,11 @@ def parse_args(override=None):
         help="Agent helper commands",
     )
     agent_subparsers.required = True
+
+    agent_subparsers.add_parser(
+        "prime",
+        help="Output AI-optimized workflow context (single source of truth)",
+    )
 
     prompt_parser = agent_subparsers.add_parser(
         "prompt", help="Inspect bundled prompt guides"

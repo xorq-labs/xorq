@@ -724,6 +724,24 @@ wheels = [
 ]
 
 [[package]]
+name = "cli-helpers"
+version = "2.7.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "configobj" },
+    { name = "tabulate", extra = ["widechars"] },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5a/e6/51b043e8c4ae390af61af35f73a9c2a69a26ea9cf4d061ab45c59f8e20f4/cli_helpers-2.7.0.tar.gz", hash = "sha256:62d11710dbebc2fc460003de1215688325d8636859056d688b38419bd4048bc0", size = 40089, upload-time = "2025-07-28T10:36:18.494Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8c/71/2a516ec309b2cebc09608c38aa3ed5f2684a192e69a146c99f4faae5e640/cli_helpers-2.7.0-py3-none-any.whl", hash = "sha256:f7e163ae17bc11ed7ca92c41bf31b63187ed79c9439fbc9474f6b496e7cb6d07", size = 20804, upload-time = "2025-07-28T10:36:17.231Z" },
+]
+
+[package.optional-dependencies]
+styles = [
+    { name = "pygments" },
+]
+
+[[package]]
 name = "click"
 version = "8.2.1"
 source = { registry = "https://pypi.org/simple" }
@@ -777,6 +795,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/4c/13/7d740c5849255756bc17888787313b61fd38a0a8304fc4f073dfc46122aa/comm-0.2.3.tar.gz", hash = "sha256:2dc8048c10962d55d7ad693be1e7045d891b7ce8d999c97963a5e3e99c055971", size = 6319, upload-time = "2025-07-25T14:02:04.452Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/60/97/891a0971e1e4a8c5d2b20bbe0e524dc04548d2307fee33cdeba148fd4fc7/comm-0.2.3-py3-none-any.whl", hash = "sha256:c615d91d75f7f04f095b30d1c1711babd43bdc6419c1be9886a85f2f4e489417", size = 7294, upload-time = "2025-07-25T14:02:02.896Z" },
+]
+
+[[package]]
+name = "configobj"
+version = "5.0.9"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/f5/c4/c7f9e41bc2e5f8eeae4a08a01c91b2aea3dfab40a3e14b25e87e7db8d501/configobj-5.0.9.tar.gz", hash = "sha256:03c881bbf23aa07bccf1b837005975993c4ab4427ba57f959afdd9d1a2386848", size = 101518, upload-time = "2024-09-21T12:47:46.315Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/c4/0679472c60052c27efa612b4cd3ddd2a23e885dcdc73461781d2c802d39e/configobj-5.0.9-py2.py3-none-any.whl", hash = "sha256:1ba10c5b6ee16229c79a05047aeda2b55eb4e80d7c7d8ecf17ec1ca600c79882", size = 35615, upload-time = "2024-11-26T14:03:32.972Z" },
 ]
 
 [[package]]
@@ -1034,6 +1061,24 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/fc/f8/98eea607f65de6527f8a2e8885fc8015d3e6f5775df186e443e0964a11c3/distro-1.9.0.tar.gz", hash = "sha256:2fa77c6fd8940f116ee1d6b94a2f90b13b5ea8d019b98bc8bafdcabcdd9bdbed", size = 60722, upload-time = "2023-12-24T09:54:32.31Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/12/b3/231ffd4ab1fc9d679809f356cebee130ac7daa00d6d6f3206dd4fd137e9e/distro-1.9.0-py3-none-any.whl", hash = "sha256:7bffd925d65168f85027d8da9af6bddab658135b840670a223589bc0c8ef02b2", size = 20277, upload-time = "2023-12-24T09:54:30.421Z" },
+]
+
+[[package]]
+name = "duckcli"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "cli-helpers", extra = ["styles"] },
+    { name = "click" },
+    { name = "configobj" },
+    { name = "duckdb" },
+    { name = "prompt-toolkit" },
+    { name = "pygments" },
+    { name = "sqlparse" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/e1/7a/cb860f4ed2eb9b8a2de2d27946bfbc722f56822e60b628f56fcfd9c0fb77/duckcli-0.2.1.tar.gz", hash = "sha256:16ef54525936c0eecb1eb01123ba6d8e661dc0c291b4e13b2fd3025ec3182ad4", size = 55745, upload-time = "2022-06-28T23:39:53.51Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/65/07/83b5587679e62682b3c8f6b6fe629519df7a5bcc41482ce34b70f077de05/duckcli-0.2.1-py2.py3-none-any.whl", hash = "sha256:1e09132a483bbac1fe89f3f2d0781ce0bb7c8a3e217b21e34a1ace91c68b6bbf", size = 46238, upload-time = "2022-06-28T23:39:50.627Z" },
 ]
 
 [[package]]
@@ -4777,6 +4822,15 @@ wheels = [
 ]
 
 [[package]]
+name = "sqlparse"
+version = "0.5.5"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/90/76/437d71068094df0726366574cf3432a4ed754217b436eb7429415cf2d480/sqlparse-0.5.5.tar.gz", hash = "sha256:e20d4a9b0b8585fdf63b10d30066c7c94c5d7a7ec47c889a2d83a3caa93ff28e", size = 120815, upload-time = "2025-12-19T07:17:45.073Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/49/4b/359f28a903c13438ef59ebeee215fb25da53066db67b305c125f1c6d2a25/sqlparse-0.5.5-py3-none-any.whl", hash = "sha256:12a08b3bf3eec877c519589833aed092e2444e68240a3577e8e26148acc7b1ba", size = 46138, upload-time = "2025-12-19T07:17:46.573Z" },
+]
+
+[[package]]
 name = "sse-starlette"
 version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -4855,6 +4909,11 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/ec/fe/802052aecb21e3797b8f7902564ab6ea0d60ff8ca23952079064155d1ae1/tabulate-0.9.0.tar.gz", hash = "sha256:0095b12bf5966de529c0feb1fa08671671b3368eec77d7ef7ab114be2c068b3c", size = 81090, upload-time = "2022-10-06T17:21:48.54Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/40/44/4a5f08c96eb108af5cb50b41f76142f0afa346dfa99d5296fe7202a11854/tabulate-0.9.0-py3-none-any.whl", hash = "sha256:024ca478df22e9340661486f85298cff5f6dcdba14f3813e8830015b9ed1948f", size = 35252, upload-time = "2022-10-06T17:21:44.262Z" },
+]
+
+[package.optional-dependencies]
+widechars = [
+    { name = "wcwidth" },
 ]
 
 [[package]]
@@ -5266,6 +5325,7 @@ dependencies = [
     { name = "cloudpickle" },
     { name = "cryptography" },
     { name = "dask", marker = "python_full_version < '4'" },
+    { name = "duckcli" },
     { name = "envyaml" },
     { name = "geoarrow-types", marker = "python_full_version < '4'" },
     { name = "opentelemetry-exporter-otlp" },
@@ -5384,6 +5444,7 @@ requires-dist = [
     { name = "cryptography", specifier = ">=45.0.3" },
     { name = "dask", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = "==2025.1.0" },
     { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'datafusion'", specifier = ">=0.6,<49" },
+    { name = "duckcli", specifier = ">=0.2.1" },
     { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.10.3,<2" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.3" },
     { name = "envyaml", specifier = ">=1.10.211231" },

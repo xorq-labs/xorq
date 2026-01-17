@@ -34,14 +34,49 @@ Before planning, quickly assess:
 
 ## 📚 AVAILABLE LIBRARIES
 
-You have access to scipy, statsmodels, prophet, pulp, sklearn, xgboost, matplotlib, seaborn, and more.
+**Optimization & Scientific Computing:**
+- ✅ **scipy** (scipy.optimize.milp for linear/integer programming, stats, signal processing)
+- ✅ **numpy** (array operations, always available)
 
-**See resources/library_guide.md for complete library selection guide including:**
-- Optimization problems (scipy, pulp)
-- Time series (prophet, statsmodels, ARIMA)
-- Machine learning (sklearn, xgboost via Pipeline.from_instance())
-- Statistical analysis (scipy.stats, statsmodels)
-- Visualization (matplotlib, seaborn)
+**Machine Learning:**
+- ✅ **xgboost** (gradient boosting, use via Pipeline.from_instance())
+- ⚠️ **sklearn** patterns supported via xorq.expr.ml (check availability in your environment)
+
+**Data Processing:**
+- ✅ **pandas** (inside UDFs only!)
+- ✅ **ibis expressions** (via xorq, this is your primary tool)
+
+**Visualization:**
+- ⚠️ **Check availability** before using: matplotlib, seaborn, plotly
+- Gracefully handle ImportError if visualization libs aren't installed
+
+**NOT Available by Default:**
+- ❌ pulp (use scipy.optimize.milp instead)
+- ❌ prophet (use scipy or other time series approaches)
+- ❌ statsmodels (may not be available in your environment)
+
+### Optimization Best Practice:
+**For optimization problems, use scipy.optimize.milp** (Mixed Integer Linear Programming):
+```python
+from scipy.optimize import milp, LinearConstraint, Bounds
+import numpy as np
+
+# Example: Maximize total value (minimize negative)
+c = -values  # Negative for maximization
+
+# Binary decision variables
+integrality = np.ones(n)  # 1 = integer variable
+bounds = Bounds(lb=np.zeros(n), ub=np.ones(n))  # 0 or 1
+
+# Constraints (Ax <= b)
+budget_constraint = LinearConstraint(prices, -np.inf, BUDGET)
+diversity_constraint = LinearConstraint(category_matrix, 1, np.inf)  # At least 1 from each
+
+result = milp(c=c, constraints=[budget_constraint, diversity_constraint],
+              integrality=integrality, bounds=bounds)
+```
+
+**See resources/library_guide.md for complete library selection guide (if available)**
 
 ## 📋 PLAN FORMAT (Concise, Text-Based)
 
@@ -107,7 +142,8 @@ When planning, decide on:
 ### DATA SOURCE CONTEXT - SNOWFLAKE FIRST!
 - **DEFAULT: Start with Snowflake** for all data operations:
   ```python
-  con = xo.snowflake.connect_env_keypair()  # Your primary data source
+  from xorq.backends.snowflake import Backend
+  con = Backend.connect_env_keypair()  # Your primary data source
   ```
 - Explore what tables are available: `con.list_tables()`
 - Find the table that matches your data needs
@@ -237,8 +273,14 @@ def as_struct(expr, name=None):
 
 #### Complete ML Pipeline
 ```python
+# Imports
+import xorq.api as xo
+from xorq.api import _
+from xorq.backends.snowflake import Backend
+from xorq.caching import ParquetCache
+
 # STEP 1: Connect to Snowflake (your data source)
-con = xo.snowflake.connect_env_keypair()
+con = Backend.connect_env_keypair()
 sf_table = con.table("TRAINING_DATA")
 
 # STEP 2: Feature engineering ON SNOWFLAKE (push computation down!)
@@ -495,8 +537,12 @@ ColumnTransformer(transformers=[...])  # Use tuples!
 
 4. **Backend Switching Pattern**:
    ```python
+   from xorq.backends.snowflake import Backend
+   from xorq.caching import ParquetCache
+   import xorq.api as xo
+
    # Start with Snowflake
-   con = xo.snowflake.connect_env_keypair()
+   con = Backend.connect_env_keypair()
 
    # Do heavy lifting in Snowflake
    processed = con.table("RAW_DATA").filter(...).mutate(...)
