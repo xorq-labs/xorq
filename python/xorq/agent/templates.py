@@ -8,7 +8,7 @@ from xorq.init_templates import InitTemplates
 
 
 @dataclass(frozen=True)
-class AgentSkill:
+class AgentTemplate:
     name: str
     description: str
     template: InitTemplates
@@ -21,7 +21,7 @@ class AgentSkill:
         return (
             dedent(
                 f"""\
-            \"\"\"Skill scaffold: {self.name}
+            \"\"\"Template scaffold: {self.name}
             {self.description}
 
             Referenced prompts:
@@ -50,8 +50,8 @@ class AgentSkill:
         )
 
 
-SKILLS: tuple[AgentSkill, ...] = (
-    AgentSkill(
+TEMPLATES: tuple[AgentTemplate, ...] = (
+    AgentTemplate(
         "cached_fetcher",
         "Start from the cached-fetcher template to hydrate upstream tables and cache results.",
         InitTemplates.cached_fetcher,
@@ -59,15 +59,15 @@ SKILLS: tuple[AgentSkill, ...] = (
         catalog_hint="cached-fetcher-base",
         default_table="SOURCE_TABLE",
     ),
-    AgentSkill(
+    AgentTemplate(
         "sklearn_pipeline",
         "Deferred sklearn pipeline with train/predict separation.",
         InitTemplates.sklearn,
-        ("planning_phase", "context_blocks/xorq_ml_complete"),
+        ("planning_phase", "context_blocks/xorq_ml_core"),
         catalog_hint="sklearn-pipeline",
         default_table="TRAINING_DATA",
     ),
-    AgentSkill(
+    AgentTemplate(
         "penguins_demo",
         "Minimal multi-engine example (penguins template) for demonstrations.",
         InitTemplates.penguins,
@@ -77,28 +77,30 @@ SKILLS: tuple[AgentSkill, ...] = (
     ),
 )
 
-SKILL_INDEX = {skill.name: skill for skill in SKILLS}
+TEMPLATE_INDEX = {template.name: template for template in TEMPLATES}
 
 
-def iter_skills():
-    return iter(SKILLS)
+def iter_templates():
+    return iter(TEMPLATES)
 
 
-def list_skill_names() -> tuple[str, ...]:
-    return tuple(SKILL_INDEX)
+def list_template_names() -> tuple[str, ...]:
+    return tuple(TEMPLATE_INDEX)
 
 
-def get_skill(name: str) -> AgentSkill:
+def get_template(name: str) -> AgentTemplate:
     try:
-        return SKILL_INDEX[name]
+        return TEMPLATE_INDEX[name]
     except KeyError as exc:
-        raise ValueError(f"Unknown skill: {name}") from exc
+        raise ValueError(f"Unknown template: {name}") from exc
 
 
-def scaffold_skill(skill: AgentSkill, dest: Path, overwrite: bool = False) -> Path:
+def scaffold_template(
+    template: AgentTemplate, dest: Path, overwrite: bool = False
+) -> Path:
     dest = Path(dest)
     dest.parent.mkdir(parents=True, exist_ok=True)
     if dest.exists() and not overwrite:
         raise FileExistsError(f"{dest} already exists (use --overwrite to replace)")
-    dest.write_text(skill.default_script(), encoding="utf-8")
+    dest.write_text(template.default_script(), encoding="utf-8")
     return dest
