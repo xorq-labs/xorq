@@ -13,6 +13,7 @@ import toolz
 import yaml
 from attrs import evolve, field, frozen
 from attrs.validators import deep_iterable, instance_of, optional
+from tabulate import tabulate
 
 import xorq as xo
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
@@ -21,6 +22,8 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.func_utils import (
     if_not_none,
 )
+from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.relations import Tag
 from xorq.ibis_yaml.compiler import (
     DumpFiles,
     load_expr,
@@ -851,28 +854,86 @@ def do_catalog_add(args) -> None:
     do_print_result(result)
 
 
+def get_root_tag_from_build(build_path: Path) -> Optional[str]:
+    """Extract root tag from expr.yaml in a build directory by walking the expression tree."""
+    try:
+        # Load the expression from the build directory
+        expr = load_expr(build_path)
+
+        # Walk the expression tree to find all Tag nodes
+        tag_nodes = walk_nodes(Tag, expr)
+
+        # Get the root tag (the outermost Tag node, which is the first in the tree)
+        if tag_nodes:
+            root_tag_node = tag_nodes[0]
+            return root_tag_node.tag
+
+        return None
+    except Exception:
+        return None
+
+
 def do_catalog_ls(args):
     """List entries and aliases in the catalog."""
     namespace = getattr(args, "namespace", None)
     config_path = get_catalog_path(namespace)
+    config_dir = config_path.parent
     catalog = load_catalog(path=config_path)
-    if aliases := catalog.aliases:
-        print("Aliases:")
-        print(
-            "\n".join(
-                f"{al}\t{mapping.entry_id}\t{mapping.revision_id}"
-                for al, mapping in aliases.items()
+
+    quiet = getattr(args, "quiet", False)
+    json_output = getattr(args, "json", False)
+
+    # Build data structure for output
+    rows = []
+    for alias_name, alias_obj in catalog.aliases.items():
+        # Find the entry for this alias
+        entry = catalog.maybe_get_entry(alias_obj.entry_id)
+        if entry:
+            # Get the revision (use alias's revision_id if set, otherwise entry's current_revision)
+            rev_id = alias_obj.revision_id or entry.current_revision
+            revision = entry.maybe_get_revision(rev_id) if rev_id else None
+
+            build_hash = (
+                revision.build.build_id if revision and revision.build else None
             )
-        )
-    print("Entries:")
-    for entry in catalog.entries:
-        curr_rev = entry.current_revision
-        build_id = None
-        for rev in entry.history:
-            if rev.revision_id == curr_rev:
-                build_id = rev.build.build_id
-                break
-        print(f"{entry.entry_id}\t{curr_rev}\t{build_id}")
+
+            # Extract root tag from build's expr.yaml
+            root_tag = None
+            if revision and revision.build and revision.build.path:
+                build_path = compute_build_dir(revision.build.path, config_dir)
+                if build_path and build_path.exists():
+                    root_tag = get_root_tag_from_build(build_path)
+
+            rows.append(
+                {
+                    "alias": alias_name,
+                    "latest_revision": rev_id or "",
+                    "build_hash": build_hash or "",
+                    "root_tag": root_tag or "",
+                }
+            )
+
+    # Handle --quiet mode: only show alias names
+    if quiet:
+        for row in rows:
+            print(row["alias"])
+        return
+
+    # Handle --json mode
+    if json_output:
+        print(json.dumps(rows, indent=2))
+        return
+
+    # Default: tabulate output
+    if rows:
+        headers = ["Alias", "Latest Revision", "Build Hash", "Root Tag"]
+        table_data = [
+            [row["alias"], row["latest_revision"], row["build_hash"], row["root_tag"]]
+            for row in rows
+        ]
+        print(tabulate(table_data, headers=headers, tablefmt="simple"))
+    else:
+        print("No catalog entries found.")
 
 
 def compute_build_dir(

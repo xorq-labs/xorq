@@ -754,7 +754,11 @@ def parse_args(override=None):
     catalog_add.add_argument(
         "-a", "--alias", help="Optional alias for this entry", default=None
     )
-    catalog_subparsers.add_parser("ls", help="List catalog entries")
+    catalog_ls = catalog_subparsers.add_parser("ls", help="List catalog entries")
+    catalog_ls.add_argument(
+        "--quiet", "-q", action="store_true", help="Only show alias names"
+    )
+    catalog_ls.add_argument("--json", action="store_true", help="Output in JSON format")
 
     catalog_subparsers.add_parser("info", help="Show catalog information")
     catalog_rm = catalog_subparsers.add_parser(
