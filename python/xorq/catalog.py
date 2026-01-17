@@ -22,6 +22,8 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.func_utils import (
     if_not_none,
 )
+from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.relations import Tag
 from xorq.ibis_yaml.compiler import (
     DumpFiles,
     load_expr,
@@ -852,11 +854,29 @@ def do_catalog_add(args) -> None:
     do_print_result(result)
 
 
+def get_root_tag_from_build(build_path: Path) -> Optional[str]:
+    """Extract root tag from expr.yaml in a build directory by walking the expression tree."""
+    try:
+        # Load the expression from the build directory
+        expr = load_expr(build_path)
+
+        # Walk the expression tree to find all Tag nodes
+        tag_nodes = walk_nodes(Tag, expr)
+
+        # Get the root tag (the outermost Tag node, which is the first in the tree)
+        if tag_nodes:
+            root_tag_node = tag_nodes[0]
+            return root_tag_node.tag
+
+        return None
+    except Exception:
+        return None
 
 def do_catalog_ls(args):
     """List entries and aliases in the catalog."""
     namespace = getattr(args, "namespace", None)
     config_path = get_catalog_path(namespace)
+    config_dir = config_path.parent
     catalog = load_catalog(path=config_path)
 
     quiet = getattr(args, "quiet", False)
@@ -874,11 +894,18 @@ def do_catalog_ls(args):
                 revision.build.build_id if revision and revision.build else None
             )
 
+            # Extract root tag from build's expr.yaml
+            root_tag = None
+            if revision and revision.build and revision.build.path:
+                build_path = compute_build_dir(revision.build.path, config_dir)
+                if build_path and build_path.exists():
+                    root_tag = get_root_tag_from_build(build_path)
             rows.append(
                 {
                     "alias": alias_name,
                     "latest_revision": rev_id or "",
                     "build_hash": build_hash or "",
+                    "root_tag": root_tag or "",
                 }
             )
 
