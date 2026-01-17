@@ -485,7 +485,7 @@ def resolve_build_dir(
 
     def absolutify(path):
         if not path.is_absolute():
-            path = get_default_catalog_path().parent.joinpath(path)
+            path = get_catalog_path().parent.joinpath(path)
         return path
 
     path = Path(token)

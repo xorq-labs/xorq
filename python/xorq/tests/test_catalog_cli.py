@@ -4,7 +4,7 @@ from xorq.cli import catalog_command, parse_args
 from xorq.ibis_yaml.compiler import DumpFiles
 
 
-LS_BASELINE = "Entries:\n"
+LS_BASELINE = "No catalog entries found.\n"
 
 
 @pytest.fixture(autouse=True)
@@ -14,6 +14,8 @@ def isolate_catalog(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
     # Ensure parent exists
     (tmp_path / "config").mkdir(parents=True, exist_ok=True)
+    # Change to tmp_path so get_project_catalog_path() doesn't find the actual project catalog
+    monkeypatch.chdir(tmp_path)
     yield
 
 
