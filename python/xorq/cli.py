@@ -15,6 +15,7 @@ from xorq.catalog import (
     ServerRecord,
     catalog_command,
     lineage_command,
+    load_catalog,
     ps_command,
     resolve_build_dir,
 )
@@ -59,7 +60,8 @@ logger = get_print_logger()
 
 
 def ensure_build_dir(expr_path):
-    build_dir = resolve_build_dir(expr_path)
+    catalog = load_catalog()
+    build_dir = resolve_build_dir(expr_path, catalog)
     if build_dir is None or not build_dir.exists() or not build_dir.is_dir():
         print(f"Build target not found: {expr_path}")
         sys.exit(2)
@@ -807,7 +809,17 @@ def main():
     try:
         match args.command:
             case "uv-build":
-                sys_argv = tuple(el if el != "uv-build" else "build" for el in sys.argv)
+                # Convert builds-dir to absolute path so it works correctly in uv environment
+                sys_argv = list(el if el != "uv-build" else "build" for el in sys.argv)
+                # Find and convert --builds-dir to absolute path
+                builds_dir_abs = str(Path(args.builds_dir).resolve())
+                if "--builds-dir" in sys_argv:
+                    idx = sys_argv.index("--builds-dir")
+                    sys_argv[idx + 1] = builds_dir_abs
+                else:
+                    # Add --builds-dir with absolute path
+                    sys_argv.extend(["--builds-dir", builds_dir_abs])
+                sys_argv = tuple(sys_argv)
                 f, f_args = (
                     uv_build_command,
                     (args.script_path, None, sys_argv),
