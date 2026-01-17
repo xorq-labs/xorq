@@ -68,7 +68,7 @@ def train_and_score(clf, X_train, X_test, y_train, y_test):
     xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
         train, features=features, target=target
     )
-    xorq_score = xorq_pipeline.score_expr(test)
+    xorq_score = xorq_pipeline.score_expr(test).execute()  # Execute the expression
     #
     dct = {
         "sklearn_pipeline": sklearn_pipeline,
