@@ -1,5 +1,6 @@
 import cloudpickle
 import dask
+import numpy as np
 import pyarrow as pa
 import toolz
 
@@ -8,6 +9,39 @@ import xorq.expr.udf as udf
 from xorq.expr.ml.structer import Structer
 from xorq.expr.udf import make_pandas_expr_udf
 from xorq.vendor import ibis
+
+
+def _make_name(prefix, to_tokenize, n=32):
+    tokenized = dask.base.tokenize(to_tokenize)
+    return ("_" + prefix + "_" + tokenized)[:n].lower()
+
+
+def _make_other_fn(*, other, features, return_type):
+    """Create a function that applies a model operation to features.
+
+    Parameters
+    ----------
+    other : callable
+        Function to apply (e.g., predict_sklearn, predict_proba_sklearn)
+    features : tuple or list
+        Feature column names (converted to tuple for immutability)
+    return_type : DataType
+        Return type for the operation
+
+    Returns
+    -------
+    callable
+        Function that applies the operation to a model and DataFrame
+    """
+    features = tuple(features)
+
+    def inner(model, df):
+        return pa.array(
+            other(model, df[list(features)]),
+            type=return_type.to_pyarrow(),
+        )
+
+    return inner
 
 
 @toolz.curry
@@ -52,6 +86,29 @@ def transform_sklearn_feature_names_out(model, df):
 def predict_sklearn(model, df):
     predicted = model.predict(df)
     return predicted
+
+
+@toolz.curry
+def predict_proba_sklearn(model, df):
+    """Predict class probabilities using sklearn model."""
+    proba = model.predict_proba(df)
+    return [row for row in proba]
+
+
+@toolz.curry
+def decision_function_sklearn(model, df):
+    """Compute decision function scores with consistent array output."""
+    scores = np.asarray(model.decision_function(df))
+    if scores.ndim == 1:
+        return [[float(value)] for value in scores]
+    return [row.tolist() for row in scores]
+
+
+@toolz.curry
+def feature_importances_sklearn(model, df):
+    """Extract feature importances from sklearn model as a single row."""
+    importances = model.feature_importances_
+    return [importances.tolist()]
 
 
 @toolz.curry
@@ -107,6 +164,55 @@ def _deferred_fit_other(
     )
 
     return deferred_model, model_udaf, deferred_predict
+
+
+def deferred_other_from_trained_model(
+    *,
+    schema,
+    features,
+    deferred_model,
+    other,
+    return_type,
+    name_infix,
+):
+    """Create a deferred operation from a trained model.
+
+    Parameters
+    ----------
+    schema : ibis.Schema
+        Schema of the input features
+    features : tuple or list
+        Feature column names (converted to tuple for immutability)
+    deferred_model : ibis.Expr
+        Expression containing the trained model
+    other : callable
+        Function to apply to the model (e.g., predict_proba_sklearn)
+    return_type : DataType
+        Return type of the operation
+    name_infix : str
+        Name component for the UDF
+
+    Returns
+    -------
+    ibis.Expr
+        UDF expression that applies the operation
+    """
+    features = tuple(features)
+    other_fn = _make_other_fn(
+        other=other,
+        features=features,
+        return_type=return_type,
+    )
+    return make_pandas_expr_udf(
+        computed_kwargs_expr=deferred_model,
+        fn=other_fn,
+        schema=schema,
+        return_type=return_type,
+        name=_make_name(
+            name_infix,
+            (features, other),
+        ),
+    )
 
 
 @toolz.curry
@@ -205,6 +311,135 @@ def deferred_fit_predict_sklearn(
     return deferred_model, model_udaf, deferred_predict
 
 
+def deferred_fit_predict_proba_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
+    name_infix="predicted_proba",
+    cache=None,
+):
+    """Create deferred predict_proba operation for sklearn models."""
+    deferred_model, model_udaf, deferred_predict_proba = _deferred_fit_other(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=predict_proba_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+    return deferred_model, model_udaf, deferred_predict_proba
+
+
+def deferred_fit_decision_function_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
+    name_infix="decision_function",
+    cache=None,
+):
+    """Create deferred decision_function operation for sklearn models."""
+    deferred_model, model_udaf, deferred_decision = _deferred_fit_other(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=decision_function_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+    return deferred_model, model_udaf, deferred_decision
+
+
+def deferred_fit_feature_importances_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
+    name_infix="feature_importances",
+    cache=None,
+):
+    """Create deferred feature_importances operation for sklearn models."""
+    deferred_model, model_udaf, deferred_importances = _deferred_fit_other(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=feature_importances_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+    return deferred_model, model_udaf, deferred_importances
+
+
+def deferred_predict_proba_from_trained_model(
+    *,
+    schema,
+    features,
+    deferred_model,
+    return_type,
+    name_infix="predicted_proba",
+):
+    """Create deferred predict_proba from a trained model."""
+    return deferred_other_from_trained_model(
+        schema=schema,
+        features=features,
+        deferred_model=deferred_model,
+        other=predict_proba_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+    )
+
+
+def deferred_decision_function_from_trained_model(
+    *,
+    schema,
+    features,
+    deferred_model,
+    return_type,
+    name_infix="decision_function",
+):
+    """Create deferred decision_function from a trained model."""
+    return deferred_other_from_trained_model(
+        schema=schema,
+        features=features,
+        deferred_model=deferred_model,
+        other=decision_function_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+    )
+
+
+def deferred_feature_importances_from_trained_model(
+    *,
+    schema,
+    features,
+    deferred_model,
+    return_type,
+    name_infix="feature_importances",
+):
+    """Create deferred feature_importances from a trained model."""
+    return deferred_other_from_trained_model(
+        schema=schema,
+        features=features,
+        deferred_model=deferred_model,
+        other=feature_importances_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+    )
+
+
 @toolz.curry
 def deferred_fit_transform_series_sklearn(
     expr, col, cls, return_type, params=(), name="predicted", cache=None
@@ -226,6 +461,8 @@ def deferred_fit_transform_series_sklearn(
 def deferred_fit_transform_sklearn_struct(
     expr, features, cls, params=(), target=None, name_infix="transformed", cache=None
 ):
+    """Create deferred fit-transform for sklearn transformers with struct output."""
+
     @toolz.curry
     def fit(df, *args, cls, params):
         instance = cls(**dict(params))
@@ -240,7 +477,7 @@ def deferred_fit_transform_sklearn_struct(
     structer = Structer.from_instance_expr(cls(**dict(params)), expr, features=features)
     return deferred_fit_transform(
         expr=expr,
-        features=list(features),
+        features=features,  # Pass as-is, will be converted to tuple in _deferred_fit_other
         fit=fit(cls=cls, params=params),
         transform=transform(structer.get_convert_array()),
         return_type=structer.return_type,
