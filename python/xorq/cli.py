@@ -168,7 +168,7 @@ def run_command(
     Parameters
     ----------
     expr_path : str
-        Path to the expr in the builds dir
+        Build target: alias, alias@revision, entry_id, build_id, or path to build dir
     output_path : str
         Path to write output. Defaults to os.devnull
     output_format : OutputFormats | str, optional
@@ -193,6 +193,8 @@ def run_command(
         },
     )
 
+    # Resolve build identifier (alias, entry_id, build_id, or path) to an actual build directory
+    expr_path = ensure_build_dir(expr_path)
     expr = load_expr(expr_path, cache_dir=cache_dir)
     if limit is not None:
         expr = expr.limit(limit)
@@ -535,7 +537,10 @@ def parse_args(override=None):
     run_parser = subparsers.add_parser(
         "run", help="Run a build from a builds directory"
     )
-    run_parser.add_argument("build_path", help="Path to the build script")
+    run_parser.add_argument(
+        "build_path",
+        help="Build target: alias, alias@revision, entry_id, build_id, or path to build dir",
+    )
     run_parser.add_argument(
         "--cache-dir",
         required=False,
