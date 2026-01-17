@@ -39,9 +39,40 @@ def get_default_catalog_path():
     )
 
 
+def get_project_catalog_path() -> Optional[Path]:
+    """Return path to project-level catalog if it exists (.xorq/catalog.yaml)."""
+    project_catalog = Path.cwd() / ".xorq" / CATALOG_YAML_FILENAME
+    return project_catalog if project_catalog.exists() else None
+
+
 def get_catalog_path(path: Optional[Union[str, Path]] = None) -> Path:
-    """Return the catalog file path, using XDG_CONFIG_HOME if set or default to ~/.config."""
-    return Path(path) if path else get_default_catalog_path()
+    """Return the catalog file path. Priority: explicit path > project catalog > default user catalog."""
+    if path:
+        p = Path(path)
+        # If path is a directory, append catalog.yaml
+        if p.is_dir():
+            return p / CATALOG_YAML_FILENAME
+        # If path doesn't have .yaml extension, assume it's a directory and append catalog.yaml
+        if not p.name.endswith(".yaml"):
+            return p / CATALOG_YAML_FILENAME
+        return p
+    if project_catalog := get_project_catalog_path():
+        return project_catalog
+    return get_default_catalog_path()
+
+
+def get_builds_dir_for_catalog(catalog_path: Path) -> Path:
+    """Return builds directory for a given catalog path.
+
+    Project catalogs (.xorq/catalog.yaml) use .xorq/builds/
+    User catalogs (~/.config/xorq/catalog.yaml) use catalog-builds/
+    """
+    catalog_dir = catalog_path.parent
+    # Check if this is a project catalog (.xorq directory)
+    if catalog_dir.name == ".xorq":
+        return catalog_dir / "builds"
+    # Otherwise use the legacy catalog-builds name
+    return catalog_dir / "catalog-builds"
 
 
 get_now_utc = functools.partial(datetime.now, timezone.utc)
@@ -602,9 +633,10 @@ class CatalogPaths:
     builds_dir: Path = field()
 
     @classmethod
-    def create(cls) -> "CatalogPaths":
-        config_path, config_dir = _get_catalog_paths()
-        builds_dir = config_dir / "catalog-builds"
+    def create(cls, catalog_path: Optional[Path] = None) -> "CatalogPaths":
+        config_path = get_catalog_path(catalog_path)
+        config_dir = config_path.parent
+        builds_dir = get_builds_dir_for_catalog(config_path)
         return cls(
             config_path=config_path, config_dir=config_dir, builds_dir=builds_dir
         )
@@ -643,8 +675,16 @@ def validate_build(request: AddBuildRequest) -> BuildInfo:
     )
 
 
-def make_build_object(build_info: BuildInfo) -> Build:
-    build_path_str = str(Path("catalog-builds") / build_info.build_id)
+def make_build_object(
+    build_info: BuildInfo, builds_dir_name: str = "catalog-builds"
+) -> Build:
+    """Create Build object with relative path to build directory.
+
+    Args:
+        build_info: Build information
+        builds_dir_name: Name of builds directory (e.g., "builds" for .xorq or "catalog-builds" for ~/.config)
+    """
+    build_path_str = str(Path(builds_dir_name) / build_info.build_id)
     return Build.from_dict({"build_id": build_info.build_id, "path": build_path_str})
 
 
@@ -652,8 +692,9 @@ def make_revision(
     build_info: BuildInfo,
     revision_id: str,
     timestamp: str,
+    builds_dir_name: str = "catalog-builds",
 ) -> Revision:
-    build_obj = make_build_object(build_info)
+    build_obj = make_build_object(build_info, builds_dir_name)
     revision_data = {
         "revision_id": revision_id,
         "created_at": timestamp,
@@ -680,10 +721,12 @@ def compute_next_revision_id(entry: Entry) -> str:
     return f"r{next_num}"
 
 
-def create_new_entry(build_info: BuildInfo, timestamp: str) -> Tuple[Entry, str]:
+def create_new_entry(
+    build_info: BuildInfo, timestamp: str, builds_dir_name: str = "catalog-builds"
+) -> Tuple[Entry, str]:
     entry_id = str(uuid.uuid4())
     revision_id = "r1"
-    revision = make_revision(build_info, revision_id, timestamp)
+    revision = make_revision(build_info, revision_id, timestamp, builds_dir_name)
 
     entry_data = {
         "entry_id": entry_id,
@@ -698,9 +741,10 @@ def update_existing_entry(
     entry: Entry,
     build_info: BuildInfo,
     timestamp: str,
+    builds_dir_name: str = "catalog-builds",
 ) -> Tuple[Entry, str]:
     revision_id = compute_next_revision_id(entry)
-    revision = make_revision(build_info, revision_id, timestamp)
+    revision = make_revision(build_info, revision_id, timestamp, builds_dir_name)
     updated_entry = entry.with_revision(revision)
     return updated_entry, revision_id
 
@@ -732,15 +776,16 @@ def process_catalog_update(
     build_info: BuildInfo,
     alias: Optional[str],
     timestamp: str,
+    builds_dir_name: str = "catalog-builds",
 ) -> Tuple[XorqCatalog, str, str]:
     existing_entry = maybe_find_existing_entry(catalog, alias)
 
     if existing_entry:
         entry, revision_id = update_existing_entry(
-            existing_entry, build_info, timestamp
+            existing_entry, build_info, timestamp, builds_dir_name
         )
     else:
-        entry, revision_id = create_new_entry(build_info, timestamp)
+        entry, revision_id = create_new_entry(build_info, timestamp, builds_dir_name)
 
     updated_catalog = update_catalog_with_entry(
         catalog, entry, revision_id, alias, timestamp
@@ -784,7 +829,8 @@ def do_print_result(result: AddBuildResult) -> None:
 def do_catalog_add(args) -> None:
     """Add a build to the catalog."""
     request = AddBuildRequest(build_path=args.build_path, alias=args.alias)
-    paths = CatalogPaths.create()
+    namespace = getattr(args, "namespace", None)
+    paths = CatalogPaths.create(catalog_path=namespace)
     timestamp = get_now_utc().isoformat()
 
     build_info = validate_build(request)
@@ -793,8 +839,9 @@ def do_catalog_add(args) -> None:
     do_copy_build_safely(build_info, paths)
 
     catalog = load_catalog(path=paths.config_path)
+    builds_dir_name = paths.builds_dir.name
     updated_catalog, entry_id, revision_id = process_catalog_update(
-        catalog, build_info, request.alias, timestamp
+        catalog, build_info, request.alias, timestamp, builds_dir_name
     )
 
     do_save_catalog(updated_catalog, paths.config_path)
@@ -806,7 +853,8 @@ def do_catalog_add(args) -> None:
 
 def do_catalog_ls(args):
     """List entries and aliases in the catalog."""
-    config_path, _ = _get_catalog_paths()
+    namespace = getattr(args, "namespace", None)
+    config_path = get_catalog_path(namespace)
     catalog = load_catalog(path=config_path)
     if aliases := catalog.aliases:
         print("Aliases:")
@@ -839,15 +887,19 @@ def compute_build_dir(
 
 
 def do_catalog_info(args):
-    config_path, _ = _get_catalog_paths()
+    namespace = getattr(args, "namespace", None)
+    config_path = get_catalog_path(namespace)
     catalog = load_catalog(path=config_path)
+    catalog_type = "project" if config_path.parent.name == ".xorq" else "user"
     print(f"Catalog path: {config_path}")
+    print(f"Catalog type: {catalog_type}")
     print(f"Entries: {len(catalog.entries)}")
     print(f"Aliases: {len(catalog.aliases)}")
 
 
 def do_catalog_rm(args):
-    config_path, _ = _get_catalog_paths()
+    namespace = getattr(args, "namespace", None)
+    config_path = get_catalog_path(namespace)
     catalog = load_catalog(path=config_path)
     token = args.entry
     entry = next((e for e in catalog.entries if e.entry_id == token), None)
@@ -870,7 +922,10 @@ def do_catalog_rm(args):
 
 
 def do_catalog_export(args):
-    config_path, config_dir = _get_catalog_paths()
+    namespace = getattr(args, "namespace", None)
+    config_path = get_catalog_path(namespace)
+    builds_dir = get_builds_dir_for_catalog(config_path)
+
     export_dir = Path(args.output_path)
     if export_dir.exists() and not export_dir.is_dir():
         print(f"Export path exists and is not a directory: {export_dir}")
@@ -881,18 +936,52 @@ def do_catalog_export(args):
     else:
         print(f"No catalog found at {config_path}")
         return
-    src_builds = config_dir / "catalog-builds"
-    if src_builds.exists() and src_builds.is_dir():
-        dest_builds = export_dir / src_builds.name
+    if builds_dir.exists() and builds_dir.is_dir():
+        dest_builds = export_dir / builds_dir.name
         if dest_builds.exists():
             shutil.rmtree(dest_builds)
-        shutil.copytree(src_builds, dest_builds)
+        shutil.copytree(builds_dir, dest_builds)
     print(f"Exported catalog and builds to {export_dir}")
 
 
 def do_catalog_diff_builds(args):
     code = do_diff_builds(args.left, args.right, args.files, args.all)
     sys.exit(code)
+
+
+def do_catalog_init(args):
+    """Initialize a catalog namespace."""
+    namespace = getattr(args, "namespace", None)
+
+    if namespace:
+        # Custom namespace path
+        catalog_path = Path(namespace)
+        if not catalog_path.name.endswith(".yaml"):
+            # If namespace is a directory, create catalog.yaml inside it
+            catalog_path = catalog_path / CATALOG_YAML_FILENAME
+    else:
+        # Default to .xorq/catalog.yaml in current directory
+        catalog_path = Path.cwd() / ".xorq" / CATALOG_YAML_FILENAME
+
+    # Check if catalog already exists
+    if catalog_path.exists():
+        print(f"Catalog already exists at {catalog_path}")
+        return
+
+    # Create catalog directory and builds directory
+    catalog_dir = catalog_path.parent
+    builds_dir = get_builds_dir_for_catalog(catalog_path)
+
+    catalog_dir.mkdir(parents=True, exist_ok=True)
+    builds_dir.mkdir(parents=True, exist_ok=True)
+
+    # Create empty catalog
+    catalog = XorqCatalog()
+    catalog.save(path=catalog_path)
+
+    catalog_type = "project" if catalog_dir.name == ".xorq" else "custom"
+    print(f"Initialized {catalog_type} catalog at {catalog_path}")
+    print(f"Builds directory: {builds_dir}")
 
 
 def lineage_command(
@@ -919,6 +1008,7 @@ def lineage_command(
 
 
 _CATALOG_HANDLER_MAP = {
+    "init": do_catalog_init,
     "add": do_catalog_add,
     "ls": do_catalog_ls,
     "info": do_catalog_info,

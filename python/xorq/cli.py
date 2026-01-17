@@ -467,7 +467,9 @@ def parse_args(override=None):
         help="Name of the expression variable in the Python script",
     )
     uv_build_parser.add_argument(
-        "--builds-dir", default="builds", help="Directory for all generated artifacts"
+        "--builds-dir",
+        default=".xorq/builds",
+        help="Directory for all generated artifacts",
     )
     uv_build_parser.add_argument(
         "--cache-dir",
@@ -512,7 +514,9 @@ def parse_args(override=None):
         help="Name of the expression variable in the Python script",
     )
     build_parser.add_argument(
-        "--builds-dir", default="builds", help="Directory for all generated artifacts"
+        "--builds-dir",
+        default=".xorq/builds",
+        help="Directory for all generated artifacts",
     )
     build_parser.add_argument(
         "--cache-dir",
@@ -728,10 +732,20 @@ def parse_args(override=None):
         help="Directory for server state records",
     )
     catalog_parser = subparsers.add_parser("catalog", help="Manage build catalog")
+    catalog_parser.add_argument(
+        "--namespace",
+        help="Path to catalog namespace (default: .xorq/catalog.yaml or ~/.config/xorq/catalog.yaml)",
+        default=None,
+    )
     catalog_subparsers = catalog_parser.add_subparsers(
         dest="subcommand", help="Catalog commands"
     )
     catalog_subparsers.required = True
+
+    catalog_subparsers.add_parser(
+        "init",
+        help="Initialize a catalog namespace (creates .xorq/catalog.yaml by default)",
+    )
 
     catalog_add = catalog_subparsers.add_parser(
         "add", help="Add a build to the catalog"
@@ -747,6 +761,14 @@ def parse_args(override=None):
         "rm", help="Remove a build entry or alias from the catalog"
     )
     catalog_rm.add_argument("entry", help="Entry ID or alias to remove")
+
+    catalog_export = catalog_subparsers.add_parser(
+        "export", help="Export catalog and builds to a directory"
+    )
+    catalog_export.add_argument(
+        "output_path", help="Directory to export catalog and builds"
+    )
+
     catalog_diff_builds = catalog_subparsers.add_parser(
         "diff-builds", help="Compare two build artifacts via git diff --no-index"
     )
