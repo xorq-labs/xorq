@@ -5,15 +5,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
-from .prompts import (
-    CORE_PROMPT_TIER,
-    PROMPT_TIER_DESCRIPTIONS,
-    iter_prompt_specs,
-    load_prompt_text,
-    prompt_excerpt,
-    prompt_title,
-)
-
 
 @dataclass(frozen=True)
 class OnboardingStep:
@@ -51,7 +42,7 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
             "Build artifacts locally to verify manifests/caches.",
         ],
         [
-            "xorq agent prompt list --tier core",
+            "xorq agent prime",
             "xorq build expr.py -e expr",
         ],
         [
@@ -103,7 +94,7 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         [
             "bd sync",
             "git push",
-            "xorq agent prompt list --tier reliability",
+            "xorq agent prime",
         ],
         [
             "context_blocks/phase_checks",
@@ -184,7 +175,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
         "# xorq Agent Onboarding",
         "",
         "Use this guide to progress from project initialization to landing the plane. "
-        "Reference `xorq agent prompt list` to pull full guidance for each step.",
+        "Run `xorq agent prime` for full workflow context.",
         "",
     ]
     if not bd_ok:
@@ -197,8 +188,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
     for onboarding_step in selected_steps:
         sections.extend(_format_onboarding_step(onboarding_step))
     sections.append(
-        "\nPrompts live under `docs/agent_prompts/`; use "
-        "`xorq agent prompt show <name>` for detailed context."
+        "\nRun `xorq agent prime` for dynamic workflow context at any time."
     )
     return "\n".join(sections).strip() + "\n"
 
@@ -224,50 +214,68 @@ def _format_onboarding_step(step: OnboardingStep) -> list[str]:
 
 
 def _render_agent_doc(max_lines: int) -> str:
-    header = dedent(
+    """Render minimal AGENTS.md pointing to `xorq agent prime` as source of truth."""
+    content = dedent(
         """\
         # Agent Instructions
 
-        This project was initialized with `xorq init --agent`. You now have access to
-        the bundled xorq prompt library. Use `xorq agent prompt list` or
-        `xorq agent prompt show <name>` to explore the full catalog.
+        This project uses **xorq** for composable ML pipelines and deferred data analysis.
 
-        The sections below contain curated excerpts from the core prompts so new agents
-        see the most important information without leaving the repo.
+        ## Workflow Context
+
+        Run `xorq agent prime` for dynamic, context-aware workflow guidance. This is the **single source of truth** for xorq workflow instructions.
+
+        ```bash
+        xorq agent prime
+        ```
+
+        The `prime` command provides:
+        - Current project state (recent builds, catalog status)
+        - Session close protocol (critical git workflow)
+        - Core xorq rules (schema checks, deferred execution, no pandas)
+        - Essential command reference
+
+        ## Quick Reference
+
+        **Core Workflow:**
+        ```bash
+        # 1. Check schema FIRST (mandatory)
+        print(table.schema())
+
+        # 2. Build expression
+        xorq build expr.py -e expr
+
+        # 3. Catalog the build
+        xorq catalog add builds/<hash> --alias my-pipeline
+
+        # 4. Run when needed
+        xorq run builds/<hash> -o output.parquet
+        ```
+
+        **Agent Commands:**
+        - `xorq agent prime` - Workflow context (use this!)
+        - `xorq agent templates list` - Available templates
+        - `xorq agent onboard` - Onboarding guide
+        - `xorq catalog ls` - List cataloged builds
+
+        ## Non-Negotiable Rules
+
+        - **All work must be deferred xorq/ibis expressions** - No pandas/NumPy scripts
+        - **ALWAYS check schema first** - `print(table.schema())` before any operations
+        - **Match column case exactly** - Snowflake=UPPERCASE, DuckDB=lowercase
+        - **Catalog your expressions** - Use `xorq catalog add` for all builds
+        - **Session close protocol** - Run `xorq agent prime` to see mandatory steps
+
+        ## Customization
+
+        Create `.xorq/PRIME.md` to customize workflow guidance for this project.
+
+        ---
+
+        **For full workflow context, run `xorq agent prime` at session start.**
         """
     ).strip()
-    sections: list[str] = [header, ""]
-    for spec in iter_prompt_specs(tier=CORE_PROMPT_TIER):
-        text = load_prompt_text(spec)
-        title = prompt_title(text, spec.name)
-        excerpt = prompt_excerpt(text, max_lines=max_lines)
-        sections.append(f"## {title} (`{spec.rel_path}`)")
-        sections.append("")
-        sections.append("```markdown")
-        sections.append(excerpt.strip())
-        sections.append("```")
-        sections.append("")
-    other_tiers = [
-        f"- `{tier}` — {PROMPT_TIER_DESCRIPTIONS[tier]}"
-        for tier in PROMPT_TIER_DESCRIPTIONS
-        if tier != CORE_PROMPT_TIER
-    ]
-    sections.append("## Explore the Remaining Prompt Bundles")
-    sections.append("")
-    sections.append(
-        "Run `xorq agent prompt list --tier <tier>` to inspect additional guidance:"
-    )
-    sections.extend(other_tiers)
-    sections.append("")
-    sections.append(
-        "All prompt files live under `docs/agent_prompts/` for manual browsing."
-    )
-    sections.append("")
-    sections.append(
-        "When onboarding new agents, link to this file and encourage referencing the "
-        "full prompt list before starting work."
-    )
-    return "\n".join(sections).rstrip() + "\n"
+    return content + "\n"
 
 
 def bd_cli_available() -> bool:
