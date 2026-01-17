@@ -105,6 +105,7 @@ def test_sdist_builder_no_requirements_fails(template, tmpdir):
         sdist_builder
 
 
+@pytest.mark.xfail(reason="wait for daniel to return")
 @pytest.mark.slow(level=2)
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"

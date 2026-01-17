@@ -31,9 +31,12 @@ from xorq.common.utils.func_utils import (
     return_constant,
 )
 from xorq.expr.ml.fit_lib import (
+    deferred_decision_function_from_trained_model,
+    deferred_feature_importances_from_trained_model,
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
     deferred_fit_transform_sklearn_struct,
+    deferred_predict_proba_from_trained_model,
 )
 from xorq.expr.ml.structer import (
     Structer,
@@ -339,6 +342,111 @@ class Step:
     __dask_tokenize__ = normalize_attrs
 
 
+def _has_feature_importances(estimator_class):
+    """Check if estimator class defines feature_importances_ property."""
+    return any(
+        "feature_importances_" in cls.__dict__ for cls in estimator_class.__mro__
+    )
+
+
+def _create_deferred_method(method_name, factory_fn, schema, features, deferred_model):
+    """Create a deferred method if the estimator supports it.
+
+    Returns
+    -------
+    callable or None
+        The deferred method if supported, None otherwise
+    """
+    return factory_fn(
+        schema=schema,
+        features=features,
+        deferred_model=deferred_model,
+        return_type=dt.Array(dt.float64),
+        name_infix=method_name,
+    )
+
+
+def _get_non_feature_columns(expr, features):
+    """Get columns that are not in features as a tuple."""
+    return tuple(col for col in expr.columns if col not in features)
+
+
+def _apply_prediction_method(
+    deferred_method, expr, features, tag_kwargs, name, default_name, retain_others=True
+):
+    """Apply a prediction method with optional column retention.
+
+    Parameters
+    ----------
+    deferred_method : callable
+        The deferred method to apply
+    expr : ibis.Expr
+        The expression to apply the method to
+    features : tuple
+        Feature columns used by the model
+    tag_kwargs : dict
+        Tagging kwargs for the expression
+    name : str or None
+        Custom name for the result column
+    default_name : str
+        Default name to use if name is None
+    retain_others : bool
+        Whether to retain non-feature columns
+
+    Returns
+    -------
+    ibis.Expr
+        Tagged expression with results
+    """
+    col = deferred_method.on_expr(expr).name(name or default_name)
+
+    if retain_others and (others := _get_non_feature_columns(expr, features)):
+        expr = expr.select(*others, col)
+    else:
+        expr = col.as_table()
+
+    return expr.tag(**tag_kwargs)
+
+
+def _apply_pipeline_prediction_method(
+    fitted_pipeline, method_name, expr, tag_name, tag_key
+):
+    """Apply a prediction method through the fitted pipeline.
+
+    Parameters
+    ----------
+    fitted_pipeline : FittedPipeline
+        The fitted pipeline instance
+    method_name : str
+        Name of the method to call on predict_step
+    expr : ibis.Expr
+        The expression to predict on
+    tag_name : str
+        Tag name for the resulting expression
+    tag_key : str
+        Tag key for storing the predict step tags
+
+    Returns
+    -------
+    ibis.Expr
+        Tagged expression with predictions
+    """
+    if not fitted_pipeline.is_predict:
+        raise ValueError("Pipeline does not have a predict step")
+
+    transformed = fitted_pipeline.transform(expr, tag=False)
+    method = getattr(fitted_pipeline.predict_step, method_name)
+
+    return (
+        method(transformed)
+        .pipe(do_into_backend)
+        .tag(
+            tag_name,
+            **{tag_key: tuple(fitted_pipeline.predict_step.tag_kwargs.items())},
+        )
+    )
+
+
 @frozen
 class FittedStep:
     step = field(validator=instance_of(Step))
@@ -394,7 +502,14 @@ class FittedStep:
             "params": self.step.params_tuple,
             "cache": self.cache,
         }
-        (deferred_transform, deferred_predict) = (None, None)
+        (
+            deferred_transform,
+            deferred_predict,
+            deferred_predict_proba,
+            deferred_decision_function,
+            deferred_feature_importances,
+        ) = (None, None, None, None, None)
+
         if self.is_transform:
             match self.step.typ:
                 # FIXME: formalize registration of non-Structer handling
@@ -420,6 +535,7 @@ class FittedStep:
                         f = deferred_fit_transform_sklearn_struct
             (deferred_model, model_udf, deferred_transform) = f(**kwargs)
         elif self.is_predict:
+            schema = self.expr.select(self.features).schema()
             predict_kwargs = {
                 "target": self.target,
                 "return_type": get_predict_return_type(
@@ -433,6 +549,44 @@ class FittedStep:
             (deferred_model, model_udf, deferred_predict) = (
                 deferred_fit_predict_sklearn(**kwargs, **predict_kwargs)
             )
+
+            # Create deferred methods if the model supports them
+            deferred_predict_proba = (
+                _create_deferred_method(
+                    "predicted_proba",
+                    deferred_predict_proba_from_trained_model,
+                    schema,
+                    self.features,
+                    deferred_model,
+                )
+                if hasattr(self.step.instance, "predict_proba")
+                else None
+            )
+
+            deferred_decision_function = (
+                _create_deferred_method(
+                    "decision_function",
+                    deferred_decision_function_from_trained_model,
+                    schema,
+                    self.features,
+                    deferred_model,
+                )
+                if hasattr(self.step.instance, "decision_function")
+                else None
+            )
+
+            # feature_importances_ only exists after fitting, so we check the class hierarchy
+            deferred_feature_importances = (
+                _create_deferred_method(
+                    "feature_importances",
+                    deferred_feature_importances_from_trained_model,
+                    schema,
+                    self.features,
+                    deferred_model,
+                )
+                if _has_feature_importances(self.step.instance.__class__)
+                else None
+            )
         else:
             raise ValueError
         return {
@@ -440,6 +594,9 @@ class FittedStep:
             "model_udf": model_udf,
             "deferred_transform": deferred_transform,
             "deferred_predict": deferred_predict,
+            "deferred_predict_proba": deferred_predict_proba,
+            "deferred_decision_function": deferred_decision_function,
+            "deferred_feature_importances": deferred_feature_importances,
         }
 
     @property
@@ -457,6 +614,18 @@ class FittedStep:
     @property
     def deferred_predict(self):
         return self._pieces["deferred_predict"]
+
+    @property
+    def deferred_predict_proba(self):
+        return self._pieces.get("deferred_predict_proba")
+
+    @property
+    def deferred_decision_function(self):
+        return self._pieces.get("deferred_decision_function")
+
+    @property
+    def deferred_feature_importances(self):
+        return self._pieces.get("deferred_feature_importances")
 
     @property
     @functools.cache
@@ -557,6 +726,69 @@ class FittedStep:
     @property
     def predicted(self):
         return self.predict(self.expr)
+
+    def predict_proba_raw(self, expr, name=None):
+        """Get raw probability predictions as a column expression."""
+        if not self.deferred_predict_proba:
+            raise AttributeError(
+                f"'{self.step.typ.__name__}' object has no attribute 'predict_proba'"
+            )
+        return self.deferred_predict_proba.on_expr(expr).name(name or "predicted_proba")
+
+    def predict_proba(self, expr, retain_others=True, name=None):
+        """Get probability predictions with optional other columns."""
+        if not self.deferred_predict_proba:
+            raise AttributeError(
+                f"'{self.step.typ.__name__}' object has no attribute 'predict_proba'"
+            )
+        return _apply_prediction_method(
+            self.deferred_predict_proba,
+            expr,
+            self.features,
+            self.tag_kwargs,
+            name,
+            "predicted_proba",
+            retain_others,
+        )
+
+    def decision_function_raw(self, expr, name=None):
+        """Get raw decision function scores as a column expression."""
+        if not self.deferred_decision_function:
+            raise AttributeError(
+                f"'{self.step.typ.__name__}' object has no attribute 'decision_function'"
+            )
+        return self.deferred_decision_function.on_expr(expr).name(
+            name or "decision_function"
+        )
+
+    def decision_function(self, expr, retain_others=True, name=None):
+        """Get decision function scores with optional other columns."""
+        if not self.deferred_decision_function:
+            raise AttributeError(
+                f"'{self.step.typ.__name__}' object has no attribute 'decision_function'"
+            )
+        return _apply_prediction_method(
+            self.deferred_decision_function,
+            expr,
+            self.features,
+            self.tag_kwargs,
+            name,
+            "decision_function",
+            retain_others,
+        )
+
+    def feature_importances(self, expr=None, name=None):
+        # FIXME
+        import xorq.api as xo
+
+        schema = self.expr.select(self.features).schema()
+        empty_table = xo.memtable(
+            [{name: None for name in schema.names}], schema=schema
+        )
+        col = self.deferred_feature_importances.on_expr(empty_table).name(
+            name or "feature_importances"
+        )
+        return col.as_table().tag(**self.tag_kwargs)
 
 
 @frozen
@@ -832,13 +1064,119 @@ class FittedPipeline:
             )
         )
 
-    def score_expr(self, expr, **kwargs):
-        # NOTE: this is non-deferred
-        clf = self.predict_step.model
-        df = self.transform(expr).execute()
-        X = df[list(self.predict_step.features)]
-        y = df[self.predict_step.target]
-        return clf.score(X, y, **kwargs)
+    def predict_proba(self, expr):
+        """Predict class probabilities for classification problems.
+
+        This method applies transformations and then uses the predictor's
+        predict_proba method to get probability estimates.
+
+        Parameters
+        ----------
+        expr : ibis.Expr
+            The expression to predict on
+
+        Returns
+        -------
+        ibis.Expr
+            Expression with predicted probabilities column
+        """
+        return _apply_pipeline_prediction_method(
+            self,
+            "predict_proba",
+            expr,
+            "FittedPipeline-predict_proba",
+            "predict_proba_tags",
+        )
+
+    def decision_function(self, expr):
+        """Compute decision function scores for classifiers.
+
+        Parameters
+        ----------
+        expr : ibis.Expr
+            The expression to predict on
+
+        Returns
+        -------
+        ibis.Expr
+            Expression with decision function scores
+        """
+        return _apply_pipeline_prediction_method(
+            self,
+            "decision_function",
+            expr,
+            "FittedPipeline-decision_function",
+            "decision_function_tags",
+        )
+
+    def feature_importances(self, expr):
+        """Get feature importances for the model.
+
+        This method applies transformations and then extracts feature importances
+        from the predictor model.
+
+        Parameters
+        ----------
+        expr : ibis.Expr
+            The expression to compute feature importances on
+
+        Returns
+        -------
+        ibis.Expr
+            Expression with feature importances column
+        """
+        return _apply_pipeline_prediction_method(
+            self,
+            "feature_importances",
+            expr,
+            "FittedPipeline-feature_importances",
+            "feature_importances_tags",
+        )
+
+    def score_expr(self, expr, metric_fn=None, use_proba=False, **kwargs):
+        """Compute metrics using deferred execution.
+
+        Parameters
+        ----------
+        expr : ibis.Expr
+            Expression containing test data
+        metric_fn : callable, optional
+            Metric function from sklearn.metrics. If None, uses model's default
+        use_proba : bool, optional
+            If True, use predict_proba for metric computation (default: False)
+        **kwargs : dict
+            Additional arguments passed to the metric function
+
+        Returns
+        -------
+        ibis.Expr
+            Deferred metric expression
+        """
+        from sklearn.base import is_classifier
+        from sklearn.metrics import accuracy_score, r2_score
+
+        from xorq.expr.ml.metrics import deferred_sklearn_metric
+
+        # Default metric based on model type
+        if metric_fn is None:
+            metric_fn = (
+                accuracy_score if is_classifier(self.predict_step.model) else r2_score
+            )
+
+        # Get predictions with appropriate method
+        expr_with_preds, pred_col = (
+            (self.predict_proba(expr), "predicted_proba")
+            if use_proba
+            else (self.predict(expr), "predicted")
+        )
+
+        return deferred_sklearn_metric(
+            expr=expr_with_preds,
+            target=self.predict_step.target,
+            pred_col=pred_col,
+            metric_fn=metric_fn,
+            metric_kwargs=kwargs,
+        )
 
     def score(self, X, y, **kwargs):
         import numpy as np
@@ -846,9 +1184,15 @@ class FittedPipeline:
 
         from xorq.expr import api
 
-        df = pd.DataFrame(np.array(X), columns=self.features).assign(**{self.target: y})
+        if not self.is_predict:
+            raise ValueError("Pipeline does not have a predict step")
+
+        df = pd.DataFrame(
+            np.array(X),
+            columns=self.predict_step.features,
+        ).assign(**{self.predict_step.target: y})
         expr = api.register(df, "t")
-        return self.score_expr(expr, **kwargs)
+        return self.score_expr(expr, **kwargs).execute()
 
 
 def get_target_type(step_instance, step, expr, features, target):
@@ -875,6 +1219,11 @@ def raise_on_unregistered(instance, step, expr, features, target):
 def lazy_register_sklearn():
     from sklearn.base import (
         ClassifierMixin,
+        RegressorMixin,
+    )
+    from sklearn.ensemble import (
+        RandomForestClassifier,
+        RandomForestRegressor,
     )
     from sklearn.linear_model import (
         LinearRegression,
@@ -888,6 +1237,11 @@ def lazy_register_sklearn():
     registry.register(LogisticRegression, get_target_type)
     registry.register(KNeighborsClassifier, get_target_type)
     registry.register(ClassifierMixin, get_target_type)
+    registry.register(RandomForestRegressor, return_constant(dt.float))
+    registry.register(RandomForestClassifier, get_target_type)
+    registry.register(
+        RegressorMixin, return_constant(dt.float)
+    )  # General fallback for regressors
 
 
 get_predict_return_type.register = registry.register

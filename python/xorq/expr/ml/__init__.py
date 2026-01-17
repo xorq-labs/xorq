@@ -6,6 +6,9 @@ from xorq.expr.ml.fit_lib import (
     deferred_fit_transform_sklearn,
     deferred_fit_transform_sklearn_struct,
 )
+from xorq.expr.ml.metrics import (
+    deferred_sklearn_metric,
+)
 from xorq.expr.ml.quickgrove_lib import (
     collect_predicates,  # noqa: F401
     make_quickgrove_udf,
@@ -45,4 +48,5 @@ __all__ = [
     "deferred_fit_transform_sklearn",
     "deferred_fit_transform_sklearn_struct",
     "deferred_fit_transform_series_sklearn",
+    "deferred_sklearn_metric",
 ] + also
