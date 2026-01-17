@@ -168,34 +168,88 @@ def bootstrap_agent_docs(project_root: str | Path, max_lines: int = 60) -> list[
 
 
 def render_onboarding_summary(step: str | None = None) -> str:
+    from xorq.agent.prime import (
+        _format_builds_status,
+        get_catalog_entries,
+        get_recent_builds,
+    )
+
     bd_ok = bd_cli_available()
     selected_steps = (
         tuple(s for s in ONBOARDING_STEPS if step is None or s.key == step)
         or ONBOARDING_STEPS
     )
+
+    # Get current project state
+    recent_builds = get_recent_builds(limit=3)
+    catalog_entries = get_catalog_entries(limit=5)
+    project_state = ""
+    if recent_builds or catalog_entries:
+        project_state = _format_builds_status(recent_builds, catalog_entries)
+        project_state = "\n## Your Project Status\n\n" + project_state + "\n"
+
     sections = [
-        "# xorq Agent Onboarding",
+        "# 🚀 xorq Agent Onboarding",
         "",
-        "Use this guide to progress from project initialization to landing the plane. "
-        "Run `xorq agent prime` for full workflow context.",
+        "**Welcome!** Follow this guide to build composable ML pipelines with xorq.",
+        "",
+        "💡 **Quick Start**: Run `xorq agent prime` for dynamic workflow context.",
         "",
     ]
-    if not bd_ok:
-        sections.append(
-            "⚠️ `bd` CLI not detected on PATH. Install via "
-            "`brew install steveyegge/beads/bd` or "
-            "`npm install -g @beads/bd`, then rerun `bd onboard`."
-        )
-        sections.append("")
-    for onboarding_step in selected_steps:
-        sections.extend(_format_onboarding_step(onboarding_step))
-    sections.append(
-        "\nRun `xorq agent prime` for dynamic workflow context at any time."
+
+    if project_state:
+        sections.append(project_state)
+
+    sections.append("## Workflow Steps\n")
+
+    for idx, onboarding_step in enumerate(selected_steps, 1):
+        sections.extend(_format_onboarding_step_simple(onboarding_step, idx))
+
+    sections.extend(
+        [
+            "",
+            "---",
+            "",
+            "**Need Help?**",
+            "- 📖 Run `xorq agent prime` - Dynamic workflow context",
+            "- 📝 Run `xorq agent templates list` - View available templates",
+            "- 📊 Run `xorq catalog ls` - See your cataloged pipelines",
+            "",
+        ]
     )
+
+    if bd_ok:
+        sections.append(
+            "✅ `bd` CLI detected - you can use `bd sync` for session management"
+        )
+    else:
+        sections.append("ℹ️  Optional: Install `bd` CLI for enhanced session management")
+
     return "\n".join(sections).strip() + "\n"
 
 
+def _format_onboarding_step_simple(step: OnboardingStep, number: int) -> list[str]:
+    """Format onboarding step in a cleaner, more concise way."""
+    lines = [
+        f"### {number}. {step.title}",
+        "",
+    ]
+    # Show only first 2-3 most important checklist items
+    lines.extend(f"- {item}" for item in step.checklist[:3])
+    lines.append("")
+    # Show key commands
+    lines.append("**Commands:**")
+    lines.append("```bash")
+    for cmd in step.commands[:3]:  # Limit to top 3 commands
+        if not cmd.strip().startswith("#"):  # Skip commented commands
+            lines.append(cmd)
+    lines.append("```")
+    lines.append("")
+    return lines
+
+
 def _format_onboarding_step(step: OnboardingStep) -> list[str]:
+    """Original detailed formatting (kept for compatibility)."""
     lines = [
         f"## {step.title}",
         "",

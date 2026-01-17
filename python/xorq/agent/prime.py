@@ -6,6 +6,7 @@ Replaces scattered prompt files with dynamic, context-aware output.
 
 from __future__ import annotations
 
+import subprocess
 from pathlib import Path
 from textwrap import dedent
 
@@ -13,12 +14,20 @@ from textwrap import dedent
 def find_builds_dir() -> Path | None:
     """Find the builds/ directory in current project."""
     cwd = Path.cwd()
+    # Check both .xorq/builds and builds/
+    xorq_builds = cwd / ".xorq" / "builds"
+    if xorq_builds.exists() and xorq_builds.is_dir():
+        return xorq_builds
+
     builds = cwd / "builds"
     return builds if builds.exists() and builds.is_dir() else None
 
 
-def get_recent_builds(limit: int = 3) -> list[str]:
-    """Get most recently modified build directories."""
+def get_recent_builds(limit: int = 5) -> list[tuple[str, str]]:
+    """Get most recently modified build directories with timestamps.
+
+    Returns: List of (hash, relative_time) tuples
+    """
     builds_dir = find_builds_dir()
     if not builds_dir:
         return []
@@ -28,7 +37,71 @@ def get_recent_builds(limit: int = 3) -> list[str]:
         d for d in builds_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
     ]
     build_dirs.sort(key=lambda d: d.stat().st_mtime, reverse=True)
-    return [d.name for d in build_dirs[:limit]]
+
+    results = []
+    for d in build_dirs[:limit]:
+        # Get relative time (e.g., "2 hours ago")
+        try:
+            mtime = d.stat().st_mtime
+            import time
+
+            seconds_ago = time.time() - mtime
+            if seconds_ago < 60:
+                time_str = "just now"
+            elif seconds_ago < 3600:
+                time_str = f"{int(seconds_ago / 60)}m ago"
+            elif seconds_ago < 86400:
+                time_str = f"{int(seconds_ago / 3600)}h ago"
+            else:
+                time_str = f"{int(seconds_ago / 86400)}d ago"
+            results.append((d.name, time_str))
+        except Exception:
+            results.append((d.name, "unknown"))
+
+    return results
+
+
+def get_catalog_entries(limit: int = 10) -> list[dict]:
+    """Get recent catalog entries using xorq catalog ls.
+
+    Returns: List of dicts with alias, revision, hash, root_tag
+    """
+    try:
+        result = subprocess.run(
+            ["xorq", "catalog", "ls"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+
+        if result.returncode != 0:
+            return []
+
+        # Parse the output (skip header lines)
+        lines = result.stdout.strip().split("\n")
+        entries = []
+
+        for line in lines[2:]:  # Skip header and separator
+            if not line.strip():
+                continue
+            parts = line.split()
+            if len(parts) >= 3:
+                alias = parts[0]
+                revision = parts[1]
+                build_hash = parts[2] if len(parts) > 2 else ""
+                root_tag = parts[3] if len(parts) > 3 else ""
+                entries.append(
+                    {
+                        "alias": alias,
+                        "revision": revision,
+                        "hash": build_hash,
+                        "root_tag": root_tag,
+                    }
+                )
+
+        return entries[:limit]
+    except Exception:
+        return []
 
 
 def check_custom_prime() -> str | None:
@@ -51,14 +124,22 @@ def render_prime_context() -> str:
     This is the single source of truth for xorq workflow guidance.
     Replaces the need for scattered prompt files.
     """
-    # Check for custom override first
+    # Get project state (always needed)
+    recent_builds = get_recent_builds(limit=5)
+    catalog_entries = get_catalog_entries(limit=10)
+    builds_status = _format_builds_status(recent_builds, catalog_entries)
+
+    # Check for custom override
     custom = check_custom_prime()
     if custom:
+        # Inject dynamic state into custom PRIME.md
+        # Replace the placeholder with actual state
+        if "**Recent activity**" in custom:
+            custom = custom.replace(
+                "**Recent activity** is displayed dynamically when you run `xorq agent prime`.",
+                builds_status,
+            )
         return custom
-
-    # Get project state
-    recent_builds = get_recent_builds(limit=3)
-    builds_status = _format_builds_status(recent_builds)
 
     context = dedent(f"""\
         # Xorq Workflow Context
@@ -216,29 +297,46 @@ def render_prime_context() -> str:
     return context.rstrip() + "\n"
 
 
-def _format_builds_status(recent_builds: list[str]) -> str:
+def _format_builds_status(
+    recent_builds: list[tuple[str, str]], catalog_entries: list[dict]
+) -> str:
     """Format the current builds status section."""
-    if not recent_builds:
+    if not recent_builds and not catalog_entries:
         return dedent("""\
             ## Current Project State
 
-            - No builds found in builds/ directory
+            - No builds or catalog entries found
             - Run `xorq build expr.py -e expr` to create your first build
+            - Then: `xorq catalog add builds/<hash> --alias my-pipeline`
             """).strip()
 
-    builds_list = "\n".join(f"- builds/{b}/" for b in recent_builds)
-    count_msg = (
-        f"{len(recent_builds)} most recent" if len(recent_builds) >= 3 else "Recent"
-    )
+    output = "## Current Project State\n\n"
 
-    return dedent(f"""\
-        ## Current Project State
+    # Recent builds
+    if recent_builds:
+        output += "**Recent Builds:**\n"
+        for build_hash, time_str in recent_builds[:5]:
+            output += f"- `{build_hash[:12]}...` ({time_str})\n"
+        output += "\n"
 
-        {count_msg} builds:
-        {builds_list}
+    # Catalog entries
+    if catalog_entries:
+        output += "**Cataloged Pipelines:**\n"
+        for entry in catalog_entries[:10]:
+            alias = entry.get("alias", "")
+            revision = entry.get("revision", "")
+            root_tag = entry.get("root_tag", "")
+            if root_tag:
+                output += f"- `{alias}` @ {revision} → {root_tag}\n"
+            else:
+                output += f"- `{alias}` @ {revision}\n"
+        output += "\n"
+        output += "Run `xorq catalog ls` for full list.\n"
+    else:
+        output += "**No catalog entries yet.**\n"
+        output += "- Catalog builds: `xorq catalog add builds/<hash> --alias name`\n"
 
-        Run `xorq catalog ls` to see aliases, revisions, and root tags.
-        """).strip()
+    return output.strip()
 
 
 def agent_prime_command(args=None, export: bool = False) -> None:

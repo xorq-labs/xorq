@@ -485,6 +485,8 @@ def agent_command(args):
             return agent_prime_command(args)
         case "onboard":
             return agent_onboard_command(args)
+        case "land":
+            return agent_land_command(args)
         case "templates":
             return agent_templates_command(args)
         case _:
@@ -496,6 +498,13 @@ def agent_onboard_command(args):
 
     summary = render_onboarding_summary(step=args.step)
     print(summary.rstrip())
+
+
+def agent_land_command(args):
+    from xorq.agent.land import agent_land_command as land_cmd
+
+    limit = getattr(args, "limit", 10)
+    return land_cmd(args, limit=limit)
 
 
 def agent_templates_command(args):
@@ -938,6 +947,17 @@ def parse_args(override=None):
         choices=("init", "build", "catalog", "test", "land"),
         default=None,
         help="Filter onboarding instructions to a specific step",
+    )
+
+    land_parser = agent_subparsers.add_parser(
+        "land",
+        help="Show session summary and landing checklist",
+    )
+    land_parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Number of recent builds to show (default: 10)",
     )
 
     templates_parser = agent_subparsers.add_parser(
