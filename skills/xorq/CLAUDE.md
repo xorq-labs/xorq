@@ -185,7 +185,6 @@ Potential additions:
 - [ ] WORKFLOWS.md - Step-by-step patterns
 - [ ] TROUBLESHOOTING.md - Common error fixes
 - [ ] PATTERNS.md - Best practices and recipes
-- [ ] Integration examples with bd (beads)
 - [ ] Multi-engine workflow patterns
 - [ ] ML pipeline examples
 - [ ] Serving patterns with Arrow Flight

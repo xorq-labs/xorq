@@ -227,23 +227,6 @@ Provides step-by-step guidance:
 4. **test** - Validate builds
 5. **land** - Session completion
 
-## Integration with bd (beads)
-
-If using bd for issue tracking:
-```bash
-# At start of session
-bd ready  # Find work
-bd show <id>  # Get context
-bd update <id> --status in_progress
-
-# During work
-bd update <id> --notes "Built expr for feature X, hash: abc123"
-
-# At end
-bd close <id> --reason "Expression built and cataloged"
-bd sync  # Persist to git
-```
-
 ## Key Differences from Other Tools
 
 | xorq | Traditional Approach |
