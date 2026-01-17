@@ -11,13 +11,6 @@ from opentelemetry import trace
 import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.agent.onboarding import bootstrap_agent_docs
-from xorq.agent.prompts import (
-    PROMPT_TIER_DESCRIPTIONS,
-    get_prompt_spec,
-    iter_prompt_specs,
-    list_prompt_names,
-    load_prompt_text,
-)
 from xorq.agent.templates import (
     get_template,
     iter_templates,
@@ -490,44 +483,12 @@ def agent_command(args):
             from xorq.agent.prime import agent_prime_command
 
             return agent_prime_command(args)
-        case "prompt":
-            return agent_prompt_command(args)
         case "onboard":
             return agent_onboard_command(args)
         case "templates":
             return agent_templates_command(args)
         case _:
             raise ValueError(f"Unknown agent subcommand: {args.agent_subcommand}")
-
-
-def agent_prompt_command(args):
-    match args.prompt_command:
-        case "list":
-            return agent_prompt_list_command(tier=args.tier)
-        case "show":
-            return agent_prompt_show_command(args.name)
-        case _:
-            raise ValueError(f"Unknown agent prompt command: {args.prompt_command}")
-
-
-def agent_prompt_list_command(tier=None):
-    specs = list(iter_prompt_specs(tier=tier))
-    if not specs:
-        print("No prompts found for the requested tier.", file=sys.stderr)
-        return
-    print(f"{'NAME':40} {'TIER':12} PATH - DESCRIPTION")
-    for spec in specs:
-        print(f"{spec.name:40} {spec.tier:12} {spec.rel_path} - {spec.description}")
-
-
-def agent_prompt_show_command(name):
-    spec = get_prompt_spec(name)
-    text = load_prompt_text(spec)
-    header = f"# {spec.name} ({spec.tier}) - {spec.rel_path}"
-    print(header)
-    print()
-    print(text.rstrip())
-    print()
 
 
 def agent_onboard_command(args):
@@ -966,34 +927,6 @@ def parse_args(override=None):
     agent_subparsers.add_parser(
         "prime",
         help="Output AI-optimized workflow context (single source of truth)",
-    )
-
-    prompt_parser = agent_subparsers.add_parser(
-        "prompt", help="Inspect bundled prompt guides"
-    )
-    prompt_subparsers = prompt_parser.add_subparsers(
-        dest="prompt_command",
-        help="Prompt commands",
-    )
-    prompt_subparsers.required = True
-
-    prompt_list = prompt_subparsers.add_parser(
-        "list", help="List available prompts from the bundle"
-    )
-    prompt_list.add_argument(
-        "--tier",
-        choices=tuple(PROMPT_TIER_DESCRIPTIONS),
-        default=None,
-        help="Filter prompts by tier",
-    )
-
-    prompt_show = prompt_subparsers.add_parser(
-        "show", help="Display the contents of a prompt"
-    )
-    prompt_show.add_argument(
-        "name",
-        choices=list_prompt_names(),
-        help="Prompt identifier (see `xorq agent prompt list`)",
     )
 
     onboard_parser = agent_subparsers.add_parser(
