@@ -131,3 +131,55 @@ def test_info_after_add(tmp_path, capsys):
     out = capsys.readouterr().out
     assert "Entries: 1" in out
     assert "Aliases: 1" in out
+
+
+def test_catalog_init_default(tmp_path, capsys, monkeypatch):
+    # Test initializing a catalog in .xorq directory
+    monkeypatch.chdir(tmp_path)
+    args = parse_args(["catalog", "init"])
+    catalog_command(args)
+    out = capsys.readouterr().out
+
+    # Check output
+    assert "Initialized project catalog" in out
+    assert ".xorq/catalog.yaml" in out
+
+    # Check files were created
+    catalog_path = tmp_path / ".xorq" / "catalog.yaml"
+    builds_dir = tmp_path / ".xorq" / "builds"
+    assert catalog_path.exists()
+    assert builds_dir.exists()
+    assert builds_dir.is_dir()
+
+
+def test_catalog_init_custom_namespace(tmp_path, capsys, monkeypatch):
+    # Test initializing a catalog with custom namespace
+    monkeypatch.chdir(tmp_path)
+    custom_dir = tmp_path / "custom_namespace"
+    args = parse_args(["catalog", "--namespace", str(custom_dir), "init"])
+    catalog_command(args)
+    out = capsys.readouterr().out
+
+    # Check output
+    assert "Initialized custom catalog" in out
+
+    # Check files were created
+    catalog_path = custom_dir / "catalog.yaml"
+    builds_dir = custom_dir / "catalog-builds"  # Custom paths use catalog-builds
+    assert catalog_path.exists()
+    assert builds_dir.exists()
+
+
+def test_catalog_init_already_exists(tmp_path, capsys, monkeypatch):
+    # Test that init reports when catalog already exists
+    monkeypatch.chdir(tmp_path)
+    # Initialize once
+    args = parse_args(["catalog", "init"])
+    catalog_command(args)
+    _ = capsys.readouterr()
+
+    # Try to initialize again
+    args = parse_args(["catalog", "init"])
+    catalog_command(args)
+    out = capsys.readouterr().out
+    assert "Catalog already exists" in out
