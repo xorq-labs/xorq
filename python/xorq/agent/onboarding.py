@@ -56,11 +56,12 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         [
             "Inspect the build output (manifest, metadata, cache).",
             "Assign aliases and register artifacts for reuse.",
+            "View catalog entries with root tags via `xorq catalog ls`.",
             "Link catalog entries to bd issues or template skills.",
         ],
         [
             "xorq catalog add builds/<hash> --alias <name>",
-            "xorq catalog ls",
+            "xorq catalog ls  # Shows aliases, revisions, and root tags",
         ],
         [
             "context_blocks/expression_deliverables",
@@ -70,13 +71,14 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         "test",
         "Validate builds and reliability gates",
         [
-            "Execute expressions or unbound variants locally.",
+            "Execute expressions using catalog aliases or revisions.",
             "Run template-specific tests/linters documented in AGENTS.md.",
             "Capture lineage/inspection outputs for review.",
         ],
         [
-            "xorq run builds/<hash> -o /tmp/out.parquet",
-            "xorq lineage <alias>",
+            "xorq run <alias> -o /tmp/out.parquet  # Run by alias",
+            "xorq run <alias>@r2 -o /tmp/out.parquet  # Run specific revision",
+            "xorq lineage <alias>  # Show column lineage with root tag",
         ],
         [
             "context_blocks/phase_data_preparation_completion_check",
@@ -248,8 +250,12 @@ def _render_agent_doc(max_lines: int) -> str:
         # 3. Catalog the build
         xorq catalog add builds/<hash> --alias my-pipeline
 
-        # 4. Run when needed
-        xorq run builds/<hash> -o output.parquet
+        # 4. View cataloged entries (shows root tags)
+        xorq catalog ls
+
+        # 5. Run by alias or revision
+        xorq run my-pipeline -o output.parquet
+        xorq run my-pipeline@r2 -o output.parquet  # Specific revision
         ```
 
         **Agent Commands:**

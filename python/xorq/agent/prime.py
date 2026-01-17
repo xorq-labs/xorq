@@ -110,12 +110,22 @@ def render_prime_context() -> str:
         # 1. Build expression
         xorq build expr.py -e expr
 
-        # 2. Catalog the build
+        # 2. Catalog the build with an alias
         xorq catalog add builds/<hash> --alias my-pipeline
 
-        # 3. Run when needed
-        xorq run builds/<hash> -o output.parquet
+        # 3. View catalog (shows aliases, revisions, root tags)
+        xorq catalog ls
+
+        # 4. Run by alias or specific revision
+        xorq run my-pipeline -o output.parquet
+        xorq run my-pipeline@r2 -o output.parquet  # Run specific revision
         ```
+
+        **Catalog Root Tags:**
+        - The catalog automatically extracts and displays the root tag from each build
+        - Root tags identify the top-level expression node (e.g., table name from Tag nodes)
+        - Use `xorq catalog ls` to see all aliases with their root tags
+        - This helps identify what each catalog entry produces
 
         ### 4. Deferred Execution Rules
 
@@ -183,13 +193,15 @@ def render_prime_context() -> str:
 
         **Building & Running:**
         - `xorq build expr.py -e expr` - Build expression to builds/<hash>/
-        - `xorq run builds/<hash> -o output.parquet` - Execute build
-        - `xorq lineage <alias>` - Show column lineage
+        - `xorq run <alias> -o output.parquet` - Execute by catalog alias
+        - `xorq run <alias>@r2 -o output.parquet` - Execute specific revision
+        - `xorq run builds/<hash> -o output.parquet` - Execute by build hash
+        - `xorq lineage <alias>` - Show column lineage with root tag
 
         **Catalog Management:**
-        - `xorq catalog ls` - List all registered builds
+        - `xorq catalog ls` - List aliases with revisions and root tags
         - `xorq catalog add builds/<hash> --alias name` - Register with alias
-        - `xorq catalog show <alias>` - View catalog entry
+        - `xorq catalog info` - Show catalog metadata
 
         **Agent Helpers:**
         - `xorq agent prime` - This command (workflow context)
@@ -225,7 +237,7 @@ def _format_builds_status(recent_builds: list[str]) -> str:
         {count_msg} builds:
         {builds_list}
 
-        Run `xorq catalog ls` to see registered aliases.
+        Run `xorq catalog ls` to see aliases, revisions, and root tags.
         """).strip()
 
 
