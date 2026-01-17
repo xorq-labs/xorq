@@ -461,8 +461,6 @@ def deferred_fit_transform_series_sklearn(
 def deferred_fit_transform_sklearn_struct(
     expr, features, cls, params=(), target=None, name_infix="transformed", cache=None
 ):
-    """Create deferred fit-transform for sklearn transformers with struct output."""
-
     @toolz.curry
     def fit(df, *args, cls, params):
         instance = cls(**dict(params))
@@ -477,7 +475,7 @@ def deferred_fit_transform_sklearn_struct(
     structer = Structer.from_instance_expr(cls(**dict(params)), expr, features=features)
     return deferred_fit_transform(
         expr=expr,
-        features=features,  # Pass as-is, will be converted to tuple in _deferred_fit_other
+        features=list(features),
         fit=fit(cls=cls, params=params),
         transform=transform(structer.get_convert_array()),
         return_type=structer.return_type,
