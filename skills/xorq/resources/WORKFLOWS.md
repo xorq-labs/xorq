@@ -334,8 +334,6 @@ xorq lineage my-expr
 
 **Phase 5: Land**
 ```bash
-# If using bd:
-bd sync
 git push
 ```
 
@@ -347,48 +345,6 @@ git push
 ---
 
 ## Integration Workflows
-
-### With bd (beads) Issue Tracker
-
-**Goal:** Track xorq work with bd issues.
-
-**Steps:**
-
-1. **Start session:**
-```bash
-bd ready
-bd show XQ-123
-bd update XQ-123 --status in_progress
-```
-
-2. **Build expression:**
-```bash
-xorq build expr.py -e expr
-# Output: builds/abc123def/
-```
-
-3. **Update issue:**
-```bash
-bd update XQ-123 --notes "
-Built expression for feature pipeline
-Build hash: abc123def
-Cataloged as: feature-pipeline-v1
-"
-```
-
-4. **Complete work:**
-```bash
-xorq catalog add builds/abc123def --alias feature-pipeline-v1
-bd close XQ-123 --reason "Expression built and cataloged"
-bd sync
-```
-
-**When to use:**
-- Multi-session work
-- Team collaboration
-- Persistent context needed
-
----
 
 ### With Git Version Control
 

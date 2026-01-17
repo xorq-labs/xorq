@@ -602,32 +602,6 @@ xorq agent prompt show sequential_execution
 
 ## Integration Patterns
 
-### With bd (beads)
-
-**Pattern:**
-```bash
-# Session start
-bd ready
-bd show XQ-123
-bd update XQ-123 --status in_progress
-
-# Do work
-xorq build expr.py -e expr
-
-# Update issue with details
-bd update XQ-123 --notes "Built expression
-Build: builds/abc123def
-Alias: feature-pipeline
-"
-
-# Complete
-xorq catalog add builds/abc123def --alias feature-pipeline
-bd close XQ-123
-bd sync
-```
-
----
-
 ### With Git
 
 **Pattern:**

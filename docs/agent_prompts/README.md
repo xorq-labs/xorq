@@ -81,4 +81,4 @@ Prompts may include placeholders like `{xorq_import_instructions}`, `{var_descri
 
 - Tag files with YAML front‑matter describing bundle tier, applicable phases, and recommended CLI hook.
 - Build a manifest (`prompts.json`) that the CLI can query for metadata instead of hardcoding paths.
-- Track prompt usage/feedback as bd issues to keep the library evolving with agent needs.
+- Track prompt usage/feedback to keep the library evolving with agent needs.

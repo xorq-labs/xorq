@@ -60,13 +60,6 @@ Before using this skill, ensure:
    python -m pip show xorq
    ```
 
-3. **(Optional) bd CLI** for issue tracking:
-   ```bash
-   brew install steveyegge/beads/bd
-   # or
-   npm install -g @beads/bd
-   ```
-
 ## File Structure
 
 ```
