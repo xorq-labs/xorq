@@ -28,30 +28,32 @@ KNOWN_PATTERNS = [
         name="Duplicate Column in Result Set",
         cause=dedent("""\
             Common causes:
-            1. Categorical columns included in both feature_columns AND the table
-            2. Manually trying to join predictions back
-            3. Not using the struct pattern for ML predictions
-            4. Selecting columns that already exist after unpack
+            1. Using mutate with column names that already exist
+            2. Multiple aggregations creating same column name
+            3. Unpacking structs that contain duplicate columns
+            4. Join operations creating duplicate column names
             """).strip(),
         fix=dedent("""\
             Solution:
-            1. Remove categorical columns from feature_columns (keep only numeric)
-            2. Use the struct pattern for predictions (don't manual join)
-            3. Only include numeric features in feature_columns list
+            1. Use unique column names in mutate operations
+            2. Use .name() to rename aggregation results
+            3. Drop existing columns before recreating them
+            4. Use proper join predicates to avoid duplicates
             """).strip(),
         examples=[
             dedent("""\
                 # ❌ WRONG:
-                feature_columns = ["carat", "cut", "color", "price"]  # cut/color are categorical!
+                table.mutate(total=_.col1 + _.col2).mutate(total=_.col3)  # Duplicate!
 
                 # ✅ RIGHT:
-                feature_columns = ["carat", "cut_score", "color_score"]  # Only numeric
-                # Keep 'cut' and 'color' in table, but not in feature_columns
+                table.mutate(total=_.col1 + _.col2).drop("total").mutate(total=_.col3)
+                # Or just use one mutate:
+                table.mutate(total=_.col3)  # Overwrites previous
                 """).strip(),
         ],
         references=[
-            "context_blocks/ml_struct_pattern.md",
-            "examples/diamonds_price_prediction.py:130-140",
+            "scripts/astronauts_prediction_simple.py",
+            "scripts/batting_avg_ml_training.py",
         ],
     ),
     ErrorPattern(
@@ -89,8 +91,8 @@ KNOWN_PATTERNS = [
                 """).strip(),
         ],
         references=[
-            "context_blocks/sklearn_type_requirements.md",
-            "examples/diamonds_price_prediction.py:44-82",
+            "scripts/astronauts_prediction_simple.py:35-43",
+            "python/xorq/agent/prime.py:211-217",
         ],
     ),
     ErrorPattern(
@@ -101,32 +103,30 @@ KNOWN_PATTERNS = [
 
             This happens when:
             1. Trying to mutate with columns from another table
-            2. Attempting manual joins across deferred expressions
-            3. Not using proper join predicates
+            2. Using chained mutates with _.column syntax incorrectly
+            3. Not using table.column references after mutate
             """).strip(),
         fix=dedent("""\
             Solution:
-            1. For ML: Use the struct pattern (don't manual join)
-            2. For regular joins: Use proper join predicates
+            1. In chained mutates, use table.column not _.column for new columns
+            2. For ML predictions: Use predict_udf.on_expr(table) in mutate
             3. Keep all columns in same table through transformations
             """).strip(),
         examples=[
             dedent("""\
                 # ❌ WRONG:
-                predictions = model.predict(features)
-                result = table.mutate(pred=predictions.predicted)  # ❌ Different relations!
+                predictions = table.mutate(predicted=predict_udf.on_expr(table))
+                result = predictions.mutate(error=_.predicted - _.target)  # May fail!
 
-                # ✅ RIGHT (struct pattern):
-                result = (
-                    table
-                    .mutate(as_struct(name="original"))
-                    .pipe(fitted.predict)
-                    .unpack("original")
+                # ✅ RIGHT:
+                predictions = table.mutate(predicted=predict_udf.on_expr(table))
+                result = predictions.mutate(
+                    error=predictions.predicted - predictions.target
                 )
                 """).strip(),
         ],
         references=[
-            "context_blocks/ml_struct_pattern.md",
+            "scripts/astronauts_prediction_simple.py:82-93",
         ],
     ),
     ErrorPattern(

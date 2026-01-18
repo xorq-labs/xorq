@@ -2,6 +2,8 @@
 
 Inspired by `bd prime` - provides AI-optimized workflow guidance as single source of truth.
 Replaces scattered prompt files with dynamic, context-aware output.
+
+Includes task-aware guidance that detects ML tasks and provides targeted prompts.
 """
 
 from __future__ import annotations
@@ -118,28 +120,157 @@ def check_custom_prime() -> str | None:
     return None
 
 
-def render_prime_context() -> str:
+def detect_task_type() -> str | None:
+    """Detect likely task type from recent files and builds.
+
+    Returns: "ml_regression", "ml_classification", "etl", "viz", or None
+    """
+    # Check scripts directory for ML-related files
+    scripts_dir = Path("scripts")
+    if scripts_dir.exists():
+        for script in scripts_dir.glob("*.py"):
+            try:
+                content_lower = script.read_text().lower()
+                if "sklearn" in content_lower or "pipeline" in content_lower:
+                    if "regression" in content_lower or "predict" in content_lower:
+                        return "ml_regression"
+                    elif (
+                        "classification" in content_lower
+                        or "classifier" in content_lower
+                    ):
+                        return "ml_classification"
+            except Exception:
+                continue
+
+    # Check for examples directory
+    examples = Path("examples")
+    if examples.exists():
+        for example in examples.glob("*prediction*.py"):
+            return "ml_regression"
+        for example in examples.glob("*classification*.py"):
+            return "ml_classification"
+
+    return None
+
+
+def get_ml_guidance(task_type: str) -> str:
+    """Get ML-specific guidance based on task type."""
+    if task_type not in ("ml_regression", "ml_classification"):
+        return ""
+
+    guidance = dedent("""\
+        ## 🎯 ML Task Detected
+
+        **PREFERRED: Pipeline API with as_struct Pattern**
+
+        ### 1. Create as_struct Helper
+        ```python
+        import toolz
+
+        @toolz.curry
+        def as_struct(expr, name=None):
+            \"\"\"Pack all columns into a struct.\"\"\"
+            struct = xo.struct({column: expr[column] for column in expr.columns})
+            if name:
+                struct = struct.name(name)
+            return struct
+        ```
+
+        ### 2. Create and Fit sklearn Pipeline
+        ```python
+        from sklearn.pipeline import Pipeline as SkPipeline
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.ensemble import RandomForestRegressor
+        from xorq.expr.ml.pipeline_lib import Pipeline
+
+        sklearn_pipeline = SkPipeline([
+            ("scaler", StandardScaler()),
+            ("regressor", RandomForestRegressor(n_estimators=100, max_depth=6))
+        ])
+        xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+
+        fitted = xorq_pipeline.fit(
+            train,
+            features=FEATURE_COLUMNS,  # Tuple of feature names
+            target="target_column",
+        )
+        ```
+
+        ### 3. Predict with Struct Pattern (MANDATORY)
+        ```python
+        # MUST use struct pattern to preserve all columns
+        predictions = (
+            test
+            .mutate(as_struct(name="original_row"))  # 1. Pack ALL columns
+            .pipe(fitted.predict)                     # 2. Predict
+            .drop("target_column")                    # 3. Remove target if present
+            .unpack("original_row")                   # 4. Unpack original columns
+            .mutate(predicted_price=_.predicted)      # 5. Rename prediction
+            .drop("predicted")                        # 6. Clean up
+        )
+        ```
+
+        ### 4. Float64 for All Features (MANDATORY)
+        ```python
+        # Cast categorical encodings to float64
+        cut_score = (_.cut.case()
+            .when("Fair", 0.0)   # Use 0.0 not 0
+            .when("Good", 1.0)
+            .end()
+            .cast("float64"))    # REQUIRED!
+        ```
+
+        **Working Examples:**
+        - examples/diamonds_price_prediction.py - Pipeline API (PREFERRED)
+        - examples/pipeline_example.py - Pipeline with SelectKBest
+
+        **Common Errors & Fixes:**
+        - "Duplicate column" → Remove categorical columns from feature_columns
+        - "Type coercion failed" → Cast all features to float64
+        - "Cannot add Field" → Use struct pattern (.mutate(as_struct) + .pipe + .unpack)
+
+        """)
+
+    return guidance.rstrip() + "\n\n"
+
+
+def render_prime_context(task_type: str | None = None) -> str:
     """Generate dynamic workflow context for xorq agents.
 
     This is the single source of truth for xorq workflow guidance.
     Replaces the need for scattered prompt files.
-    """
-    # Get project state (always needed)
-    recent_builds = get_recent_builds(limit=5)
-    catalog_entries = get_catalog_entries(limit=10)
-    builds_status = _format_builds_status(recent_builds, catalog_entries)
 
-    # Check for custom override
+    Args:
+        task_type: Optional task type override ("ml_regression", "ml_classification", etc.)
+                   If None, will auto-detect from project files.
+    """
+    # Check for custom override first
     custom = check_custom_prime()
     if custom:
+        # Get project state for injection
+        recent_builds = get_recent_builds(limit=5)
+        catalog_entries = get_catalog_entries(limit=10)
+        builds_status = _format_builds_status(recent_builds, catalog_entries)
+
         # Inject dynamic state into custom PRIME.md
-        # Replace the placeholder with actual state
         if "**Recent activity**" in custom:
             custom = custom.replace(
                 "**Recent activity** is displayed dynamically when you run `xorq agent prime`.",
                 builds_status,
             )
         return custom
+
+    # Auto-detect task if not specified
+    if task_type is None:
+        task_type = detect_task_type()
+
+    # Get project state (always needed)
+    recent_builds = get_recent_builds(limit=5)
+    catalog_entries = get_catalog_entries(limit=10)
+    builds_status = _format_builds_status(recent_builds, catalog_entries)
+
+    # Get task-specific guidance
+    task_guidance = get_ml_guidance(task_type) if task_type else ""
 
     context = dedent(f"""\
         # Xorq Workflow Context
@@ -149,18 +280,19 @@ def render_prime_context() -> str:
 
         {builds_status}
 
-        # 🚨 SESSION CLOSE PROTOCOL 🚨
+        {task_guidance}# 🚨 SESSION CLOSE PROTOCOL 🚨
 
         **CRITICAL**: Before saying "done" or "complete", you MUST:
 
         ```
         [ ] 1. Build and catalog new expressions
-        [ ] 2. Commit build manifests: git add builds/ && git commit
-        [ ] 3. Push to remote: git push
-        [ ] 4. Verify: git status (must show "up to date")
+        [ ] 2. Validate builds run: xorq run <alias> --limit 10
+        [ ] 3. Commit build manifests: git add builds/ && git commit
+        [ ] 4. Push to remote: git push
+        [ ] 5. Verify: git status (must show "up to date")
         ```
 
-        **NEVER skip this.** Work is not done until pushed.
+        **NEVER skip this.** Work is not done until pushed and validated.
 
         ## Core Workflow
 
@@ -255,21 +387,6 @@ def render_prime_context() -> str:
         # RIGHT: grouped.order_by(ibis.desc('count'))  # ✅ Use string name
         ```
 
-        ## 🔥 ML PREDICTIONS: ALWAYS USE STRUCT PATTERN! 🔥
-
-        **When doing ML tasks, ALL predictions MUST use the struct pattern:**
-
-        ```python
-        test_predicted = (
-            test
-            .mutate(as_struct(name=ORIGINAL_ROW))
-            .pipe(fitted_pipeline.predict)
-            .unpack(ORIGINAL_ROW)
-        )
-        ```
-
-        **Never use:** `fitted.predict(test[features])` - This breaks deferred execution!
-
         ## Essential Commands Reference
 
         **Building & Running:**
@@ -286,6 +403,7 @@ def render_prime_context() -> str:
 
         **Agent Helpers:**
         - `xorq agent prime` - This command (workflow context)
+        - `xorq agent prime --task ml` - ML-specific guidance
         - `xorq agent templates list` - List available templates
         - `xorq agent onboard` - Onboarding guide
 
@@ -339,17 +457,27 @@ def _format_builds_status(
     return output.strip()
 
 
-def agent_prime_command(args=None, export: bool = False) -> None:
-    """Execute the prime command - output workflow context."""
-    # Check if we're in a xorq project (has builds/ or can create it)
-    # For now, just output the context - don't require specific setup
+def agent_prime_command(task: str | None = None, export: bool = False) -> None:
+    """Execute the prime command - output workflow context.
+
+    Args:
+        task: Optional task type ("ml", "ml_regression", "ml_classification", etc.)
+        export: If True, export default template (future feature)
+    """
+    # Map simple task names to full types
+    task_map = {
+        "ml": "ml_regression",  # Default ML to regression
+        "regression": "ml_regression",
+        "classification": "ml_classification",
+    }
+    task_type = task_map.get(task, task) if task else None
 
     # If export flag (for --export mode in future), ignore custom override
     if export:
         # Could implement this to export default template
         pass
 
-    context = render_prime_context()
+    context = render_prime_context(task_type=task_type)
     print(context, end="")
 
 

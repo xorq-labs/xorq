@@ -38,7 +38,7 @@ class AgentTemplate:
 
             con = xo.connect()
             table = con.table("{self.default_table}")
-            print(table.schema())  # align with context_blocks/must_check_schema
+            print(table.schema())  # ALWAYS check schema first
 
             expr = (
                 table
@@ -55,7 +55,7 @@ TEMPLATES: tuple[AgentTemplate, ...] = (
         "cached_fetcher",
         "Start from the cached-fetcher template to hydrate upstream tables and cache results.",
         InitTemplates.cached_fetcher,
-        ("planning_phase", "context_blocks/xorq_core"),
+        (),
         catalog_hint="cached-fetcher-base",
         default_table="SOURCE_TABLE",
     ),
@@ -63,7 +63,7 @@ TEMPLATES: tuple[AgentTemplate, ...] = (
         "sklearn_pipeline",
         "Deferred sklearn pipeline with train/predict separation.",
         InitTemplates.sklearn,
-        ("planning_phase", "context_blocks/xorq_ml_core"),
+        (),
         catalog_hint="sklearn-pipeline",
         default_table="TRAINING_DATA",
     ),
@@ -71,7 +71,7 @@ TEMPLATES: tuple[AgentTemplate, ...] = (
         "penguins_demo",
         "Minimal multi-engine example (penguins template) for demonstrations.",
         InitTemplates.penguins,
-        ("context_blocks/xorq_core", "context_blocks/expression_deliverables"),
+        (),
         catalog_hint="penguins-agg",
         default_table="PENGUINS",
     ),

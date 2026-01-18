@@ -482,7 +482,7 @@ def agent_command(args):
         case "prime":
             from xorq.agent.prime import agent_prime_command
 
-            return agent_prime_command(args)
+            return agent_prime_command(task=getattr(args, "task", None))
         case "onboard":
             return agent_onboard_command(args)
         case "land":
@@ -933,9 +933,21 @@ def parse_args(override=None):
     )
     agent_subparsers.required = True
 
-    agent_subparsers.add_parser(
+    prime_parser = agent_subparsers.add_parser(
         "prime",
         help="Output AI-optimized workflow context (single source of truth)",
+    )
+    prime_parser.add_argument(
+        "--task",
+        choices=(
+            "ml",
+            "ml_regression",
+            "ml_classification",
+            "regression",
+            "classification",
+        ),
+        default=None,
+        help="Show task-specific guidance (ml tasks auto-detected if not specified)",
     )
 
     onboard_parser = agent_subparsers.add_parser(

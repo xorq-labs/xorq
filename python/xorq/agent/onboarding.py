@@ -22,16 +22,12 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         [
             "Ensure `xorq` CLI is installed in the active environment.",
             "Run `xorq init --agent` to fetch templates plus AGENTS/CLAUDE guides.",
-            "Install helper CLIs referenced in AGENTS.md (bd, uv, etc.).",
+            "Install helper CLIs referenced in AGENTS.md (uv, etc.).",
         ],
         [
             "xorq init --agent",
-            "bd onboard  # if bd is installed",
         ],
-        [
-            "planning_phase",
-            "context_blocks/xorq_core",
-        ],
+        [],
     ),
     OnboardingStep(
         "build",
@@ -45,10 +41,7 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
             "xorq agent prime",
             "xorq build expr.py -e expr",
         ],
-        [
-            "xorq_vendor_ibis",
-            "context_blocks/critical_rules",
-        ],
+        [],
     ),
     OnboardingStep(
         "catalog",
@@ -57,15 +50,12 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
             "Inspect the build output (manifest, metadata, cache).",
             "Assign aliases and register artifacts for reuse.",
             "View catalog entries with root tags via `xorq catalog ls`.",
-            "Link catalog entries to bd issues or template skills.",
         ],
         [
             "xorq catalog add builds/<hash> --alias <name>",
             "xorq catalog ls  # Shows aliases, revisions, and root tags",
         ],
-        [
-            "context_blocks/expression_deliverables",
-        ],
+        [],
     ),
     OnboardingStep(
         "test",
@@ -80,27 +70,21 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
             "xorq run <alias>@r2 -o /tmp/out.parquet  # Run specific revision",
             "xorq lineage <alias>  # Show column lineage with root tag",
         ],
-        [
-            "context_blocks/phase_data_preparation_completion_check",
-            "context_blocks/phase_modeling_completion_check",
-        ],
+        [],
     ),
     OnboardingStep(
         "land",
         "Land the plane (hand-off checklist)",
         [
-            "Update/close bd issues, commit manifests, and document results.",
-            "Run `bd sync`, `git push`, and verify clean status.",
+            "Commit manifests and document results.",
+            "Run `git push` and verify clean status.",
             "Surface relevant prompts for the next agent session.",
         ],
         [
-            "bd sync",
             "git push",
             "xorq agent prime",
         ],
-        [
-            "context_blocks/phase_checks",
-        ],
+        [],
     ),
 )
 
@@ -174,7 +158,6 @@ def render_onboarding_summary(step: str | None = None) -> str:
         get_recent_builds,
     )
 
-    bd_ok = bd_cli_available()
     selected_steps = (
         tuple(s for s in ONBOARDING_STEPS if step is None or s.key == step)
         or ONBOARDING_STEPS
@@ -217,13 +200,6 @@ def render_onboarding_summary(step: str | None = None) -> str:
             "",
         ]
     )
-
-    if bd_ok:
-        sections.append(
-            "✅ `bd` CLI detected - you can use `bd sync` for session management"
-        )
-    else:
-        sections.append("ℹ️  Optional: Install `bd` CLI for enhanced session management")
 
     return "\n".join(sections).strip() + "\n"
 
@@ -336,7 +312,3 @@ def _render_agent_doc(max_lines: int) -> str:
         """
     ).strip()
     return content + "\n"
-
-
-def bd_cli_available() -> bool:
-    return shutil.which("bd") is not None
