@@ -306,12 +306,10 @@ _catalog_api = CatalogAPI()
 
 # Export convenience functions
 get = _catalog_api.get
-load_expr = _load_expr_from_path  # Alias for backward compatibility
 
 __all__ = [
     "CatalogAPI",
     "get",
-    "load_expr",
     "list_source_nodes",
     "get_node_hash",
     "replace_as_root_memtable",
