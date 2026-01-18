@@ -158,6 +158,38 @@ mutated = data.mutate(
 mutated = data.mutate(price=xo._.price * 1.1)
 ```
 
+**CRITICAL: Cannot reference newly created columns in same mutate**
+
+```python
+# ❌ WRONG: This will fail
+mutated = data.mutate(
+    age_squared=xo._.age ** 2,
+    age_cubed=xo._.age_squared * xo._.age  # Error! age_squared not available yet
+)
+
+# ✅ CORRECT: Chain mutate calls
+mutated = (
+    data
+    .mutate(age_squared=xo._.age ** 2)  # Create age_squared
+    .mutate(age_cubed=xo._.age_squared * xo._.age)  # Now use it
+)
+
+# ✅ ALTERNATIVE: Repeat the expression
+mutated = data.mutate(
+    age_squared=xo._.age ** 2,
+    age_cubed=(xo._.age ** 2) * xo._.age  # Inline the expression
+)
+```
+
+**Why this happens:**
+- Ibis evaluates all column expressions in a single mutate **in parallel**
+- Newly created columns are not yet part of the table context
+- This is fundamental to how Ibis compiles SQL (all columns in SELECT are peer expressions)
+
+**Best practice:**
+- Chain `.mutate()` calls when columns depend on each other
+- Or inline the full expression if it's simple enough
+
 ---
 
 ### 6. Aggregations

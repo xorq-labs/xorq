@@ -125,6 +125,14 @@
           };
           roborev = roborev.apps.${system}.roborev;
           roborevd = roborev.apps.${system}.roborevd;
+          datafusion-cli = {
+            type = "app";
+            program = "${pkgs.datafusion-cli}/bin/datafusion-cli";
+          };
+          duckdb = {
+            type = "app";
+            program = "${pkgs.duckdb}/bin/duckdb";
+          };
         };
         lib = {
           inherit
@@ -142,6 +150,8 @@
               pkgs.python310
               pkgs.uv
               pkgs.gh
+              pkgs.datafusion-cli
+              pkgs.duckdb
             ];
             env =
               {

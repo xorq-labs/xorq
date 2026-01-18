@@ -44,7 +44,7 @@ Defines when the xorq skill should auto-activate:
 - **Prompt triggers**: Keywords + intent patterns (regex)
 - **File triggers**: Path patterns + content patterns
 
-When users run `xorq agent onboard`, this file is automatically copied to:
+When users run `xorq agents onboard`, this file is automatically copied to:
 - `~/.claude/skills/skill-rules.json`
 
 The system merges with existing skills, so it won't overwrite other skill configurations.
@@ -76,8 +76,8 @@ The system merges with existing skills, so it won't overwrite other skill config
 ### When Agent Features Change
 
 1. **Update agent commands** section in SKILL.md
-2. **Refresh prompt list** from `xorq agent prompt list`
-3. **Update templates** from `xorq agent templates list`
+2. **Refresh prompt list** from `xorq agents prompt list`
+3. **Update templates** from `xorq agents templates list`
 4. **Update onboarding steps** if workflow changes
 
 ### When Adding Resources
@@ -93,7 +93,7 @@ The system merges with existing skills, so it won't overwrite other skill config
 
 1. **Copy to Claude Code skills directory**:
    ```bash
-   # This happens automatically via xorq agent onboard
+   # This happens automatically via xorq agents onboard
    # But you can test manually:
    cp -r skills/xorq ~/.claude/skills/
    ```
@@ -242,8 +242,8 @@ Add triggers when:
 
 1. Verify it exists:
    ```bash
-   xorq agent prompt show new-prompt
-   xorq agent templates show new-template
+   xorq agents prompt show new-prompt
+   xorq agents templates show new-template
    ```
 
 2. Add to Agent-Native Features section in SKILL.md
@@ -262,7 +262,7 @@ Add triggers when:
 The skill is automatically installed when users run:
 
 ```bash
-xorq agent onboard
+xorq agents onboard
 # Or
 xorq init -t <template>
 ```

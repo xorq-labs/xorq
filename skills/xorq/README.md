@@ -129,7 +129,7 @@ builds/28ecab08754e/
 xorq init -t penguins
 
 # For agent workflows
-xorq agent onboard
+xorq agents onboard
 ```
 
 ### 2. Write Expression
@@ -167,11 +167,11 @@ xorq has first-class agent support:
 ### Prompts
 ```bash
 # List all prompts
-xorq agent prompt list
+xorq agents prompt list
 
 # Show specific guidance
-xorq agent prompt show xorq_core
-xorq agent prompt show must_check_schema
+xorq agents prompt show xorq_core
+xorq agents prompt show must_check_schema
 ```
 
 Prompts cover:
@@ -182,10 +182,10 @@ Prompts cover:
 ### Skills
 ```bash
 # List available skills
-xorq agent templates list
+xorq agents templates list
 
 # Scaffold from skill
-xorq agent templates scaffold sklearn_pipeline
+xorq agents templates scaffold sklearn_pipeline
 ```
 
 Built-in skills:
@@ -195,7 +195,7 @@ Built-in skills:
 
 ### Onboarding
 ```bash
-xorq agent onboard
+xorq agents onboard
 ```
 
 Step-by-step workflow:
@@ -228,7 +228,7 @@ xorq lineage my-pipeline
 xorq init -t sklearn
 
 # Scaffold skill
-xorq agent templates scaffold sklearn_pipeline
+xorq agents templates scaffold sklearn_pipeline
 
 # Edit, build, run
 xorq build sklearn_pipeline.py -e pipeline
@@ -277,7 +277,7 @@ print(table.schema())  # Required!
 
 Use agent prompts for fixes:
 ```bash
-xorq agent prompt show fix_schema_errors
+xorq agents prompt show fix_schema_errors
 ```
 
 ### Import Errors
@@ -297,11 +297,11 @@ expr.ls.get_cache_paths()
 ### More Help
 ```bash
 # All prompts
-xorq agent prompt list
+xorq agents prompt list
 
 # Specific error fixes
-xorq agent prompt show fix_attribute_errors
-xorq agent prompt show fix_data_errors
+xorq agents prompt show fix_attribute_errors
+xorq agents prompt show fix_data_errors
 ```
 
 ## Differences from Similar Tools

@@ -40,15 +40,33 @@ xorq run builds/<hash> [options]
 ```
 
 **Arguments:**
-- `builds/<hash>` - Path to build directory
+- `builds/<hash>` - Path to build directory or catalog alias
 
 **Options:**
-- `-o, --output` - Output file path (e.g., `-o results.parquet`)
-- `--format` - Output format (default: parquet)
+- `-o, --output-path` - Output file path (default: `/dev/null`)
+- `-f, --format` - Output format: `csv`, `json`, `parquet`, `arrow` (default: parquet)
+- `--limit` - Limit number of rows to output
 
-**Example:**
+**Examples:**
 ```bash
+# Write to file
 xorq run builds/28ecab08754e -o output.parquet
+
+# Write Arrow IPC format
+xorq run my-source -f arrow -o output.arrow
+
+# Stream to stdout for piping
+xorq run my-source -f arrow -o /dev/stdout
+
+# Use with catalog alias
+xorq run batting-source -o results.parquet
+```
+
+**Streaming to DuckDB:**
+```bash
+# Pipe Arrow IPC to DuckDB for SQL analysis
+xorq run my-source -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10"
 ```
 
 ---
@@ -120,6 +138,58 @@ Compare two build artifacts.
 xorq catalog diff-builds builds/<hash1> builds/<hash2>
 ```
 
+#### `xorq catalog sources`
+
+List source nodes in an expression (for composition via `run-unbound`).
+
+```bash
+xorq catalog sources <alias>
+```
+
+**Output:**
+Shows all source nodes that can be "unbound" and replaced with piped data.
+
+**Example:**
+```bash
+xorq catalog sources lineup-transform
+
+# Output:
+# Alias: lineup-transform
+# Sources (1 node(s)):
+#
+# Source 1:
+#   Hash: d43ad87ea8a989f3495aab5dff0b5746
+#   Type: xorq.expr.relations.Read
+#   Name: xorq_cached_node_name_placeholder
+#   Columns: 22
+#
+# To unbind this source:
+#   xorq run <source-alias> -f arrow -o - | \
+#     xorq run-unbound lineup-transform \
+#       --to_unbind_hash d43ad87ea8a989f3495aab5dff0b5746 \
+#       --typ xorq.expr.relations.Read \
+#       -f parquet -o output.parquet
+```
+
+**Use case:** Finding nodes to unbind for pipeline composition.
+
+#### `xorq catalog schema`
+
+Show output schema of a cataloged expression.
+
+```bash
+xorq catalog schema <alias>
+```
+
+**Example:**
+```bash
+xorq catalog schema batting-source
+
+# Output: Arrow schema with column names and types
+```
+
+**Use case:** Verifying schema compatibility before composition.
+
 ---
 
 ### `xorq lineage`
@@ -157,13 +227,10 @@ xorq init -t <template>
 - `penguins` - Minimal multi-engine example
 - `sklearn` - ML pipeline with train/predict
 
-**Options:**
-- `--agent` - Include agent guides (AGENTS.md, CLAUDE.md)
-
 **Example:**
 ```bash
 xorq init -t penguins
-xorq init -t sklearn --agent
+xorq agents init  # Setup agent guides after initialization
 ```
 
 ---
@@ -191,12 +258,12 @@ xorq serve-unbound builds/28ecab08754e \
 
 ## Agent Commands
 
-### `xorq agent onboard`
+### `xorq agents onboard`
 
 Show guided onboarding workflow.
 
 ```bash
-xorq agent onboard
+xorq agents onboard
 ```
 
 **Options:**
@@ -204,22 +271,22 @@ xorq agent onboard
 
 **Example:**
 ```bash
-xorq agent onboard
-xorq agent onboard --step build
+xorq agents onboard
+xorq agents onboard --step build
 ```
 
 ---
 
-### `xorq agent prompt`
+### `xorq agents prompt`
 
 Manage agent prompts (context blocks).
 
-#### `xorq agent prompt list`
+#### `xorq agents prompt list`
 
 List all available prompts.
 
 ```bash
-xorq agent prompt list [options]
+xorq agents prompt list [options]
 ```
 
 **Options:**
@@ -227,36 +294,36 @@ xorq agent prompt list [options]
 
 **Example:**
 ```bash
-xorq agent prompt list
-xorq agent prompt list --tier core
+xorq agents prompt list
+xorq agents prompt list --tier core
 ```
 
-#### `xorq agent prompt show`
+#### `xorq agents prompt show`
 
 Show a specific prompt.
 
 ```bash
-xorq agent prompt show <name>
+xorq agents prompt show <name>
 ```
 
 **Example:**
 ```bash
-xorq agent prompt show xorq_core
-xorq agent prompt show must_check_schema
+xorq agents prompt show xorq_core
+xorq agents prompt show must_check_schema
 ```
 
 ---
 
-### `xorq agent templates`
+### `xorq agents templates`
 
 Manage agent skills (templates).
 
-#### `xorq agent templates list`
+#### `xorq agents templates list`
 
 List all registered templates.
 
 ```bash
-xorq agent templates list
+xorq agents templates list
 ```
 
 **Output:**
@@ -267,30 +334,30 @@ sklearn_pipeline  sklearn         Deferred sklearn pipeline
 cached_fetcher    cached-fetcher  Hydrate and cache upstream tables
 ```
 
-#### `xorq agent templates show`
+#### `xorq agents templates show`
 
 Show details for a specific skill.
 
 ```bash
-xorq agent templates show <skill-name>
+xorq agents templates show <skill-name>
 ```
 
 **Example:**
 ```bash
-xorq agent templates show sklearn_pipeline
+xorq agents templates show sklearn_pipeline
 ```
 
-#### `xorq agent templates scaffold`
+#### `xorq agents templates scaffold`
 
 Generate a starter file from a skill.
 
 ```bash
-xorq agent templates scaffold <skill-name>
+xorq agents templates scaffold <skill-name>
 ```
 
 **Example:**
 ```bash
-xorq agent templates scaffold penguins_demo
+xorq agents templates scaffold penguins_demo
 # Creates: skills/penguins_demo.py
 ```
 
@@ -322,10 +389,75 @@ xorq uv-run builds/<hash> -o output.parquet
 
 ### `xorq run-unbound`
 
-Run an unbound expression by reading Arrow IPC from stdin.
+Run an unbound expression by reading Arrow IPC from stdin. This enables composing arbitrary pipelines by "unbinding" source nodes and replacing them with piped data.
 
 ```bash
-cat data.arrow | xorq run-unbound builds/<hash>
+cat data.arrow | xorq run-unbound builds/<hash> \
+  --to_unbind_hash <node-hash> \
+  --typ xorq.expr.relations.Read
+```
+
+**Arguments:**
+- `builds/<hash>` - Path to build directory or catalog alias
+
+**Required Options:**
+- `--to_unbind_hash` - Hash of the node to unbind (from `xorq catalog sources`)
+- `--typ` - Type of node to unbind (usually `xorq.expr.relations.Read`)
+
+**Output Options:**
+- `-o, --output-path` - Output file path (default: `/dev/null`)
+- `-f, --format` - Output format: `csv`, `json`, `parquet`, `arrow` (default: parquet)
+
+**Finding Unbound Hashes:**
+```bash
+# List source nodes that can be unbound
+xorq catalog sources lineup-transform
+
+# Output shows:
+# Source 1:
+#   Hash: d43ad87ea8a989f3495aab5dff0b5746
+#   Type: xorq.expr.relations.Read
+#   Columns: 22
+```
+
+**Examples:**
+
+**Basic composition:**
+```bash
+# Replace source node with piped data
+xorq run source1 -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound transform \
+    --to_unbind_hash d43ad87ea8a989f3495aab5dff0b5746 \
+    --typ xorq.expr.relations.Read \
+    -f parquet -o output.parquet
+```
+
+**Multi-stage pipeline:**
+```bash
+# Chain multiple transforms via Arrow IPC
+xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound transform1 \
+    --to_unbind_hash <hash1> \
+    --typ xorq.expr.relations.Read \
+    -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound transform2 \
+    --to_unbind_hash <hash2> \
+    --typ xorq.expr.relations.Read \
+    -o final_output.parquet
+```
+
+**Stream to DuckDB:**
+```bash
+# Compose pipeline and analyze with SQL
+xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound transform \
+    --to_unbind_hash abc123 \
+    --typ xorq.expr.relations.Read \
+    -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow;
+    SELECT col1, COUNT(*) as cnt
+    FROM read_arrow('/dev/stdin')
+    GROUP BY col1"
 ```
 
 ---
@@ -371,9 +503,9 @@ xorq lineage my-expr
 
 ### Agent-Guided Development
 ```bash
-xorq agent onboard
-xorq agent prompt list --tier core
-xorq agent templates scaffold sklearn_pipeline
+xorq agents onboard
+xorq agents prompt list --tier core
+xorq agents templates scaffold sklearn_pipeline
 xorq build sklearn_pipeline.py -e pipeline
 ```
 

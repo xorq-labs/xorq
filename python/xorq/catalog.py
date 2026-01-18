@@ -1068,6 +1068,211 @@ def lineage_command(
         print()
 
 
+def do_catalog_sources(args):
+    """List source nodes in an expression with their hashes for composition."""
+    from tabulate import tabulate
+
+    import xorq as xo
+
+    namespace = getattr(args, "namespace", None)
+    config_path = get_catalog_path(namespace)
+    catalog = load_catalog(path=config_path)
+
+    # Resolve the build directory
+    build_dir = resolve_build_dir(args.alias, catalog)
+    if build_dir is None or not build_dir.exists():
+        print(f"Build target not found: {args.alias}")
+        sys.exit(2)
+
+    # Load expression using catalog API
+    expr = xo.catalog.get(args.alias)
+
+    # Get source nodes
+    sources = xo.catalog.list_source_nodes(expr)
+
+    if not sources:
+        print(f"No source nodes found in {args.alias}")
+        return
+
+    print(f"Alias: {args.alias}")
+    print(f"Sources ({len(sources)} node(s)):\n")
+
+    for i, src in enumerate(sources, 1):
+        node_type = type(src["node"]).__name__
+        full_type = f"{type(src['node']).__module__}.{node_type}"
+
+        print(f"Source {i}:")
+        print(f"  Hash: {src['hash']}")
+        print(f"  Type: {full_type}")
+        print(f"  Name: {src['name']}")
+        print(f"  Columns: {len(src['schema'].names)}")
+
+        if args.show_schema:
+            print("  Schema:")
+            schema_rows = [
+                (col, str(dtype))
+                for col, dtype in zip(src["schema"].names, src["schema"].types)
+            ]
+            print(
+                tabulate(
+                    schema_rows,
+                    headers=["Column", "Type"],
+                    tablefmt="plain",
+                    colalign=("left", "left"),
+                )
+            )
+
+        print()
+
+    # Show example compose command
+    if len(sources) == 1:
+        src = sources[0]
+        full_type = f"{type(src['node']).__module__}.{type(src['node']).__name__}"
+        print("To unbind this source:")
+        print("  xorq run <source-alias> -f arrow -o - | \\")
+        print(f"    xorq run-unbound {args.alias} \\")
+        print(f"      --to_unbind_hash {src['hash']} \\")
+        print(f"      --typ {full_type} \\")
+        print("      -f parquet -o output.parquet")
+
+
+def do_catalog_schema(args):
+    """Show the output schema of a cataloged expression."""
+    from tabulate import tabulate
+
+    import xorq as xo
+
+    namespace = getattr(args, "namespace", None)
+    config_path = get_catalog_path(namespace)
+    catalog = load_catalog(path=config_path)
+
+    # Resolve the build directory
+    build_dir = resolve_build_dir(args.alias, catalog)
+    if build_dir is None or not build_dir.exists():
+        print(f"Build target not found: {args.alias}")
+        sys.exit(2)
+
+    # Load expression
+    expr = xo.catalog.get(args.alias)
+    schema = expr.schema()
+
+    if args.json:
+        # Output as JSON for piping
+        import json
+
+        schema_dict = {"columns": schema.names, "types": [str(t) for t in schema.types]}
+        print(json.dumps(schema_dict, indent=2))
+    else:
+        # Human-readable output
+        print(f"Alias: {args.alias}")
+        print(f"Output schema ({len(schema.names)} columns):\n")
+
+        schema_rows = [
+            (col, str(dtype)) for col, dtype in zip(schema.names, schema.types)
+        ]
+        print(tabulate(schema_rows, headers=["Column", "Type"], tablefmt="plain"))
+
+
+def do_catalog_search_source_schema(args):
+    """Search catalog for transforms that accept a given schema from stdin."""
+    import json
+
+    import xorq as xo
+
+    namespace = getattr(args, "namespace", None)
+    config_path = get_catalog_path(namespace)
+    catalog = load_catalog(path=config_path)
+
+    # Read schema from stdin
+    try:
+        input_schema = json.load(sys.stdin)
+        input_columns = set(input_schema.get("columns", []))
+        input_types = {
+            col: typ for col, typ in zip(input_schema["columns"], input_schema["types"])
+        }
+    except Exception as e:
+        print(f"Error reading schema from stdin: {e}", file=sys.stderr)
+        print("Expected JSON with 'columns' and 'types' arrays", file=sys.stderr)
+        sys.exit(1)
+
+    print("Searching catalog for transforms accepting schema...")
+    print(f"Input schema: {len(input_columns)} columns\n")
+
+    matches = []
+
+    # Iterate through all cataloged expressions
+    for alias_name in catalog.aliases.keys():
+        try:
+            expr = xo.catalog.get(alias_name)
+            sources = xo.catalog.list_source_nodes(expr)
+
+            for src in sources:
+                src_columns = set(src["schema"].names)
+                src_types = {
+                    col: str(dtype)
+                    for col, dtype in zip(src["schema"].names, src["schema"].types)
+                }
+
+                # Check compatibility
+                missing = src_columns - input_columns
+                extra = input_columns - src_columns
+
+                # Type check for common columns
+                type_mismatches = []
+                for col in src_columns & input_columns:
+                    if input_types.get(col) != src_types.get(col):
+                        type_mismatches.append(col)
+
+                exact_match = (
+                    len(missing) == 0 and len(extra) == 0 and len(type_mismatches) == 0
+                )
+                partial_match = len(missing) == 0 and len(type_mismatches) == 0
+
+                if exact_match or (partial_match and not args.exact_only):
+                    node_type = type(src["node"]).__name__
+                    full_type = f"{type(src['node']).__module__}.{node_type}"
+
+                    matches.append(
+                        {
+                            "alias": alias_name,
+                            "hash": src["hash"],
+                            "type": full_type,
+                            "exact": exact_match,
+                            "missing": list(missing),
+                            "extra": list(extra),
+                            "type_mismatches": type_mismatches,
+                        }
+                    )
+        except Exception:
+            # Skip expressions that can't be loaded
+            continue
+
+    if not matches:
+        print("No compatible transforms found in catalog")
+        return
+
+    print(f"Compatible transforms ({len(matches)} found):\n")
+
+    for match in matches:
+        status = "✓ EXACT MATCH" if match["exact"] else "✓ PARTIAL MATCH"
+        print(f"{status}: {match['alias']}")
+        print(f"  Source hash: {match['hash']}")
+        print(f"  Type: {match['type']}")
+
+        if match["extra"]:
+            print(f"  Extra columns (ignored): {', '.join(match['extra'][:5])}")
+        if match["type_mismatches"]:
+            print(f"  Type mismatches: {', '.join(match['type_mismatches'][:5])}")
+
+        print("\n  Pipe with:")
+        print("    <source-command> | \\")
+        print(f"      xorq run-unbound {match['alias']} \\")
+        print(f"        --to_unbind_hash {match['hash']} \\")
+        print(f"        --typ {match['type']} \\")
+        print("        -f parquet -o output.parquet")
+        print()
+
+
 _CATALOG_HANDLER_MAP = {
     "init": do_catalog_init,
     "add": do_catalog_add,
@@ -1076,6 +1281,9 @@ _CATALOG_HANDLER_MAP = {
     "rm": do_catalog_rm,
     "export": do_catalog_export,
     "diff-builds": do_catalog_diff_builds,
+    "sources": do_catalog_sources,
+    "schema": do_catalog_schema,
+    "search-source-schema": do_catalog_search_source_schema,
 }
 
 

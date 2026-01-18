@@ -15,8 +15,22 @@ class AgentTemplate:
     prompts: tuple[str, ...]
     catalog_hint: str
     default_table: str
+    example_file: str | None = None  # Path to example file relative to examples/
 
     def default_script(self) -> str:
+        # If there's an example file, try to read it
+        if self.example_file:
+            try:
+                import xorq
+
+                xorq_root = Path(xorq.__file__).parent.parent.parent
+                example_path = xorq_root / "examples" / self.example_file
+                if example_path.exists():
+                    return example_path.read_text()
+            except Exception:
+                pass  # Fall back to generated scaffold
+
+        # Generate a basic scaffold if no example file
         prompt_lines = "\n".join(f"# - {prompt}" for prompt in self.prompts)
         return (
             dedent(
@@ -52,28 +66,49 @@ class AgentTemplate:
 
 TEMPLATES: tuple[AgentTemplate, ...] = (
     AgentTemplate(
-        "cached_fetcher",
-        "Start from the cached-fetcher template to hydrate upstream tables and cache results.",
-        InitTemplates.cached_fetcher,
-        (),
-        catalog_hint="cached-fetcher-base",
-        default_table="SOURCE_TABLE",
-    ),
-    AgentTemplate(
-        "sklearn_pipeline",
-        "Deferred sklearn pipeline with train/predict separation.",
+        "pipeline_example",
+        "sklearn pipeline with StandardScaler + KNeighborsClassifier on iris dataset.",
         InitTemplates.sklearn,
         (),
         catalog_hint="sklearn-pipeline",
+        default_table="iris",
+        example_file="pipeline_example.py",
+    ),
+    AgentTemplate(
+        "diamonds_price_prediction",
+        "Feature engineering, train/test splits, and LinearRegression for diamond pricing.",
+        InitTemplates.sklearn,
+        (),
+        catalog_hint="diamonds-price-model",
+        default_table="DIAMONDS",
+        example_file="diamonds_price_prediction.py",
+    ),
+    AgentTemplate(
+        "sklearn_classifier_comparison",
+        "Compare multiple sklearn classifiers (SVM, RandomForest, etc) on same dataset.",
+        InitTemplates.sklearn,
+        (),
+        catalog_hint="classifier-comparison",
         default_table="TRAINING_DATA",
+        example_file="sklearn_classifier_comparison.py",
+    ),
+    AgentTemplate(
+        "deferred_fit_transform_predict",
+        "Complete deferred ML workflow with fit, transform, and predict stages.",
+        InitTemplates.sklearn,
+        (),
+        catalog_hint="deferred-ml-pipeline",
+        default_table="TRAINING_DATA",
+        example_file="deferred_fit_transform_predict_example.py",
     ),
     AgentTemplate(
         "penguins_demo",
-        "Minimal multi-engine example (penguins template) for demonstrations.",
+        "Minimal multi-engine example using penguins dataset - good starting point.",
         InitTemplates.penguins,
         (),
         catalog_hint="penguins-agg",
         default_table="PENGUINS",
+        example_file=None,  # Keep as basic scaffold
     ),
 )
 

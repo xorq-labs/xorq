@@ -25,7 +25,7 @@ print(table.schema())  # Do this BEFORE building expression
 
 2. **Use agent prompt:**
 ```bash
-xorq agent prompt show fix_schema_errors
+xorq agents prompt show fix_schema_errors
 ```
 
 3. **Fix column references:**
@@ -63,8 +63,8 @@ import ibis
 
 2. **Check agent prompt:**
 ```bash
-xorq agent prompt show fix_import_errors
-xorq agent prompt show xorq_vendor_ibis
+xorq agents prompt show fix_import_errors
+xorq agents prompt show xorq_vendor_ibis
 ```
 
 3. **Verify imports in file:**
@@ -91,7 +91,7 @@ AttributeError: 'Table' object has no attribute 'foo'
 
 1. **Check agent prompt:**
 ```bash
-xorq agent prompt show fix_attribute_errors
+xorq agents prompt show fix_attribute_errors
 ```
 
 2. **Verify API:**
@@ -164,7 +164,7 @@ python -c "import sqlite3; print(sqlite3.version)"
 
 3. **Check agent prompt:**
 ```bash
-xorq agent prompt show xorq_connection
+xorq agents prompt show xorq_connection
 ```
 
 ---
@@ -196,7 +196,7 @@ expr = table.filter(ibis._.col.cast("int64") > 10)
 
 3. **Check agent prompt:**
 ```bash
-xorq agent prompt show fix_data_errors
+xorq agents prompt show fix_data_errors
 ```
 
 ---
@@ -214,7 +214,7 @@ UDFError: Function execution failed
 
 1. **Check backend compatibility:**
 ```bash
-xorq agent prompt show fix_udf_backend_errors
+xorq agents prompt show fix_udf_backend_errors
 ```
 
 2. **Use appropriate UDF type:**
@@ -391,14 +391,14 @@ PromptError: Prompt 'foo' not found
 
 1. **List available prompts:**
 ```bash
-xorq agent prompt list
+xorq agents prompt list
 ```
 
 2. **Check spelling:**
 ```bash
 # Use exact name from list
-xorq agent prompt show xorq_core  # ✓
-xorq agent prompt show XorqCore  # ✗
+xorq agents prompt show xorq_core  # ✓
+xorq agents prompt show XorqCore  # ✗
 ```
 
 ---
@@ -414,14 +414,14 @@ SkillError: Skill 'foo' not found
 
 1. **List available skills:**
 ```bash
-xorq agent templates list
+xorq agents templates list
 ```
 
 2. **Initialize with template:**
 ```bash
 # If skill corresponds to template
 xorq init -t penguins
-xorq agent templates scaffold penguins_demo
+xorq agents templates scaffold penguins_demo
 ```
 
 ---
@@ -457,7 +457,7 @@ expr = (
 
 3. **Check agent prompts:**
 ```bash
-xorq agent prompt show optimization_patterns
+xorq agents prompt show optimization_patterns
 ```
 
 ---
@@ -529,14 +529,14 @@ ls $BUILD_DIR/database_tables/
 
 ```bash
 # List all fix prompts
-xorq agent prompt list --tier reliability
+xorq agents prompt list --tier reliability
 
 # Show specific fix
-xorq agent prompt show fix_schema_errors
-xorq agent prompt show fix_attribute_errors
-xorq agent prompt show fix_data_errors
-xorq agent prompt show fix_import_errors
-xorq agent prompt show fix_udf_backend_errors
+xorq agents prompt show fix_schema_errors
+xorq agents prompt show fix_attribute_errors
+xorq agents prompt show fix_data_errors
+xorq agents prompt show fix_import_errors
+xorq agents prompt show fix_udf_backend_errors
 ```
 
 ### Ask for Help
@@ -560,13 +560,13 @@ xorq agent prompt show fix_udf_backend_errors
 
 | Issue | Command |
 |-------|---------|
-| Schema error | `xorq agent prompt show fix_schema_errors` |
-| Import error | `xorq agent prompt show fix_import_errors` |
-| Attribute error | `xorq agent prompt show fix_attribute_errors` |
-| Data error | `xorq agent prompt show fix_data_errors` |
-| UDF error | `xorq agent prompt show fix_udf_backend_errors` |
-| Connection issue | `xorq agent prompt show xorq_connection` |
-| All reliability | `xorq agent prompt list --tier reliability` |
+| Schema error | `xorq agents prompt show fix_schema_errors` |
+| Import error | `xorq agents prompt show fix_import_errors` |
+| Attribute error | `xorq agents prompt show fix_attribute_errors` |
+| Data error | `xorq agents prompt show fix_data_errors` |
+| UDF error | `xorq agents prompt show fix_udf_backend_errors` |
+| Connection issue | `xorq agents prompt show xorq_connection` |
+| All reliability | `xorq agents prompt list --tier reliability` |
 
 ---
 

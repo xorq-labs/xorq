@@ -4,6 +4,64 @@ Common patterns and best practices for xorq development.
 
 ## Core Patterns
 
+### Arrow IPC Streaming Pattern
+
+**Pattern:** Stream xorq outputs through Arrow IPC for composition and analysis.
+
+```bash
+# Basic: Single source to DuckDB
+xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10"
+
+# Advanced: Chain with run-unbound
+xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound transform \
+    --to_unbind_hash <hash> \
+    --typ xorq.expr.relations.Read \
+    -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin')"
+```
+
+**Key points:**
+- Use `-f arrow` for Arrow IPC format (efficient binary serialization)
+- Use `-o /dev/stdout` to enable piping (default is `/dev/null`)
+- Redirect stderr with `2>/dev/null` to keep output clean
+- DuckDB requires `LOAD arrow;` (community extension) before `read_arrow()`
+- Use `xorq catalog sources <alias>` to find node hashes for unbinding
+
+**When to use:**
+- Interactive SQL exploration without writing Python
+- Ad-hoc data validation and inspection
+- Dynamic pipeline composition (source → transform1 → transform2 → SQL)
+- Testing pipeline outputs quickly
+- Integrating xorq with SQL-based tools (DuckDB, DataFusion, etc.)
+
+**Workflow:**
+```bash
+# 1. Find unbound hashes
+xorq catalog sources my-transform
+
+# 2. Verify source schema
+xorq catalog schema my-source
+
+# 3. Compose and analyze
+xorq run my-source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound my-transform \
+    --to_unbind_hash abc123 \
+    --typ xorq.expr.relations.Read \
+    -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow;
+    SELECT col1, COUNT(*) FROM read_arrow('/dev/stdin')
+    GROUP BY col1"
+```
+
+**Troubleshooting:**
+- **Empty results:** Check filters match your data (e.g., yearID >= 2020 but data is 2015)
+- **Arrow extension error:** Run `duckdb -c "INSTALL arrow FROM community; LOAD arrow;"`
+- **Schema mismatch:** Verify with `xorq catalog schema` and `xorq catalog sources`
+
+---
+
 ### Always Check Schema First
 
 **Pattern:**
@@ -28,7 +86,7 @@ expr = table.select("actual_column_name")
 
 **Reference:**
 ```bash
-xorq agent prompt show must_check_schema
+xorq agents prompt show must_check_schema
 ```
 
 ---
@@ -54,7 +112,7 @@ import ibis  # ✗ Wrong
 
 **Reference:**
 ```bash
-xorq agent prompt show xorq_vendor_ibis
+xorq agents prompt show xorq_vendor_ibis
 ```
 
 ---
@@ -119,7 +177,7 @@ result = expr.execute()  # Now it runs
 
 **Reference:**
 ```bash
-xorq agent prompt show xorq_core
+xorq agents prompt show xorq_core
 ```
 
 ---
@@ -272,6 +330,126 @@ cached_features = (
 - Reusable features across models
 - Cached to avoid recomputation
 - Versioned with manifest
+
+---
+
+### Memtable Placeholder Pattern
+
+**Pattern:** Build transform expressions independently using memtable placeholders, then compose with real sources later.
+
+```python
+# In transform.py - Define transform with memtable placeholder
+import xorq.api as xo
+from xorq.vendor import ibis
+from xorq.common.utils.ibis_utils import from_ibis
+from xorq.caching import ParquetCache
+
+# Create sample data matching expected source schema
+sample_data = {
+    "playerID": ["player1", "player2"],
+    "yearID": [2020, 2021],
+    "H": [150, 180],
+    "AB": [500, 550],
+    "teamID": ["NYY", "LAD"]
+}
+
+# Memtable as placeholder
+source = xo.memtable(sample_data)
+print(source.schema())  # Check schema
+
+# Build transform on memtable
+transform_expr = (
+    from_ibis(
+        source
+        .mutate(batting_avg=ibis._.H / ibis._.AB)
+        .filter(ibis._.batting_avg > 0.250)
+        .group_by("playerID")
+        .agg(
+            total_hits=ibis._.H.sum(),
+            total_at_bats=ibis._.AB.sum()
+        )
+    )
+    .cache(ParquetCache.from_kwargs())
+)
+
+expr = transform_expr
+```
+
+**Building and cataloging:**
+```bash
+# Build transform with memtable
+xorq build transform.py -e expr
+
+# Catalog it
+xorq catalog add builds/<hash> --alias batting-transform
+
+# Find memtable node hash for unbinding
+xorq catalog sources batting-transform
+# Output: Hash: abc123def (this is the memtable node)
+```
+
+**Composing with real source:**
+```bash
+# Replace memtable with real source via Arrow IPC
+xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound batting-transform \
+    --to_unbind_hash abc123def \
+    --typ xorq.expr.relations.Read \
+    -o output.parquet
+```
+
+**Stream to DuckDB for exploration:**
+```bash
+# Interactive SQL on composed pipeline
+xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound batting-transform \
+    --to_unbind_hash abc123def \
+    --typ xorq.expr.relations.Read \
+    -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow;
+    SELECT * FROM read_arrow('/dev/stdin')
+    WHERE total_hits > 100
+    ORDER BY total_at_bats DESC"
+```
+
+**Why:**
+- **Independent development:** Build transform without waiting for source
+- **Reusability:** Same transform works with multiple sources
+- **Testing:** Test logic with small sample data first
+- **Composition:** Combine via Arrow IPC at runtime
+- **Flexibility:** Easy to swap sources or chain transforms
+
+**When:**
+- Multi-stage data pipelines
+- Developing transforms in parallel with sources
+- Creating reusable transformation components
+- Testing complex logic before production
+- Dynamic pipeline composition
+
+**Key points:**
+- Memtable schema must match source output schema
+- Use `xorq catalog sources` to find node hash
+- Use `xorq catalog schema` to verify compatibility
+- Can chain multiple unbound transforms together
+- Enables interactive exploration via DuckDB
+
+**Python API for programmatic replacement:**
+```python
+from xorq.flight.exchanger import replace_one_unbound
+from xorq.common.utils.node_utils import expr_to_unbound
+import xorq.api as xo
+
+# Load and replace programmatically
+unbound_expr = xo.load_expr("builds/transform-hash")
+replacement = xo.memtable({"col1": [1, 2]})
+bound_expr = replace_one_unbound(unbound_expr, replacement)
+result = bound_expr.execute()
+```
+
+**Utilities:**
+- `replace_one_unbound(unbound_expr, table)` - Replace unbound with table
+- `expr_to_unbound(expr, hash, tag, typs)` - Make expression unbound
+- `replace_by_expr_hash(expr, hash, replace_with)` - Replace by hash
 
 ---
 
@@ -542,6 +720,41 @@ expr = from_ibis(table.filter(ibis._.col > 0))
 
 ---
 
+### Column Reference in Mutate
+
+**Pattern:**
+```python
+# ❌ WRONG: Cannot reference newly created columns in same mutate
+expr = data.mutate(
+    total=ibis._.price * ibis._.quantity,
+    profit=ibis._.total - ibis._.cost  # Error! total not available yet
+)
+
+# ✅ CORRECT: Chain mutate calls
+expr = (
+    data
+    .mutate(total=ibis._.price * ibis._.quantity)
+    .mutate(profit=ibis._.total - ibis._.cost)  # Now total is available
+)
+
+# ✅ ALTERNATIVE: Repeat the expression
+expr = data.mutate(
+    total=ibis._.price * ibis._.quantity,
+    profit=(ibis._.price * ibis._.quantity) - ibis._.cost  # Inline
+)
+```
+
+**Why:**
+- Ibis evaluates all columns in a single `.mutate()` **in parallel**
+- Newly created columns are not yet part of the table context
+- This mirrors SQL behavior (all SELECT columns are peer expressions)
+
+**When to chain vs batch:**
+- **Batch** (single mutate) when columns are independent
+- **Chain** (multiple mutates) when columns depend on each other
+
+---
+
 ## Agent Workflow Patterns
 
 ### Planning Phase
@@ -549,14 +762,14 @@ expr = from_ibis(table.filter(ibis._.col > 0))
 **Pattern:**
 ```bash
 # 1. Get onboarding
-xorq agent onboard
+xorq agents onboard
 
 # 2. Read core prompts
-xorq agent prompt show planning_phase
-xorq agent prompt show xorq_core
+xorq agents prompt show planning_phase
+xorq agents prompt show xorq_core
 
 # 3. List available skills
-xorq agent templates list
+xorq agents templates list
 
 # 4. Initialize project
 xorq init -t <template>
@@ -564,7 +777,7 @@ xorq init -t <template>
 
 **Reference:**
 ```bash
-xorq agent prompt show planning_phase
+xorq agents prompt show planning_phase
 ```
 
 ---
@@ -595,7 +808,7 @@ xorq catalog ls
 
 **Reference:**
 ```bash
-xorq agent prompt show sequential_execution
+xorq agents prompt show sequential_execution
 ```
 
 ---

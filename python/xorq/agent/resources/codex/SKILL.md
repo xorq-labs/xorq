@@ -4,7 +4,6 @@ description: >
   Compute manifest and composable tools for ML. Build, catalog, and serve deferred
   expressions with input-addressed caching, multi-engine execution, and Arrow-native
   data flow. Use for ML pipelines, feature engineering, and model serving.
-allowed-tools: "Read,Bash(xorq:*),Bash(python:*)"
 version: "0.2.0"
 author: "Xorq Labs <https://github.com/xorq-labs>"
 license: "Apache-2.0"
@@ -14,12 +13,12 @@ license: "Apache-2.0"
 
 A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
 
-## Agent Tool Compatibility
+## Codex-Specific Notes
 
-**For non-Claude Code agents (Codex, etc.):**
-When xorq docs reference Claude Code-specific tools, map to your environment's equivalents:
-- `TodoWrite` → Your planning/task tracking tool (e.g., `update_plan`)
-- `Task` tool with subagents → Do the work directly (if subagents not available)
+**Tool Mapping for Codex:**
+When xorq docs reference Claude-specific tools, use your Codex equivalents:
+- `TodoWrite` → `update_plan` (your planning/task tracking tool)
+- `Task` tool with subagents → Do the work directly (subagents not available in Codex)
 - `Skill` tool → Not needed (you're reading this skill directly)
 - `Read`, `Write`, `Edit`, `Bash` → Use your native tools with similar functions
 
@@ -489,6 +488,10 @@ expr = (
 - **Docs**: [docs.xorq.dev](https://docs.xorq.dev)
 
 
+## Best Practices (Codex-Specific)
+
+8. **Use update_plan** - Track your tasks with Codex's planning tool
+
 ## Version
 
-v0.2.0 - Consolidated skill with CLI + Python API coverage
+v0.2.0 - Codex-adapted skill with tool mapping for OpenAI Codex CLI
