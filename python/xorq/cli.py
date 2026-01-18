@@ -10,6 +10,13 @@ from opentelemetry import trace
 
 import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
+from xorq.agent.onboarding import bootstrap_agent_docs
+from xorq.agent.templates import (
+    get_template,
+    iter_templates,
+    list_template_names,
+    scaffold_template,
+)
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog import (
     ServerRecord,
@@ -287,24 +294,9 @@ def run_unbound_command(
 
     # Load the expression and make it unbound
     expr = load_expr(expr_path, cache_dir=cache_dir)
-
-    # Try with SnapshotStrategy first (new behavior), fall back to None for backward compatibility
-    try:
-        unbound_expr = expr_to_unbound(
-            expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=SnapshotStrategy()
-        ).to_expr()
-    except (ValueError, StopIteration) as e:
-        # If hash not found with SnapshotStrategy, try without strategy (legacy mode)
-        # This handles cases where expressions were cataloged with old hash computation
-        print(
-            "[run-unbound] Warning: Hash not found with SnapshotStrategy, "
-            "trying legacy mode (strategy=None). Consider re-running 'xorq catalog sources' "
-            "to get updated hashes.",
-            file=sys.stderr
-        )
-        unbound_expr = expr_to_unbound(
-            expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=None
-        ).to_expr()
+    unbound_expr = expr_to_unbound(
+        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+    ).to_expr()
 
     # Read Arrow IPC from instream
     print("[run-unbound] Reading Arrow IPC from instream...", file=sys.stderr)
@@ -472,21 +464,15 @@ def agents_command(args):
             return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
-        case "hooks":
-            return agent_claude_hooks_command(args)
-        case "skill":
-            return agent_skill_command(args)
-        case "vignette":
-            return agent_vignette_command(args)
-        case "cortex":
-            return agent_cortex_command(args)
+        case "land":
+            return agent_land_command(args)
+        case "templates":
+            return agent_templates_command(args)
         case _:
             raise ValueError(f"Unknown agents subcommand: {args.agents_subcommand}")
 
 
 def agents_init_command(args):
-    from xorq.agent.onboarding import bootstrap_agent_docs
-
     path = Path(args.path)
     if not path.exists():
         print(
@@ -518,725 +504,73 @@ def agents_init_command(args):
 
 
 def agent_onboard_command(args):
-    from xorq.agent.onboarding import render_lean_onboarding
+    from xorq.agent.onboarding import render_onboarding_summary
 
-    # Always render lean version for onboard
-    summary = render_lean_onboarding()
+    summary = render_onboarding_summary(step=args.step)
     print(summary.rstrip())
 
 
-def agent_claude_hooks_command(args):
-    match args.hooks_subcommand:
-        case "install":
-            return install_claude_hooks_command(args)
-        case _:
-            print(f"Unknown hooks command: {args.hooks_subcommand}")
-            return 1
+def agent_land_command(args):
+    from xorq.agent.land import agent_land_command as land_cmd
+
+    limit = getattr(args, "limit", 10)
+    return land_cmd(args, limit=limit)
 
 
-def install_claude_hooks_command(args):
-    """Install Claude Code hooks for xorq integration."""
-    import json
-    import shutil
-    from pathlib import Path
-
-    # Get the source hooks directory from the xorq package
-    import xorq
-    xorq_package_dir = Path(xorq.__file__).parent
-    hooks_source_dir = xorq_package_dir / "claude_hooks"
-
-    # Target directories
-    project_dir = Path.cwd()
-    claude_dir = project_dir / ".claude"
-    hooks_dir = claude_dir / "hooks"
-    settings_file = claude_dir / "settings.json"
-
-    # Create directories
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-
-    # Copy hook scripts
-    hook_files = [
-        "session_start.py",
-        "user_prompt_submit.py",
-        "post_tool_use_failure.py",
-        "pre_compact.py",
-        "stop.py",
-        "session_end.py",
-    ]
-
-    installed_hooks = []
-    for hook_name in hook_files:
-        source_path = hooks_source_dir / hook_name
-        target_path = hooks_dir / hook_name
-        if source_path.exists():
-            shutil.copy2(source_path, target_path)
-            # Make executable
-            target_path.chmod(0o755)
-            installed_hooks.append(hook_name)
-
-    # Handle settings.json
-    if settings_file.exists() and not args.force:
-        # Load existing settings
-        try:
-            with settings_file.open() as f:
-                settings = json.load(f)
-        except json.JSONDecodeError:
-            print(f"Error: Existing {settings_file} is not valid JSON")
-            return 1
-
-        # Check if hooks already exist
-        if "hooks" in settings:
-            print(f"Warning: {settings_file} already contains hooks configuration")
-            print("Use --force to overwrite or manually merge the hooks")
-            print("\nTo manually add xorq hooks, add these to your settings.json:")
-            print(json.dumps(json.loads((hooks_source_dir / "settings_template.json").read_text()), indent=2))
-            return 0
-    else:
-        # Load template settings
-        template_path = hooks_source_dir / "settings_template.json"
-        with template_path.open() as f:
-            settings = json.load(f)
-
-    # Write settings
-    with settings_file.open("w") as f:
-        json.dump(settings, f, indent=2)
-
-    print("✅ Installed Claude Code hooks for xorq")
-    print(f"   Created: {claude_dir}/")
-    print(f"   Settings: {settings_file}")
-    for hook in installed_hooks:
-        print(f"   Hook: hooks/{hook}")
-
-    print("\n📝 Next steps:")
-    print("1. Restart Claude Code to activate the hooks")
-    print("2. The following hooks are now available:")
-    print("   - SessionStart: Runs 'xorq agents onboard' at session start")
-    print("   - UserPromptSubmit: Triggered when user submits a prompt")
-    print("   - PostToolUseFailure: Appends TROUBLESHOOTING.md on tool failures")
-    print("   - PreCompact: Triggered before context compaction")
-    print("   - Stop: Checks for uncataloged builds and reminds you to catalog them")
-    print("   - SessionEnd: Triggered when a Claude Code session ends")
-    print("\n⚡ Key features:")
-    print("   • SessionStart provides workflow context automatically")
-    print("   • PostToolUseFailure provides troubleshooting guidance on errors")
-    print("   • Stop enforces workflow: catalog builds → commit to git")
-
-    return 0
-
-
-def agent_skill_command(args):
-    """Handle skill management commands."""
-    match args.skill_subcommand:
-        case "install":
-            return install_skill_command(args)
-        case "uninstall":
-            return uninstall_skill_command(args)
+def agent_templates_command(args):
+    match args.templates_command:
         case "list":
-            return list_skills_command(args)
-        case _:
-            print(f"Unknown skill command: {args.skill_subcommand}")
-            return 1
-
-
-def install_skill_command(args):
-    """Install expression-builder skill for Claude Code."""
-    from pathlib import Path
-    from xorq.agent.onboarding import register_claude_skill
-
-    force = args.force
-
-    # Check if already installed (project-local)
-    project_root = Path.cwd()
-    skill_dest = project_root / ".claude" / "skills" / "expression-builder"
-
-    if skill_dest.exists() and not force:
-        print(f"ℹ️  expression-builder skill already installed at {skill_dest}")
-        print("   Use --force to reinstall")
-        return 0
-
-    # Install the skill
-    skill_path = register_claude_skill()
-    if skill_path:
-        print(f"✅ Installed expression-builder skill for Claude Code at {skill_path}")
-        print(f"✅ Setup skill auto-activation in {skill_path.parent}/skill-rules.json")
-        print("\n📝 Next steps:")
-        print("1. The skill is now available in Claude Code sessions in this project")
-        print("2. Auto-activation is configured for xorq-related operations")
-        print("3. You can manually invoke it with /skill expression-builder in Claude Code")
-        print("\n💡 Tip: Install deferred execution guard with: xorq agents hooks install")
-        return 0
-    else:
-        print("❌ Failed to install skill - could not find skill source")
-        return 1
-
-
-def uninstall_skill_command(args):
-    """Uninstall expression-builder skill from Claude Code."""
-    import shutil
-    from pathlib import Path
-    import json
-
-    # Project-local installation
-    project_root = Path.cwd()
-    skill_dest = project_root / ".claude" / "skills" / "expression-builder"
-    skill_rules_file = project_root / ".claude" / "skills" / "skill-rules.json"
-
-    if not skill_dest.exists():
-        print("ℹ️  expression-builder skill is not installed in this project")
-        return 0
-
-    # Remove skill directory
-    shutil.rmtree(skill_dest)
-    print(f"✅ Uninstalled expression-builder skill from {skill_dest}")
-
-    # Remove from skill-rules.json if it exists
-    if skill_rules_file.exists():
-        try:
-            with skill_rules_file.open() as f:
-                rules = json.load(f)
-
-            # Remove expression-builder entry if it exists
-            if "skills" in rules and "expression-builder" in rules["skills"]:
-                del rules["skills"]["expression-builder"]
-                with skill_rules_file.open("w") as f:
-                    json.dump(rules, f, indent=2)
-                print("✅ Removed expression-builder from skill-rules.json")
-        except Exception as e:
-            print(f"⚠️  Could not update skill-rules.json: {e}")
-
-    return 0
-
-
-def list_skills_command(args):
-    """List installed xorq skills."""
-    from pathlib import Path
-    import json
-
-    print("Installed xorq skills:")
-    print()
-
-    # Check Claude Code skill (project-local)
-    project_root = Path.cwd()
-    claude_skill_path = project_root / ".claude" / "skills" / "expression-builder"
-
-    if claude_skill_path.exists():
-        print(f"✅ expression-builder (current project): {claude_skill_path}")
-
-        # Check for SKILL.md to get version info
-        skill_md = claude_skill_path / "SKILL.md"
-        if skill_md.exists():
-            content = skill_md.read_text()
-            # Try to extract version from the file
-            for line in content.split('\n'):
-                if 'version:' in line.lower():
-                    print(f"   {line.strip()}")
-                    break
-
-        # Check skill-rules.json
-        skill_rules_file = project_root / ".claude" / "skills" / "skill-rules.json"
-        if skill_rules_file.exists():
-            try:
-                with skill_rules_file.open() as f:
-                    rules = json.load(f)
-                if "skills" in rules and "expression-builder" in rules["skills"]:
-                    print("   Auto-activation: Configured")
-            except:
-                pass
-    else:
-        print(f"❌ expression-builder (current project): Not installed")
-        print(f"   Run 'xorq agents skill install' to install")
-
-    return 0
-
-
-def agent_vignette_command(args):
-    match args.vignette_command:
-        case "list":
-            return agent_vignette_list_command()
+            return agent_templates_list_command()
         case "show":
-            return agent_vignette_show_command(args.name)
+            return agent_templates_show_command(args.name)
         case "scaffold":
-            return agent_vignette_scaffold_command(
+            return agent_templates_scaffold_command(
                 args.name, args.dest, args.overwrite
             )
         case _:
-            raise ValueError(f"Unknown vignette command: {args.vignette_command}")
+            raise ValueError(
+                f"Unknown agent templates command: {args.templates_command}"
+            )
 
 
-def agent_vignette_list_command():
-    from xorq.agent.vignettes import format_vignette_list
-    print(format_vignette_list())
+def agent_templates_list_command():
+    print(f"{'NAME':20} {'INIT TEMPLATE':18} DESCRIPTION")
+    for template in iter_templates():
+        print(f"{template.name:20} {template.template.value:18} {template.description}")
 
 
-def agent_vignette_show_command(name):
-    from xorq.agent.vignettes import format_vignette_details
-    print(format_vignette_details(name))
+def agent_templates_show_command(name):
+    template = get_template(name)
+    lines = [
+        f"# Template: {template.name}",
+        f"Init template: {template.template.value}",
+        f"Catalog alias hint: {template.catalog_hint}",
+        f"Default table: {template.default_table}",
+        "",
+        "Prompts:",
+    ]
+    lines.extend(f"- {prompt}" for prompt in template.prompts)
+    lines.extend(
+        [
+            "",
+            "Suggested workflow:",
+            f"- Run `xorq init --template {template.template.value}` if the project lacks this template",
+            "- Customize the scaffolded expression and build it",
+            f"- Register with `xorq catalog add ... --alias {template.catalog_hint}`",
+        ]
+    )
+    print("\n".join(lines))
 
 
-def agent_vignette_scaffold_command(name, dest, overwrite):
-    from xorq.agent.vignettes import scaffold_vignette
+def agent_templates_scaffold_command(name, dest, overwrite):
+    template = get_template(name)
+    dest_path = Path(dest) if dest else Path("skills") / f"{template.name}.py"
     try:
-        written = scaffold_vignette(name, dest, overwrite=overwrite)
-        print(f"Scaffolded vignette to {written}")
-    except (ValueError, FileExistsError) as exc:
+        written = scaffold_template(template, dest_path, overwrite=overwrite)
+    except FileExistsError as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
-
-
-def agent_cortex_command(args):
-    """Handle Cortex Code integration commands."""
-    match args.cortex_subcommand:
-        case "hooks":
-            return agent_cortex_hooks_command(args)
-        case "skill":
-            return agent_cortex_skill_command(args)
-        case _:
-            raise ValueError(f"Unknown cortex subcommand: {args.cortex_subcommand}")
-
-
-def agent_cortex_hooks_command(args):
-    """Handle Cortex Code hooks commands."""
-    match args.cortex_hooks_subcommand:
-        case "install":
-            return install_cortex_hooks_command(args)
-        case "install-project":
-            return install_cortex_hooks_project_command(args)
-        case _:
-            print(f"Unknown cortex hooks command: {args.cortex_hooks_subcommand}")
-            return 1
-
-
-def install_cortex_hooks_command(args):
-    """Install Cortex Code hooks for xorq integration (global installation)."""
-    import json
-    import shutil
-    from pathlib import Path
-
-    # Get the source hooks directory from the xorq package
-    import xorq
-    xorq_package_dir = Path(xorq.__file__).parent
-    hooks_source_dir = xorq_package_dir / "cortex_hooks"
-
-    # Target directories (global Cortex Code installation)
-    home_dir = Path.home()
-    cortex_dir = home_dir / ".snowflake" / "cortex"
-    hooks_dir = cortex_dir / "hooks"
-    hooks_json_file = cortex_dir / "hooks.json"
-
-    # Create directories
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-
-    # Copy hook scripts
-    hook_files = [
-        "session_start.py",
-        "user_prompt_submit.py",
-        "post_tool_use_failure.py",
-        "pre_compact.py",
-        "stop.py",
-        "session_end.py",
-    ]
-
-    installed_hooks = []
-    for hook_name in hook_files:
-        source_path = hooks_source_dir / hook_name
-        target_path = hooks_dir / hook_name
-        if source_path.exists():
-            shutil.copy2(source_path, target_path)
-            # Make executable
-            target_path.chmod(0o755)
-            installed_hooks.append(hook_name)
-
-    # Install hooks.json
-    hooks_json_source = hooks_source_dir / "hooks.json"
-
-    # Load xorq hooks template
-    with hooks_json_source.open() as f:
-        xorq_hooks = json.load(f)
-
-    if hooks_json_file.exists() and not args.force:
-        # Merge with existing hooks
-        try:
-            with hooks_json_file.open() as f:
-                existing_hooks = json.load(f)
-        except json.JSONDecodeError:
-            print(f"Error: Existing {hooks_json_file} is not valid JSON")
-            return 1
-
-        # Merge hooks for each event type
-        if "hooks" not in existing_hooks:
-            existing_hooks["hooks"] = {}
-
-        for event_type, event_hooks in xorq_hooks["hooks"].items():
-            if event_type not in existing_hooks["hooks"]:
-                # New event type, add all hooks
-                existing_hooks["hooks"][event_type] = event_hooks
-            else:
-                # Event type exists, append xorq hooks
-                existing_hooks["hooks"][event_type].extend(event_hooks)
-
-        # Write merged hooks
-        with hooks_json_file.open("w") as f:
-            json.dump(existing_hooks, f, indent=2)
-
-        print(f"✅ Merged xorq hooks into existing {hooks_json_file}")
-    else:
-        # No existing hooks.json or force mode, install fresh
-        with hooks_json_file.open("w") as f:
-            json.dump(xorq_hooks, f, indent=2)
-
-        print(f"✅ Installed hooks.json at {hooks_json_file}")
-
-    print("\n✅ Installed Cortex Code hooks for xorq (global)")
-    print(f"   Hooks directory: {hooks_dir}")
-    print(f"   Hooks config: {hooks_json_file}")
-    for hook in installed_hooks:
-        print(f"   • {hook}")
-
-    print("\n📝 Next steps:")
-    print("1. Restart Cortex Code CLI (cortex) to activate the hooks")
-    print("2. The following hooks are now available globally:")
-    print("   - SessionStart: Runs 'xorq agents onboard' at session start (xorq projects only)")
-    print("   - UserPromptSubmit: Triggered when user submits a prompt")
-    print("   - PostToolUseFailure: Provides troubleshooting guidance on xorq errors")
-    print("   - PreCompact: Triggered before context compaction")
-    print("   - Stop: Checks for uncataloged builds and reminds you to catalog them")
-    print("   - SessionEnd: Triggered when session ends")
-    print("\n⚡ Key features:")
-    print("   • Global installation - works across all your xorq projects")
-    print("   • Auto-detects xorq projects via .xorq/ directory")
-    print("   • SessionStart provides workflow context automatically")
-    print("   • PostToolUseFailure provides troubleshooting guidance on errors")
-    print("   • Stop enforces workflow: catalog builds → commit to git")
-    print("\n💡 Usage:")
-    print("   cd /path/to/xorq-project")
-    print("   cortex  # Hooks will detect xorq project and activate")
-
-    return 0
-
-
-def install_cortex_hooks_project_command(args):
-    """Install Cortex Code hooks for xorq integration (project-level installation in .cortex/)."""
-    import json
-    import shutil
-    from pathlib import Path
-
-    # Get the source hooks directory from the xorq package
-    import xorq
-    xorq_package_dir = Path(xorq.__file__).parent
-    hooks_source_dir = xorq_package_dir / "cortex_hooks"
-
-    # Target directories (project-level Cortex Code installation)
-    project_dir = Path.cwd()
-    cortex_dir = project_dir / ".cortex"
-    hooks_dir = cortex_dir / "hooks"
-    hooks_json_file = cortex_dir / "hooks.json"
-
-    # Create directories
-    hooks_dir.mkdir(parents=True, exist_ok=True)
-
-    # Copy hook scripts
-    hook_files = [
-        "session_start.py",
-        "user_prompt_submit.py",
-        "post_tool_use_failure.py",
-        "pre_compact.py",
-        "stop.py",
-        "session_end.py",
-    ]
-
-    installed_hooks = []
-    for hook_name in hook_files:
-        source_path = hooks_source_dir / hook_name
-        target_path = hooks_dir / hook_name
-        if source_path.exists():
-            shutil.copy2(source_path, target_path)
-            # Make executable
-            target_path.chmod(0o755)
-            installed_hooks.append(hook_name)
-
-    # Install hooks.json (project-level version)
-    hooks_json_source = hooks_source_dir / "hooks_template_project.json"
-
-    # Load xorq hooks template
-    with hooks_json_source.open() as f:
-        xorq_hooks = json.load(f)
-
-    if hooks_json_file.exists() and not args.force:
-        # Merge with existing hooks
-        try:
-            with hooks_json_file.open() as f:
-                existing_hooks = json.load(f)
-        except json.JSONDecodeError:
-            print(f"Error: Existing {hooks_json_file} is not valid JSON")
-            return 1
-
-        # Merge hooks for each event type
-        if "hooks" not in existing_hooks:
-            existing_hooks["hooks"] = {}
-
-        for event_type, event_hooks in xorq_hooks["hooks"].items():
-            if event_type not in existing_hooks["hooks"]:
-                # New event type, add all hooks
-                existing_hooks["hooks"][event_type] = event_hooks
-            else:
-                # Event type exists, append xorq hooks
-                existing_hooks["hooks"][event_type].extend(event_hooks)
-
-        # Write merged hooks
-        with hooks_json_file.open("w") as f:
-            json.dump(existing_hooks, f, indent=2)
-
-        print(f"✅ Merged xorq hooks into existing {hooks_json_file}")
-    else:
-        # No existing hooks.json or force mode, install fresh
-        with hooks_json_file.open("w") as f:
-            json.dump(xorq_hooks, f, indent=2)
-
-        print(f"✅ Installed hooks.json at {hooks_json_file}")
-
-    print("\n✅ Installed Cortex Code hooks for xorq (project-level)")
-    print(f"   Hooks directory: {hooks_dir}")
-    print(f"   Hooks config: {hooks_json_file}")
-    for hook in installed_hooks:
-        print(f"   • {hook}")
-
-    print("\n📝 Next steps:")
-    print("1. Restart Cortex Code CLI (cortex) to activate the hooks")
-    print("2. The following hooks are now available in this project:")
-    print("   - SessionStart: Runs 'xorq agents onboard' at session start")
-    print("   - UserPromptSubmit: Triggered when user submits a prompt")
-    print("   - PostToolUseFailure: Provides troubleshooting guidance on xorq errors")
-    print("   - PreCompact: Triggered before context compaction")
-    print("   - Stop: Checks for uncataloged builds and reminds you to catalog them")
-    print("   - SessionEnd: Triggered when session ends")
-    print("\n⚡ Key features:")
-    print("   • Project-level installation - hooks are stored in .cortex/ folder")
-    print("   • Can be version controlled with your project")
-    print("   • SessionStart provides workflow context automatically")
-    print("   • PostToolUseFailure provides troubleshooting guidance on errors")
-    print("   • Stop enforces workflow: catalog builds → commit to git")
-    print("\n💡 Usage:")
-    print("   cd /path/to/xorq-project")
-    print("   cortex  # Hooks from .cortex/ will be used")
-
-    return 0
-
-
-def agent_cortex_skill_command(args):
-    """Handle Cortex Code skill management commands."""
-    match args.cortex_skill_subcommand:
-        case "install":
-            return install_cortex_skill_command(args)
-        case "install-project":
-            return install_cortex_skill_project_command(args)
-        case "list":
-            return list_cortex_skills_command(args)
-        case _:
-            print(f"Unknown cortex skill command: {args.cortex_skill_subcommand}")
-            return 1
-
-
-def install_cortex_skill_command(args):
-    """Install expression-builder skill for Cortex Code (global installation)."""
-    import json
-    import shutil
-    from pathlib import Path
-
-    # Get the source skill directory from the xorq package
-    import xorq
-    xorq_package_dir = Path(xorq.__file__).parent
-    skill_source_dir = xorq_package_dir / "agent" / "resources" / "expression-builder"
-
-    # Target directories (global Cortex Code installation)
-    home_dir = Path.home()
-    cortex_skills_dir = home_dir / ".snowflake" / "cortex" / "skills"
-    skill_dest = cortex_skills_dir / "expression-builder"
-    skill_rules_file = cortex_skills_dir / "skill-rules.json"
-
-    # Check if already installed
-    if skill_dest.exists() and not args.force:
-        print(f"ℹ️  expression-builder skill already installed at {skill_dest}")
-        print("   Use --force to reinstall")
-        return 0
-
-    # Create skill directory
-    skill_dest.mkdir(parents=True, exist_ok=True)
-
-    # Copy skill files
-    skill_files = ["SKILL.md", "skill-rules.json"]
-    resources_dir = skill_source_dir / "resources"
-
-    for skill_file in skill_files:
-        source_path = skill_source_dir / skill_file
-        if source_path.exists():
-            target_path = skill_dest / skill_file
-            shutil.copy2(source_path, target_path)
-
-    # Copy resources directory if it exists
-    if resources_dir.exists():
-        target_resources = skill_dest / "resources"
-        if target_resources.exists():
-            shutil.rmtree(target_resources)
-        shutil.copytree(resources_dir, target_resources)
-
-    # Update skill-rules.json at the skills directory level
-    skill_rule_source = skill_source_dir / "skill-rules.json"
-    if skill_rule_source.exists():
-        with skill_rule_source.open() as f:
-            skill_rule = json.load(f)
-
-        # Merge with existing skill-rules.json if it exists
-        if skill_rules_file.exists():
-            with skill_rules_file.open() as f:
-                existing_rules = json.load(f)
-
-            # Merge skills
-            if "skills" not in existing_rules:
-                existing_rules["skills"] = {}
-            existing_rules["skills"]["expression-builder"] = skill_rule["skills"]["expression-builder"]
-            skill_rules = existing_rules
-        else:
-            skill_rules = skill_rule
-
-        # Write merged rules
-        with skill_rules_file.open("w") as f:
-            json.dump(skill_rules, f, indent=2)
-
-    print("✅ Installed expression-builder skill for Cortex Code (global)")
-    print(f"   Skill directory: {skill_dest}")
-    print(f"   Skill rules: {skill_rules_file}")
-    print("\n📚 The skill provides progressive-disclosure guidance for:")
-    print("   • Deferred expression development")
-    print("   • ML pipeline patterns with sklearn")
-    print("   • Caching and performance optimization")
-    print("   • Multi-engine composition (letsql, polars, datafusion)")
-    print("   • Troubleshooting common issues")
-    print("\n⚡ Auto-activation triggers:")
-    print("   • Keywords: xorq, manifest, deferred, ML pipeline")
-    print("   • File patterns: **/*expr*.py, **/.xorq/**/*")
-    print("   • Content patterns: import xorq, xo._, manifest")
-    print("\n💡 The skill works globally across all your xorq projects in Cortex Code")
-
-    return 0
-
-
-def list_cortex_skills_command(args):
-    """List installed xorq skills for Cortex Code."""
-    from pathlib import Path
-
-    home_dir = Path.home()
-    cortex_skills_dir = home_dir / ".snowflake" / "cortex" / "skills"
-
-    if not cortex_skills_dir.exists():
-        print("No Cortex Code skills directory found")
-        print(f"Expected location: {cortex_skills_dir}")
-        return 1
-
-    # Check for xorq skills
-    xorq_skills = ["expression-builder"]
-    installed_skills = []
-
-    for skill_name in xorq_skills:
-        skill_dir = cortex_skills_dir / skill_name
-        if skill_dir.exists():
-            installed_skills.append(skill_name)
-
-    if installed_skills:
-        print("Installed xorq skills for Cortex Code:")
-        for skill in installed_skills:
-            skill_dir = cortex_skills_dir / skill
-            print(f"  • {skill}")
-            print(f"    Location: {skill_dir}")
-    else:
-        print("No xorq skills installed for Cortex Code")
-        print(f"Run 'xorq agents cortex skill install' to install")
-
-    return 0
-
-
-def install_cortex_skill_project_command(args):
-    """Install expression-builder skill for Cortex Code (project-level installation in .cortex/)."""
-    import json
-    import shutil
-    from pathlib import Path
-
-    # Get the source skill directory from the xorq package
-    import xorq
-    xorq_package_dir = Path(xorq.__file__).parent
-    skill_source_dir = xorq_package_dir / "agent" / "resources" / "expression-builder"
-
-    # Target directories (project-level Cortex Code installation)
-    project_dir = Path.cwd()
-    cortex_skills_dir = project_dir / ".cortex" / "skills"
-    skill_dest = cortex_skills_dir / "expression-builder"
-    skill_rules_file = cortex_skills_dir / "skill-rules.json"
-
-    # Check if already installed
-    if skill_dest.exists() and not args.force:
-        print(f"ℹ️  expression-builder skill already installed at {skill_dest}")
-        print("   Use --force to reinstall")
-        return 0
-
-    # Create skill directory
-    skill_dest.mkdir(parents=True, exist_ok=True)
-
-    # Copy skill files
-    skill_files = ["SKILL.md", "skill-rules.json"]
-    resources_dir = skill_source_dir / "resources"
-
-    for skill_file in skill_files:
-        source_path = skill_source_dir / skill_file
-        if source_path.exists():
-            target_path = skill_dest / skill_file
-            shutil.copy2(source_path, target_path)
-
-    # Copy resources directory if it exists
-    if resources_dir.exists():
-        target_resources = skill_dest / "resources"
-        if target_resources.exists():
-            shutil.rmtree(target_resources)
-        shutil.copytree(resources_dir, target_resources)
-
-    # Update skill-rules.json at the skills directory level
-    skill_rule_source = skill_source_dir / "skill-rules.json"
-    if skill_rule_source.exists():
-        with skill_rule_source.open() as f:
-            skill_rule = json.load(f)
-
-        # Merge with existing skill-rules.json if it exists
-        if skill_rules_file.exists():
-            with skill_rules_file.open() as f:
-                existing_rules = json.load(f)
-
-            # Merge skills
-            if "skills" not in existing_rules:
-                existing_rules["skills"] = {}
-            existing_rules["skills"]["expression-builder"] = skill_rule["skills"]["expression-builder"]
-            skill_rules = existing_rules
-        else:
-            skill_rules = skill_rule
-
-        # Write merged rules
-        with skill_rules_file.open("w") as f:
-            json.dump(skill_rules, f, indent=2)
-
-    print("✅ Installed expression-builder skill for Cortex Code (project-level)")
-    print(f"   Skill directory: {skill_dest}")
-    print(f"   Skill rules: {skill_rules_file}")
-    print("\n📚 The skill provides progressive-disclosure guidance for:")
-    print("   • Deferred expression development")
-    print("   • ML pipeline patterns with sklearn")
-    print("   • Caching and performance optimization")
-    print("   • Multi-engine composition (letsql, polars, datafusion)")
-    print("   • Troubleshooting common issues")
-    print("\n⚡ Auto-activation triggers:")
-    print("   • Keywords: xorq, manifest, deferred, ML pipeline")
-    print("   • File patterns: **/*expr*.py, **/.xorq/**/*")
-    print("   • Content patterns: import xorq, xo._, manifest")
-    print("\n💡 The skill is available in this project's Cortex Code sessions")
-    print("💡 Project-level installation - can be version controlled with your project")
-
-    return 0
+    print(f"Wrote template scaffold to {written}")
 
 
 def parse_args(override=None):
@@ -1670,218 +1004,51 @@ def parse_args(override=None):
         "land",
         help="Show session summary and landing checklist",
     )
-
-    # Claude Code hooks subparser
-    hooks_parser = agents_subparsers.add_parser(
-        "hooks",
-        help="Manage Claude Code hooks",
-    )
-    hooks_subparsers = hooks_parser.add_subparsers(
-        dest="hooks_subcommand",
-        help="Claude Code hooks commands",
-    )
-    hooks_subparsers.required = True
-
-    hooks_install_parser = hooks_subparsers.add_parser(
-        "install",
-        help="Install Claude Code hooks for automatic context injection",
-    )
-    hooks_install_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite existing settings.json even if it contains hooks",
+    land_parser.add_argument(
+        "--limit",
+        type=int,
+        default=10,
+        help="Number of recent builds to show (default: 10)",
     )
 
-    # Claude Code skill subparser
-    skill_parser = agents_subparsers.add_parser(
-        "skill",
-        help="Manage Claude Code skills",
+    templates_parser = agents_subparsers.add_parser(
+        "templates",
+        help="Template registry commands",
     )
-    skill_subparsers = skill_parser.add_subparsers(
-        dest="skill_subcommand",
-        help="Skill management commands",
+    templates_subparsers = templates_parser.add_subparsers(
+        dest="templates_command",
+        help="Templates commands",
     )
-    skill_subparsers.required = True
+    templates_subparsers.required = True
 
-    skill_install_parser = skill_subparsers.add_parser(
-        "install",
-        help="Install xorq skill for Claude Code",
-    )
-    skill_install_parser.add_argument(
-        "--agent",
-        choices=["claude"],
-        default="claude",
-        help="Agent to install skill for (only claude is supported)",
-    )
-    skill_install_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Force reinstall even if already installed",
-    )
+    templates_subparsers.add_parser("list", help="List registered templates")
 
-    skill_uninstall_parser = skill_subparsers.add_parser(
-        "uninstall",
-        help="Uninstall xorq skill from Claude Code",
+    templates_show = templates_subparsers.add_parser(
+        "show", help="Show details for a specific template"
     )
-    skill_uninstall_parser.add_argument(
-        "--agent",
-        choices=["claude"],
-        default="claude",
-        help="Agent to uninstall skill from (only claude is supported)",
-    )
-
-    skill_list_parser = skill_subparsers.add_parser(
-        "list",
-        help="List installed xorq skills",
-    )
-
-    # Add vignette subparser
-    vignette_parser = agents_subparsers.add_parser(
-        "vignette",
-        help="Code vignettes - comprehensive working examples",
-    )
-    vignette_subparsers = vignette_parser.add_subparsers(
-        dest="vignette_command",
-        help="Vignette commands",
-    )
-    vignette_subparsers.required = True
-
-    vignette_subparsers.add_parser("list", help="List available vignettes")
-
-    vignette_show = vignette_subparsers.add_parser(
-        "show", help="Show details for a specific vignette"
-    )
-    from xorq.agent.vignettes import get_vignette_names
-    vignette_show.add_argument(
+    templates_show.add_argument(
         "name",
-        choices=get_vignette_names(),
-        help="Vignette identifier",
+        choices=list_template_names(),
+        help="Template identifier",
     )
 
-    vignette_scaffold = vignette_subparsers.add_parser(
-        "scaffold", help="Scaffold a vignette to your project"
+    templates_scaffold = templates_subparsers.add_parser(
+        "scaffold", help="Scaffold an expression file for a template"
     )
-    vignette_scaffold.add_argument(
+    templates_scaffold.add_argument(
         "name",
-        choices=get_vignette_names(),
-        help="Vignette identifier",
+        choices=list_template_names(),
+        help="Template identifier",
     )
-    vignette_scaffold.add_argument(
+    templates_scaffold.add_argument(
         "--dest",
         default=None,
-        help="Destination path for the vignette (default: vignettes/<name>.py)",
+        help="Destination path for the scaffold (default: skills/<name>.py)",
     )
-    vignette_scaffold.add_argument(
+    templates_scaffold.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace destination file if it exists",
-    )
-
-    # Add cortex subparser for Snowflake Cortex Code integration
-    cortex_parser = agents_subparsers.add_parser(
-        "cortex",
-        help="Snowflake Cortex Code CLI integration",
-    )
-    cortex_subparsers = cortex_parser.add_subparsers(
-        dest="cortex_subcommand",
-        help="Cortex Code commands",
-    )
-    cortex_subparsers.required = True
-
-    # Cortex hooks subcommand
-    cortex_hooks_parser = cortex_subparsers.add_parser(
-        "hooks",
-        help="Manage Cortex Code hooks",
-    )
-    cortex_hooks_subparsers = cortex_hooks_parser.add_subparsers(
-        dest="cortex_hooks_subcommand",
-        help="Cortex Code hooks commands",
-    )
-    cortex_hooks_subparsers.required = True
-
-    cortex_hooks_install_parser = cortex_hooks_subparsers.add_parser(
-        "install",
-        help="Install Cortex Code hooks for automatic context injection (global)",
-    )
-    cortex_hooks_install_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite existing settings.json even if it contains hooks",
-    )
-
-    cortex_hooks_install_project_parser = cortex_hooks_subparsers.add_parser(
-        "install-project",
-        help="Install Cortex Code hooks in .cortex/ directory (project-level)",
-    )
-    cortex_hooks_install_project_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Overwrite existing hooks.json even if it contains hooks",
-    )
-
-    # Cortex skill subcommand
-    cortex_skill_parser = cortex_subparsers.add_parser(
-        "skill",
-        help="Manage Cortex Code skills",
-    )
-    cortex_skill_subparsers = cortex_skill_parser.add_subparsers(
-        dest="cortex_skill_subcommand",
-        help="Cortex Code skill management commands",
-    )
-    cortex_skill_subparsers.required = True
-
-    cortex_skill_install_parser = cortex_skill_subparsers.add_parser(
-        "install",
-        help="Install xorq skill for Cortex Code (global)",
-    )
-    cortex_skill_install_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Force reinstall even if skill already exists",
-    )
-
-    cortex_skill_install_project_parser = cortex_skill_subparsers.add_parser(
-        "install-project",
-        help="Install xorq skill in .cortex/ directory (project-level)",
-    )
-    cortex_skill_install_project_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Force reinstall even if skill already exists",
-    )
-
-    cortex_skill_list_parser = cortex_skill_subparsers.add_parser(
-        "list",
-        help="List installed xorq skills for Cortex Code",
-    )
-
-    # Git hooks management
-    hooks_parser = subparsers.add_parser("hooks", help="Manage git hooks for xorq")
-    hooks_subparsers = hooks_parser.add_subparsers(
-        dest="hooks_subcommand",
-        help="Git hooks commands",
-    )
-    hooks_subparsers.required = True
-
-    hooks_install_parser = hooks_subparsers.add_parser(
-        "install", help="Install xorq git hooks"
-    )
-    hooks_install_parser.add_argument(
-        "--force",
-        action="store_true",
-        help="Force reinstall even if hooks already exist",
-    )
-
-    hooks_subparsers.add_parser("uninstall", help="Uninstall xorq git hooks")
-
-    hooks_subparsers.add_parser("list", help="List installed git hooks status")
-
-    hooks_run_parser = hooks_subparsers.add_parser(
-        "run", help="Run a specific git hook (internal use)"
-    )
-    hooks_run_parser.add_argument("hook_name", help="Name of the hook to run")
-    hooks_run_parser.add_argument(
-        "hook_args", nargs="*", default=[], help="Arguments to pass to the hook"
     )
 
     args = parser.parse_args(override)
