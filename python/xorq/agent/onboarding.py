@@ -5,6 +5,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
+from xorq.agent.hooks import ensure_agent_hook_files
+
 
 @dataclass(frozen=True)
 class OnboardingStep:
@@ -76,11 +78,13 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         "land",
         "Land the plane (hand-off checklist)",
         [
-            "Commit manifests and document results.",
+            "Commit catalog and manifests (.xorq/catalog.yaml and builds/).",
             "Run `git push` and verify clean status.",
             "Surface relevant prompts for the next agent session.",
         ],
         [
+            "git add .xorq/catalog.yaml builds/",
+            "git commit -m 'Update catalog and builds'",
             "git push",
             "xorq agent prime",
         ],
@@ -94,6 +98,7 @@ def register_claude_skill() -> Path | None:
 
     Returns the path where the skill was registered, or None if already exists.
     """
+
     # Find the skill source directory (should be in the package)
     import xorq
 
@@ -127,7 +132,51 @@ def register_claude_skill() -> Path | None:
         shutil.rmtree(skill_dest)
 
     shutil.copytree(skill_source, skill_dest)
+
+    # Setup skill-rules.json for auto-activation
+    _setup_skill_rules(claude_skills_dir, skill_source)
+
     return skill_dest
+
+
+def _setup_skill_rules(claude_skills_dir: Path, skill_source: Path) -> None:
+    """Setup or update skill-rules.json with xorq skill triggers."""
+    import json
+
+    skill_rules_path = claude_skills_dir / "skill-rules.json"
+    skill_rules_source = skill_source / "skill-rules.json"
+
+    # If source skill-rules.json doesn't exist, skip
+    if not skill_rules_source.exists():
+        return
+
+    # Load the xorq skill rules template
+    xorq_rules = json.loads(skill_rules_source.read_text())
+
+    # Check if skill-rules.json already exists
+    if skill_rules_path.exists():
+        # Merge with existing rules
+        existing_rules = json.loads(skill_rules_path.read_text())
+
+        # Update only the xorq skill entry, preserve others
+        if "skills" not in existing_rules:
+            existing_rules["skills"] = {}
+
+        # Update xorq skill entry
+        if "skills" in xorq_rules and "xorq" in xorq_rules["skills"]:
+            existing_rules["skills"]["xorq"] = xorq_rules["skills"]["xorq"]
+
+        # Ensure version and description exist
+        if "version" not in existing_rules:
+            existing_rules["version"] = xorq_rules.get("version", "1.0")
+        if "description" not in existing_rules:
+            existing_rules["description"] = "Skill activation triggers for Claude Code"
+
+        # Write merged rules
+        skill_rules_path.write_text(json.dumps(existing_rules, indent=4))
+    else:
+        # No existing rules, copy the template
+        shutil.copy(skill_rules_source, skill_rules_path)
 
 
 def bootstrap_agent_docs(project_root: str | Path, max_lines: int = 60) -> list[Path]:
@@ -146,7 +195,12 @@ def bootstrap_agent_docs(project_root: str | Path, max_lines: int = 60) -> list[
     # Register the xorq skill with Claude Code
     skill_path = register_claude_skill()
     if skill_path:
-        print(f"Registered xorq skill with Claude Code at {skill_path}")
+        print(f"✅ Registered xorq skill with Claude Code at {skill_path}")
+        print("✅ Setup skill auto-activation in ~/.claude/skills/skill-rules.json")
+
+    hook_files = ensure_agent_hook_files(root)
+    if hook_files:
+        created.extend(hook_files)
 
     return created
 
@@ -300,6 +354,7 @@ def _render_agent_doc(max_lines: int) -> str:
         - **ALWAYS check schema first** - `print(table.schema())` before any operations
         - **Match column case exactly** - Snowflake=UPPERCASE, DuckDB=lowercase
         - **Catalog your expressions** - Use `xorq catalog add` for all builds
+        - **Commit the catalog** - Always `git add .xorq/catalog.yaml` before finishing
         - **Session close protocol** - Run `xorq agent prime` to see mandatory steps
 
         ## Customization
