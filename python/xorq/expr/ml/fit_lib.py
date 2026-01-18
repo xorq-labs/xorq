@@ -2,7 +2,6 @@ from functools import wraps
 from typing import Callable
 
 import cloudpickle
-import dask
 import numpy as np
 import pyarrow as pa
 import toolz
@@ -18,9 +17,9 @@ from attr.validators import (
 
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
+from xorq.common.utils.name_utils import make_name
 from xorq.expr.ml.structer import Structer
 from xorq.expr.udf import make_pandas_expr_udf
-from xorq.ibis_yaml.config import config
 from xorq.vendor import ibis
 
 
@@ -102,12 +101,6 @@ def feature_importances_sklearn(model, df):
     """Extract feature importances from sklearn model as a single row."""
     importances = model.feature_importances_
     return [importances.tolist()]
-
-
-def make_name(prefix, to_tokenize):
-    tokenized = dask.base.tokenize(to_tokenize)
-    name = ("_" + prefix + "_" + tokenized)[: config.hash_length].lower()
-    return name
 
 
 @frozen

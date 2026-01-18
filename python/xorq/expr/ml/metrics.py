@@ -7,6 +7,7 @@ import numpy as np
 
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
+from xorq.common.utils.name_utils import make_name
 
 
 def deferred_sklearn_metric(
@@ -70,29 +71,21 @@ def deferred_sklearn_metric(
     """
     metric_kwargs = metric_kwargs or {}
     return_type = return_type or dt.float64
-
     metric_udaf = _create_metric_aggregation(
         target,
         pred_col,
         metric_fn,
         metric_kwargs,
         return_type,
-        name_infix or _generate_name_infix(metric_fn, metric_kwargs),
+        name_infix
+        or make_name(
+            prefix=f"metric_{metric_fn.__name__}",
+            to_tokenize=(metric_fn.__name__, str(metric_kwargs)),
+        ),
         expr,
     )
 
     return metric_udaf.on_expr(expr)
-
-
-def _generate_name_infix(metric_fn, metric_kwargs):
-    """Generate a unique name infix for the UDF."""
-    import dask
-
-    from xorq.ibis_yaml.config import config
-
-    tokenized = dask.base.tokenize(metric_fn.__name__, str(metric_kwargs))
-    hash_part = tokenized[: config.hash_length]
-    return f"_metric_{metric_fn.__name__}_{hash_part}".lower()
 
 
 def _create_metric_aggregation(
