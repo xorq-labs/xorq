@@ -340,45 +340,6 @@ class Step:
     __dask_tokenize__ = normalize_attrs
 
 
-def _apply_pipeline_prediction_method(
-    fitted_pipeline, method_name, expr, tag_name, tag_key
-):
-    """Apply a prediction method through the fitted pipeline.
-
-    Parameters
-    ----------
-    fitted_pipeline : FittedPipeline
-        The fitted pipeline instance
-    method_name : str
-        Name of the method to call on predict_step
-    expr : ibis.Expr
-        The expression to predict on
-    tag_name : str
-        Tag name for the resulting expression
-    tag_key : str
-        Tag key for storing the predict step tags
-
-    Returns
-    -------
-    ibis.Expr
-        Tagged expression with predictions
-    """
-    if not fitted_pipeline.is_predict:
-        raise ValueError("Pipeline does not have a predict step")
-
-    transformed = fitted_pipeline.transform(expr, tag=False)
-    method = getattr(fitted_pipeline.predict_step, method_name)
-
-    return (
-        method(transformed)
-        .pipe(do_into_backend)
-        .tag(
-            tag_name,
-            **{tag_key: tuple(fitted_pipeline.predict_step.tag_kwargs.items())},
-        )
-    )
-
-
 @frozen
 class FittedStep:
     step = field(validator=instance_of(Step))
@@ -904,74 +865,40 @@ class FittedPipeline:
             )
         )
 
-    def predict_proba(self, expr):
-        """Predict class probabilities for classification problems.
-
-        This method applies transformations and then uses the predictor's
-        predict_proba method to get probability estimates.
-
-        Parameters
-        ----------
-        expr : ibis.Expr
-            The expression to predict on
-
-        Returns
-        -------
-        ibis.Expr
-            Expression with predicted probabilities column
-        """
-        return _apply_pipeline_prediction_method(
-            self,
-            "predict_proba",
-            expr,
-            "FittedPipeline-predict_proba",
-            "predict_proba_tags",
+    @toolz.curry
+    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname):
+        if not self.is_predict:
+            raise ValueError("Pipeline does not have a predict step")
+        if not (method := getattr(self.predict_step, methodname, None)):
+            raise ValueError(f"predict step does not have a method named {methodname}")
+        transformed = self.transform(expr, tag=False)
+        predicted = (
+            method(transformed)
+            .pipe(do_into_backend)
+            .tag(
+                tag_name,
+                **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
+            )
         )
+        return predicted
 
-    def decision_function(self, expr):
-        """Compute decision function scores for classifiers.
+    predict_proba = invoke_predict_method(
+        tag_name="FittedPipeline-predict_proba",
+        tag_key="predict_proba_tags",
+        methodname="predict_proba",
+    )
 
-        Parameters
-        ----------
-        expr : ibis.Expr
-            The expression to predict on
+    decision_function = invoke_predict_method(
+        tag_name="FittedPipeline-decision_function",
+        tag_key="decision_function_tags",
+        methodname="decision_function",
+    )
 
-        Returns
-        -------
-        ibis.Expr
-            Expression with decision function scores
-        """
-        return _apply_pipeline_prediction_method(
-            self,
-            "decision_function",
-            expr,
-            "FittedPipeline-decision_function",
-            "decision_function_tags",
-        )
-
-    def feature_importances(self, expr):
-        """Get feature importances for the model.
-
-        This method applies transformations and then extracts feature importances
-        from the predictor model.
-
-        Parameters
-        ----------
-        expr : ibis.Expr
-            The expression to compute feature importances on
-
-        Returns
-        -------
-        ibis.Expr
-            Expression with feature importances column
-        """
-        return _apply_pipeline_prediction_method(
-            self,
-            "feature_importances",
-            expr,
-            "FittedPipeline-feature_importances",
-            "feature_importances_tags",
-        )
+    feature_importances = invoke_predict_method(
+        tag_name="FittedPipeline-feature_importances",
+        tag_key="feature_importances_tags",
+        methodname="feature_importances",
+    )
 
     def score_expr(self, expr, metric_fn=None, use_proba=False, **kwargs):
         """Compute metrics using deferred execution.
