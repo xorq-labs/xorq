@@ -132,11 +132,14 @@ def unbind_expr_hash(expr, to_replace_hash, typs=None, strategy=None):
 
 def gen_downstream(expr, downstream_of):
     gi = bfs(expr).invert()
+    visited = set()
 
     def inner(op):
         for child in gi[op]:
-            yield child
-            yield from inner(child)
+            if child not in visited:
+                visited.add(child)
+                yield child
+                yield from inner(child)
 
     yield from inner(downstream_of)
 
