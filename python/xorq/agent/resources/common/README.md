@@ -4,7 +4,11 @@ This directory contains the **single source of truth** for xorq agent skill docu
 
 ## Problem Solved
 
-Previously, we had duplicated content across multiple agent skills that needed manual syncing, risking content drift.
+Previously, we had ~80% duplicated content between:
+- `skills/xorq/SKILL.md` (Claude Code)
+- `python/xorq/agent/resources/codex/SKILL.md` (OpenAI Codex)
+
+When xorq was updated, both files needed manual syncing, risking content drift.
 
 **Solution:** Extract common content to shared templates, generate agent-specific skills automatically.
 
@@ -14,12 +18,15 @@ Previously, we had duplicated content across multiple agent skills that needed m
 python/xorq/agent/resources/
 ├── common/                       # Shared content (YOU ARE HERE)
 │   ├── README.md                 # This file
-│   ├── skill_core.md             # ~90% shared xorq guidance
+│   ├── skill_core.md             # 90% shared xorq guidance
 │   ├── claude_wrapper.md         # Claude-specific sections
+│   ├── codex_wrapper.md          # Codex-specific sections
 │   └── generate_skills.py        # Generation script
-└── claude/
-    ├── SKILL.md                  # GENERATED - Do not edit directly
-    └── ...
+├── codex/
+│   ├── SKILL.md                  # GENERATED - Do not edit directly
+│   ├── README.md                 # Codex installation docs
+│   └── bootstrap.md              # Codex bootstrap content
+└── ...
 ```
 
 Plus:
@@ -53,18 +60,26 @@ skills/xorq/
 - Front matter (version, allowed-tools)
 
 ### claude_wrapper.md
-**~10% Claude-specific:**
+**10% Claude-specific:**
 - Front matter with `allowed-tools`
-- Tool compatibility notes
+- Tool compatibility notes for other agents
 - References to `{{CORE_CONTENT}}` placeholder
+- Version footer
+
+### codex_wrapper.md
+**10% Codex-specific:**
+- Front matter without `allowed-tools`
+- Codex tool mapping section
+- References to `{{CORE_CONTENT}}` placeholder
+- Codex-specific best practices
 - Version footer
 
 ### generate_skills.py
 **Generation logic:**
 - Reads `skill_core.md` (shared content)
-- Reads agent wrapper (claude_wrapper.md)
+- Reads agent wrapper (claude or codex)
 - Substitutes `{{CORE_CONTENT}}` and `{{VERSION}}`
-- Writes to destination path
+- Writes to destination paths
 
 ## Workflow
 
@@ -84,21 +99,23 @@ python python/xorq/agent/resources/common/generate_skills.py
 ```bash
 # Check generated files
 git diff skills/xorq/SKILL.md
+git diff python/xorq/agent/resources/codex/SKILL.md
 
 # Verify line counts
-wc -l skills/xorq/SKILL.md
+wc -l skills/xorq/SKILL.md python/xorq/agent/resources/codex/SKILL.md
 ```
 
 **4. Commit all files:**
 ```bash
 git add python/xorq/agent/resources/common/skill_core.md
 git add skills/xorq/SKILL.md
+git add python/xorq/agent/resources/codex/SKILL.md
 git commit -m "Update xorq skills with <new feature>"
 ```
 
 ### When Adding Agent-Specific Content
 
-**1. Edit wrapper** (claude_wrapper.md):
+**1. Edit wrapper** (claude_wrapper.md or codex_wrapper.md):
 ```bash
 vim python/xorq/agent/resources/common/claude_wrapper.md
 ```
@@ -125,8 +142,9 @@ Then regenerate and commit.
 ### Automatic Generation
 
 Skills are regenerated automatically when:
-- `xorq agents skill install` runs
+- `xorq agents onboard` runs
 - `register_claude_skill()` is called
+- `register_codex_skill()` is called
 
 See `python/xorq/agent/onboarding.py`:
 ```python
@@ -146,8 +164,9 @@ def register_claude_skill() -> Path | None:
 # Generate all skills
 python python/xorq/agent/resources/common/generate_skills.py
 
-# Generate Claude skill
+# Generate specific agent
 python python/xorq/agent/resources/common/generate_skills.py claude
+python python/xorq/agent/resources/common/generate_skills.py codex
 
 # Generate with custom version
 python python/xorq/agent/resources/common/generate_skills.py claude 0.3.0
@@ -162,6 +181,10 @@ python python/xorq/agent/resources/common/generate_skills.py
 
 # Check outputs exist
 ls skills/xorq/SKILL.md
+ls python/xorq/agent/resources/codex/SKILL.md
+
+# Verify content differs appropriately
+diff skills/xorq/SKILL.md python/xorq/agent/resources/codex/SKILL.md | head -30
 ```
 
 ### Test Registration
@@ -169,8 +192,12 @@ ls skills/xorq/SKILL.md
 # Test Claude registration
 python -c "from xorq.agent.onboarding import register_claude_skill; print(register_claude_skill())"
 
+# Test Codex registration
+python -c "from xorq.agent.onboarding import register_codex_skill; from pathlib import Path; print(register_codex_skill(Path.cwd()))"
+
 # Verify installed
-ls .claude/skills/xorq/SKILL.md
+ls ~/.claude/skills/xorq/SKILL.md
+ls .xorq/codex/SKILL.md
 ```
 
 ## Content Guidelines
@@ -235,6 +262,7 @@ When updating skills:
 
 See also:
 - `skills/xorq/CLAUDE.md` - Claude Code skill maintenance guide
+- `python/xorq/agent/resources/codex/README.md` - Codex skill installation
 - `python/xorq/agent/onboarding.py` - Registration implementation
 
 ---
