@@ -104,10 +104,6 @@ def feature_importances_sklearn(model, df):
     return [importances.tolist()]
 
 
-#########################
-#########################
-
-
 def make_name(prefix, to_tokenize):
     tokenized = dask.base.tokenize(to_tokenize)
     name = ("_" + prefix + "_" + tokenized)[: config.hash_length].lower()
@@ -382,11 +378,8 @@ def deferred_fit_transform_series_sklearn(
     return DeferredFitOther(
         expr=expr,
         target=None,
-        # here is where we map col to features
         features=(col,),
-        # here is where we map cls,params,col to fit
         fit=fit_sklearn_series(col=col, cls=cls, params=params),
-        # here is where we map col to other
         other=transform_sklearn_series(col=col),
         return_type=return_type,
         name_infix=name,
