@@ -2,12 +2,70 @@
 
 from typing import Any, Callable
 
-import attrs
 import numpy as np
+from attr import (
+    field,
+    frozen,
+)
+from attr.validators import (
+    instance_of,
+    optional,
+)
+from toolz import compose
 
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.name_utils import make_name
+
+
+@frozen
+class MetricComputation:
+    target: str = field(validator=instance_of(str))
+    pred_col: str = field(validator=instance_of(str))
+    metric_fn: Callable[..., Any] = field(validator=instance_of(Callable))
+    metric_kwargs_tuple: tuple = field(
+        default=(),
+        converter=compose(tuple, sorted, dict.items, dict),
+    )
+    return_type = field(validator=instance_of(dt.DataType), default=dt.float64)
+    name = field(validator=optional(instance_of(str)), default=None)
+
+    def __attrs_post_init__(self):
+        if self.name is None:
+            name = make_name(
+                prefix=f"metric_{self.metric_fn.__name__}",
+                to_tokenize=self.metric_kwargs_tuple,
+            )
+            object.__setattr__(self, "name", name)
+
+    @property
+    def metric_kwargs(self):
+        return dict(self.metric_kwargs_tuple)
+
+    @property
+    def __name__(self):
+        """Return the name of the metric function for UDF registration."""
+        return self.metric_fn.__name__
+
+    @property
+    def __module__(self):
+        """Return the module of the metric function for UDF registration."""
+        return self.metric_fn.__module__
+
+    def __call__(self, df):
+        y_true = df[self.target]
+        y_pred = _prepare_predictions(df[self.pred_col])
+        return self.metric_fn(y_true, y_pred, **self.metric_kwargs)
+
+    def on_expr(self, expr):
+        schema = expr.select([self.target, self.pred_col]).schema()
+        metric_udaf = udf.agg.pandas_df(
+            fn=self,
+            schema=schema,
+            return_type=self.return_type,
+            name=self.name,
+        )
+        return metric_udaf.on_expr(expr)
 
 
 def deferred_sklearn_metric(
@@ -15,9 +73,9 @@ def deferred_sklearn_metric(
     target,
     pred_col,
     metric_fn,
-    metric_kwargs=None,
-    return_type=None,
-    name_infix=None,
+    metric_kwargs=(),
+    return_type=dt.float64,
+    name=None,
 ):
     """Compute sklearn metrics on expressions
 
@@ -39,8 +97,8 @@ def deferred_sklearn_metric(
         Additional kwargs to pass to metric function
     return_type : dt.DataType, optional
         Return type for the metric (default: dt.float64)
-    name_infix : Optional[str]
-        Custom name infix for the UDF
+    name: Optional[str]
+        Custom name for the UDF
 
     Returns
     -------
@@ -69,49 +127,15 @@ def deferred_sklearn_metric(
     ...     metric_fn=roc_auc_score
     ... )
     """
-    metric_kwargs = metric_kwargs or {}
-    return_type = return_type or dt.float64
-    metric_udaf = _create_metric_aggregation(
-        target,
-        pred_col,
-        metric_fn,
-        metric_kwargs,
-        return_type,
-        name_infix
-        or make_name(
-            prefix=f"metric_{metric_fn.__name__}",
-            to_tokenize=(metric_fn.__name__, str(metric_kwargs)),
-        ),
-        expr,
-    )
-
-    return metric_udaf.on_expr(expr)
-
-
-def _create_metric_aggregation(
-    target,
-    predictions_col,
-    metric_fn,
-    metric_kwargs,
-    return_type,
-    name_infix,
-    expr,
-):
-    """Create an aggregation UDF for computing the metric."""
-    compute_fn = _MetricComputation(
+    metric = MetricComputation(
         target=target,
-        pred_col=predictions_col,
+        pred_col=pred_col,
         metric_fn=metric_fn,
-        metric_kwargs=metric_kwargs,
-    )
-    schema = expr.select([target, predictions_col]).schema()
-
-    return udf.agg.pandas_df(
-        fn=compute_fn,
-        schema=schema,
+        metric_kwargs_tuple=metric_kwargs,
         return_type=return_type,
-        name=name_infix,
+        name=name,
     )
+    return metric.on_expr(expr)
 
 
 def _extract_positive_class_proba(y_pred):
@@ -122,31 +146,6 @@ def _extract_positive_class_proba(y_pred):
         elif y_pred.shape[1] == 1:
             return y_pred[:, 0]
     return y_pred
-
-
-@attrs.frozen
-class _MetricComputation:
-    target: str = attrs.field()
-    pred_col: str = attrs.field()
-    metric_fn: Callable[..., Any] = attrs.field()
-    metric_kwargs: tuple = attrs.field(
-        converter=lambda x: tuple(sorted((x or {}).items())),
-    )
-
-    @property
-    def __name__(self):
-        """Return the name of the metric function for UDF registration."""
-        return self.metric_fn.__name__
-
-    @property
-    def __module__(self):
-        """Return the module of the metric function for UDF registration."""
-        return self.metric_fn.__module__
-
-    def __call__(self, df):
-        y_true = df[self.target]
-        y_pred = _prepare_predictions(df[self.pred_col])
-        return self.metric_fn(y_true, y_pred, **dict(self.metric_kwargs))
 
 
 def _prepare_predictions(predictions):
