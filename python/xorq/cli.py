@@ -468,6 +468,8 @@ def init_command(
 
 def agents_command(args):
     match args.agents_subcommand:
+        case "init":
+            return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
         case "hooks":
@@ -480,6 +482,37 @@ def agents_command(args):
             return agent_cortex_command(args)
         case _:
             raise ValueError(f"Unknown agents subcommand: {args.agents_subcommand}")
+
+
+def agents_init_command(args):
+    path = Path(args.path)
+    if not path.exists():
+        print(
+            f"Error: Path {path} does not exist. Please initialize a xorq project first with 'xorq init'"
+        )
+        return None
+
+    # Parse comma-separated agent list
+    agents = [a.strip().lower() for a in args.agents.split(",")]
+    valid_agents = {"claude", "codex"}
+    invalid = set(agents) - valid_agents
+    if invalid:
+        print(f"Warning: Unknown agents {invalid}. Valid options: {valid_agents}")
+        agents = [a for a in agents if a in valid_agents]
+
+    if not agents:
+        print("No valid agents specified. Skipping agent setup.")
+        return None
+
+    created_files = bootstrap_agent_docs(path, agents=agents)
+    if created_files:
+        rel_paths = ", ".join(
+            str(Path(file).relative_to(path)) for file in created_files
+        )
+        print(f"wrote agent onboarding files: {rel_paths}")
+    else:
+        print("agent onboarding files already present, skipping")
+    return path
 
 
 def agent_onboard_command(args):
@@ -1405,15 +1438,38 @@ def parse_args(override=None):
     )
     agents_subparsers.required = True
 
-    onboard_parser = agents_subparsers.add_parser(
-        "onboard",
-        help="Lean onboarding instructions for AGENTS.md",
+    agents_init_parser = agents_subparsers.add_parser(
+        "init",
+        help="Bootstrap agent guides (claude, codex, or both)",
+    )
+    agents_init_parser.add_argument(
+        "-p",
+        "--path",
+        type=Path,
+        default=".",
+        help="Path to the xorq project directory",
+    )
+    agents_init_parser.add_argument(
+        "--agents",
+        type=str,
+        default="claude,codex",
+        help="Comma-separated list of agents to bootstrap (claude, codex, or both)",
     )
 
-    # Add hooks subparser for Claude Code integration
-    hooks_parser = agents_subparsers.add_parser(
-        "hooks",
-        help="Manage Claude Code hooks for xorq integration",
+    onboard_parser = agents_subparsers.add_parser(
+        "onboard",
+        help="Guided onboarding summary for xorq agents",
+    )
+    onboard_parser.add_argument(
+        "--step",
+        choices=("init", "templates", "build", "catalog", "explore", "compose", "land"),
+        default=None,
+        help="Filter onboarding instructions to a specific step",
+    )
+
+    land_parser = agents_subparsers.add_parser(
+        "land",
+        help="Show session summary and landing checklist",
     )
     hooks_subparsers = hooks_parser.add_subparsers(
         dest="hooks_subcommand",
@@ -1431,10 +1487,9 @@ def parse_args(override=None):
         help="Overwrite existing settings.json even if it contains hooks",
     )
 
-    # Add skill subparser for Claude Code skill management
-    skill_parser = agents_subparsers.add_parser(
-        "skill",
-        help="Manage Claude Code skills for xorq",
+    templates_parser = agents_subparsers.add_parser(
+        "templates",
+        help="Template registry commands",
     )
     skill_subparsers = skill_parser.add_subparsers(
         dest="skill_subcommand",
@@ -1722,11 +1777,6 @@ def main():
             case "agents":
                 f, f_args = (
                     agents_command,
-                    (args,),
-                )
-            case "hooks":
-                f, f_args = (
-                    git_hooks_command,
                     (args,),
                 )
             case _:

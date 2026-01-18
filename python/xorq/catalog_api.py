@@ -9,22 +9,17 @@ Provides convenient access to catalog functionality with a clean interface:
     expr = xo.catalog.get("my-alias")
     expr = xo.catalog.get("my-alias", rev="r2")
 
-    # Get a placeholder memtable with the same schema (for composition)
-    placeholder = xo.catalog.get_placeholder("my-alias")
+    # Split source and transform expressions via memtable
+    source_expr, transform_expr = xo.catalog.split_with_memtable(expr)
 """
 
-import sys
 from pathlib import Path
 from typing import Optional
 
-import pandas as pd
-
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.types as ir
-from xorq.caching import ParquetCache
 from xorq.catalog import load_catalog, resolve_build_dir
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.common.utils.ibis_utils import from_ibis
 from xorq.ibis_yaml.compiler import load_expr as _load_expr_from_path
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
@@ -74,125 +69,6 @@ class CatalogAPI:
         # Load the expression
         expr = _load_expr_from_path(build_dir)
         return expr
-
-    def load_expr(self, build_path: Path) -> ir.Expr:
-        """
-        Load an expression directly from a build directory path.
-
-        This is useful when you want to load an expression from a build directory
-        without going through the catalog. For loading cataloged expressions,
-        use xo.catalog.get() instead.
-
-        Args:
-            build_path: Path to the build directory containing expr.yaml
-
-        Returns:
-            The loaded Ibis expression
-
-        Raises:
-            ValueError: If build_path doesn't exist or doesn't contain expr.yaml
-
-        Example:
-            >>> import xorq as xo
-            >>> expr = xo.catalog.load_expr("builds/abc123def456")
-            >>> expr = xo.catalog.load_expr(Path("builds/abc123def456"))
-        """
-        build_path = Path(build_path)
-        if not build_path.exists():
-            raise ValueError(f"Build directory not found: {build_path}")
-        if not build_path.is_dir():
-            raise ValueError(f"Build path is not a directory: {build_path}")
-
-        # Validate expr.yaml exists
-        expr_yaml_path = build_path / "expr.yaml"
-        if not expr_yaml_path.exists():
-            raise ValueError(
-                f"No expr.yaml found in build directory: {build_path}\n"
-                f"Expected file at: {expr_yaml_path}"
-            )
-
-        # Load the expression
-        expr = _load_expr_from_path(build_path)
-        return expr
-
-    def get_placeholder(
-        self, alias: str, rev: Optional[str] = None, tag: Optional[str] = None
-    ) -> ir.Table:
-        """
-        Get a placeholder memtable with the same schema as a cataloged expression.
-
-        This is useful for building transforms that reference cataloged expressions
-        without actually loading the full expression. The placeholder is an empty
-        memtable that matches the schema of the cataloged expression.
-
-        Args:
-            alias: Catalog alias to get schema from
-            rev: Optional revision ID (e.g., "r2"). If None, uses current revision.
-            tag: Optional tag to identify this placeholder node. Useful for finding
-                 the node hash later for composition. If None, no tag is applied.
-
-        Returns:
-            An empty memtable with the same schema as the cataloged expression
-
-        Raises:
-            ValueError: If alias not found in catalog or build directory doesn't exist
-
-        Example:
-            >>> import xorq as xo
-            >>> # Get placeholder with schema from cataloged expression
-            >>> source = xo.catalog.get_placeholder("batting-source", tag="source")
-            >>> print(source.schema())  # Shows schema without loading full expression
-            >>>
-            >>> # Build transform using placeholder
-            >>> transform = source.select("playerID", "H", "AB")
-            >>> # xorq build transform.py -e transform
-            >>> # xorq catalog sources transform  # Will show tag="source"
-        """
-        catalog = load_catalog(path=self.catalog_path)
-
-        # Construct token: alias or alias@rev
-        token = alias if rev is None else f"{alias}@{rev}"
-
-        # Resolve build directory
-        build_dir = resolve_build_dir(token, catalog)
-
-        if build_dir is None or not build_dir.exists():
-            raise ValueError(f"Build directory not found for catalog entry: {token}")
-
-        # Load the expression to get schema
-        expr = _load_expr_from_path(build_dir)
-        schema = expr.schema()
-
-        # Create empty dataframe with correct column structure
-        empty_data = {col: [] for col in schema.names}
-        empty_df = pd.DataFrame(empty_data)
-
-        # Cast to proper types (with error handling for complex types)
-        for col, dtype in zip(schema.names, schema.types):
-            try:
-                empty_df[col] = empty_df[col].astype(dtype.to_pandas())
-            except (AttributeError, TypeError, ValueError) as e:
-                # Some Ibis types don't convert cleanly to pandas
-                # Let ibis.memtable handle the schema conversion instead
-                print(
-                    f"[get_placeholder] Warning: Could not convert column '{col}' "
-                    f"to pandas type: {e}. Using Ibis schema conversion.",
-                    file=sys.stderr
-                )
-
-        # Create memtable with the schema (use alias as name)
-        # Pass schema explicitly so Ibis handles type conversion for complex types
-        memtable = ibis.memtable(empty_df, schema=schema, name=alias)
-
-        # Add cache to bind to backend
-        memtable = memtable.cache(ParquetCache.from_kwargs())
-
-        # Add tag AFTER cache so tag wraps the CachedNode
-        # This allows unbinding by tag to find the CachedNode with backend
-        if tag is not None:
-            memtable = memtable.tag(tag)
-
-        return memtable
 
 
 def get_node_hash(node, expr: ir.Expr) -> str:
@@ -430,14 +306,10 @@ _catalog_api = CatalogAPI()
 
 # Export convenience functions
 get = _catalog_api.get
-load_expr = _catalog_api.load_expr
-get_placeholder = _catalog_api.get_placeholder
 
 __all__ = [
     "CatalogAPI",
     "get",
-    "load_expr",
-    "get_placeholder",
     "list_source_nodes",
     "get_node_hash",
     "replace_as_root_memtable",
