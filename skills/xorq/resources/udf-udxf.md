@@ -142,6 +142,382 @@ scored = data.mutate(sentiment=sentiment_scorer.on_expr)
 
 ---
 
+## User Defined Aggregate Functions (UDAFs)
+
+### Overview
+
+UDAFs enable custom aggregations using pandas logic within deferred execution. They reduce groups to single values (stats, models, complex aggregations) while keeping the pipeline deferred.
+
+**⚠️ IMPORTANT: UDAFs only work on LOCAL backend!**
+
+Cache remote data first before using UDAFs:
+
+```python
+from xorq.caching import ParquetCache
+
+# PREFERRED: Use ParquetCache
+local_data = remote_table.cache(ParquetCache.from_kwargs())
+
+# OR simple cache
+local_data = remote_table.cache()
+
+# OR into_backend
+local_data = remote_table.into_backend(xo.connect())
+```
+
+---
+
+### Pattern: Statistical Aggregations Returning Structs
+
+**Use case**: Compute multiple advanced statistics at once per group
+
+```python
+from xorq.expr.udf import agg
+import xorq.expr.datatypes as dt
+import pandas as pd
+
+def calculate_advanced_stats(df):
+    '''Compute multiple statistics at once'''
+    return {
+        'iqr': df['value'].quantile(0.75) - df['value'].quantile(0.25),
+        'trimmed_mean': df['value'].iloc[
+            int(len(df)*0.1):int(len(df)*0.9)
+        ].mean(),
+        'mode': df['value'].mode().iloc[0] if not df['value'].mode().empty else None,
+        'cv': df['value'].std() / df['value'].mean(),  # Coefficient of variation
+        'correlation': df['value'].corr(df['other_value'])
+    }
+
+# Create UDAF
+schema = table.select(['value', 'other_value']).schema()
+stats_udf = agg.pandas_df(
+    fn=calculate_advanced_stats,
+    schema=schema,
+    return_type=dt.Struct({
+        'iqr': dt.float64,
+        'trimmed_mean': dt.float64,
+        'mode': dt.float64,
+        'cv': dt.float64,
+        'correlation': dt.float64
+    }),
+    name="advanced_stats"
+)
+
+# Apply to groups
+results = table.group_by(_.category).agg(
+    stats=stats_udf.on_expr(table)
+)
+
+# Unpack struct to separate columns
+results_unpacked = results.unpack('stats')
+```
+
+**Key points:**
+- Function returns a dict matching the struct schema
+- `schema` parameter defines input columns needed
+- `return_type` must be a `Struct` for multiple outputs
+- Use `.unpack()` to expand struct into columns
+
+---
+
+### Pattern: Model Training as Aggregation
+
+**Use case**: Train one model per segment/group
+
+```python
+from xorq.expr.udf import agg
+import xorq.expr.datatypes as dt
+import pickle
+from sklearn.ensemble import RandomForestRegressor
+
+def train_segment_model(df):
+    '''Train a model per group'''
+    features = ['feature1', 'feature2', 'feature3']
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(df[features], df['target'])
+    return pickle.dumps(model)
+
+# Define UDAF
+model_udf = agg.pandas_df(
+    fn=train_segment_model,
+    schema=table.select(features + ['target']).schema(),
+    return_type=dt.binary,
+    name="train_model"
+)
+
+# Train one model per segment
+models = table.group_by("segment").agg(
+    model=model_udf.on_expr(table)
+)
+
+# Use models - unpickle and predict
+@xo.udf.make_pandas_udf(
+    schema=xo.schema({"model": dt.binary}),
+    return_type=dt.float64,
+    name="predict_with_model"
+)
+def predict_with_model(df):
+    model = pickle.loads(df["model"].iloc[0])
+    return pd.Series([model.predict(new_data)])
+
+# Join models back to data and predict
+predictions = (
+    new_data
+    .join(models, "segment")
+    .mutate(prediction=predict_with_model.on_expr)
+)
+```
+
+**Key points:**
+- Use `pickle.dumps()` to serialize models to binary
+- `return_type=dt.binary` for pickled objects
+- Train once per group, reuse models for prediction
+- Store models in a table for later use
+
+---
+
+### Pattern: Custom Window Aggregations
+
+**Use case**: Complex rolling or cumulative aggregations not in ibis
+
+```python
+def rolling_quantile_range(df):
+    '''Calculate rolling IQR (interquartile range)'''
+    sorted_vals = df['value'].sort_values()
+    q75 = sorted_vals.quantile(0.75)
+    q25 = sorted_vals.quantile(0.25)
+    return q75 - q25
+
+quantile_range_udf = agg.pandas_df(
+    fn=rolling_quantile_range,
+    schema=table.select(['value']).schema(),
+    return_type=dt.float64,
+    name="quantile_range"
+)
+
+# Apply per time window
+windowed_stats = (
+    table
+    .mutate(time_bucket=_.timestamp.truncate('1h'))
+    .group_by(['category', 'time_bucket'])
+    .agg(iqr=quantile_range_udf.on_expr(table))
+)
+```
+
+---
+
+### Pattern: Text Aggregations
+
+**Use case**: Concatenate, summarize, or analyze text per group
+
+```python
+def aggregate_text(df):
+    '''Combine text fields with stats'''
+    texts = df['comment'].tolist()
+    return {
+        'combined_text': ' '.join(texts),
+        'avg_length': df['comment'].str.len().mean(),
+        'unique_words': len(set(' '.join(texts).split())),
+        'sentiment_avg': analyze_sentiment(texts).mean()
+    }
+
+text_agg_udf = agg.pandas_df(
+    fn=aggregate_text,
+    schema=table.select(['comment']).schema(),
+    return_type=dt.Struct({
+        'combined_text': dt.string,
+        'avg_length': dt.float64,
+        'unique_words': dt.int64,
+        'sentiment_avg': dt.float64
+    }),
+    name="text_aggregation"
+)
+
+# Aggregate comments per product
+product_reviews = (
+    reviews_table
+    .group_by('product_id')
+    .agg(text_stats=text_agg_udf.on_expr(reviews_table))
+    .unpack('text_stats')
+)
+```
+
+---
+
+### Pattern: Custom Percentile Calculations
+
+**Use case**: Weighted percentiles, trimmed stats, or custom distributions
+
+```python
+def weighted_percentiles(df):
+    '''Calculate weighted percentiles'''
+    # Sort by value
+    sorted_df = df.sort_values('value')
+    cumsum = sorted_df['weight'].cumsum()
+    total_weight = sorted_df['weight'].sum()
+
+    # Find weighted percentiles
+    p50_idx = (cumsum >= total_weight * 0.5).idxmax()
+    p90_idx = (cumsum >= total_weight * 0.9).idxmax()
+
+    return {
+        'p50': sorted_df.loc[p50_idx, 'value'],
+        'p90': sorted_df.loc[p90_idx, 'value']
+    }
+
+weighted_pct_udf = agg.pandas_df(
+    fn=weighted_percentiles,
+    schema=table.select(['value', 'weight']).schema(),
+    return_type=dt.Struct({
+        'p50': dt.float64,
+        'p90': dt.float64
+    }),
+    name="weighted_percentiles"
+)
+
+# Apply to groups
+weighted_stats = (
+    table
+    .group_by('category')
+    .agg(percentiles=weighted_pct_udf.on_expr(table))
+    .unpack('percentiles')
+)
+```
+
+---
+
+### Best Practices for UDAFs
+
+#### 1. Always Cache Remote Data First
+
+```python
+# Good: Cache first
+local_data = remote_table.cache(ParquetCache.from_kwargs())
+results = local_data.group_by('category').agg(
+    custom_stat=my_udaf.on_expr(local_data)
+)
+
+# Bad: UDAF on remote data (will fail!)
+results = remote_table.group_by('category').agg(
+    custom_stat=my_udaf.on_expr(remote_table)
+)
+```
+
+#### 2. Handle Empty Groups Gracefully
+
+```python
+def safe_aggregation(df):
+    '''Handle empty groups'''
+    if len(df) == 0:
+        return {'result': None, 'count': 0}
+
+    return {
+        'result': df['value'].mean(),
+        'count': len(df)
+    }
+```
+
+#### 3. Vectorize Operations
+
+```python
+# Good: Vectorized pandas operations
+def fast_agg(df):
+    return df['value'].quantile([0.25, 0.75]).diff().iloc[-1]
+
+# Avoid: Row-by-row iteration
+def slow_agg(df):
+    results = []
+    for idx, row in df.iterrows():  # Slow!
+        results.append(process(row))
+    return sum(results)
+```
+
+#### 4. Use Appropriate Return Types
+
+```python
+# Single value: Use scalar type
+return_type=dt.float64
+
+# Multiple values: Use Struct
+return_type=dt.Struct({
+    'mean': dt.float64,
+    'std': dt.float64
+})
+
+# Serialized objects: Use binary
+return_type=dt.binary  # For pickled models, etc.
+```
+
+#### 5. Test UDAF Functions Independently
+
+```python
+# Test aggregation function with sample data
+test_df = pd.DataFrame({
+    'value': [1, 2, 3, 4, 5],
+    'other_value': [5, 4, 3, 2, 1]
+})
+
+result = calculate_advanced_stats(test_df)
+assert 'iqr' in result
+assert isinstance(result['iqr'], float)
+```
+
+---
+
+### Troubleshooting UDAFs
+
+#### Issue: "UDAFs not supported on this backend"
+
+**Solution:** Cache to local backend first
+```python
+local_data = remote_table.cache(ParquetCache.from_kwargs())
+results = local_data.group_by('col').agg(udaf.on_expr(local_data))
+```
+
+#### Issue: Schema mismatch errors
+
+**Solution:** Ensure input schema matches table schema
+```python
+# Verify schema includes all needed columns
+schema = table.select(['col1', 'col2']).schema()
+udaf = agg.pandas_df(fn=my_func, schema=schema, return_type=dt.float64)
+```
+
+#### Issue: Return type mismatch
+
+**Solution:** Match return type to actual output
+```python
+# If returning dict, use Struct
+return_type=dt.Struct({'key': dt.float64})
+
+# If returning single value, use scalar type
+return_type=dt.float64
+```
+
+---
+
+### Summary
+
+**UDAF key points:**
+- Use `agg.pandas_df()` for custom aggregations
+- **Only works on local backend** - cache remote data first
+- Return single values (scalars, structs, binary for models)
+- Keeps pipeline deferred - executes only when needed
+- Perfect for: advanced stats, model training per group, custom metrics
+
+**When to use UDAFs:**
+- Aggregation not available in ibis
+- Need pandas-specific logic (quantiles, complex rolling stats)
+- Training models per group/segment
+- Custom statistical measures
+
+**When NOT to use UDAFs:**
+- Simple aggregations (use ibis built-ins: `.mean()`, `.sum()`, etc.)
+- Element-wise transformations (use regular UDFs instead)
+- When working directly on remote backends without caching
+
+---
+
 ## User Defined Exchangers (UDXFs)
 
 ### Pattern: Basic Exchanger

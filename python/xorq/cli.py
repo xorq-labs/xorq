@@ -447,42 +447,18 @@ def init_command(
     path="./xorq-template",
     template=InitTemplates.default,
     branch=None,
-    agent=False,
 ):
     from xorq.common.utils.download_utils import download_unpacked_xorq_template
 
-    dest_path = Path(path)
-    try:
-        path = download_unpacked_xorq_template(path, template, branch=branch)
-    except ValueError as exc:
-        msg = str(exc)
-        if agent and "already exists" in msg and dest_path.exists():
-            print(
-                f"target {dest_path} already exists; skipping template download and "
-                "only updating agent docs"
-            )
-            path = dest_path
-        else:
-            raise
-    if agent:
-        created_files = bootstrap_agent_docs(path)
-        if created_files:
-            rel_paths = ", ".join(
-                str(Path(file).relative_to(path)) for file in created_files
-            )
-            print(f"wrote agent onboarding files: {rel_paths}")
-        else:
-            print("agent onboarding files already present, skipping")
+    path = download_unpacked_xorq_template(path, template, branch=branch)
     print(f"initialized xorq template `{template}` to {path}")
     return path
 
 
-def agent_command(args):
-    match args.agent_subcommand:
-        case "prime":
-            from xorq.agent.prime import agent_prime_command
-
-            return agent_prime_command(task=getattr(args, "task", None))
+def agents_command(args):
+    match args.agents_subcommand:
+        case "init":
+            return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
         case "land":
@@ -490,7 +466,38 @@ def agent_command(args):
         case "templates":
             return agent_templates_command(args)
         case _:
-            raise ValueError(f"Unknown agent subcommand: {args.agent_subcommand}")
+            raise ValueError(f"Unknown agents subcommand: {args.agents_subcommand}")
+
+
+def agents_init_command(args):
+    path = Path(args.path)
+    if not path.exists():
+        print(
+            f"Error: Path {path} does not exist. Please initialize a xorq project first with 'xorq init'"
+        )
+        return None
+
+    # Parse comma-separated agent list
+    agents = [a.strip().lower() for a in args.agents.split(",")]
+    valid_agents = {"claude", "codex"}
+    invalid = set(agents) - valid_agents
+    if invalid:
+        print(f"Warning: Unknown agents {invalid}. Valid options: {valid_agents}")
+        agents = [a for a in agents if a in valid_agents]
+
+    if not agents:
+        print("No valid agents specified. Skipping agent setup.")
+        return None
+
+    created_files = bootstrap_agent_docs(path, agents=agents)
+    if created_files:
+        rel_paths = ", ".join(
+            str(Path(file).relative_to(path)) for file in created_files
+        )
+        print(f"wrote agent onboarding files: {rel_paths}")
+    else:
+        print("agent onboarding files already present, skipping")
+    return path
 
 
 def agent_onboard_command(args):
@@ -835,11 +842,6 @@ def parse_args(override=None):
         "--branch",
         default=None,
     )
-    init_parser.add_argument(
-        "--agent",
-        action="store_true",
-        help="Bootstrap AGENTS/CLAUDE guides using bundled prompts",
-    )
     lineage_parser = subparsers.add_parser(
         "lineage",
         help="Print lineage trees of all columns for a build",
@@ -923,45 +925,73 @@ def parse_args(override=None):
         default=None,
     )
 
-    agent_parser = subparsers.add_parser(
-        "agent",
+    # New catalog composition helper commands
+    catalog_sources = catalog_subparsers.add_parser(
+        "sources", help="List source nodes in an expression (for composition)"
+    )
+    catalog_sources.add_argument("alias", help="Catalog alias or entry to inspect")
+    catalog_sources.add_argument(
+        "--show-schema",
+        action="store_true",
+        help="Show schema details for each source node",
+    )
+
+    catalog_schema = catalog_subparsers.add_parser(
+        "schema", help="Show output schema of a cataloged expression"
+    )
+    catalog_schema.add_argument("alias", help="Catalog alias or entry to inspect")
+    catalog_schema.add_argument(
+        "--json", action="store_true", help="Output schema as JSON"
+    )
+
+    catalog_search = catalog_subparsers.add_parser(
+        "search-source-schema",
+        help="Search catalog for transforms accepting a schema (reads JSON from stdin)",
+    )
+    catalog_search.add_argument(
+        "--exact-only", action="store_true", help="Only show exact schema matches"
+    )
+
+    agents_parser = subparsers.add_parser(
+        "agents",
         help="Agent-native helpers built on top of xorq primitives",
     )
-    agent_subparsers = agent_parser.add_subparsers(
-        dest="agent_subcommand",
+    agents_subparsers = agents_parser.add_subparsers(
+        dest="agents_subcommand",
         help="Agent helper commands",
     )
-    agent_subparsers.required = True
+    agents_subparsers.required = True
 
-    prime_parser = agent_subparsers.add_parser(
-        "prime",
-        help="Output AI-optimized workflow context (single source of truth)",
+    agents_init_parser = agents_subparsers.add_parser(
+        "init",
+        help="Bootstrap agent guides (claude, codex, or both)",
     )
-    prime_parser.add_argument(
-        "--task",
-        choices=(
-            "ml",
-            "ml_regression",
-            "ml_classification",
-            "regression",
-            "classification",
-        ),
-        default=None,
-        help="Show task-specific guidance (ml tasks auto-detected if not specified)",
+    agents_init_parser.add_argument(
+        "-p",
+        "--path",
+        type=Path,
+        default=".",
+        help="Path to the xorq project directory",
+    )
+    agents_init_parser.add_argument(
+        "--agents",
+        type=str,
+        default="claude,codex",
+        help="Comma-separated list of agents to bootstrap (claude, codex, or both)",
     )
 
-    onboard_parser = agent_subparsers.add_parser(
+    onboard_parser = agents_subparsers.add_parser(
         "onboard",
         help="Guided onboarding summary for xorq agents",
     )
     onboard_parser.add_argument(
         "--step",
-        choices=("init", "build", "catalog", "test", "land"),
+        choices=("init", "templates", "build", "catalog", "explore", "compose", "land"),
         default=None,
         help="Filter onboarding instructions to a specific step",
     )
 
-    land_parser = agent_subparsers.add_parser(
+    land_parser = agents_subparsers.add_parser(
         "land",
         help="Show session summary and landing checklist",
     )
@@ -972,7 +1002,7 @@ def parse_args(override=None):
         help="Number of recent builds to show (default: 10)",
     )
 
-    templates_parser = agent_subparsers.add_parser(
+    templates_parser = agents_subparsers.add_parser(
         "templates",
         help="Template registry commands",
     )
@@ -1110,7 +1140,7 @@ def main():
             case "init":
                 f, f_args = (
                     init_command,
-                    (args.path, args.template, args.branch, args.agent),
+                    (args.path, args.template, args.branch),
                 )
             case "lineage":
                 f, f_args = (
@@ -1127,9 +1157,9 @@ def main():
                     ps_command,
                     (args.cache_dir,),
                 )
-            case "agent":
+            case "agents":
                 f, f_args = (
-                    agent_command,
+                    agents_command,
                     (args,),
                 )
             case _:

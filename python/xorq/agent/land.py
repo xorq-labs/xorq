@@ -8,7 +8,7 @@ from __future__ import annotations
 import subprocess
 from pathlib import Path
 
-from xorq.agent.prime import get_catalog_entries, get_recent_builds
+from xorq.agent.onboarding import get_catalog_entries, get_recent_builds
 
 
 def check_catalog_uncommitted() -> bool:
@@ -105,47 +105,22 @@ def render_landing_checklist(limit: int = 5) -> str:
     """Render the landing checklist with current project state."""
 
     # Get project state
-    recent_builds = get_recent_builds(limit=limit)
-    catalog_entries = get_catalog_entries(limit=limit)
     catalog_uncommitted = check_catalog_uncommitted()
     builds_uncommitted = check_builds_uncommitted()
     git_status = check_git_status()
 
     sections = [
-        "# 🚨 Landing Checklist",
-        "",
-        "Before closing this session, ensure all work is committed and pushed.",
+        "## Required Steps",
         "",
     ]
 
-    # Show recent activity
-    if recent_builds or catalog_entries:
-        sections.append("## Recent Activity")
-        sections.append("")
-
-        if recent_builds:
-            sections.append("**Recent Builds:**")
-            for build_hash, time_str in recent_builds:
-                sections.append(f"- `{build_hash[:12]}...` ({time_str})")
-            sections.append("")
-
-        if catalog_entries:
-            sections.append("**Catalog Entries:**")
-            for entry in catalog_entries:
-                alias = entry.get("alias", "")
-                revision = entry.get("revision", "")
-                root_tag = entry.get("root_tag", "")
-                if root_tag:
-                    sections.append(f"- `{alias}` @ {revision} → {root_tag}")
-                else:
-                    sections.append(f"- `{alias}` @ {revision}")
-            sections.append("")
-
-    # Critical checklist
-    sections.append("## Required Steps")
+    # Workflow checks
+    sections.append("- [ ] Add all expressions with proper tags")
+    sections.append("- [ ] Ensure all visualization and last mile processing is in deferred UDFs/UDAFs")
+    sections.append("- [ ] `xorq catalog add` all expressions")
     sections.append("")
 
-    # Check 1: Catalog committed
+    # Git status checks
     if catalog_uncommitted:
         sections.append(
             "- [ ] ❌ **Commit catalog**: `.xorq/catalog.yaml` has uncommitted changes"
@@ -157,19 +132,17 @@ def render_landing_checklist(limit: int = 5) -> str:
         sections.append("- [x] ✅ Catalog committed")
     sections.append("")
 
-    # Check 2: Builds committed
     if builds_uncommitted:
         sections.append(
             f"- [ ] ❌ **Commit builds**: {len(builds_uncommitted)} uncommitted builds"
         )
         sections.append("  ```bash")
-        sections.append("  git add builds/")
+        sections.append("  git add .xorq/builds/")
         sections.append("  ```")
     else:
         sections.append("- [x] ✅ Builds committed")
     sections.append("")
 
-    # Check 3: All changes committed
     if git_status["has_uncommitted"]:
         sections.append("- [ ] ❌ **Commit all changes**")
         sections.append("  ```bash")
@@ -179,7 +152,6 @@ def render_landing_checklist(limit: int = 5) -> str:
         sections.append("- [x] ✅ All changes committed")
     sections.append("")
 
-    # Check 4: Pushed to remote
     if git_status["commits_ahead"] > 0:
         sections.append(
             f"- [ ] ❌ **Push to remote**: {git_status['commits_ahead']} commits ahead"
@@ -191,39 +163,10 @@ def render_landing_checklist(limit: int = 5) -> str:
         sections.append("- [x] ✅ Pushed to remote")
     sections.append("")
 
-    # Check 5: Builds validated
     sections.append("- [ ] **Validate builds** (recommended)")
     sections.append("  ```bash")
     sections.append("  xorq run <alias> --limit 10")
     sections.append("  ```")
-    sections.append("")
-
-    # Final status
-    all_good = (
-        not catalog_uncommitted
-        and not builds_uncommitted
-        and not git_status["has_uncommitted"]
-        and git_status["commits_ahead"] == 0
-    )
-
-    if all_good:
-        sections.extend(
-            [
-                "---",
-                "",
-                "✅ **All checks passed!** Session is ready to close.",
-                "",
-            ]
-        )
-    else:
-        sections.extend(
-            [
-                "---",
-                "",
-                "⚠️  **Action required** - Complete the checklist above before closing.",
-                "",
-            ]
-        )
 
     return "\n".join(sections).strip() + "\n"
 

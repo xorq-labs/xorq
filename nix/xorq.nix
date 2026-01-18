@@ -230,6 +230,8 @@ let
         pkgs.uv
         xorq-commands-star
         pkgs.gh
+        pkgs.datafusion-cli
+        pkgs.duckdb
       ];
       defaultShell = pkgs.mkShell {
         packages = [

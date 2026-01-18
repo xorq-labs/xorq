@@ -1,28 +1,3 @@
----
-name: xorq
-description: >
-  Compute manifest and composable tools for ML. Build, catalog, and serve deferred
-  expressions with input-addressed caching, multi-engine execution, and Arrow-native
-  data flow. Use for ML pipelines, feature engineering, and model serving.
-allowed-tools: "Read,Bash(xorq:*),Bash(python:*)"
-version: "0.2.0"
-author: "Xorq Labs <https://github.com/xorq-labs>"
-license: "Apache-2.0"
----
-
-# Xorq - Manifest-Driven Compute for ML
-
-A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
-
-## Agent Tool Compatibility
-
-**For non-Claude Code agents (Codex, etc.):**
-When xorq docs reference Claude Code-specific tools, map to your environment's equivalents:
-- `TodoWrite` → Your planning/task tracking tool (e.g., `update_plan`)
-- `Task` tool with subagents → Do the work directly (if subagents not available)
-- `Skill` tool → Not needed (you're reading this skill directly)
-- `Read`, `Write`, `Edit`, `Bash` → Use your native tools with similar functions
-
 # Xorq - Manifest-Driven Compute for ML
 
 A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
@@ -487,8 +462,3 @@ expr = (
 - **Workflow Context**: `xorq agents prime` (dynamic, context-aware)
 - **GitHub**: [github.com/xorq-labs/xorq](https://github.com/xorq-labs/xorq)
 - **Docs**: [docs.xorq.dev](https://docs.xorq.dev)
-
-
-## Version
-
-v0.2.0 - Consolidated skill with CLI + Python API coverage
