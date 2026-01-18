@@ -287,12 +287,13 @@ def render_prime_context(task_type: str | None = None) -> str:
         ```
         [ ] 1. Build and catalog new expressions
         [ ] 2. Validate builds run: xorq run <alias> --limit 10
-        [ ] 3. Commit build manifests: git add builds/ && git commit
+        [ ] 3. Commit catalog and manifests: git add .xorq/catalog.yaml builds/ && git commit
         [ ] 4. Push to remote: git push
         [ ] 5. Verify: git status (must show "up to date")
         ```
 
         **NEVER skip this.** Work is not done until pushed and validated.
+        **The catalog file (.xorq/catalog.yaml) MUST be committed** to preserve aliases and revisions.
 
         ## Core Workflow
 
