@@ -63,7 +63,6 @@ expr = expr.aggregate(complex_pandas_udaf.on_expr)
 expr.execute()
 ```
 
-
 # do some complicated pandas df stuff
 
 
@@ -212,6 +211,14 @@ git add .xorq/catalog.yaml builds/
 git commit -m "Add pipeline to catalog"
 ```
 
+## Session Protocol
+
+### Start Session
+
+```bash
+# Get dynamic workflow context
+xorq agents prime
+```
 
 ### Development Loop
 
@@ -274,6 +281,56 @@ xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
 
 ---
 
+### Memtable Placeholder Pattern
+
+**Pattern:** Build transforms independently using memtable placeholders, compose later.
+
+```python
+# In transform.py - Define transform with memtable
+import xorq.api as xo
+from xorq.vendor import ibis
+from xorq.common.utils.ibis_utils import from_ibis
+
+# Sample data matching expected source schema
+sample_data = {"col1": [1, 2], "col2": [3, 4]}
+source = xo.memtable(sample_data)
+print(source.schema())  # Check schema
+
+# Build transform on memtable
+expr = from_ibis(
+    source
+    .mutate(total=ibis._.col1 + ibis._.col2)
+    .filter(ibis._.total > 3)
+)
+```
+
+```bash
+# Build transform with memtable
+xorq build transform.py -e expr
+xorq catalog add builds/<hash> --alias my-transform
+
+# Find memtable node hash
+xorq catalog sources my-transform
+
+# Compose with real source later
+xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound my-transform \
+    --to_unbind_hash <hash> \
+    --typ xorq.expr.relations.Read \
+    -o output.parquet
+```
+
+**Why this pattern:**
+- Build transforms without waiting for source data
+- Test transform logic with sample data independently
+- Same transform reusable with multiple sources
+- Flexible composition via Arrow IPC streaming
+
+**Reference:** [Workflows #10](resources/WORKFLOWS.md#10-building-transform-expressions-with-memtable-pattern) | [Patterns](resources/PATTERNS.md#memtable-placeholder-pattern)
+
+---
+
+>>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ## Common Expression Patterns
 
 ### Filtering and Selection
@@ -332,17 +389,6 @@ ranked = table.mutate(
 
 ### Templates (Starter Code)
 
-```bash
-# List available examples
-ls examples/
-
-# View example code
-cat examples/sklearn_pipeline.py
-
-# Copy an example to start
-cp examples/penguins_demo.py my_pipeline.py
-```
-
 Available example patterns in examples/:
 - `penguins_demo` - Minimal multi-engine example
 - `sklearn_pipeline` - Deferred sklearn with train/predict
@@ -385,6 +431,53 @@ expr = (
 | [Workflows](resources/WORKFLOWS.md) | Step-by-step patterns |
 | [Troubleshooting](resources/TROUBLESHOOTING.md) | Common issues and fixes |
 
+## Troubleshooting
+
+### Expression won't execute
+- Check schema: `print(table.schema())`
+- Verify column names match case
+- Check connection: `con.list_tables()`
+
+### Column not found
+- Run `print(table.schema())` first
+- Match exact case (Snowflake=UPPERCASE, DuckDB=lowercase)
+
+### Cache not working
+- Verify cache directory exists
+- Check expression is identical (cache key = expression hash)
+
+### Import errors
+- Use `from xorq.vendor import ibis` (not `import ibis`)
+- Ensure xorq is installed: `pip show xorq`
+
+## Best Practices
+
+1. **Always check schema first** - `print(table.schema())`
+2. **Use deferred loading** - `deferred_read_parquet()` for large files
+3. **Cache strategically** - After expensive operations
+4. **Push filters early** - Filter before expensive transformations
+5. **Batch operations** - Combine mutations instead of sequential
+6. **Catalog everything** - Register all builds for reuse
+7. **Commit catalog** - Always `git add .xorq/catalog.yaml`
+
+## Key Differences from Other Tools
+
+| xorq | Traditional |
+|------|------------|
+| Manifest = context | Metadata in separate DB |
+| Input-addressed cache | TTL or manual invalidation |
+| Multi-engine compose | Engine lock-in |
+| Arrow RecordBatch streams | Task DAGs with state |
+| Build = portable artifact | Orchestrator config |
+
+## Documentation Links
+
+- **Workflow Context**: `xorq agents prime` (dynamic, context-aware)
+- **GitHub**: [github.com/xorq-labs/xorq](https://github.com/xorq-labs/xorq)
+- **Docs**: [docs.xorq.dev](https://docs.xorq.dev)
+
+
+>>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ## Version
 
 v0.2.0 - Consolidated skill with CLI + Python API coverage

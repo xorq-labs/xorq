@@ -1712,7 +1712,6 @@ def parse_args(override=None):
         help="Filter onboarding instructions to a specific step",
     )
 
-    # Claude Code hooks subparser
     hooks_parser = agents_subparsers.add_parser(
         "hooks",
         help="Manage Claude Code hooks",
@@ -1733,7 +1732,6 @@ def parse_args(override=None):
         help="Overwrite existing settings.json even if it contains hooks",
     )
 
-    # Claude Code skill subparser
     skill_parser = agents_subparsers.add_parser(
         "skill",
         help="Manage Claude Code skills",

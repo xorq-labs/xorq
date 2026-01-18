@@ -33,7 +33,11 @@ xorq run my-expr -o output.parquet
 | `xorq run <alias>` | Execute cataloged build |
 | `xorq catalog add/ls` | Manage build registry |
 | `xorq lineage <alias>` | Show column-level lineage |
+<<<<<<< HEAD
 | `xorq agents onboard` | Get workflow context (source of truth) |
+=======
+| `xorq agents prime` | Get workflow context (source of truth) |
+>>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 | `xorq agents onboard` | Guided workflow for agents |
 | `xorq agents templates list` | List available templates |
 
@@ -177,7 +181,11 @@ git commit -m "Add pipeline to catalog"
 
 ```bash
 # Get dynamic workflow context
+<<<<<<< HEAD
 xorq agents onboard
+=======
+xorq agents prime
+>>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ```
 
 ### Development Loop
@@ -210,7 +218,11 @@ git commit -m "Update catalog"
 git push
 
 # 3. Generate handoff
+<<<<<<< HEAD
 xorq agents onboard
+=======
+xorq agents prime
+>>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ```
 
 ## Advanced Workflow Patterns
@@ -360,7 +372,11 @@ xorq agents prompt list
 xorq agents prompt show xorq_core
 
 # Get workflow context (use this!)
+<<<<<<< HEAD
 xorq agents onboard
+=======
+xorq agents prime
+>>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ```
 
 ### Templates (Starter Code)
@@ -459,6 +475,10 @@ expr = (
 
 ## Documentation Links
 
+<<<<<<< HEAD
 - **Workflow Context**: `xorq agents onboard` (dynamic, context-aware)
+=======
+- **Workflow Context**: `xorq agents prime` (dynamic, context-aware)
+>>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 - **GitHub**: [github.com/xorq-labs/xorq](https://github.com/xorq-labs/xorq)
 - **Docs**: [docs.xorq.dev](https://docs.xorq.dev)
