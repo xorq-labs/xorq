@@ -2,6 +2,7 @@ import functools
 import pickle
 
 import dask
+import toolz
 from attr import (
     field,
     frozen,
@@ -339,48 +340,6 @@ class Step:
     __dask_tokenize__ = normalize_attrs
 
 
-def _get_non_feature_columns(expr, features):
-    """Get columns that are not in features as a tuple."""
-    return tuple(col for col in expr.columns if col not in features)
-
-
-def _apply_prediction_method(
-    deferred_method, expr, features, tag_kwargs, name, default_name, retain_others=True
-):
-    """Apply a prediction method with optional column retention.
-
-    Parameters
-    ----------
-    deferred_method : callable
-        The deferred method to apply
-    expr : ibis.Expr
-        The expression to apply the method to
-    features : tuple
-        Feature columns used by the model
-    tag_kwargs : dict
-        Tagging kwargs for the expression
-    name : str or None
-        Custom name for the result column
-    default_name : str
-        Default name to use if name is None
-    retain_others : bool
-        Whether to retain non-feature columns
-
-    Returns
-    -------
-    ibis.Expr
-        Tagged expression with results
-    """
-    col = deferred_method.on_expr(expr).name(name or default_name)
-
-    if retain_others and (others := _get_non_feature_columns(expr, features)):
-        expr = expr.select(*others, col)
-    else:
-        expr = col.as_table()
-
-    return expr.tag(**tag_kwargs)
-
-
 def _apply_pipeline_prediction_method(
     fitted_pipeline, method_name, expr, tag_name, tag_key
 ):
@@ -563,8 +522,8 @@ class FittedStep:
 
     def transform_unpack(self, expr, retain_others=True, name="to_unpack"):
         struct_col = self.transform_raw(expr).name(name)
-        if retain_others:
-            expr = expr.select(*self.get_others(expr), struct_col)
+        if retain_others and (others := self.get_others(expr)):
+            expr = expr.select(*others, struct_col)
         else:
             expr = struct_col.as_table()
         return expr.unpack(name)
@@ -589,8 +548,8 @@ class FittedStep:
     def transform(self, expr, retain_others=True):
         if self.structer is None:
             col = self.transform_raw(expr)
-            if retain_others:
-                expr = expr.select(*self.get_others(expr), col)
+            if retain_others and (others := self.get_others(expr)):
+                expr = expr.select(*others, col)
             else:
                 return col
         else:
@@ -611,11 +570,7 @@ class FittedStep:
 
     def predict(self, expr, retain_others=True, name=None):
         col = self.predict_raw(expr, name=name)
-        if retain_others and (
-            others := tuple(
-                other for other in expr.columns if other not in self.features
-            )
-        ):
+        if retain_others and (others := self.get_others(expr)):
             expr = expr.select(*others, col)
         else:
             expr = col.as_table()
@@ -635,67 +590,44 @@ class FittedStep:
     def predicted(self):
         return self.predict(self.expr)
 
-    def predict_proba_raw(self, expr, name=None):
-        """Get raw probability predictions as a column expression."""
-        if not self.deferred_predict_proba:
+    @toolz.curry
+    def invoke_method_raw(self, expr, name=None, *, methodname):
+        if not (method := getattr(self, f"deferred_{methodname}", None)):
             raise AttributeError(
-                f"'{self.step.typ.__name__}' object has no attribute 'predict_proba'"
+                f"'{self.step.typ.__name__}' object has no attribute '{methodname}'"
             )
-        return self.deferred_predict_proba.on_expr(expr).name(name or "predicted_proba")
+        return method.on_expr(expr).name(name or methodname)
 
-    def predict_proba(self, expr, retain_others=True, name=None):
-        """Get probability predictions with optional other columns."""
-        if not self.deferred_predict_proba:
-            raise AttributeError(
-                f"'{self.step.typ.__name__}' object has no attribute 'predict_proba'"
-            )
-        return _apply_prediction_method(
-            self.deferred_predict_proba,
-            expr,
-            self.features,
-            self.tag_kwargs,
-            name,
-            "predicted_proba",
-            retain_others,
-        )
+    @toolz.curry
+    def invoke_method(self, expr, retain_others=True, name=None, *, methodname):
+        col = self.invoke_method_raw(expr=expr, name=name, methodname=methodname)
+        if retain_others and (others := self.get_others(expr)):
+            expr = expr.select(*others, col)
+        else:
+            expr = col.as_table()
 
-    def decision_function_raw(self, expr, name=None):
-        """Get raw decision function scores as a column expression."""
-        if not self.deferred_decision_function:
-            raise AttributeError(
-                f"'{self.step.typ.__name__}' object has no attribute 'decision_function'"
-            )
-        return self.deferred_decision_function.on_expr(expr).name(
-            name or "decision_function"
-        )
+        return expr.tag(**self.tag_kwargs)
 
-    def decision_function(self, expr, retain_others=True, name=None):
-        """Get decision function scores with optional other columns."""
-        if not self.deferred_decision_function:
-            raise AttributeError(
-                f"'{self.step.typ.__name__}' object has no attribute 'decision_function'"
-            )
-        return _apply_prediction_method(
-            self.deferred_decision_function,
-            expr,
-            self.features,
-            self.tag_kwargs,
-            name,
-            "decision_function",
-            retain_others,
-        )
+    predict_proba_raw = invoke_method_raw(
+        methodname="predict_proba", name="predicted_proba"
+    )
+
+    predict_proba = invoke_method(methodname="predict_proba", name="predicted_proba")
+
+    decision_function_raw = invoke_method_raw(methodname="decision_function")
+
+    decision_function = invoke_method(methodname="decision_function")
+
+    feature_importances_raw = invoke_method_raw(methodname="feature_importances")
 
     def feature_importances(self, expr=None, name=None):
-        # FIXME
         import xorq.api as xo
 
         schema = self.expr.select(self.features).schema()
         empty_table = xo.memtable(
             [{name: None for name in schema.names}], schema=schema
         )
-        col = self.deferred_feature_importances.on_expr(empty_table).name(
-            name or "feature_importances"
-        )
+        col = self.feature_importances_raw(empty_table, name)
         return col.as_table().tag(**self.tag_kwargs)
 
 
