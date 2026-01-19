@@ -244,12 +244,51 @@ xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
 
 ---
 
-### Memtable Placeholder Pattern
+### Catalog Composition Pattern (PREFERRED)
 
-**Pattern:** Build transforms independently using memtable placeholders, compose later.
+**Pattern:** Compose cataloged expressions directly in Python.
 
 ```python
-# In transform.py - Define transform with memtable
+# Load from catalog
+import xorq.api as xo
+
+# Direct catalog loading (preferred method)
+source = xo.catalog.get("my-source")
+transform = xo.catalog.get("my-transform")
+
+# Inspect sources for composition
+sources = xo.catalog.list_source_nodes(transform)
+for src in sources:
+    print(f"Node: {src['name']}, Hash: {src['hash'][:12]}...")
+    print(f"Schema: {src['schema']}")
+
+# Create composable transform
+composable = xo.catalog.replace_as_root_memtable(
+    transform,
+    node_hash=sources[0]['hash']
+)
+
+# Build and catalog the composed expression
+# xorq build pipeline.py -e composable
+# xorq catalog add builds/<hash> --alias my-pipeline
+```
+
+**Why this pattern:**
+- Uses catalog as single source of truth
+- Python-native composition (no CLI piping needed)
+- Type-safe with actual schemas
+- Programmatically discoverable with list_source_nodes
+
+**Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
+
+---
+
+### Memtable Placeholder Pattern (Alternative)
+
+**Pattern:** Build transforms independently when source not yet cataloged.
+
+```python
+# In transform.py - Define transform with memtable placeholder
 import xorq.api as xo
 from xorq.vendor import ibis
 from xorq.common.utils.ibis_utils import from_ibis
@@ -283,11 +322,12 @@ xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
     -o output.parquet
 ```
 
-**Why this pattern:**
-- Build transforms without waiting for source data
-- Test transform logic with sample data independently
-- Same transform reusable with multiple sources
-- Flexible composition via Arrow IPC streaming
+**When to use memtable pattern:**
+- Source data doesn't exist yet
+- Building transforms independently before data pipeline ready
+- Testing transform logic with sample data
+
+**Key principle:** Use `xo.catalog.get()` first. Fall back to memtable only when source not cataloged.
 
 **Reference:** [Workflows #10](resources/WORKFLOWS.md#10-building-transform-expressions-with-memtable-pattern) | [Patterns](resources/PATTERNS.md#memtable-placeholder-pattern)
 
