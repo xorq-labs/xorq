@@ -39,7 +39,9 @@ kwargs = {
 
 
 # uncached run
-(deferred_model, model_udaf, predict) = deferred_linear_regression(**kwargs)
+(deferred_model, model_udaf, predict) = deferred_linear_regression(
+    **kwargs
+).deferred_model_udaf_other
 predicted = t.mutate(predict.on_expr(t).name("predicted"))
 
 
@@ -47,7 +49,7 @@ predicted = t.mutate(predict.on_expr(t).name("predicted"))
 (cached_deferred_model, cached_model_udaf, cached_predict) = deferred_linear_regression(
     cache=cache,
     **kwargs,
-)
+).deferred_model_udaf_other
 cached_predicted = t.mutate(cached_predict.on_expr(t).name("predicted"))
 
 # as step
