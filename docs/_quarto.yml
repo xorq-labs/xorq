@@ -1,6 +1,5 @@
 project:
   type: website
-  validate-links: true
 
 execute:
   mermaid: true
