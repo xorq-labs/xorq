@@ -415,8 +415,8 @@ pre>code.sourceCode {
   }
   
   h1 {
-    font-size: 30rem !important;
-    margin-bottom: 1rem !important;
+    font-size: clamp(3.5rem, 25vw, 50rem) !important;
+    margin-bottom: clamp(0.5rem, 1vw, 1rem) !important;
     color: $black !important;
     font-weight: 400 !important;
     line-height: 1.0 !important;
@@ -425,16 +425,6 @@ pre>code.sourceCode {
     margin-left: auto !important;
     margin-right: auto !important;
     font-family: $font-family-sans-serif !important;
-    
-    @media (max-width: 768px) {
-      font-size: 5rem !important;
-      margin-bottom: 0.75rem !important;
-    }
-    
-    @media (max-width: 480px) {
-      font-size: 3.5rem !important;
-      margin-bottom: 0.5rem !important;
-    }
   }
   
   p {
@@ -545,16 +535,27 @@ pre>code.sourceCode {
 .content-section {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 0 2rem 4rem 2rem;
-  margin-top: -2rem;
+  padding: 0 clamp(1rem, 2vw, 2rem) clamp(2rem, 4vw, 4rem) clamp(1rem, 2vw, 2rem);
+  margin-top: clamp(-8rem, -10vw, -5rem);
   position: relative;
   z-index: 1;
   background: $body-bg;
   
   h2 {
-    font-size: 0.6rem;
+    font-size: clamp(1rem, 1.5vw, 1.125rem);
     margin-top: 0;
     margin-bottom: 1rem;
+    font-weight: 400;
+  }
+  
+  @media (max-width: 768px) {
+    margin-top: clamp(-4rem, -8vw, -3rem);
+    padding: 0 1rem 2rem 1rem;
+  }
+  
+  @media (max-width: 480px) {
+    margin-top: clamp(-3rem, -6vw, -2rem);
+    padding: 0 1rem 1.5rem 1rem;
   }
   
   > p {
