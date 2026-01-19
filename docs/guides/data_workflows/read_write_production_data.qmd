@@ -46,7 +46,7 @@ export POSTGRES_DB=your_database
 
 For production deployments: Use IAM roles on EC2/ECS instead of access keys. The instance retrieves credentials automatically from metadata.
 
-If you encounter authentication errors, see [Troubleshoot authentication](../../troubleshooting/authentication-errors.qmd).
+If you encounter authentication errors, then see [Troubleshoot authentication](../../troubleshooting/authentication-errors.qmd).
 
 ## Read from cloud storage
 
@@ -119,7 +119,7 @@ customers = xo.deferred_read_csv(
 )
 ```
 
-If you see connection timeouts or file-not-found errors, see [Troubleshoot data I/O errors](../../troubleshooting/data-io-errors.qmd).
+If you see connection timeouts or file-not-found errors, then see [Troubleshoot data I/O errors](../../troubleshooting/data-io-errors.qmd).
 
 ## Transform data
 
