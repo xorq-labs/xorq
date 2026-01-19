@@ -1,3 +1,4 @@
+import functools
 from functools import wraps
 from typing import Callable
 
@@ -163,6 +164,8 @@ class DeferredFitOther:
             deferred_model = deferred_model.as_table().cache(cache=self.cache)
         return deferred_model
 
+    @functools.cache
+    # if we don't cache this, we get extra tags
     def make_deferred_other(self, fn, return_type, name_infix):
         deferred_other = make_pandas_expr_udf(
             computed_kwargs_expr=self.deferred_model,
