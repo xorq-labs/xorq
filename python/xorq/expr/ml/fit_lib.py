@@ -236,7 +236,6 @@ class DeferredFitOther:
                         fitted_step.expr,
                         features=fitted_step.features,
                     )
-                    # f = deferred_fit_transform_sklearn_struct
                     kwargs = kwargs | {
                         "fit": fit_sklearn_struct(cls=sklearn_cls, params=params),
                         "other": transform_sklearn_struct(structer.get_convert_array()),
@@ -339,7 +338,6 @@ def deferred_fit_other_sklearn(
     )
 
 
-# should this map transform to other?
 deferred_fit_transform = deferred_fit_other(target=None, name_infix="transform")
 deferred_fit_predict = deferred_fit_other_sklearn(name_infix="predict")
 deferred_fit_transform_sklearn = deferred_fit_other_sklearn(
