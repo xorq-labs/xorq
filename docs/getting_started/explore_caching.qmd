@@ -13,6 +13,7 @@ After completing this tutorial, you'll know how to use caching to speed up your 
 Running the same query twice shouldn't mean doing the work twice. Xorq caches expression results so repeated queries return instantly from the cache instead of recomputing.
 
 This is especially powerful for expensive operations:
+
 - Loading large datasets from remote databases
 - Training machine learning models
 - Calling external APIs
