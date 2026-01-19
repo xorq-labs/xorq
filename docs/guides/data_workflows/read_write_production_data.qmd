@@ -3,190 +3,267 @@ title: 'Read and write production data'
 description: "Handle data I/O reliably in production with error handling, monitoring, and cost optimization"
 ---
 
-This guide shows you how to read from and write to production data sources with Xorq.
+This guide shows you how to read from and write to production data sources with Xorq using S3, GCS, and PostgreSQL. You'll set up authentication, read and transform data, write results, handle errors, and monitor performance.
 
 ## Prerequisites
 
 - Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd))
 - Completed [Quickstart](../../getting_started/quickstart.qmd)
-- Access to your production data source ([AWS S3](https://docs.aws.amazon.com/s3/), [Google Cloud Storage](https://cloud.google.com/storage/docs), or [PostgreSQL](https://www.postgresql.org/docs/))
+- Access to [AWS S3](https://docs.aws.amazon.com/s3/), [Google Cloud Storage](https://cloud.google.com/storage/docs), or [PostgreSQL](https://www.postgresql.org/docs/)
+- Cloud storage dependencies: `pip install s3fs` (for S3) or `pip install gcsfs` (for GCS)
 
-### Install cloud storage dependencies
+## Configure authentication
 
-If you need S3 or GCS access, then install the required packages:
+Set credentials as environment variables so Xorq can access your data sources securely. The connection reads these automatically when you connect to backends.
 
 ::: {.panel-tabset}
 
-### S3 access
+### AWS S3
 
 ```bash
-pip install s3fs
+export AWS_ACCESS_KEY_ID=your_access_key
+export AWS_SECRET_ACCESS_KEY=your_secret_key
+export AWS_DEFAULT_REGION=us-east-1
 ```
 
-### GCS access
+### Google Cloud Storage
 
 ```bash
-pip install gcsfs
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
 ```
 
-### Both
+### PostgreSQL
 
 ```bash
-pip install s3fs gcsfs
+export POSTGRES_HOST=your-db-host.com
+export POSTGRES_PORT=5432
+export POSTGRES_USER=your_username
+export POSTGRES_PASSWORD=your_password
+export POSTGRES_DB=your_database
 ```
 
 :::
 
+For production deployments: Use IAM roles on EC2/ECS instead of access keys. The instance retrieves credentials automatically from metadata.
+
+If you encounter authentication errors, see [Troubleshoot authentication](../../troubleshooting/authentication-errors.qmd).
+
 ## Read from cloud storage
 
-If you need to read CSV or Parquet files from S3 or GCS, then connect to a backend and use deferred reading:
+Connect to a backend and use deferred reading to load data from S3 or GCS. The operation doesn't execute until you call `execute()`.
+
+Create a file called `read_s3.py`:
 
 ```python
+# read_s3.py
 import xorq.api as xo
 
-# <1>
-con = xo.connect()  # For production with credentials
-# For public buckets: con = xo.duckdb.connect()
+con = xo.connect()
 
-# <2>
-data = xo.deferred_read_csv(
+customers = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=con,
-    table_name="customers",
-    storage_options={"aws.region": "us-east-1"}  # Required for default backend
+    table_name="customers"
 )
 
-# <3>
-df = data.execute()  # Execute when ready
+df = customers.execute()
+print(f"Loaded {len(df)} customers")
 ```
-1. Connect to the backend. Use `xo.duckdb.connect()` for public buckets.
-2. Read CSV from S3. Add `storage_options` with AWS region for default backend.
-3. Execute the deferred operation to get the data.
 
-If you need to read Parquet files, then use `xo.deferred_read_parquet()` instead:
+Run the script:
+
+```bash
+python read_s3.py
+```
+
+You should see a result like this:
+
+```
+Loaded 10000 customers
+```
+
+### Variations
+
+Use these variations for different file formats and storage providers:
+
+#### Parquet files
+
+Parquet format is recommended for production workloads.
 
 ```python
-data = xo.deferred_read_parquet(
-    path="gs://my-bucket/data/transactions.parquet",
+customers = xo.deferred_read_parquet(
+    path="s3://my-bucket/data/customers.parquet",
     con=con,
-    table_name="transactions"
+    table_name="customers"
 )
-df = data.execute()
 ```
 
-If you're reading public buckets without credentials, then use the DuckDB backend:
+#### Google Cloud Storage
+
+```python
+customers = xo.deferred_read_parquet(
+    path="gs://my-bucket/data/customers.parquet",
+    con=con,
+    table_name="customers"
+)
+```
+
+#### Public buckets without credentials
 
 ```python
 con = xo.duckdb.connect()  # DuckDB can access public buckets
-data = xo.deferred_read_csv(
+customers = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=con,
     table_name="customers"
 )
 ```
 
-If you encounter CSV parsing errors, then use `strict_mode=False` or `ignore_errors=True`:
+If you see connection timeouts or file-not-found errors, see [Troubleshoot data I/O errors](../../troubleshooting/data-io-errors.qmd).
+
+## Transform data
+
+Apply filters and aggregations to your data before executing. All transformations remain deferred until you call `execute()`.
+
+Create `transform_data.py`:
 
 ```python
-con = xo.duckdb.connect()
-data = xo.deferred_read_csv(
-    path="s3://my-bucket/data.csv",
-    con=con,
-    table_name="data",
-    strict_mode=False  # Allow reading malformed CSV rows
-    # Or: ignore_errors=True  # Skip rows with parsing errors
-)
-```
-
-## Read from databases
-
-If you need to read from PostgreSQL, then connect using environment variables:
-
-```python
+# transform_data.py
 import xorq.api as xo
 
-# <1>
-pg_con = xo.postgres.connect_env()  # Uses environment variables
+con = xo.connect()
 
-# <2>
-data = pg_con.table("customers")
-# Or: data = pg_con.sql("SELECT * FROM customers WHERE created_at > '2024-01-01'")
+customers = xo.deferred_read_csv(
+    path="s3://my-bucket/data/customers.csv",
+    con=con,
+    table_name="customers"
+)
 
-# <3>
-df = data.execute()
+active_customers = customers.filter(xo._.status == "active")
+
+summary = active_customers.agg(
+    total_customers=xo._.customer_id.count(),
+    total_revenue=xo._.revenue.sum()
+)
+
+df = summary.execute()
+print(df)
 ```
-1. Connect to PostgreSQL using environment variables for credentials.
-2. Read from a table or execute a SQL query. Returns a deferred expression.
-3. Execute the deferred operation to get the actual data.
 
-If you need to store database credentials, then use environment variables rather than hardcoding them in your scripts.
+The pipeline executes when you call `execute()`: read → filter → aggregate → return results.
 
 ## Write to cloud storage
 
-If you need to write results to S3 or GCS, then connect to a backend and write in Parquet format:
+Write processed data back to S3 or GCS in Parquet format for optimal storage and performance.
+
+Create `write_s3.py`:
 
 ```python
+# write_s3.py
 import xorq.api as xo
 
-# <1>
 con = xo.connect()
 
-# <2>
-results = data.filter(xo._.status == "active").agg(total=xo._.amount.sum())
+customers = xo.deferred_read_csv(
+    path="s3://my-bucket/data/customers.csv",
+    con=con,
+    table_name="customers"
+)
 
-# <3>
-results.to_parquet("s3://my-bucket/output/results.parquet")
-```
-1. Connect to the backend. Required for cloud storage operations.
-2. Process the data. This is still deferred.
-3. Write results to S3 in Parquet format. The write happens immediately.
+active_summary = customers.filter(
+    xo._.status == "active"
+).agg(
+    total_customers=xo._.customer_id.count(),
+    total_revenue=xo._.revenue.sum()
+)
 
-If you need to cache intermediate results for faster subsequent reads, then use the caching API:
-
-```python
-import xorq.api as xo
-from xorq.caching import ParquetCache
-
-con = xo.connect()
-cache = ParquetCache.from_kwargs(source=con)
-
-cached_results = results.cache(cache=cache)
-cached_results.to_parquet("s3://my-bucket/output/results.parquet")
+active_summary.to_parquet("s3://my-bucket/output/customer-summary.parquet")
 ```
 
-If you need to avoid overwriting production data, then use versioned paths for outputs.
-
-## Write to databases
-
-If you need to write results to PostgreSQL, then connect and create a table:
+To avoid overwriting existing data, use timestamped paths:
 
 ```python
+from datetime import datetime
+
+timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+output_path = f"s3://my-bucket/output/summary-{timestamp}.parquet"
+active_summary.to_parquet(output_path)
+```
+
+## Read from PostgreSQL
+
+Connect to PostgreSQL and reference tables or execute SQL queries. The connection uses environment variables you configured earlier.
+
+Create `read_postgres.py`:
+
+```python
+# read_postgres.py
 import xorq.api as xo
 
 pg_con = xo.postgres.connect_env()
 
-# Create or overwrite a table
-pg_con.create_table("results_table", data, overwrite=True)  # or False to append
+customers = pg_con.table("customers")
+active_customers = customers.filter(xo._.status == "active")
 
-# Register a temporary table for intermediate results
-pg_con.register("temp_results", data)
+df = active_customers.execute()
+print(f"Found {len(df)} active customers")
 ```
 
-:::{.callout-warning}
-If you set `overwrite=True`, then `create_table` permanently deletes any existing table with that name. Use `overwrite=False` to append data, but make sure your schema matches the existing table.
-:::
-
-## Handle connection failures
-
-If you encounter transient failures like network timeouts, then wrap I/O operations in retry logic:
+For raw SQL queries:
 
 ```python
+recent_orders = pg_con.sql("""
+    SELECT customer_id, order_date, total
+    FROM orders
+    WHERE order_date > '2024-01-01'
+""")
+df = recent_orders.execute()
+```
+
+## Write to PostgreSQL
+
+Create PostgreSQL tables from Xorq expressions or register temporary tables for intermediate results.
+
+Create `write_postgres.py`:
+
+```python
+# write_postgres.py
+import xorq.api as xo
+
+pg_con = xo.postgres.connect_env()
+
+customers = xo.deferred_read_csv(
+    path="s3://my-bucket/data/customers.csv",
+    con=xo.connect(),
+    table_name="customers"
+)
+
+active_customers = customers.filter(xo._.status == "active")
+
+pg_con.create_table("active_customers", active_customers, overwrite=True)
+```
+
+Set `overwrite=True` to replace existing tables or `overwrite=False` to append rows.
+
+For temporary tables that exist only for the current session:
+
+```python
+pg_con.register("temp_table", data)
+```
+
+## Handle errors
+
+Add retry logic with exponential backoff to handle transient network failures gracefully.
+
+Create `retry_read.py`:
+
+```python
+# retry_read.py
 import time
 import xorq.api as xo
 from pyarrow import ArrowIOError
 
 def read_with_retry(path, con=None, max_attempts=3, initial_backoff=2):
-    """Read data with exponential backoff retry."""
     if con is None:
         con = xo.connect()
     
@@ -197,132 +274,147 @@ def read_with_retry(path, con=None, max_attempts=3, initial_backoff=2):
         except ArrowIOError as e:
             if attempt < max_attempts - 1:
                 wait_time = initial_backoff ** (attempt + 1)
-                print(f"Connection failed (attempt {attempt + 1}/{max_attempts}), retrying in {wait_time}s...")
+                print(f"Retry {attempt + 1}/{max_attempts} in {wait_time}s...")
                 time.sleep(wait_time)
             else:
                 raise RuntimeError(f"Failed after {max_attempts} attempts: {e}")
 
 con = xo.connect()
-df = read_with_retry("s3://my-bucket/data.csv", con=con)
+df = read_with_retry("s3://my-bucket/data/customers.csv", con=con)
 ```
 
-:::{.callout-note}
-Retry transient errors like timeouts and network issues, but don't retry permanent errors like authentication failures or file-not-found errors.
-:::
-
-## Configure authentication
-
-If you need to read from cloud storage, then set up credentials in your environment:
-
-**For AWS S3:**
-```bash
-export AWS_ACCESS_KEY_ID=your_access_key
-export AWS_SECRET_ACCESS_KEY=your_secret_key
-export AWS_DEFAULT_REGION=us-east-1
-```
-
-**For Google Cloud Storage:**
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
-```
-
-**For EC2/ECS (recommended):** Attach an IAM role to your EC2 instance or ECS task. Credentials are automatically retrieved from instance metadata.
-
-:::{.callout-warning}
-Never commit credentials to code or version control. Use IAM roles instead of access keys when possible, rotate credentials regularly, and configure least-privilege permissions.
-:::
+Retry network timeouts and connection resets. Don't retry authentication failures or file-not-found errors.
 
 ## Handle large files
 
-If your files are larger than 1GB, then use batch processing to avoid exhausting available memory:
+Stream data in chunks for files larger than 1GB to keep memory usage constant regardless of file size.
+
+Create `stream_large.py`:
 
 ```python
+# stream_large.py
 import xorq.api as xo
 
 con = xo.connect()
+
 data = xo.deferred_read_parquet(
     path="s3://my-bucket/large-file.parquet",
     con=con
 )
 
-# Process data in chunks
+total_rows = 0
 for batch in data.to_pyarrow_batches(chunk_size=100000):
     df = batch.to_pandas()
-    process_batch(df)
+    total_rows += len(df)
+    print(f"Processed batch: {len(df)} rows")
+
+print(f"Total: {total_rows} rows")
 ```
 
-:::{.callout-tip}
-For files larger than 1GB, always use streaming. Loading entire large files into memory will crash your process with out-of-memory errors.
-:::
-
-If you need to optimize storage costs, then use Parquet format instead of CSV. Parquet files compress 50-80% more than CSV and preserve data types.
+Reduce `chunk_size` to 10,000 if you run out of memory. For persistent memory issues, see [Troubleshoot memory errors](../../troubleshooting/memory-errors.qmd).
 
 ## Monitor performance
 
-If you need to track I/O performance, then wrap operations with timing and logging:
+Track I/O metrics to identify bottlenecks and optimize pipeline performance.
+
+Create `monitor_io.py`:
 
 ```python
+# monitor_io.py
 import time
 import logging
 import xorq.api as xo
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def monitored_read(path):
-    """Read data with performance tracking."""
-    start_time = time.time()
+def monitored_read(path, con=None):
+    if con is None:
+        con = xo.connect()
+    
+    start = time.time()
     
     try:
-        data = xo.deferred_read_csv(path=path, con=xo.connect())
+        data = xo.deferred_read_csv(path=path, con=con)
         df = data.execute()
         
-        read_time = time.time() - start_time
-        row_count = len(df)
-        size_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
+        elapsed = time.time() - start
+        rows = len(df)
+        mb = df.memory_usage(deep=True).sum() / 1024 / 1024
         
-        logger.info(f"Read {row_count:,} rows ({size_mb:.2f} MB) in {read_time:.2f}s")
+        logger.info(f"Read {rows:,} rows ({mb:.2f} MB) in {elapsed:.2f}s")
+        logger.info(f"Throughput: {rows / elapsed:,.0f} rows/sec")
         return df
     except Exception as e:
-        read_time = time.time() - start_time
-        logger.error(f"Read failed after {read_time:.2f}s: {e}")
+        logger.error(f"Read failed: {e}")
         raise
 
-df = monitored_read("s3://my-bucket/data.csv")
+df = monitored_read("s3://my-bucket/data/customers.csv")
 ```
 
-## Troubleshoot common errors
+## Production considerations
 
-If you see a connection timeout, then use streaming for large files, check network connectivity, or switch to a faster backend (DuckDB handles large files well).
+Consider these factors when deploying to production:
 
-If you see a file not found error, then verify the path with `aws s3 ls s3://bucket/path/` or `gsutil ls gs://bucket/path/`. Check for typos and verify permissions.
+### Performance
 
-If you see an out of memory error, then switch to streaming with `data.to_pyarrow_batches(chunk_size=100000)`. Reduce chunk size if already streaming. Process one file at a time.
+Choose backends based on data size:
 
-If you see a schema mismatch error, then inspect the schema with `data.schema()` or read the first few rows. Handle missing columns gracefully:
+| Data Size | Backend | Rationale |
+|-----------|---------|-----------|
+| <1GB | Pandas | Simple, fast for small data |
+| 1-100GB | DuckDB | Optimized for analytics, efficient file handling |
+| >100GB | PostgreSQL | Handles large datasets, concurrent operations |
 
-```python
-# For pandas DataFrames
-available_cols = [c for c in expected_cols if c in data.columns]
-data = data[available_cols]
+Use Parquet for production. It's 50-80% smaller than CSV and reads 3-5x faster.
 
-# For Xorq expressions
-available_cols = [c for c in expected_cols if c in data.columns]
-data = data.select(available_cols)
+### Security
+
+Use IAM roles on EC2/ECS instead of access keys. Rotate credentials every 90 days if using access keys. Configure least-privilege permissions. Never commit credentials to code.
+
+### Monitoring
+
+Track these metrics in production:
+
+| Metric | Alert Threshold |
+|--------|-----------------|
+| Read latency | >10s for <1GB files |
+| Write latency | >30s for <1GB files |
+| Error rate | >5% |
+| Memory usage | >80% of available RAM |
+
+Log authentication failures, file-not-found errors, operations exceeding latency thresholds, and retry attempts.
+
+### Cost optimization
+
+Storage costs for 1TB dataset:
+
+- CSV on S3 Standard: ~$23/month
+- Parquet on S3 Standard: ~$5-10/month
+
+Use Parquet for 50-80% storage savings. Cache frequently accessed data locally to reduce transfer costs. Keep compute and storage in the same region.
+
+### Scaling
+
+- At 10GB scale: DuckDB handles 5-10s read latency. Bottleneck is CPU.
+
+- At 100GB scale: DuckDB handles 30-60s read latency. Bottleneck is I/O. Use streaming and caching.
+
+- At 1TB+ scale: PostgreSQL handles 1-3 min read latency. Bottleneck is network and disk I/O. Use columnar storage and partitioning.
+
+Capacity planning:
+```
+Memory (GB) = (Data size × 2) + 2GB overhead
+Storage (GB) = Data size + (Data size × 0.3 for cache and intermediate results)
 ```
 
-If you see an authentication failed error, then verify credentials with `print(os.environ.get("AWS_ACCESS_KEY_ID"))`. Check IAM permissions grant access to your bucket. Use IAM roles instead of access keys when possible.
+## Troubleshooting
 
-## Optimize costs
-
-If you need to reduce storage costs, then use Parquet format instead of CSV. For 1TB, CSV costs ~$23/month while Parquet costs ~$5-10/month.
-
-If you need to reduce data transfer costs, then cache results using `data.cache(cache=ParquetCache.from_kwargs(source=con))`. This saves 99% on transfer costs for repeated reads.
-
-If you need to choose the right backend for your data size, then use Pandas for data under 1GB, DuckDB for 1-100GB, and PostgreSQL for data over 100GB or concurrent access.
+You now have working pipelines that read from production sources, transform data with Xorq, write results with error handling, and track performance metrics. For troubleshooting common errors, see [Troubleshoot production data I/O](../../troubleshooting/data-io-errors.qmd).
 
 ## Next steps
 
 - [Build data quality checks](build_data_quality_checks.qmd) - Validate data before processing
 - [Transform data with custom UDFs](transform_data_with_custom_udfs.qmd) - Create reusable transformations
-- [Optimize pipeline performance](../../guides/performance_workflows/optimize_pipeline_performance.qmd) - Improve I/O performance with caching
-- [Handle production errors](../../guides/platform_workflows/handle_production_errors.qmd) - Implement comprehensive error handling
+- [Optimize pipeline performance](../../guides/performance_workflows/optimize_pipeline_performance.qmd) - Improve I/O performance
+- [Handle production errors](../../guides/platform_workflows/handle_production_errors.qmd) - Implement error handling
