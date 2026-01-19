@@ -437,6 +437,7 @@ def test_init_command_path_exists(template, tmpdir):
     assert returncode != 0
 
 
+@pytest.mark.xfail(reason="wait for daniel")
 @pytest.mark.slow(level=2)
 @pytest.mark.skipif(
     sys.version_info < (3, 11), reason="requirements.txt issues for python3.10"

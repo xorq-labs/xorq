@@ -44,15 +44,16 @@ class OneHotStep(OneHotEncoder):
         return transformed
 
     @classmethod
-    def get_step_f_kwargs(cls, kwargs):
-        from xorq.expr.ml.fit_lib import deferred_fit_transform_sklearn
+    def get_step_kwargs(cls):
+        from xorq.expr.ml.fit_lib import transform_sklearn
 
-        f = deferred_fit_transform_sklearn
-        kwargs = kwargs | {
-            "return_type": dt.Array(dt.Struct({"key": str, "value": float})),
+        kwargs = {
+            "other": transform_sklearn,
             "target": None,
+            "return_type": dt.Array(dt.Struct({"key": str, "value": float})),
+            "name_infix": "transformed",
         }
-        return (f, kwargs)
+        return kwargs
 
 
 class XGBoostModelExplodeEncoded(BaseEstimator):

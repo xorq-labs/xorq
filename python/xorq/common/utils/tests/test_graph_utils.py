@@ -114,7 +114,9 @@ def test_replace_computed_kwargs_expr(parquet_dir):
     )
     target = "price"
     features = tuple(c for c in t.select(s.numeric()).columns if c != target)
-    (*_, predict_expr_udf) = deferred_linear_regression(train_table, target, features)
+    predict_expr_udf = deferred_linear_regression(
+        train_table, target, features
+    ).deferred_other
     predicted = test_table.mutate(predict_expr_udf.on_expr(test_table))
     assert walk_nodes(Tag, predicted)
     removed = xo.expr.api._remove_tag_nodes(predicted)

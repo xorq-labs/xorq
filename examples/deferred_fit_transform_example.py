@@ -43,9 +43,9 @@ train_expr, test_expr = (
 
 (deferred_model, model_udaf, deferred_transform) = deferred_fit_transform_tfidf(
     train_expr,
-)
+).deferred_model_udaf_other
 (cached_deferred_model, cached_model_udaf, cached_deferred_transform) = (
-    deferred_fit_transform_tfidf(train_expr, cache=cache)
+    deferred_fit_transform_tfidf(train_expr, cache=cache).deferred_model_udaf_other
 )
 
 

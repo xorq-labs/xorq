@@ -44,16 +44,20 @@ def test_deferred_fit_predict_linear_regression(tmp_path):
     t = con.register(df, "t")
 
     # uncached run
-    (computed_kwargs_expr, _, predict_expr_udf) = deferred_linear_regression(
-        t, target, features
+    instance = deferred_linear_regression(t, target, features)
+    (computed_kwargs_expr, predict_expr_udf) = (
+        instance.deferred_model,
+        instance.deferred_other,
     )
     model = computed_kwargs_expr.execute()
     predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
 
     # cached run
     cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con)
-    (computed_kwargs_expr, _, predict_expr_udf) = deferred_linear_regression(
-        t, target, features, cache=cache
+    instance = deferred_linear_regression(t, target, features, cache=cache)
+    (computed_kwargs_expr, predict_expr_udf) = (
+        instance.deferred_model,
+        instance.deferred_other,
     )
     ((cached_model,),) = computed_kwargs_expr.execute().values
     cached_predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
@@ -73,7 +77,8 @@ def test_deferred_fit_predict_linear_regression_multi_into_backend():
         .into_backend(xo.connect())
     )
 
-    (_, _, predict_expr_udf) = deferred_linear_regression(t, target, features)
+    instance = deferred_linear_regression(t, target, features)
+    predict_expr_udf = instance.deferred_other
     predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
     assert not predicted.empty
 
@@ -95,9 +100,8 @@ def test_deferred_fit_transform_series_sklearn():
         unique_key="id",
         test_sizes=(0.9, 0.1),
     )
-    (_, _, deferred_transform) = deferred_fit_transform_tfidf(
-        train,
-    )
+    instance = deferred_fit_transform_tfidf(train)
+    deferred_transform = instance.deferred_other
 
     from_sklearn = test.execute().assign(
         **{

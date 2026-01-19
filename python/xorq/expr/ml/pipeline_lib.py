@@ -2,6 +2,7 @@ import functools
 import pickle
 
 import dask
+import toolz
 from attr import (
     field,
     frozen,
@@ -31,9 +32,9 @@ from xorq.common.utils.func_utils import (
     return_constant,
 )
 from xorq.expr.ml.fit_lib import (
-    deferred_fit_predict_sklearn,
-    deferred_fit_transform_series_sklearn,
-    deferred_fit_transform_sklearn_struct,
+    decision_function_sklearn,
+    feature_importances_sklearn,
+    predict_proba_sklearn,
 )
 from xorq.expr.ml.structer import (
     Structer,
@@ -386,77 +387,69 @@ class FittedStep:
 
     @property
     @functools.cache
-    def _pieces(self):
-        kwargs = {
-            "expr": self.expr,
-            "features": self.features,
-            "cls": self.step.typ,
-            "params": self.step.params_tuple,
-            "cache": self.cache,
-        }
-        (deferred_transform, deferred_predict) = (None, None)
-        if self.is_transform:
-            match self.step.typ:
-                # FIXME: formalize registration of non-Structer handling
-                case type(__name__="TfidfVectorizer"):
-                    f = deferred_fit_transform_series_sklearn
-                    # features must be length 1
-                    (col,) = kwargs.pop("features")
-                    kwargs = kwargs | {
-                        "col": col,
-                        "return_type": dt.Array(dt.float64),
-                    }
-                case type(__name__="SelectKBest"):
-                    # SelectKBest is a Structer special case that needs target
-                    f = deferred_fit_transform_sklearn_struct
-                    kwargs = kwargs | {
-                        "target": self.target,
-                    }
-                case typ:
-                    # FIXME: create abstract class for BaseEstimator with get_step_f_kwargs
-                    if get_step_f_kwargs := getattr(typ, "get_step_f_kwargs", None):
-                        (f, kwargs) = get_step_f_kwargs(kwargs)
-                    else:
-                        f = deferred_fit_transform_sklearn_struct
-            (deferred_model, model_udf, deferred_transform) = f(**kwargs)
-        elif self.is_predict:
-            predict_kwargs = {
-                "target": self.target,
-                "return_type": get_predict_return_type(
-                    instance=self.step.instance,
-                    step=self.step,
-                    expr=self.expr,
-                    features=self.features,
-                    target=self.target,
-                ),
-            }
-            (deferred_model, model_udf, deferred_predict) = (
-                deferred_fit_predict_sklearn(**kwargs, **predict_kwargs)
-            )
-        else:
-            raise ValueError
-        return {
-            "deferred_model": deferred_model,
-            "model_udf": model_udf,
-            "deferred_transform": deferred_transform,
-            "deferred_predict": deferred_predict,
-        }
+    def _deferred_fit_other(self):
+        from xorq.expr.ml.fit_lib import DeferredFitOther
+
+        _deferred_fit_other = DeferredFitOther.from_fitted_step(self)
+        return _deferred_fit_other
 
     @property
     def deferred_model(self):
-        return self._pieces["deferred_model"]
+        return self._deferred_fit_other.deferred_model
 
     @property
     def model_udf(self):
-        return self._pieces["model_udf"]
+        return self._deferred_fit_other.deferred_other
 
     @property
     def deferred_transform(self):
-        return self._pieces["deferred_transform"]
+        if self.is_transform:
+            return self._deferred_fit_other.deferred_other
+        else:
+            return None
 
     @property
     def deferred_predict(self):
-        return self._pieces["deferred_predict"]
+        if self.is_predict:
+            return self._deferred_fit_other.deferred_other
+        else:
+            return None
+
+    @property
+    def deferred_predict_proba(self):
+        (attrname, fn) = ("predict_proba", predict_proba_sklearn)
+        if hasattr(self.step.instance.__class__, attrname):
+            return self._deferred_fit_other.make_deferred_other(
+                fn=fn,
+                return_type=dt.Array(dt.float64),
+                name_infix=attrname.rstrip("_"),
+            )
+        else:
+            return None
+
+    @property
+    def deferred_decision_function(self):
+        (attrname, fn) = ("decision_function", decision_function_sklearn)
+        if hasattr(self.step.instance.__class__, attrname):
+            return self._deferred_fit_other.make_deferred_other(
+                fn=fn,
+                return_type=dt.Array(dt.float64),
+                name_infix=attrname.rstrip("_"),
+            )
+        else:
+            return None
+
+    @property
+    def deferred_feature_importances(self):
+        (attrname, fn) = ("feature_importances_", feature_importances_sklearn)
+        if hasattr(self.step.instance.__class__, attrname):
+            return self._deferred_fit_other.make_deferred_other(
+                fn=fn,
+                return_type=dt.Array(dt.float64),
+                name_infix=attrname.rstrip("_"),
+            )
+        else:
+            return None
 
     @property
     @functools.cache
@@ -486,8 +479,8 @@ class FittedStep:
 
     def transform_unpack(self, expr, retain_others=True, name="to_unpack"):
         struct_col = self.transform_raw(expr).name(name)
-        if retain_others:
-            expr = expr.select(*self.get_others(expr), struct_col)
+        if retain_others and (others := self.get_others(expr)):
+            expr = expr.select(*others, struct_col)
         else:
             expr = struct_col.as_table()
         return expr.unpack(name)
@@ -512,8 +505,8 @@ class FittedStep:
     def transform(self, expr, retain_others=True):
         if self.structer is None:
             col = self.transform_raw(expr)
-            if retain_others:
-                expr = expr.select(*self.get_others(expr), col)
+            if retain_others and (others := self.get_others(expr)):
+                expr = expr.select(*others, col)
             else:
                 return col
         else:
@@ -534,11 +527,7 @@ class FittedStep:
 
     def predict(self, expr, retain_others=True, name=None):
         col = self.predict_raw(expr, name=name)
-        if retain_others and (
-            others := tuple(
-                other for other in expr.columns if other not in self.features
-            )
-        ):
+        if retain_others and (others := self.get_others(expr)):
             expr = expr.select(*others, col)
         else:
             expr = col.as_table()
@@ -557,6 +546,46 @@ class FittedStep:
     @property
     def predicted(self):
         return self.predict(self.expr)
+
+    @toolz.curry
+    def invoke_method_raw(self, expr, name=None, *, methodname):
+        if not (method := getattr(self, f"deferred_{methodname}", None)):
+            raise AttributeError(
+                f"'{self.step.typ.__name__}' object has no attribute '{methodname}'"
+            )
+        return method.on_expr(expr).name(name or methodname)
+
+    @toolz.curry
+    def invoke_method(self, expr, retain_others=True, name=None, *, methodname):
+        col = self.invoke_method_raw(expr=expr, name=name, methodname=methodname)
+        if retain_others and (others := self.get_others(expr)):
+            expr = expr.select(*others, col)
+        else:
+            expr = col.as_table()
+
+        return expr.tag(**self.tag_kwargs)
+
+    predict_proba_raw = invoke_method_raw(
+        methodname="predict_proba", name="predicted_proba"
+    )
+
+    predict_proba = invoke_method(methodname="predict_proba", name="predicted_proba")
+
+    decision_function_raw = invoke_method_raw(methodname="decision_function")
+
+    decision_function = invoke_method(methodname="decision_function")
+
+    feature_importances_raw = invoke_method_raw(methodname="feature_importances")
+
+    def feature_importances(self, expr=None, name=None):
+        import xorq.api as xo
+
+        schema = self.expr.select(self.features).schema()
+        empty_table = xo.memtable(
+            [{name: None for name in schema.names}], schema=schema
+        )
+        col = self.feature_importances_raw(empty_table, name)
+        return col.as_table().tag(**self.tag_kwargs)
 
 
 @frozen
@@ -832,13 +861,85 @@ class FittedPipeline:
             )
         )
 
-    def score_expr(self, expr, **kwargs):
-        # NOTE: this is non-deferred
-        clf = self.predict_step.model
-        df = self.transform(expr).execute()
-        X = df[list(self.predict_step.features)]
-        y = df[self.predict_step.target]
-        return clf.score(X, y, **kwargs)
+    @toolz.curry
+    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname):
+        if not self.is_predict:
+            raise ValueError("Pipeline does not have a predict step")
+        if not (method := getattr(self.predict_step, methodname, None)):
+            raise ValueError(f"predict step does not have a method named {methodname}")
+        transformed = self.transform(expr, tag=False)
+        predicted = (
+            method(transformed)
+            .pipe(do_into_backend)
+            .tag(
+                tag_name,
+                **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
+            )
+        )
+        return predicted
+
+    predict_proba = invoke_predict_method(
+        tag_name="FittedPipeline-predict_proba",
+        tag_key="predict_proba_tags",
+        methodname="predict_proba",
+    )
+
+    decision_function = invoke_predict_method(
+        tag_name="FittedPipeline-decision_function",
+        tag_key="decision_function_tags",
+        methodname="decision_function",
+    )
+
+    feature_importances = invoke_predict_method(
+        tag_name="FittedPipeline-feature_importances",
+        tag_key="feature_importances_tags",
+        methodname="feature_importances",
+    )
+
+    def score_expr(self, expr, metric_fn=None, use_proba=False, **kwargs):
+        """Compute metrics using deferred execution.
+
+        Parameters
+        ----------
+        expr : ibis.Expr
+            Expression containing test data
+        metric_fn : callable, optional
+            Metric function from sklearn.metrics. If None, uses model's default
+        use_proba : bool, optional
+            If True, use predict_proba for metric computation (default: False)
+        **kwargs : dict
+            Additional arguments passed to the metric function
+
+        Returns
+        -------
+        ibis.Expr
+            Deferred metric expression
+        """
+        from sklearn.base import is_classifier
+        from sklearn.metrics import accuracy_score, r2_score
+
+        from xorq.expr.ml.metrics import deferred_sklearn_metric
+
+        # Default metric based on model type
+        if metric_fn is None:
+            metric_fn = (
+                accuracy_score if is_classifier(self.predict_step.model) else r2_score
+            )
+
+        # Get predictions with appropriate method
+        expr_with_preds, pred_col = (
+            (self.predict_proba(expr), "predicted_proba")
+            if use_proba
+            else (self.predict(expr), "predicted")
+        )
+
+        return deferred_sklearn_metric(
+            expr=expr_with_preds,
+            target=self.predict_step.target,
+            pred_col=pred_col,
+            metric_fn=metric_fn,
+            metric_kwargs=kwargs,
+        )
 
     def score(self, X, y, **kwargs):
         import numpy as np
@@ -846,9 +947,15 @@ class FittedPipeline:
 
         from xorq.expr import api
 
-        df = pd.DataFrame(np.array(X), columns=self.features).assign(**{self.target: y})
+        if not self.is_predict:
+            raise ValueError("Pipeline does not have a predict step")
+
+        df = pd.DataFrame(
+            np.array(X),
+            columns=self.predict_step.features,
+        ).assign(**{self.predict_step.target: y})
         expr = api.register(df, "t")
-        return self.score_expr(expr, **kwargs)
+        return self.score_expr(expr, **kwargs).execute()
 
 
 def get_target_type(step_instance, step, expr, features, target):
@@ -875,6 +982,11 @@ def raise_on_unregistered(instance, step, expr, features, target):
 def lazy_register_sklearn():
     from sklearn.base import (
         ClassifierMixin,
+        RegressorMixin,
+    )
+    from sklearn.ensemble import (
+        RandomForestClassifier,
+        RandomForestRegressor,
     )
     from sklearn.linear_model import (
         LinearRegression,
@@ -888,6 +1000,11 @@ def lazy_register_sklearn():
     registry.register(LogisticRegression, get_target_type)
     registry.register(KNeighborsClassifier, get_target_type)
     registry.register(ClassifierMixin, get_target_type)
+    registry.register(RandomForestRegressor, return_constant(dt.float))
+    registry.register(RandomForestClassifier, get_target_type)
+    registry.register(
+        RegressorMixin, return_constant(dt.float)
+    )  # General fallback for regressors
 
 
 get_predict_return_type.register = registry.register

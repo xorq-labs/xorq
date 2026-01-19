@@ -62,7 +62,7 @@ def calc_scores_xorq(train, test, features, target):
         )
         for weights in ("uniform", "distance")
     }
-    scores = {weights: clf.score_expr(test) for weights, clf in dct.items()}
+    scores = {weights: clf.score_expr(test).execute() for weights, clf in dct.items()}
     return scores
 
 
