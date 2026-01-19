@@ -3,26 +3,21 @@ title: 'Read and write production data'
 description: "Handle data I/O reliably in production with error handling, monitoring, and cost optimization"
 ---
 
-This guide shows you how to read from and write to production data sources with Xorq. You'll learn patterns for handling large files, managing connection failures, optimizing costs, and monitoring data operations.
-
-After completing this guide, you'll be able to handle production data I/O reliably with proper error handling, retry logic, and performance optimization.
+This guide shows you how to read from and write to production data sources with Xorq.
 
 ## Prerequisites
 
 - Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd))
 - Completed [Quickstart](../../getting_started/quickstart.qmd)
 - Access to your production data source ([AWS S3](https://docs.aws.amazon.com/s3/), [Google Cloud Storage](https://cloud.google.com/storage/docs), or [PostgreSQL](https://www.postgresql.org/docs/))
-- Understanding of your data format ([CSV](https://en.wikipedia.org/wiki/Comma-separated_values), [Parquet](https://parquet.apache.org/docs/), [JSON](https://www.json.org/))
 
 ### Install cloud storage dependencies
 
-For S3 and GCS access, install additional packages. These packages enable Xorq to read from and write to cloud storage buckets.
+If you need S3 or GCS access, then install the required packages:
 
 ::: {.panel-tabset}
 
 ### S3 access
-
-Install `s3fs` to enable reading from and writing to AWS S3 buckets. This package provides the filesystem interface that Xorq uses to access S3.
 
 ```bash
 pip install s3fs
@@ -30,15 +25,11 @@ pip install s3fs
 
 ### GCS access
 
-Install `gcsfs` to enable reading from and writing to Google Cloud Storage buckets. This package provides the filesystem interface that Xorq uses to access GCS.
-
 ```bash
 pip install gcsfs
 ```
 
 ### Both
-
-If you need access to both S3 and GCS, install both packages together.
 
 ```bash
 pip install s3fs gcsfs
@@ -46,26 +37,18 @@ pip install s3fs gcsfs
 
 :::
 
-## Read from production sources
+## Read from cloud storage
 
-Xorq supports reading from cloud storage and databases. Use deferred reading for production workloads because it handles large files efficiently and enables caching.
-
-### Read from cloud storage
-
-Deferred reading works better for production workloads because it handles large files and cloud storage efficiently:
+If you need to read CSV or Parquet files from S3 or GCS, then connect to a backend and use deferred reading:
 
 ```python
 import xorq.api as xo
 
 # <1>
-# Connect to backend
-# For production with credentials, use: con = xo.connect()
-# For public buckets, use: con = xo.duckdb.connect()
-con = xo.connect()
+con = xo.connect()  # For production with credentials
+# For public buckets: con = xo.duckdb.connect()
 
 # <2>
-# Deferred read from cloud storage (S3, GCS)
-# If using default backend, add storage_options:
 data = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=con,
@@ -74,61 +57,26 @@ data = xo.deferred_read_csv(
 )
 
 # <3>
-# Or read Parquet
+df = data.execute()  # Execute when ready
+```
+1. Connect to the backend. Use `xo.duckdb.connect()` for public buckets.
+2. Read CSV from S3. Add `storage_options` with AWS region for default backend.
+3. Execute the deferred operation to get the data.
+
+If you need to read Parquet files, then use `xo.deferred_read_parquet()` instead:
+
+```python
 data = xo.deferred_read_parquet(
     path="gs://my-bucket/data/transactions.parquet",
     con=con,
     table_name="transactions"
 )
-
-# <4>
-# Execute when ready
 df = data.execute()
 ```
-1. Connect to the default backend. For public buckets, use `xo.duckdb.connect()` instead.
-2. Read CSV from S3. If using the default backend, add `storage_options` with the AWS region.
-3. Read Parquet from GCS. Parquet is more efficient for large datasets.
-4. Execute the deferred operation. This is when the actual read happens.
 
-Deferred reading handles large files efficiently, supports cloud storage paths, enables result caching, and works across multiple backends without code changes.
-
-Set up proper authentication before you start (AWS credentials for S3, GCS service accounts for Google Cloud). If you're working with slow networks or large files, then configure appropriate timeouts and implement retry logic to handle transient failures.
-
-### Choose the right backend for cloud storage
-
-Different backends handle cloud storage differently:
-
-#### Default backend (`xo.connect()`):
-
-- Requires AWS credentials or `storage_options` even for public buckets
-- Use when you have credentials configured
-- Add `storage_options={"aws.region": "us-east-1"}` for S3
-
-#### DuckDB backend (`xo.duckdb.connect()`):
-
-- Can access public buckets without credentials
-- More lenient CSV parsing
-- Recommended for testing with public datasets
-
-#### Example with default backend (requires credentials):
+If you're reading public buckets without credentials, then use the DuckDB backend:
 
 ```python
-import xorq.api as xo
-
-con = xo.connect()
-data = xo.deferred_read_csv(
-    path="s3://my-bucket/data/customers.csv",
-    con=con,
-    table_name="customers",
-    storage_options={"aws.region": "us-east-1"}  # Required for default backend
-)
-```
-
-#### Example with DuckDB backend (works with public buckets):
-
-```python
-import xorq.api as xo
-
 con = xo.duckdb.connect()  # DuckDB can access public buckets
 data = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
@@ -137,104 +85,45 @@ data = xo.deferred_read_csv(
 )
 ```
 
-For production workloads with credentials, use the default backend. For testing with public datasets, use DuckDB backend.
-
-### Handle malformed CSV files
-
-Some CSV files contain malformed rows (unterminated quotes, inconsistent formatting). If you encounter parsing errors, use these options:
-
-With DuckDB backend:
+If you encounter CSV parsing errors, then use `strict_mode=False` or `ignore_errors=True`:
 
 ```python
-import xorq.api as xo
-
 con = xo.duckdb.connect()
 data = xo.deferred_read_csv(
     path="s3://my-bucket/data.csv",
     con=con,
     table_name="data",
     strict_mode=False  # Allow reading malformed CSV rows
+    # Or: ignore_errors=True  # Skip rows with parsing errors
 )
 ```
 
-Alternative: Skip problematic rows
+## Read from databases
 
-```python
-data = xo.deferred_read_csv(
-    path="s3://my-bucket/data.csv",
-    con=con,
-    table_name="data",
-    ignore_errors=True  # Skip rows with parsing errors
-)
-```
-
-With Pandas backend (most lenient):
-
-```python
-con = xo.pandas.connect()  # Pandas handles malformed CSV more gracefully
-data = xo.deferred_read_csv(
-    path="s3://my-bucket/data.csv",
-    con=con,
-    table_name="data"
-)
-```
-
-If your CSV files are well-formed, you don't need these options. Use them only when you encounter parsing errors.
-
-### Read from databases
-
-You can connect directly to production databases and query them:
+If you need to read from PostgreSQL, then connect using environment variables:
 
 ```python
 import xorq.api as xo
 
 # <1>
 pg_con = xo.postgres.connect_env()  # Uses environment variables
+
 # <2>
 data = pg_con.table("customers")
+# Or: data = pg_con.sql("SELECT * FROM customers WHERE created_at > '2024-01-01'")
 
 # <3>
-data = pg_con.sql("SELECT * FROM customers WHERE created_at > '2024-01-01'")
-
-# <4>
 df = data.execute()
 ```
 1. Connect to PostgreSQL using environment variables for credentials.
-2. Read from a table. Returns a deferred expression.
-3. Or execute a SQL query directly. Also returns a deferred expression.
-4. Execute the deferred operation to get the actual data.
+2. Read from a table or execute a SQL query. Returns a deferred expression.
+3. Execute the deferred operation to get the actual data.
 
-Store database credentials in environment variables rather than hardcoding them in your scripts. If you put passwords directly in code, then you risk exposing them in version control or logs.
+If you need to store database credentials, then use environment variables rather than hardcoding them in your scripts.
 
-Now that you can read data from production sources, you need to write results back safely.
+## Write to cloud storage
 
-## Write to production destinations
-
-Writing data requires careful handling to avoid data loss and maintain reliability.
-
-### Write to local files
-
-If you're testing or working with small outputs, then write to local files:
-
-```python
-import xorq.api as xo
-
-# <1>
-data.to_csv("output/results.csv")
-
-# <2>
-data.to_parquet("output/results.parquet")
-
-# <3>
-data.to_json("output/results.json")
-```
-1. Write to CSV format. Human-readable but less efficient for large files.
-2. Write to Parquet format. Recommended for production due to compression and columnar storage.
-3. Write to JSON format. Useful for API responses or nested data structures.
-
-### Write to cloud storage
-
-For production workloads, write results to cloud storage with proper error handling:
+If you need to write results to S3 or GCS, then connect to a backend and write in Parquet format:
 
 ```python
 import xorq.api as xo
@@ -249,51 +138,39 @@ results = data.filter(xo._.status == "active").agg(total=xo._.amount.sum())
 results.to_parquet("s3://my-bucket/output/results.parquet")
 ```
 1. Connect to the backend. Required for cloud storage operations.
-2. Process the data with a filter and aggregation. This is still deferred.
+2. Process the data. This is still deferred.
 3. Write results to S3 in Parquet format. The write happens immediately.
 
-If you want to cache intermediate results for faster subsequent reads, then use the caching API:
+If you need to cache intermediate results for faster subsequent reads, then use the caching API:
 
 ```python
 import xorq.api as xo
 from xorq.caching import ParquetCache
 
-# <1>
 con = xo.connect()
-# <2>
 cache = ParquetCache.from_kwargs(source=con)
 
-# <3>
 cached_results = results.cache(cache=cache)
-# <4>
 cached_results.to_parquet("s3://my-bucket/output/results.parquet")
 ```
-1. Connect to the backend. The cache uses this connection.
-2. Create a Parquet cache that stores results in the backend.
-3. Cache the expression results. Subsequent reads use the cache.
-4. Write cached results to S3. The cache persists for future reads.
 
-Use Parquet format for large datasets because it offers better compression and columnar storage. If you need to write data safely, then implement idempotent writes by checking whether the file exists before overwriting it. Use versioned paths for outputs to avoid accidentally overwriting production data.
+If you need to avoid overwriting production data, then use versioned paths for outputs.
 
-### Write to databases
+## Write to databases
 
-You can write results back to production databases:
+If you need to write results to PostgreSQL, then connect and create a table:
 
 ```python
 import xorq.api as xo
 
-# <1>
 pg_con = xo.postgres.connect_env()
 
-# <2>
+# Create or overwrite a table
 pg_con.create_table("results_table", data, overwrite=True)  # or False to append
 
-# <3>
+# Register a temporary table for intermediate results
 pg_con.register("temp_results", data)
 ```
-1. Connect to PostgreSQL using environment variables.
-2. Create or overwrite a table. `overwrite=True` permanently deletes existing tables.
-3. Register a temporary table. Useful for intermediate results in queries.
 
 :::{.callout-warning}
 If you set `overwrite=True`, then `create_table` permanently deletes any existing table with that name. Use `overwrite=False` to append data, but make sure your schema matches the existing table.
@@ -301,11 +178,7 @@ If you set `overwrite=True`, then `create_table` permanently deletes any existin
 
 ## Handle connection failures
 
-Production data sources fail in predictable ways: network timeouts, authentication errors, and service outages. Your code needs to handle these failures gracefully rather than crashing.
-
-### Implement retry logic
-
-Wrap I/O operations in retry logic to handle transient failures:
+If you encounter transient failures like network timeouts, then wrap I/O operations in retry logic:
 
 ```python
 import time
@@ -313,674 +186,141 @@ import xorq.api as xo
 from pyarrow import ArrowIOError
 
 def read_with_retry(path, con=None, max_attempts=3, initial_backoff=2):
-    """Read data with exponential backoff retry.
-    
-    Reuses the same connection across retries to avoid connection overhead.
-    """
-    # <1>
+    """Read data with exponential backoff retry."""
     if con is None:
         con = xo.connect()
     
-    # <2>
     for attempt in range(max_attempts):
         try:
             data = xo.deferred_read_csv(path=path, con=con)
             return data.execute()
         except ArrowIOError as e:
-            # <3>
             if attempt < max_attempts - 1:
-                # Exponential backoff: 2s, 4s, 8s
                 wait_time = initial_backoff ** (attempt + 1)
                 print(f"Connection failed (attempt {attempt + 1}/{max_attempts}), retrying in {wait_time}s...")
                 time.sleep(wait_time)
             else:
                 raise RuntimeError(f"Failed after {max_attempts} attempts: {e}")
 
-# <4>
 con = xo.connect()
 df = read_with_retry("s3://my-bucket/data.csv", con=con)
 ```
-1. Create a connection if one isn't provided. Reusing connections is more efficient.
-2. Retry up to `max_attempts` times. Each attempt tries to read and execute.
-3. On failure, wait with exponential backoff before retrying. Don't retry permanent errors.
-4. Use the retry function. The connection is reused across retries.
 
 :::{.callout-note}
-Retry transient errors like timeouts and network issues, but don't retry permanent errors like authentication failures or file-not-found errors. Retrying permanent errors wastes time and may trigger rate limits.
+Retry transient errors like timeouts and network issues, but don't retry permanent errors like authentication failures or file-not-found errors.
 :::
 
-### Handle authentication failures
+## Configure authentication
 
-Authentication errors are permanent failures that you shouldn't retry. Catch specific exception types rather than parsing error messages when possible:
+If you need to read from cloud storage, then set up credentials in your environment:
 
-```python
-import xorq.api as xo
-from pyarrow import ArrowIOError
-
-def read_with_auth_check(path, con=None):
-    """Read data with proper auth error handling.
-    
-    Note: This example shows the pattern. In practice, authentication errors
-    may be wrapped in different exception types depending on the backend.
-    Check your backend's documentation for specific error types.
-    """
-    # <1>
-    if con is None:
-        con = xo.connect()
-    
-    # <2>
-    try:
-        data = xo.deferred_read_csv(path=path, con=con)
-        return data.execute()
-    except ArrowIOError as e:
-        # <3>
-        # Check for authentication-related errors
-        # Note: Error message parsing is brittle. Prefer catching specific
-        # exception types if your backend provides them.
-        error_msg = str(e).lower()
-        if any(keyword in error_msg for keyword in ["authentication", "credentials", "unauthorized", "forbidden"]):
-            raise RuntimeError(
-                "Authentication failed. Check your AWS credentials or GCS service account."
-            ) from e
-        raise
-
-# <4>
-con = xo.connect()
-df = read_with_auth_check("s3://my-bucket/data.csv", con=con)
-```
-1. Create a connection if one isn't provided.
-2. Attempt to read the data. This may fail with authentication errors.
-3. Check error messages for authentication keywords. Prefer specific exception types when available.
-4. Use the function with proper error handling. Authentication failures are caught and reported clearly.
-
-### Configure authentication
-
-Set up credentials in your environment before reading from cloud storage.
-
-#### AWS S3
-
+**For AWS S3:**
 ```bash
 export AWS_ACCESS_KEY_ID=your_access_key
 export AWS_SECRET_ACCESS_KEY=your_secret_key
 export AWS_DEFAULT_REGION=us-east-1
 ```
 
-#### Google Cloud Storage
-
+**For Google Cloud Storage:**
 ```bash
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/service-account-key.json
 ```
 
-#### IAM roles (recommended for EC2/ECS)
-
-Attach an IAM role to your EC2 instance or ECS task. Credentials are automatically retrieved from instance metadata, so you don't need to set environment variables.
+**For EC2/ECS (recommended):** Attach an IAM role to your EC2 instance or ECS task. Credentials are automatically retrieved from instance metadata.
 
 :::{.callout-warning}
-Never commit credentials to code or version control. Anyone with repository access can steal them. Use IAM roles instead of access keys when possible, rotate credentials regularly, and configure least-privilege permissions.
+Never commit credentials to code or version control. Use IAM roles instead of access keys when possible, rotate credentials regularly, and configure least-privilege permissions.
 :::
 
-With authentication configured properly, you can now focus on optimizing how you handle large files.
-
-## Optimize for large files
-
-Files larger than 1GB require different strategies than small files because memory management and streaming become critical concerns.
-
-### Use streaming for large files
+## Handle large files
 
 If your files are larger than 1GB, then use batch processing to avoid exhausting available memory:
 
 ```python
 import xorq.api as xo
 
-# <1>
 con = xo.connect()
-
-# <2>
 data = xo.deferred_read_parquet(
     path="s3://my-bucket/large-file.parquet",
     con=con
 )
 
-# <3>
+# Process data in chunks
 for batch in data.to_pyarrow_batches(chunk_size=100000):
-    # Process each batch
     df = batch.to_pandas()
-    # Do work on batch
     process_batch(df)
 ```
-1. Connect to the backend. Required for cloud storage reads.
-2. Read Parquet file. The read is deferred until you iterate over batches.
-3. Process data in chunks. Each batch is converted to pandas for processing, avoiding memory exhaustion.
 
 :::{.callout-tip}
 For files larger than 1GB, always use streaming. Loading entire large files into memory will crash your process with out-of-memory errors.
 :::
 
-### Choose the right format
+If you need to optimize storage costs, then use Parquet format instead of CSV. Parquet files compress 50-80% more than CSV and preserve data types.
 
-Your choice of file format affects both performance and storage costs.
+## Monitor performance
 
-#### Parquet (recommended for production)
-
-Columnar storage makes queries on column subsets much faster. Better compression reduces files to 50-80% of CSV size. Preserves data types and schema information. Best for large datasets, analytical workloads, and repeated reads.
-
-#### CSV
-
-Human-readable text format makes debugging easier. Works with any tool that reads text files. Best for small files, one-time exports, and compatibility requirements.
-
-#### JSON
-
-Flexible schema handles nested and evolving data structures. Widely supported for API integration. Best for API responses, configuration data, and small nested datasets.
-
-:::{.callout-tip}
-Parquet saves 80% on storage costs. A 10GB CSV file costs $0.23/month in S3, while the same data as Parquet (compressed to 2GB) costs only $0.05/month. For 100 reads per month, Parquet also reduces data transfer costs by 80%.
-:::
-
-Once you've optimized your data I/O, tracking performance becomes critical to maintaining reliability.
-
-## Monitor data operations
-
-Track I/O performance to identify bottlenecks and failures before they affect your users.
-
-### Track read/write performance
-
-Monitor key metrics to understand how your data operations perform:
+If you need to track I/O performance, then wrap operations with timing and logging:
 
 ```python
 import time
+import logging
 import xorq.api as xo
+
+logger = logging.getLogger(__name__)
 
 def monitored_read(path):
     """Read data with performance tracking."""
-    # <1>
     start_time = time.time()
     
     try:
-        # <2>
         data = xo.deferred_read_csv(path=path, con=xo.connect())
         df = data.execute()
         
-        # <3>
         read_time = time.time() - start_time
         row_count = len(df)
         size_mb = df.memory_usage(deep=True).sum() / 1024 / 1024
         
-        # <4>
-        print(f"Read {row_count:,} rows ({size_mb:.2f} MB) in {read_time:.2f}s")
-        if read_time > 0:
-            print(f"Throughput: {row_count/read_time:,.0f} rows/sec")
-        else:
-            print("Throughput: N/A (read completed instantly)")
-        
+        logger.info(f"Read {row_count:,} rows ({size_mb:.2f} MB) in {read_time:.2f}s")
         return df
     except Exception as e:
-        # <5>
         read_time = time.time() - start_time
-        print(f"Read failed after {read_time:.2f}s: {e}")
+        logger.error(f"Read failed after {read_time:.2f}s: {e}")
         raise
 
-# <6>
 df = monitored_read("s3://my-bucket/data.csv")
 ```
-1. Start timing the operation. Used to calculate latency and throughput.
-2. Read and execute the data. The timing includes both network and processing time.
-3. Calculate performance metrics: duration, row count, and memory size.
-4. Log performance metrics. Helps identify bottlenecks and track performance over time.
-5. Log failures with timing information. Useful for debugging timeout issues.
-6. Use the monitored read function. All operations are automatically tracked.
 
-Track read and write latency at the 50th, 95th, and 99th percentiles to understand both typical and worst-case performance. Monitor throughput in rows per second and megabytes per second to identify bandwidth constraints. Watch error rates broken down by error type to spot systematic problems. Count retry attempts per operation because high retry counts indicate connection instability. Track memory usage during operations to prevent out-of-memory failures.
+## Troubleshoot common errors
 
-Normal performance ranges: small files (under 100MB) read in under 5 seconds, medium files (100MB-1GB) read in 5-30 seconds, and large files (over 1GB) take 30+ seconds and should use streaming instead.
+If you see a connection timeout, then use streaming for large files, check network connectivity, or switch to a faster backend (DuckDB handles large files well).
 
-Set alerts for read time exceeding 60 seconds for files under 1GB (indicates network or backend issues), error rate above 5% (indicates systemic problems requiring investigation), and retry count above 3 per operation (indicates connection instability).
+If you see a file not found error, then verify the path with `aws s3 ls s3://bucket/path/` or `gsutil ls gs://bucket/path/`. Check for typos and verify permissions.
 
-### Log operations for debugging
+If you see an out of memory error, then switch to streaming with `data.to_pyarrow_batches(chunk_size=100000)`. Reduce chunk size if already streaming. Process one file at a time.
 
-Log I/O operations with enough context to troubleshoot failures:
+If you see a schema mismatch error, then inspect the schema with `data.schema()` or read the first few rows. Handle missing columns gracefully:
 
 ```python
-import logging
-import xorq.api as xo
-
-# <1>
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-def logged_read(path, table_name=None):
-    """Read data with detailed logging."""
-    # <2>
-    logger.info(f"Starting read: path={path}, table={table_name}")
-    
-    try:
-        # <3>
-        data = xo.deferred_read_csv(
-            path=path,
-            con=xo.connect(),
-            table_name=table_name
-        )
-        df = data.execute()
-        
-        # <4>
-        logger.info(f"Read successful: {len(df)} rows")
-        return df
-    except Exception as e:
-        # <5>
-        logger.error(f"Read failed: path={path}, error={e}", exc_info=True)
-        raise
-
-# <6>
-df = logged_read("s3://my-bucket/data.csv", table_name="customers")
-```
-1. Configure logging to capture INFO level messages and above.
-2. Log the start of the operation with context (path, table name).
-3. Perform the read operation. Logging captures the attempt.
-4. Log successful completion with row count. Helps verify operations completed.
-5. Log failures with full error details and stack trace. Critical for debugging production issues.
-6. Use the logged read function. All operations are automatically logged.
-
-Include the operation type (read or write), source or destination path, file size, row count, operation duration, success or failure status, and complete error messages with stack traces.
-
-Monitoring helps you detect problems, but you also need to understand how to recover when things go wrong.
-
-## Failure modes and recovery
-
-Production data I/O fails in predictable ways, and understanding these patterns helps you build more resilient pipelines.
-
-### Failure: Network timeout
-
-You see `ArrowIOError: Deadline exceeded` or `Connection timeout` in your logs. This happens when network latency between your application and data source is too high, the data source is responding slowly, or your backend is overloaded with other operations.
-
-You'll notice operations taking longer than 60 seconds or timeout errors appearing in your application logs.
-
-To recover, implement retry logic with exponential backoff (see "Handle connection failures" section). If the file is large, then switch to streaming or batch processing. Check network connectivity and verify the data source is healthy. Configure backend-specific timeouts by checking your backend documentation for timeout options.
-
-Prevent this by setting appropriate timeouts based on expected file size, running health checks before starting operations, and implementing circuit breakers for data sources that fail repeatedly.
-
-### Failure: Authentication error
-
-You see `ArrowIOError: Authentication failed` or `Invalid credentials` immediately when trying to connect. This means your credentials have expired, permissions are configured incorrectly, or authentication configuration is missing. The operation fails immediately on connection attempt with an error message containing "auth" or "credential".
-
-To recover, verify credentials are set with `print(os.environ.get("AWS_ACCESS_KEY_ID"))`. Check whether credentials have expired (service account keys and temporary tokens expire). Verify IAM permissions grant access to your S3 or GCS buckets. If you suspect credentials have been compromised, then rotate them immediately.
-
-Prevent this by using IAM roles instead of access keys when possible because they rotate automatically. Set up credential rotation schedules, monitor credential expiration dates, and configure least-privilege permissions. If credentials leak, then least-privilege permissions limit the damage.
-
-### Failure: File not found
-
-You see `FileNotFoundError` or `No such file or directory`. The path is incorrect due to a typo, the file was deleted, or the path has moved. The operation fails immediately with a clear error message.
-
-To recover, verify the path is correct by checking for typos and trailing slashes. List the directory with `aws s3 ls s3://bucket/path/` or `gsutil ls gs://bucket/path/`. Check whether the file was moved or deleted. Verify you have permissions to list the directory.
-
-Prevent this by validating paths before operations start, using path constants instead of hardcoded strings, and implementing path existence checks in your pipelines.
-
-### Failure: Out of memory
-
-You see `MemoryError` or the system kills your process with an out-of-memory error. The file is too large for available memory or you're loading the entire file into memory at once. Memory usage spikes to 100% of available RAM, your process crashes unexpectedly, or the system becomes unresponsive.
-
-To recover, switch to streaming or batch processing (see "Optimize for large files" section). If you're already using batches, then reduce the chunk size. Increase available memory by scaling vertically. Switch to a backend that handles large files better (DuckDB or PostgreSQL).
-
-Prevent this by monitoring memory usage proactively, using streaming for files larger than 1GB, setting memory limits on your processes, and choosing backends appropriate for your data size.
-
-### Failure: Schema mismatch
-
-You see `SchemaError` or `Column type mismatch`. The source schema changed since you wrote your code, column data types differ from expectations, or columns are missing. The error occurs during read or write operations when schema validation fails.
-
-To recover, inspect the actual schema by calling `data.schema()` or reading the first few rows. Update your schema definition to match the actual source. Handle missing columns by selecting only available columns:
-
-```python
-# <1>
-# If data is a pandas DataFrame
-available_cols = [col for col in expected_cols if col in data.columns]
-data = data[available_cols]
-
-# <2>
-# If data is a Xorq expression
-available_cols = [col for col in expected_cols if col in data.columns]
-data = data.select(available_cols)
-```
-1. For pandas DataFrames, filter columns using list comprehension and bracket notation.
-2. For Xorq expressions, use `.select()` to choose only available columns.
-
-Prevent this by versioning your schemas to track changes over time, validating schemas before operations start, using a schema registry to enforce consistency, and testing schema changes in staging before deploying to production.
-
-Understanding these failure patterns helps you build resilient pipelines, but performance characteristics change as your data grows.
-
-## Scaling considerations
-
-Data I/O performance characteristics change significantly as your data grows. Understanding these bottlenecks helps you choose the right approach.
-
-### Small files (<100MB)
-
-Reads complete in under 5 seconds with low memory usage (under 500MB). Network latency dominates performance, not file size or processing time.
-
-Batch multiple small files together to reduce network round trips, use connection pooling to reuse connections, and minimize the number of separate requests:
-
-```python
-import pandas as pd
-import xorq.api as xo
-
-# <1>
-files = ["s3://bucket/file1.csv", "s3://bucket/file2.csv", "s3://bucket/file3.csv"]
-# <2>
-con = xo.connect()
-# <3>
-dataframes = [xo.deferred_read_csv(path=f, con=con).execute() for f in files]
-# <4>
-combined = pd.concat(dataframes)
-```
-1. Define a list of file paths to read. Batching reduces network round trips.
-2. Create a single connection to reuse across reads. More efficient than creating new connections.
-3. Read all files using the same connection. Each read executes immediately.
-4. Combine all DataFrames into a single result. Pandas handles the concatenation efficiently.
-
-### Medium files (100MB-1GB)
-
-Reads take 5-30 seconds with moderate memory usage (500MB-2GB). Memory allocation and network bandwidth start to matter more than latency.
-
-Use Parquet format for better compression, enable compression during transfer, and consider streaming for processing operations:
-
-```python
-# <1>
-# Use Parquet for better performance
-data = xo.deferred_read_parquet(
-    path="s3://bucket/medium-file.parquet",  # Parquet, not CSV
-    con=con
-)
-```
-1. Read Parquet format for medium files. Parquet's compression reduces transfer time and storage costs.
-
-### Large files (>1GB)
-
-Reads take 30+ seconds with high risk of memory exhaustion (over 2GB). Memory exhaustion, network timeouts, and backend limitations become critical constraints.
-
-Use streaming or batch processing, read data in chunks, and choose backends optimized for large files (DuckDB handles these well):
-
-```python
-# <1>
-# Stream large files
-con = xo.duckdb.connect()  # DuckDB handles large files efficiently
-# <2>
-data = xo.deferred_read_parquet(
-    path="s3://bucket/large-file.parquet",
-    con=con
-)
-
-# <3>
-# Process in batches
-for batch in data.to_pyarrow_batches(chunk_size=500000):
-    process_batch(batch)
-```
-1. Use DuckDB backend for large files. DuckDB is optimized for columnar processing of large datasets.
-2. Read the Parquet file. The read is deferred until you iterate over batches.
-3. Process data in large chunks. Each batch contains 500,000 rows to balance memory and processing efficiency.
-
-If your files exceed 10GB, then consider splitting them into multiple smaller files, using distributed processing frameworks, or loading them into a database first.
-
-Scaling your data operations effectively also means managing costs as volume grows.
-
-## Cost optimization
-
-Data I/O costs come from three sources: storage, data transfer, and compute time. You can optimize each component separately.
-
-### Storage costs
-
-Parquet files compress data 50-80% more than CSV files due to columnar storage. For 1TB of data, CSV format costs about $23 per month in storage while Parquet format costs about $5-10 per month. You save $13-18 per month per TB by using Parquet.
-
-If you'll read files multiple times, then convert CSV files to Parquet. Keep CSV only for one-time exports or when you need human-readable output.
-
-### Data transfer costs
-
-Reading data from cloud storage incurs egress charges. The first 100GB per month is free on AWS ($0.12/GB on GCS), and the next 10TB costs $0.09/GB on AWS ($0.12/GB on GCS).
-
-:::{.callout-tip}
-Cache results to save 99% on data transfer costs. If you read a 10GB file 100 times per month without caching, then you transfer 1TB and pay $90. With caching after the first read, you transfer only 10GB and pay $0.90, saving $89.10 per month.
-:::
-
-Use `data.cache(cache=ParquetCache.from_kwargs(source=con))` to enable caching. Use regional buckets in the same region as your compute to get free transfer. Compress your data with Parquet to reduce transfer size. Batch operations together to minimize API calls.
-
-### Compute costs
-
-Different backends have different compute characteristics. Pandas is fast for small data but memory-intensive. DuckDB is efficient for large files with columnar processing. PostgreSQL is best for concurrent access and persistent storage.
-
-Use Pandas for data under 1GB, DuckDB for 1-100GB, and PostgreSQL for data over 100GB or when you need concurrent access from multiple users.
-
-Faster backends like DuckDB reduce compute time but may require more memory. Slower backends like Pandas on large datasets increase compute time but use less memory initially.
-
-Even with proper optimization and monitoring, you'll still encounter errors that need immediate resolution.
-
-## Troubleshooting
-
-Here's how to fix common errors you'll encounter in production.
-
-### Error: "Connection timeout"
-
-The operation took longer than your configured timeout limit. This usually happens when the file is too large for the timeout setting, the network connection is slow or unstable, or the backend is overloaded with other operations.
-
-To diagnose, check file size with `aws s3 ls --human-readable s3://bucket/file.csv`. Test network latency by pinging your data source. Verify backend health by running `con.tables`, which should respond quickly.
-
-To fix, use streaming for large files (streaming avoids timeout issues). Check network connectivity and verify the data source is responding. Switch to a faster backend (DuckDB handles large files well). Configure backend-specific connection timeouts by referring to your backend documentation.
-
-### Error: "File not found"
-
-The path you specified doesn't exist or is incorrect. Common causes include typos in the path (wrong bucket name, misspelled filename), files moved or deleted since you wrote the code, or incorrect bucket prefix or directory structure.
-
-To diagnose, list the directory with `aws s3 ls s3://bucket/path/` or `gsutil ls gs://bucket/path/`. Check path spelling and verify case sensitivity (S3 is case-sensitive). Verify you have permissions to access the file.
-
-To fix, correct any typos in the path. For local files, you can check existence with `os.path.exists(path)`. For cloud storage (S3, GCS), attempt to read the file and catch `FileNotFoundError` or `ArrowIOError` to detect missing files.
-
-### Error: "Out of memory"
-
-You don't have enough RAM to load the file into memory. This happens when the file is larger than your available memory, you're loading the entire file instead of streaming it, or multiple large files are in memory simultaneously.
-
-To diagnose, compare file size to available memory. Check current memory usage with `ps aux | grep python`. Verify whether you're using streaming or loading the entire file.
-
-To fix, switch to streaming with `data.to_pyarrow_batches(chunk_size=100000)`. If you're already streaming, then reduce the chunk size. Process one file at a time instead of loading multiple files. Increase available memory or switch to a backend that handles large files (DuckDB).
-
-### Error: "Schema mismatch"
-
-The expected schema doesn't match the actual data schema. This happens when source schemas change since you wrote your code, column data types differ from your expectations, or columns are missing or extra columns were added.
-
-To diagnose, read the first few rows and inspect the schema with `data.schema()`. Compare the actual schema to your expected schema. Check for schema evolution in your source system.
-
-To fix, update your schema definition to match the actual source. Handle missing columns gracefully:
-
-```python
-# <1>
-# If data is a pandas DataFrame
+# For pandas DataFrames
 available_cols = [c for c in expected_cols if c in data.columns]
 data = data[available_cols]
 
-# <2>
-# If data is a Xorq expression
+# For Xorq expressions
 available_cols = [c for c in expected_cols if c in data.columns]
 data = data.select(available_cols)
 ```
-1. For pandas DataFrames, filter to only available columns using bracket notation.
-2. For Xorq expressions, use `.select()` to choose only available columns.
 
-Validate schemas before operations to catch mismatches early.
+If you see an authentication failed error, then verify credentials with `print(os.environ.get("AWS_ACCESS_KEY_ID"))`. Check IAM permissions grant access to your bucket. Use IAM roles instead of access keys when possible.
 
-### Error: "Authentication failed"
+## Optimize costs
 
-Your credentials are invalid, expired, or missing. Common causes include expired access keys, incorrect or misconfigured credentials, or IAM permissions that don't grant access to the resource.
+If you need to reduce storage costs, then use Parquet format instead of CSV. For 1TB, CSV costs ~$23/month while Parquet costs ~$5-10/month.
 
-To diagnose, check credentials are set with `print(os.environ.get("AWS_ACCESS_KEY_ID"))`. Verify credentials work by running `aws s3 ls` or `gsutil ls`. Check IAM permissions grant access to your bucket.
+If you need to reduce data transfer costs, then cache results using `data.cache(cache=ParquetCache.from_kwargs(source=con))`. This saves 99% on transfer costs for repeated reads.
 
-To fix, refresh expired credentials. Verify the credential format and values are correct. Check IAM role or permissions for bucket access. Use IAM roles instead of access keys when possible (more secure).
-
-Beyond these common errors, production environments surface edge cases that require special handling.
-
-## Edge cases
-
-Production environments surface edge cases that can cause data loss or incorrect results.
-
-### Edge case: Empty files
-
-Your pipeline fails unexpectedly or produces empty results without warning.
-
-:::{.callout-warning}
-Empty files can silently break pipelines or produce confusing empty results. For local files, check file size before reading. For cloud storage, check the result after reading.
-:::
-
-Handle this case explicitly:
-
-```python
-import logging
-import pandas as pd
-import xorq.api as xo
-from pyarrow import ArrowIOError
-
-# <1>
-logger = logging.getLogger(__name__)
-
-def safe_read(path, con=None):
-    """Read file with empty file handling.
-    
-    Works with both local files and cloud storage (S3, GCS).
-    """
-    # <2>
-    if con is None:
-        con = xo.connect()
-    
-    # <3>
-    # Attempt to read the file
-    try:
-        data = xo.deferred_read_csv(path=path, con=con).execute()
-    except (FileNotFoundError, ArrowIOError) as e:
-        # Check if error indicates file not found
-        error_msg = str(e).lower()
-        if "not found" in error_msg or "no such file" in error_msg:
-            raise FileNotFoundError(f"File not found: {path}") from e
-        raise
-    
-    # <4>
-    # Check if result is empty
-    if len(data) == 0:
-        logger.warning(f"Empty file: {path}")
-        return pd.DataFrame()  # Return empty DataFrame
-    
-    return data
-```
-1. Set up logging to track warnings about empty files.
-2. Create a connection if one isn't provided.
-3. Attempt to read the file. Catch FileNotFoundError for local files and ArrowIOError for cloud storage.
-4. Check if the result is empty after reading. Works for both local and cloud storage paths.
-
-### Edge case: Concurrent writes
-
-Multiple processes writing to the same file causes corruption or data loss. You see file locks, write conflicts, or partial writes in your logs.
-
-Handle this with versioned paths:
-
-```python
-import shutil
-import time
-import xorq.api as xo
-
-def safe_write(data, path):
-    """Write with versioned paths to prevent concurrent write conflicts."""
-    # <1>
-    # Use versioned paths for idempotent writes
-    timestamp = int(time.time())
-    versioned_path = f"{path}.{timestamp}"
-    
-    # <2>
-    # Write to versioned path first
-    if isinstance(data, xo.expr.types.Table):
-        data.to_parquet(versioned_path)
-    else:
-        # If data is already a pandas DataFrame
-        import pandas as pd
-        pd.DataFrame(data).to_parquet(versioned_path)
-    
-    # <3>
-    # Atomic move to final path (if supported by filesystem)
-    # For cloud storage, use versioned paths directly or use database transactions
-    try:
-        shutil.move(versioned_path, path)
-    except OSError:
-        # For cloud storage, versioned paths are the solution
-        # Keep the versioned path or use database transactions
-        pass
-```
-1. Create a versioned path with a timestamp. Prevents concurrent write conflicts.
-2. Write to the versioned path first. Handles both Xorq expressions and pandas DataFrames.
-3. Attempt to atomically move to the final path. For cloud storage, keep the versioned path.
-
-If you're using cloud storage, then use versioned paths directly or write to a database with transactions instead of trying atomic moves.
-
-### Edge case: Partial file reads
-
-Network interruption during read produces incomplete data without obvious errors. Row count doesn't match expectations, schema errors occur mid-read, or checksum validation fails.
-
-Verify reads complete successfully:
-
-```python
-def verified_read(path, expected_rows=None):
-    """Read with verification to catch partial reads."""
-    # <1>
-    data = xo.read_csv(path).execute()
-    
-    # <2>
-    # Verify row count if expected
-    if expected_rows and len(data) != expected_rows:
-        raise ValueError(
-            f"Row count mismatch: expected {expected_rows}, got {len(data)}"
-        )
-    
-    # <3>
-    # Verify no nulls in key columns
-    if data['id'].isna().any():
-        raise ValueError("Null values in key column - possible partial read")
-    
-    return data
-```
-1. Read the file and execute immediately. This is a non-deferred read.
-2. Verify the row count matches expectations. Mismatches indicate partial reads or data corruption.
-3. Check for null values in key columns. Nulls in required columns suggest incomplete data.
-
-### Edge case: Schema evolution mid-pipeline
-
-Source schema changes while your pipeline is running, causing failures downstream. You see schema errors, missing columns, or type mismatches after the pipeline has already processed some data.
-
-Handle schema flexibility:
-
-```python
-import xorq.api as xo
-
-def flexible_read(path, required_cols=None, con=None):
-    """Read with schema flexibility."""
-    # <1>
-    if con is None:
-        con = xo.connect()
-    
-    # <2>
-    data = xo.deferred_read_csv(path=path, con=con).execute()
-    
-    # <3>
-    # Check required columns exist
-    if required_cols:
-        missing = set(required_cols) - set(data.columns)
-        if missing:
-            raise ValueError(f"Missing required columns: {missing}")
-    
-    # <4>
-    # Select only available columns
-    if required_cols:
-        available_cols = [c for c in required_cols if c in data.columns]
-        return data[available_cols]  # pandas DataFrame column selection
-    return data
-```
-1. Create a connection if one isn't provided.
-2. Read and execute the data. The result is a pandas DataFrame.
-3. Validate that all required columns are present. Fail fast if critical columns are missing.
-4. Return only the requested columns that are available. Handles schema evolution gracefully.
-
-You now have the patterns and tools to handle production data I/O reliably. These edge cases represent the most common failure scenarios you'll encounter when reading and writing data at scale.
+If you need to choose the right backend for your data size, then use Pandas for data under 1GB, DuckDB for 1-100GB, and PostgreSQL for data over 100GB or concurrent access.
 
 ## Next steps
-
-Now that you can handle production data I/O, continue learning:
 
 - [Build data quality checks](build_data_quality_checks.qmd) - Validate data before processing
 - [Transform data with custom UDFs](transform_data_with_custom_udfs.qmd) - Create reusable transformations
