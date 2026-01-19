@@ -173,6 +173,7 @@
             packages = [
               pkgs.python310
               pkgs.uv
+              pkgs.duckdb
             ];
             shellHook = ''
               unset PYTHONPATH
