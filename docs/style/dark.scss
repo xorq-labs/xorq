@@ -17,7 +17,7 @@ $gray-600: #05181A;
 $gray-500: #05181A;
 $gray-400: #05181A;
 $body-bg: $black;
-$body-color: $white;
+$body-color: $blue;
 $input-btn-padding-y: 1rem;
 $input-btn-padding-x: 1.5rem;
 $input-disabled-bg: $gray-300;
@@ -38,8 +38,8 @@ $modal-content-color: $black;
 $popover-border-color: rgba($white, .2);
 $toast-border-color: $gray-300;
 $info: $gray-300;
-$font-family-sans-serif: "ALT Riviera", "Helvetica Neue", Arial, sans-serif;
-$font-family-monospace: "FK Grotesk Mono Trial", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+$font-family-sans-serif: "ALT Riviera", "Inter Tight", "Helvetica Neue", Arial, sans-serif;
+$font-family-monospace: "FK Grotesk Mono", "Space Mono", SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 $table-bg-level: -2;
 $btn-font-family: $font-family-monospace;
 
@@ -52,10 +52,83 @@ h1, h2, h3, h4, h5 {
     font-weight: 400;
 }
 
-body {
-    font-weight: $font-weight-normal;
-    font-size: 1rem;
+h1, h2 {
+    line-height: 1.0; /* Leading 1.0 per brand guidelines */
+    letter-spacing: -0.5px; /* -5 tracking per brand guidelines */
+}
+
+h3, h4, h5 {
+    font-family: $font-family-monospace;
+    font-weight: 400;
+    font-size: 0.9375rem;
     line-height: 1.6;
+    letter-spacing: 0;
+    text-transform: uppercase;
+    max-width: 55ch;
+    
+    &::before {
+        content: "[";
+    }
+    
+    &::after {
+        content: "]";
+    }
+}
+
+h3 .anchor,
+h4 .anchor,
+h5 .anchor,
+h3 a[href^="#"],
+h4 a[href^="#"],
+h5 a[href^="#"],
+h3 a.header-anchor,
+h4 a.header-anchor,
+h5 a.header-anchor,
+.quarto-content h3 .anchor,
+.quarto-content h4 .anchor,
+.quarto-content h5 .anchor,
+.quarto-content h3 a[href^="#"],
+.quarto-content h4 a[href^="#"],
+.quarto-content h5 a[href^="#"],
+main h3 .anchor,
+main h4 .anchor,
+main h5 .anchor,
+main h3 a[href^="#"],
+main h4 a[href^="#"],
+main h5 a[href^="#"],
+h3:hover .anchor,
+h4:hover .anchor,
+h5:hover .anchor,
+h3:hover a[href^="#"],
+h4:hover a[href^="#"],
+h5:hover a[href^="#"],
+h3:focus .anchor,
+h4:focus .anchor,
+h5:focus .anchor,
+h3:focus a[href^="#"],
+h4:focus a[href^="#"],
+h5:focus a[href^="#"],
+h3:focus-within .anchor,
+h4:focus-within .anchor,
+h5:focus-within .anchor,
+h3:focus-within a[href^="#"],
+h4:focus-within a[href^="#"],
+h5:focus-within a[href^="#"] {
+    display: none !important;
+    opacity: 0 !important;
+    visibility: hidden !important;
+    width: 0 !important;
+    height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+body {
+    font-family: $font-family-sans-serif;
+    font-weight: $font-weight-normal;
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    letter-spacing: 0;
 }
 
 /* Heading sizes are controlled by typography-spacing.html for consistency */
@@ -72,9 +145,9 @@ h6 {
 
 button {
     font-weight: 500;
-    line-height: 150%;
-    letter-spacing: -0.00875rem;
-    text-transform: uppercase;
+    line-height: 1.3;
+    letter-spacing: 0;
+    text-transform: none;
 }
 
 input {
@@ -100,12 +173,109 @@ pre code {
     border: 1px solid $gray-300 !important;
 }
 
-.sidebar-navigation a {
-    color: $white;
+.quarto-sidebar .navbar-brand,
+#quarto-sidebar .navbar-brand {
+  display: block;
+  padding: 1.5rem 1.5rem 1rem 1.5rem;
+  margin: 0;
+  border-bottom: 1px solid rgba($white, 0.1);
 }
 
-.sidebar-navigation a:hover {
-    color: $gray-300;
+.quarto-sidebar .navbar-brand img,
+#quarto-sidebar .navbar-brand img {
+  height: 2.5rem;
+  width: auto;
+  max-width: 100%;
+}
+
+/* Sidebar custom scrollbar - thin, minimal design */
+#quarto-sidebar::-webkit-scrollbar,
+.quarto-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+#quarto-sidebar::-webkit-scrollbar-track,
+.quarto-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#quarto-sidebar::-webkit-scrollbar-thumb,
+.quarto-sidebar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+}
+
+#quarto-sidebar::-webkit-scrollbar-thumb:hover,
+.quarto-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.3);
+}
+
+/* Sidebar navigation */
+#quarto-sidebar .sidebar-item a,
+#quarto-sidebar .sidebar-item .sidebar-item a,
+.quarto-sidebar .sidebar-item a,
+.quarto-sidebar .sidebar-item .sidebar-item a,
+.sidebar-navigation .sidebar-item a,
+.sidebar-navigation .sidebar-item .sidebar-item a,
+#quarto-sidebar a:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a:not(.sidebar-section-header):not(h6) {
+  color: $blue !important;
+}
+
+#quarto-sidebar .sidebar-item a:hover,
+#quarto-sidebar .sidebar-item .sidebar-item a:hover,
+.quarto-sidebar .sidebar-item a:hover,
+.quarto-sidebar .sidebar-item .sidebar-item a:hover,
+.sidebar-navigation .sidebar-item a:hover,
+.sidebar-navigation .sidebar-item .sidebar-item a:hover,
+#quarto-sidebar a:hover:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a:hover:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a:hover:not(.sidebar-section-header):not(h6) {
+  color: rgba($white, 0.9) !important;
+  background: rgba($white, 0.05) !important;
+}
+
+#quarto-sidebar .sidebar-item a.active,
+#quarto-sidebar .sidebar-item a[aria-current="page"],
+#quarto-sidebar .sidebar-item .sidebar-item a.active,
+#quarto-sidebar .sidebar-item .sidebar-item a[aria-current="page"],
+.quarto-sidebar .sidebar-item a.active,
+.quarto-sidebar .sidebar-item a[aria-current="page"],
+.quarto-sidebar .sidebar-item .sidebar-item a.active,
+.quarto-sidebar .sidebar-item .sidebar-item a[aria-current="page"],
+.sidebar-navigation .sidebar-item a.active,
+.sidebar-navigation .sidebar-item a[aria-current="page"],
+.sidebar-navigation .sidebar-item .sidebar-item a.active,
+.sidebar-navigation .sidebar-item .sidebar-item a[aria-current="page"],
+#quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+#quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+.quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+.sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+  color: $cyan !important;
+  background: rgba($cyan, 0.1) !important;
+}
+
+.navbar-nav .nav-link {
+  font-size: 0.8125rem !important;
+}
+
+/* Panel tabs */
+.panel-tabset .nav-link,
+.nav-tabs .nav-link {
+  color: rgba($white, 0.7) !important;
+}
+
+.panel-tabset .nav-link:hover,
+.nav-tabs .nav-link:hover {
+  color: $cyan !important;
+}
+
+.panel-tabset .nav-link.active,
+.nav-tabs .nav-link.active {
+  color: rgba($white, 0.9) !important;
 }
 
 .nav-item a {
@@ -120,13 +290,11 @@ pre code {
     color: $white;
 }
 
-/* Dropdown menu styling - scrollable like Ibis */
 .dropdown-menu {
   max-height: 70vh;
   overflow-y: auto;
   overflow-x: hidden;
   
-  /* Custom scrollbar styling */
   &::-webkit-scrollbar {
     width: 8px;
   }
@@ -146,7 +314,7 @@ pre code {
   }
 }
 
-/* Dropdown section headers - make visible in dark mode */
+/* Dropdown section headers */
 .dropdown-header {
   color: $cyan !important;
   font-weight: 300;
@@ -202,26 +370,26 @@ pre code {
     }
 
     &:hover {
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
       transform: translateY(-2px);
-      border-color: $white;
+      border-color: $cyan;
+      background: rgba($cyan, 0.1);
     }
 }
 
 .icon-title-row {
   display: flex;
   align-items: center;
-  justify-content: center; /* Center horizontally in the card */
+  justify-content: center;
   padding: 1rem;
 }
 
 .icon-title-row i {
-  font-size: 1.5rem; /* Adjust icon size as needed */
-  margin-right: 0.5rem; /* Space between icon and text */
+  font-size: 1.5rem;
+  margin-right: 0.5rem;
 }
 
 .listing-title-text {
-  font-size: 1.2rem; /* Adjust text size as needed */
+  font-size: 1.2rem;
 }
 
 
@@ -250,47 +418,67 @@ pre code {
 /* Hero Section */
 .hero-section {
   background: $navbar-bg;
-  padding: 4rem 2rem;
+  padding: 6rem 2rem;
   text-align: center;
   position: relative;
-  overflow: hidden;
+  overflow: visible;
+  min-height: 60vh;
   
   @media (max-width: 768px) {
-    padding: 3rem 1.5rem;
+    padding: 3rem 1rem;
+    min-height: 50vh;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 2rem 1rem;
+    min-height: 45vh;
   }
 }
 
 .hero-content {
-  max-width: 800px;
+  max-width: 1400px;
   margin: 0 auto;
   position: relative;
   z-index: 1;
   
+  @media (max-width: 768px) {
+    max-width: 100%;
+    padding: 0 1rem;
+  }
+  
   h1 {
-    font-size: 3.5rem;
-    margin-bottom: 1rem;
-    color: $white;
-    font-weight: 500;
-    line-height: 1.2;
-    
-    @media (max-width: 768px) {
-      font-size: 2.5rem;
-    }
-    
-    @media (max-width: 480px) {
-      font-size: 2rem;
-    }
+    font-size: clamp(3.5rem, 25vw, 50rem) !important;
+    margin-bottom: clamp(0.5rem, 1vw, 1rem) !important;
+    color: $blue !important;
+    font-weight: 400 !important;
+    line-height: 1.0 !important;
+    letter-spacing: -0.5px !important;
+    max-width: 3000px !important;
+    margin-left: auto !important;
+    margin-right: auto !important;
+    font-family: $font-family-sans-serif !important;
   }
   
   p {
     font-size: 1.125rem;
-    color: rgba($white, 0.85);
-    margin-bottom: 2rem;
+    color: $blue;
+    margin-bottom: 1rem;
     line-height: 1.6;
+    max-width: 500px;
+    margin-left: auto;
+    margin-right: auto;
+    word-wrap: break-word;
     
     @media (max-width: 768px) {
-      font-size: 1rem;
-      margin-bottom: 1.5rem;
+      font-size: 0.9rem;
+      margin-bottom: 0.75rem;
+      max-width: 90%;
+    }
+    
+    @media (max-width: 480px) {
+      font-size: 0.875rem;
+      margin-bottom: 0.5rem;
+      max-width: 95%;
     }
   }
 }
@@ -298,23 +486,66 @@ pre code {
 /* Hero Buttons */
 .hero-btn {
   display: inline-block;
-  padding: 1rem 2rem;
+  padding: 0.75rem 1.25rem;
   margin: 0.5rem;
-  border-radius: 8px;
+  border-radius: 0;
   text-decoration: none;
   font-family: $font-family-monospace;
-  font-size: 0.95rem;
+  font-size: 0.875rem;
   font-weight: 500;
+  line-height: 1.3;
+  letter-spacing: 0;
+  text-transform: none;
   transition: all 0.2s ease;
   
+  @media (max-width: 768px) {
+    padding: 0.625rem 1rem;
+    font-size: 0.8125rem;
+    margin: 0.25rem;
+  }
+  
+  @media (max-width: 480px) {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.75rem;
+    margin: 0.25rem;
+  }
+  
   &.hero-btn-primary {
-    background: $cyan;
-    color: $black;
+    background: $cyan !important;
+    background-color: $cyan !important;
+    color: $black !important;
+    opacity: 1 !important;
     
-    &:hover {
-      background: lighten($cyan, 10%);
+    &:link,
+    &:visited {
+      background: $cyan !important;
+      background-color: $cyan !important;
+      color: $black !important;
+      opacity: 1 !important;
+    }
+    
+    &:hover,
+    &:link:hover,
+    &:visited:hover {
+      background: lighten($cyan, 10%) !important;
+      background-color: lighten($cyan, 10%) !important;
+      color: $black !important;
+      opacity: 1 !important;
       transform: translateY(-2px);
       box-shadow: 0 4px 20px rgba($cyan, 0.4);
+      text-decoration: none !important;
+    }
+    
+    &:active,
+    &:focus,
+    &:focus-visible,
+    &:hover:active,
+    &:hover:focus {
+      background: $cyan !important;
+      background-color: $cyan !important;
+      color: $black !important;
+      opacity: 1 !important;
+      outline: none !important;
     }
   }
   
@@ -335,12 +566,27 @@ pre code {
 .content-section {
   max-width: 1100px;
   margin: 0 auto;
-  padding: 4rem 2rem;
+  padding: 0 clamp(1rem, 2vw, 2rem) clamp(2rem, 4vw, 4rem) clamp(1rem, 2vw, 2rem);
+  margin-top: clamp(-8rem, -10vw, -5rem);
+  position: relative;
+  z-index: 1;
+  background: $body-bg;
   
   h2 {
-    font-size: 2.2rem;
-    margin-top: 3rem;
+    font-size: clamp(1rem, 1.5vw, 1.125rem);
+    margin-top: 0;
     margin-bottom: 1rem;
+    font-weight: 400;
+  }
+  
+  @media (max-width: 768px) {
+    margin-top: clamp(-4rem, -8vw, -3rem);
+    padding: 0 1rem 2rem 1rem;
+  }
+  
+  @media (max-width: 480px) {
+    margin-top: clamp(-3rem, -6vw, -2rem);
+    padding: 0 1rem 1.5rem 1rem;
   }
   
   > p {

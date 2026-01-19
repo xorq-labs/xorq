@@ -1,6 +1,11 @@
 <!-- Bootstrap Icons -->
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css">
 
+<!-- Google Fonts - Brand Guidelines Fallbacks -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+
 <style>
 /* TOC title - use default Quarto styling (like Ibis) */
 #TOC .toc-title,
@@ -17,15 +22,18 @@
 
 /* Body text sizing - standard documentation sizing */
 body {
-  font-size: 1rem;
+  font-size: 0.9375rem;
   line-height: 1.6;
+  letter-spacing: 0;
 }
 
 .quarto-content p,
 main p {
-  font-size: 1rem;
+  font-size: 0.9375rem;
   line-height: 1.6;
+  letter-spacing: 0;
   margin-bottom: 1rem;
+  max-width: 55ch;
 }
 
 /* Responsive heading sizes - exclude homepage */
@@ -35,7 +43,8 @@ body:not(.homepage) .page-columns h1,
 body:not(.homepage) h1 {
   font-size: clamp(2rem, 4.5vw, 2.5rem) !important;
   font-weight: 400;
-  line-height: 1.2;
+  line-height: 1.0; /* Leading 1.0 per brand guidelines */
+  letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
 }
 
 body:not(.homepage) .quarto-content h2,
@@ -44,34 +53,131 @@ body:not(.homepage) .page-columns h2,
 body:not(.homepage) h2 {
   font-size: clamp(1.5rem, 3.5vw, 2rem) !important;
   font-weight: 400;
-  line-height: 1.3;
+  line-height: 1.0; /* Leading 1.0 per brand guidelines */
+  letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
 }
 
 body:not(.homepage) .quarto-content h3,
 body:not(.homepage) main h3,
 body:not(.homepage) .page-columns h3,
 body:not(.homepage) h3 {
-  font-size: clamp(1.25rem, 2.5vw, 1.5rem) !important;
+  font-size: 0.75rem !important;
   font-weight: 400;
-  line-height: 1.35;
+  line-height: 1.6;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  max-width: 55ch;
+}
+
+body:not(.homepage) .quarto-content h3::before,
+body:not(.homepage) main h3::before,
+body:not(.homepage) .page-columns h3::before,
+body:not(.homepage) h3::before {
+  content: "[";
+}
+
+body:not(.homepage) .quarto-content h3::after,
+body:not(.homepage) main h3::after,
+body:not(.homepage) .page-columns h3::after,
+body:not(.homepage) h3::after {
+  content: "]";
 }
 
 body:not(.homepage) .quarto-content h4,
 body:not(.homepage) main h4,
 body:not(.homepage) .page-columns h4,
 body:not(.homepage) h4 {
-  font-size: clamp(1.125rem, 2vw, 1.25rem) !important;
+  font-size: 0.75rem !important;
   font-weight: 400;
-  line-height: 1.4;
+  line-height: 1.6;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  max-width: 55ch;
+}
+
+body:not(.homepage) .quarto-content h4::before,
+body:not(.homepage) main h4::before,
+body:not(.homepage) .page-columns h4::before,
+body:not(.homepage) h4::before {
+  content: "[";
+}
+
+body:not(.homepage) .quarto-content h4::after,
+body:not(.homepage) main h4::after,
+body:not(.homepage) .page-columns h4::after,
+body:not(.homepage) h4::after {
+  content: "]";
 }
 
 body:not(.homepage) .quarto-content h5,
 body:not(.homepage) main h5,
 body:not(.homepage) .page-columns h5,
 body:not(.homepage) h5 {
-  font-size: clamp(1rem, 2vw, 1.125rem) !important;
+  font-size: 0.75rem !important;
   font-weight: 400;
-  line-height: 1.4;
+  line-height: 1.6;
+  letter-spacing: 0;
+  text-transform: uppercase;
+  max-width: 55ch;
+}
+
+body:not(.homepage) .quarto-content h5::before,
+body:not(.homepage) main h5::before,
+body:not(.homepage) .page-columns h5::before,
+body:not(.homepage) h5::before {
+  content: "[";
+}
+
+body:not(.homepage) .quarto-content h5::after,
+body:not(.homepage) main h5::after,
+body:not(.homepage) .page-columns h5::after,
+body:not(.homepage) h5::after {
+  content: "]";
+}
+
+body:not(.homepage) .quarto-content h3 .anchor,
+body:not(.homepage) .quarto-content h4 .anchor,
+body:not(.homepage) .quarto-content h5 .anchor,
+body:not(.homepage) .quarto-content h3 a[href^="#"],
+body:not(.homepage) .quarto-content h4 a[href^="#"],
+body:not(.homepage) .quarto-content h5 a[href^="#"],
+body:not(.homepage) main h3 .anchor,
+body:not(.homepage) main h4 .anchor,
+body:not(.homepage) main h5 .anchor,
+body:not(.homepage) main h3 a[href^="#"],
+body:not(.homepage) main h4 a[href^="#"],
+body:not(.homepage) main h5 a[href^="#"],
+body:not(.homepage) h3 .anchor,
+body:not(.homepage) h4 .anchor,
+body:not(.homepage) h5 .anchor,
+body:not(.homepage) h3 a[href^="#"],
+body:not(.homepage) h4 a[href^="#"],
+body:not(.homepage) h5 a[href^="#"],
+body:not(.homepage) h3:hover .anchor,
+body:not(.homepage) h4:hover .anchor,
+body:not(.homepage) h5:hover .anchor,
+body:not(.homepage) h3:hover a[href^="#"],
+body:not(.homepage) h4:hover a[href^="#"],
+body:not(.homepage) h5:hover a[href^="#"],
+body:not(.homepage) h3:focus .anchor,
+body:not(.homepage) h4:focus .anchor,
+body:not(.homepage) h5:focus .anchor,
+body:not(.homepage) h3:focus a[href^="#"],
+body:not(.homepage) h4:focus a[href^="#"],
+body:not(.homepage) h5:focus a[href^="#"],
+body:not(.homepage) h3:focus-within .anchor,
+body:not(.homepage) h4:focus-within .anchor,
+body:not(.homepage) h5:focus-within .anchor,
+body:not(.homepage) h3:focus-within a[href^="#"],
+body:not(.homepage) h4:focus-within a[href^="#"],
+body:not(.homepage) h5:focus-within a[href^="#"] {
+  display: none !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
 }
 
 
@@ -157,6 +263,33 @@ body:not(.homepage) h6 {
   }
 }
 
+/* Sidebar custom scrollbar - thin, minimal design */
+#quarto-sidebar::-webkit-scrollbar,
+.quarto-sidebar::-webkit-scrollbar {
+  width: 4px;
+}
+
+#quarto-sidebar::-webkit-scrollbar-track,
+.quarto-sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+#quarto-sidebar::-webkit-scrollbar-thumb,
+.quarto-sidebar::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 4px;
+}
+
+#quarto-sidebar::-webkit-scrollbar-thumb:hover,
+.quarto-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.3);
+}
+
+[data-bs-theme="light"] #quarto-sidebar::-webkit-scrollbar-thumb:hover,
+[data-bs-theme="light"] .quarto-sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.2);
+}
+
 /* Sidebar spacing - Mintlify style (left sidebar only, not TOC) */
 .sidebar-navigation,
 #quarto-sidebar {
@@ -165,6 +298,11 @@ body:not(.homepage) h6 {
   padding-bottom: 1rem;
   padding-left: 0;
   padding-right: 0;
+}
+
+[data-bs-theme="light"] .sidebar-navigation,
+[data-bs-theme="light"] #quarto-sidebar {
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 /* Sidebar section headers - Mintlify spacing (left sidebar only) */
@@ -191,10 +329,11 @@ body:not(.homepage) h6 {
 }
 
 /* Sidebar links (left sidebar only) - bubble design */
-.sidebar-navigation .sidebar-item a,
-#quarto-sidebar .sidebar-item a,
-.sidebar-navigation a:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a:not(.sidebar-section-header):not(h6) {
+/* Default (dark mode) sidebar styling */
+[data-bs-theme="dark"] .sidebar-navigation .sidebar-item a,
+[data-bs-theme="dark"] #quarto-sidebar .sidebar-item a,
+[data-bs-theme="dark"] .sidebar-navigation a:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a:not(.sidebar-section-header):not(h6) {
   display: block;
   padding: 0.5rem 1rem;
   color: rgba(255, 255, 255, 0.7);
@@ -207,22 +346,63 @@ body:not(.homepage) h6 {
   border-radius: 0.75rem;
 }
 
-.sidebar-navigation .sidebar-item a:hover,
-#quarto-sidebar .sidebar-item a:hover,
-.sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
+/* Fallback for when theme is not set (defaults to dark) - exclude light mode */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item a,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item a,
+:not([data-bs-theme="light"]) .sidebar-navigation a:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a:not(.sidebar-section-header):not(h6) {
+  display: block;
+  padding: 0.5rem 1rem;
+  color: rgba(255, 255, 255, 0.7);
+  text-decoration: none;
+  font-size: 0.875rem;
+  line-height: 1.5;
+  transition: all 0.2s ease;
+  margin: 0 0.5rem 0 0.5rem;
+  margin-right: 0;
+  border-radius: 0.75rem;
+}
+
+/* Dark mode hover */
+[data-bs-theme="dark"] .sidebar-navigation .sidebar-item a:hover,
+[data-bs-theme="dark"] #quarto-sidebar .sidebar-item a:hover,
+[data-bs-theme="dark"] .sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
   color: rgba(255, 255, 255, 0.9);
   background: rgba(255, 255, 255, 0.05);
   border-radius: 0.75rem;
 }
 
-/* Active sidebar item - curved (left sidebar only) */
-.sidebar-navigation .sidebar-item a.active,
-#quarto-sidebar .sidebar-item a.active,
-.sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
-.sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
-#quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+/* Fallback hover (when theme not set) - exclude light mode */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item a:hover,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item a:hover,
+:not([data-bs-theme="light"]) .sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0.75rem;
+}
+
+/* Active sidebar item - dark mode */
+[data-bs-theme="dark"] .sidebar-navigation .sidebar-item a.active,
+[data-bs-theme="dark"] #quarto-sidebar .sidebar-item a.active,
+[data-bs-theme="dark"] .sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] .sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+[data-bs-theme="dark"] #quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
+  color: #79E2FF;
+  background: rgba(121, 226, 255, 0.1);
+  font-weight: 500;
+  border-radius: 0.75rem;
+}
+
+/* Fallback active (when theme not set) - exclude light mode */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item a.active,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item a.active,
+:not([data-bs-theme="light"]) .sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) .sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
+:not([data-bs-theme="light"]) #quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
   color: #79E2FF;
   background: rgba(121, 226, 255, 0.1);
   font-weight: 500;
@@ -235,13 +415,22 @@ body:not(.homepage) h6 {
   margin-left: 0.25rem;
 }
 
-.sidebar-navigation .sidebar-item .sidebar-item a,
-#quarto-sidebar .sidebar-item .sidebar-item a {
+/* Nested sidebar items - exclude light mode from default white text */
+:not([data-bs-theme="light"]) .sidebar-navigation .sidebar-item .sidebar-item a,
+:not([data-bs-theme="light"]) #quarto-sidebar .sidebar-item .sidebar-item a {
   padding-left: 1.5rem;
   padding-right: 1rem;
   font-size: 0.8125rem;
   margin-left: 0.5rem;
   margin-right: 0;
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Light mode nested sidebar items */
+[data-bs-theme="light"] .sidebar-navigation .sidebar-item .sidebar-item a,
+[data-bs-theme="light"] #quarto-sidebar .sidebar-item .sidebar-item a,
+[data-bs-theme="light"] .quarto-sidebar .sidebar-item .sidebar-item a {
+  color: #05181A !important;
 }
 
 /* Sidebar navigation container (left sidebar only) */
@@ -271,32 +460,9 @@ body:not(.homepage) h6 {
   color: rgba(5, 24, 26, 0.5);
 }
 
-[data-bs-theme="light"] .sidebar-navigation .sidebar-item a,
-[data-bs-theme="light"] #quarto-sidebar .sidebar-item a,
-[data-bs-theme="light"] .sidebar-navigation a:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a:not(.sidebar-section-header):not(h6) {
-  color: rgba(5, 24, 26, 0.7);
-}
+/* Light mode sidebar styling is handled by light.scss */
 
-[data-bs-theme="light"] .sidebar-navigation .sidebar-item a:hover,
-[data-bs-theme="light"] #quarto-sidebar .sidebar-item a:hover,
-[data-bs-theme="light"] .sidebar-navigation a:hover:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a:hover:not(.sidebar-section-header):not(h6) {
-  color: rgba(5, 24, 26, 0.9);
-  background: rgba(5, 24, 26, 0.05);
-  border-radius: 0.75rem;
-}
-
-[data-bs-theme="light"] .sidebar-navigation .sidebar-item a.active,
-[data-bs-theme="light"] #quarto-sidebar .sidebar-item a.active,
-[data-bs-theme="light"] .sidebar-navigation a.active:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a.active:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] .sidebar-navigation a[aria-current="page"]:not(.sidebar-section-header):not(h6),
-[data-bs-theme="light"] #quarto-sidebar a[aria-current="page"]:not(.sidebar-section-header):not(h6) {
-  color: #19696C;
-  background: rgba(25, 105, 108, 0.1);
-  border-radius: 0.75rem;
-}
+/* Light mode sidebar active state is handled by light.scss */
 
 /* Sidebar section icon styling (left sidebar only) */
 .sidebar-navigation .bi,
@@ -308,17 +474,29 @@ body:not(.homepage) h6 {
 
 /* Thin line after last item in each sidebar group - modern look (left sidebar only) */
 .sidebar-navigation [id] > .sidebar-item:last-child a,
-#quarto-sidebar [id] > .sidebar-item:last-child a {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-  padding-bottom: 0.75rem;
-  margin-bottom: 0.5rem;
+#quarto-sidebar [id] > .sidebar-item:last-child a,
+.quarto-sidebar [id] > .sidebar-item:last-child a {
+  border-bottom: 1px solid rgba(193, 240, 255, 0.3) !important;
+  padding-bottom: 0.75rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+/* Sidebar section dividers - CSS fallback */
+#quarto-sidebar [id] > .sidebar-item:last-child a,
+.quarto-sidebar [id] > .sidebar-item:last-child a {
+  border-bottom: 1px solid rgba(193, 240, 255, 0.3) !important;
+  padding-bottom: 0.75rem !important;
+  margin-bottom: 0.5rem !important;
 }
 
 /* Light mode adjustments for separator lines (left sidebar only) */
 [data-bs-theme="light"] .sidebar-navigation [id] > .sidebar-item:last-child a,
-[data-bs-theme="light"] #quarto-sidebar [id] > .sidebar-item:last-child a {
-  border-bottom-color: rgba(5, 24, 26, 0.08);
+[data-bs-theme="light"] #quarto-sidebar [id] > .sidebar-item:last-child a,
+[data-bs-theme="light"] .quarto-sidebar [id] > .sidebar-item:last-child a {
+  border-bottom: 1px solid rgba(5, 24, 26, 1) !important;
 }
+
+/* Light mode sidebar styling is handled by light.scss */
 </style>
 
 <script>
@@ -399,7 +577,7 @@ body:not(.homepage) h6 {
   
   function addGroupSeparators() {
     // Find all sidebar sections with IDs
-    const sidebarSections = document.querySelectorAll('.quarto-sidebar [id], .sidebar [id]');
+    const sidebarSections = document.querySelectorAll('#quarto-sidebar [id], .quarto-sidebar [id], .sidebar [id]');
     
     sidebarSections.forEach(section => {
       // Get direct children that are sidebar items
@@ -413,11 +591,30 @@ body:not(.homepage) h6 {
       const lastItem = directItems[directItems.length - 1];
       const link = lastItem.querySelector('a');
       
-      if (link && !link.style.borderBottom) {
+      if (link) {
         const isLightMode = document.documentElement.getAttribute('data-bs-theme') === 'light';
-        link.style.borderBottom = `1px solid ${isLightMode ? 'rgba(5, 24, 26, 0.08)' : 'rgba(255, 255, 255, 0.08)'}`;
-        link.style.paddingBottom = '0.75rem';
-        link.style.marginBottom = '0.5rem';
+        // Blue Sky (#C1F0FF) on dark mode, Midnight (#05181A) on light mode
+        link.style.setProperty('border-bottom', `1px solid ${isLightMode ? 'rgba(5, 24, 26, 1)' : 'rgba(193, 240, 255, 0.3)'}`, 'important');
+        link.style.setProperty('padding-bottom', '0.75rem', 'important');
+        link.style.setProperty('margin-bottom', '0.5rem', 'important');
+      }
+    });
+    
+    // Also add dividers after section headers (h6 elements)
+    const sectionHeaders = document.querySelectorAll('#quarto-sidebar h6, .quarto-sidebar h6, .sidebar h6');
+    sectionHeaders.forEach(header => {
+      const parentSection = header.closest('[id]');
+      if (!parentSection) return;
+      
+      const nextSibling = header.nextElementSibling;
+      if (nextSibling && nextSibling.classList.contains('sidebar-item')) {
+        const link = nextSibling.querySelector('a');
+        if (link && link.previousElementSibling === header) {
+          const isLightMode = document.documentElement.getAttribute('data-bs-theme') === 'light';
+          link.style.setProperty('border-top', `1px solid ${isLightMode ? 'rgba(5, 24, 26, 1)' : 'rgba(193, 240, 255, 0.3)'}`, 'important');
+          link.style.setProperty('padding-top', '0.75rem', 'important');
+          link.style.setProperty('margin-top', '0.5rem', 'important');
+        }
       }
     });
   }
