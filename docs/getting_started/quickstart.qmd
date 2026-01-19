@@ -136,7 +136,7 @@ builds/12287e173c17
 
 The build creates a directory (like `builds/12287e173c17`) containing your serialized pipeline. This hash uniquely identifies your build.
 
-![](../../images/quickstart/build-output-hash.png)
+![](../images/quickstart/build-output-hash.png)
 
 Save this hash as an environment variable:
 
@@ -313,7 +313,7 @@ xorq build udxf_example.py --expr-name expr
 
 This creates a second `<HASH>` in your `builds/<HASH>/` directory with your serialized UDXF expression. 
 
-![](../../images/quickstart/second-hash.png)
+![](../images/quickstart/second-hash.png)
 
 ### Start the Flight server
 

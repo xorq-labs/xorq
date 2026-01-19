@@ -1,0 +1,213 @@
+---
+title: 'Defer query execution'
+description: "Learn when Xorq builds expressions versus when it runs computation"
+icon: "hourglass-split"
+headline: "Master deferred execution"
+---
+
+This tutorial helps you understand when Xorq runs computation versus when it builds expressions. You'll learn through hands-on examples how deferred execution works and why it matters.
+
+After completing this tutorial, you'll know exactly when your code triggers actual computation.
+
+## What is deferred execution?
+
+Deferred execution means that Xorq waits to run computations until you explicitly ask for results. When you chain operations like `.filter()` and `.group_by()`, Xorq builds an expression graph but doesn't run anything yet.
+
+This approach gives Xorq time to optimize your query before running it. Think of it as planning a route before you start driving: you see the full journey and choose the most efficient path.
+
+
+### Why defer?
+Deferred execution lets Xorq eliminate unnecessary steps, push computations to faster backends, and cache intermediate results. You write clear code, and Xorq handles the optimization.
+
+
+## How to follow along
+
+Run the code examples in order using any of these methods:
+
+- **Python interactive shell (recommended)**: Open a terminal, run `python`, then copy and paste each code block.
+- **Jupyter notebook**: Create a new notebook and run each code block in a separate cell.
+- **Python script**: Copy all code blocks into a `.py` file and run it with `python script.py`.
+
+The code blocks build on each other. Variables like `con`, `iris`, and `filtered` are created in earlier blocks and used in later ones.
+
+
+## Build expressions without executing
+
+You'll build an expression that loads and filters data. Notice how you can create the expression without triggering any computation.
+```{python}
+import xorq.api as xo
+
+# <1>
+con = xo.connect()
+
+# <2>
+iris = xo.examples.iris.fetch(backend=con)
+
+# <3>
+filtered = iris.filter(xo._.sepal_length > 6)
+
+# <4>
+print(f"Expression type: {type(filtered)}")
+print(f"Has this executed? Not yet!")
+```
+1. Connect to the embedded backend.
+2. Load the iris dataset. This creates a table reference, not the actual data.
+3. Build a filter expression. Still no computation!
+4. Print the expression type to confirm it's just an expression object.
+
+At this point, Xorq knows what you want to do (filter rows), but it hasn't read any data or applied any filters.
+
+## Inspect the expression
+
+You can look at what operations Xorq has queued up by examining the expression.
+```{python}
+# <1>
+print("\nExpression structure:")
+print(filtered)
+
+# <2>
+print(f"\nBackends involved: {filtered.ls.backends}")
+```
+1. Print the expression to see the operation tree.
+2. Check which backends this expression would use.
+
+The output shows you the chain of operations Xorq will perform when you execute the expression. This is your expression graph.
+
+Now that you've seen what Xorq plans to do, let's actually run the computation and see the results.
+
+## Execute and observe computation
+
+You'll trigger the computation by calling `.execute()`. This is when Xorq runs your query.
+```{python}
+# <1>
+print("\nBefore execute: building plan...")
+
+# <2>
+result = filtered.execute()
+
+# <3>
+print(f"After execute: got results!")
+print(f"Result type: {type(result)}")
+print(f"Number of rows: {len(result)}")
+print(result.head(5))
+```
+1. You're about to trigger computation.
+2. This line executes the expression and computation happens here.
+3. You now have actual results, not just an expression.
+
+The moment you called `.execute()`, Xorq:
+- Compiled your expression into an execution plan.
+- Loaded the data from the iris dataset.
+- Applied the filter.
+- Returned the results as a PyArrow Table.
+
+:::{.callout-note}
+### Execution is explicit
+Xorq never runs queries behind your back. You control exactly when computation happens by calling `.execute()` or similar methods like `.to_pandas()` or `.to_pyarrow()`.
+:::
+
+## Build complex expressions
+
+You'll build a more complex expression with multiple operations. Watch how Xorq still defers everything.
+```{python}
+# <1>
+complex_expr = (
+    iris
+    .filter(xo._.sepal_length > 5.5)
+    .mutate(sepal_ratio=xo._.sepal_length / xo._.sepal_width)
+    .group_by("species")
+    .agg(
+        avg_ratio=xo._.sepal_ratio.mean(),
+        count=xo._.species.count()
+    )
+)
+
+# <2>
+print("Built complex expression (not executed yet):")
+print(complex_expr)
+
+# <3>
+print("\nNow executing...")
+result = complex_expr.execute()
+print(result)
+```
+1. Build an expression with filtering, adding a column, grouping, and aggregating.
+2. The expression exists, but no computation has run.
+3. Execute and see all operations run at once.
+
+Xorq deferred all five operations (filter, mutate, group, two aggregations) until you called `.execute()`. This gives it room to optimize the entire workflow.
+
+But what happens if you don't defer? Let's compare the two approaches to see why deferred execution matters.
+
+## Compare: immediate vs deferred
+
+You'll see what happens if you force early execution versus deferring.
+```{python}
+# <1>
+immediate = iris.filter(xo._.sepal_length > 6).execute()  # Executes immediately
+
+# <2>
+print(f"Immediate approach - result type: {type(immediate)}")
+print(f"This is already executed data, not an expression!")
+print(f"Cannot chain more Xorq operations on materialized results")
+
+# <3>
+deferred = (
+    iris
+    .filter(xo._.sepal_length > 6)
+    .group_by("species")
+    .agg(xo._.sepal_width.sum())
+)
+
+# <4>
+print(f"\nDeferred approach - expression type: {type(deferred)}")
+print(f"This is an expression that can still be optimized!")
+print(f"Can chain more operations or execute when ready")
+```
+1. Execute early by calling `.execute()` after the first operation.
+2. You now have materialized data, not an expression.
+3. Build the full expression without executing.
+4. This stays as an expression until you explicitly execute it.
+
+The deferred approach lets Xorq optimize the entire pipeline. The immediate approach locks in results after each step, preventing optimization.
+
+:::{.callout-warning}
+### Avoid premature execution
+If you execute too early, you lose the benefits of deferred execution. Let Xorq see your full query before running it.
+:::
+
+## Complete example
+
+Here's a full example showing deferred execution in action:
+
+```python
+import xorq.api as xo
+
+# Connect and load data
+con = xo.connect()
+iris = xo.examples.iris.fetch(backend=con)
+
+# Build expression (deferred, no computation yet)
+expr = (
+    iris
+    .filter(xo._.sepal_length > 5.5)
+    .group_by("species")
+    .agg(avg_width=xo._.sepal_width.mean())
+)
+
+# Inspect without executing
+print("Expression ready:", type(expr))
+
+# Execute when you're ready
+result = expr.execute()
+print("Results:", result)
+```
+
+## Next steps
+
+Now you understand deferred execution. Continue exploring:
+
+- [Explore caching](explore_caching.qmd) shows how deferred execution enables intelligent caching
+- [Your first build](your_first_build.qmd) explains how Xorq captures expressions as portable manifests
+- [Switch backends](switch_backends.qmd) demonstrates how deferred execution works across different engines
+

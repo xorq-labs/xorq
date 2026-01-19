@@ -6,7 +6,7 @@ execute:
   
 website:
   page-navigation: true
-  title: "Xorq Documentation"
+  title: "Xorq documentation"
   description: "Xorq documentation — build portable, multi-engine ML pipelines with deferred execution, caching, and lineage tracking. Tutorials, API reference, and guides."
   favicon: "style/favicon.ico"
   open-graph: true
@@ -28,7 +28,7 @@ website:
 
     left:
       - href: getting_started/introduction.qmd
-        text: "Getting started"
+        text: "Get started"
       - href: tutorials/ml_tutorials/split_data_for_training.qmd
         text: "Tutorials"
       - href: guides/data_workflows/read_write_production_data.qmd
@@ -46,7 +46,7 @@ website:
 
   sidebar:
     - id: getting-started
-      title: "Getting started"
+      title: "Get started"
       collapse-level: 1
       pinned: true
       contents:
