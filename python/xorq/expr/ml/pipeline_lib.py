@@ -387,73 +387,69 @@ class FittedStep:
 
     @property
     @functools.cache
-    def _pieces(self):
+    def _deferred_fit_other(self):
         from xorq.expr.ml.fit_lib import DeferredFitOther
 
-        instance = DeferredFitOther.from_fitted_step(self)
-        (
-            deferred_predict_proba,
-            deferred_decision_function,
-            deferred_feature_importances,
-        ) = (
-            instance.make_deferred_other(
+        _deferred_fit_other = DeferredFitOther.from_fitted_step(self)
+        return _deferred_fit_other
+
+    @property
+    def deferred_model(self):
+        return self._deferred_fit_other.deferred_model
+
+    @property
+    def model_udf(self):
+        return self._deferred_fit_other.deferred_other
+
+    @property
+    def deferred_transform(self):
+        if self.is_transform:
+            return self._deferred_fit_other.deferred_other
+        else:
+            return None
+
+    @property
+    def deferred_predict(self):
+        if self.is_predict:
+            return self._deferred_fit_other.deferred_other
+        else:
+            return None
+
+    @property
+    def deferred_predict_proba(self):
+        (attrname, fn) = ("predict_proba", predict_proba_sklearn)
+        if hasattr(self.step.instance.__class__, attrname):
+            return self._deferred_fit_other.make_deferred_other(
                 fn=fn,
                 return_type=dt.Array(dt.float64),
                 name_infix=attrname.rstrip("_"),
             )
-            if hasattr(self.step.instance.__class__, attrname)
-            else None
-            for (attrname, fn) in (
-                ("predict_proba", predict_proba_sklearn),
-                (
-                    "decision_function",
-                    decision_function_sklearn,
-                ),
-                (
-                    "feature_importances_",
-                    feature_importances_sklearn,
-                ),
-            )
-        )
-        return {
-            "deferred_model": instance.deferred_model,
-            "model_udf": instance.deferred_other,
-            "deferred_transform": instance.deferred_other
-            if self.is_transform
-            else None,
-            "deferred_predict": instance.deferred_other if self.is_predict else None,
-            "deferred_predict_proba": deferred_predict_proba,
-            "deferred_decision_function": deferred_decision_function,
-            "deferred_feature_importances": deferred_feature_importances,
-        }
-
-    @property
-    def deferred_model(self):
-        return self._pieces["deferred_model"]
-
-    @property
-    def model_udf(self):
-        return self._pieces["model_udf"]
-
-    @property
-    def deferred_transform(self):
-        return self._pieces["deferred_transform"]
-
-    @property
-    def deferred_predict(self):
-        return self._pieces["deferred_predict"]
-
-    @property
-    def deferred_predict_proba(self):
-        return self._pieces.get("deferred_predict_proba")
+        else:
+            return None
 
     @property
     def deferred_decision_function(self):
-        return self._pieces.get("deferred_decision_function")
+        (attrname, fn) = ("decision_function", decision_function_sklearn)
+        if hasattr(self.step.instance.__class__, attrname):
+            return self._deferred_fit_other.make_deferred_other(
+                fn=fn,
+                return_type=dt.Array(dt.float64),
+                name_infix=attrname.rstrip("_"),
+            )
+        else:
+            return None
 
     @property
     def deferred_feature_importances(self):
-        return self._pieces.get("deferred_feature_importances")
+        (attrname, fn) = ("feature_importances_", feature_importances_sklearn)
+        if hasattr(self.step.instance.__class__, attrname):
+            return self._deferred_fit_other.make_deferred_other(
+                fn=fn,
+                return_type=dt.Array(dt.float64),
+                name_infix=attrname.rstrip("_"),
+            )
+        else:
+            return None
 
     @property
     @functools.cache
