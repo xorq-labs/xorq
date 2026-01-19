@@ -242,33 +242,30 @@ class DeferredFitOther:
                         "return_type": structer.return_type,
                         "name_infix": "transformed",
                     }
-                case typ:
+                case type(get_step_kwargs=get_step_kwargs):
                     # FIXME: create abstract class for BaseEstimator with get_step_kwargs
-                    if get_step_kwargs := getattr(typ, "get_step_kwargs", None):
-                        kwargs = (
-                            kwargs
-                            | {
-                                "fit": fit_sklearn(cls=sklearn_cls, params=params),
-                            }
-                            | get_step_kwargs()
-                        )
-                    else:
-                        structer = Structer.from_instance_expr(
-                            sklearn_cls(**dict(params)),
-                            fitted_step.expr,
-                            features=fitted_step.features,
-                        )
-                        kwargs = kwargs | {
-                            "fit": fit_sklearn_struct(
-                                cls=sklearn_cls,
-                                params=params,
-                            ),
-                            "other": transform_sklearn_struct(
-                                structer.get_convert_array()
-                            ),
-                            "return_type": structer.return_type,
-                            "name_infix": "transformed",
+                    kwargs = (
+                        kwargs
+                        | {
+                            "fit": fit_sklearn(cls=sklearn_cls, params=params),
                         }
+                        | get_step_kwargs()
+                    )
+                case _:
+                    structer = Structer.from_instance_expr(
+                        sklearn_cls(**dict(params)),
+                        fitted_step.expr,
+                        features=fitted_step.features,
+                    )
+                    kwargs = kwargs | {
+                        "fit": fit_sklearn_struct(
+                            cls=sklearn_cls,
+                            params=params,
+                        ),
+                        "other": transform_sklearn_struct(structer.get_convert_array()),
+                        "return_type": structer.return_type,
+                        "name_infix": "transformed",
+                    }
         elif fitted_step.is_predict:
             from xorq.expr.ml.pipeline_lib import get_predict_return_type
 

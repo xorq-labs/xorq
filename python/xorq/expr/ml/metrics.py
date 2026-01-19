@@ -54,7 +54,7 @@ class MetricComputation:
 
     def __call__(self, df):
         y_true = df[self.target]
-        y_pred = _prepare_predictions(df[self.pred_col])
+        y_pred = self._prepare_predictions(df[self.pred_col])
         return self.metric_fn(y_true, y_pred, **self.metric_kwargs)
 
     def on_expr(self, expr):
@@ -66,6 +66,40 @@ class MetricComputation:
             name=self.name,
         )
         return metric_udaf.on_expr(expr)
+
+    @classmethod
+    def _prepare_predictions(cls, predictions):
+        """Prepare predictions for metric computation using pattern matching."""
+        import pandas as pd
+
+        match predictions:
+            # Case 1: pandas Series with array-like values (e.g., probabilities)
+            case pd.Series() as series if len(series) > 0 and isinstance(
+                series.iloc[0], (np.ndarray, list, tuple)
+            ):
+                return cls._extract_positive_class_proba(np.vstack(series.values))
+
+            # Case 2: pandas Series with scalar values
+            case pd.Series() as series:
+                return cls._extract_positive_class_proba(series.values)
+
+            # Case 3: already a numpy array
+            case np.ndarray() as arr:
+                return cls._extract_positive_class_proba(arr)
+
+            # Case 4: anything else, return as-is
+            case _:
+                return predictions
+
+    @staticmethod
+    def _extract_positive_class_proba(y_pred):
+        """Extract positive class probabilities for binary classification."""
+        if y_pred.ndim == 2:
+            if y_pred.shape[1] == 2:
+                return y_pred[:, 1]
+            elif y_pred.shape[1] == 1:
+                return y_pred[:, 0]
+        return y_pred
 
 
 def deferred_sklearn_metric(
@@ -136,37 +170,3 @@ def deferred_sklearn_metric(
         name=name,
     )
     return metric.on_expr(expr)
-
-
-def _extract_positive_class_proba(y_pred):
-    """Extract positive class probabilities for binary classification."""
-    if y_pred.ndim == 2:
-        if y_pred.shape[1] == 2:
-            return y_pred[:, 1]
-        elif y_pred.shape[1] == 1:
-            return y_pred[:, 0]
-    return y_pred
-
-
-def _prepare_predictions(predictions):
-    """Prepare predictions for metric computation using pattern matching."""
-    import pandas as pd
-
-    match predictions:
-        # Case 1: pandas Series with array-like values (e.g., probabilities)
-        case pd.Series() as series if len(series) > 0 and isinstance(
-            series.iloc[0], (np.ndarray, list, tuple)
-        ):
-            return _extract_positive_class_proba(np.vstack(series.values))
-
-        # Case 2: pandas Series with scalar values
-        case pd.Series() as series:
-            return _extract_positive_class_proba(series.values)
-
-        # Case 3: already a numpy array
-        case np.ndarray() as arr:
-            return _extract_positive_class_proba(arr)
-
-        # Case 4: anything else, return as-is
-        case _:
-            return predictions
