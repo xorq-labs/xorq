@@ -264,9 +264,9 @@ def hydrate_cons(hash_to_profile_kwargs):
     return profiles
 
 
-def make_read_op(parquet_path, read_kwargs, args_values, con=_backend_init()):
+def make_read_op(parquet_path, read_kwargs, con=_backend_init()):
     op = deferred_read_parquet(parquet_path, con, **read_kwargs).op()
-    args = dict(zip(op.__argnames__, op.__args__)) | {"values": args_values}
+    args = dict(zip(op.__argnames__, op.__args__))
     op = op.__recreate__(args)
     return op
 
@@ -429,8 +429,8 @@ class ExprDumper:
                 read_kwargs={
                     "table_name": mt.name,
                     "schema": mt.schema,
+                    str(MemtableTypes.inmemory): True,
                 },
-                args_values={MemtableTypes.inmemory: True},
             )
             path_to_writer[path] = writer
             op = replace_nodes(replace_from_to(mt, dr_op), expr)
@@ -456,7 +456,6 @@ class ExprDumper:
                     "normalize_method": normalize_read_path_md5sum,
                     "schema": table.schema,
                 },
-                args_values={MemtableTypes.database_table: True},
                 con=table.source,
             )
             path_to_writer[path] = writer
@@ -521,19 +520,21 @@ class ExprLoader:
     @staticmethod
     def deferred_reads_to_memtables(loaded):
         def deferred_read_to_memtable(dr):
-            assert dr.values.get(MemtableTypes.inmemory)
+            assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
             path = next(v for k, v in dr.read_kwargs if k == "path")
             df = read_parquet(path).execute()
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt
 
         drs = tuple(
-            dr for dr in loaded.op().find(Read) if dr.values.get(MemtableTypes.inmemory)
+            dr
+            for dr in walk_nodes(Read, loaded)
+            if MemtableTypes.inmemory in dict(dr.read_kwargs)
         )
         op = loaded.op()
         for dr in drs:
             mt = deferred_read_to_memtable(dr)
-            op = op.replace(replace_from_to(dr, mt))
+            op = replace_nodes(replace_from_to(dr, mt), op)
         return op.to_expr()
 
     @staticmethod
