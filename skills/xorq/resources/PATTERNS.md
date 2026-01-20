@@ -333,123 +333,86 @@ cached_features = (
 
 ---
 
-### Memtable Placeholder Pattern
+### Catalog Composition Pattern
 
-**Pattern:** Build transform expressions independently using memtable placeholders, then compose with real sources later.
+**Pattern:** Load and compose cataloged expressions using the Python catalog API (preferred) or CLI Arrow IPC streaming.
 
+**Python API (Preferred):**
 ```python
-# In transform.py - Define transform with memtable placeholder
 import xorq.api as xo
-from xorq.vendor import ibis
-from xorq.common.utils.ibis_utils import from_ibis
-from xorq.caching import ParquetCache
 
-# Create sample data matching expected source schema
-sample_data = {
-    "playerID": ["player1", "player2"],
-    "yearID": [2020, 2021],
-    "H": [150, 180],
-    "AB": [500, 550],
-    "teamID": ["NYY", "LAD"]
-}
+# Get placeholder memtable with same schema (for building transforms)
+source_placeholder = xo.catalog.get_placeholder("batting-source", tag="source")
+print(source_placeholder.schema())  # Shows schema without loading
 
-# Memtable as placeholder
-source = xo.memtable(sample_data)
-print(source.schema())  # Check schema
-
-# Build transform on memtable
-transform_expr = (
-    from_ibis(
-        source
-        .mutate(batting_avg=ibis._.H / ibis._.AB)
-        .filter(ibis._.batting_avg > 0.250)
-        .group_by("playerID")
-        .agg(
-            total_hits=ibis._.H.sum(),
-            total_at_bats=ibis._.AB.sum()
-        )
-    )
-    .cache(ParquetCache.from_kwargs())
+# Build transform using placeholder - doesn't load heavy expression
+new_transform = (
+    source_placeholder
+    .select("col1", "col2")
+    .filter(xo._.col1 > 0)
 )
 
-expr = transform_expr
+# Build and catalog
+# xorq build transform.py -e new_transform
+# xorq catalog add builds/<hash> --alias my-transform
+
+# Find the placeholder node using the tag
+# xorq catalog sources my-transform  # Will show tag="source"
 ```
 
-**Building and cataloging:**
+**CLI Composition via Arrow IPC (Alternative):**
 ```bash
-# Build transform with memtable
-xorq build transform.py -e expr
+# Find source nodes
+xorq catalog sources lineup-transform
 
-# Catalog it
-xorq catalog add builds/<hash> --alias batting-transform
-
-# Find memtable node hash for unbinding
-xorq catalog sources batting-transform
-# Output: Hash: abc123def (this is the memtable node)
-```
-
-**Composing with real source:**
-```bash
-# Replace memtable with real source via Arrow IPC
-xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
-  xorq run-unbound batting-transform \
+# Compose via Arrow IPC streaming
+xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound lineup-transform \
     --to_unbind_hash abc123def \
     --typ xorq.expr.relations.Read \
     -o output.parquet
-```
 
-**Stream to DuckDB for exploration:**
-```bash
-# Interactive SQL on composed pipeline
-xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
-  xorq run-unbound batting-transform \
+# Stream to DuckDB for exploration
+xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound lineup-transform \
     --to_unbind_hash abc123def \
     --typ xorq.expr.relations.Read \
     -f arrow -o /dev/stdout 2>/dev/null | \
   duckdb -c "LOAD arrow;
     SELECT * FROM read_arrow('/dev/stdin')
-    WHERE total_hits > 100
-    ORDER BY total_at_bats DESC"
+    ORDER BY score DESC
+    LIMIT 10"
+```
+
+**Schema Verification:**
+```bash
+# Check source output schema
+xorq catalog schema batting-source
+
+# Check transform input schema
+xorq catalog sources lineup-transform
+
+# Verify compatibility before composing
 ```
 
 **Why:**
-- **Independent development:** Build transform without waiting for source
-- **Reusability:** Same transform works with multiple sources
-- **Testing:** Test logic with small sample data first
-- **Composition:** Combine via Arrow IPC at runtime
-- **Flexibility:** Easy to swap sources or chain transforms
+- **Python-native:** Use `xo.catalog.get()` for simple loading
+- **Type-safe:** Actual schemas, not placeholders
+- **Direct:** Load and execute without intermediate steps
+- **Catalog as source of truth:** Single API for all expressions
+- **Flexible:** CLI composition still available when needed
 
 **When:**
-- Multi-stage data pipelines
-- Developing transforms in parallel with sources
-- Creating reusable transformation components
-- Testing complex logic before production
-- Dynamic pipeline composition
+- Composing multi-stage pipelines
+- Reusing cataloged transforms across sources
+- Building complex data workflows
+- Interactive exploration via DuckDB
 
 **Key points:**
-- Memtable schema must match source output schema
-- Use `xorq catalog sources` to find node hash
+- Load expressions with `xo.catalog.get(alias)` or `xo.catalog.load_expr(path)`
 - Use `xorq catalog schema` to verify compatibility
-- Can chain multiple unbound transforms together
+- Can chain multiple transforms together
 - Enables interactive exploration via DuckDB
-
-**Python API for programmatic replacement:**
-```python
-from xorq.flight.exchanger import replace_one_unbound
-from xorq.common.utils.node_utils import expr_to_unbound
-import xorq.api as xo
-
-# Load and replace programmatically
-unbound_expr = xo.load_expr("builds/transform-hash")
-replacement = xo.memtable({"col1": [1, 2]})
-bound_expr = replace_one_unbound(unbound_expr, replacement)
-result = bound_expr.execute()
-```
-
-**Utilities:**
-- `replace_one_unbound(unbound_expr, table)` - Replace unbound with table
-- `expr_to_unbound(expr, hash, tag, typs)` - Make expression unbound
-- `replace_by_expr_hash(expr, hash, replace_with)` - Replace by hash
 
 ---
 

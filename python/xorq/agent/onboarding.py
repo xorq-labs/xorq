@@ -233,9 +233,9 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         "Compose cataloged expressions",
         [
             "Load cataloged expressions with xo.catalog.get('alias') (preferred)",
+            "Or load directly from build: xo.catalog.load_expr('builds/<hash>')",
             "Inspect sources with xo.catalog.list_source_nodes(expr)",
             "Compose directly in Python using catalog API",
-            "Fall back to memtable pattern only for independent development",
         ],
         [
             "# Python composition (RECOMMENDED)",
@@ -722,13 +722,28 @@ def _render_agent_doc(max_lines: int) -> str:
         - Build expressions: `xorq build expr.py -e expr_name`
         - Catalog builds: `xorq catalog add builds/<hash> --alias my-new-pipeline`
 
-        ### 6. Compose via Memtable Pattern & Unbound Nodes
-        ```bash
-        # Memtable pattern: Build transforms independently
-        # In transform.py: source = xo.memtable({"col1": [1, 2], "col2": [3, 4]})
-        xorq build transform.py -e expr
-        xorq catalog add builds/<hash> --alias my-transform
+        ### 6. Build Transforms Using Catalog Placeholders
+        ```python
+        # Get placeholder with schema from catalog (Python API)
+        import xorq.api as xo
 
+        # Get placeholder - only loads schema, not full expression
+        source_placeholder = xo.catalog.get_placeholder("batting-source")
+
+        # Build transform using placeholder
+        lineup_transform = (
+            source_placeholder
+            .select("playerID", "H", "AB")
+            .mutate(batting_avg=xo._.H / xo._.AB)
+        )
+
+        # Build and catalog
+        # xorq build transform.py -e lineup_transform
+        # xorq catalog add builds/<hash> --alias lineup-transform
+        ```
+
+        ```bash
+        # CLI composition via Arrow IPC (when needed)
         # Find node hashes to unbind
         xorq catalog sources my-transform
 
@@ -739,19 +754,7 @@ def _render_agent_doc(max_lines: int) -> str:
             --typ xorq.expr.relations.Read \
             -o output.parquet
 
-        # Multi-stage with DuckDB exploration: source → transform1 → transform2 → SQL
-        xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound transform1 \
-            --to_unbind_hash <hash1> \
-            --typ xorq.expr.relations.Read \
-            -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound transform2 \
-            --to_unbind_hash <hash2> \
-            --typ xorq.expr.relations.Read \
-            -f arrow -o /dev/stdout 2>/dev/null | \
-          duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin')"
-
-        # Real example:
+        # Multi-stage with DuckDB exploration
         xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
           xorq run-unbound lineup-transform \
             --to_unbind_hash d43ad87ea8a989f3495aab5dff0b5746 \
@@ -764,9 +767,7 @@ def _render_agent_doc(max_lines: int) -> str:
             LIMIT 10"
         ```
 
-        **Memtable pattern:** Build transforms using `xo.memtable()` placeholders. Test with sample data, then compose with real sources via Arrow IPC. Enables independent development of sources and transforms.
-
-        **Unbound pattern:** Any expression can have nodes "unbound" (made into placeholders). Feed Arrow IPC data via stdin to bind and execute. This enables composing arbitrary pipelines and streaming to SQL engines like DuckDB.
+        **Composition patterns:** Use `xo.catalog.get()` for Python-native composition (preferred), or Arrow IPC streaming for CLI pipelines. The catalog is the single source of truth for all expressions.
 
         ### 7. Land the Plane (`xorq agent land`)
         **MANDATORY before session completion:**

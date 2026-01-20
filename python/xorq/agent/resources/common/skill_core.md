@@ -246,90 +246,30 @@ xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
 
 ### Catalog Composition Pattern (PREFERRED)
 
-**Pattern:** Compose cataloged expressions directly in Python.
+**Pattern:** Build transforms using catalog placeholders.
 
 ```python
-# Load from catalog
 import xorq.api as xo
 
-# Direct catalog loading (preferred method)
-source = xo.catalog.get("my-source")
-transform = xo.catalog.get("my-transform")
+# Get placeholder memtable with same schema (for building transforms)
+placeholder = xo.catalog.get_placeholder("my-source")
+print(placeholder.schema())  # Shows schema without loading full expression
 
-# Inspect sources for composition
-sources = xo.catalog.list_source_nodes(transform)
-for src in sources:
-    print(f"Node: {src['name']}, Hash: {src['hash'][:12]}...")
-    print(f"Schema: {src['schema']}")
+# Build transform using placeholder
+new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
 
-# Create composable transform
-composable = xo.catalog.replace_as_root_memtable(
-    transform,
-    node_hash=sources[0]['hash']
-)
-
-# Build and catalog the composed expression
-# xorq build pipeline.py -e composable
-# xorq catalog add builds/<hash> --alias my-pipeline
+# Build and catalog
+# xorq build transform.py -e new_transform
+# xorq catalog add builds/<hash> --alias my-transform
 ```
 
 **Why this pattern:**
-- Uses catalog as single source of truth
-- Python-native composition (no CLI piping needed)
+- Catalog is the single source of truth
+- Python-native, simple API
+- Direct execution without intermediate steps
 - Type-safe with actual schemas
-- Programmatically discoverable with list_source_nodes
 
 **Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
-
----
-
-### Memtable Placeholder Pattern (Alternative)
-
-**Pattern:** Build transforms independently when source not yet cataloged.
-
-```python
-# In transform.py - Define transform with memtable placeholder
-import xorq.api as xo
-from xorq.vendor import ibis
-from xorq.common.utils.ibis_utils import from_ibis
-
-# Sample data matching expected source schema
-sample_data = {"col1": [1, 2], "col2": [3, 4]}
-source = xo.memtable(sample_data)
-print(source.schema())  # Check schema
-
-# Build transform on memtable
-expr = from_ibis(
-    source
-    .mutate(total=ibis._.col1 + ibis._.col2)
-    .filter(ibis._.total > 3)
-)
-```
-
-```bash
-# Build transform with memtable
-xorq build transform.py -e expr
-xorq catalog add builds/<hash> --alias my-transform
-
-# Find memtable node hash
-xorq catalog sources my-transform
-
-# Compose with real source later
-xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
-  xorq run-unbound my-transform \
-    --to_unbind_hash <hash> \
-    --typ xorq.expr.relations.Read \
-    -o output.parquet
-```
-
-**When to use memtable pattern:**
-- Source data doesn't exist yet
-- Building transforms independently before data pipeline ready
-- Testing transform logic with sample data
-
-**Key principle:** Use `xo.catalog.get()` first. Fall back to memtable only when source not cataloged.
-
-**Reference:** [Workflows #10](resources/WORKFLOWS.md#10-building-transform-expressions-with-memtable-pattern) | [Patterns](resources/PATTERNS.md#memtable-placeholder-pattern)
 
 ---
 
