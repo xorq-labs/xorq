@@ -14,7 +14,7 @@ This guide shows you how to read from and write to production data sources with 
 
 ## Configure authentication
 
-Set credentials as environment variables so Xorq can access your data sources securely. The connection reads these automatically when you connect to backends.
+Set credentials as environment variables so Xorq can securely access your data sources. The connection reads these automatically when you connect to backends.
 
 ::: {.panel-tabset}
 
@@ -51,6 +51,15 @@ If you encounter authentication errors, then see [Troubleshoot authentication](.
 ## Read from cloud storage
 
 Connect to a backend and use deferred reading to load data from S3 or GCS. The operation doesn't execute until you call `execute()`.
+
+:::{.callout-note}
+Before running these examples, ensure you have:
+
+- An S3 or GCS bucket created
+- Test data files uploaded to your bucket (example: `customers.csv`)
+- Replace `my-bucket` in the examples with your actual bucket name
+- Network access to AWS/GCS services configured
+:::
 
 Create a file called `read_s3.py`:
 
@@ -192,7 +201,15 @@ active_summary.to_parquet(output_path)
 
 ## Read from PostgreSQL
 
-Connect to PostgreSQL and reference tables or execute SQL queries. The connection uses environment variables you configured earlier.
+Beyond cloud storage, Xorq also works directly with databases. Connect to PostgreSQL to query tables and execute SQL, using the same deferred execution model you've seen with cloud files.
+
+:::{.callout-note}
+Before running PostgreSQL examples, ensure you have:
+
+- PostgreSQL server running and accessible
+- Database created with test tables (example: `customers`, `orders`)
+- Environment variables configured (`POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`)
+:::
 
 Create `read_postgres.py`:
 
@@ -243,7 +260,7 @@ active_customers = customers.filter(xo._.status == "active")
 pg_con.create_table("active_customers", active_customers, overwrite=True)
 ```
 
-Set `overwrite=True` to replace existing tables or `overwrite=False` to append rows.
+Set `overwrite=True` to replace existing tables. Set `overwrite=False` (default) to raise an error if the table already exists.
 
 For temporary tables that exist only for the current session:
 
@@ -253,7 +270,7 @@ pg_con.register("temp_table", data)
 
 ## Handle errors
 
-Add retry logic with exponential backoff to handle transient network failures gracefully.
+Now that you've seen the core read/write patterns, production deployments need reliability. Network failures, timeouts, and transient errors are common in cloud I/O, so add retry logic to handle them gracefully.
 
 Create `retry_read.py`:
 
@@ -370,24 +387,26 @@ Use Parquet for production. It's 50-80% smaller than CSV and reads 3-5x faster.
 
 ### Security
 
-Use IAM roles on EC2/ECS instead of access keys. Rotate credentials every 90 days if using access keys. Configure least-privilege permissions. Never commit credentials to code.
+Performance optimization helps you scale, but security prevents data breaches. Configure authentication and access controls properly before deploying to production.
+
+Use IAM roles on EC2/ECS instead of access keys. Rotate credentials every 90 days if using access keys and configure least-privilege permissions. Never commit credentials to code.
 
 ### Monitoring
 
-Track these metrics in production:
+Security protects your data, but monitoring tells you when systems fail. Track I/O metrics to identify bottlenecks before they impact users.
 
-| Metric | Alert Threshold |
-|--------|-----------------|
-| Read latency | >10s for <1GB files |
-| Write latency | >30s for <1GB files |
-| Error rate | >5% |
-| Memory usage | >80% of available RAM |
+| Metric | What to Track |
+|--------|---------------|
+| Read latency | Time to load and execute queries |
+| Write latency | Time to write results to storage |
+| Error rate | Percentage of failed operations |
+| Memory usage | Peak memory during execution |
 
-Log authentication failures, file-not-found errors, operations exceeding latency thresholds, and retry attempts.
+Set alert thresholds based on your application's service-level agreements (SLAs) and baseline performance. Log authentication failures, file-not-found errors, slow operations, and retry attempts.
 
 ### Cost optimization
 
-Storage costs for 1TB dataset:
+Monitoring shows you what's happening, but cost optimization ensures you're not overpaying for it. Storage and compute costs add up quickly at scale.
 
 - CSV on S3 Standard: ~$23/month
 - Parquet on S3 Standard: ~$5-10/month
@@ -396,23 +415,121 @@ Use Parquet for 50-80% storage savings. Cache frequently accessed data locally t
 
 ### Scaling
 
-- At 10GB scale: DuckDB handles 5-10s read latency. Bottleneck is CPU.
+Cost optimization reduces waste, but scaling ensures systems handle growing data volumes, such as planning capacity based on your data size and growth rate.
 
-- At 100GB scale: DuckDB handles 30-60s read latency. Bottleneck is I/O. Use streaming and caching.
+**Backend selection for scale**:
 
-- At 1TB+ scale: PostgreSQL handles 1-3 min read latency. Bottleneck is network and disk I/O. Use columnar storage and partitioning.
+- **<1GB**: Pandas backend works well for small datasets
+- **1-100GB**: DuckDB provides efficient analytics with lower memory overhead
+- **>100GB**: PostgreSQL handles large datasets with concurrent access
 
-Capacity planning:
-```
-Memory (GB) = (Data size × 2) + 2GB overhead
-Storage (GB) = Data size + (Data size × 0.3 for cache and intermediate results)
-```
+**Performance varies by**:
+
+- Hardware (CPU, memory, disk I/O)
+- Network latency between compute and storage
+- File format (Parquet is 3-5x faster than CSV)
+- Query complexity and data transformations
+
+**Capacity planning**: Start with instance memory at least 2x your dataset size. Monitor actual usage and adjust based on your specific workload.
 
 ## Troubleshooting
 
-You now have working pipelines that read from production sources, transform data with Xorq, write results with error handling, and track performance metrics. For troubleshooting common errors, see [Troubleshoot production data I/O](../../troubleshooting/data-io-errors.qmd).
+Even with proper authentication, error handling, and monitoring, you'll encounter issues when working with production data. Here are the most common problems and their solutions.
+
+### Authentication fails
+
+**Problem**: `botocore.exceptions.NoCredentialsError: Unable to locate credentials`
+
+**Cause**: AWS credentials not configured or expired.
+
+**Solution**: Verify environment variables are set:
+
+```bash
+echo $AWS_ACCESS_KEY_ID
+echo $AWS_SECRET_ACCESS_KEY
+```
+
+If on EC2, use IAM roles instead of access keys:
+
+```bash
+# Remove access keys from environment
+unset AWS_ACCESS_KEY_ID
+unset AWS_SECRET_ACCESS_KEY
+
+# Attach IAM role to EC2 instance via AWS Console
+# Xorq will use instance metadata to get credentials
+```
+
+### File not found
+
+**Problem**: `FileNotFoundError: [Errno 2] No such file or directory`
+
+**Cause**: Incorrect file path or missing file.
+
+**Solution**: Verify the file exists, and the path is correct:
+
+```bash
+# List bucket contents
+aws s3 ls s3://my-bucket/data/
+
+# Test file access
+aws s3 cp s3://my-bucket/data/customers.csv - | head
+```
+
+Use absolute paths with bucket prefix:
+
+```python
+# Correct: Full path with bucket
+path = "s3://my-bucket/data/customers.csv"
+
+# Incorrect: Relative path
+path = "data/customers.csv"
+```
+
+### Out of memory
+
+**Problem**: `MemoryError` when reading large files.
+
+**Cause**: Loading the entire file into memory at once.
+
+**Solution**: Use streaming for files >1GB:
+
+```python
+# Stream data in chunks
+for batch in data.to_pyarrow_batches(chunk_size=10000):
+    process_batch(batch)  # Process each chunk separately
+```
+
+If still failing, reduce chunk size to 1,000 or increase instance memory.
+
+### Slow read performance
+
+**Problem**: Reads take longer than expected for your dataset size.
+
+**Cause**: Network latency, wrong backend, or inefficient file format.
+
+**Solution**: Profile and optimize:
+
+```python
+import time
+
+start = time.time()
+df = data.execute()
+read_time = time.time() - start
+
+print(f"Read time: {read_time:.2f}s for {len(df)} rows")
+```
+
+Optimize based on results:
+
+- **Slow file reads**: Switch from CSV to Parquet (3-5x faster)
+- **High network latency**: Move compute and storage to the same region
+- **Large datasets**: Use DuckDB backend for better memory efficiency
+- **Files >1GB**: Use streaming with `to_pyarrow_batches()`
 
 ## Next steps
+
+You now have working pipelines that read from production sources, transform data with Xorq, write results with error handling, and track performance metrics.
 
 - [Build data quality checks](build_data_quality_checks.qmd) - Validate data before processing
 - [Transform data with custom UDFs](transform_data_with_custom_udfs.qmd) - Create reusable transformations

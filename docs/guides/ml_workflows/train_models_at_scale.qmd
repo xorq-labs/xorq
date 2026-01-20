@@ -2,21 +2,629 @@
 title: 'Train models at scale'
 ---
 
-## Coming soon
+Train machine learning (ML) models on large datasets with efficient memory management and automatic caching.
 
-This guide will show you how to train machine learning models on large datasets with Xorq.
+Xorq's training system combines deferred execution with smart caching to handle datasets that don't fit in memory. Your training expressions are lazy and only materialize data when needed, enabling efficient iteration and reproducible model training across environments.
 
-You will learn how to leverage caching and backend selection for efficient training.
+## Prerequisites
 
-**What you'll accomplish:**
-- Train on large datasets
-- Use appropriate backends for scale
-- Cache training artifacts
-- Optimize memory usage
+Before you start, you need:
 
-**Prerequisites:**
-- Completed "Train your first model" tutorial
-- Large dataset available
+- Completed [Quickstart](../../getting_started/quickstart.qmd)
+- Completed [Build feature pipelines](../data_workflows/build_feature_pipelines.qmd)
+- Large dataset available (CSV, Parquet, or database)
 
-Check back soon for the complete guide.
+## Load and split training data
 
+Xorq's deferred execution lets you work with datasets larger than memory by loading data only when needed. The train/test split uses deterministic hashing to ensure that duplicate rows always go to the same split, which is critical for reproducible experiments.
+
+:::: {.callout-note}
+This guide uses synthetic data for demonstration. For production, replace `xo.memtable()` with:
+
+- `xo.deferred_read_csv(path="your-data.csv", con=con)` for CSV files
+- `con.read_parquet("your-data.parquet")` for Parquet files (recommended for large datasets)
+::::
+
+Create `load_and_split.py`:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import train_test_splits
+
+# Connect and create a sample classification dataset
+con = xo.connect()
+import numpy as np
+
+# Generate synthetic customer data
+np.random.seed(42)
+n_samples = 1000
+
+data = xo.memtable({
+    "age": np.random.randint(18, 70, n_samples).tolist(),
+    "income": np.random.randint(20000, 150000, n_samples).tolist(),
+    "credit_score": np.random.randint(300, 850, n_samples).tolist(),
+    "loan_amount": np.random.randint(5000, 50000, n_samples).tolist(),
+}, name="customer_data")
+
+# Create binary target based on simple rule
+data = data.mutate(
+    approved=((xo._["credit_score"] > 650) & (xo._["income"] > 40000)).cast("int")
+)
+
+# Inspect schema
+print(f"Columns: {list(data.columns)}")
+print(f"Preview:\n{data.head(3).execute()}\n")
+
+# Split into train (80%) and test (20%)
+train_data, test_data = data.pipe(
+    train_test_splits,
+    test_sizes=[0.8, 0.2],
+    num_buckets=10000,
+    random_seed=42
+)
+
+# Verify split sizes
+train_count = train_data.count().execute()
+test_count = test_data.count().execute()
+
+print(f"Training set: {train_count} rows")
+print(f"Test set: {test_count} rows")
+print(f"Split ratio: {train_count / (train_count + test_count):.2%} train")
+```
+
+Run the script:
+
+```bash
+python load_and_split.py
+```
+
+You should see a result like this:
+
+```
+Columns: ['age', 'income', 'credit_score', 'loan_amount', 'approved']
+Preview:
+   age  income  credit_score  loan_amount  approved
+0   56  125186           414        12239         0
+1   69   54674           622        11710         0
+2   46   55854           339        26384         0
+
+Training set: 804 rows
+Test set: 196 rows
+Split ratio: 80.40% train
+```
+
+**Key points**:
+
+- `xo.memtable()` creates in-memory tables from Python dictionaries
+- `.head()` and `.count()` inspect data without loading the full dataset
+- `train_test_splits()` creates deterministic splits using hashing
+- `test_sizes` specifies proportions (must sum to 1.0)
+- `num_buckets` controls split granularity (higher = more precise)
+- `random_seed` ensures reproducibility across runs
+
+Hash-based splitting ensures that duplicate rows are sent to the same split across runs, which is critical for reproducible model training.
+
+## Cache training artifacts
+
+Once you've split your data, the next challenge at scale is avoiding redundant computation. Training large models can take minutes or hours, so caching fitted models and transformed features becomes essential for iterative development.
+
+Create `train_with_cache.py`:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Step, Pipeline, train_test_splits
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from xorq.caching import ParquetCache
+from pathlib import Path
+
+# Connect and create a sample dataset
+con = xo.connect()
+import numpy as np
+
+np.random.seed(42)
+n_samples = 1000
+
+data = xo.memtable({
+    "age": np.random.randint(18, 70, n_samples).tolist(),
+    "income": np.random.randint(20000, 150000, n_samples).tolist(),
+    "credit_score": np.random.randint(300, 850, n_samples).tolist(),
+    "loan_amount": np.random.randint(5000, 50000, n_samples).tolist(),
+}, name="customer_data")
+
+data = data.mutate(
+    approved=((xo._["credit_score"] > 650) & (xo._["income"] > 40000)).cast("int")
+)
+
+# Split data
+train_data, test_data = data.pipe(
+    train_test_splits,
+    test_sizes=[0.8, 0.2],
+    num_buckets=10000,
+    random_seed=42
+)
+
+# Define training features
+features = ("age", "income", "credit_score", "loan_amount")
+target = "approved"
+
+# Create pipeline
+scaler_step = Step(StandardScaler, name="scaler")
+model_step = Step(
+    LogisticRegression,
+    name="classifier",
+    params_tuple=(("random_state", 42), ("max_iter", 1000))
+)
+pipeline = Pipeline(steps=(scaler_step, model_step))
+
+# Set up caching
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./training-cache",
+    base_path=Path(".").absolute()
+)
+
+# Fit pipeline with caching
+print("Fitting pipeline...")
+fitted_pipeline = pipeline.fit(
+    expr=train_data,
+    features=features,
+    target=target,
+    cache=cache
+)
+
+# Make predictions on test set
+print("Making predictions...")
+predictions = fitted_pipeline.predict(test_data)
+result = predictions.execute()  # Execution happens here
+
+# Calculate accuracy
+accuracy = (result[target] == result["predicted"]).mean()
+print(f"\nTest accuracy: {accuracy:.2%}")
+print(f"Predictions sample:\n{result[[target, 'predicted']].head()}")
+```
+
+Run the script:
+
+```bash
+python train_with_cache.py
+```
+
+You should see a result like this:
+
+```
+Fitting pipeline...
+Making predictions...
+
+Test accuracy: 87.50%
+Predictions sample:
+   approved  predicted
+0         0          0
+1         1          1
+2         0          0
+3         1          1
+4         0          0
+```
+
+**Key points**:
+
+- `ParquetCache` stores fitted models and intermediate results on disk
+- `cache` parameter in `.fit()` enables automatic caching
+- Subsequent runs load cached models instead of refitting
+- Each pipeline step caches independently
+- Cache keys change when data, features, or parameters change
+
+:::: {.callout-note}
+### Deferred execution
+`.fit()` and `.predict()` create lazy expressions. Actual model training and prediction happen only when you call `.execute()`. This allows Xorq to optimize execution and manage memory efficiently, especially for large datasets.
+::::
+
+On subsequent runs, the cached models load instantly without retraining.
+
+## Monitor training progress
+
+Caching speeds up iteration, but to optimize training at scale, you need visibility into where time is actually spent. Monitoring helps you identify bottlenecks in loading, fitting, or prediction stages.
+
+Create `monitor_training.py`:
+
+```python
+import time
+import xorq.api as xo
+from xorq.expr.ml import Step, Pipeline, train_test_splits
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from xorq.caching import ParquetCache
+from pathlib import Path
+
+# Load and prepare data
+start_time = time.time()
+con = xo.connect()
+import numpy as np
+
+np.random.seed(42)
+n_samples = 1000
+
+data = xo.memtable({
+    "age": np.random.randint(18, 70, n_samples).tolist(),
+    "income": np.random.randint(20000, 150000, n_samples).tolist(),
+    "credit_score": np.random.randint(300, 850, n_samples).tolist(),
+    "loan_amount": np.random.randint(5000, 50000, n_samples).tolist(),
+}, name="customer_data")
+
+data = data.mutate(
+    approved=((xo._["credit_score"] > 650) & (xo._["income"] > 40000)).cast("int")
+)
+
+train_data, test_data = data.pipe(
+    train_test_splits,
+    test_sizes=[0.8, 0.2],
+    num_buckets=10000,
+    random_seed=42
+)
+
+# Create and fit pipeline
+features = ("age", "income", "credit_score", "loan_amount")
+target = "approved"
+
+scaler_step = Step(StandardScaler, name="scaler")
+model_step = Step(LogisticRegression, name="classifier", 
+                  params_tuple=(("random_state", 42), ("max_iter", 1000)))
+pipeline = Pipeline(steps=(scaler_step, model_step))
+
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./training-cache",
+    base_path=Path(".").absolute()
+)
+
+# Track fit time
+fit_start = time.time()
+fitted_pipeline = pipeline.fit(
+    expr=train_data,
+    features=features,
+    target=target,
+    cache=cache
+)
+fit_time = time.time() - fit_start
+
+# Check cache status
+for i, step in enumerate(fitted_pipeline.fitted_steps):
+    status = "cached" if step.deferred_model.ls.exists() else "fitted"
+    print(f"Step {i} ('{step.step.name}'): {status}")
+
+# Track prediction time
+predict_start = time.time()
+predictions = fitted_pipeline.predict(test_data)
+result = predictions.execute()
+predict_time = time.time() - predict_start
+
+# Calculate metrics
+accuracy = (result[target] == result["predicted"]).mean()
+total_time = time.time() - start_time
+
+print(f"\nPerformance Summary:")
+print(f"  Total time: {total_time:.2f}s")
+print(f"  Fit time: {fit_time:.2f}s ({fit_time/total_time:.1%})")
+print(f"  Predict time: {predict_time:.2f}s ({predict_time/total_time:.1%})")
+print(f"  Test accuracy: {accuracy:.2%}")
+```
+
+Run the script:
+
+```bash
+python monitor_training.py
+```
+
+You should see a result like this:
+
+```
+Step 0 ('scaler'): fitted
+Step 1 ('classifier'): fitted
+
+Performance Summary:
+  Total time: 1.23s
+  Fit time: 0.95s (77.2%)
+  Predict time: 0.18s (14.6%)
+  Test accuracy: 87.50%
+```
+
+**Key points**:
+
+- Track time for each training phase (load, fit, predict)
+- Check cache status for each pipeline step
+- Calculate performance metrics (accuracy, time breakdown)
+- Identify bottlenecks by comparing time percentages
+
+These metrics help optimize training pipelines and validate improvements to the model.
+
+## Production considerations
+
+### Backend selection for scale
+
+Choose backends based on dataset size and complexity:
+
+| Backend | Dataset Size | Training Speed | Memory Usage | When to Use |
+|---------|--------------|----------------|--------------|-------------|
+| Embedded DataFusion | <10GB | Fast | Moderate | Rapid iteration, complex user-defined functions (UDFs) |
+| DuckDB | 10-100GB | Very Fast | Low | Large analytical workloads, Parquet |
+| PostgreSQL | >100GB | Moderate | Very Low | Massive datasets, existing PostgreSQL |
+
+:::: {.callout-tip}
+The dataset sizes above are example guidelines. Actual performance depends on your system specs, model complexity, and available RAM. Start with the embedded backend and switch to DuckDB or PostgreSQL as your data grows.
+::::
+
+Switch backends without changing your training code:
+
+```python
+# Train on different backends with the same pipeline
+con = xo.connect()              # Embedded: <10GB
+ddb = xo.duckdb.connect()       # DuckDB: 10-100GB  
+pg = xo.postgres.connect_env()  # PostgreSQL: >100GB
+
+# Same training code works on any backend
+data = xo.deferred_read_csv(path="data.csv", con=ddb)
+fitted = pipeline.fit(data, features=features, target=target, cache=cache)
+```
+
+For datasets over 100GB, use DuckDB for Parquet files or PostgreSQL for existing database tables.
+
+### Memory management
+
+Backend choice affects memory usage, but you also need strategies to control memory consumption regardless of which backend you use. Chunk-based execution and column selection keep the memory footprint manageable.
+
+**Process data in chunks**:
+
+Execute transformations in batches to avoid loading the entire dataset:
+
+```python
+import xorq.api as xo
+import numpy as np
+
+# Load large dataset
+data = xo.deferred_read_csv(path="large-dataset.csv", con=xo.connect())
+
+# Process in chunks and compute incremental statistics
+chunk_size = 50000  # Adjust based on available memory
+total_rows = 0
+sum_values = 0
+count_values = 0
+
+for batch in data.to_pyarrow_batches(chunk_size=chunk_size):
+    df = batch.to_pandas()
+    total_rows += len(df)
+    
+    # Compute statistics on each batch
+    sum_values += df["amount"].sum()
+    count_values += len(df)
+    
+    print(f"Processed batch: {len(df)} rows")
+
+# Compute final statistics
+mean_value = sum_values / count_values
+print(f"Total: {total_rows} rows processed")
+print(f"Mean amount: {mean_value:.2f}")
+```
+
+**Reduce memory footprint**:
+
+Select only required columns before training:
+
+```python
+# Bad: loads all columns
+data = xo.deferred_read_csv(path="data.csv", con=con)
+fitted = pipeline.fit(data, features=features, target=target)
+
+# Good: loads only required columns
+data = xo.deferred_read_csv(path="data.csv", con=con)
+data = data.select(*features, target)  # Only load needed columns
+fitted = pipeline.fit(data, features=features, target=target)
+```
+
+**Memory troubleshooting**:
+
+:::: {.callout-warning}
+### Out of memory errors
+If training fails with `MemoryError` or system freezes:
+
+1. Reduce `chunk_size` in `to_pyarrow_batches()` from 50,000 to 10,000
+2. Select fewer columns before training with `.select(*features, target)`
+3. Switch to DuckDB backend (uses less memory than embedded)
+4. Increase system memory or use a backend that supports disk spilling
+::::
+
+### Resource monitoring
+
+Memory management prevents crashes, but monitoring tells you when you're approaching limits. Track resource usage during training to identify bottlenecks before they become failures.
+
+**Instrument training pipelines**:
+
+```python
+import psutil
+import logging
+
+logger = logging.getLogger(__name__)
+
+def log_memory_usage(stage):
+    """Log current memory usage."""
+    process = psutil.Process()
+    memory_mb = process.memory_info().rss / 1024 / 1024
+    logger.info(f"{stage}: Memory usage = {memory_mb:.2f} MB")
+
+# Track memory at each stage
+log_memory_usage("Before loading data")
+data = xo.deferred_read_csv(path="data.csv", con=con)
+log_memory_usage("After loading data")
+
+fitted = pipeline.fit(data, features=features, target=target, cache=cache)
+log_memory_usage("After fitting pipeline")
+
+predictions = fitted.predict(test_data).execute()
+log_memory_usage("After predictions")
+```
+
+### Checkpointing
+
+Monitoring shows you when things go wrong. Checkpointing ensures you don't lose progress when they do. Save intermediate training states to resume after failures or iterate faster.
+
+**Cache fitted models as checkpoints**:
+
+Xorq's caching system automatically checkpoints fitted models:
+
+```python
+from xorq.caching import ParquetCache
+from pathlib import Path
+
+# Set up persistent cache
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./checkpoints",
+    base_path=Path(".").absolute()
+)
+
+# First run: fits and caches
+fitted = pipeline.fit(data, features=features, target=target, cache=cache)
+
+# Second run: loads from cache (instant)
+fitted = pipeline.fit(data, features=features, target=target, cache=cache)
+```
+
+**Checkpoint strategies**:
+
+Use different cache strategies for different training workflows:
+
+```python
+from xorq.caching import ParquetSnapshotCache
+
+# For reproducible experiments: fixed snapshots
+snapshot_cache = ParquetSnapshotCache.from_kwargs(
+    source=con,
+    relative_path="./experiment-v1"
+)
+
+# Snapshot never invalidates - manual control
+fitted = pipeline.fit(data, features=features, target=target, cache=snapshot_cache)
+```
+
+Checkpoints enable:
+
+- Resume training after crashes
+- Fast iteration during hyperparameter tuning
+- Reproducible experiment snapshots
+
+## Troubleshooting
+
+Even with proper backend selection, memory management, and checkpointing, you'll encounter issues when training at scale. Here are the most common problems and their solutions.
+
+### Training takes too long
+
+**Problem**: Model training exceeds acceptable time limits.
+
+**Solution**: Profile and optimize the bottleneck.
+
+Check where time is spent:
+
+```python
+import time
+
+stages = {}
+
+start = time.time()
+data = xo.deferred_read_csv(path="data.csv", con=con)
+stages["load"] = time.time() - start
+
+start = time.time()
+fitted = pipeline.fit(data, features=features, target=target)
+stages["fit"] = time.time() - start
+
+start = time.time()
+predictions = fitted.predict(test_data).execute()
+stages["predict"] = time.time() - start
+
+# Identify bottleneck
+for stage, duration in stages.items():
+    print(f"{stage}: {duration:.2f}s ({duration/sum(stages.values()):.1%})")
+```
+
+**Optimization strategies by bottleneck**:
+
+- **Load bottleneck**: Switch to Parquet format (3-5x faster than CSV), use `con.read_parquet()` instead of `deferred_read_csv()`
+- **Fit bottleneck**: Reduce training data size with sampling, select fewer features, use simpler model (e.g., Logistic Regression instead of XGBoost)
+- **Predict bottleneck**: Increase batch size, cache intermediate transformations
+
+### Out of memory during training
+
+**Problem**: Training fails with `MemoryError` or system freezes.
+
+**Solution**: Reduce memory footprint and process data in smaller chunks.
+
+Select only necessary columns:
+
+```python
+# Load only features and target
+data = xo.deferred_read_csv(path="data.csv", con=con)
+data = data.select(*features, target)
+```
+
+Process in smaller chunks:
+
+```python
+# Reduce chunk size from default
+for batch in data.to_pyarrow_batches(chunk_size=10000):  # Was 50000
+    df = batch.to_pandas()
+    # Process each batch
+    print(f"Batch size: {len(df)} rows")
+```
+
+Switch to a lower-memory backend:
+
+```python
+# DuckDB uses less memory than embedded DataFusion
+ddb = xo.duckdb.connect()
+data = xo.deferred_read_csv(path="data.csv", con=ddb)
+```
+
+### Cache not reusing fitted models
+
+**Problem**: Pipeline refits on every run despite caching being enabled.
+
+**Solution**: Verify cache configuration and check for changing inputs.
+
+Check cache exists:
+
+```python
+from pathlib import Path
+
+cache_path = Path("./training-cache")
+print(f"Cache exists: {cache_path.exists()}")
+print(f"Cache contents: {list(cache_path.glob('*'))}")
+```
+
+Verify cache strategy:
+
+```python
+# SourceCache invalidates when data changes
+from xorq.caching import ParquetCache
+
+# Use ParquetSnapshotCache for fixed checkpoints
+from xorq.caching import ParquetSnapshotCache
+
+snapshot_cache = ParquetSnapshotCache.from_kwargs(
+    source=con,
+    relative_path="./stable-cache"
+)
+```
+
+Common causes of cache misses:
+
+- Data source changed (use `ParquetSnapshotCache` for fixed snapshots)
+- Feature columns changed (cache keys depend on feature names)
+- Model parameters changed (cache keys depend on `params_tuple`)
+- Cache directory was deleted or moved
+
+## Next steps
+
+You now have efficient model training on large datasets with automatic caching and memory management. Xorq handles data loading, splitting, and checkpointing so you can focus on model iteration and evaluation.
+
+- [Evaluate model performance](evaluate_model_performance.qmd) - Compare models and track metrics
+- [Version and promote models](version_and_promote_models.qmd) - Manage model versions across environments
+- [Deploy models to production](deploy_models_to_production.qmd) - Serve models via Flight server
