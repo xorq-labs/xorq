@@ -295,6 +295,31 @@ new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
 - Direct execution without intermediate steps
 - Type-safe with actual schemas
 
+**When Complex Workflows May Fail:**
+
+For complex multi-stage pipelines (especially ML workflows), you may encounter execution errors:
+- `XorqInputError: Duplicate column name` - Don't use struct/unpack patterns for ML predictions
+- `XorqTypeError: Column not found` - After `.predict()`, feature columns are dropped
+- `ValueError: not enough values to unpack` - Hash not found, run `xorq catalog sources` to get correct hash
+- Nested expression transform errors or remote table registration failures
+
+**Workaround:** Use xorq for feature engineering (what it excels at), materialize to parquet, then use Python for complex operations:
+
+```python
+# Feature engineering with xorq (deferred execution)
+features = xo.catalog.get("features")
+
+# Materialize to parquet first
+# CLI: xorq run features -o features.parquet
+
+# Then use Python/pandas/sklearn for complex ML operations
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
+df = pd.read_parquet("features.parquet")
+# ... train model in Python (simpler, more flexible) ...
+```
+
 **Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
 
 ---

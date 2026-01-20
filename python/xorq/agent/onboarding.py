@@ -712,7 +712,30 @@ def _render_agent_doc(max_lines: int) -> str:
         4. Adapt patterns for data loading, feature engineering, model fitting to your needs
         5. Build and catalog: `xorq build <file>.py -e expr && xorq catalog add builds/<hash> --alias <name>`
 
-        ### 5. Build New Expressions (All Deferred!)
+        ### 5. Import Patterns for Build Scripts
+
+        **✅ Correct imports (always use these):**
+        ```python
+        import xorq.api as xo           # Main xorq API
+        from xorq.caching import ParquetCache  # For caching
+
+        # Catalog functions (multiple aliases available for discoverability)
+        expr = xo.catalog.get("my-alias")           # Load from catalog
+        expr = xo.read_catalog("my-alias")          # Alias for catalog.get()
+        expr = xo.catalog.load_expr("builds/...")   # Load from build dir
+        expr = xo.read_build("builds/...")          # Alias for catalog.load_expr()
+        placeholder = xo.catalog.get_placeholder("my-alias")  # Get placeholder
+        ```
+
+        **❌ Don't use these (not available in build context):**
+        ```python
+        from xorq.common.utils.ibis_utils import from_ibis  # Will fail!
+        from xorq.vendor import ibis  # Use xo._ instead
+        ```
+
+        **Key principle:** Use `xo.*` for all operations. The `xo` namespace provides everything you need.
+
+        ### 6. Build New Expressions (All Deferred!)
         - **Invoke xorq skills** for deferred expression patterns (Ibis, sklearn, pandas)
         - **All work must be deferred** - No eager pandas/NumPy operations
         - Use xorq skills for:
@@ -722,7 +745,7 @@ def _render_agent_doc(max_lines: int) -> str:
         - Build expressions: `xorq build expr.py -e expr_name`
         - Catalog builds: `xorq catalog add builds/<hash> --alias my-new-pipeline`
 
-        ### 6. Build Transforms Using Catalog Placeholders
+        ### 7. Build Transforms Using Catalog Placeholders
         ```python
         # Get placeholder with schema from catalog (Python API)
         import xorq.api as xo
@@ -769,7 +792,23 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Composition patterns:** Use `xo.catalog.get()` for Python-native composition (preferred), or Arrow IPC streaming for CLI pipelines. The catalog is the single source of truth for all expressions.
 
-        ### 7. Land the Plane (`xorq agent land`)
+        **Troubleshooting Complex Workflows:**
+
+        For complex multi-stage pipelines (especially ML), you may encounter:
+        - `XorqInputError: Duplicate column name` - Avoid struct/unpack patterns for ML
+        - `XorqTypeError: Column not found` - After prediction, feature columns are dropped
+        - `ValueError: not enough values to unpack` - Hash not found, re-run `xorq catalog sources`
+
+        **Workaround:** Use xorq for feature engineering, materialize to parquet, then use Python for complex ML:
+        ```bash
+        # Build and run feature pipeline
+        xorq run features -o features.parquet
+
+        # Then use Python/pandas/sklearn (simpler, more flexible)
+        python train_model.py features.parquet
+        ```
+
+        ### 8. Land the Plane (`xorq agent land`)
         **MANDATORY before session completion:**
         - Validates all builds are cataloged
         - Checks git status (catalog.yaml and builds/ must be committed)
