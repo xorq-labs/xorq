@@ -12,13 +12,8 @@ A compute manifest system providing persistent, cacheable, and portable expressi
 ## Quick Start
 
 ```bash
-# Initialize (one-time setup)
-xorq init -t penguins
-# Or for agent workflows
 xorq agents onboard
 
-# Core workflow
-print(table.schema())           # ALWAYS check schema first
 xorq build expr.py -e expr      # Build expression
 xorq catalog add builds/<hash> --alias my-expr
 xorq run my-expr -o output.parquet
@@ -33,11 +28,6 @@ xorq run my-expr -o output.parquet
 | `xorq run <alias>` | Execute cataloged build |
 | `xorq catalog add/ls` | Manage build registry |
 | `xorq lineage <alias>` | Show column-level lineage |
-<<<<<<< HEAD
-| `xorq agents onboard` | Get workflow context (source of truth) |
-=======
-| `xorq agents prime` | Get workflow context (source of truth) |
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 | `xorq agents onboard` | Guided workflow for agents |
 | `xorq agents templates list` | List available templates |
 
@@ -47,9 +37,14 @@ xorq run my-expr -o output.parquet
 
 ### Imports and Connection
 
+**✅ Correct imports:**
 ```python
 import xorq.api as xo
-from xorq.vendor import ibis  # ALWAYS use xorq.vendor.ibis
+from xorq.caching import ParquetCache
+
+# Catalog functions (multiple aliases for discoverability)
+expr = xo.catalog.get("my-alias")           # Load from catalog
+placeholder = xo.catalog.get_placeholder("my-alias", tag="tag")  # tag to easily use with xorq run-unbound --to_unbind_tag
 
 # Connect to backend
 con = xo.connect()  # DuckDB default
@@ -63,7 +58,6 @@ con = xo.connect()  # DuckDB default
 table = con.table("data")
 print(table.schema())  # Required before any operations
 
-# Build deferred expression
 expr = (
     table
     .filter(xo._.column.notnull())
@@ -81,7 +75,6 @@ result = expr.execute()
 ```python
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
-# Lazy loading - doesn't read until execute()
 expr = deferred_read_parquet("large.parquet", con, "data")
 ```
 
@@ -181,11 +174,7 @@ git commit -m "Add pipeline to catalog"
 
 ```bash
 # Get dynamic workflow context
-<<<<<<< HEAD
-xorq agents onboard
-=======
 xorq agents prime
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ```
 
 ### Development Loop
@@ -218,11 +207,7 @@ git commit -m "Update catalog"
 git push
 
 # 3. Generate handoff
-<<<<<<< HEAD
-xorq agents onboard
-=======
 xorq agents prime
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ```
 
 ## Advanced Workflow Patterns
@@ -256,52 +241,57 @@ xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
 
 ---
 
-### Memtable Placeholder Pattern
+### Catalog Composition Pattern (PREFERRED)
 
-**Pattern:** Build transforms independently using memtable placeholders, compose later.
+**Pattern:** Build transforms using catalog placeholders.
 
 ```python
-# In transform.py - Define transform with memtable
 import xorq.api as xo
-from xorq.vendor import ibis
-from xorq.common.utils.ibis_utils import from_ibis
 
-# Sample data matching expected source schema
-sample_data = {"col1": [1, 2], "col2": [3, 4]}
-source = xo.memtable(sample_data)
-print(source.schema())  # Check schema
+# Get placeholder memtable with same schema (for building transforms)
+placeholder = xo.catalog.get_placeholder("my-source")
+print(placeholder.schema())  # Shows schema without loading full expression
 
-# Build transform on memtable
-expr = from_ibis(
-    source
-    .mutate(total=ibis._.col1 + ibis._.col2)
-    .filter(ibis._.total > 3)
-)
-```
+# Build transform using placeholder
+new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
 
-```bash
-# Build transform with memtable
-xorq build transform.py -e expr
-xorq catalog add builds/<hash> --alias my-transform
-
-# Find memtable node hash
-xorq catalog sources my-transform
-
-# Compose with real source later
-xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
-  xorq run-unbound my-transform \
-    --to_unbind_hash <hash> \
-    --typ xorq.expr.relations.Read \
-    -o output.parquet
+# Build and catalog
+# xorq build transform.py -e new_transform
+# xorq catalog add builds/<hash> --alias my-transform
 ```
 
 **Why this pattern:**
-- Build transforms without waiting for source data
-- Test transform logic with sample data independently
-- Same transform reusable with multiple sources
-- Flexible composition via Arrow IPC streaming
+- Catalog is the single source of truth
+- Python-native, simple API
+- Direct execution without intermediate steps
+- Type-safe with actual schemas
 
-**Reference:** [Workflows #10](resources/WORKFLOWS.md#10-building-transform-expressions-with-memtable-pattern) | [Patterns](resources/PATTERNS.md#memtable-placeholder-pattern)
+**When Complex Workflows May Fail:**
+
+For complex multi-stage pipelines (especially ML workflows), you may encounter execution errors:
+- `XorqInputError: Duplicate column name` - Don't use struct/unpack patterns for ML predictions
+- `XorqTypeError: Column not found` - After `.predict()`, feature columns are dropped
+- `ValueError: not enough values to unpack` - Hash not found, run `xorq catalog sources` to get correct hash
+- Nested expression transform errors or remote table registration failures
+
+**Workaround:** Use xorq for feature engineering (what it excels at), materialize to parquet, then use Python for complex operations:
+
+```python
+# Feature engineering with xorq (deferred execution)
+features = xo.catalog.get("features")
+
+# Materialize to parquet first
+# CLI: xorq run features -o features.parquet
+
+# Then use Python/pandas/sklearn for complex ML operations
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
+df = pd.read_parquet("features.parquet")
+# ... train model in Python (simpler, more flexible) ...
+```
+
+**Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
 
 ---
 
@@ -360,24 +350,6 @@ ranked = table.mutate(
 )
 ```
 
-## Agent-Native Features
-
-### Prompts (Workflow Context)
-
-```bash
-# List all prompts
-xorq agents prompt list
-
-# Show specific prompt
-xorq agents prompt show xorq_core
-
-# Get workflow context (use this!)
-<<<<<<< HEAD
-xorq agents onboard
-=======
-xorq agents prime
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
-```
 
 ### Templates (Starter Code)
 
@@ -475,10 +447,6 @@ expr = (
 
 ## Documentation Links
 
-<<<<<<< HEAD
-- **Workflow Context**: `xorq agents onboard` (dynamic, context-aware)
-=======
 - **Workflow Context**: `xorq agents prime` (dynamic, context-aware)
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 - **GitHub**: [github.com/xorq-labs/xorq](https://github.com/xorq-labs/xorq)
 - **Docs**: [docs.xorq.dev](https://docs.xorq.dev)

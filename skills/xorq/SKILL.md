@@ -1,88 +1,53 @@
 ---
 name: xorq
 description: >
-    compute catalog with deferred expressions built on Ibis.
+  Compute manifest and composable tools for ML. Build, catalog, and serve deferred
+  expressions with input-addressed caching, multi-engine execution, and Arrow-native
+  data flow. Use for ML pipelines, feature engineering, and model serving.
 allowed-tools: "Read,Bash(xorq:*),Bash(python:*)"
 version: "0.2.0"
 author: "Xorq Labs <https://github.com/xorq-labs>"
 license: "Apache-2.0"
 ---
 
-Your goal is to generate deferred expressions using Xorq framework wrapping
-thing that you already know, e.g. pandas and scikit-learn. Xorq is built on
-ibis and as such exposes a 1:1 ibis compatible api with a few differences:
-1.`cache` is deferred and can take in ParquetCache or SourceCache as arguments and is multi-engine
-2. UDF mechanism is enhacned with pandas udf `xo.expr.udf import
-   make_pandas_udf` and `make_pandas_expr_udf`, or `xo.expr.udf.agg`.
-3. Provides scikit-learn pipeline object to make it deferred `xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)`
+# Xorq - Manifest-Driven Compute for ML
 
-Since the the output of a deferred UDF can be pickled and binary types are
-supported, we can also use them to export and save any matplotlib plots as
-binary blog, allowing us to complete the loop of staying deferred even for results.
+A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
 
-Here is an example flow:
+## Agent Tool Compatibility
 
-```python
-import xorq.api as xo
-from xorq.expr.udf import agg
-import xorq.expr.datatypes as dt
+**For non-Claude Code agents (Codex, etc.):**
+When xorq docs reference Claude Code-specific tools, map to your environment's equivalents:
+- `TodoWrite` → Your planning/task tracking tool (e.g., `update_plan`)
+- `Task` tool with subagents → Do the work directly (if subagents not available)
+- `Skill` tool → Not needed (you're reading this skill directly)
+- `Read`, `Write`, `Edit`, `Bash` → Use your native tools with similar functions
 
-#source_expr = xo.catalog.get("expr-alias")
+# Xorq - Manifest-Driven Compute for ML
 
-source_expr = xo.examples.diamonds.fetch()
-expr = source_expr.filter(xo._.carat >1)
+A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
 
-def complex_pandas_fn(df):
-    # complex things
-    return df
+## Core Concepts
 
-
-return_fields = {
-    'carat': dt.float64,
-    'cut': dt.string,
-    'color': dt.string,
-    'clarity': dt.string,
-    'depth': dt.float64,
-    'table': dt.float64,
-    'price': dt.float64,
-    'x': dt.float64,
-    'y': dt.float64,
-    'z': dt.float64,
-}
-return_type = dt.Array(dt.Struct(return_fields))
-
-complex_pandas_udaf = agg.pandas_df(
-    fn=complex_pandas_fn,
-    schema=expr.schema(),
-    return_type=return_type,
-    name='optimize_portfolio'
-)
-
-expr = expr.aggregate(complex_pandas_udaf.on_expr)
-
-expr.execute()
-```
-
-# do some complicated pandas df stuff
-
+**Expression** - Deferred computation graph built with Ibis, executes across multiple engines
+**Manifest** - YAML representation with lineage, caching, and metadata
+**Build** - Versioned artifact containing manifest, cached data, and dependencies
+**Catalog** - Registry for discovering and reusing builds across sessions
 
 ## Quick Start
 
-**Start with a vignette (recommended):**
 ```bash
-# See comprehensive working examples
-xorq agents vignette list
-
-# Scaffold a complete ML pipeline example
-xorq agents vignette scaffold baseball_breakout_expr_scalar
-```
-
-**Or build from scratch:**
-```bash
+# Initialize (one-time setup)
+xorq init -t penguins
+# Or for agent workflows
 xorq agents onboard
-```
 
-💡 **Vignettes show advanced patterns** like ExprScalarUDF, windowing, and ML pipelines with xorq's vendored ibis.
+# Core workflow
+print(table.schema())           # ALWAYS check schema first
+xorq build expr.py -e expr      # Build expression
+xorq catalog add builds/<hash> --alias my-expr
+xorq run my-expr -o output.parquet
+```
 
 ## Essential CLI Commands
 
@@ -93,7 +58,9 @@ xorq agents onboard
 | `xorq run <alias>` | Execute cataloged build |
 | `xorq catalog add/ls` | Manage build registry |
 | `xorq lineage <alias>` | Show column-level lineage |
+| `xorq agents prime` | Get workflow context (source of truth) |
 | `xorq agents onboard` | Guided workflow for agents |
+| `xorq agents templates list` | List available templates |
 
 **Full reference:** Run `xorq --help` or see [resources/CLI_REFERENCE.md](resources/CLI_REFERENCE.md)
 
@@ -101,21 +68,23 @@ xorq agents onboard
 
 ### Imports and Connection
 
-**✅ Correct imports (CRITICAL):**
 ```python
 import xorq.api as xo
-from xorq.vendor import ibis  # ⚠️ ALWAYS use xorq's vendored ibis
-from xorq.caching import ParquetCache
+from xorq.vendor import ibis  # ALWAYS use xorq.vendor.ibis
 
-expr = xo.catalog.get("my-alias")           # Load from catalog
-placeholder = xo.catalog.get_placeholder("my-alias", tag="tag")  # tag to easily use with xorq run-unbound --to_unbind_tag
-
+# Connect to backend
 con = xo.connect()  # DuckDB default
+# Or: xo.connect("snowflake://...")
 ```
 
 ### Expression Building Patterns
 
 ```python
+# MANDATORY: Check schema first
+table = con.table("data")
+print(table.schema())  # Required before any operations
+
+# Build deferred expression
 expr = (
     table
     .filter(xo._.column.notnull())
@@ -124,6 +93,7 @@ expr = (
     .agg(total=xo._.value.sum())
 )
 
+# Execute when ready
 result = expr.execute()
 ```
 
@@ -132,6 +102,7 @@ result = expr.execute()
 ```python
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
+# Lazy loading - doesn't read until execute()
 expr = deferred_read_parquet("large.parquet", con, "data")
 ```
 
@@ -181,6 +152,20 @@ predictions = (
     .mutate(predicted=_.predicted)            # Use result
 )
 ```
+
+## Critical Rules
+
+### Schema Checks (NON-NEGOTIABLE)
+
+```python
+# ✅ ALWAYS do this first
+table = con.table("data")
+print(table.schema())  # Mandatory before operations
+
+# Then build expression
+expr = table.filter(xo._.UPPERCASE_COL > 0)  # Match case from schema
+```
+
 ### Column Case Sensitivity
 
 - **Snowflake**: UPPERCASE columns
@@ -248,6 +233,9 @@ git commit -m "Update catalog"
 
 # 2. Push changes
 git push
+
+# 3. Generate handoff
+xorq agents prime
 ```
 
 ## Advanced Workflow Patterns
@@ -281,56 +269,61 @@ xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
 
 ---
 
-### Memtable Placeholder Pattern
+### Catalog Composition Pattern (PREFERRED)
 
-**Pattern:** Build transforms independently using memtable placeholders, compose later.
+**Pattern:** Compose cataloged expressions directly in Python.
 
 ```python
-# In transform.py - Define transform with memtable
 import xorq.api as xo
-from xorq.vendor import ibis
-from xorq.common.utils.ibis_utils import from_ibis
 
-# Sample data matching expected source schema
-sample_data = {"col1": [1, 2], "col2": [3, 4]}
-source = xo.memtable(sample_data)
-print(source.schema())  # Check schema
+# Get placeholder memtable with same schema (for building transforms)
+placeholder = xo.catalog.get_placeholder("my-source", tag="source")
+print(placeholder.schema())  # Shows schema without loading full expression
 
-# Build transform on memtable
-expr = from_ibis(
-    source
-    .mutate(total=ibis._.col1 + ibis._.col2)
-    .filter(ibis._.total > 3)
-)
-```
+# Build transform using placeholder
+new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
 
-```bash
-# Build transform with memtable
-xorq build transform.py -e expr
-xorq catalog add builds/<hash> --alias my-transform
-
-# Find memtable node hash
-xorq catalog sources my-transform
-
-# Compose with real source later
-xorq run real-source -f arrow -o /dev/stdout 2>/dev/null | \
-  xorq run-unbound my-transform \
-    --to_unbind_hash <hash> \
-    --typ xorq.expr.relations.Read \
-    -o output.parquet
+# Build and catalog
+# xorq build transform.py -e new_transform
+# xorq catalog add builds/<hash> --alias my-transform
+# xorq catalog sources my-transform  # Will show tag="source"
 ```
 
 **Why this pattern:**
-- Build transforms without waiting for source data
-- Test transform logic with sample data independently
-- Same transform reusable with multiple sources
-- Flexible composition via Arrow IPC streaming
+- Catalog is the single source of truth
+- Python-native, simple API
+- Direct execution without intermediate steps
+- Type-safe with actual schemas
 
-**Reference:** [Workflows #10](resources/WORKFLOWS.md#10-building-transform-expressions-with-memtable-pattern) | [Patterns](resources/PATTERNS.md#memtable-placeholder-pattern)
+**When Complex Workflows May Fail:**
+
+For complex multi-stage pipelines (especially ML workflows), you may encounter execution errors:
+- `XorqInputError: Duplicate column name` - Don't use struct/unpack patterns for ML predictions
+- `XorqTypeError: Column not found` - After `.predict()`, feature columns are dropped
+- `ValueError: not enough values to unpack` - Hash not found, run `xorq catalog sources` to get correct hash
+- Nested expression transform errors or remote table registration failures
+
+**Workaround:** Use xorq for feature engineering (what it excels at), materialize to parquet, then use Python for complex operations:
+
+```python
+# Feature engineering with xorq (deferred execution)
+features = xo.catalog.get("features")
+
+# Materialize to parquet first
+# CLI: xorq run features -o features.parquet
+
+# Then use Python/pandas/sklearn for complex ML operations
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+
+df = pd.read_parquet("features.parquet")
+# ... train model in Python (simpler, more flexible) ...
+```
+
+**Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
 
 ---
 
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ## Common Expression Patterns
 
 ### Filtering and Selection
@@ -386,10 +379,35 @@ ranked = table.mutate(
 )
 ```
 
+## Agent-Native Features
+
+### Prompts (Workflow Context)
+
+```bash
+# List all prompts
+xorq agents prompt list
+
+# Show specific prompt
+xorq agents prompt show xorq_core
+
+# Get workflow context (use this!)
+xorq agents prime
+```
 
 ### Templates (Starter Code)
 
-Available example patterns in examples/:
+```bash
+# List available templates
+xorq agents templates list
+
+# Show template details
+xorq agents templates show sklearn_pipeline
+
+# Scaffold from template
+xorq agents templates scaffold penguins_demo
+```
+
+Available templates:
 - `penguins_demo` - Minimal multi-engine example
 - `sklearn_pipeline` - Deferred sklearn with train/predict
 - `cached_fetcher` - Hydrate and cache upstream tables
@@ -477,7 +495,6 @@ expr = (
 - **Docs**: [docs.xorq.dev](https://docs.xorq.dev)
 
 
->>>>>>> 215e19d7 (Add baseball lineup optimizer pipeline)
 ## Version
 
 v0.2.0 - Consolidated skill with CLI + Python API coverage

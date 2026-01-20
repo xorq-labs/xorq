@@ -24,10 +24,12 @@ from xorq.ibis_yaml.compiler import (
     load_expr,
 )
 
+# Import catalog API - both namespace and convenience functions
 from xorq import catalog_api as catalog
 from xorq.catalog_api import (
     get as read_catalog,
     load_expr as read_build,
+    get_placeholder as get_catalog_placeholder,
 )
 
 __all__ = [  # noqa: PLE0604
@@ -40,11 +42,12 @@ __all__ = [  # noqa: PLE0604
     "options",
     "SessionConfig",
     "udf",
+    "build_expr",
+    "load_expr",
     "catalog",
     "read_catalog",
     "read_build",
-    "build_expr",
-    "load_expr",
+    "get_catalog_placeholder",
     *api.__all__,
     *ml.__all__,
     *udf.__all__,
@@ -77,6 +80,7 @@ def __getattr__(name):
             f"Available catalog functions:\n"
             f"  - xo.catalog.get('alias')           # Load from catalog\n"
             f"  - xo.catalog.load_expr('builds/...')  # Load from build dir\n"
+            f"  - xo.catalog.get_placeholder('alias') # Get placeholder memtable\n"
             f"  - xo.read_catalog('alias')          # Alias for catalog.get()\n"
             f"  - xo.read_build('builds/...')       # Alias for catalog.load_expr()"
         )
