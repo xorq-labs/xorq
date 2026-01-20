@@ -524,7 +524,7 @@ class ExprLoader:
             path = next(v for k, v in dr.read_kwargs if k == "path")
             df = read_parquet(path).execute()
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
-            return mt
+            return mt.op()
 
         drs = tuple(
             dr
