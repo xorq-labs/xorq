@@ -6,13 +6,15 @@ This guide is for maintaining and updating the xorq skill for Claude Code.
 
 ```
 skills/xorq/
-├── SKILL.md              # Primary skill file (~400 lines)
+├── SKILL.md              # Primary skill file (~500 lines)
 ├── README.md             # Human documentation
 ├── CLAUDE.md             # This file (maintenance guide)
 ├── skill-rules.json      # Auto-activation triggers
+├── hooks/                # Claude Code hooks integration
+│   └── hooks.json        # Hook configuration (Setup, SessionStart events)
 └── resources/            # Progressive disclosure (deep dives)
     ├── expression-api.md      # Expression building patterns
-    ├── ml-pipelines.md        # ML/sklearn integration
+    ├── ml-pipelines.md        # ML/sklearn integration (now with UDAF examples)
     ├── caching.md             # Performance optimization
     ├── udf-udxf.md            # UDFs and Flight servers
     ├── examples.md            # End-to-end examples
@@ -56,6 +58,88 @@ The system merges with existing skills, so it won't overwrite other skill config
 3. Matches "data pipeline" keyword in skill-rules.json
 4. Suggests xorq skill to Claude
 5. Claude loads SKILL.md and responds with xorq context
+
+## Claude Code Hooks Integration
+
+### hooks/hooks.json
+
+The skill provides Claude Code hooks that automatically load xorq project context at key lifecycle events.
+
+**Hook Events:**
+- **Setup** (`init` matcher): Runs during `claude --init` or `--init-only`
+- **SessionStart** (`clear` matcher): Runs after `/clear` command
+- **SessionStart** (`compact` matcher): Runs after auto or manual compaction
+
+**What Hooks Do:**
+Each hook runs `xorq agents onboard --non-interactive 2>&1 | head -n 50` which:
+1. Loads catalog entries and sources into context
+2. Shows recent build history
+3. Lists available templates
+4. Provides project-specific context to Claude
+
+**Installation:**
+When users run `xorq agents onboard`, the hooks file is copied to:
+- `~/.claude/skills/xorq/hooks/hooks.json`
+
+Claude Code automatically discovers and loads hooks from this location.
+
+**Configuration:**
+```json
+{
+  "description": "Xorq workflow integration - loads project context at key lifecycle events",
+  "hooks": {
+    "Setup": [
+      {
+        "matcher": "init",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "xorq agents onboard --non-interactive 2>&1 | head -n 50",
+            "timeout": 120
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "clear",
+        "hooks": [/* same as Setup */]
+      },
+      {
+        "matcher": "compact",
+        "hooks": [/* same as Setup */]
+      }
+    ]
+  }
+}
+```
+
+**Key Design Decisions:**
+1. **`--non-interactive` flag**: Prevents prompts, ensures hook completes automatically
+2. **`2>&1 | head -n 50`**: Limits output to 50 lines, prevents context overflow
+3. **120 second timeout**: Allows time for larger projects, prevents hangs
+4. **SessionStart events**: Ensures context is reloaded after clearing or compacting
+
+### Maintaining Hooks
+
+**When to update hooks:**
+- `xorq agents onboard` output format changes
+- New context loading options added
+- Performance issues (adjust timeout, output lines)
+- User feedback on hook behavior
+
+**Testing hooks:**
+1. Modify `hooks/hooks.json`
+2. Copy to `~/.claude/skills/xorq/hooks/hooks.json`
+3. Run `claude --init` in a test project
+4. Check context is loaded properly
+5. Test `/clear` and compaction events
+
+**Common issues:**
+- **Timeout too short**: Increase timeout for large projects
+- **Too much output**: Reduce `head -n 50` to smaller number
+- **Missing context**: Check `xorq agents onboard --non-interactive` output manually
+- **Hook not running**: Verify file copied to `~/.claude/skills/xorq/hooks/`
 
 ## Updating the Skill
 
@@ -256,6 +340,7 @@ Add triggers when:
 |---------|------|---------|
 | 0.1.0 | 2026-01-16 | Initial xorq skill for Claude Code |
 | 0.2.0 | 2026-01-18 | Consolidated with xorq-ibis, added auto-activation, progressive disclosure |
+| 0.2.1 | 2026-01-20 | Added Claude Code hooks integration (Setup, SessionStart events), UDAF+ExprScalarUDF examples for unsupported models |
 
 ## Auto-Installation
 

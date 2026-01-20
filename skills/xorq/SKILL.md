@@ -5,7 +5,7 @@ description: >
   expressions with input-addressed caching, multi-engine execution, and Arrow-native
   data flow. Use for ML pipelines, feature engineering, and model serving.
 allowed-tools: "Read,Bash(xorq:*),Bash(python:*)"
-version: "0.2.0"
+version: "0.2.1"
 author: "Xorq Labs <https://github.com/xorq-labs>"
 license: "Apache-2.0"
 ---
@@ -48,6 +48,88 @@ xorq build expr.py -e expr      # Build expression
 xorq catalog add builds/<hash> --alias my-expr
 xorq run my-expr -o output.parquet
 ```
+
+## Claude Code Hooks Integration
+
+This skill includes **automatic hooks** that load xorq project context at key lifecycle events:
+
+### When Hooks Run
+
+| Event | Trigger | Purpose |
+|-------|---------|---------|
+| **Setup** (`init`) | `claude --init` or `--init-only` | Load project context during repository initialization |
+| **SessionStart** (`clear`) | `/clear` command | Reload context after clearing conversation |
+| **SessionStart** (`compact`) | Auto or manual compaction | Reload context after compacting conversation |
+
+### What the Hooks Do
+
+Each hook runs `xorq agents onboard --non-interactive` which:
+1. Loads catalog entries and sources
+2. Provides recent build history
+3. Shows available templates
+4. Adds project-specific context to Claude's knowledge
+
+**Example output added to context:**
+```
+=== XORQ PROJECT CONTEXT ===
+Catalog: 3 entries (feature-pipeline, model-training, predictions)
+Recent builds: 5 builds in last 7 days
+Templates: sklearn_pipeline, penguins, diamonds
+```
+
+### Installation
+
+Hooks are automatically installed when you run:
+```bash
+xorq agents onboard
+# Or
+xorq init -t <template>
+```
+
+This copies `skills/xorq/hooks/hooks.json` to `~/.claude/skills/xorq/hooks/` where Claude Code discovers them.
+
+### Customization
+
+To modify hook behavior, edit `~/.claude/skills/xorq/hooks/hooks.json`:
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "xorq agents onboard --verbose 2>&1 | head -n 100",
+            "timeout": 180
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+**Common customizations:**
+- Increase `timeout` for larger projects (default: 120 seconds)
+- Change `head -n 50` to show more/less context
+- Add `--verbose` flag for detailed output
+- Add additional commands (e.g., `xorq catalog sources` for hash lookup)
+
+### Disabling Hooks
+
+To disable xorq hooks temporarily:
+1. Run `/hooks` in Claude Code
+2. Find `xorq` hooks
+3. Disable via the UI
+
+Or permanently remove:
+```bash
+rm ~/.claude/skills/xorq/hooks/hooks.json
+```
+
+**Note:** Hooks only affect Claude Code sessions. They don't run in other environments.
 
 ## Essential CLI Commands
 
@@ -152,6 +234,41 @@ predictions = (
     .mutate(predicted=_.predicted)            # Use result
 )
 ```
+
+### ML with Unsupported Models (UDAF + ExprScalarUDF Pattern)
+
+For models not supported by `Pipeline.from_instance().predict()` (e.g., XGBoost, CatBoost, custom models):
+
+```python
+from xorq.expr.udf import agg, make_pandas_expr_udf
+import xorq.expr.datatypes as dt
+import pickle
+
+# Step 1: UDAF trains model ONCE on full dataset
+def train_model(df):
+    model = CustomModel()
+    model.fit(df[features].values, df[target].values)
+    return pickle.dumps({'model': model})  # Serialize
+
+train_udf = agg.pandas_df(fn=train_model, schema=data.schema(), return_type=dt.binary)
+
+# Step 2: ExprScalarUDF applies predictions to rows
+def predict(model_dict, df):  # model_dict already unpickled by xorq!
+    predictions = model_dict['model'].predict(df[features].values)
+    return pd.Series(predictions, index=df.index)  # Must match df.index
+
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=train_udf.on_expr(data),  # Train once
+    fn=predict,
+    schema=data.schema(),
+    return_type=dt.float64
+)
+
+# Apply predictions
+predictions = data.mutate(predicted=predict_udf.on_expr(data))
+```
+
+**See [ml-pipelines.md Example 7](resources/ml-pipelines.md#example-7-advanced---udaf--exprscalarudf-for-unsupported-models) for full details and common pitfalls.**
 
 ## Critical Rules
 
