@@ -166,9 +166,25 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
     found = find_node(expr, hash=hash, tag=tag, typs=typs, strategy=strategy)
     found_expr = found.to_expr()
     to_unbind_hash = hash if hash else compute_expr_hash(found_expr, strategy)
+    found_con = None
     match find_all_sources(found_expr):
         case []:
-            raise ValueError("found no connections")
+            match walk_nodes(ops.InMemoryTable, found_expr):
+                case []:
+                    raise ValueError("found no connections")
+                case [mt] if len(mt.data) == 0:
+                    import warnings
+
+                    import xorq.api as xo
+
+                    warnings.warn(
+                        "Found empty memtable, presuming partial_expr, using xo.connect()"
+                    )
+                    found_con = xo.connect()
+                case _:
+                    raise ValueError("")
+            if not found_con:
+                raise ValueError("found no connections")
         case [found_con]:
             pass
         case _:

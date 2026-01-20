@@ -21,6 +21,7 @@ from xorq.catalog import (
 from xorq.common.utils import classproperty
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.import_utils import import_from_path
+from xorq.common.utils.io_utils import maybe_open
 from xorq.common.utils.logging_utils import get_print_logger
 from xorq.common.utils.node_utils import expr_to_unbound
 from xorq.common.utils.otel_utils import tracer
@@ -233,6 +234,7 @@ def run_unbound_command(
     cache_dir=get_xorq_cache_dir(),
     limit=None,
     typ=None,
+    instream=sys.stdin.buffer,
 ):
     """
     Execute an unbound expression by reading Arrow IPC from stdin and binding it
@@ -285,16 +287,17 @@ def run_unbound_command(
         expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
     ).to_expr()
 
-    # Read Arrow IPC from stdin
-    print("[run-unbound] Reading Arrow IPC from stdin...", file=sys.stderr)
+    # Read Arrow IPC from instream
+    print("[run-unbound] Reading Arrow IPC from instream...", file=sys.stderr)
     # Create a connection and register the input table
-    input_expr = read_pyarrow_stream(sys.stdin.buffer)
-    # Replace the unbound node with the input table
-    bound_expr = replace_one_unbound(unbound_expr, input_expr)
+    with maybe_open(instream, "rb") as stream:
+        input_expr = read_pyarrow_stream(stream)
+        # Replace the unbound node with the input table
+        bound_expr = replace_one_unbound(unbound_expr, input_expr)
 
-    if limit is not None:
-        bound_expr = bound_expr.limit(limit)
-    arbitrate_output_format(bound_expr, output_path, output_format)
+        if limit is not None:
+            bound_expr = bound_expr.limit(limit)
+        arbitrate_output_format(bound_expr, output_path, output_format)
 
 
 @tracer.start_as_current_span("cli.unbind_and_serve_command")
@@ -609,6 +612,12 @@ def parse_args(override=None):
         default=get_xorq_cache_dir(),
         help="Directory for all generated parquet files cache",
     )
+    run_unbound_parser.add_argument(
+        "-i",
+        "--instream",
+        default=sys.stdin.buffer,
+        help="Stream to record batches from",
+    )
 
     serve_unbound_parser = subparsers.add_parser(
         "serve-unbound", help="Serve an an unbound expr via Flight Server"
@@ -826,6 +835,7 @@ def main():
                         args.cache_dir,
                         args.limit,
                         args.typ,
+                        args.instream,
                     ),
                 )
             case "serve-unbound":
