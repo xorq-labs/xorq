@@ -13,6 +13,7 @@ Provides convenient access to catalog functionality with a clean interface:
     placeholder = xo.catalog.get_placeholder("my-alias")
 """
 
+import sys
 from pathlib import Path
 from typing import Optional
 
@@ -102,6 +103,14 @@ class CatalogAPI:
         if not build_path.is_dir():
             raise ValueError(f"Build path is not a directory: {build_path}")
 
+        # Validate expr.yaml exists
+        expr_yaml_path = build_path / "expr.yaml"
+        if not expr_yaml_path.exists():
+            raise ValueError(
+                f"No expr.yaml found in build directory: {build_path}\n"
+                f"Expected file at: {expr_yaml_path}"
+            )
+
         # Load the expression
         expr = _load_expr_from_path(build_path)
         return expr
@@ -120,7 +129,7 @@ class CatalogAPI:
             alias: Catalog alias to get schema from
             rev: Optional revision ID (e.g., "r2"). If None, uses current revision.
             tag: Optional tag to identify this placeholder node. Useful for finding
-                 the node hash later for composition. If None, uses the alias.
+                 the node hash later for composition. If None, no tag is applied.
 
         Returns:
             An empty memtable with the same schema as the cataloged expression
@@ -158,11 +167,21 @@ class CatalogAPI:
         empty_data = {col: [] for col in schema.names}
         empty_df = pd.DataFrame(empty_data)
 
-        # Cast to proper types
+        # Cast to proper types (with error handling for complex types)
         for col, dtype in zip(schema.names, schema.types):
-            empty_df[col] = empty_df[col].astype(dtype.to_pandas())
+            try:
+                empty_df[col] = empty_df[col].astype(dtype.to_pandas())
+            except (AttributeError, TypeError, ValueError) as e:
+                # Some Ibis types don't convert cleanly to pandas
+                # Let ibis.memtable handle the schema conversion instead
+                print(
+                    f"[get_placeholder] Warning: Could not convert column '{col}' "
+                    f"to pandas type: {e}. Using Ibis schema conversion.",
+                    file=sys.stderr
+                )
 
         # Create memtable with the schema (use alias as name)
+        # Pass schema explicitly so Ibis handles type conversion for complex types
         memtable = ibis.memtable(empty_df, schema=schema, name=alias)
 
         # Add cache to bind to backend

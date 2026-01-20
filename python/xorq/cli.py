@@ -294,9 +294,24 @@ def run_unbound_command(
 
     # Load the expression and make it unbound
     expr = load_expr(expr_path, cache_dir=cache_dir)
-    unbound_expr = expr_to_unbound(
-        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=SnapshotStrategy()
-    ).to_expr()
+
+    # Try with SnapshotStrategy first (new behavior), fall back to None for backward compatibility
+    try:
+        unbound_expr = expr_to_unbound(
+            expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=SnapshotStrategy()
+        ).to_expr()
+    except (ValueError, StopIteration) as e:
+        # If hash not found with SnapshotStrategy, try without strategy (legacy mode)
+        # This handles cases where expressions were cataloged with old hash computation
+        print(
+            "[run-unbound] Warning: Hash not found with SnapshotStrategy, "
+            "trying legacy mode (strategy=None). Consider re-running 'xorq catalog sources' "
+            "to get updated hashes.",
+            file=sys.stderr
+        )
+        unbound_expr = expr_to_unbound(
+            expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=None
+        ).to_expr()
 
     # Read Arrow IPC from instream
     print("[run-unbound] Reading Arrow IPC from instream...", file=sys.stderr)
