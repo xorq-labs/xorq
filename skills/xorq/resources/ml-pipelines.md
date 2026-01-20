@@ -644,6 +644,582 @@ test_scaled = test.select(
 
 ---
 
+## Real-World Examples
+
+### Example 1: Multi-Classifier Comparison
+
+**Use case**: Compare multiple sklearn classifiers on different datasets
+
+**Pattern**: Use `Pipeline.from_instance()` to convert sklearn pipelines, then fit and evaluate in xorq
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
+import pandas as pd
+
+# Define features and target naming convention
+target = "target"
+feature_prefix = "feature_"
+
+# Helper to create xorq expressions from numpy arrays
+def make_exprs(X_train, y_train, X_test, y_test):
+    con = xo.connect()
+    train, test = (
+        con.register(
+            pd.DataFrame(X)
+            .rename(columns=(feature_prefix + "{}").format)
+            .assign(**{target: y}),
+            name,
+        )
+        for (X, y, name) in (
+            (X_train, y_train, "train"),
+            (X_test, y_test, "test"),
+        )
+    )
+    features = train.select(xo.selectors.startswith(feature_prefix)).columns
+    return (train, test, features)
+
+# Train and compare
+def train_and_score(clf, X_train, X_test, y_train, y_test):
+    # Create sklearn pipeline with preprocessing
+    sklearn_pipeline = make_pipeline(StandardScaler(), clf).fit(X_train, y_train)
+    sklearn_score = sklearn_pipeline.score(X_test, y_test)
+
+    # Convert to xorq pipeline
+    train, test, features = make_exprs(X_train, y_train, X_test, y_test)
+    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
+        train, features=features, target=target
+    )
+    xorq_score = xorq_pipeline.score_expr(test).execute()
+
+    return {
+        "sklearn_score": sklearn_score,
+        "xorq_score": xorq_score,
+    }
+
+# Compare classifiers
+classifiers = [
+    ("KNN", KNeighborsClassifier(3)),
+    ("Linear SVM", SVC(kernel="linear", C=0.025, random_state=42)),
+    ("Decision Tree", DecisionTreeClassifier(max_depth=5, random_state=42)),
+    ("Random Forest", RandomForestClassifier(max_depth=5, n_estimators=10, random_state=42)),
+]
+
+# Test on dataset
+from sklearn.datasets import make_moons
+X, y = make_moons(noise=0.3, random_state=0)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.4, random_state=42)
+
+for name, clf in classifiers:
+    scores = train_and_score(clf, X_train, X_test, y_train, y_test)
+    print(f"{name}: sklearn={scores['sklearn_score']:.3f}, xorq={scores['xorq_score']:.3f}")
+    # Scores should match exactly!
+```
+
+**Key patterns:**
+- Use `make_pipeline()` for sklearn preprocessing + model
+- Convert with `Pipeline.from_instance()`
+- Use `.score_expr()` for deferred evaluation
+- Scores match sklearn exactly (validates correctness)
+
+---
+
+### Example 2: Model Evaluation with Multiple Metrics
+
+**Use case**: Evaluate models with precision, recall, F1, etc.
+
+**Pattern**: Use `deferred_sklearn_metric()` for lazy metric computation
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from xorq.expr.ml.metrics import deferred_sklearn_metric
+from sklearn.pipeline import make_pipeline
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (
+    accuracy_score,
+    f1_score,
+    precision_score,
+    recall_score,
+)
+
+# Define metric configurations
+metric_configs = [
+    ("accuracy", accuracy_score, {}),
+    ("precision_macro", precision_score, {"average": "macro", "zero_division": 0}),
+    ("precision_weighted", precision_score, {"average": "weighted", "zero_division": 0}),
+    ("recall_macro", recall_score, {"average": "macro", "zero_division": 0}),
+    ("recall_weighted", recall_score, {"average": "weighted", "zero_division": 0}),
+    ("f1_macro", f1_score, {"average": "macro", "zero_division": 0}),
+    ("f1_weighted", f1_score, {"average": "weighted", "zero_division": 0}),
+]
+
+def compute_metrics(clf, X_train, X_test, y_train, y_test):
+    # Create expressions
+    train, test, features = make_exprs(X_train, y_train, X_test, y_test)
+
+    # Fit sklearn pipeline
+    sklearn_pipeline = make_pipeline(clf).fit(X_train, y_train)
+
+    # Convert to xorq and fit
+    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
+        train, features=features, target=target
+    )
+
+    # Get predictions (deferred)
+    expr_with_preds = xorq_pipeline.predict(test)
+
+    # Compute all metrics (deferred)
+    xorq_metrics = {
+        name: deferred_sklearn_metric(
+            expr=expr_with_preds,
+            target=target,
+            pred_col="predicted",
+            metric_fn=metric_fn,
+            metric_kwargs=kwargs if kwargs else (),
+        ).execute()
+        for name, metric_fn, kwargs in metric_configs
+    }
+
+    return xorq_metrics
+
+# Evaluate models
+from sklearn.datasets import make_classification
+X, y = make_classification(
+    n_samples=1000, n_features=10, n_informative=5,
+    n_classes=3, random_state=42
+)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+
+models = [
+    ("Logistic Regression", LogisticRegression(max_iter=1000, random_state=42)),
+    ("Random Forest", RandomForestClassifier(n_estimators=100, random_state=42)),
+]
+
+for model_name, clf in models:
+    metrics = compute_metrics(clf, X_train, X_test, y_train, y_test)
+    print(f"\n{model_name}:")
+    for metric_name, value in metrics.items():
+        print(f"  {metric_name}: {value:.3f}")
+```
+
+**Key patterns:**
+- Use `.predict()` to get expression with predictions
+- `deferred_sklearn_metric()` computes metrics lazily
+- Supports all sklearn metrics with kwargs
+- Multiple metrics computed in single pass
+
+---
+
+### Example 3: Probability Predictions and ROC-AUC
+
+**Use case**: Get probability predictions for calibration or ROC-AUC
+
+**Pattern**: Use `.predict_proba()` method
+
+```python
+from xorq.expr.ml.metrics import deferred_sklearn_metric
+from sklearn.metrics import roc_auc_score
+from sklearn.linear_model import LogisticRegression
+
+# Generate binary classification data
+X, y = make_classification(
+    n_samples=1000, n_features=10, n_informative=5,
+    n_classes=2, random_state=42
+)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Create and fit pipeline
+train, test, features = make_exprs(X_train, y_train, X_test, y_test)
+sklearn_pipeline = make_pipeline(LogisticRegression(max_iter=1000, random_state=42))
+sklearn_pipeline.fit(X_train, y_train)
+
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
+    train, features=features, target=target
+)
+
+# Get probability predictions
+expr_with_proba = xorq_pipeline.predict_proba(test)
+
+# Compute ROC-AUC (uses probability of positive class)
+xorq_auc = deferred_sklearn_metric(
+    expr=expr_with_proba,
+    target=target,
+    pred_col="predicted_proba",  # Column with probabilities
+    metric_fn=roc_auc_score,
+).execute()
+
+print(f"ROC-AUC: {xorq_auc:.3f}")
+
+# Compare with sklearn
+sklearn_auc = roc_auc_score(y_test, sklearn_pipeline.predict_proba(X_test)[:, 1])
+print(f"Sklearn ROC-AUC: {sklearn_auc:.3f}")
+# Should match exactly!
+```
+
+**Key patterns:**
+- `.predict_proba()` returns probabilities in `predicted_proba` column
+- Works with any sklearn classifier that has `predict_proba()`
+- Use with probability-based metrics like ROC-AUC, log loss
+
+---
+
+### Example 4: Decision Function for SVM
+
+**Use case**: Get decision function scores (e.g., for SVM, linear models)
+
+**Pattern**: Use `.decision_function()` method
+
+```python
+from sklearn.svm import LinearSVC
+from sklearn.metrics import roc_auc_score
+
+# Generate data
+X, y = make_classification(
+    n_samples=1000, n_features=10, n_informative=5,
+    n_classes=2, random_state=123
+)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Create pipeline with LinearSVC
+train, test, features = make_exprs(X_train, y_train, X_test, y_test)
+sklearn_pipeline = make_pipeline(LinearSVC(random_state=123, max_iter=5000))
+sklearn_pipeline.fit(X_train, y_train)
+
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
+    train, features=features, target=target
+)
+
+# Get decision function scores
+expr_with_scores = xorq_pipeline.decision_function(test)
+
+# Compute ROC-AUC using decision scores
+xorq_auc = deferred_sklearn_metric(
+    expr=expr_with_scores,
+    target=target,
+    pred_col="decision_function",  # Column with scores
+    metric_fn=roc_auc_score,
+).execute()
+
+print(f"ROC-AUC (decision scores): {xorq_auc:.3f}")
+
+# Compare with sklearn
+sklearn_auc = roc_auc_score(y_test, sklearn_pipeline.decision_function(X_test))
+print(f"Sklearn ROC-AUC: {sklearn_auc:.3f}")
+```
+
+**Key patterns:**
+- `.decision_function()` for models that don't have `predict_proba()`
+- Returns scores in `decision_function` column
+- Useful for SVM, LinearSVC, Logistic Regression
+
+---
+
+### Example 5: Feature Importances
+
+**Use case**: Extract feature importances from tree-based models
+
+**Pattern**: Use `.feature_importances()` method
+
+```python
+from sklearn.ensemble import RandomForestClassifier
+import numpy as np
+
+# Generate data
+X, y = make_classification(
+    n_samples=1000, n_features=10, n_informative=6,
+    n_redundant=2, n_classes=2, random_state=42
+)
+X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=42)
+
+# Create and fit pipeline
+train, test, features = make_exprs(X_train, y_train, X_test, y_test)
+sklearn_pipeline = make_pipeline(RandomForestClassifier(n_estimators=100, random_state=42))
+sklearn_pipeline.fit(X_train, y_train)
+
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
+    train, features=features, target=target
+)
+
+# Get feature importances (deferred)
+importances_expr = xorq_pipeline.feature_importances(test)
+xorq_importances = np.array(
+    importances_expr.execute()["feature_importances"].iloc[0]
+)
+
+# Compare with sklearn
+sklearn_importances = sklearn_pipeline.named_steps["randomforestclassifier"].feature_importances_
+
+print("Feature Importances:")
+for i, (sklearn_imp, xorq_imp) in enumerate(zip(sklearn_importances, xorq_importances)):
+    print(f"  Feature {i}: sklearn={sklearn_imp:.4f}, xorq={xorq_imp:.4f}")
+
+# Should match exactly
+assert np.allclose(sklearn_importances, xorq_importances)
+```
+
+**Key patterns:**
+- `.feature_importances()` for tree-based models (RF, GBM, etc.)
+- Returns array in `feature_importances` column
+- Extract with `.iloc[0]` since it's stored as a single row
+
+---
+
+### Example 6: Complete Pipeline with Catalog Integration
+
+**Use case**: Build ML pipeline, catalog it, reuse across sessions
+
+**Pattern**: Build → Catalog → Load → Compose
+
+```python
+# Step 1: Build feature engineering pipeline
+import xorq.api as xo
+
+# Load data
+data = xo.examples.penguins.fetch()
+
+# Engineer features
+features_expr = (
+    data
+    .filter(xo._.bill_length_mm.notnull())
+    .mutate(
+        bill_ratio=xo._.bill_length_mm / xo._.bill_depth_mm,
+        flipper_body_ratio=xo._.flipper_length_mm / xo._.body_mass_g,
+        bill_area=xo._.bill_length_mm * xo._.bill_depth_mm,
+    )
+    .select(
+        "species",  # target
+        "bill_length_mm", "bill_depth_mm", "flipper_length_mm", "body_mass_g",
+        "bill_ratio", "flipper_body_ratio", "bill_area",
+    )
+)
+
+# Save to build script: features.py
+# expr = features_expr
+
+# Step 2: Build and catalog
+# $ xorq build features.py -e expr
+# $ xorq catalog add builds/<hash> --alias penguin-features
+
+# Step 3: Build model pipeline using catalog
+from sklearn.pipeline import Pipeline as SkPipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from xorq.expr.ml import train_test_splits, Pipeline
+
+# Load features from catalog
+features = xo.catalog.get("penguin-features")
+
+# Split data
+train, test = train_test_splits(features, test_size=0.2)
+
+# Define model
+sklearn_pipeline = SkPipeline([
+    ("scaler", StandardScaler()),
+    ("rf", RandomForestClassifier(n_estimators=100, random_state=42))
+])
+
+# Convert and fit
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+feature_cols = ["bill_length_mm", "bill_depth_mm", "flipper_length_mm",
+                "body_mass_g", "bill_ratio", "flipper_body_ratio", "bill_area"]
+fitted = xorq_pipeline.fit(train, features=feature_cols, target="species")
+
+# Predict
+predictions = fitted.predict(test)
+
+# Evaluate
+score = fitted.score_expr(test).execute()
+print(f"Model accuracy: {score:.3f}")
+
+# Save model pipeline: model.py
+# expr = predictions
+
+# Step 4: Build and catalog model
+# $ xorq build model.py -e expr
+# $ xorq catalog add builds/<hash> --alias penguin-model
+
+# Step 5: Compose pipelines via CLI
+# $ xorq run penguin-features -o arrow | xorq run-unbound penguin-model --to_unbind_hash <hash>
+```
+
+**Key patterns:**
+- Separate feature engineering and modeling
+- Catalog each stage independently
+- Compose via catalog or CLI streaming
+- Reuse across sessions and notebooks
+
+---
+
+### Example 7: Advanced - UDAF + ExprScalarUDF for Unsupported Models
+
+**Use case**: Use a model not in the official Pipeline registry (e.g., XGBoost, CatBoost, or specific RandomForest configurations)
+
+**Pattern**: UDAF trains model once, ExprScalarUDF applies predictions to all rows
+
+**When to use this:**
+- Model not supported by `Pipeline.from_instance().predict()`
+- Need full control over training/prediction logic
+- Want to train on full dataset without train/test split
+- Building custom ensemble or calibration pipelines
+
+```python
+import xorq.api as xo
+from xorq.expr.udf import agg, make_pandas_expr_udf
+import xorq.expr.datatypes as dt
+import pickle
+import pandas as pd
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.preprocessing import StandardScaler
+
+# Prepare data (features + target)
+# Assume we have 'features_list' and 'target' defined
+data = xo.examples.diamonds.fetch()
+ml_ready = data.select(*features_list, target).cache()
+
+# Step 1: Define UDAF to train model ONCE
+def train_rf_model(df):
+    """Train RandomForest on full dataset - executes ONCE"""
+    # Extract features and target
+    X = df[features_list].values
+    y = df[target].values
+
+    # Preprocess
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Train model
+    model = RandomForestRegressor(
+        n_estimators=100,
+        max_depth=20,
+        min_samples_split=5,
+        min_samples_leaf=2,
+        n_jobs=-1,
+        random_state=42
+    )
+    model.fit(X_scaled, y)
+
+    # Return serialized model + metadata
+    # This gets cached - training happens only once!
+    return pickle.dumps({
+        'model': model,
+        'scaler': scaler,
+        'features': features_list,
+        'r2_score': model.score(X_scaled, y),
+        'n_samples': len(df)
+    })
+
+# Create training UDAF
+train_udf = agg.pandas_df(
+    fn=train_rf_model,
+    schema=ml_ready.schema(),
+    return_type=dt.binary,  # Binary for pickled object
+    name="train_rf_model"
+)
+
+# Step 2: Define ExprScalarUDF to apply predictions
+def predict_with_model(model_dict, df):
+    """Apply trained model to each row
+
+    IMPORTANT: model_dict is ALREADY UNPICKLED by xorq!
+    Do NOT call pickle.loads() - it's already a dict
+    """
+    # Unpack model components
+    model = model_dict['model']
+    scaler = model_dict['scaler']
+    features = model_dict['features']
+
+    # Get features and transform
+    X = df[features].values
+    X_scaled = scaler.transform(X)
+
+    # Predict
+    predictions = model.predict(X_scaled)
+
+    # Return as pandas Series (must match df.index!)
+    return pd.Series(predictions, index=df.index)
+
+# Create prediction UDF
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=train_udf.on_expr(ml_ready),  # Train ONCE
+    fn=predict_with_model,  # Apply to rows
+    schema=ml_ready.schema(),
+    return_type=dt.float64,
+    name="predict_rf"
+)
+
+# Step 3: Apply predictions to full dataset
+predictions_expr = ml_ready.mutate(
+    predicted_price=predict_udf.on_expr(ml_ready)
+)
+
+# Step 4: Calculate metrics (e.g., residuals, deal scores)
+analysis_expr = predictions_expr.mutate(
+    residual=_.price - _.predicted_price,
+    pct_error=((_.price - _.predicted_price) / _.predicted_price).abs(),
+    deal_score=(_.predicted_price - _.price) / _.predicted_price
+)
+
+# Execute (this trains model once, then applies predictions)
+results = analysis_expr.execute()
+
+print(f"Model R² score: {train_udf.on_expr(ml_ready).execute()['r2_score']}")
+print(f"Mean absolute % error: {results['pct_error'].mean():.2%}")
+print(f"\nTop 5 underpriced items (best deals):")
+print(results.nlargest(5, 'deal_score')[['price', 'predicted_price', 'deal_score']])
+```
+
+**Key patterns:**
+- **UDAF trains once**: `agg.pandas_df()` aggregates all data and trains model once
+- **ExprScalarUDF predicts**: `make_pandas_expr_udf()` applies trained model to rows
+- **Model is auto-unpickled**: Don't call `pickle.loads()` - xorq does it
+- **Return binary from UDAF**: Use `dt.binary` for pickled objects
+- **Return Series from UDF**: Must have `index=df.index` for proper alignment
+
+**Common pitfalls:**
+```python
+# ❌ WRONG - calling pickle.loads() twice
+def predict_with_model(model_dict, df):
+    model_dict = pickle.loads(model_dict)  # ERROR: already unpickled!
+
+# ❌ WRONG - returning numpy array instead of Series
+def predict_with_model(model_dict, df):
+    return model.predict(X_scaled)  # ERROR: needs df.index for alignment
+
+# ❌ WRONG - not matching schema
+train_udf = agg.pandas_df(
+    fn=train_rf_model,
+    schema=different_schema,  # ERROR: must match input expr schema
+    ...
+)
+
+# ✅ CORRECT
+def predict_with_model(model_dict, df):
+    predictions = model.predict(X_scaled)
+    return pd.Series(predictions, index=df.index)  # Proper alignment
+```
+
+**Performance notes:**
+- Training happens ONCE during first execution, then cached
+- Predictions computed per-row (not vectorized across rows)
+- Best for moderate datasets (10K-1M rows)
+- For larger datasets, consider materializing to Parquet first
+
+**When NOT to use this pattern:**
+- Model is already supported by `Pipeline.from_instance()` - use that instead
+- Need distributed training - UDAF runs on single machine
+- Need online predictions - this is batch-oriented
+
+---
+
 ## Summary
 
 **Key ML patterns:**
@@ -658,4 +1234,25 @@ test_scaled = test.select(
 - `deferred_fit_transform_sklearn_struct()` - Deferred transformers
 - `deferred_fit_predict_sklearn()` - Deferred models
 - `Pipeline.from_instance()` - Convert sklearn pipelines
+- `.predict()` - Get class predictions
+- `.predict_proba()` - Get probability predictions
+- `.decision_function()` - Get decision scores
+- `.feature_importances()` - Get feature importances
+- `.score_expr()` - Get deferred accuracy score
+- `deferred_sklearn_metric()` - Compute any sklearn metric
 - `.pipe()` - Apply fitted transformations
+
+**Real-world examples:**
+- Multi-classifier comparison (Example 1)
+- Multi-metric evaluation (Example 2)
+- ROC-AUC with probabilities (Example 3)
+- SVM decision functions (Example 4)
+- Feature importances (Example 5)
+- Catalog-based ML workflows (Example 6)
+- UDAF + ExprScalarUDF for unsupported models (Example 7)
+
+**Advanced patterns:**
+- `agg.pandas_df()` - Create UDAF for model training (trains once)
+- `make_pandas_expr_udf()` - Create ExprScalarUDF for predictions (applies to rows)
+- `computed_kwargs_expr` - Pass trained model from UDAF to ExprScalarUDF
+- Model serialization via `pickle.dumps()` / auto-unpickling by xorq
