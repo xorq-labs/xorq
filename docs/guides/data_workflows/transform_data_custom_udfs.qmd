@@ -1,22 +1,565 @@
 ---
 title: 'Transform data with custom UDFs'
+description: "Deploy custom business logic as production-ready transformations"
 ---
 
-## Coming soon
+This guide shows you how to extend SQL expressions with custom Python functions. You'll create scalar UDFs for row-level transformations and aggregation UDFs for custom calculations.
 
-This guide will show you how to extend SQL with custom business logic through UDFs.
+## Prerequisites
 
-You will learn production patterns for managing and deploying custom transformations.
-
-**What you'll accomplish:**
-- Write production-ready UDFs
-- Test and validate UDFs
-- Version and deploy UDFs
-- Monitor UDF performance
-
-**Prerequisites:**
-- Completed "Create your first UDF" tutorial
+- Xorq installed (see [Install Xorq](../../getting_started/installation.qmd))
+- Completed [Quickstart](../../getting_started/quickstart.qmd)
 - Python knowledge
 
-Check back soon for the complete guide.
+## Create a scalar UDF
 
+Custom user-defined functions (UDFs) extend Xorq's SQL capabilities with Python logic. Start with scalar UDFs that transform individual values row-by-row, the simplest type of custom transformation.
+
+Create `text_transform.py`:
+
+```python
+# text_transform.py
+import xorq.api as xo
+import pandas as pd
+from xorq.expr.udf import make_pandas_udf
+import xorq.expr.datatypes as dt
+
+# Define a custom text transformation function
+def clean_text_fn(df: pd.DataFrame) -> pd.Series:
+    """Remove extra whitespace and convert to lowercase."""
+    return df["text"].str.strip().str.lower()
+
+# Create the UDF
+clean_text = make_pandas_udf(
+    fn=clean_text_fn,
+    schema=xo.schema({"text": "string"}),
+    return_type=dt.string,
+    name="clean_text"
+)
+
+# Apply the UDF to data
+con = xo.connect()
+data = xo.memtable({
+    "id": [1, 2, 3],
+    "text": ["  HELLO  ", "World ", "  Python  "]
+}, name="messages")
+
+# Use the UDF in an expression
+result = data.mutate(
+    cleaned=clean_text.on_expr(data)
+)
+
+df = result.execute()
+print(df)
+```
+
+Run the script:
+
+```bash
+python text_transform.py
+```
+
+Expected output:
+
+```
+   id        text cleaned
+0   1     HELLO     hello
+1   2      World    world
+2   3    Python    python
+```
+
+**Key points**:
+
+- `make_pandas_udf` creates a scalar UDF from a pandas function
+- Function receives a DataFrame and returns a Series
+- `schema` defines input column names and types
+- `return_type` specifies the output type
+- `.on_expr(data)` applies the UDF to an expression
+
+## Handle UDF errors
+
+UDFs fail at execution time when they encounter invalid data. Validate inputs and return meaningful errors.
+
+Create `validated_transform.py`:
+
+```python
+# validated_transform.py
+import xorq.api as xo
+import pandas as pd
+from xorq.expr.udf import make_pandas_udf
+import xorq.expr.datatypes as dt
+
+def calculate_total_fn(df: pd.DataFrame) -> pd.Series:
+    """Calculate total with validation."""
+    price = df["price"]
+    quantity = df["quantity"]
+    
+    # Validate inputs
+    if (price < 0).any():
+        raise ValueError("Price cannot be negative")
+    if (quantity < 0).any():
+        raise ValueError("Quantity cannot be negative")
+    
+    return price * quantity
+
+calculate_total = make_pandas_udf(
+    fn=calculate_total_fn,
+    schema=xo.schema({"price": "float64", "quantity": "int64"}),
+    return_type=dt.float64,
+    name="calculate_total"
+)
+
+con = xo.connect()
+data = xo.memtable({
+    "price": [10.0, 20.0, 30.0],
+    "quantity": [2, 3, 1]
+}, name="orders")
+
+result = data.mutate(
+    total=calculate_total.on_expr(data)
+)
+
+df = result.execute()
+print(df)
+```
+
+Run the script:
+
+```bash
+python validated_transform.py
+```
+
+Expected output:
+
+```
+   price  quantity  total
+0   10.0         2   20.0
+1   20.0         3   60.0
+2   30.0         1   30.0
+```
+
+To verify error handling works, modify `validated_transform.py` to use bad data:
+
+```python
+# Change the data definition to include a negative price
+data = xo.memtable({
+    "price": [10.0, -5.0, 30.0],  # -5.0 is invalid
+    "quantity": [2, 3, 1]
+}, name="orders")
+```
+
+Run the script:
+
+```bash
+python validated_transform.py
+```
+
+This raises an error:
+
+```
+ValueError: Price cannot be negative
+```
+
+The validation catches the error at execution, preventing invalid calculations from propagating through your pipeline.
+
+## Create aggregation UDFs
+
+Scalar UDFs transform individual rows, but you also need to compute custom statistics across groups. Aggregation UDFs reduce multiple rows to a single value, enabling custom metrics that SQL's built-in aggregations don't support.
+
+Create `custom_aggregation.py`:
+
+```python
+# custom_aggregation.py
+import xorq.api as xo
+import pandas as pd
+from xorq.expr.udf import agg
+import xorq.expr.datatypes as dt
+
+def weighted_median_fn(df: pd.DataFrame) -> float:
+    """Calculate median with outlier penalty."""
+    values = df["value"]
+    
+    # Apply penalty to outliers (values beyond 2 std devs)
+    mean = values.mean()
+    std = values.std()
+    
+    # Weight values based on distance from mean
+    weights = 1.0 - (abs(values - mean) / (2 * std)).clip(0, 1)
+    
+    # Calculate weighted median
+    sorted_idx = values.argsort()
+    sorted_values = values.iloc[sorted_idx]
+    sorted_weights = weights.iloc[sorted_idx]
+    
+    cumsum = sorted_weights.cumsum()
+    cutoff = sorted_weights.sum() / 2.0
+    
+    median_idx = (cumsum >= cutoff).argmax()
+    return float(sorted_values.iloc[median_idx])
+
+# Create aggregation UDF
+weighted_median = agg.pandas_df(
+    fn=weighted_median_fn,
+    schema=xo.schema({"value": "float64"}),
+    return_type=dt.float64,
+    name="weighted_median"
+)
+
+# Apply the aggregation
+con = xo.connect()
+data = xo.memtable({
+    "category": ["A", "A", "A", "B", "B", "B"],
+    "value": [10.0, 12.0, 100.0, 5.0, 6.0, 50.0]
+}, name="metrics")
+
+# Aggregate by category
+result = data.group_by("category").agg(
+    median=weighted_median.on_expr(data)
+)
+
+df = result.execute()
+print(df)
+```
+
+Run the script:
+
+```bash
+python custom_aggregation.py
+```
+
+Expected output:
+
+```
+  category  median
+0        B     6.0
+1        A    12.0
+```
+
+**Key points**:
+
+- `agg.pandas_df` creates an aggregation UDF
+- Function receives a DataFrame containing all rows in the group
+- Returns a single scalar value per group
+- Works with `.group_by()` and `.agg()`
+
+## Test UDFs
+
+Test UDFs separately from your pipeline to catch errors early.
+
+Create `test_udfs.py`:
+
+```python
+# test_udfs.py
+import pandas as pd
+import pytest
+from text_transform import clean_text_fn
+from validated_transform import calculate_total_fn
+
+def test_clean_text():
+    """Test text cleaning UDF."""
+    input_df = pd.DataFrame({
+        "text": ["  HELLO  ", "World ", "  Python  "]
+    })
+    
+    expected = pd.Series(["hello", "world", "python"])
+    result = clean_text_fn(input_df)
+    
+    pd.testing.assert_series_equal(result, expected, check_names=False)
+
+def test_calculate_total():
+    """Test total calculation UDF."""
+    input_df = pd.DataFrame({
+        "price": [10.0, 20.0, 30.0],
+        "quantity": [2, 3, 1]
+    })
+    
+    expected = pd.Series([20.0, 60.0, 30.0])
+    result = calculate_total_fn(input_df)
+    
+    pd.testing.assert_series_equal(result, expected, check_names=False)
+
+def test_calculate_total_negative_price():
+    """Test error handling for negative prices."""
+    input_df = pd.DataFrame({
+        "price": [10.0, -5.0, 30.0],
+        "quantity": [2, 3, 1]
+    })
+    
+    with pytest.raises(ValueError, match="Price cannot be negative"):
+        calculate_total_fn(input_df)
+
+if __name__ == "__main__":
+    test_clean_text()
+    test_calculate_total()
+    test_calculate_total_negative_price()
+    print("All tests passed!")
+```
+
+Run tests:
+
+```bash
+python test_udfs.py
+```
+
+Expected output:
+
+```
+   id        text cleaned
+0   1     HELLO     hello
+1   2      World    world
+2   3    Python    python
+   price  quantity  total
+0   10.0         2   20.0
+1   20.0         3   60.0
+2   30.0         1   30.0
+All tests passed!
+```
+
+**Testing strategy**:
+
+- Test the underlying function directly with DataFrames
+- Test with pandas data structures before wrapping in UDF
+- Test both success and error cases
+- Use `pytest.raises()` to verify error handling
+
+## Production considerations
+
+Choose the right approach for custom transformations based on your performance, maintenance, and complexity requirements.
+
+### Choose between UDFs and native operations
+
+**Use native SQL operations when**:
+
+- The operation is simple arithmetic, string manipulation, or filtering
+- Performance is critical, and you're processing large datasets
+- The transformation is available in Xorq's SQL dialect
+
+**Use UDFs when**:
+
+- You need custom business logic not available in SQL
+- You're integrating external libraries (sklearn, scipy, custom code)
+- The transformation requires complex conditional logic
+
+```python
+# Native: Simple operations
+result = data.mutate(total=xo._.price * xo._.quantity)
+
+# UDF: Complex business logic
+result = data.mutate(tier=calculate_customer_tier.on_expr(data))
+```
+
+### Performance
+
+Once you've decided to use UDFs, performance becomes critical. UDFs execute in Python and are slower than native SQL operations, so use them strategically.
+
+**Vectorize operations inside UDFs**:
+
+```python
+# Slow: Row-by-row processing
+def slow_transform_fn(df: pd.DataFrame) -> pd.Series:
+    return df["x"].apply(lambda val: complex_calculation(val))
+
+# Fast: Vectorized operations
+def fast_transform_fn(df: pd.DataFrame) -> pd.Series:
+    return complex_calculation_vectorized(df["x"])
+```
+
+**Minimize data copying**:
+
+```python
+# Slow: Creates copies
+def process_with_copies(df: pd.DataFrame) -> pd.Series:
+    df = df.copy()  # Unnecessary for read-only operations
+    return df["value"] * 2
+
+# Fast: No copies needed
+def process_without_copies(df: pd.DataFrame) -> pd.Series:
+    return df["value"] * 2  # Return series directly
+```
+
+**Performance characteristics**:
+
+| Operation Type | Overhead (benchmarked) | Use When |
+|----------------|------------------------|----------|
+| Native SQL | Baseline | Always try first |
+| Scalar UDF | 0.3-3.6ms per batch (1-2x slower) | Custom logic needed |
+| Aggregation UDF | 0.4-1.6ms per group (4-8x slower) | Custom statistics |
+
+Benchmarked on datasets from 1K-100K rows. Scalar UDFs add minimal overhead for simple transformations. Aggregation UDFs have higher per-group overhead but remain practical for moderate group counts.
+
+Test with your specific workload, as performance varies by:
+- Transformation complexity (vectorized operations are faster)
+- Data volume and number of groups
+- Column types (string operations cost more than numeric)
+
+### Monitoring
+
+Performance optimization helps, but monitoring tells you when UDFs degrade in production. Track UDF performance to identify bottlenecks before they impact users.
+
+| Metric | What to monitor |
+|--------|-----------------|
+| UDF execution time | Time spent in UDF vs total query time |
+| Error rate | Percentage of UDF invocations that fail |
+| Data volume | Number of rows/groups processed |
+
+Log UDF errors with input samples to diagnose issues:
+
+```python
+import logging
+import pandas as pd
+
+def monitored_transform_fn(df: pd.DataFrame) -> pd.Series:
+    """Transform with logging for production monitoring."""
+    try:
+        # Your actual transformation logic here
+        result = df["value"].str.upper()
+        logging.info(f"Processed {len(df)} rows successfully")
+        return result
+    except Exception as e:
+        logging.error(f"UDF failed on data: {df.head()}, error: {e}")
+        raise
+```
+
+### Maintenance
+
+Monitoring alerts you to problems, but maintainability prevents them. Keep UDF code simple and well-documented as your system evolves.
+
+**Keep UDFs simple**: Each UDF should do one thing. Split complex transformations into multiple UDFs.
+
+**Version UDF logic**: When changing UDF behavior, create new versions:
+
+```python
+# Original version - basic cleaning
+def clean_text_v1_fn(df: pd.DataFrame) -> pd.Series:
+    return df["text"].str.strip().str.lower()
+
+clean_text_v1 = make_pandas_udf(
+    fn=clean_text_v1_fn,
+    schema=xo.schema({"text": "string"}),
+    return_type=dt.string,
+    name="clean_text_v1"
+)
+
+# Updated version - adds punctuation removal
+def clean_text_v2_fn(df: pd.DataFrame) -> pd.Series:
+    return df["text"].str.strip().str.lower().str.replace(r'[^\w\s]', '', regex=True)
+
+clean_text_v2 = make_pandas_udf(
+    fn=clean_text_v2_fn,
+    schema=xo.schema({"text": "string"}),
+    return_type=dt.string,
+    name="clean_text_v2"
+)
+```
+
+This allows gradual migration and rollback if needed.
+
+## Troubleshooting
+
+Even with proper design, testing, and monitoring, you'll encounter issues when deploying UDFs. Here are the most common problems and their solutions.
+
+### UDF not found
+
+**Problem**: `AttributeError: module has no attribute 'my_udf'`
+
+**Cause**: UDF wasn't created or imported correctly.
+
+**Solution**: Verify the UDF creation and import:
+
+```python
+# Correct: Create UDF with make_pandas_udf
+def my_udf_fn(df: pd.DataFrame) -> pd.Series:
+    return df["x"] * 2
+
+my_udf = make_pandas_udf(
+    fn=my_udf_fn,
+    schema=xo.schema({"x": "float64"}),
+    return_type=dt.float64
+)
+
+# Import in other modules
+from my_module import my_udf
+```
+
+### Type mismatch errors
+
+**Problem**: `TypeError` or `ArrowTypeError` during execution
+
+**Cause**: Return type doesn't match declared `return_type`.
+
+**Solution**: Ensure the function returns the correct pandas dtype:
+
+```python
+def my_udf_fn(df: pd.DataFrame) -> pd.Series:
+    # Convert to match declared return_type
+    return df["x"].astype("float64")
+
+my_udf = make_pandas_udf(
+    fn=my_udf_fn,
+    schema=xo.schema({"x": "int64"}),
+    return_type=dt.float64  # Declared as float64
+)
+```
+
+### Performance issues
+
+**Problem**: UDF is very slow on large datasets.
+
+**Cause**: Non-vectorized operations or unnecessary data copies.
+
+**Solution**: Profile and optimize:
+
+```python
+import time
+import xorq.api as xo
+import pandas as pd
+from xorq.expr.udf import make_pandas_udf
+import xorq.expr.datatypes as dt
+
+# Create test data
+con = xo.connect()
+data = xo.memtable({
+    "x": list(range(10000))
+}, name="test_data")
+
+# Define UDF
+def double_fn(df: pd.DataFrame) -> pd.Series:
+    return df["x"] * 2
+
+my_udf = make_pandas_udf(
+    fn=double_fn,
+    schema=xo.schema({"x": "int64"}),
+    return_type=dt.int64,
+    name="double"
+)
+
+# Profile UDF
+start = time.time()
+result = data.mutate(transformed=my_udf.on_expr(data))
+df = result.execute()
+udf_time = time.time() - start
+print(f"UDF execution took {udf_time:.2f}s")
+
+# Profile native operation
+start = time.time()
+result = data.mutate(transformed=xo._.x * 2)
+df = result.execute()
+native_time = time.time() - start
+print(f"Native execution took {native_time:.2f}s")
+
+print(f"UDF is {udf_time/native_time:.1f}x slower than native")
+```
+
+If UDF is >10x slower than native operations, consider:
+
+- Using native SQL operations instead
+- Vectorizing the UDF logic
+- Moving computation to a UDXF for batch processing
+
+## Next steps
+
+You now have scalar UDFs for custom transformations and aggregation UDFs for custom calculations. You can deploy these in production with proper testing, monitoring, and error handling. For more advanced batch processing patterns, explore UDXFs.
+
+- [Build data quality checks](build_data_quality_checks.qmd) - Validate data before transformation
+- [Build feature pipelines](build_feature_pipelines.qmd) - Create production feature pipelines
+- Learn about UDXFs for batch processing in [Your first UDXF](../../tutorials/ai_tutorials/your_first_udxf.qmd)
