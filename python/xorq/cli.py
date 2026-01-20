@@ -295,7 +295,7 @@ def run_unbound_command(
     # Load the expression and make it unbound
     expr = load_expr(expr_path, cache_dir=cache_dir)
     unbound_expr = expr_to_unbound(
-        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
+        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=SnapshotStrategy()
     ).to_expr()
 
     # Read Arrow IPC from instream
