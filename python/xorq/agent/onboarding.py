@@ -369,7 +369,6 @@ def register_codex_skill(project_root: Path) -> Path | None:
         # Update existing skill files (handle read-only files)
         def handle_remove_readonly(func, path, exc):
             """Error handler for shutil.rmtree to handle read-only files."""
-            import stat
             if isinstance(exc[1], PermissionError):
                 # Make the file writable and try again
                 os.chmod(path, stat.S_IWRITE)
