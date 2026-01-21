@@ -66,15 +66,26 @@ def generate_all_skills(version: str = "0.2.0") -> dict[str, Path]:
     resources_dir = Path(__file__).parent.parent
     generated = {}
 
+    # Check if resources_dir is writable (skip regeneration in read-only environments like Nix)
+    try:
+        test_file = resources_dir / ".write_test"
+        test_file.touch()
+        test_file.unlink()
+        is_writable = True
+    except (PermissionError, OSError):
+        is_writable = False
+
     # Generate Codex skill to resources/codex/SKILL.md
     codex_output = resources_dir / "codex" / "SKILL.md"
-    generate_skill("codex", version=version, output_path=codex_output)
+    if is_writable:
+        generate_skill("codex", version=version, output_path=codex_output)
     generated["codex"] = codex_output
 
     # Generate Claude skill to skills/xorq/SKILL.md (project root)
     project_root = resources_dir.parent.parent.parent.parent
     claude_output = project_root / "skills" / "xorq" / "SKILL.md"
-    generate_skill("claude", version=version, output_path=claude_output)
+    if is_writable:
+        generate_skill("claude", version=version, output_path=claude_output)
     generated["claude"] = claude_output
 
     return generated

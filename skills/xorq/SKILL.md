@@ -5,10 +5,23 @@ description: >
   expressions with input-addressed caching, multi-engine execution, and Arrow-native
   data flow. Use for ML pipelines, feature engineering, and model serving.
 allowed-tools: "Read,Bash(xorq:*),Bash(python:*)"
-version: "0.2.1"
+version: "0.2.0"
 author: "Xorq Labs <https://github.com/xorq-labs>"
 license: "Apache-2.0"
 ---
+
+# Xorq - Manifest-Driven Compute for ML
+
+A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
+
+## Agent Tool Compatibility
+
+**For non-Claude Code agents (Codex, etc.):**
+When xorq docs reference Claude Code-specific tools, map to your environment's equivalents:
+- `TodoWrite` → Your planning/task tracking tool (e.g., `update_plan`)
+- `Task` tool with subagents → Do the work directly (if subagents not available)
+- `Skill` tool → Not needed (you're reading this skill directly)
+- `Read`, `Write`, `Edit`, `Bash` → Use your native tools with similar functions
 
 # Xorq - Manifest-Driven Compute for ML
 
@@ -24,13 +37,8 @@ A compute manifest system providing persistent, cacheable, and portable expressi
 ## Quick Start
 
 ```bash
-# Initialize (one-time setup)
-xorq init -t penguins
-# Or for agent workflows
 xorq agents onboard
 
-# Core workflow
-print(table.schema())           # ALWAYS check schema first
 xorq build expr.py -e expr      # Build expression
 xorq catalog add builds/<hash> --alias my-expr
 xorq run my-expr -o output.parquet
@@ -45,7 +53,6 @@ xorq run my-expr -o output.parquet
 | `xorq run <alias>` | Execute cataloged build |
 | `xorq catalog add/ls` | Manage build registry |
 | `xorq lineage <alias>` | Show column-level lineage |
-| `xorq agents prime` | Get workflow context (source of truth) |
 | `xorq agents onboard` | Guided workflow for agents |
 | `xorq agents templates list` | List available templates |
 
@@ -55,9 +62,14 @@ xorq run my-expr -o output.parquet
 
 ### Imports and Connection
 
+**✅ Correct imports:**
 ```python
 import xorq.api as xo
-from xorq.vendor import ibis  # ALWAYS use xorq.vendor.ibis
+from xorq.caching import ParquetCache
+
+# Catalog functions (multiple aliases for discoverability)
+expr = xo.catalog.get("my-alias")           # Load from catalog
+placeholder = xo.catalog.get_placeholder("my-alias", tag="tag")  # tag to easily use with xorq run-unbound --to_unbind_tag
 
 # Connect to backend
 con = xo.connect()  # DuckDB default
@@ -71,7 +83,6 @@ con = xo.connect()  # DuckDB default
 table = con.table("data")
 print(table.schema())  # Required before any operations
 
-# Build deferred expression
 expr = (
     table
     .filter(xo._.column.notnull())
@@ -84,43 +95,11 @@ expr = (
 result = expr.execute()
 ```
 
-### Catalog Functions (Reference Expressions)
-
-```python
-import xorq.api as xo
-
-# Get placeholder (schema-only, for building composable transforms)
-source = xo.catalog.get_placeholder("my-source", tag="src")
-
-# Load from build directory directly (for debugging/inspection)
-expr = xo.catalog.load_expr("builds/abc123def456")
-
-# With specific revision
-placeholder_v2 = xo.catalog.get_placeholder("my-source", rev="r2", tag="v2")
-
-# Use placeholder to build composable transform
-transform = (
-    source
-    .filter(xo._.value > 100)
-    .select("id", "value")
-)
-# Build: xorq build transform.py -e transform
-# Catalog: xorq catalog add builds/<hash> --alias my-transform
-# Compose: xorq run my-source -o arrow | xorq run-unbound my-transform --to_unbind_tag src
-```
-
-**Key methods:**
-- `catalog.get_placeholder()` - Schema-only memtable for building transforms (PREFERRED)
-- `catalog.load_expr()` - Load from build directory for debugging/inspection
-
-**See [Catalog Composition Pattern](#catalog-composition-pattern-preferred) for complete examples.**
-
 ### Deferred Loading (Large Files)
 
 ```python
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
-# Lazy loading - doesn't read until execute()
 expr = deferred_read_parquet("large.parquet", con, "data")
 ```
 
@@ -170,41 +149,6 @@ predictions = (
     .mutate(predicted=_.predicted)            # Use result
 )
 ```
-
-### ML with Unsupported Models (UDAF + ExprScalarUDF Pattern)
-
-For models not supported by `Pipeline.from_instance().predict()` (e.g., XGBoost, CatBoost, custom models):
-
-```python
-from xorq.expr.udf import agg, make_pandas_expr_udf
-import xorq.expr.datatypes as dt
-import pickle
-
-# Step 1: UDAF trains model ONCE on full dataset
-def train_model(df):
-    model = CustomModel()
-    model.fit(df[features].values, df[target].values)
-    return pickle.dumps({'model': model})  # Serialize
-
-train_udf = agg.pandas_df(fn=train_model, schema=data.schema(), return_type=dt.binary)
-
-# Step 2: ExprScalarUDF applies predictions to rows
-def predict(model_dict, df):  # model_dict already unpickled by xorq!
-    predictions = model_dict['model'].predict(df[features].values)
-    return pd.Series(predictions, index=df.index)  # Must match df.index
-
-predict_udf = make_pandas_expr_udf(
-    computed_kwargs_expr=train_udf.on_expr(data),  # Train once
-    fn=predict,
-    schema=data.schema(),
-    return_type=dt.float64
-)
-
-# Apply predictions
-predictions = data.mutate(predicted=predict_udf.on_expr(data))
-```
-
-**See [ml-pipelines.md Example 7](resources/ml-pipelines.md#example-7-advanced---udaf--exprscalarudf-for-unsupported-models) for full details and common pitfalls.**
 
 ## Critical Rules
 
@@ -293,18 +237,61 @@ xorq agents prime
 
 ## Advanced Workflow Patterns
 
-**Arrow IPC Streaming** - Stream xorq outputs to DuckDB for interactive SQL exploration
-- See [Workflows #9](resources/WORKFLOWS.md#9-arrow-ipc-streaming-with-duckdb-interactive-exploration)
+### DuckDB CLI Exploration
 
-**Catalog Composition** - Compose cataloged expressions using placeholders
-- Use `xo.catalog.get_placeholder()` for building transforms
-- See [Workflows #10](resources/WORKFLOWS.md#10-composing-cataloged-expressions)
+**Pattern:** Stream xorq outputs through Arrow IPC to DuckDB for interactive SQL exploration.
 
-**When Complex Pipelines Fail** - For multi-stage ML pipelines with execution errors, materialize intermediate results:
 ```bash
-xorq run features -o features.parquet
-# Then use Python/pandas/sklearn for complex operations
+# Simple: Stream source to DuckDB
+xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10"
+
+# Advanced: Compose pipeline and explore interactively
+xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound transform \
+    --to_unbind_hash <hash> \
+    --typ xorq.expr.relations.Read \
+    -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow;
+    SELECT col1, COUNT(*) FROM read_arrow('/dev/stdin')
+    GROUP BY col1"
 ```
+
+**When to use:**
+- Interactive SQL exploration without writing Python
+- Ad-hoc data validation and quick analysis
+- Testing pipeline outputs rapidly
+
+**Reference:** [Workflows #9](resources/WORKFLOWS.md#9-arrow-ipc-streaming-with-duckdb-interactive-exploration)
+
+---
+
+### Catalog Composition Pattern (PREFERRED)
+
+**Pattern:** Build transforms using catalog placeholders.
+
+```python
+import xorq.api as xo
+
+# Get placeholder memtable with same schema (for building transforms)
+placeholder = xo.catalog.get_placeholder("my-source")
+print(placeholder.schema())  # Shows schema without loading full expression
+
+# Build transform using placeholder
+new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
+
+# Build and catalog
+# xorq build transform.py -e new_transform
+# xorq catalog add builds/<hash> --alias my-transform
+```
+
+**Why this pattern:**
+- Catalog is the single source of truth
+- Python-native, simple API
+- Direct execution without intermediate steps
+- Type-safe with actual schemas
+
+**Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
 
 ---
 
@@ -363,20 +350,6 @@ ranked = table.mutate(
 )
 ```
 
-## Agent-Native Features
-
-### Prompts (Workflow Context)
-
-```bash
-# List all prompts
-xorq agents prompt list
-
-# Show specific prompt
-xorq agents prompt show xorq_core
-
-# Get workflow context (use this!)
-xorq agents prime
-```
 
 ### Templates (Starter Code)
 
@@ -430,7 +403,7 @@ expr = (
 | [UDFs & Flight Servers](resources/udf-udxf.md) | Custom functions, distributed processing |
 | [Examples](resources/examples.md) | End-to-end working examples |
 | [CLI Reference](resources/CLI_REFERENCE.md) | Complete command documentation |
-| [Workflows & Patterns](resources/WORKFLOWS.md) | Step-by-step guides and best practices |
+| [Workflows](resources/WORKFLOWS.md) | Step-by-step patterns |
 | [Troubleshooting](resources/TROUBLESHOOTING.md) | Common issues and fixes |
 
 ## Troubleshooting
