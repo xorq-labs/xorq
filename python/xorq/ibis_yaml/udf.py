@@ -41,7 +41,7 @@ def _scalar_udf_to_yaml(op: ops.ScalarUDF, compiler: Any) -> dict:
             "op": "ScalarUDF",
             "func_name": op.__func_name__,
             "input_type": str(input_type),
-            "args": [translate_to_yaml(arg, compiler) for arg in op.args],
+            "args": [compiler.translate_to_yaml(arg) for arg in op.args],
             "type": translate_to_yaml(op.dtype, None),
             "pickle": serialize_callable(op.__func__),
             "module": op.__module__,
@@ -209,8 +209,8 @@ def _aggudf_to_yaml(op: ops.udf.AggUDF, compiler: Any) -> dict:
         {
             "op": "AggUDF",
             "class_name": op.__class__.__name__,
-            "kwargs": translate_to_yaml(freeze(kwargs), compiler),
-            "meta": translate_to_yaml(freeze(meta), compiler),
+            "kwargs": compiler.translate_to_yaml(freeze(kwargs)),
+            "meta": compiler.translate_to_yaml(freeze(meta)),
         }
     )
 
@@ -266,8 +266,8 @@ def _exprscalarudf_to_yaml(op: udf.ExprScalarUDF, compiler: Any) -> dict:
         {
             "op": udf.ExprScalarUDF.__name__,
             "class_name": op.__class__.__name__,
-            "kwargs": translate_to_yaml(freeze(kwargs), compiler),
-            "meta": translate_to_yaml(freeze(meta), compiler),
+            "kwargs": compiler.translate_to_yaml(freeze(kwargs)),
+            "meta": compiler.translate_to_yaml(freeze(meta)),
         }
     )
 
