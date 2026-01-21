@@ -2,21 +2,781 @@
 title: 'Evaluate model performance'
 ---
 
-## Coming soon
+Evaluate machine learning (ML) models systematically to compare performance, track experiments, and validate model quality before deployment.
 
-This guide will show you how to implement comprehensive model evaluation in production.
+Xorq's evaluation system combines deferred execution with scikit-learn metrics to compute accuracy, precision, recall, F1, and other metrics efficiently. Your evaluation expressions are lazy and only execute when needed, enabling efficient model comparison and reproducible experiment tracking.
 
-You will learn how to track metrics across experiments and compare model versions.
+## Prerequisites
 
-**What you'll accomplish:**
-- Calculate evaluation metrics
-- Compare multiple models
-- Track experiments
-- Validate model quality
+Before you start, you need:
 
-**Prerequisites:**
-- Completed "Train your first model" tutorial
-- Trained model available
+- Completed [Quickstart](../../getting_started/quickstart.qmd)
+- Completed [Train models at scale](./train_models_at_scale.qmd)
+- Trained model available (fitted pipeline)
 
-Check back soon for the complete guide.
+## Calculate basic metrics
 
+Start with the simplest evaluation: compute a single metric using the fitted pipeline's default scoring method. The `score_expr()` method uses the model's default metric (accuracy for classifiers, R² for regressors).
+
+Create `evaluate_basic.py`:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+import numpy as np
+
+# Connect and create sample classification data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(100),
+    "feature2": np.random.randn(100),
+    "target": np.random.randint(0, 2, 100)
+}, name="classification_data")
+
+# Split into train and test
+from xorq.expr.ml import train_test_splits
+train, test = train_test_splits(
+    expr=data,
+    test_size=0.3,
+    random_seed=42
+)
+
+# Create sklearn pipeline and convert to Xorq
+import sklearn.pipeline
+sklearn_pipe = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("classifier", LogisticRegression(random_state=42))
+])
+xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+fitted = xorq_pipe.fit(train, features=("feature1", "feature2"), target="target")
+
+# Calculate accuracy (default metric for classifiers)
+accuracy_expr = fitted.score_expr(test)
+accuracy = accuracy_expr.execute()
+
+print(f"Accuracy: {accuracy:.4f}")
+```
+
+Run the script:
+
+```bash
+python evaluate_basic.py
+```
+
+You should see a result like this:
+
+```
+Accuracy: 0.5333
+```
+
+**Key points**:
+
+- `score_expr()` returns a deferred expression that computes the default metric
+- For classifiers, the default metric is accuracy
+- For regressors, the default metric is R²
+- Execution happens only when you call `.execute()`
+
+The deferred execution lets you build evaluation workflows before running computations, enabling efficient batch evaluation across multiple models.
+
+## Calculate multiple metrics
+
+Basic metrics give you one number, but production evaluation needs multiple metrics to understand model behavior comprehensively. A single metric like accuracy doesn't reveal precision-recall trade-offs or class-specific performance. Use `deferred_sklearn_metric()` to compute precision, recall, F1, ROC-AUC, and other scikit-learn metrics.
+
+Create `evaluate_multiple_metrics.py`:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from xorq.expr.ml.metrics import deferred_sklearn_metric
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
+import numpy as np
+
+# Connect and create sample classification data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(200),
+    "feature2": np.random.randn(200),
+    "target": np.random.randint(0, 2, 200)
+}, name="classification_data")
+
+# Split into train and test
+from xorq.expr.ml import train_test_splits
+train, test = train_test_splits(
+    expr=data,
+    test_size=0.3,
+    random_seed=42
+)
+
+# Create sklearn pipeline and convert to Xorq
+import sklearn.pipeline
+sklearn_pipe = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("classifier", LogisticRegression(random_state=42))
+])
+xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+fitted = xorq_pipe.fit(train, features=("feature1", "feature2"), target="target")
+
+# Get predictions
+expr_with_preds = fitted.predict(test)
+
+# Calculate multiple metrics
+metrics = {
+    "accuracy": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=accuracy_score
+    ),
+    "precision": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=precision_score
+    ),
+    "recall": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=recall_score
+    ),
+    "f1": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=f1_score
+    )
+}
+
+# Execute all metrics
+results = {name: metric.execute() for name, metric in metrics.items()}
+
+for metric_name, value in results.items():
+    print(f"{metric_name}: {value:.4f}")
+```
+
+Run the script:
+
+```bash
+python evaluate_multiple_metrics.py
+```
+
+You should see a result like this:
+
+```
+accuracy: 0.5167
+precision: 0.5000
+recall: 0.5000
+f1: 0.5000
+```
+
+**Key points**:
+
+- `deferred_sklearn_metric()` works with any scikit-learn metric function
+- All metrics share the same prediction expression, avoiding duplicate computation
+- Metrics execute lazily, so you can build complex evaluation workflows before running
+
+For probability-based metrics like ROC-AUC, use `predict_proba()` instead of `predict()`:
+
+```python
+# Get probability predictions
+expr_with_proba = fitted.predict_proba(test)
+
+# Calculate ROC-AUC
+roc_auc = deferred_sklearn_metric(
+    expr=expr_with_proba,
+    target="target",
+    pred_col="predicted_proba",
+    metric_fn=roc_auc_score
+).execute()
+
+print(f"ROC-AUC: {roc_auc:.4f}")
+```
+
+## Compare multiple models
+
+Single-model evaluation shows performance, but model selection requires comparing multiple candidates to find the best fit for your data. Different algorithms have different strengths, and you can't know which performs best without systematic comparison. Evaluate several models systematically to identify the best performer for your data.
+
+Create `compare_models.py`:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from xorq.expr.ml.metrics import deferred_sklearn_metric
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.metrics import accuracy_score, f1_score
+import numpy as np
+
+# Connect and create sample classification data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(200),
+    "feature2": np.random.randn(200),
+    "target": np.random.randint(0, 2, 200)
+}, name="classification_data")
+
+# Split into train and test
+from xorq.expr.ml import train_test_splits
+train, test = train_test_splits(
+    expr=data,
+    test_size=0.3,
+    random_seed=42
+)
+
+# Define models to compare
+models = {
+    "Logistic Regression": LogisticRegression(random_state=42),
+    "Random Forest": RandomForestClassifier(n_estimators=10, random_state=42),
+    "SVM": SVC(kernel="linear", random_state=42),
+    "KNN": KNeighborsClassifier(n_neighbors=5)
+}
+
+# Evaluate each model
+import sklearn.pipeline
+results = {}
+for name, classifier in models.items():
+    # Create sklearn pipeline and convert to Xorq
+    sklearn_pipe = sklearn.pipeline.Pipeline([
+        ("scaler", StandardScaler()),
+        ("classifier", classifier)
+    ])
+    xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+    
+    # Fit
+    fitted = xorq_pipe.fit(train, features=("feature1", "feature2"), target="target")
+    
+    # Get predictions
+    expr_with_preds = fitted.predict(test)
+    
+    # Calculate metrics
+    accuracy = deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=accuracy_score
+    ).execute()
+    
+    f1 = deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=f1_score
+    ).execute()
+    
+    results[name] = {"accuracy": accuracy, "f1": f1}
+    print(f"{name}: accuracy={accuracy:.4f}, f1={f1:.4f}")
+
+# Find best model by accuracy
+best_model = max(results.items(), key=lambda x: x[1]["accuracy"])
+print(f"\nBest model: {best_model[0]} (accuracy: {best_model[1]['accuracy']:.4f})")
+```
+
+Run the script:
+
+```bash
+python compare_models.py
+```
+
+You should see a result like this:
+
+```
+Logistic Regression: accuracy=0.5167, f1=0.5000
+Random Forest: accuracy=0.5500, f1=0.5455
+SVM: accuracy=0.5167, f1=0.5000
+KNN: accuracy=0.5333, f1=0.5238
+
+Best model: Random Forest (accuracy: 0.5500)
+```
+
+**Key points**:
+
+- Compare models using the same evaluation data and metrics
+- Store results in a dictionary for easy comparison and selection
+- Use multiple metrics (accuracy, F1) to understand different aspects of performance
+
+The deferred execution pattern lets you evaluate many models efficiently. Each model's evaluation builds a lazy expression that executes only when needed, enabling batch evaluation workflows.
+
+## Track experiments
+
+Model comparison identifies the best candidate, but production ML needs experiment tracking to reproduce results and compare versions over time. Without tracking, you can't reproduce past results or understand how model performance changes across iterations. Log metrics, model parameters, and evaluation data to track model performance across iterations.
+
+Create `track_experiments.py`:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from xorq.expr.ml.metrics import deferred_sklearn_metric
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import json
+from datetime import datetime
+import numpy as np
+
+# Connect and create sample classification data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(200),
+    "feature2": np.random.randn(200),
+    "target": np.random.randint(0, 2, 200)
+}, name="classification_data")
+
+# Split into train and test
+from xorq.expr.ml import train_test_splits
+train, test = train_test_splits(
+    expr=data,
+    test_size=0.3,
+    random_seed=42
+)
+
+# Experiment configuration
+experiment_config = {
+    "experiment_id": "rf_experiment_001",
+    "timestamp": datetime.now().isoformat(),
+    "model_type": "RandomForestClassifier",
+    "model_params": {
+        "n_estimators": 10,
+        "max_depth": 5,
+        "random_state": 42
+    },
+    "features": ["feature1", "feature2"],
+    "test_size": 0.3
+}
+
+# Create sklearn pipeline and convert to Xorq
+import sklearn.pipeline
+classifier = RandomForestClassifier(**experiment_config["model_params"])
+sklearn_pipe = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("classifier", classifier)
+])
+xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+fitted = xorq_pipe.fit(train, features=tuple(experiment_config["features"]), target="target")
+
+# Get predictions
+expr_with_preds = fitted.predict(test)
+
+# Calculate metrics
+metrics = {
+    "accuracy": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=accuracy_score
+    ).execute(),
+    "precision": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=precision_score
+    ).execute(),
+    "recall": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=recall_score
+    ).execute(),
+    "f1": deferred_sklearn_metric(
+        expr=expr_with_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=f1_score
+    ).execute()
+}
+
+# Combine experiment data
+experiment_result = {
+    **experiment_config,
+    "metrics": metrics
+}
+
+# Log experiment (in production, write to database or experiment tracking system)
+print(json.dumps(experiment_result, indent=2))
+```
+
+Run the script:
+
+```bash
+python track_experiments.py
+```
+
+You should see a result like this:
+
+```json
+{
+  "experiment_id": "rf_experiment_001",
+  "timestamp": "2026-01-19T12:00:00",
+  "model_type": "RandomForestClassifier",
+  "model_params": {
+    "n_estimators": 10,
+    "max_depth": 5,
+    "random_state": 42
+  },
+  "features": ["feature1", "feature2"],
+  "test_size": 0.3,
+  "metrics": {
+    "accuracy": 0.5500,
+    "precision": 0.5455,
+    "recall": 0.5455,
+    "f1": 0.5455
+  }
+}
+```
+
+**Key points**:
+
+- Track experiment configuration (model parameters, features, data splits) alongside metrics
+- Use timestamps and experiment IDs to identify and compare runs
+- Store results in structured format (JSON) for easy analysis and comparison
+
+In production, integrate with experiment tracking systems like MLflow, Weights & Biases, or custom databases to store and query experiment history.
+
+## Validate model quality
+
+Experiment tracking records performance, but validation ensures models meet quality thresholds before deployment. Tracking shows what happened, but validation prevents deploying models that don't meet your standards. Define acceptance criteria and validate models against them to prevent deploying underperforming models.
+
+Create `validate_model.py`:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml import Pipeline
+from xorq.expr.ml.metrics import deferred_sklearn_metric
+from sklearn.preprocessing import StandardScaler
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
+import numpy as np
+
+# Connect and create sample classification data
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "feature1": np.random.randn(200),
+    "feature2": np.random.randn(200),
+    "target": np.random.randint(0, 2, 200)
+}, name="classification_data")
+
+# Split into train and test
+from xorq.expr.ml import train_test_splits
+train, test = train_test_splits(
+    expr=data,
+    test_size=0.3,
+    random_seed=42
+)
+
+# Create sklearn pipeline and convert to Xorq
+import sklearn.pipeline
+classifier = RandomForestClassifier(n_estimators=10, random_state=42)
+sklearn_pipe = sklearn.pipeline.Pipeline([
+    ("scaler", StandardScaler()),
+    ("classifier", classifier)
+])
+xorq_pipe = Pipeline.from_instance(sklearn_pipe)
+fitted = xorq_pipe.fit(train, features=("feature1", "feature2"), target="target")
+
+# Get predictions
+expr_with_preds = fitted.predict(test)
+
+# Calculate metrics
+accuracy = deferred_sklearn_metric(
+    expr=expr_with_preds,
+    target="target",
+    pred_col="predicted",
+    metric_fn=accuracy_score
+).execute()
+
+precision = deferred_sklearn_metric(
+    expr=expr_with_preds,
+    target="target",
+    pred_col="predicted",
+    metric_fn=precision_score
+).execute()
+
+recall = deferred_sklearn_metric(
+    expr=expr_with_preds,
+    target="target",
+    pred_col="predicted",
+    metric_fn=recall_score
+).execute()
+
+f1 = deferred_sklearn_metric(
+    expr=expr_with_preds,
+    target="target",
+    pred_col="predicted",
+    metric_fn=f1_score
+).execute()
+
+# Define acceptance criteria
+acceptance_criteria = {
+    "min_accuracy": 0.50,
+    "min_precision": 0.45,
+    "min_recall": 0.45,
+    "min_f1": 0.45
+}
+
+# Validate model
+validation_results = {
+    "accuracy": accuracy >= acceptance_criteria["min_accuracy"],
+    "precision": precision >= acceptance_criteria["min_precision"],
+    "recall": recall >= acceptance_criteria["min_recall"],
+    "f1": f1 >= acceptance_criteria["min_f1"]
+}
+
+all_passed = all(validation_results.values())
+
+print(f"Accuracy: {accuracy:.4f} (threshold: {acceptance_criteria['min_accuracy']:.2f}) - {'PASS' if validation_results['accuracy'] else 'FAIL'}")
+print(f"Precision: {precision:.4f} (threshold: {acceptance_criteria['min_precision']:.2f}) - {'PASS' if validation_results['precision'] else 'FAIL'}")
+print(f"Recall: {recall:.4f} (threshold: {acceptance_criteria['min_recall']:.2f}) - {'PASS' if validation_results['recall'] else 'FAIL'}")
+print(f"F1: {f1:.4f} (threshold: {acceptance_criteria['min_f1']:.2f}) - {'PASS' if validation_results['f1'] else 'FAIL'}")
+print(f"\nOverall validation: {'PASS' if all_passed else 'FAIL'}")
+
+if not all_passed:
+    print("\nModel does not meet acceptance criteria. Do not deploy.")
+```
+
+Run the script:
+
+```bash
+python validate_model.py
+```
+
+You should see a result like this:
+
+```
+Accuracy: 0.5500 (threshold: 0.50) - PASS
+Precision: 0.5455 (threshold: 0.45) - PASS
+Recall: 0.5455 (threshold: 0.45) - PASS
+F1: 0.5455 (threshold: 0.45) - PASS
+
+Overall validation: PASS
+```
+
+**Key points**:
+
+- Define acceptance criteria based on your application requirements
+- Validate multiple metrics to ensure balanced performance
+- Fail validation if any critical metric falls below threshold
+
+Set thresholds based on your model's use case. For example, fraud detection might prioritize precision (minimize false positives), while customer churn prediction might prioritize recall (catch all churners).
+
+## Production considerations
+
+Now that you can evaluate models systematically, consider how evaluation fits into production workflows. Choose metrics that align with business objectives, monitor performance over time, and compare model versions to ensure continuous improvement.
+
+### Choose evaluation metrics
+
+Different metrics measure different aspects of model performance. Choose metrics that align with your business objectives.
+
+**Classification metrics**:
+
+- **Accuracy**: Overall correctness (use when classes are balanced)
+- **Precision**: True positives / (True positives + False positives) (use when false positives are costly)
+- **Recall**: True positives / (True positives + False negatives) (use when false negatives are costly)
+- **F1**: Harmonic mean of precision and recall (use when you need balanced performance)
+- **ROC-AUC**: Area under ROC curve (use when you need probability-based evaluation)
+
+**Regression metrics**:
+
+- **R²**: Coefficient of determination (default for regressors)
+- **MAE**: Mean absolute error (use when you want interpretable error units)
+- **MSE**: Mean squared error (use when large errors are particularly costly)
+
+**When to use which**:
+
+- Use accuracy for balanced classification problems where all errors matter equally
+- Use precision when false positives are expensive (example: fraud detection)
+- Use recall when false negatives are expensive (example: disease diagnosis)
+- Use F1 when you need balanced precision and recall
+- Use ROC-AUC when you need to evaluate probability predictions
+
+### Monitor model performance
+
+Choosing the right metrics helps you understand model behavior, but production models need ongoing monitoring to detect performance degradation over time. Evaluation happens during development, but production models need ongoing monitoring to detect performance degradation over time.
+
+**Track metrics over time**:
+
+```python
+import logging
+from datetime import datetime
+
+def log_evaluation_metrics(fitted_pipeline, test_data, experiment_id):
+    """Log evaluation metrics for monitoring."""
+    expr_with_preds = fitted_pipeline.predict(test_data)
+    
+    metrics = {
+        "accuracy": deferred_sklearn_metric(
+            expr=expr_with_preds,
+            target="target",
+            pred_col="predicted",
+            metric_fn=accuracy_score
+        ).execute(),
+        "f1": deferred_sklearn_metric(
+            expr=expr_with_preds,
+            target="target",
+            pred_col="predicted",
+            metric_fn=f1_score
+        ).execute()
+    }
+    
+    logging.info(f"Experiment {experiment_id} metrics: {metrics}")
+    return metrics
+```
+
+**Set up alerts**:
+
+- Alert when accuracy drops below baseline by more than 5%
+- Alert when precision or recall degrades significantly
+- Alert when evaluation time exceeds expected duration
+
+**Key metrics to track**:
+
+Track these metrics and set thresholds based on your application requirements:
+
+| Metric | What it detects | Example threshold |
+|--------|----------------|-------------------|
+| Accuracy drift | Performance degradation | >5% drop from baseline |
+| Metric computation time | Evaluation performance | >2x baseline time |
+| Prediction distribution shift | Data drift | Significant change in predicted class distribution |
+
+Adjust thresholds based on your model's sensitivity to performance changes and production service-level agreements (SLAs).
+
+### Compare model versions
+
+Monitoring alerts you to performance issues, but model comparison ensures new versions improve before deployment. Production ML systems evolve over time. Compare new model versions against previous versions to ensure improvements before deployment.
+
+**Version comparison workflow**:
+
+```python
+def compare_model_versions(new_fitted, old_fitted, test_data):
+    """Compare new model against previous version."""
+    # Evaluate new model
+    new_preds = new_fitted.predict(test_data)
+    new_accuracy = deferred_sklearn_metric(
+        expr=new_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=accuracy_score
+    ).execute()
+    
+    # Evaluate old model
+    old_preds = old_fitted.predict(test_data)
+    old_accuracy = deferred_sklearn_metric(
+        expr=old_preds,
+        target="target",
+        pred_col="predicted",
+        metric_fn=accuracy_score
+    ).execute()
+    
+    improvement = new_accuracy - old_accuracy
+    
+    if improvement > 0.01:  # 1% improvement threshold
+        print(f"New model improves accuracy by {improvement:.4f}")
+        return True
+    else:
+        print(f"New model does not improve significantly (delta: {improvement:.4f})")
+        return False
+```
+
+**Promotion criteria**:
+
+- New model must outperform previous version on test set
+- New model must meet all acceptance criteria
+- New model must not introduce significant performance regressions
+
+## Troubleshooting
+
+Even with proper evaluation workflows and production considerations, you'll encounter issues when computing metrics. Here are the most common problems and their solutions.
+
+### Metric computation fails
+
+**Problem**: `deferred_sklearn_metric()` raises an error when executing.
+
+**Cause**: Predictions column missing or target column has wrong type.
+
+**Solution**: Verify predictions exist and target column type matches:
+
+```python
+# Check expression schema
+print(expr_with_preds.schema())
+
+# Verify predictions column exists
+assert "predicted" in expr_with_preds.columns, "Predictions column missing"
+
+# Verify target column exists
+assert "target" in expr_with_preds.columns, "Target column missing"
+```
+
+### Metrics don't match scikit-learn
+
+**Problem**: Xorq metrics differ from scikit-learn's direct computation.
+
+**Cause**: Different data splits or prediction column format.
+
+**Solution**: Ensure consistent data and verify prediction format:
+
+```python
+# Use same random seed for splits
+train, test = train_test_splits(expr=data, test_size=0.3, random_seed=42)
+
+# Verify predictions are class labels (not probabilities)
+predictions_df = expr_with_preds.execute()
+print(predictions_df["predicted"].dtype)  # Should be int64 for classification
+```
+
+### Evaluation is too slow
+
+**Problem**: Computing metrics takes too long for large test sets.
+
+**Solution**: Sample test data or use chunked evaluation:
+
+```python
+# Sample test data for faster evaluation
+test_sample = test.limit(1000)
+
+# Evaluate on sample
+accuracy = deferred_sklearn_metric(
+    expr=fitted.predict(test_sample),
+    target="target",
+    pred_col="predicted",
+    metric_fn=accuracy_score
+).execute()
+```
+
+### Probability-based metrics fail
+
+**Problem**: ROC-AUC or other probability metrics fail with "predicted" column.
+
+**Cause**: Using `predict()` instead of `predict_proba()`.
+
+**Solution**: Use `predict_proba()` for probability-based metrics:
+
+```python
+# Get probability predictions
+expr_with_proba = fitted.predict_proba(test)
+
+# Calculate ROC-AUC
+roc_auc = deferred_sklearn_metric(
+    expr=expr_with_proba,
+    target="target",
+    pred_col="predicted_proba",  # Note: different column name
+    metric_fn=roc_auc_score
+).execute()
+```
+
+## Next steps
+
+You now have systematic model evaluation workflows that compute metrics, compare models, track experiments, and validate quality. Evaluation expressions use deferred execution for efficient computation, and you can integrate with experiment tracking systems for production monitoring.
+
+- [Deploy models to production](./deploy_models_to_production.qmd) - Serve evaluated models as prediction endpoints
+- [Version and promote models](./version_and_promote_models.qmd) - Manage model versions and compare performance over time
+- [Build feature pipelines](../data_workflows/build_feature_pipelines.qmd) - Create features for model training and evaluation
