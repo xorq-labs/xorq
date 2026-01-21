@@ -21,7 +21,7 @@ skills/xorq/
     ├── CLI_REFERENCE.md       # Complete CLI docs
     ├── WORKFLOWS.md           # Step-by-step patterns
     ├── TROUBLESHOOTING.md     # Common issues
-    └── PATTERNS.md            # Best practices
+    └── (removed - merged into WORKFLOWS.md)
 ```
 
 ## What Claude Reads
@@ -318,7 +318,7 @@ Add triggers when:
 
 2. Add concise example to SKILL.md (if essential)
 
-3. Add detailed guide to resources/expression-api.md or resources/PATTERNS.md
+3. Add detailed guide to resources/expression-api.md or resources/WORKFLOWS.md
 
 4. Add content pattern to skill-rules.json if unique
 

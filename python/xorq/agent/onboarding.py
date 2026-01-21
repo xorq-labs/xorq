@@ -232,20 +232,20 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         "compose",
         "Compose cataloged expressions",
         [
-            "Load cataloged expressions with xo.catalog.get('alias') (preferred)",
-            "Or load directly from build: xo.catalog.load_expr('builds/<hash>')",
-            "Inspect sources with xo.catalog.list_source_nodes(expr)",
-            "Compose directly in Python using catalog API",
+            "Get placeholders with xo.catalog.get_placeholder('alias', tag='tag') (preferred)",
+            "Or load from build directory for debugging: xo.catalog.load_expr('builds/<hash>')",
+            "Build transforms using placeholders, then catalog",
+            "Compose via CLI using run-unbound with tags",
         ],
         [
-            "# Python composition (RECOMMENDED)",
-            "# source = xo.catalog.get('my-source')",
-            "# transform = xo.catalog.get('my-transform')",
-            "# sources = xo.catalog.list_source_nodes(transform)",
-            "# composable = xo.catalog.replace_as_root_memtable(transform, sources[0]['hash'])",
+            "# Python composition with placeholders (RECOMMENDED)",
+            "# source = xo.catalog.get_placeholder('my-source', tag='src')",
+            "# transform = source.filter(xo._.value > 100).select('id', 'value')",
+            "# Save transform.py with: expr = transform",
+            "# xorq build transform.py -e expr && xorq catalog add builds/<hash> --alias my-transform",
             "",
-            "# CLI composition via Arrow IPC (alternative)",
-            "xorq run source -f arrow -o /dev/stdout 2>/dev/null | xorq run-unbound transform --to_unbind_hash <hash> --typ xorq.expr.relations.Read -o output.parquet",
+            "# CLI composition via run-unbound",
+            "xorq run source -o arrow | xorq run-unbound transform --to_unbind_tag src",
             "",
             "# View lineage",
             "xorq lineage <alias>",
@@ -719,12 +719,9 @@ def _render_agent_doc(max_lines: int) -> str:
         import xorq.api as xo           # Main xorq API
         from xorq.caching import ParquetCache  # For caching
 
-        # Catalog functions (multiple aliases available for discoverability)
-        expr = xo.catalog.get("my-alias")           # Load from catalog
-        expr = xo.read_catalog("my-alias")          # Alias for catalog.get()
-        expr = xo.catalog.load_expr("builds/...")   # Load from build dir
-        expr = xo.read_build("builds/...")          # Alias for catalog.load_expr()
-        placeholder = xo.catalog.get_placeholder("my-alias")  # Get placeholder
+        # Catalog functions
+        placeholder = xo.catalog.get_placeholder("my-alias", tag="tag")  # Get placeholder (for transforms)
+        expr = xo.catalog.load_expr("builds/...")   # Load from build dir (for debugging)
         ```
 
         **❌ Don't use these (not available in build context):**
@@ -790,7 +787,7 @@ def _render_agent_doc(max_lines: int) -> str:
             LIMIT 10"
         ```
 
-        **Composition patterns:** Use `xo.catalog.get()` for Python-native composition (preferred), or Arrow IPC streaming for CLI pipelines. The catalog is the single source of truth for all expressions.
+        **Composition patterns:** Use `xo.catalog.get_placeholder()` for Python-native composition (preferred), or Arrow IPC streaming for CLI pipelines. The catalog is the single source of truth for all expressions.
 
         **Troubleshooting Complex Workflows:**
 

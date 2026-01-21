@@ -571,6 +571,5 @@ xorq agents prompt show fix_udf_backend_errors
 ---
 
 For more help, see:
-- [WORKFLOWS.md](WORKFLOWS.md) - Step-by-step patterns
-- [PATTERNS.md](PATTERNS.md) - Best practices
+- [WORKFLOWS.md](WORKFLOWS.md) - Step-by-step patterns and best practices
 - [CLI_REFERENCE.md](CLI_REFERENCE.md) - Command reference
