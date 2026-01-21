@@ -1,612 +1,587 @@
-# Complete Examples
+# Xorq Examples Reference
 
-## Overview
-
-Complete, runnable examples demonstrating xorq patterns for common use cases.
+Complete, runnable examples demonstrating xorq patterns. All examples are in `examples/` directory and can be run with `python examples/<filename>.py`.
 
 ---
 
-## Example 1: ETL Pipeline
+## Quick Start Examples
 
-### Pattern: End-to-End Data Transformation
-
-**Use case**: Load, transform, aggregate, and cache data
+### simple_example.py
+**Pattern:** Minimal xorq pipeline
+**Demonstrates:** Basic filtering and aggregation
 
 ```python
 import xorq.api as xo
-from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.caching import ParquetStorage
-from pathlib import Path
 
-# Setup
-con = xo.connect()
-storage = ParquetStorage(
-    source=con,
-    relative_path=Path("./cache")
+expr = (
+    xo.examples.iris.fetch(backend=xo.connect())
+    .filter([xo._.sepal_length > 5])
+    .group_by("species")
+    .agg(xo._.sepal_width.sum())
 )
 
-# Build ETL pipeline
-pipeline = (
-    # Extract: Load data deferred
-    deferred_read_parquet(
-        path="/data/raw/events.parquet",
-        connection=con,
-        name="raw_events"
-    )
-
-    # Transform: Clean and filter
-    .filter([
-        xo._.status.isin(["active", "pending"]),
-        xo._.timestamp >= "2024-01-01"
-    ])
-    .select("id", "timestamp", "value", "category", "user_id")
-
-    # Transform: Add derived columns
-    .mutate(
-        date=xo._.timestamp.date(),
-        value_normalized=xo._.value / xo._.value.max(),
-        is_high_value=xo._.value > 1000
-    )
-
-    # Cache expensive transformation
-    .cache(storage=storage, name="cleaned_events")
-
-    # Load: Aggregate for reporting
-    .group_by(["category", "date"])
-    .agg(
-        event_count=xo._.id.count(),
-        unique_users=xo._.user_id.nunique(),
-        total_value=xo._.value_normalized.sum(),
-        avg_value=xo._.value_normalized.mean(),
-        high_value_count=xo._.is_high_value.sum()
-    )
-
-    # Final sort
-    .order_by([xo._.date.desc(), xo._.event_count.desc()])
-)
-
-# Execute pipeline
-result = pipeline.execute()
-
-# Save results
-result.to_csv("daily_category_summary.csv", index=False)
-print(f"Processed {len(result)} category-date combinations")
+result = expr.execute()
 ```
 
-**Key patterns used:**
-- Deferred reading for large files
-- Early filtering to reduce data
-- Derived columns with `.mutate()`
-- Caching after expensive transformations
-- Group-by aggregations
-- Multiple aggregation functions
+**Use when:** Learning xorq basics, testing setup
 
 ---
 
-## Example 2: ML Training Pipeline
+### pandas_example.py
+**Pattern:** Pandas integration
+**Demonstrates:** Register pandas DataFrame, execute query
 
-### Pattern: Complete ML Workflow with Sklearn
+**Use when:** Working with existing pandas DataFrames
 
-**Use case**: Train, evaluate, and deploy ML model
+---
 
+### iris_example.py
+**Pattern:** Local caching with ParquetCache
+**Demonstrates:** Cache filtered data to local parquet files
+
+**Use when:** Caching intermediate results locally
+
+---
+
+## ML & sklearn Integration
+
+### penguins_classification_quickstart.py ⭐
+**Pattern:** Complete ML workflow with metrics
+**Demonstrates:**
+- Load example dataset
+- Train/test split
+- sklearn pipeline (StandardScaler + RandomForestClassifier)
+- Predictions and predict_proba
+- Deferred sklearn metrics (accuracy, precision, recall, F1, ROC-AUC)
+- Feature importances extraction
+
+**Key code:**
 ```python
-import xorq.api as xo
-from xorq.expr.ml import train_test_splits
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score
+from xorq.expr.ml.metrics import deferred_sklearn_metric
 from xorq.expr.ml.pipeline_lib import Pipeline
-from sklearn.pipeline import Pipeline as SkPipeline
-from sklearn.preprocessing import StandardScaler
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.metrics import accuracy_score, classification_report
-import toolz
 
-# Load data
-data = xo.examples.iris.fetch()
-print(f"Loaded {len(data.execute())} samples")
-
-# Define features and target
-features = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
-target = "species"
-
-# Split data (80/20)
-train, test = train_test_splits(data, test_size=0.2)
-print(f"Train: {len(train.execute())}, Test: {len(test.execute())}")
-
-# Create sklearn pipeline
-sk_pipeline = SkPipeline([
-    ("scaler", StandardScaler()),
-    ("classifier", KNeighborsClassifier(n_neighbors=11))
-])
-
-# Convert to xorq pipeline
-xorq_pipeline = Pipeline.from_instance(sk_pipeline)
-
-# Fit pipeline on training data
-fitted_pipeline = xorq_pipeline.fit(
-    train,
-    features=features,
-    target=target
-)
-print("Model fitted")
-
-# Helper to preserve original data
-@toolz.curry
-def as_struct(expr, name=None):
-    """Pack all columns into struct"""
-    struct = xo.struct({c: expr[c] for c in expr.columns})
-    if name:
-        struct = struct.name(name)
-    return struct
-
-# Predict on test data with original preserved
-predictions = (
-    test
-    .mutate(original=as_struct(name="original_row"))  # Preserve
-    .pipe(fitted_pipeline.predict)                     # Predict
-    .unpack("original_row")                            # Restore
+# Train
+fitted_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
+    train_data, features=feature_cols, target="species"
 )
 
-# Execute and evaluate
-result = predictions.execute()
+# Predict
+predictions = fitted_pipeline.predict(test_data)
 
-# Calculate metrics
-accuracy = accuracy_score(result[target], result["prediction"])
-print(f"\nAccuracy: {accuracy:.2%}")
-print("\nClassification Report:")
-print(classification_report(result[target], result["prediction"]))
-
-# Show sample predictions
-print("\nSample Predictions:")
-print(result[[target, "prediction"] + features].head(10))
-
-# Save model
-import pickle
-with open("iris_model.pkl", "wb") as f:
-    pickle.dump(fitted_pipeline, f)
-print("\nModel saved to iris_model.pkl")
+# Evaluate (deferred)
+accuracy = deferred_sklearn_metric(
+    expr=predictions,
+    target="species",
+    pred_col="predicted",
+    metric_fn=accuracy_score,
+).execute()
 ```
 
-**Key patterns used:**
-- Train/test splitting
-- Sklearn pipeline conversion
-- Struct preservation pattern
-- Pipeline composition with `.pipe()`
-- Model persistence
+**Use when:** Building classification pipelines with sklearn
 
 ---
 
-## Example 3: Flight Server Data Service
+### pipeline_example.py
+**Pattern:** Manual pipeline vs Pipeline wrapper comparison
+**Demonstrates:**
+- Building manual deferred pipeline
+- Using Pipeline.from_instance()
+- Struct preservation pattern with `as_struct()`
 
-### Pattern: Distributed Data Processing Service
+**Use when:** Understanding pipeline internals
 
-**Use case**: Serve ML model predictions over network
+---
 
-#### Server Code
+### pipeline_example_SelectKBest.py
+**Pattern:** Feature selection in pipeline
+**Demonstrates:** SelectKBest + LinearSVC pipeline
 
+**Use when:** Using feature selection with sklearn
+
+---
+
+### pipeline_example_set_params.py
+**Pattern:** Hyperparameter tuning
+**Demonstrates:** set_params() for grid search patterns
+
+**Use when:** Tuning model hyperparameters
+
+---
+
+### sklearn_classifier_comparison.py
+**Pattern:** Multi-model comparison
+**Demonstrates:**
+- Test multiple classifiers (KNN, SVM, Decision Tree, Random Forest, etc.)
+- Compare sklearn vs xorq scores
+- Synthetic datasets (moons, circles, linearly separable)
+
+**Use when:** Comparing multiple sklearn models
+
+---
+
+### sklearn_metrics_comparison.py
+**Pattern:** Comprehensive metrics validation
+**Demonstrates:**
+- Test all major sklearn metrics
+- predict_proba() for ROC-AUC
+- decision_function() for LinearSVC
+- feature_importances() for tree models
+- Validation against sklearn reference
+
+**Use when:** Validating metric implementations
+
+---
+
+### train_test_splits.py
+**Pattern:** Data splitting strategies
+**Demonstrates:**
+- Single test_size float (train/test)
+- Multiple test_sizes list (hold_out/test/validation/training)
+- calc_split_column() for stratification
+
+**Use when:** Creating train/test/validation splits
+
+---
+
+### bank_marketing.py
+**Pattern:** Full ML pipeline with custom transformers
+**Demonstrates:**
+- OneHotEncoder with custom transform
+- XGBoost with array-encoded features
+- Classification report, confusion matrix, AUC
+- ParquetCache for expensive operations
+
+**Use when:** Building production ML pipelines
+
+---
+
+## Deferred ML Patterns
+
+### deferred_fit_predict_example.py
+**Pattern:** Deferred fit + predict
+**Demonstrates:** LinearRegression with deferred execution and caching
+
+**Use when:** Custom fit/predict patterns
+
+---
+
+### deferred_fit_transform_example.py
+**Pattern:** Deferred fit + transform
+**Demonstrates:** TfidfVectorizer with train/test
+
+**Use when:** Feature transformations (TF-IDF, PCA, etc.)
+
+---
+
+### deferred_fit_transform_predict_example.py ⭐
+**Pattern:** Complete deferred ML pipeline
+**Demonstrates:**
+- TfidfVectorizer transform step
+- XGBoost predict step
+- FittedPipeline composition
+- Caching strategy
+
+**Key code:**
 ```python
-# server.py
-import pandas as pd
-import pickle
-from xorq.flight import FlightServer
-from xorq.flight.exchanger import make_udxf
-import xorq.api as xo
-import xorq.expr.datatypes as dt
-import logging
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Load trained model
-class IrisPredictor:
-    """Stateful predictor with loaded model"""
-
-    def __init__(self, model_path: str):
-        logger.info(f"Loading model from {model_path}")
-        with open(model_path, "rb") as f:
-            self.model = pickle.load(f)
-        logger.info("Model loaded successfully")
-
-    def __call__(self, df: pd.DataFrame) -> pd.DataFrame:
-        """Predict on input data"""
-        logger.info(f"Processing {len(df)} rows")
-
-        features = ["sepal_length", "sepal_width", "petal_length", "petal_width"]
-
-        # Validate input
-        missing = set(features) - set(df.columns)
-        if missing:
-            raise ValueError(f"Missing features: {missing}")
-
-        # Make predictions
-        predictions = self.model.predict(df[features])
-
-        # Return with predictions
-        result = df.copy()
-        result["prediction"] = predictions
-
-        logger.info(f"Predictions complete: {len(result)} rows")
-        return result
-
-# Create predictor
-predictor = IrisPredictor("iris_model.pkl")
-
-# Define schemas
-schema_in = xo.schema({
-    "sepal_length": dt.float64,
-    "sepal_width": dt.float64,
-    "petal_length": dt.float64,
-    "petal_width": dt.float64
-})
-
-schema_out = xo.schema({
-    "sepal_length": dt.float64,
-    "sepal_width": dt.float64,
-    "petal_length": dt.float64,
-    "petal_width": dt.float64,
-    "prediction": dt.string
-})
-
-# Create exchanger
-iris_exchanger = make_udxf(
-    predictor,
-    schema_in,
-    schema_out,
-    name="iris_predictor"
+transform_step = Step(TfidfVectorizer)
+predict_step = Step.from_fit_predict(
+    fit=fit_xgboost_model,
+    predict=predict_xgboost_model,
+    return_type=dt.float64,
 )
-
-# Create and start server
-server = FlightServer(
-    exchangers=[iris_exchanger],
-    host="0.0.0.0",
-    port=8815
-)
-
-logger.info("Starting Flight server on port 8815")
-logger.info("Press Ctrl+C to stop")
-server.serve()
+fitted_pipeline = FittedPipeline((fitted_transform, fitted_predict), train_expr)
 ```
 
-#### Client Code
+**Use when:** Multi-step ML pipelines with custom models
 
+---
+
+## UDFs & UDXFs
+
+### expr_scalar_udf.py
+**Pattern:** ExprScalarUDF for model inference
+**Demonstrates:**
+- Train XGBoost with UDAF
+- Predict with ExprScalarUDF (computed kwargs from trained model)
+- Pattern for unsupported sklearn models
+
+**Key code:**
 ```python
-# client.py
-from xorq.flight import FlightClient
-import pyarrow as pa
-import pandas as pd
-
-# Connect to server
-client = FlightClient(host="localhost", port=8815)
-print("Connected to Flight server")
-
-# Prepare test data
-test_data = pd.DataFrame({
-    "sepal_length": [5.1, 6.3, 4.9],
-    "sepal_width": [3.5, 2.9, 3.0],
-    "petal_length": [1.4, 5.6, 1.4],
-    "petal_width": [0.2, 1.8, 0.2]
-})
-
-# Convert to PyArrow Table
-input_table = pa.Table.from_pandas(test_data)
-
-# Call prediction service
-result_table = client.do_exchange(
-    iris_exchanger.command,
-    input_table
+model_udaf = udf.agg.pandas_df(
+    fn=toolz.compose(pickle.dumps, train_xgboost_model),
+    schema=t[features + (target,)].schema(),
+    return_type=dt.binary,
+    name=model_key,
 )
-
-# Convert back to pandas
-result = result_table.to_pandas()
-
-# Display results
-print("\nPrediction Results:")
-print(result)
+predict_expr_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=model_udaf.on_expr(train),
+    fn=predict_xgboost_model,
+    schema=t[features].schema(),
+    return_type=dt.dtype(prediction_typ),
+    name=prediction_key,
+)
 ```
 
-**Key patterns used:**
-- Stateful exchanger with loaded model
-- Schema validation
-- Logging for debugging
+**Use when:** sklearn models not supported by Pipeline, custom ML models
+
+---
+
+### xgboost_udaf.py
+**Pattern:** UDAF for feature selection
+**Demonstrates:** XGBoost get_score() for best features via UDAF
+
+**Use when:** Custom aggregations with ML models
+
+---
+
+### quickgrove_udf.py
+**Pattern:** Compiled XGBoost models
+**Demonstrates:** Load XGBoost JSON, compile to quickgrove, rewrite expression
+
+**Use when:** Production XGBoost serving with performance optimization
+
+---
+
+### python_udwf.py
+**Pattern:** Window functions (UDWF)
+**Demonstrates:**
+- Exponential smoothing
+- Bounded execution
+- Rank-based smoothing
+- Window frames
+- Multi-column windows
+
+**Use when:** Custom window functions (rolling aggregations, smoothing, etc.)
+
+---
+
+## Flight Servers & UDXFs
+
+### quickstart.py ⭐
+**Pattern:** Complete ML serving example
+**Demonstrates:**
+- Load pre-trained TF-IDF + XGBoost
+- Create prediction UDF
+- Serve as Flight UDXF
+- Client/server pattern
+
+**Use when:** Serving ML models over network
+
+---
+
+### flight_udtf_example.py
+**Pattern:** UDTF for data fetching
+**Demonstrates:** HackerNews API fetcher with caching
+
+**Use when:** Fetching external data in pipeline
+
+---
+
+### flight_udtf_llm_example.py
+**Pattern:** UDTF with LLM API
+**Demonstrates:** OpenAI sentiment analysis via Flight
+
+**Use when:** Integrating LLM APIs into pipelines
+
+---
+
+### flight_serve_model.py
+**Pattern:** Serve fitted model
+**Demonstrates:** flight_serve() for TF-IDF transformer
+
+**Use when:** Serving transformation models
+
+---
+
+### flight_dummy_exchanger.py
+**Pattern:** Minimal exchanger
+**Demonstrates:** Basic UDXF with schemas
+
+**Use when:** Learning Flight exchanger pattern
+
+---
+
+### flight_exchange_example.py
+**Pattern:** Streaming exchange
+**Demonstrates:** Iterative split training with streaming_split_exchange
+
+**Use when:** Custom streaming data processing
+
+---
+
+### duckdb_flight_example.py
+**Pattern:** Concurrent DuckDB access
+**Demonstrates:** Flight server with concurrent readers/writers
+
+**Use when:** Multi-client database access
+
+---
+
+### mcp_flight_server.py
+**Pattern:** MCP (Model Context Protocol) integration
+**Demonstrates:** Wrap Flight UDXF as MCP tool for Claude Desktop
+
+**Use when:** Integrating xorq with Claude Desktop
+
+---
+
+### weather_flight.py
+**Pattern:** Feature store with Flight
+**Demonstrates:**
+- Offline (batch) and online (flight) feature sources
+- FeatureStore, FeatureView, Entity patterns
+- Materialize online features
+- Historical feature retrieval
+- Weather API UDXF
+
+**Use when:** Building feature stores
+
+---
+
+## Data Loading & Caching
+
+### deferred_read_csv.py
+**Pattern:** Deferred CSV reading
+**Demonstrates:** Read CSV into pandas and postgres backends
+
+**Use when:** Loading CSV data lazily
+
+---
+
+### local_cache.py
+**Pattern:** Local parquet caching
+**Demonstrates:** ParquetCache with relative path
+
+**Use when:** Caching to local filesystem
+
+---
+
+### postgres_caching.py
+**Pattern:** PostgreSQL caching
+**Demonstrates:** ParquetCache with postgres source
+
+**Use when:** Caching with database backend
+
+---
+
+### remote_caching.py
+**Pattern:** Multi-backend caching
+**Demonstrates:** SourceCache with postgres
+
+**Use when:** Caching across different backends
+
+---
+
+### gcstorage_example.py
+**Pattern:** Google Cloud Storage caching
+**Demonstrates:** GCCache with GCS bucket
+
+**Use when:** Caching to cloud storage
+
+---
+
+### sqlite_example.py
+**Pattern:** SQLite integration
+**Demonstrates:**
+- Read PyArrow batches into SQLite
+- into_backend() + SourceCache
+
+**Use when:** Using SQLite as backend
+
+---
+
+### pyiceberg_backend_simple.py
+**Pattern:** PyIceberg backend
+**Demonstrates:** Create Iceberg table, query
+
+**Use when:** Working with Apache Iceberg
+
+---
+
+## Multi-Engine & Composition
+
+### multi_engine.py
+**Pattern:** Cross-backend joins
+**Demonstrates:** Join postgres table with duckdb table
+
+**Use when:** Combining data from different backends
+
+---
+
+### into_backend_example.py
+**Pattern:** Backend transition
+**Demonstrates:** Move from postgres to duckdb with into_backend()
+
+**Use when:** Moving data between backends
+
+---
+
+### yaml_roundtrip.py
+**Pattern:** Build serialization
+**Demonstrates:** build_expr() + load_expr() roundtrip
+
+**Use when:** Serializing/deserializing expressions
+
+---
+
+## Complex Workflows
+
+### complex_cached_expr.py
+**Pattern:** Multi-stage ML serving
+**Demonstrates:**
+- HackerNews fetcher UDXF
+- Sentiment analysis (OpenAI) UDXF
+- TF-IDF transform
+- XGBoost predict
+- Serve/predict architecture
+- Command validation
+
+**Key architecture:**
+```python
+# Build stages
+train_expr → do_fit() → (trained_model, transform, predict)
+test_expr → do_transform_predict() → predictions
+live_expr → do_serve() → (transform_server, predict_server)
+
+# Client
+transform_client.do_exchange(data) → predict_client.do_exchange() → results
+```
+
+**Use when:** Production ML pipelines with multiple services
+
+---
+
+### profiles.py
+**Pattern:** Connection profiles
+**Demonstrates:**
+- Save connection configs with env var references
+- Load profiles
+- Clone profiles with modifications
+- Security (never stores actual secrets)
+
+**Use when:** Managing database connections across environments
+
+---
+
+### simple_lineage.py
+**Pattern:** Column-level lineage
+**Demonstrates:**
+- build_column_trees()
+- print_tree() for visualization
+- Track data flow through UDFs and aggregations
+
+**Use when:** Understanding data lineage, auditing transformations
+
+---
+
+## Summary by Use Case
+
+### Learning Xorq
+1. **simple_example.py** - Start here
+2. **pandas_example.py** - Pandas integration
+3. **iris_example.py** - Local caching
+
+### ML Pipelines
+1. **penguins_classification_quickstart.py** - Classification with metrics
+2. **pipeline_example.py** - Pipeline patterns
+3. **bank_marketing.py** - Production pipeline
+4. **deferred_fit_transform_predict_example.py** - Custom models
+
+### Unsupported sklearn Models
+1. **expr_scalar_udf.py** - ExprScalarUDF pattern (train with UDAF, predict with UDF)
+2. **xgboost_udaf.py** - Custom aggregations
+
+### Model Serving
+1. **quickstart.py** - Basic serving
+2. **flight_serve_model.py** - Serve transformers
+3. **complex_cached_expr.py** - Multi-stage serving
+4. **mcp_flight_server.py** - Claude Desktop integration
+
+### Data Engineering
+1. **deferred_read_csv.py** - Data loading
+2. **multi_engine.py** - Cross-backend joins
+3. **train_test_splits.py** - Data splitting
+
+### Custom Functions
+1. **python_udwf.py** - Window functions
+2. **flight_udtf_example.py** - Table functions
+3. **quickgrove_udf.py** - Compiled models
+
+### Feature Engineering
+1. **weather_flight.py** - Feature stores
+2. **simple_lineage.py** - Track transformations
+
+---
+
+## Running Examples
+
+All examples use `__name__ == "__pytest_main__"` pattern:
+
+```bash
+# Run example
+python examples/simple_example.py
+
+# Run via pytest
+pytest examples/simple_example.py -v
+
+# Run all examples
+pytest examples/ -v
+```
+
+---
+
+## Testing Examples
+
+Examples demonstrate best practices:
+- Deferred execution
+- Proper caching
+- Schema checking
 - Error handling
-- Flight client/server architecture
+- Resource cleanup
+
+Each example sets `pytest_examples_passed = True` when successful.
 
 ---
 
-## Example 4: Feature Engineering Pipeline
+## Finding Examples
 
-### Pattern: Complex Feature Engineering
+```bash
+# List all examples
+ls examples/
 
-**Use case**: Engineer features for ML model
+# Find examples by pattern
+ls examples/*flight*.py     # Flight server examples
+ls examples/*pipeline*.py   # ML pipeline examples
+ls examples/*cache*.py      # Caching examples
 
-```python
-import xorq.api as xo
-from datetime import datetime
-import numpy as np
-
-# Load data
-con = xo.connect()
-data = con.table("customer_transactions")
-
-# Feature engineering pipeline
-engineered = (
-    data
-    # Time-based features
-    .mutate(
-        transaction_date=xo._.timestamp.date(),
-        transaction_hour=xo._.timestamp.hour(),
-        transaction_day_of_week=xo._.timestamp.day_of_week(),
-        is_weekend=xo._.timestamp.day_of_week().isin([5, 6])
-    )
-
-    # Monetary features
-    .mutate(
-        log_amount=xo._.amount.log(),
-        amount_squared=xo._.amount ** 2,
-        amount_per_item=xo._.amount / xo._.item_count
-    )
-
-    # Categorical encoding
-    .mutate(
-        category_risk=xo.case()
-            .when(xo._.category == "high_risk", 3)
-            .when(xo._.category == "medium_risk", 2)
-            .when(xo._.category == "low_risk", 1)
-            .else_(0)
-            .end()
-    )
-
-    # Interaction features
-    .mutate(
-        amount_hour_interaction=xo._.amount * xo._.transaction_hour,
-        risk_amount_interaction=xo._.category_risk * xo._.log_amount
-    )
-
-    # User aggregates (window functions)
-    .mutate(
-        user_avg_amount=xo._.amount.mean().over(
-            group_by="user_id"
-        ),
-        user_total_transactions=xo._.transaction_id.count().over(
-            group_by="user_id"
-        ),
-        user_max_amount=xo._.amount.max().over(
-            group_by="user_id"
-        )
-    )
-
-    # Relative features
-    .mutate(
-        amount_vs_user_avg=xo._.amount / xo._.user_avg_amount,
-        is_max_amount=xo._.amount == xo._.user_max_amount
-    )
-
-    # Select final features
-    .select(
-        "transaction_id",
-        "user_id",
-        "timestamp",
-        # Time features
-        "transaction_hour",
-        "transaction_day_of_week",
-        "is_weekend",
-        # Monetary features
-        "amount",
-        "log_amount",
-        "amount_squared",
-        "amount_per_item",
-        # Categorical features
-        "category_risk",
-        # Interaction features
-        "amount_hour_interaction",
-        "risk_amount_interaction",
-        # User features
-        "user_avg_amount",
-        "user_total_transactions",
-        "amount_vs_user_avg",
-        "is_max_amount"
-    )
-)
-
-# Execute
-features = engineered.execute()
-print(f"Engineered {len(features.columns)} features for {len(features)} transactions")
+# Search by content
+grep -l "TfidfVectorizer" examples/*.py
+grep -l "RandomForest" examples/*.py
 ```
 
-**Key patterns used:**
-- Time-based feature extraction
-- Mathematical transformations
-- Conditional features with `case()`
-- Window functions for user aggregates
-- Interaction features
-- Relative features (ratios, comparisons)
+---
+
+## Key Patterns Reference
+
+| Pattern | Examples | When to Use |
+|---------|----------|-------------|
+| **sklearn Pipeline** | penguins_classification_quickstart.py, pipeline_example.py | Supported sklearn models |
+| **ExprScalarUDF + UDAF** | expr_scalar_udf.py, xgboost_udaf.py | Unsupported sklearn models, custom ML |
+| **FittedPipeline** | deferred_fit_transform_predict_example.py | Multi-step ML pipelines |
+| **Flight UDXF** | quickstart.py, flight_udtf_example.py | Model serving, data fetching |
+| **Flight MCP** | mcp_flight_server.py | Claude Desktop integration |
+| **Multi-backend** | multi_engine.py, into_backend_example.py | Cross-database queries |
+| **Caching** | local_cache.py, postgres_caching.py | Performance optimization |
+| **Feature Store** | weather_flight.py | Online/offline features |
+| **Profiles** | profiles.py | Connection management |
+| **Lineage** | simple_lineage.py | Data auditing |
 
 ---
 
-## Example 5: Real-Time Data Processing
-
-### Pattern: Streaming-Style Processing
-
-**Use case**: Process data in batches
-
-```python
-import xorq.api as xo
-from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.caching import ParquetStorage
-from pathlib import Path
-import glob
-
-# Setup
-con = xo.connect()
-storage = ParquetStorage(
-    source=con,
-    relative_path=Path("./processed")
-)
-
-def process_batch(input_path: str, output_path: str):
-    """Process a single batch of data"""
-
-    # Build processing pipeline
-    pipeline = (
-        deferred_read_parquet(input_path, con, "batch")
-
-        # Validate data
-        .filter([
-            xo._.timestamp.notnull(),
-            xo._.value >= 0
-        ])
-
-        # Transform
-        .mutate(
-            processed_at=xo.literal(datetime.now()),
-            value_log=xo._.value.log1p(),  # log(1 + x)
-            is_anomaly=xo._.value > (xo._.value.mean() + 3 * xo._.value.std())
-        )
-
-        # Aggregate by time window
-        .mutate(
-            time_window=xo._.timestamp.truncate("5 minutes")
-        )
-        .group_by("time_window")
-        .agg(
-            count=xo._.id.count(),
-            avg_value=xo._.value.mean(),
-            max_value=xo._.value.max(),
-            anomaly_count=xo._.is_anomaly.sum()
-        )
-    )
-
-    # Execute and save
-    result = pipeline.execute()
-    result.to_parquet(output_path)
-
-    return len(result)
-
-# Process all batches
-input_pattern = "/data/input/batch_*.parquet"
-input_files = sorted(glob.glob(input_pattern))
-
-for i, input_file in enumerate(input_files):
-    output_file = f"./processed/batch_{i:04d}.parquet"
-    count = process_batch(input_file, output_file)
-    print(f"Processed {input_file}: {count} windows")
-
-print(f"Processed {len(input_files)} batches")
-```
-
-**Key patterns used:**
-- Batch processing pattern
-- Data validation with filtering
-- Time window aggregations
-- Anomaly detection
-- File-based processing
-
----
-
-## Example 6: Multi-Source Data Integration
-
-### Pattern: Combine Data from Multiple Sources
-
-**Use case**: Join data from different backends
-
-```python
-import xorq.api as xo
-from xorq.common.utils.defer_utils import deferred_read_parquet
-
-# Connect to multiple backends
-duckdb = xo.connect()  # Local DuckDB
-snowflake = xo.connect("snowflake://account/db/schema")
-postgres = xo.connect("postgresql://user:pass@host/db")
-
-# Load from different sources
-transactions = deferred_read_parquet(
-    "/data/transactions.parquet",
-    duckdb,
-    "transactions"
-)
-
-customers = snowflake.table("customers")
-products = postgres.table("products")
-
-# Integrate data
-integrated = (
-    transactions
-    # Join with customer data
-    .join(
-        customers,
-        transactions.customer_id == customers.id,
-        how="left"
-    )
-    .select(
-        "transaction_id",
-        "customer_id",
-        "product_id",
-        "amount",
-        customer_name=customers.name,
-        customer_tier=customers.tier
-    )
-
-    # Join with product data
-    .join(
-        products,
-        transactions.product_id == products.id,
-        how="left"
-    )
-    .select(
-        "transaction_id",
-        "customer_id",
-        "customer_name",
-        "customer_tier",
-        "product_id",
-        product_name=products.name,
-        product_category=products.category,
-        "amount"
-    )
-
-    # Add derived fields
-    .mutate(
-        is_premium_customer=xo._.customer_tier == "premium",
-        is_high_value=xo._.amount > 1000
-    )
-
-    # Filter and aggregate
-    .filter(xo._.is_premium_customer == True)
-    .group_by(["customer_name", "product_category"])
-    .agg(
-        total_transactions=xo._.transaction_id.count(),
-        total_amount=xo._.amount.sum(),
-        avg_amount=xo._.amount.mean()
-    )
-    .order_by(xo._.total_amount.desc())
-)
-
-# Execute (pulls data from all sources)
-result = integrated.execute()
-print(result)
-```
-
-**Key patterns used:**
-- Multi-backend connections
-- Cross-backend joins
-- Expression-based integration
-- Filtering after joins
-- Aggregation across sources
-
----
-
-## Summary
-
-**Example patterns covered:**
-1. **ETL Pipeline** - Deferred loading, transformation, caching, aggregation
-2. **ML Training** - Split, fit, predict, evaluate, persist
-3. **Flight Server** - Client/server architecture, model serving
-4. **Feature Engineering** - Complex transformations, window functions
-5. **Batch Processing** - File-based processing, time windows
-6. **Multi-Source Integration** - Cross-backend joins and aggregations
-
-**Key takeaways:**
-- Build expressions declaratively
-- Use deferred execution for large data
-- Cache expensive operations
-- Preserve data with structs
-- Test incrementally
-- Document complex pipelines
+For detailed patterns, see:
+- [ml-pipelines.md](ml-pipelines.md) - ML patterns with UDAF examples
+- [udf-udxf.md](udf-udxf.md) - Custom function patterns
+- [caching.md](caching.md) - Caching strategies
+- [WORKFLOWS.md](WORKFLOWS.md) - Step-by-step guides
