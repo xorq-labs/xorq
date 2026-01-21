@@ -11,9 +11,9 @@ listing:
       - "getting_started/introduction.qmd"
       - "getting_started/quickstart.qmd"
       - "getting_started/install_xorq.qmd"
-      - "getting_started/understand_deferred_execution.qmd"
-      - "getting_started/explore_caching.qmd"
-      - "getting_started/switch_backends.qmd"
+      - "getting_started/defer_query_execution.qmd"
+      - "getting_started/cache_expression_results.qmd"
+      - "getting_started/switch_between_backends.qmd"
     type: grid
     grid-columns: 5
     fields: [title, description]

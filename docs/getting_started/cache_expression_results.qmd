@@ -1,5 +1,7 @@
 ---
 title: 'Cache expression results'
+icon: "database-check"
+headline: "Speed up workflows with automatic caching"
 ---
 
 This tutorial demonstrates Xorq's caching with runnable code examples. You'll execute the same query twice and observe the performance difference between cached and uncached execution.
