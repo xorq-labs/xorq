@@ -1015,8 +1015,15 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 from xorq.expr.ml import train_test_splits, Pipeline
 
-# Load features from catalog
-features = xo.catalog.get("penguin-features")
+# Option A: Load features from parquet (recommended for ML)
+# $ xorq run penguin-features -o features.parquet
+features_df = pd.read_parquet("features.parquet")
+con = xo.connect()
+features = con.register(features_df, "features")
+
+# Option B: Load from catalog placeholder and execute
+# placeholder = xo.catalog.get_placeholder("penguin-features")
+# features = placeholder.execute()  # Execute to get data
 
 # Split data
 train, test = train_test_splits(features, test_size=0.2)
@@ -1180,12 +1187,29 @@ print(results.nlargest(5, 'deal_score')[['price', 'predicted_price', 'deal_score
 **Key patterns:**
 - **UDAF trains once**: `agg.pandas_df()` aggregates all data and trains model once
 - **ExprScalarUDF predicts**: `make_pandas_expr_udf()` applies trained model to rows
+- **Always provide name parameter**: Both UDAF and ExprScalarUDF require explicit `name=` (critical!)
 - **Model is auto-unpickled**: Don't call `pickle.loads()` - xorq does it
 - **Return binary from UDAF**: Use `dt.binary` for pickled objects
 - **Return Series from UDF**: Must have `index=df.index` for proper alignment
 
 **Common pitfalls:**
 ```python
+# ❌ WRONG - missing name parameter (causes unclear errors)
+train_udf = agg.pandas_df(
+    fn=train_rf_model,
+    schema=ml_ready.schema(),
+    return_type=dt.binary
+    # ERROR: Missing name="train_rf_model"
+)
+
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=train_udf.on_expr(ml_ready),
+    fn=predict_with_model,
+    schema=ml_ready.schema(),
+    return_type=dt.float64
+    # ERROR: Missing name="predict_rf"
+)
+
 # ❌ WRONG - calling pickle.loads() twice
 def predict_with_model(model_dict, df):
     model_dict = pickle.loads(model_dict)  # ERROR: already unpickled!
@@ -1201,7 +1225,23 @@ train_udf = agg.pandas_df(
     ...
 )
 
-# ✅ CORRECT
+# ✅ CORRECT - always provide name parameter
+train_udf = agg.pandas_df(
+    fn=train_rf_model,
+    schema=ml_ready.schema(),
+    return_type=dt.binary,
+    name="train_rf_model"  # ← REQUIRED
+)
+
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=train_udf.on_expr(ml_ready),
+    fn=predict_with_model,
+    schema=ml_ready.schema(),
+    return_type=dt.float64,
+    name="predict_rf"  # ← REQUIRED
+)
+
+# ✅ CORRECT - proper Series return
 def predict_with_model(model_dict, df):
     predictions = model.predict(X_scaled)
     return pd.Series(predictions, index=df.index)  # Proper alignment

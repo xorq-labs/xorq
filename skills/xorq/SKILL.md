@@ -14,19 +14,6 @@ license: "Apache-2.0"
 
 A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
 
-## Agent Tool Compatibility
-
-**For non-Claude Code agents (Codex, etc.):**
-When xorq docs reference Claude Code-specific tools, map to your environment's equivalents:
-- `TodoWrite` → Your planning/task tracking tool (e.g., `update_plan`)
-- `Task` tool with subagents → Do the work directly (if subagents not available)
-- `Skill` tool → Not needed (you're reading this skill directly)
-- `Read`, `Write`, `Edit`, `Bash` → Use your native tools with similar functions
-
-# Xorq - Manifest-Driven Compute for ML
-
-A compute manifest system providing persistent, cacheable, and portable expressions for ML workflows. Expressions are tools that compose via Arrow.
-
 ## Core Concepts
 
 **Expression** - Deferred computation graph built with Ibis, executes across multiple engines
@@ -48,88 +35,6 @@ xorq build expr.py -e expr      # Build expression
 xorq catalog add builds/<hash> --alias my-expr
 xorq run my-expr -o output.parquet
 ```
-
-## Claude Code Hooks Integration
-
-This skill includes **automatic hooks** that load xorq project context at key lifecycle events:
-
-### When Hooks Run
-
-| Event | Trigger | Purpose |
-|-------|---------|---------|
-| **Setup** (`init`) | `claude --init` or `--init-only` | Load project context during repository initialization |
-| **SessionStart** (`clear`) | `/clear` command | Reload context after clearing conversation |
-| **SessionStart** (`compact`) | Auto or manual compaction | Reload context after compacting conversation |
-
-### What the Hooks Do
-
-Each hook runs `xorq agents onboard --non-interactive` which:
-1. Loads catalog entries and sources
-2. Provides recent build history
-3. Shows available templates
-4. Adds project-specific context to Claude's knowledge
-
-**Example output added to context:**
-```
-=== XORQ PROJECT CONTEXT ===
-Catalog: 3 entries (feature-pipeline, model-training, predictions)
-Recent builds: 5 builds in last 7 days
-Templates: sklearn_pipeline, penguins, diamonds
-```
-
-### Installation
-
-Hooks are automatically installed when you run:
-```bash
-xorq agents onboard
-# Or
-xorq init -t <template>
-```
-
-This copies `skills/xorq/hooks/hooks.json` to `~/.claude/skills/xorq/hooks/` where Claude Code discovers them.
-
-### Customization
-
-To modify hook behavior, edit `~/.claude/skills/xorq/hooks/hooks.json`:
-
-```json
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "clear",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "xorq agents onboard --verbose 2>&1 | head -n 100",
-            "timeout": 180
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-**Common customizations:**
-- Increase `timeout` for larger projects (default: 120 seconds)
-- Change `head -n 50` to show more/less context
-- Add `--verbose` flag for detailed output
-- Add additional commands (e.g., `xorq catalog sources` for hash lookup)
-
-### Disabling Hooks
-
-To disable xorq hooks temporarily:
-1. Run `/hooks` in Claude Code
-2. Find `xorq` hooks
-3. Disable via the UI
-
-Or permanently remove:
-```bash
-rm ~/.claude/skills/xorq/hooks/hooks.json
-```
-
-**Note:** Hooks only affect Claude Code sessions. They don't run in other environments.
 
 ## Essential CLI Commands
 
@@ -178,6 +83,37 @@ expr = (
 # Execute when ready
 result = expr.execute()
 ```
+
+### Catalog Functions (Reference Expressions)
+
+```python
+import xorq.api as xo
+
+# Get placeholder (schema-only, for building composable transforms)
+source = xo.catalog.get_placeholder("my-source", tag="src")
+
+# Load from build directory directly (for debugging/inspection)
+expr = xo.catalog.load_expr("builds/abc123def456")
+
+# With specific revision
+placeholder_v2 = xo.catalog.get_placeholder("my-source", rev="r2", tag="v2")
+
+# Use placeholder to build composable transform
+transform = (
+    source
+    .filter(xo._.value > 100)
+    .select("id", "value")
+)
+# Build: xorq build transform.py -e transform
+# Catalog: xorq catalog add builds/<hash> --alias my-transform
+# Compose: xorq run my-source -o arrow | xorq run-unbound my-transform --to_unbind_tag src
+```
+
+**Key methods:**
+- `catalog.get_placeholder()` - Schema-only memtable for building transforms (PREFERRED)
+- `catalog.load_expr()` - Load from build directory for debugging/inspection
+
+**See [Catalog Composition Pattern](#catalog-composition-pattern-preferred) for complete examples.**
 
 ### Deferred Loading (Large Files)
 
@@ -357,87 +293,18 @@ xorq agents prime
 
 ## Advanced Workflow Patterns
 
-### DuckDB CLI Exploration
+**Arrow IPC Streaming** - Stream xorq outputs to DuckDB for interactive SQL exploration
+- See [Workflows #9](resources/WORKFLOWS.md#9-arrow-ipc-streaming-with-duckdb-interactive-exploration)
 
-**Pattern:** Stream xorq outputs through Arrow IPC to DuckDB for interactive SQL exploration.
+**Catalog Composition** - Compose cataloged expressions using placeholders
+- Use `xo.catalog.get_placeholder()` for building transforms
+- See [Workflows #10](resources/WORKFLOWS.md#10-composing-cataloged-expressions)
 
+**When Complex Pipelines Fail** - For multi-stage ML pipelines with execution errors, materialize intermediate results:
 ```bash
-# Simple: Stream source to DuckDB
-xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
-  duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10"
-
-# Advanced: Compose pipeline and explore interactively
-xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
-  xorq run-unbound transform \
-    --to_unbind_hash <hash> \
-    --typ xorq.expr.relations.Read \
-    -f arrow -o /dev/stdout 2>/dev/null | \
-  duckdb -c "LOAD arrow;
-    SELECT col1, COUNT(*) FROM read_arrow('/dev/stdin')
-    GROUP BY col1"
+xorq run features -o features.parquet
+# Then use Python/pandas/sklearn for complex operations
 ```
-
-**When to use:**
-- Interactive SQL exploration without writing Python
-- Ad-hoc data validation and quick analysis
-- Testing pipeline outputs rapidly
-
-**Reference:** [Workflows #9](resources/WORKFLOWS.md#9-arrow-ipc-streaming-with-duckdb-interactive-exploration)
-
----
-
-### Catalog Composition Pattern (PREFERRED)
-
-**Pattern:** Compose cataloged expressions directly in Python.
-
-```python
-import xorq.api as xo
-
-# Get placeholder memtable with same schema (for building transforms)
-placeholder = xo.catalog.get_placeholder("my-source", tag="source")
-print(placeholder.schema())  # Shows schema without loading full expression
-
-# Build transform using placeholder
-new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
-
-# Build and catalog
-# xorq build transform.py -e new_transform
-# xorq catalog add builds/<hash> --alias my-transform
-# xorq catalog sources my-transform  # Will show tag="source"
-```
-
-**Why this pattern:**
-- Catalog is the single source of truth
-- Python-native, simple API
-- Direct execution without intermediate steps
-- Type-safe with actual schemas
-
-**When Complex Workflows May Fail:**
-
-For complex multi-stage pipelines (especially ML workflows), you may encounter execution errors:
-- `XorqInputError: Duplicate column name` - Don't use struct/unpack patterns for ML predictions
-- `XorqTypeError: Column not found` - After `.predict()`, feature columns are dropped
-- `ValueError: not enough values to unpack` - Hash not found, run `xorq catalog sources` to get correct hash
-- Nested expression transform errors or remote table registration failures
-
-**Workaround:** Use xorq for feature engineering (what it excels at), materialize to parquet, then use Python for complex operations:
-
-```python
-# Feature engineering with xorq (deferred execution)
-features = xo.catalog.get("features")
-
-# Materialize to parquet first
-# CLI: xorq run features -o features.parquet
-
-# Then use Python/pandas/sklearn for complex ML operations
-import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
-
-df = pd.read_parquet("features.parquet")
-# ... train model in Python (simpler, more flexible) ...
-```
-
-**Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
 
 ---
 
@@ -563,7 +430,7 @@ expr = (
 | [UDFs & Flight Servers](resources/udf-udxf.md) | Custom functions, distributed processing |
 | [Examples](resources/examples.md) | End-to-end working examples |
 | [CLI Reference](resources/CLI_REFERENCE.md) | Complete command documentation |
-| [Workflows](resources/WORKFLOWS.md) | Step-by-step patterns |
+| [Workflows & Patterns](resources/WORKFLOWS.md) | Step-by-step guides and best practices |
 | [Troubleshooting](resources/TROUBLESHOOTING.md) | Common issues and fixes |
 
 ## Troubleshooting

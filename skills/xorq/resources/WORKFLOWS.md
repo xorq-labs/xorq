@@ -546,11 +546,11 @@ xorq catalog sources lineup-transform
 See [examples/catalog_composition_example.py](../examples/catalog_composition_example.py) for a full working example.
 
 **Advantages:**
-- No memtable placeholders needed - load directly from catalog or builds
-- Python-native composition with `xo.catalog.get()`
+- Fast placeholder creation with `xo.catalog.get_placeholder()`
+- Python-native composition for building transforms
 - Type-safe schema inspection
-- Discoverable with `list_source_nodes()`
-- CLI composition still available when needed
+- Composable via CLI with `run-unbound`
+- Tag-based composition for clarity
 
 ---
 
@@ -648,6 +648,242 @@ expr.ls.get_cache_paths()
 # 3. Check cache directory exists
 ls ~/.cache/xorq/parquet/
 ```
+
+---
+
+## Best Practices & Patterns
+
+### Always Check Schema First
+
+**Pattern:**
+```python
+import xorq.api as xo
+
+# Connect
+con = xo.connect()
+table = con.table("data")
+
+# CRITICAL: Check schema before building expression
+print(table.schema())
+
+# Now build expression with correct column names
+expr = table.select("actual_column_name")
+```
+
+**Why:**
+- Prevents runtime errors
+- Shows exact column names and types
+- Required by agent reliability guidelines
+
+---
+
+### Use Vendored Ibis
+
+**Pattern:**
+```python
+# Correct import order:
+import xorq.api as xo
+from xorq.vendor import ibis
+from xorq.common.utils.ibis_utils import from_ibis
+from xorq.caching import ParquetCache
+
+# NOT:
+import ibis  # ✗ Wrong
+```
+
+**Why:**
+- xorq uses specific ibis version
+- Ensures compatibility
+- Required for builds to work
+
+---
+
+### Cache at Boundaries
+
+**Pattern:**
+```python
+# Cache after expensive operations
+expr = (
+    from_ibis(
+        table
+        .filter(ibis._.status == "active")
+        .group_by("user_id")
+        .agg(total=ibis._.amount.sum())  # Expensive
+    )
+    .cache(ParquetCache.from_kwargs())  # Cache here
+)
+
+# Further transformations work on cached result
+final = from_ibis(expr.select(["user_id", "total"]))
+```
+
+**Why:**
+- Avoids recomputing expensive operations
+- Input-addressed: same inputs = cache hit
+- Speeds up iteration
+
+**Where to cache:**
+- After aggregations
+- After joins
+- After expensive UDFs
+- Before backend transitions
+
+---
+
+### Multi-Level Caching
+
+**Pattern:**
+```python
+# Cache at multiple stages
+stage1 = (
+    from_ibis(source_query)
+    .cache(ParquetCache.from_kwargs())
+)
+
+stage2 = (
+    from_ibis(
+        stage1
+        .group_by("key")
+        .agg(metric=ibis._.value.sum())
+    )
+    .cache(ParquetCache.from_kwargs())
+)
+
+final = (
+    from_ibis(stage2.filter(ibis._.metric > 100))
+    .cache(ParquetCache.from_kwargs())
+)
+```
+
+**Why:**
+- Each stage cached independently
+- Change stage2 = only recomputes stage2+
+- Faster iteration
+
+---
+
+### Versioned Catalog Aliases
+
+**Pattern:**
+```bash
+# Add with version in alias
+xorq catalog add builds/<hash1> --alias pipeline-v1
+xorq catalog add builds/<hash2> --alias pipeline-v2
+xorq catalog add builds/<hash3> --alias pipeline-v3
+
+# Keep latest pointer
+xorq catalog rm pipeline-latest
+xorq catalog add builds/<hash3> --alias pipeline-latest
+```
+
+**Why:**
+- Track versions
+- Easy rollback
+- Clear history
+
+---
+
+### Defensive Schema Checking
+
+**Pattern:**
+```python
+import xorq.api as xo
+
+con = xo.connect()
+table = con.table("data")
+
+# Always check schema
+schema = table.schema()
+print(schema)
+
+# Verify required columns
+required = ["col1", "col2", "col3"]
+available = [field.name for field in schema]
+
+for col in required:
+    if col not in available:
+        raise ValueError(f"Missing column: {col}")
+
+# Now build safely
+expr = table.select(required)
+```
+
+---
+
+### Column Reference in Mutate
+
+**Pattern:**
+```python
+# ❌ WRONG: Cannot reference newly created columns in same mutate
+expr = data.mutate(
+    total=ibis._.price * ibis._.quantity,
+    profit=ibis._.total - ibis._.cost  # Error! total not available yet
+)
+
+# ✅ CORRECT: Chain mutate calls
+expr = (
+    data
+    .mutate(total=ibis._.price * ibis._.quantity)
+    .mutate(profit=ibis._.total - ibis._.cost)  # Now total is available
+)
+
+# ✅ ALTERNATIVE: Repeat the expression
+expr = data.mutate(
+    total=ibis._.price * ibis._.quantity,
+    profit=(ibis._.price * ibis._.quantity) - ibis._.cost  # Inline
+)
+```
+
+**Why:**
+- Ibis evaluates all columns in a single `.mutate()` **in parallel**
+- Newly created columns are not yet part of the table context
+- This mirrors SQL behavior (all SELECT columns are peer expressions)
+
+**When to chain vs batch:**
+- **Batch** (single mutate) when columns are independent
+- **Chain** (multiple mutates) when columns depend on each other
+
+---
+
+### UDF Name Parameters (Critical!)
+
+**Pattern:**
+```python
+from xorq.expr.udf import agg, make_pandas_expr_udf
+import xorq.expr.datatypes as dt
+
+# ❌ WRONG - missing name parameter
+train_udf = agg.pandas_df(
+    fn=train_model,
+    schema=data.schema(),
+    return_type=dt.binary
+    # ERROR: Missing name parameter
+)
+
+# ✅ CORRECT - always provide name
+train_udf = agg.pandas_df(
+    fn=train_model,
+    schema=data.schema(),
+    return_type=dt.binary,
+    name='train_model'  # ← REQUIRED
+)
+
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=train_udf.on_expr(train),
+    fn=predict,
+    schema=data.schema(),
+    return_type=dt.float64,
+    name='predict_model'  # ← REQUIRED
+)
+```
+
+**Why:**
+- Both `agg.pandas_df()` and `make_pandas_expr_udf()` **require** explicit `name=` parameter
+- Omitting it causes unclear errors during execution
+- Name is used for debugging and manifest representation
+
+**Reference:**
+- [ML Pipelines - Example 7](ml-pipelines.md#example-7-advanced---udaf--exprscalarudf-for-unsupported-models)
 
 ---
 

@@ -68,9 +68,8 @@ xorq/
 ├── README.md                # This file (for humans)
 └── resources/               # Detailed documentation (optional)
     ├── CLI_REFERENCE.md     # Command reference
-    ├── WORKFLOWS.md         # Step-by-step patterns
-    ├── TROUBLESHOOTING.md   # Common issues
-    └── PATTERNS.md          # Best practices
+    ├── WORKFLOWS.md         # Step-by-step patterns & best practices
+    └── TROUBLESHOOTING.md   # Common issues
 ```
 
 ## Key Concepts
