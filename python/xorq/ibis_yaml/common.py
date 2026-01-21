@@ -1,5 +1,6 @@
 import base64
 import functools
+from functools import wraps
 from pathlib import Path
 from typing import Any
 
@@ -150,7 +151,7 @@ class TranslationContext:
         return translate_from_yaml(yaml_dict, self)
 
     def translate_to_yaml(self, op: Any) -> dict:
-        return translate_to_yaml(op, self)
+        return safe_translate_to_yaml(op, self)
 
     def register(self, which, op, frozen=None):
         match which:
@@ -240,6 +241,14 @@ def translate_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
 @functools.singledispatch
 def translate_to_yaml(op: Any, context: TranslationContext) -> dict:
     raise NotImplementedError(f"No translation rule for {type(op)}")
+
+
+@wraps(translate_to_yaml)
+def safe_translate_to_yaml(*args, **kwargs):
+    try:
+        return translate_to_yaml(*args, **kwargs)
+    except Exception:
+        return translate_to_yaml.__wrapped__(*args, **kwargs)
 
 
 @functools.singledispatch
