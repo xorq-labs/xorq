@@ -77,7 +77,7 @@ website:
             - href: tutorials/ml_tutorials/explore_model_evaluation.qmd
             # - href: tutorials/ml_tutorials/understand_step_and_pipeline.qmd
             # - href: tutorials/ml_tutorials/use_deferred_fit_predict.qmd
-            - href: tutorials/ml_tutorials/deploy_your_first_model.qmd
+            # - href: tutorials/ml_tutorials/deploy_your_first_model.qmd
         - id: ai-tutorials-section
           section: "AI tutorials"
           contents:
