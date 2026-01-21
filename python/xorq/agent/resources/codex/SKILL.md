@@ -36,13 +36,8 @@ A compute manifest system providing persistent, cacheable, and portable expressi
 ## Quick Start
 
 ```bash
-# Initialize (one-time setup)
-xorq init -t penguins
-# Or for agent workflows
 xorq agents onboard
 
-# Core workflow
-print(table.schema())           # ALWAYS check schema first
 xorq build expr.py -e expr      # Build expression
 xorq catalog add builds/<hash> --alias my-expr
 xorq run my-expr -o output.parquet
@@ -57,7 +52,6 @@ xorq run my-expr -o output.parquet
 | `xorq run <alias>` | Execute cataloged build |
 | `xorq catalog add/ls` | Manage build registry |
 | `xorq lineage <alias>` | Show column-level lineage |
-| `xorq agents prime` | Get workflow context (source of truth) |
 | `xorq agents onboard` | Guided workflow for agents |
 | `xorq agents templates list` | List available templates |
 
@@ -67,9 +61,14 @@ xorq run my-expr -o output.parquet
 
 ### Imports and Connection
 
+**✅ Correct imports:**
 ```python
 import xorq.api as xo
-from xorq.vendor import ibis  # ALWAYS use xorq.vendor.ibis
+from xorq.caching import ParquetCache
+
+# Catalog functions (multiple aliases for discoverability)
+expr = xo.catalog.get("my-alias")           # Load from catalog
+placeholder = xo.catalog.get_placeholder("my-alias", tag="tag")  # tag to easily use with xorq run-unbound --to_unbind_tag
 
 # Connect to backend
 con = xo.connect()  # DuckDB default
@@ -83,7 +82,6 @@ con = xo.connect()  # DuckDB default
 table = con.table("data")
 print(table.schema())  # Required before any operations
 
-# Build deferred expression
 expr = (
     table
     .filter(xo._.column.notnull())
@@ -101,7 +99,6 @@ result = expr.execute()
 ```python
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
-# Lazy loading - doesn't read until execute()
 expr = deferred_read_parquet("large.parquet", con, "data")
 ```
 
@@ -268,6 +265,33 @@ xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
 
 ---
 
+### Catalog Composition Pattern (PREFERRED)
+
+**Pattern:** Build transforms using catalog placeholders.
+
+```python
+import xorq.api as xo
+
+# Get placeholder memtable with same schema (for building transforms)
+placeholder = xo.catalog.get_placeholder("my-source")
+print(placeholder.schema())  # Shows schema without loading full expression
+
+# Build transform using placeholder
+new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
+
+# Build and catalog
+# xorq build transform.py -e new_transform
+# xorq catalog add builds/<hash> --alias my-transform
+```
+
+**Why this pattern:**
+- Catalog is the single source of truth
+- Python-native, simple API
+- Direct execution without intermediate steps
+- Type-safe with actual schemas
+
+**Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
+
 ---
 
 ## Common Expression Patterns
@@ -325,20 +349,6 @@ ranked = table.mutate(
 )
 ```
 
-## Agent-Native Features
-
-### Prompts (Workflow Context)
-
-```bash
-# List all prompts
-xorq agents prompt list
-
-# Show specific prompt
-xorq agents prompt show xorq_core
-
-# Get workflow context (use this!)
-xorq agents prime
-```
 
 ### Templates (Starter Code)
 

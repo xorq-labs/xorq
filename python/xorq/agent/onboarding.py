@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import shutil
+import stat
 import subprocess
 import time
 from dataclasses import dataclass
@@ -311,8 +313,17 @@ def register_claude_skill() -> Path | None:
 
     # Copy skill if it doesn't exist or update it
     if skill_dest.exists():
-        # Skill already registered, optionally update it
-        shutil.rmtree(skill_dest)
+        # Skill already registered, optionally update it (handle read-only files)
+        def handle_remove_readonly(func, path, exc):
+            """Error handler for shutil.rmtree to handle read-only files."""
+            if isinstance(exc[1], PermissionError):
+                # Make the file writable and try again
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            else:
+                raise
+
+        shutil.rmtree(skill_dest, onerror=handle_remove_readonly)
 
     shutil.copytree(skill_source, skill_dest)
 
@@ -355,8 +366,18 @@ def register_codex_skill(project_root: Path) -> Path | None:
     skill_dest.parent.mkdir(parents=True, exist_ok=True)
 
     if skill_dest.exists():
-        # Update existing skill files
-        shutil.rmtree(skill_dest)
+        # Update existing skill files (handle read-only files)
+        def handle_remove_readonly(func, path, exc):
+            """Error handler for shutil.rmtree to handle read-only files."""
+            import stat
+            if isinstance(exc[1], PermissionError):
+                # Make the file writable and try again
+                os.chmod(path, stat.S_IWRITE)
+                func(path)
+            else:
+                raise
+
+        shutil.rmtree(skill_dest, onerror=handle_remove_readonly)
 
     shutil.copytree(skill_source, skill_dest)
 
@@ -788,22 +809,6 @@ def _render_agent_doc(max_lines: int) -> str:
         ```
 
         **Composition patterns:** Use `xo.catalog.get_placeholder()` for Python-native composition (preferred), or Arrow IPC streaming for CLI pipelines. The catalog is the single source of truth for all expressions.
-
-        **Troubleshooting Complex Workflows:**
-
-        For complex multi-stage pipelines (especially ML), you may encounter:
-        - `XorqInputError: Duplicate column name` - Avoid struct/unpack patterns for ML
-        - `XorqTypeError: Column not found` - After prediction, feature columns are dropped
-        - `ValueError: not enough values to unpack` - Hash not found, re-run `xorq catalog sources`
-
-        **Workaround:** Use xorq for feature engineering, materialize to parquet, then use Python for complex ML:
-        ```bash
-        # Build and run feature pipeline
-        xorq run features -o features.parquet
-
-        # Then use Python/pandas/sklearn (simpler, more flexible)
-        python train_model.py features.parquet
-        ```
 
         ### 8. Land the Plane (`xorq agent land`)
         **MANDATORY before session completion:**
