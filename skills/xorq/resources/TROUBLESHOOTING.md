@@ -570,6 +570,291 @@ xorq agents prompt show fix_udf_backend_errors
 
 ---
 
+## Advanced Workflow Issues
+
+### Column Reference in Same Mutate
+
+**Error:**
+```python
+AttributeError: 'Table' object has no attribute 'ba'
+```
+
+**Cause:** Trying to reference a column created in the same `mutate()` call.
+
+**Solution:** Split into separate `mutate()` calls.
+
+```python
+# ❌ FAILS - can't reference 'ba' in same mutate
+stats = table.mutate(
+    ba=_.H / _.AB,
+    iso=_.slg - _.ba  # ba doesn't exist yet!
+)
+
+# ✅ WORKS - split into chained mutates
+stats = (
+    table
+    .mutate(
+        ba=_.H / _.AB,
+        slg=(_.H - _.X2B - _.X3B - _.HR + 2 * _.X2B + 3 * _.X3B + 4 * _.HR) / _.AB
+    )
+    .mutate(
+        iso=_.slg - _.ba  # Now ba exists
+    )
+)
+```
+
+**Why:** Ibis resolves all columns in a `mutate()` simultaneously, so new columns aren't available until the next operation.
+
+---
+
+### Placeholder Creates Empty Memtables
+
+**Problem:** Using `xo.catalog.get_placeholder()` creates empty parquet memtables during `xorq build`.
+
+**Cause:** Placeholders materialize as empty tables when not tagged for composition.
+
+**Solution:** Use tagged placeholders for proper `run-unbound` composition.
+
+```python
+# ❌ FAILS - creates empty memtable during build
+batting = xo.catalog.get_placeholder("batting-source")
+
+# ✅ WORKS - enables run-unbound composition
+batting = xo.catalog.get_placeholder("batting-source", tag="batting_source")
+```
+
+Then compose via CLI:
+```bash
+# Find the hash to unbind
+xorq catalog sources my-transform
+
+# Compose source with transform
+xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
+  xorq run-unbound my-transform \
+    --to_unbind_hash <hash> \
+    --typ xorq.expr.relations.CachedNode \
+    -f parquet -o output.parquet
+```
+
+**When to use:**
+- Building transforms that compose with catalog sources
+- Creating reusable pipeline components
+- Avoiding materialization during build phase
+
+---
+
+### sklearn Pipeline Not Buildable
+
+**Error:**
+```
+ValueError: The object fitted_pipeline must be an instance of
+xorq.vendor.ibis.expr.types.core.Expr
+```
+
+**Cause:** `FittedPipeline` objects are not Ibis expressions and can't be built directly.
+
+**Solution:** Only build data expressions, execute ML models in Python.
+
+```python
+# ✅ Can build these (they're table expressions)
+xorq build -e training_data
+xorq build -e predictions       # If it's a table expr
+xorq build -e current_candidates
+
+# ❌ Can't build these (not Expr types)
+xorq build -e fitted_pipeline   # FittedPipeline object
+xorq build -e accuracy          # Scalar metric
+
+# ✅ Correct pattern:
+# 1. Build data expressions
+xorq build pipeline.py -e training_data
+xorq catalog add builds/<hash> --alias train-data
+
+# 2. Execute ML in separate Python script
+python run_analysis.py  # Imports pipeline.py, executes fitted_pipeline
+```
+
+---
+
+### Execution During Build
+
+**Problem:** Code executes during `xorq build`, causing errors or premature execution.
+
+**Cause:** Standard `if __name__ == "__main__"` executes during build.
+
+**Solution:** Use xorq's special main check.
+
+```python
+# ❌ FAILS - executes during build
+if __name__ == "__main__":
+    print(f"Accuracy: {accuracy.execute()}")
+
+# ✅ WORKS - only executes in test/run mode
+if __name__ in ("__pytest_main__", "__xorq_main__"):
+    print(f"Accuracy: {accuracy.execute()}")
+```
+
+**When to use:** Any code that should execute only during testing or manual runs, not during build.
+
+---
+
+### Type Mismatch in sklearn UDF
+
+**Error:**
+```
+ValueError: Failed to coerce arguments to satisfy a call to
+'dumps_of_inner_fit_0' function: coercion from (..., Int64)
+to signature Exact([..., Int8]) failed
+```
+
+**Cause:** Deferred sklearn fit functions expect specific int types (int8 vs int64).
+
+**Solution:** Cast target column explicitly.
+
+```python
+# Cast when creating label
+is_breakout = xo.ifelse(_.ops_vs_career >= 1.20, 1, 0).cast("int8")
+
+# Or cast before training
+train_data = training_data.filter(...).mutate(
+    is_breakout=_.is_breakout.cast("int8")
+)
+
+# Fit with properly typed target
+fitted = xorq_pipeline.fit(
+    train_data,
+    features=feature_cols,
+    target="is_breakout"  # Now int8 type
+)
+```
+
+**Status:** Partial workaround - some edge cases may still occur with complex UDFs.
+
+---
+
+### Array Column Comparisons
+
+**Error:**
+```
+XorqTypeError: Arguments predicted_proba:array<float64> and
+Literal(0.5):float64 are not comparable
+```
+
+**Cause:** `predict_proba` returns array columns, can't compare arrays to scalars directly.
+
+**Solution:** Extract scalar values from array column.
+
+```python
+# ❌ FAILS - can't compare array to scalar
+false_positives = predictions_proba.filter(
+    (_.is_breakout == 0) & (_.predicted_proba >= 0.5)
+)
+
+# ✅ WORKS - extract positive class probability
+predictions_proba_with_scalar = predictions_proba.mutate(
+    breakout_prob=_.predicted_proba[1]  # Index 1 = class 1 probability
+)
+
+false_positives = predictions_proba_with_scalar.filter(
+    (_.is_breakout == 0) & (_.breakout_prob >= 0.5)
+)
+```
+
+**Pattern:** For binary classification, `predicted_proba[0]` = class 0 prob, `predicted_proba[1]` = class 1 prob.
+
+---
+
+### Arrow IPC Streaming Issues
+
+**Problem:** Intermittent Arrow IPC parsing errors when piping to DuckDB.
+
+```bash
+libc++abi: terminating due to uncaught exception of type duckdb::IOException:
+Expected continuation token (0xFFFFFFFF) but got 1818850626
+```
+
+**Cause:** Arrow IPC format edge cases or buffering issues in streaming.
+
+**Workaround:** Use parquet intermediate files instead of streaming.
+
+```bash
+# ❌ FAILS sometimes (streaming)
+xorq run my-expr -f arrow -o /dev/stdout 2>/dev/null | \
+  duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin')"
+
+# ✅ WORKS reliably (intermediate file)
+xorq run my-expr -f parquet -o /tmp/data.parquet
+duckdb -c "SELECT * FROM read_parquet('/tmp/data.parquet')"
+```
+
+**When to use intermediate files:**
+- Large datasets
+- Complex Arrow schemas
+- Multi-stage pipelines
+- Production workflows
+
+---
+
+### Complex Expression Build Failures
+
+**Error:**
+```
+ValueError: The truth value of an Ibis expression is not defined
+```
+
+**Cause:** Deeply nested UDFs with computed kwargs can fail during YAML serialization.
+
+**Solution:** Build simpler intermediate expressions, compose via run-unbound.
+
+```bash
+# ✅ Build the data transform (without ML)
+xorq build pipeline.py -e training_data
+xorq catalog add builds/<hash> --alias train-data
+
+# ✅ Execute ML in Python (not via build)
+python run_analysis.py  # Imports and executes pipeline
+
+# ✅ Or compose transforms separately
+xorq run source -f arrow -o /dev/stdout | \
+  xorq run-unbound transform --to_unbind_hash <hash> ...
+```
+
+**Pattern:** Separate data engineering (buildable) from ML execution (Python-based).
+
+---
+
+## Workflow Pattern Summary
+
+### Successful ML Pipeline Pattern
+
+```python
+# 1. Use tagged placeholder for source
+source = xo.catalog.get_placeholder("my-source", tag="source")
+
+# 2. Build transform with placeholder
+transform = (
+    source
+    .filter(_.col > 0)
+    .mutate(feature=_.col * 2)
+)
+
+# 3. Build and catalog (data only)
+# xorq build transform.py -e transform
+# xorq catalog add builds/<hash> --alias my-transform
+
+# 4. Compose via run-unbound
+# xorq run my-source -f arrow -o /dev/stdout | \
+#   xorq run-unbound my-transform \
+#     --to_unbind_hash <hash> \
+#     --typ xorq.expr.relations.CachedNode \
+#     -f parquet -o data.parquet
+
+# 5. ML execution in separate Python script
+# python run_ml.py  # Loads data, fits models, evaluates
+```
+
+---
+
 For more help, see:
 - [WORKFLOWS.md](WORKFLOWS.md) - Step-by-step patterns and best practices
 - [CLI_REFERENCE.md](CLI_REFERENCE.md) - Command reference
