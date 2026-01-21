@@ -10,12 +10,12 @@ listing:
     contents:
       - "getting_started/introduction.qmd"
       - "getting_started/quickstart.qmd"
-      - "getting_started/installation.qmd"
+      - "getting_started/install_xorq.qmd"
       - "getting_started/understand_deferred_execution.qmd"
       - "getting_started/explore_caching.qmd"
       - "getting_started/switch_backends.qmd"
     type: grid
-    grid-columns: 6
+    grid-columns: 5
     fields: [title, description]
   - id: ml-tutorials-cards
     template: "style/gallery.ejs"
@@ -23,9 +23,8 @@ listing:
       - "tutorials/ml_tutorials/split_data_for_training.qmd"
       - "tutorials/ml_tutorials/train_your_first_model.qmd"
       - "tutorials/ml_tutorials/explore_model_evaluation.qmd"
-      - "tutorials/ml_tutorials/deploy_your_first_model.qmd"
     type: grid
-    grid-columns: 4
+    grid-columns: 3
     fields: [title, description]
 ---
 
