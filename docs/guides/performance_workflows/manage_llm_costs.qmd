@@ -2,21 +2,569 @@
 title: 'Manage LLM costs'
 ---
 
-## Coming soon
+Control costs when using LLMs in production pipelines. This guide shows you how to implement batching strategies, caching patterns, retry logic, and cost tracking to optimize LLM API usage.
 
-This guide will show you how to control costs when using LLMs in production pipelines.
+**What you'll accomplish**: By following this guide, you'll implement cost-effective LLM integration with caching, batching, retry logic, rate limiting, and cost tracking to keep LLM API costs under control.
 
-You will learn batching strategies, caching patterns, and cost optimization techniques.
+LLM API costs can grow quickly with high-volume pipelines. This guide covers practical techniques for reducing API calls, caching responses, handling errors gracefully, and monitoring costs.
 
-**What you'll accomplish:**
-- Implement LLM result caching
-- Batch API calls efficiently
-- Monitor token usage
-- Set cost budgets and alerts
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
-- LLM integration working
-- Understanding of LLM pricing
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
-Check back soon for the complete guide.
+## Prerequisites
 
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- LLM integration working (see examples for UDXF patterns)
+- Understanding of LLM pricing (per-token costs, rate limits)
+
+## Cache LLM responses
+
+Cache LLM responses to avoid redundant API calls for identical inputs. This dramatically reduces costs for repeated queries.
+
+### Implement disk-based caching
+
+Use disk-based caching to persist LLM responses across sessions:
+
+```python
+import functools
+import json
+from pathlib import Path
+import dask
+
+def simple_disk_cache(f, cache_dir, serde):
+    """Cache function results to disk."""
+    cache_dir = Path(cache_dir).absolute()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+
+    @functools.wraps(f)
+    def wrapped(*args, **kwargs):
+        # Create cache key from function arguments
+        name = dask.base.tokenize(*args, **kwargs)
+        path = cache_dir.joinpath(name)
+        
+        if path.exists():
+            # Cache hit: load from disk
+            value = serde.loads(path.read_text())
+        else:
+            # Cache miss: call function and save result
+            value = f(*args, **kwargs)
+            path.write_text(serde.dumps(value))
+        return value
+
+    return wrapped
+
+# Apply caching to LLM API call
+@simple_disk_cache(cache_dir=Path("./llm-cache"), serde=json)
+def request_chat_completions_dict(**kwargs):
+    """Cached LLM API call."""
+    from openai import OpenAI
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    return client.chat.completions.create(**kwargs).model_dump()
+```
+
+**Key points**:
+
+- Cache key based on function arguments (messages, model, temperature, etc.)
+- Persistent cache survives process restarts
+- Clear cache directory to invalidate all cached responses
+- Monitor cache hit rate to measure cost savings
+
+### Use Xorq caching for LLM expressions
+
+Cache entire LLM expressions using Xorq's caching system:
+
+```python
+import xorq.api as xo
+from xorq.caching import ParquetCache
+from pathlib import Path
+
+con = xo.connect()
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./llm-cache",
+    base_path=Path(".").absolute()
+)
+
+# LLM expression with caching
+llm_expr = (
+    data
+    .pipe(llm_udxf)  # Your LLM UDXF
+    .cache(cache=cache)  # Cache LLM results
+)
+
+result = llm_expr.execute()
+```
+
+**Key points**:
+
+- Xorq caching automatically handles cache invalidation
+- Cache persists fitted models and intermediate results
+- Use `ParquetCache` for durable disk-based caching
+- Cache keys based on expression content and inputs
+
+## Batch API calls efficiently
+
+Batch multiple LLM requests together to reduce API call overhead and improve throughput.
+
+### Process data in batches
+
+Use UDXF to process DataFrames in batches:
+
+```python
+import pandas as pd
+import toolz
+from xorq.common.utils.toolz_utils import curry
+import xorq.api as xo
+
+@curry
+def process_llm_batch(df: pd.DataFrame, input_col, output_col):
+    """Process DataFrame column with LLM in batch."""
+    # Process all rows in batch
+    results = df[input_col].map(extract_sentiment)
+    return df.assign(**{output_col: results})
+
+# Create UDXF for batch processing
+llm_udxf = xo.expr.relations.flight_udxf(
+    process_df=process_llm_batch(input_col="text", output_col="sentiment"),
+    maybe_schema_in=maybe_schema_in,
+    maybe_schema_out=maybe_schema_out,
+    name="SentimentAnalyzer",
+)
+
+# Process entire dataset in batches
+expr = data.pipe(llm_udxf)
+result = expr.execute()
+```
+
+**Key points**:
+
+- UDXF processes entire DataFrame batches
+- Reduces API call overhead compared to row-by-row processing
+- Arrow zero-copy enables efficient batch transfer
+- Adjust batch size based on API rate limits
+
+### Optimize batch size
+
+Balance batch size with API rate limits and memory:
+
+```python
+# Process in chunks to manage memory and rate limits
+def process_in_chunks(data, chunk_size=100):
+    """Process data in chunks to optimize batch size."""
+    chunks = []
+    for i in range(0, len(data), chunk_size):
+        chunk = data.iloc[i:i+chunk_size]
+        processed = process_llm_batch(chunk, input_col="text", output_col="sentiment")
+        chunks.append(processed)
+    return pd.concat(chunks, ignore_index=True)
+```
+
+**Key points**:
+
+- Larger batches reduce API call overhead
+- Smaller batches reduce memory usage and improve error recovery
+- Test optimal batch size for your workload
+- Consider API rate limits when choosing batch size
+
+## Implement retry logic
+
+Handle transient API errors with exponential backoff retry logic.
+
+### Retry with exponential backoff
+
+Implement retry logic for transient errors:
+
+```python
+import time
+import random
+from openai import OpenAI
+
+def retry_with_backoff(func, max_retries=3, initial_delay=1, backoff_factor=2):
+    """Retry function with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise  # Last attempt, raise exception
+            
+            # Check if error is transient
+            if is_transient_error(e):
+                delay = initial_delay * (backoff_factor ** attempt)
+                # Add jitter to avoid thundering herd
+                jitter = random.uniform(0, delay * 0.1)
+                time.sleep(delay + jitter)
+            else:
+                # Permanent error, don't retry
+                raise
+    return None
+
+def is_transient_error(e):
+    """Check if error is transient (retryable)."""
+    transient_errors = (
+        "rate_limit_exceeded",
+        "server_error",
+        "timeout",
+        "connection_error",
+    )
+    error_str = str(e).lower()
+    return any(err in error_str for err in transient_errors)
+
+# Use retry logic for LLM calls
+def extract_sentiment_with_retry(text):
+    """Extract sentiment with retry logic."""
+    def call_llm():
+        client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": f"Analyze sentiment: {text}"}],
+            max_tokens=30,
+            temperature=0,
+        )
+        return response.choices[0].message.content
+    
+    return retry_with_backoff(call_llm)
+```
+
+**Key points**:
+
+- Retry transient errors (rate limits, timeouts, server errors)
+- Don't retry permanent errors (invalid API key, malformed requests)
+- Use exponential backoff to avoid overwhelming API
+- Add jitter to prevent thundering herd problem
+
+### Categorize errors
+
+Distinguish between transient and permanent errors:
+
+```python
+def categorize_error(e):
+    """Categorize error as transient or permanent."""
+    error_str = str(e).lower()
+    
+    # Transient errors (retryable)
+    transient_patterns = [
+        "rate_limit",
+        "server_error",
+        "timeout",
+        "connection",
+        "temporary",
+    ]
+    
+    # Permanent errors (don't retry)
+    permanent_patterns = [
+        "invalid_api_key",
+        "authentication",
+        "malformed_request",
+        "invalid_model",
+    ]
+    
+    if any(pattern in error_str for pattern in transient_patterns):
+        return "transient"
+    elif any(pattern in error_str for pattern in permanent_patterns):
+        return "permanent"
+    else:
+        return "unknown"  # Default to not retrying unknown errors
+```
+
+**Key points**:
+
+- Transient errors: rate limits, timeouts, server errors (retry)
+- Permanent errors: invalid API key, malformed requests (don't retry)
+- Log error categories for monitoring
+- Adjust retry strategy based on error type
+
+## Implement rate limiting
+
+Control API call rate to stay within rate limits and avoid throttling.
+
+### Rate limit API calls
+
+Implement rate limiting to control request rate:
+
+```python
+import time
+from collections import deque
+
+class RateLimiter:
+    def __init__(self, max_calls, time_window):
+        """Initialize rate limiter.
+        
+        Args:
+            max_calls: Maximum number of calls allowed
+            time_window: Time window in seconds
+        """
+        self.max_calls = max_calls
+        self.time_window = time_window
+        self.calls = deque()
+    
+    def wait_if_needed(self):
+        """Wait if rate limit would be exceeded."""
+        now = time.time()
+        
+        # Remove calls outside time window
+        while self.calls and self.calls[0] < now - self.time_window:
+            self.calls.popleft()
+        
+        # Check if we're at the limit
+        if len(self.calls) >= self.max_calls:
+            # Wait until oldest call expires
+            sleep_time = self.calls[0] + self.time_window - now
+            if sleep_time > 0:
+                time.sleep(sleep_time)
+        
+        # Record this call
+        self.calls.append(now)
+
+# Use rate limiter for LLM calls
+rate_limiter = RateLimiter(max_calls=60, time_window=60)  # 60 calls per minute
+
+def extract_sentiment_with_rate_limit(text):
+    """Extract sentiment with rate limiting."""
+    rate_limiter.wait_if_needed()
+    
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": f"Analyze sentiment: {text}"}],
+        max_tokens=30,
+        temperature=0,
+    )
+    return response.choices[0].message.content
+```
+
+**Key points**:
+
+- Rate limit based on API provider limits
+- Use sliding window to track recent calls
+- Wait automatically when limit would be exceeded
+- Monitor rate limit hits for optimization
+
+## Track costs and set budgets
+
+Monitor LLM API costs and set up alerts to stay within budget.
+
+### Track token usage
+
+Track token usage for cost estimation:
+
+```python
+def extract_sentiment_with_tracking(text):
+    """Extract sentiment and track token usage."""
+    client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": f"Analyze sentiment: {text}"}],
+        max_tokens=30,
+        temperature=0,
+    )
+    
+    # Track token usage
+    usage = response.usage
+    tokens_used = {
+        "prompt_tokens": usage.prompt_tokens,
+        "completion_tokens": usage.completion_tokens,
+        "total_tokens": usage.total_tokens,
+    }
+    
+    # Log or store token usage
+    log_token_usage(tokens_used)
+    
+    return response.choices[0].message.content
+
+def log_token_usage(usage):
+    """Log token usage for cost tracking."""
+    # Store in database, file, or metrics system
+    print(f"Tokens used: {usage}")
+```
+
+**Key points**:
+
+- Track prompt tokens, completion tokens, and total tokens
+- Estimate costs based on token usage and pricing
+- Log token usage for cost analysis
+- Set up alerts for high token usage
+
+### Set cost budgets
+
+Implement budget tracking and alerts:
+
+```python
+class CostTracker:
+    def __init__(self, daily_budget, cost_per_1k_tokens):
+        """Initialize cost tracker.
+        
+        Args:
+            daily_budget: Daily budget in dollars
+            cost_per_1k_tokens: Cost per 1000 tokens
+        """
+        self.daily_budget = daily_budget
+        self.cost_per_1k_tokens = cost_per_1k_tokens
+        self.daily_cost = 0.0
+        self.daily_tokens = 0
+    
+    def record_usage(self, tokens):
+        """Record token usage and check budget."""
+        cost = (tokens / 1000) * self.cost_per_1k_tokens
+        self.daily_cost += cost
+        self.daily_tokens += tokens
+        
+        # Check if budget exceeded
+        if self.daily_cost > self.daily_budget:
+            raise BudgetExceededError(
+                f"Daily budget exceeded: ${self.daily_cost:.2f} > ${self.daily_budget:.2f}"
+            )
+        
+        return cost
+
+# Use cost tracker
+cost_tracker = CostTracker(daily_budget=10.0, cost_per_1k_tokens=0.002)
+
+def extract_sentiment_with_budget(text):
+    """Extract sentiment with budget tracking."""
+    response = call_llm(text)
+    cost = cost_tracker.record_usage(response.usage.total_tokens)
+    return response.choices[0].message.content
+```
+
+**Key points**:
+
+- Track daily costs based on token usage
+- Set daily budget limits
+- Raise alerts when budget exceeded
+- Reset daily tracking at start of day
+
+## Implement fallback handling
+
+Handle LLM failures gracefully with fallback strategies.
+
+### Fallback to default values
+
+Use fallback values when LLM calls fail:
+
+```python
+def extract_sentiment_with_fallback(text):
+    """Extract sentiment with fallback to default."""
+    try:
+        response = call_llm(text)
+        return response.choices[0].message.content
+    except Exception as e:
+        # Fallback to default value
+        print(f"LLM call failed: {e}, using fallback")
+        return "NEUTRAL"  # Default sentiment
+```
+
+**Key points**:
+
+- Use sensible defaults for failed LLM calls
+- Log failures for monitoring
+- Don't fail entire pipeline due to LLM errors
+- Consider retry before fallback
+
+### Fallback to cached results
+
+Use cached results as fallback when API calls fail:
+
+```python
+def extract_sentiment_with_cache_fallback(text, cache):
+    """Extract sentiment with cache fallback."""
+    # Try cache first
+    cached_result = cache.get(text)
+    if cached_result:
+        return cached_result
+    
+    # Try API call
+    try:
+        response = call_llm(text)
+        result = response.choices[0].message.content
+        cache.set(text, result)  # Cache result
+        return result
+    except Exception as e:
+        # Fallback to default if cache miss and API fails
+        print(f"LLM call failed: {e}, using fallback")
+        return "NEUTRAL"
+```
+
+**Key points**:
+
+- Check cache before API call
+- Use cache as fallback when API fails
+- Cache successful results for future use
+- Balance cache freshness with cost savings
+
+## Troubleshooting
+
+When managing LLM costs, you may encounter high costs, rate limit issues, or caching problems.
+
+### Issue: High LLM costs
+
+**Error**: LLM API costs exceed budget
+
+**Cause**: Too many API calls, large token usage, or inefficient caching
+
+**Recovery**:
+
+1. Enable caching: implement disk-based or Xorq caching
+2. Reduce token usage: use shorter prompts, lower max_tokens
+3. Batch requests: process multiple items in single API call
+4. Review cache hit rate: optimize cache to reduce API calls
+
+**Prevention**:
+
+- Implement comprehensive caching strategy
+- Monitor token usage and costs
+- Set up budget alerts
+- Optimize prompts to reduce token usage
+
+### Issue: Rate limit errors
+
+**Error**: API rate limit exceeded
+
+**Cause**: Too many requests in short time period
+
+**Recovery**:
+
+1. Implement rate limiting: use rate limiter to control request rate
+2. Add retry logic: retry with exponential backoff
+3. Reduce batch size: process smaller batches
+4. Use multiple API keys: distribute load across keys
+
+**Prevention**:
+
+- Implement rate limiting based on API provider limits
+- Monitor rate limit errors
+- Adjust batch size and request rate
+- Use exponential backoff for retries
+
+### Issue: Cache not reducing costs
+
+**Error**: Cache hit rate is low, costs still high
+
+**Cause**: Cache keys don't match, cache cleared too often, or inputs vary
+
+**Recovery**:
+
+1. Review cache keys: ensure identical inputs produce same key
+2. Check cache persistence: verify cache survives process restarts
+3. Analyze input patterns: identify why inputs vary
+4. Increase cache size: allow more cached responses
+
+**Prevention**:
+
+- Use stable cache keys based on function arguments
+- Monitor cache hit rates
+- Use persistent cache storage
+- Normalize inputs before caching
+
+## Next steps
+
+You now have techniques for managing LLM costs, including caching, batching, retry logic, rate limiting, and cost tracking.
+
+- [Optimize model serving](optimize_model_serving.qmd) - Optimize serving performance
+- [Optimize pipeline performance](optimize_pipeline_performance.qmd) - Optimize pipeline execution
+- [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd) - Deploy LLM-powered models

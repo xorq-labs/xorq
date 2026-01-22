@@ -2,21 +2,432 @@
 title: 'Build reproducible environments'
 ---
 
-## Coming soon
+Create hermetic, reproducible Python environments for your Xorq pipelines using uv. This guide shows you how to ensure consistent behavior across development, staging, and production environments.
 
-This guide will show you how to create reproducible Python environments with uv and Xorq.
+**What you'll accomplish**: By following this guide, you'll configure uv for Xorq projects, lock dependencies, build reproducible artifacts, and deploy consistent environments that eliminate "works on my machine" issues.
 
-You will learn how to ensure consistent behavior across development, staging, and production.
+Xorq's `uv-build` command creates isolated, reproducible builds by packaging your expression and dependencies into a source distribution (sdist). This ensures identical results across different machines and environments.
 
-**What you'll accomplish:**
-- Configure uv for Xorq projects
-- Lock dependencies with uv
-- Build reproducible artifacts
-- Deploy consistent environments
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
-- uv installed
-- Xorq project initialized
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions. You'll also need [uv](https://github.com/astral-sh/uv) installed.
+:::
 
-Check back soon for the complete guide.
+## Prerequisites
 
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- [uv installed](https://github.com/astral-sh/uv) (for reproducible builds)
+- A Xorq project with expressions to build
+
+## When to use uv-build vs build
+
+Choose the right build command based on your needs:
+
+**Use `xorq build` when**:
+- Quick iteration during development
+- Testing locally with current environment
+- Dependencies are stable and well-known
+- No need for strict reproducibility
+
+**Use `xorq uv-build` when**:
+- Deploying to production
+- Sharing builds across team members
+- Ensuring dependency fidelity
+- Creating reproducible artifacts
+- Promoting environments (dev → staging → prod)
+
+### Regular build
+
+Use `xorq build` for fast iteration:
+
+```bash
+xorq build train_model.py -e model_expr
+```
+
+This builds using your current Python environment and dependencies.
+
+### Reproducible build with uv
+
+Use `xorq uv-build` for reproducible builds:
+
+```bash
+xorq uv-build train_model.py -e model_expr --builds-dir builds
+```
+
+This creates an isolated environment, packages dependencies, and builds a source distribution (sdist) for reproducibility.
+
+**Key points**:
+
+- `uv-build` creates sdist artifacts for reproducibility
+- Builds are identical across different machines
+- Dependencies are locked and packaged
+- Use for production deployments and team sharing
+
+## Configure uv for Xorq projects
+
+Set up uv to manage Python dependencies for your Xorq project.
+
+### Initialize uv project
+
+Create a `pyproject.toml` for your project:
+
+```toml
+[project]
+name = "my-xorq-pipeline"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "xorq",
+    "pandas",
+    "scikit-learn",
+]
+```
+
+**Key points**:
+
+- Define project dependencies in `pyproject.toml`
+- Specify Python version requirement
+- List all dependencies needed for your expressions
+
+### Lock dependencies
+
+Lock dependencies for reproducibility:
+
+```bash
+uv lock
+```
+
+This creates a `uv.lock` file with exact dependency versions.
+
+**Key points**:
+
+- Lock file ensures exact dependency versions
+- Commit lock file to version control
+- Recreate exact environment from lock file
+
+## Build reproducible artifacts
+
+Build expressions with `xorq uv-build` to create reproducible artifacts.
+
+### Build with uv-build
+
+Build your expression:
+
+```bash
+xorq uv-build train_model.py -e model_expr --builds-dir builds
+```
+
+This creates:
+- Build directory with expression artifacts
+- Source distribution (sdist) with dependencies
+- Reproducible environment configuration
+
+**Key points**:
+
+- Build artifacts include expression graph and dependencies
+- Sdist enables reproducible execution
+- Share build directory for identical results
+
+### Verify build artifacts
+
+Check build artifacts:
+
+```bash
+ls builds/<build_hash>/
+# expr.yaml
+# metadata.json
+# profiles.yaml
+# database_tables/
+# sdist.tar.gz
+```
+
+**Key points**:
+
+- `expr.yaml` contains expression graph
+- `metadata.json` contains build metadata
+- `sdist.tar.gz` contains packaged dependencies
+- `database_tables/` contains data artifacts
+
+## Promote environments
+
+Promote builds through environments (dev → staging → prod) using catalog aliases.
+
+### Build for development
+
+Build and tag for development:
+
+```bash
+# Build expression
+xorq uv-build train_model.py -e model_expr
+export BUILD_HASH=<hash_from_output>
+
+# Add to catalog with dev alias
+xorq catalog add builds/$BUILD_HASH --alias model-dev
+```
+
+### Promote to staging
+
+Promote build to staging:
+
+```bash
+# Test dev build, then promote
+xorq catalog add builds/$BUILD_HASH --alias model-staging
+```
+
+### Promote to production
+
+Promote build to production:
+
+```bash
+# After staging validation, promote to prod
+xorq catalog add builds/$BUILD_HASH --alias model-prod
+```
+
+**Key points**:
+
+- Use aliases to track environment promotions
+- Test in each environment before promotion
+- Keep previous versions for rollback
+- Document promotion process
+
+## Debug environment issues
+
+Troubleshoot environment and dependency issues.
+
+### Check build environment
+
+Verify build environment:
+
+```bash
+# Check Python version
+python --version
+
+# Check installed packages
+pip list
+
+# Check uv environment
+uv pip list
+```
+
+### Verify dependencies
+
+Check dependency resolution:
+
+```bash
+# Check lock file
+cat uv.lock
+
+# Verify dependencies match
+uv sync --dry-run
+```
+
+### Rebuild with clean environment
+
+Rebuild with clean environment:
+
+```bash
+# Remove existing build
+rm -rf builds/<build_hash>
+
+# Rebuild with uv-build
+xorq uv-build train_model.py -e model_expr
+```
+
+**Key points**:
+
+- Check Python version matches requirements
+- Verify all dependencies are installed
+- Rebuild if environment changes
+- Use clean builds for production
+
+## Integrate with CI/CD
+
+Set up CI/CD pipelines to automate reproducible builds.
+
+### GitHub Actions example
+
+Automate builds in CI:
+
+```yaml
+name: Build and Test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
+      - name: Install Xorq
+        run: uv pip install xorq
+      
+      - name: Build expression
+        run: |
+          xorq uv-build train_model.py -e model_expr --builds-dir builds
+          export BUILD_HASH=$(xorq uv-build train_model.py -e model_expr --builds-dir builds | tail -1)
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_ENV
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: builds/${{ env.BUILD_HASH }}
+```
+
+**Key points**:
+
+- Automate builds in CI/CD pipelines
+- Use consistent environment across CI and production
+- Upload build artifacts for deployment
+- Tag builds with version or commit hash
+
+### Build verification
+
+Verify builds in CI:
+
+```yaml
+- name: Verify build
+  run: |
+    # Test build can be loaded
+    xorq catalog add builds/$BUILD_HASH --alias test-build
+    
+    # Run verification tests
+    python verify_build.py builds/$BUILD_HASH
+```
+
+**Key points**:
+
+- Verify builds can be loaded
+- Run tests against built artifacts
+- Fail CI if build verification fails
+- Document verification process
+
+## Team workflow with uv builds
+
+Collaborate effectively with uv builds across your team.
+
+### Share builds
+
+Share build directories with team:
+
+```bash
+# Build expression
+xorq uv-build train_model.py -e model_expr
+export BUILD_HASH=<hash_from_output>
+
+# Share build directory
+tar -czf build-$BUILD_HASH.tar.gz builds/$BUILD_HASH/
+# Share tar.gz with team
+```
+
+**Key points**:
+
+- Build directories are portable
+- Share via version control, artifact storage, or file sharing
+- Team members get identical results
+- No need to rebuild on each machine
+
+### Version control
+
+Track builds in version control:
+
+```bash
+# Add build to git (optional, for small builds)
+git add builds/$BUILD_HASH/
+
+# Or track build hashes
+echo "$BUILD_HASH" >> .builds.txt
+git add .builds.txt
+```
+
+**Key points**:
+
+- Track build hashes in version control
+- Commit lock files for dependency reproducibility
+- Document build process in README
+- Use build hashes for deployment references
+
+## Troubleshooting
+
+When building reproducible environments, you may encounter dependency issues, build failures, or environment mismatches.
+
+### Issue: Dependency resolution fails
+
+**Error**: uv cannot resolve dependencies
+
+**Cause**: Conflicting dependencies or missing packages
+
+**Recovery**:
+
+1. Check `pyproject.toml`: verify dependency specifications
+2. Update lock file: run `uv lock` to regenerate
+3. Check Python version: ensure version matches requirements
+4. Review dependency conflicts: resolve version conflicts
+
+**Prevention**:
+
+- Keep `pyproject.toml` up to date
+- Regularly update lock file
+- Test dependency resolution locally
+- Document dependency requirements
+
+### Issue: Build fails in CI but works locally
+
+**Error**: Build succeeds locally but fails in CI
+
+**Cause**: Environment differences or missing dependencies
+
+**Recovery**:
+
+1. Check CI environment: verify Python version and packages
+2. Use uv-build: ensure consistent environment
+3. Check lock file: ensure lock file is committed
+4. Replicate CI locally: use same environment as CI
+
+**Prevention**:
+
+- Use uv-build for consistency
+- Commit lock files to version control
+- Test builds in CI-like environment
+- Document environment requirements
+
+### Issue: Build artifacts differ across machines
+
+**Error**: Same build produces different results
+
+**Cause**: Environment differences or non-deterministic builds
+
+**Recovery**:
+
+1. Use uv-build: ensure isolated environment
+2. Check dependencies: verify all dependencies are locked
+3. Rebuild clean: remove old build and rebuild
+4. Verify lock file: ensure lock file is used
+
+**Prevention**:
+
+- Always use uv-build for production
+- Lock all dependencies
+- Use consistent Python versions
+- Document build process
+
+## Next steps
+
+You now have techniques for building reproducible environments, including uv configuration, dependency locking, environment promotion, and CI/CD integration.
+
+- [Manage the compute catalog](manage_compute_catalog.qmd) - Organize and discover builds
+- [Set up CI/CD pipelines](setup_cicd_pipelines.qmd) - Automate builds and deployments
+- [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd) - Deploy reproducible builds

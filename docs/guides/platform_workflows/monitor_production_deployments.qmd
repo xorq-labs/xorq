@@ -2,21 +2,401 @@
 title: 'Monitor production deployments'
 ---
 
-## Coming soon
+Track system health and performance of your Xorq deployments using OpenTelemetry, Prometheus metrics, and distributed tracing. This guide shows you how to set up monitoring, track key metrics, configure alerting, and analyze performance.
 
-This guide will show you how to monitor Xorq deployments in production.
+**What you'll accomplish**: By following this guide, you'll set up comprehensive monitoring for production deployments, track metrics, configure alerts, create dashboards, and use distributed tracing to understand system behavior.
 
-You will learn how to track execution, detect issues, and maintain system health.
+Xorq integrates with OpenTelemetry for distributed tracing and provides Prometheus metrics for monitoring. This guide covers setting up these systems and using them effectively.
 
-**What you'll accomplish:**
-- Monitor pipeline execution
-- Track build usage via catalog
-- Set up alerting
-- Analyze system metrics
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
-- Production Xorq deployment
-- Monitoring infrastructure available
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions. You'll also need monitoring infrastructure (Prometheus, OpenTelemetry collector).
+:::
 
-Check back soon for the complete guide.
+## Prerequisites
 
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- Deployed Xorq services (see [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd))
+- Monitoring infrastructure (Prometheus, Grafana, or OpenTelemetry collector)
+
+## OpenTelemetry integration
+
+Xorq uses OpenTelemetry for distributed tracing and metrics.
+
+### Configure OpenTelemetry
+
+Set environment variables for OpenTelemetry:
+
+```bash
+export OTEL_SERVICE_NAME="xorq-flight-server"
+export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:4317"
+export OTEL_EXPORTER_OTLP_PROTOCOL="grpc"
+```
+
+Or use a `.env` file:
+
+```bash
+OTEL_SERVICE_NAME=xorq-flight-server
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
+OTEL_EXPORTER_OTLP_PROTOCOL=grpc
+```
+
+**Key points**:
+
+- Configure service name for identification
+- Set OTLP endpoint for trace export
+- Choose protocol (grpc or http/protobuf)
+- Environment variables configure OpenTelemetry automatically
+
+### Enable tracing
+
+Tracing is automatically enabled when OpenTelemetry is configured. Traces track request flow through your system.
+
+**Key points**:
+
+- Traces show request flow across services
+- Use for debugging and performance analysis
+- Configure trace sampling for production
+- Export traces to observability platform
+
+## Prometheus metrics
+
+Xorq Flight server provides Prometheus metrics for monitoring.
+
+### Enable Prometheus metrics
+
+Enable Prometheus metrics when starting server:
+
+```bash
+xorq serve-unbound model-prod \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --prometheus-port 9090 \
+  --to_unbind_tag source_input
+```
+
+Access metrics at `http://localhost:9090/metrics`.
+
+**Key points**:
+
+- Prometheus metrics require `opentelemetry-exporter-prometheus` and `prometheus-client`
+- Metrics exposed on separate port
+- Use Prometheus to scrape metrics
+- Set up Grafana dashboards for visualization
+
+### Key metrics to track
+
+Monitor these metrics for production:
+
+**Request metrics**:
+- `flight_server.requests_total`: Total Flight RPC requests
+- `flight_server.request_duration_seconds`: Request latency histogram
+- `flight_server.active_streams`: Active concurrent streams
+
+**Throughput metrics**:
+- `flight_server.bytes_total`: Total bytes transferred
+- `flight_server.rows_total`: Total rows processed
+- `flight_server.throughput_rows_per_sec`: Rows per second throughput
+
+**Key points**:
+
+- Track request rate and latency
+- Monitor throughput and data volume
+- Alert on high latency or error rates
+- Use metrics for capacity planning
+
+### Query metrics
+
+Query Prometheus metrics:
+
+```bash
+# Request rate
+curl http://localhost:9090/metrics | grep requests_total
+
+# Latency percentiles
+curl http://localhost:9090/metrics | grep request_duration_seconds
+
+# Active streams
+curl http://localhost:9090/metrics | grep active_streams
+```
+
+**Key points**:
+
+- Query metrics via HTTP endpoint
+- Use PromQL for advanced queries
+- Set up dashboards for visualization
+- Alert on metric thresholds
+
+## Set up alerting
+
+Configure alerts based on metrics to detect issues early.
+
+### Alert on high latency
+
+Alert when latency exceeds threshold:
+
+```yaml
+# Prometheus alert rule
+groups:
+  - name: xorq_alerts
+    rules:
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, flight_server_request_duration_seconds) > 1.0
+        for: 5m
+        annotations:
+          summary: "High latency detected"
+          description: "P95 latency is {{ $value }}s"
+```
+
+**Key points**:
+
+- Alert on latency percentiles (p95, p99)
+- Set appropriate thresholds
+- Use `for` clause to reduce noise
+- Configure alert notifications
+
+### Alert on error rate
+
+Alert when error rate is high:
+
+```yaml
+- alert: HighErrorRate
+  expr: rate(flight_server_requests_total{status="error"}[5m]) > 0.1
+  for: 5m
+  annotations:
+    summary: "High error rate"
+    description: "Error rate is {{ $value }}"
+```
+
+**Key points**:
+
+- Track error rate over time
+- Alert on sustained high error rates
+- Differentiate transient vs persistent errors
+- Configure escalation policies
+
+### Alert on low throughput
+
+Alert when throughput drops:
+
+```yaml
+- alert: LowThroughput
+  expr: flight_server_throughput_rows_per_sec < 100
+  for: 10m
+  annotations:
+    summary: "Low throughput detected"
+    description: "Throughput is {{ $value }} rows/sec"
+```
+
+**Key points**:
+
+- Monitor throughput for performance issues
+- Alert on sustained low throughput
+- Investigate root causes
+- Adjust thresholds based on workload
+
+## Create dashboards
+
+Build dashboards to visualize metrics and system health.
+
+### Grafana dashboard
+
+Create Grafana dashboard with key panels:
+
+**Request rate panel**:
+```promql
+rate(flight_server_requests_total[5m])
+```
+
+**Latency panel**:
+```promql
+histogram_quantile(0.95, flight_server_request_duration_seconds)
+```
+
+**Throughput panel**:
+```promql
+flight_server_throughput_rows_per_sec
+```
+
+**Key points**:
+
+- Create dashboards for different audiences (ops, dev, business)
+- Include key metrics and trends
+- Use appropriate time ranges
+- Share dashboards with team
+
+### System health dashboard
+
+Monitor overall system health:
+
+- Request rate trends
+- Latency percentiles (p50, p95, p99)
+- Error rate
+- Active connections
+- Throughput trends
+
+**Key points**:
+
+- Single pane of glass for system health
+- Quick identification of issues
+- Historical trends for capacity planning
+- Customize for your needs
+
+## Log aggregation
+
+Aggregate and analyze logs for troubleshooting.
+
+### Structured logging
+
+Use structured logging for better analysis:
+
+```python
+import logging
+
+logger = logging.getLogger("xorq")
+logger.info("Processing request", extra={
+    "request_id": request_id,
+    "method": method,
+    "duration": duration
+})
+```
+
+**Key points**:
+
+- Use structured logs for parsing
+- Include relevant context
+- Use appropriate log levels
+- Aggregate logs centrally
+
+### Log analysis
+
+Analyze logs for patterns:
+
+```bash
+# Find errors
+grep ERROR /var/log/xorq/server.log
+
+# Count requests by method
+grep "Processing request" /var/log/xorq/server.log | awk '{print $5}' | sort | uniq -c
+
+# Find slow requests
+grep "duration" /var/log/xorq/server.log | awk '$NF > 1.0'
+```
+
+**Key points**:
+
+- Use log aggregation tools (ELK, Loki, etc.)
+- Search and filter logs efficiently
+- Correlate logs with metrics
+- Set up log-based alerts
+
+## Distributed tracing
+
+Use distributed tracing to understand request flow.
+
+### View traces
+
+View traces in your observability platform:
+
+- Request spans across services
+- Timing information for each span
+- Error information
+- Service dependencies
+
+**Key points**:
+
+- Traces show end-to-end request flow
+- Identify bottlenecks in request path
+- Understand service dependencies
+- Debug complex issues
+
+### Trace analysis
+
+Analyze traces for performance:
+
+- Identify slow spans
+- Find common error patterns
+- Understand service interactions
+- Optimize based on trace data
+
+**Key points**:
+
+- Use trace analysis for optimization
+- Identify performance bottlenecks
+- Understand system behavior
+- Make data-driven improvements
+
+## Troubleshooting
+
+When monitoring production deployments, you may encounter missing metrics, alert noise, or performance issues.
+
+### Issue: Metrics not appearing
+
+**Error**: Prometheus metrics not available
+
+**Cause**: Metrics not enabled or Prometheus not scraping
+
+**Recovery**:
+
+1. Check metrics endpoint: verify `http://localhost:9090/metrics` accessible
+2. Verify Prometheus config: ensure Prometheus scraping endpoint
+3. Check dependencies: verify `opentelemetry-exporter-prometheus` installed
+4. Review server logs: check for metric initialization errors
+
+**Prevention**:
+
+- Enable metrics on all servers
+- Verify Prometheus configuration
+- Test metrics endpoint
+- Monitor metric availability
+
+### Issue: Too many alerts
+
+**Error**: Alert fatigue from too many notifications
+
+**Cause**: Alert thresholds too sensitive or too many alerts
+
+**Recovery**:
+
+1. Adjust thresholds: increase alert thresholds
+2. Add `for` clause: require sustained condition
+3. Reduce alert frequency: use alert grouping
+4. Review alert rules: remove unnecessary alerts
+
+**Prevention**:
+
+- Set appropriate alert thresholds
+- Use alert grouping and deduplication
+- Test alerts before production
+- Document alert rationale
+
+### Issue: High cardinality metrics
+
+**Error**: Too many unique metric labels
+
+**Cause**: High cardinality labels (e.g., request IDs)
+
+**Recovery**:
+
+1. Reduce label cardinality: remove high-cardinality labels
+2. Aggregate metrics: use summary/histogram metrics
+3. Limit label combinations: restrict label values
+4. Use sampling: sample high-cardinality metrics
+
+**Prevention**:
+
+- Design metrics with low cardinality
+- Avoid high-cardinality labels
+- Use appropriate metric types
+- Monitor metric cardinality
+
+## Next steps
+
+You now have techniques for monitoring production deployments, including OpenTelemetry integration, Prometheus metrics, alerting, dashboards, and distributed tracing.
+
+- [Handle production errors](handle_production_errors.qmd) - Handle errors gracefully
+- [Debug pipeline failures](debug_pipeline_failures.qmd) - Debug issues effectively
+- [Optimize model serving](../performance_workflows/optimize_model_serving.qmd) - Optimize performance
