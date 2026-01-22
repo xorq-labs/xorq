@@ -1,161 +1,22 @@
-import functools
+"""
+Bank Marketing Example
+
+Demonstrates using a standard sklearn Pipeline with xorq for deferred execution.
+"""
+
 from pathlib import Path
 
-import pandas as pd
-import xgboost as xgb
-from sklearn.base import (
-    BaseEstimator,
-)
-from sklearn.metrics import (
-    classification_report,
-    confusion_matrix,
-    roc_auc_score,
-)
-from sklearn.preprocessing import (
-    OneHotEncoder,
-)
+from sklearn.compose import ColumnTransformer
+from sklearn.ensemble import GradientBoostingClassifier
+from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+from sklearn.pipeline import Pipeline as SklearnPipeline
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 import xorq.api as xo
 import xorq.expr.selectors as s
-import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.caching import (
-    ParquetCache,
-)
+from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_csv
-from xorq.expr.ml import (
-    train_test_splits,
-)
-from xorq.expr.ml.fit_lib import (
-    transform_sklearn_feature_names_out,
-)
-from xorq.expr.ml.pipeline_lib import (
-    FittedPipeline,
-    Step,
-)
-from xorq.expr.ml.structer import (
-    ENCODED,
-)
-
-
-class OneHotStep(OneHotEncoder):
-    @functools.wraps(OneHotEncoder.transform)
-    def transform(self, *args, **kwargs):
-        transformed = transform_sklearn_feature_names_out(super(), *args, **kwargs)
-        return transformed
-
-    @classmethod
-    def get_step_kwargs(cls):
-        from xorq.expr.ml.fit_lib import transform_sklearn
-
-        kwargs = {
-            "other": transform_sklearn,
-            "target": None,
-            "return_type": dt.Array(dt.Struct({"key": str, "value": float})),
-            "name_infix": "transformed",
-        }
-        return kwargs
-
-
-class XGBoostModelExplodeEncoded(BaseEstimator):
-    def __init__(self, num_boost_round=10, params=None, encoded_col=ENCODED):
-        self.encoded_col = encoded_col
-        self.num_boost_round = num_boost_round
-        self.params = params or {
-            "max_depth": 4,
-            "eta": 1,
-            "objective": "binary:logistic",
-            "seed": 0,
-        }
-        self.model = None
-
-    return_type = dt.float64
-
-    def do_explode_encoded(self, X):
-        def explode_series(series):
-            (keys, values) = (
-                [tuple(dct[which] for dct in lst) for lst in series]
-                for which in ("key", "value")
-            )
-            (columns, *rest) = keys
-            assert all(el == columns for el in rest)
-            df = pd.DataFrame(
-                values,
-                index=series.index,
-                columns=columns,
-            )
-            return df
-
-        X = X.drop(columns=self.encoded_col).join(explode_series(X[self.encoded_col]))
-        return X
-
-    def make_dmatrix(self, X, y=None):
-        X = self.do_explode_encoded(X)
-        dmatrix = xgb.DMatrix(X, y)
-        return dmatrix
-
-    def fit(self, X, y):
-        dtrain = self.make_dmatrix(X, y)
-        self.model = xgb.train(
-            self.params, dtrain, num_boost_round=self.num_boost_round
-        )
-        print("fitting")
-        return self
-
-    def predict(self, X):
-        dmatrix = self.make_dmatrix(X)
-        return self.model.predict(dmatrix)
-
-
-one_hot_step = Step(
-    OneHotStep,
-    "one_hot_step",
-    params_tuple=(("handle_unknown", "ignore"), ("drop", "first")),
-)
-xgbee_step = Step(
-    XGBoostModelExplodeEncoded,
-    name="xgbee_step",
-    params_tuple=(("encoded_col", ENCODED),),
-)
-
-
-def make_pipeline(dataset_name, target_column, predicted_col, con=None, cache=None):
-    con = con or xo.connect()
-    expr = deferred_read_csv(
-        path=xo.options.pins.get_path(dataset_name),
-        con=con,
-    ).mutate(
-        **{
-            target_column: (xo._[target_column] == "yes").cast("int"),
-        }
-    )
-    train_table, test_table = expr.pipe(
-        train_test_splits,
-        test_sizes=[0.5, 0.5],
-        num_buckets=2,
-        random_seed=42,
-    )
-    pattern = f"^(?!{target_column}$)"
-    numeric_features = tuple(
-        train_table.select(s.all_of(s.numeric(), s.matches(pattern))).columns
-    )
-    fitted_one_hot_step = one_hot_step.fit(
-        train_table,
-        features=train_table.select(s.of_type(str)).columns,
-        dest_col=ENCODED,
-        cache=cache,
-    )
-    fitted_xgbee_step = xgbee_step.fit(
-        expr=train_table.mutate(fitted_one_hot_step.mutate),
-        features=numeric_features + (ENCODED,),
-        target=target_column,
-        dest_col=predicted_col,
-        cache=cache,
-    )
-    fitted_pipeline = FittedPipeline(
-        (fitted_one_hot_step, fitted_xgbee_step),
-        train_table,
-    )
-    return (train_table, test_table, fitted_pipeline)
+from xorq.expr.ml import train_test_splits
 
 
 con = xo.connect()
@@ -164,31 +25,60 @@ cache = ParquetCache.from_kwargs(
     relative_path="./tmp-cache",
     base_path=Path(".").absolute(),
 )
-(dataset_name, target_column, predicted_col) = (
-    "bank-marketing",
-    "deposit",
-    "predicted",
+
+target_column = "deposit"
+predicted_col = "predicted"
+
+expr = deferred_read_csv(
+    path=xo.options.pins.get_path("bank-marketing"),
+    con=con,
+).mutate(**{target_column: (xo._[target_column] == "yes").cast("int")})
+
+train_table, test_table = expr.pipe(
+    train_test_splits,
+    test_sizes=[0.5, 0.5],
+    num_buckets=2,
+    random_seed=42,
 )
-train_table, test_table, fitted_pipeline = make_pipeline(
-    dataset_name, target_column, predicted_col, con=con, cache=cache
+
+string_features = list(train_table.select(s.of_type(str)).columns)
+numeric_features = list(
+    train_table.select(
+        s.all_of(s.numeric(), s.matches(f"^(?!{target_column}$)"))
+    ).columns
 )
-encoded_test = fitted_pipeline.transform(test_table)
+
+sklearn_pipeline = SklearnPipeline([
+    ("preprocessor", ColumnTransformer([
+        ("num", StandardScaler(), numeric_features),
+        ("cat", OneHotEncoder(handle_unknown="ignore", sparse_output=False), string_features),
+    ])),
+    ("classifier", GradientBoostingClassifier(n_estimators=50, max_depth=4, random_state=42)),
+])
+
+pipeline = xo.Pipeline.from_instance(sklearn_pipeline)
+fitted_pipeline = pipeline.fit(
+    train_table,
+    features=tuple(numeric_features + string_features),
+    target=target_column,
+    cache=cache,
+)
+
 predicted_test = fitted_pipeline.predict(test_table)
 
 
 if __name__ == "__pytest_main__":
     predictions_df = predicted_test.execute()
-    binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
+    binary_predictions = predictions_df[predicted_col]
 
-    cm = confusion_matrix(
-        predictions_df[target_column],
-        binary_predictions,
-    )
+    cm = confusion_matrix(predictions_df[target_column], binary_predictions)
     print("\nConfusion Matrix:")
     print(f"TN: {cm[0, 0]}, FP: {cm[0, 1]}")
     print(f"FN: {cm[1, 0]}, TP: {cm[1, 1]}")
 
-    auc = roc_auc_score(predictions_df[target_column], predictions_df[predicted_col])
+    proba_df = fitted_pipeline.predict_proba(test_table).execute()
+    proba_class_1 = [row[1]["value"] for row in proba_df["proba"]]
+    auc = roc_auc_score(predictions_df[target_column], proba_class_1)
     print(f"\nAUC Score: {auc:.4f}")
 
     print("\nClassification Report:")

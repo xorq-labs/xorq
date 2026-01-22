@@ -1,21 +1,12 @@
-import functools
 import pickle
 
 import dask
+import pyarrow as pa
 import toolz
-from attr import (
-    field,
-    frozen,
-)
-from attr.validators import (
-    deep_iterable,
-    instance_of,
-    optional,
-)
+from attr import field, frozen
+from attr.validators import deep_iterable, instance_of, optional
 from dask.utils import Dispatch
-from toolz.curried import (
-    excepts as cexcepts,
-)
+from toolz.curried import excepts as cexcepts
 
 import xorq.expr.datatypes as dt
 from xorq.backends.xorq import connect
@@ -25,21 +16,64 @@ from xorq.caching import (
     ParquetTTLSnapshotCache,
     SourceCache,
 )
-from xorq.common.utils.dask_normalize.dask_normalize_utils import (
-    normalize_attrs,
-)
-from xorq.common.utils.func_utils import (
-    return_constant,
-)
+from xorq.common.utils.dask_normalize.dask_normalize_utils import normalize_attrs
+from xorq.common.utils.func_utils import return_constant
 from xorq.expr.ml.fit_lib import (
-    decision_function_sklearn,
-    feature_importances_sklearn,
-    predict_proba_sklearn,
+    deferred_fit_predict_only_sklearn,
+    deferred_fit_predict_sklearn,
+    deferred_fit_transform_only_sklearn_packed,
+    deferred_fit_transform_series_sklearn,
+    deferred_fit_transform_sklearn_packed,
+    deferred_fit_transform_sklearn_struct,
 )
-from xorq.expr.ml.structer import (
-    Structer,
-)
+from xorq.expr.ml.structer import Structer, structer_from_instance
 from xorq.vendor.ibis.expr.types.core import Expr
+
+
+def has_structer_registration(instance, expr, features):
+    """Check if an sklearn instance has a Structer registration."""
+    try:
+        structer_from_instance(instance, expr, features=features)
+        return True
+    except ValueError:
+        return False
+
+
+def is_fit_transform_only(typ):
+    """Check if an estimator type only supports fit_transform (not separate transform)."""
+    fit_transform_only_types = {
+        "TSNE",
+        "MDS",
+        "SpectralEmbedding",
+        "Isomap",
+        "LocallyLinearEmbedding",
+    }
+    return typ.__name__ in fit_transform_only_types
+
+
+def is_fit_predict_only(typ):
+    """Check if an estimator type only supports fit_predict (not separate predict)."""
+    fit_predict_only_types = {
+        "DBSCAN",
+        "OPTICS",
+        "HDBSCAN",
+        "AgglomerativeClustering",
+        "SpectralClustering",
+        "Birch",
+        "AffinityPropagation",
+        "MeanShift",
+    }
+    return typ.__name__ in fit_predict_only_types
+
+
+def _is_cluster_mixin(typ):
+    """Check if an estimator type inherits from ClusterMixin."""
+    try:
+        from sklearn.base import ClusterMixin
+
+        return issubclass(typ, ClusterMixin)
+    except (ImportError, TypeError):
+        return False
 
 
 def do_into_backend(expr, con=None):
@@ -93,61 +127,7 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
 
 @frozen
 class Step:
-    """
-    A single step in a machine learning pipeline that wraps a scikit-learn estimator.
-
-    This class represents an individual processing step that can either transform data
-    (transformers like StandardScaler, SelectKBest) or make predictions (classifiers
-    like KNeighborsClassifier, LinearSVC). Steps can be combined into Pipeline objects
-    to create complex ML workflows.
-
-    Parameters
-    ----------
-    typ : type
-        The scikit-learn estimator class (must inherit from BaseEstimator).
-    name : str, optional
-        A unique name for this step. If None, generates a name from the class name and ID.
-    params_tuple : tuple, optional
-        Tuple of (parameter_name, parameter_value) pairs for the estimator.
-        Parameters are automatically sorted for consistency.
-
-    Attributes
-    ----------
-    typ : type
-        The scikit-learn estimator class.
-    name : str
-        The unique name for this step in the pipeline.
-    params_tuple : tuple
-        Sorted tuple of parameter key-value pairs.
-
-    Examples
-    --------
-    Create a scaler step:
-
-    >>> from xorq.ml import Step
-    >>> from sklearn.preprocessing import StandardScaler
-    >>> scaler_step = Step(typ=StandardScaler, name="scaler")
-    >>> scaler_step.instance
-    StandardScaler()
-
-    Create a classifier step with parameters:
-
-    >>> from sklearn.neighbors import KNeighborsClassifier
-    >>> knn_step = Step(
-    ...     typ=KNeighborsClassifier,
-    ...     name="knn",
-    ...     params_tuple=(("n_neighbors", 5), ("weights", "uniform"))
-    ... )
-    >>> knn_step.instance
-    KNeighborsClassifier(n_neighbors=5)
-
-    Notes
-    -----
-    - The Step class is frozen (immutable) using attrs.
-    - All estimators must inherit from sklearn.base.BaseEstimator.
-    - Parameter tuples are automatically sorted for hash consistency.
-    - Steps can be fitted to data using the fit() method which returns a FittedStep.
-    """
+    """A single step in a machine learning pipeline that wraps a scikit-learn estimator."""
 
     typ = field(validator=instance_of(type))
     name = field(validator=optional(instance_of(str)), default=None)
@@ -159,51 +139,30 @@ class Step:
         assert BaseEstimator in self.typ.mro()
         if self.name is None:
             object.__setattr__(self, "name", f"{self.typ.__name__.lower()}_{id(self)}")
-        # param order invariant
         object.__setattr__(self, "params_tuple", tuple(sorted(self.params_tuple)))
 
     @property
     def tag_kwargs(self):
-        return {name: getattr(self, name) for name in ("typ", "name", "params_tuple")}
+        def make_hashable(v):
+            if isinstance(v, list):
+                return tuple(make_hashable(x) for x in v)
+            elif isinstance(v, dict):
+                return tuple(sorted((k, make_hashable(val)) for k, val in v.items()))
+            elif isinstance(v, tuple):
+                return tuple(make_hashable(x) for x in v)
+            return v
+
+        params_hashable = make_hashable(self.params_tuple)
+        return {"typ": self.typ, "name": self.name, "params_tuple": params_hashable}
 
     @property
     def instance(self):
-        """
-        Create an instance of the estimator with the configured parameters.
-
-        Returns
-        -------
-        object
-            An instantiated scikit-learn estimator.
-        """
-
         return self.typ(**dict(self.params_tuple))
 
+    def to_sklearn(self):
+        return self.instance
+
     def fit(self, expr, features=None, target=None, cache=None, dest_col=None):
-        """
-        Fit this step to the given expression data.
-
-        Parameters
-        ----------
-        expr : Expr
-            The xorq expression containing the training data.
-        features : tuple of str, optional
-            Column names to use as features. If None, infers from expr.columns.
-        target : str, optional
-            Target column name. Required for prediction steps.
-        cache : Cache, optional
-            Storage backend for caching fitted models.
-        dest_col : str, optional
-            Destination column name for transformed output.
-
-        Returns
-        -------
-        FittedStep
-            A fitted step that can transform or predict on new data.
-        """
-
-        # how does ColumnTransformer interact with features/target?
-        # features = features or self.features or tuple(expr.columns)
         features = features or tuple(expr.columns)
         return FittedStep(
             step=self,
@@ -215,94 +174,51 @@ class Step:
         )
 
     def set_params(self, **kwargs):
-        """
-        Create a new Step with updated parameters.
-
-        Parameters
-        ----------
-        **kwargs
-            Parameter names and values to update.
-
-        Returns
-        -------
-        Step
-            A new Step instance with updated parameters.
-
-        Examples
-        --------
-        >>> knn_step = Step(typ=KNeighborsClassifier, name="knn")
-        >>> updated_step = knn_step.set_params(n_neighbors=10, weights="distance")
-        """
-        return self.__class__.from_instance_name(
+        return self.__class__._from_instance_name(
             self.instance.set_params(**kwargs),
             name=self.name,
         )
 
     @classmethod
-    def from_instance_name(cls, instance, name=None, deep=False):
-        """
-        Create a Step from an existing scikit-learn estimator instance.
-
-        Parameters
-        ----------
-        instance : object
-            A scikit-learn estimator instance.
-        name : str, optional
-            Name for the step. If None, generates from instance class name.
-
-        Returns
-        -------
-        Step
-            A new Step wrapping the estimator instance.
-        """
-        params_tuple = tuple(instance.get_params(deep=deep).items())
-        return cls(typ=instance.__class__, name=name, params_tuple=params_tuple)
+    def from_instance(cls, instance, name=None, deep=False, allow_unregistered=False):
+        return cls._from_instance_name(
+            instance, name=name, deep=deep, allow_unregistered=allow_unregistered
+        )
 
     @classmethod
-    def from_name_instance(cls, name, instance, deep=False):
-        """
-        Create a Step from a name and estimator instance.
+    def _from_instance_name(
+        cls, instance, name=None, deep=False, allow_unregistered=False
+    ):
+        typ = instance.__class__
 
-        Parameters
-        ----------
-        name : str
-            Name for the step.
-        instance : object
-            A scikit-learn estimator instance.
+        if not allow_unregistered:
+            is_predictor = hasattr(instance, "predict") and not hasattr(
+                instance, "transform"
+            )
+            is_transductive = is_fit_transform_only(typ) or is_fit_predict_only(typ)
+            is_clusterer = _is_cluster_mixin(typ)
 
-        Returns
-        -------
-        Step
-            A new Step wrapping the estimator instance.
-        """
-        return cls.from_instance_name(instance, name, deep=deep)
+            if not (is_predictor or is_transductive or is_clusterer):
+                dispatch_func = structer_from_instance.dispatch(typ)
+                if dispatch_func is structer_from_instance.dispatch(object):
+                    raise ValueError(
+                        f"No Structer registration for {typ.__name__}. "
+                        f"Use allow_unregistered=True to wrap unregistered estimators."
+                    )
+
+        params_tuple = tuple(instance.get_params(deep=deep).items())
+        return cls(typ=typ, name=name, params_tuple=params_tuple)
+
+    @classmethod
+    def _from_name_instance(cls, name, instance, deep=False, allow_unregistered=False):
+        return cls._from_instance_name(
+            instance, name, deep=deep, allow_unregistered=allow_unregistered
+        )
 
     @classmethod
     def from_fit_transform(
         cls, fit, transform, return_type, klass_name=None, name=None
     ):
-        """
-        Create a Step from custom fit and transform functions.
-
-        Parameters
-        ----------
-        fit : callable
-            Function to fit the model.
-        transform : callable
-            Function to transform with.
-        return_type : DataType
-            The return type for the transformation.
-        klass_name : str, optional
-            Name for the generated estimator class.
-        name : str, optional
-            Name for the step.
-
-        Returns
-        -------
-        Step
-            A new Step with a dynamically created transform type.
-        """
-
         typ = make_estimator_typ(
             fit=fit, transform=transform, return_type=return_type, name=klass_name
         )
@@ -310,28 +226,6 @@ class Step:
 
     @classmethod
     def from_fit_predict(cls, fit, predict, return_type, klass_name=None, name=None):
-        """
-        Create a Step from custom fit and predict functions.
-
-        Parameters
-        ----------
-        fit : callable
-            Function to fit the model.
-        predict : callable
-            Function to make predictions.
-        return_type : DataType
-            The return type for predictions.
-        klass_name : str, optional
-            Name for the generated estimator class.
-        name : str, optional
-            Name for the step.
-
-        Returns
-        -------
-        Step
-            A new Step with a dynamically created estimator type.
-        """
-
         typ = make_estimator_typ(
             fit=fit, predict=predict, return_type=return_type, name=klass_name
         )
@@ -364,95 +258,171 @@ class FittedStep:
         default=None,
     )
     dest_col = field(validator=optional(instance_of(str)), default=None)
+    _pieces_cache = field(default=None, init=False, eq=False, hash=False, repr=False)
 
     def __attrs_post_init__(self):
-        # we are either transform or predict
         assert self.is_transform ^ self.is_predict
-        # if we are predict, we must have target
         if self.target is None and self.is_predict:
-            raise ValueError("Can't infer target")
-        # we can do very simple feature inference
+            if not is_fit_predict_only(self.step.typ) and not _is_cluster_mixin(
+                self.step.typ
+            ):
+                raise ValueError("Can't infer target")
         if self.features is None:
             features = tuple(col for col in self.expr.columns if col != self.target)
             object.__setattr__(self, "features", features)
-        # we should now have everything fixed
 
     @property
     def is_transform(self):
-        return hasattr(self.step.typ, "transform")
+        if self.step.typ.__name__ == "Pipeline":
+            instance = self.step.instance
+            if hasattr(instance, "steps") and len(instance.steps) > 0:
+                final_step = instance.steps[-1][1]
+                if hasattr(final_step, "predict") and hasattr(final_step, "fit"):
+                    return False
+            return True
+
+        has_transform = hasattr(self.step.typ, "transform")
+        has_predict = hasattr(self.step.typ, "predict")
+        if is_fit_transform_only(self.step.typ):
+            return True
+        if is_fit_predict_only(self.step.typ):
+            return False
+        if has_transform and has_predict:
+            return False
+        return has_transform
 
     @property
     def is_predict(self):
-        return hasattr(self.step.typ, "predict")
+        if self.step.typ.__name__ == "Pipeline":
+            instance = self.step.instance
+            if hasattr(instance, "steps") and len(instance.steps) > 0:
+                final_step = instance.steps[-1][1]
+                if hasattr(final_step, "predict") and hasattr(final_step, "fit"):
+                    return True
+            return False
+
+        return hasattr(self.step.typ, "predict") or is_fit_predict_only(self.step.typ)
 
     @property
-    @functools.cache
-    def _deferred_fit_other(self):
-        from xorq.expr.ml.fit_lib import DeferredFitOther
+    def is_fit_transform_only(self):
+        return is_fit_transform_only(self.step.typ)
 
-        _deferred_fit_other = DeferredFitOther.from_fitted_step(self)
-        return _deferred_fit_other
+    @property
+    def is_fit_predict_only(self):
+        return is_fit_predict_only(self.step.typ)
+
+    @property
+    def is_transductive(self):
+        return self.is_fit_transform_only or self.is_fit_predict_only
+
+    @property
+    def _pieces(self):
+        if self._pieces_cache is not None:
+            return self._pieces_cache
+
+        kwargs = {
+            "expr": self.expr,
+            "features": self.features,
+            "cls": self.step.typ,
+            "params": self.step.params_tuple,
+            "cache": self.cache,
+        }
+        deferred_transform, deferred_predict = None, None
+
+        if self.is_transform:
+            match self.step.typ:
+                case type(__name__="Pipeline"):
+                    f = deferred_fit_transform_sklearn_packed
+                    instance = self.step.instance
+                    if hasattr(instance, "steps"):
+                        for step_name, step in instance.steps:
+                            if step.__class__.__name__ in [
+                                "SelectKBest",
+                                "SelectPercentile",
+                                "SelectFpr",
+                                "SelectFdr",
+                                "SelectFwe",
+                                "RFE",
+                                "RFECV",
+                            ]:
+                                kwargs = kwargs | {"target": self.target}
+                                break
+                case type(__name__="TfidfVectorizer"):
+                    f = deferred_fit_transform_series_sklearn
+                    (col,) = kwargs.pop("features")
+                    kwargs = kwargs | {
+                        "col": col,
+                        "return_type": dt.Array(dt.float64),
+                    }
+                case type(__name__="SelectKBest"):
+                    f = deferred_fit_transform_sklearn_struct
+                    kwargs = kwargs | {"target": self.target}
+                case typ:
+                    if get_step_f_kwargs := getattr(typ, "get_step_f_kwargs", None):
+                        f, kwargs = get_step_f_kwargs(kwargs)
+                    elif is_fit_transform_only(typ):
+                        f = deferred_fit_transform_only_sklearn_packed
+                    elif has_structer_registration(
+                        self.step.instance, self.expr, self.features
+                    ):
+                        structer = Structer.from_instance_expr(
+                            self.step.instance, self.expr, features=self.features
+                        )
+                        if structer.is_kv_encoded:
+                            f = deferred_fit_transform_sklearn_packed
+                        else:
+                            f = deferred_fit_transform_sklearn_struct
+                    else:
+                        f = deferred_fit_transform_sklearn_packed
+            deferred_model, model_udf, deferred_transform = f(**kwargs)
+        elif self.is_predict:
+            if is_fit_predict_only(self.step.typ):
+                deferred_model, model_udf, deferred_predict = (
+                    deferred_fit_predict_only_sklearn(**kwargs)
+                )
+            else:
+                predict_kwargs = {
+                    "target": self.target,
+                    "return_type": get_predict_return_type(
+                        instance=self.step.instance,
+                        step=self.step,
+                        expr=self.expr,
+                        features=self.features,
+                        target=self.target,
+                    ),
+                }
+                deferred_model, model_udf, deferred_predict = deferred_fit_predict_sklearn(
+                    **kwargs, **predict_kwargs
+                )
+        else:
+            raise ValueError
+
+        result = {
+            "deferred_model": deferred_model,
+            "model_udf": model_udf,
+            "deferred_transform": deferred_transform,
+            "deferred_predict": deferred_predict,
+        }
+        object.__setattr__(self, "_pieces_cache", result)
+        return result
 
     @property
     def deferred_model(self):
-        return self._deferred_fit_other.deferred_model
+        return self._pieces["deferred_model"]
 
     @property
     def model_udf(self):
-        return self._deferred_fit_other.deferred_other
+        return self._pieces["model_udf"]
 
     @property
     def deferred_transform(self):
-        if self.is_transform:
-            return self._deferred_fit_other.deferred_other
-        else:
-            return None
+        return self._pieces["deferred_transform"]
 
     @property
     def deferred_predict(self):
-        if self.is_predict:
-            return self._deferred_fit_other.deferred_other
-        else:
-            return None
+        return self._pieces["deferred_predict"]
 
     @property
-    def deferred_predict_proba(self):
-        (attrname, fn) = ("predict_proba", predict_proba_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
-                fn=fn,
-                return_type=dt.Array(dt.float64),
-                name_infix=attrname.rstrip("_"),
-            )
-        else:
-            return None
-
-    @property
-    def deferred_decision_function(self):
-        (attrname, fn) = ("decision_function", decision_function_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
-                fn=fn,
-                return_type=dt.Array(dt.float64),
-                name_infix=attrname.rstrip("_"),
-            )
-        else:
-            return None
-
-    @property
-    def deferred_feature_importances(self):
-        (attrname, fn) = ("feature_importances_", feature_importances_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
-                fn=fn,
-                return_type=dt.Array(dt.float64),
-                name_infix=attrname.rstrip("_"),
-            )
-        else:
-            return None
-
-    @property
-    @functools.cache
     def model(self):
         import pandas as pd
 
@@ -465,8 +435,10 @@ class FittedStep:
                 raise ValueError
         return pickle.loads(obj)
 
+    def to_sklearn(self):
+        return self.model
+
     @property
-    @functools.cache
     @cexcepts(ValueError)
     def structer(self):
         return Structer.from_instance_expr(
@@ -474,8 +446,7 @@ class FittedStep:
         )
 
     def get_others(self, expr):
-        others = tuple(other for other in expr.columns if other not in self.features)
-        return others
+        return tuple(other for other in expr.columns if other not in self.features)
 
     def transform_unpack(self, expr, retain_others=True, name="to_unpack"):
         struct_col = self.transform_raw(expr).name(name)
@@ -486,24 +457,25 @@ class FittedStep:
         return expr.unpack(name)
 
     def transform_raw(self, expr, name=None):
-        # when you use expr.mutate, you want transform_raw
-        transformed = self.deferred_transform.on_expr(expr).name(
+        return self.deferred_transform.on_expr(expr).name(
             name or self.dest_col or "transformed"
         )
-        return transformed
 
     @property
     def tag_kwargs(self):
         return {
-            "tag": "FittedStep-transform"
-            if self.is_transform
-            else "FittedStep-predict",
+            "tag": "FittedStep-transform" if self.is_transform else "FittedStep-predict",
             **self.step.tag_kwargs,
             "features": self.features,
         }
 
     def transform(self, expr, retain_others=True):
-        if self.structer is None:
+        if self.is_fit_transform_only:
+            raise TypeError(
+                f"{self.step.typ.__name__} is a transductive estimator that only supports "
+                f"fit_transform(). It cannot transform new data."
+            )
+        if self.structer is None or self.structer.is_kv_encoded:
             col = self.transform_raw(expr)
             if retain_others and (others := self.get_others(expr)):
                 expr = expr.select(*others, col)
@@ -511,19 +483,21 @@ class FittedStep:
                 return col
         else:
             expr = self.transform_unpack(expr, retain_others=retain_others)
-        return expr.tag(
-            **self.tag_kwargs,
-        )
+        return expr.tag(**self.tag_kwargs)
 
     @property
     def transformed(self):
         return self.transform(self.expr)
 
     def predict_raw(self, expr, name=None):
-        col = self.deferred_predict.on_expr(expr).name(
+        if self.is_fit_predict_only:
+            raise TypeError(
+                f"{self.step.typ.__name__} is a transductive clusterer that only supports "
+                f"fit_predict(). It cannot predict on new data."
+            )
+        return self.deferred_predict.on_expr(expr).name(
             name or self.dest_col or "predicted"
         )
-        return col
 
     def predict(self, expr, retain_others=True, name=None):
         col = self.predict_raw(expr, name=name)
@@ -531,9 +505,7 @@ class FittedStep:
             expr = expr.select(*others, col)
         else:
             expr = col.as_table()
-        return expr.tag(
-            **self.tag_kwargs,
-        )
+        return expr.tag(**self.tag_kwargs)
 
     def mutate(self, expr, name=None):
         if self.is_predict:
@@ -547,199 +519,130 @@ class FittedStep:
     def predicted(self):
         return self.predict(self.expr)
 
-    @toolz.curry
-    def invoke_method_raw(self, expr, name=None, *, methodname):
-        if not (method := getattr(self, f"deferred_{methodname}", None)):
-            raise AttributeError(
-                f"'{self.step.typ.__name__}' object has no attribute '{methodname}'"
-            )
-        return method.on_expr(expr).name(name or methodname)
+    def _make_proba_udf(self, method_name):
+        from xorq.expr.ml.fit_lib import (
+            _maybe_decode_encoded_columns,
+            decision_function_sklearn_packed,
+            predict_proba_sklearn_packed,
+        )
+        from xorq.expr.ml.structer import KV_ENCODED_TYPE, get_kv_encoded_cols
+        from xorq.expr.udf import make_pandas_expr_udf
 
-    @toolz.curry
-    def invoke_method(self, expr, retain_others=True, name=None, *, methodname):
-        col = self.invoke_method_raw(expr=expr, name=name, methodname=methodname)
-        if retain_others and (others := self.get_others(expr)):
-            expr = expr.select(*others, col)
+        if method_name == "predict_proba":
+            base_fn = predict_proba_sklearn_packed
+        elif method_name == "decision_function":
+            base_fn = decision_function_sklearn_packed
         else:
-            expr = col.as_table()
+            raise ValueError(f"Unknown method: {method_name}")
 
-        return expr.tag(**self.tag_kwargs)
+        encoded_cols = get_kv_encoded_cols(self.expr, self.features)
 
-    predict_proba_raw = invoke_method_raw(
-        methodname="predict_proba", name="predicted_proba"
-    )
-
-    predict_proba = invoke_method(methodname="predict_proba", name="predicted_proba")
-
-    decision_function_raw = invoke_method_raw(methodname="decision_function")
-
-    decision_function = invoke_method(methodname="decision_function")
-
-    feature_importances_raw = invoke_method_raw(methodname="feature_importances")
-
-    def feature_importances(self, expr=None, name=None):
-        import xorq.api as xo
+        @toolz.curry
+        def fn_with_decoding(model, df, base_fn, features, encoded_cols):
+            df_decoded, features_decoded = _maybe_decode_encoded_columns(
+                df, features, encoded_cols
+            )
+            return pa.array(
+                base_fn(model, df_decoded[list(features_decoded)]),
+                type=KV_ENCODED_TYPE.to_pyarrow(),
+            )
 
         schema = self.expr.select(self.features).schema()
-        empty_table = xo.memtable(
-            [{name: None for name in schema.names}], schema=schema
+        return make_pandas_expr_udf(
+            computed_kwargs_expr=self.deferred_model,
+            fn=fn_with_decoding(
+                base_fn=base_fn,
+                features=self.features,
+                encoded_cols=encoded_cols,
+            ),
+            schema=schema,
+            return_type=KV_ENCODED_TYPE,
+            name=f"_{method_name}_{self.step.name}",
         )
-        col = self.feature_importances_raw(empty_table, name)
-        return col.as_table().tag(**self.tag_kwargs)
+
+    def predict_proba_raw(self, expr, name=None):
+        if not hasattr(self.step.typ, "predict_proba"):
+            raise AttributeError(
+                f"{self.step.typ.__name__} does not have predict_proba method"
+            )
+        udf = self._make_proba_udf("predict_proba")
+        return udf.on_expr(expr).name(name or "proba")
+
+    def predict_proba(self, expr, retain_others=True, name=None):
+        col = self.predict_proba_raw(expr, name=name)
+        if retain_others:
+            others = self.get_others(expr)
+            if others:
+                expr = expr.select(*others, col)
+            else:
+                expr = col.as_table()
+        else:
+            expr = col.as_table()
+        return expr.tag(**self.tag_kwargs)
+
+    def decision_function_raw(self, expr, name=None):
+        if not hasattr(self.step.typ, "decision_function"):
+            raise AttributeError(
+                f"{self.step.typ.__name__} does not have decision_function method"
+            )
+        udf = self._make_proba_udf("decision_function")
+        return udf.on_expr(expr).name(name or "decision")
+
+    def decision_function(self, expr, retain_others=True, name=None):
+        col = self.decision_function_raw(expr, name=name)
+        if retain_others:
+            others = self.get_others(expr)
+            if others:
+                expr = expr.select(*others, col)
+            else:
+                expr = col.as_table()
+        else:
+            expr = col.as_table()
+        return expr.tag(**self.tag_kwargs)
+
+
+def _validate_pipeline_step(instance, attribute, value):
+    for step in value:
+        if not isinstance(step, Step):
+            raise TypeError(f"Pipeline steps must be Step, got {type(step).__name__}")
 
 
 @frozen
 class Pipeline:
-    """
-    A machine learning pipeline that chains multiple processing steps together.
+    """A machine learning pipeline that chains multiple processing steps together."""
 
-    This class provides a xorq-native implementation that wraps scikit-learn pipelines,
-    enabling deferred execution and integration with xorq expressions. The pipeline
-    can contain both transform steps (data preprocessing) and a final prediction step.
-
-    Parameters
-    ----------
-    steps : tuple of Step
-        Sequence of Step objects that make up the pipeline.
-
-    Attributes
-    ----------
-    steps : tuple of Step
-        The sequence of processing steps.
-    instance : sklearn.pipeline.Pipeline
-        The equivalent scikit-learn Pipeline instance.
-    transform_steps : tuple of Step
-        All steps except the final prediction step (if any).
-    predict_step : Step or None
-        The final step if it has a predict method, otherwise None.
-
-    Examples
-    --------
-    Create a pipeline from scikit-learn estimators:
-
-    >>> from xorq.ml import Pipeline
-    >>> from sklearn.preprocessing import StandardScaler
-    >>> from sklearn.neighbors import KNeighborsClassifier
-    >>> import sklearn.pipeline
-    >>>
-    >>> sklearn_pipeline = sklearn.pipeline.Pipeline([
-    ...     ("scaler", StandardScaler()),
-    ...     ("knn", KNeighborsClassifier(n_neighbors=5))
-    ... ])
-    >>> xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-
-    Fit and predict with xorq expressions:
-
-    >>> # Assuming train and test are xorq expressions
-    >>> fitted = xorq_pipeline.fit(train, features=("feature1", "feature2"), target="target")  # quartodoc: +SKIP
-    >>> predictions = fitted.predict(test)  # quartodoc: +SKIP
-
-    Update pipeline parameters:
-
-    >>> updated_pipeline = xorq_pipeline.set_params(knn__n_neighbors=10)  # quartodoc: +SKIP
-
-    Notes
-    -----
-    - The Pipeline class is frozen (immutable) using attrs.
-    - Pipelines automatically detect transform vs predict steps based on method availability.
-    - The fit() method returns a FittedPipeline that can transform and predict on new data.
-    - Parameter updates use sklearn's parameter naming convention (step__parameter).
-    """
-
-    steps = field(
-        validator=deep_iterable(instance_of(Step), instance_of(tuple)),
-        converter=tuple,
-    )
+    steps = field(validator=_validate_pipeline_step, converter=tuple)
 
     def __attrs_post_init__(self):
         assert self.steps
 
     @property
     def instance(self):
-        """
-        Create an equivalent scikit-learn Pipeline instance.
-
-        Returns
-        -------
-        sklearn.pipeline.Pipeline
-            A scikit-learn pipeline with the same steps and parameters.
-        """
-
         import sklearn
 
         return sklearn.pipeline.Pipeline(
             tuple((step.name, step.instance) for step in self.steps)
         )
 
+    def _is_predict_step(self, step):
+        return hasattr(step.instance, "predict")
+
     @property
     def transform_steps(self):
-        """
-        Get all transformation steps (excluding final prediction step).
-
-        Returns
-        -------
-        tuple of Step
-            All steps that transform data but don't make final predictions.
-        """
-
         (*steps, last_step) = self.steps
-        if hasattr(last_step.instance, "predict"):
-            return steps
+        if self._is_predict_step(last_step):
+            return tuple(steps)
         else:
             return self.steps
 
     @property
     def predict_step(self):
-        """
-        Get the final prediction step if it exists.
-
-        Returns
-        -------
-        Step or None
-            The final step if it has a predict method, otherwise None.
-        """
-
         (*_, last_step) = self.steps
-        return last_step if hasattr(last_step.instance, "predict") else None
+        if self._is_predict_step(last_step):
+            return last_step
+        return None
 
     def fit(self, expr, features=None, target=None, cache=None):
-        """
-        Fit the pipeline to training data.
-
-        This method sequentially fits each step in the pipeline, using the output
-        of each transform step as input to the next step.
-
-        Parameters
-        ----------
-        expr : Expr
-            The xorq expression containing training data.
-        features : tuple of str, optional
-            Column names to use as features. If None, infers from expr columns
-            excluding the target.
-        target : str, optional
-            Target column name. Required if pipeline has a prediction step.
-        cache : Cache, optional
-            Storage backend for caching fitted models.
-
-        Returns
-        -------
-        FittedPipeline
-            A fitted pipeline that can transform and predict on new data.
-
-        Raises
-        ------
-        ValueError
-            If target is not provided but pipeline has a prediction step.
-
-        Examples
-        --------
-        >>> fitted = pipeline.fit(
-        ...     train_data,
-        ...     features=("sepal_length", "sepal_width"),
-        ...     target="species"
-        ... )  # quartodoc: +SKIP
-        """
-
         if not target and self.predict_step:
             raise ValueError("Can't infer target for a prediction step")
         features = features or tuple(col for col in expr.columns if col != target)
@@ -754,9 +657,18 @@ class Pipeline:
             )
             fitted_steps += (fitted_step,)
             transformed = fitted_step.transform(transformed)
-            # hack: unclear why we need to do this, but we do
             transformed = transformed.pipe(do_into_backend)
-            features = tuple(fitted_step.structer.dtype)
+            if (
+                fitted_step.structer is not None
+                and not fitted_step.structer.is_kv_encoded
+            ):
+                features = tuple(fitted_step.structer.dtype)
+            else:
+                features = tuple(
+                    col
+                    for col in transformed.columns
+                    if col not in fitted_step.get_others(expr) or col == "transformed"
+                )
         if step := self.predict_step:
             fitted_step = step.fit(
                 transformed,
@@ -765,62 +677,106 @@ class Pipeline:
                 cache=cache,
             )
             fitted_steps += (fitted_step,)
-            # transformed = fitted_step.transform(transformed)
         return FittedPipeline(fitted_steps, expr)
 
     @classmethod
-    def from_instance(cls, instance, deep=False):
-        """
-        Create a Pipeline from an existing scikit-learn Pipeline.
+    def from_instance(cls, instance, deep=False, allow_unregistered=False):
+        from sklearn.pipeline import Pipeline as SklearnPipeline
 
-        Parameters
-        ----------
-        instance : sklearn.pipeline.Pipeline
-            A fitted or unfitted scikit-learn pipeline.
+        def is_known_xorq_step(step):
+            if hasattr(step, "predict") and not hasattr(step, "transform"):
+                return True
+            try:
+                structer_from_instance.dispatch(type(step))
+                return structer_from_instance.dispatch(
+                    type(step)
+                ) is not structer_from_instance.dispatch(object)
+            except (ValueError, TypeError, KeyError):
+                return False
 
-        Returns
-        -------
-        Pipeline
-            A new xorq Pipeline wrapping the scikit-learn pipeline.
+        grouped_steps = []
+        i = 0
+        sklearn_steps = instance.steps
 
-        Examples
-        --------
-        >>> import sklearn.pipeline
-        >>> from sklearn.preprocessing import StandardScaler
-        >>> from sklearn.svm import SVC
-        >>>
-        >>> sklearn_pipe = sklearn.pipeline.Pipeline([
-        ...     ("scaler", StandardScaler()),
-        ...     ("svc", SVC())
-        ... ])
-        >>> xorq_pipe = Pipeline.from_instance(sklearn_pipe)
-        """
-        # https://github.com/scikit-learn/scikit-learn/issues/18272#issuecomment-682180783
-        steps = tuple(
-            Step.from_instance_name(step, name, deep=deep)
-            for name, step in instance.steps
-        )
-        return cls(steps)
+        while i < len(sklearn_steps):
+            name, step = sklearn_steps[i]
+
+            if is_known_xorq_step(step):
+                grouped_steps.append(
+                    Step._from_instance_name(
+                        step, name, deep=deep, allow_unregistered=allow_unregistered
+                    )
+                )
+                i += 1
+            else:
+                if not allow_unregistered:
+                    raise ValueError(
+                        f"No Structer registration for {type(step).__name__} (step '{name}'). "
+                        f"Use allow_unregistered=True to wrap unregistered estimators."
+                    )
+
+                group = [(name, step)]
+                group_names = [name]
+                i += 1
+
+                while i < len(sklearn_steps):
+                    next_name, next_step = sklearn_steps[i]
+                    if is_known_xorq_step(next_step):
+                        break
+                    group.append((next_name, next_step))
+                    group_names.append(next_name)
+                    i += 1
+
+                if len(group) == 1:
+                    grouped_steps.append(
+                        Step._from_instance_name(
+                            step, name, deep=deep, allow_unregistered=allow_unregistered
+                        )
+                    )
+                else:
+                    wrapped_pipe = SklearnPipeline(group)
+                    wrapped_name = "_".join(group_names)
+                    grouped_steps.append(
+                        Step.from_instance(
+                            wrapped_pipe,
+                            name=wrapped_name,
+                            deep=deep,
+                            allow_unregistered=allow_unregistered,
+                        )
+                    )
+
+        return cls(tuple(grouped_steps))
 
     def set_params(self, **kwargs):
         return self.__class__.from_instance(self.instance.set_params(**kwargs))
 
+    def to_sklearn(self):
+        return self.instance
+
+
+def _validate_fitted_pipeline_step(instance, attribute, value):
+    for step in value:
+        if not isinstance(step, FittedStep):
+            raise TypeError(
+                f"FittedPipeline steps must be FittedStep, got {type(step).__name__}"
+            )
+
 
 @frozen
 class FittedPipeline:
-    fitted_steps = field(
-        validator=deep_iterable(instance_of(FittedStep), instance_of(tuple)),
-        converter=tuple,
-    )
+    fitted_steps = field(validator=_validate_fitted_pipeline_step, converter=tuple)
     expr = field(validator=instance_of(Expr))
 
     def __attrs_post_init__(self):
         assert self.fitted_steps
 
+    def _is_fitted_predict_step(self, fitted_step):
+        return hasattr(fitted_step.step.instance, "predict")
+
     @property
     def is_predict(self):
         (*_, last_step) = self.fitted_steps
-        return hasattr(last_step.step.instance, "predict")
+        return self._is_fitted_predict_step(last_step)
 
     @property
     def transform_steps(self):
@@ -832,22 +788,17 @@ class FittedPipeline:
 
     @property
     def tag_kwargs(self):
-        return {
-            "transforms_tags": tuple(
-                tuple(fitted_step.tag_kwargs.items())
-                for fitted_step in self.transform_steps
-            ),
-        }
+        tags = []
+        for fitted_step in self.transform_steps:
+            tags.append(tuple(fitted_step.tag_kwargs.items()))
+        return {"transforms_tags": tuple(tags)}
 
     def transform(self, expr, tag=True):
         transformed = expr
         for fitted_step in self.transform_steps:
             transformed = fitted_step.transform(transformed).pipe(do_into_backend)
         if tag:
-            transformed = transformed.tag(
-                "FittedPipeline-transform",
-                **self.tag_kwargs,
-            )
+            transformed = transformed.tag("FittedPipeline-transform", **self.tag_kwargs)
         return transformed
 
     def predict(self, expr):
@@ -861,85 +812,38 @@ class FittedPipeline:
             )
         )
 
-    @toolz.curry
-    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname):
-        if not self.is_predict:
-            raise ValueError("Pipeline does not have a predict step")
-        if not (method := getattr(self.predict_step, methodname, None)):
-            raise ValueError(f"predict step does not have a method named {methodname}")
+    def predict_proba(self, expr):
+        if not self.predict_step:
+            raise ValueError("Pipeline has no prediction step")
         transformed = self.transform(expr, tag=False)
-        predicted = (
-            method(transformed)
+        return (
+            self.predict_step.predict_proba(transformed)
             .pipe(do_into_backend)
             .tag(
-                tag_name,
-                **{tag_key: tuple(self.predict_step.tag_kwargs.items())},
+                "FittedPipeline-predict_proba",
+                predict_tags=tuple(self.predict_step.tag_kwargs.items()),
             )
         )
-        return predicted
 
-    predict_proba = invoke_predict_method(
-        tag_name="FittedPipeline-predict_proba",
-        tag_key="predict_proba_tags",
-        methodname="predict_proba",
-    )
-
-    decision_function = invoke_predict_method(
-        tag_name="FittedPipeline-decision_function",
-        tag_key="decision_function_tags",
-        methodname="decision_function",
-    )
-
-    feature_importances = invoke_predict_method(
-        tag_name="FittedPipeline-feature_importances",
-        tag_key="feature_importances_tags",
-        methodname="feature_importances",
-    )
-
-    def score_expr(self, expr, metric_fn=None, use_proba=False, **kwargs):
-        """Compute metrics using deferred execution.
-
-        Parameters
-        ----------
-        expr : ibis.Expr
-            Expression containing test data
-        metric_fn : callable, optional
-            Metric function from sklearn.metrics. If None, uses model's default
-        use_proba : bool, optional
-            If True, use predict_proba for metric computation (default: False)
-        **kwargs : dict
-            Additional arguments passed to the metric function
-
-        Returns
-        -------
-        ibis.Expr
-            Deferred metric expression
-        """
-        from sklearn.base import is_classifier
-        from sklearn.metrics import accuracy_score, r2_score
-
-        from xorq.expr.ml.metrics import deferred_sklearn_metric
-
-        # Default metric based on model type
-        if metric_fn is None:
-            metric_fn = (
-                accuracy_score if is_classifier(self.predict_step.model) else r2_score
+    def decision_function(self, expr):
+        if not self.predict_step:
+            raise ValueError("Pipeline has no prediction step")
+        transformed = self.transform(expr, tag=False)
+        return (
+            self.predict_step.decision_function(transformed)
+            .pipe(do_into_backend)
+            .tag(
+                "FittedPipeline-decision_function",
+                predict_tags=tuple(self.predict_step.tag_kwargs.items()),
             )
-
-        # Get predictions with appropriate method
-        expr_with_preds, pred_col = (
-            (self.predict_proba(expr), "predicted_proba")
-            if use_proba
-            else (self.predict(expr), "predicted")
         )
 
-        return deferred_sklearn_metric(
-            expr=expr_with_preds,
-            target=self.predict_step.target,
-            pred_col=pred_col,
-            metric_fn=metric_fn,
-            metric_kwargs=kwargs,
-        )
+    def score_expr(self, expr, **kwargs):
+        clf = self.predict_step.model
+        df = self.transform(expr).execute()
+        X = df[list(self.predict_step.features)]
+        y = df[self.predict_step.target]
+        return clf.score(X, y, **kwargs)
 
     def score(self, X, y, **kwargs):
         import numpy as np
@@ -955,7 +859,16 @@ class FittedPipeline:
             columns=self.predict_step.features,
         ).assign(**{self.predict_step.target: y})
         expr = api.register(df, "t")
-        return self.score_expr(expr, **kwargs).execute()
+        return self.score_expr(expr, **kwargs)
+
+    def to_sklearn(self):
+        import sklearn.pipeline
+
+        steps = []
+        for fitted_step in self.fitted_steps:
+            steps.append((fitted_step.step.name, fitted_step.to_sklearn()))
+
+        return sklearn.pipeline.Pipeline(steps)
 
 
 def get_target_type(step_instance, step, expr, features, target):
@@ -980,31 +893,29 @@ def raise_on_unregistered(instance, step, expr, features, target):
 
 @registry.register_lazy("sklearn")
 def lazy_register_sklearn():
-    from sklearn.base import (
-        ClassifierMixin,
-        RegressorMixin,
-    )
-    from sklearn.ensemble import (
-        RandomForestClassifier,
-        RandomForestRegressor,
-    )
-    from sklearn.linear_model import (
-        LinearRegression,
-        LogisticRegression,
-    )
-    from sklearn.neighbors import (
-        KNeighborsClassifier,
-    )
+    from sklearn.base import ClassifierMixin, ClusterMixin, RegressorMixin
+    from sklearn.linear_model import LinearRegression, LogisticRegression
+    from sklearn.neighbors import KNeighborsClassifier
+    from sklearn.pipeline import Pipeline as SklearnPipeline
 
-    registry.register(LinearRegression, return_constant(dt.float))
+    def get_pipeline_return_type(instance, step, expr, features, target):
+        final_step = instance.steps[-1][1]
+        if isinstance(final_step, ClassifierMixin):
+            return get_target_type(instance, step, expr, features, target)
+        elif isinstance(final_step, RegressorMixin):
+            return dt.float64
+        elif isinstance(final_step, ClusterMixin):
+            return dt.int64
+        else:
+            return get_target_type(instance, step, expr, features, target)
+
+    registry.register(LinearRegression, return_constant(dt.float64))
     registry.register(LogisticRegression, get_target_type)
     registry.register(KNeighborsClassifier, get_target_type)
     registry.register(ClassifierMixin, get_target_type)
-    registry.register(RandomForestRegressor, return_constant(dt.float))
-    registry.register(RandomForestClassifier, get_target_type)
-    registry.register(
-        RegressorMixin, return_constant(dt.float)
-    )  # General fallback for regressors
+    registry.register(RegressorMixin, return_constant(dt.float64))
+    registry.register(ClusterMixin, return_constant(dt.int64))
+    registry.register(SklearnPipeline, get_pipeline_return_type)
 
 
 get_predict_return_type.register = registry.register
