@@ -72,22 +72,47 @@ class MetricComputation:
         """Prepare predictions for metric computation using pattern matching."""
         import pandas as pd
 
+        from xorq.expr.ml.structer import KVEncoder
+
+        def is_kv_packed(first_element):
+            """Check if element is in KV packed format (array of dicts with key/value)."""
+            if not isinstance(first_element, (list, tuple, np.ndarray)):
+                return False
+            if len(first_element) == 0:
+                return False
+            return isinstance(first_element[0], dict) and "key" in first_element[0]
+
         match predictions:
-            # Case 1: pandas Series with array-like values (e.g., probabilities)
+            # Case 1: pandas Series with packed KV format Array[Struct{key, value}]
+            case pd.Series() as series if len(series) > 0 and is_kv_packed(
+                series.iloc[0]
+            ):
+                # Use KVEncoder to decode, then extract as array
+                # Convert numpy arrays to lists for KVEncoder
+                converted = series.apply(
+                    lambda x: [dict(item) for item in x]
+                    if isinstance(x, np.ndarray)
+                    else x
+                )
+                temp_df = pd.DataFrame({"_packed": converted})
+                decoded_df = KVEncoder.decode(temp_df, "_packed")
+                return cls._extract_positive_class_proba(decoded_df.values)
+
+            # Case 2: pandas Series with array-like values (e.g., probabilities)
             case pd.Series() as series if len(series) > 0 and isinstance(
                 series.iloc[0], (np.ndarray, list, tuple)
             ):
                 return cls._extract_positive_class_proba(np.vstack(series.values))
 
-            # Case 2: pandas Series with scalar values
+            # Case 3: pandas Series with scalar values
             case pd.Series() as series:
                 return cls._extract_positive_class_proba(series.values)
 
-            # Case 3: already a numpy array
+            # Case 4: already a numpy array
             case np.ndarray() as arr:
                 return cls._extract_positive_class_proba(arr)
 
-            # Case 4: anything else, return as-is
+            # Case 5: anything else, return as-is
             case _:
                 return predictions
 

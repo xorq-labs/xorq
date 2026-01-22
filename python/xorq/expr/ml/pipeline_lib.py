@@ -374,12 +374,13 @@ class FittedStep:
                             f = deferred_fit_transform_sklearn_struct
                     else:
                         f = deferred_fit_transform_sklearn_packed
-            deferred_model, model_udf, deferred_transform = f(**kwargs)
+            instance = f(**kwargs)
+            deferred_model = instance.deferred_model
+            model_udf = instance.model_udaf
+            deferred_transform = instance.deferred_other
         elif self.is_predict:
             if is_fit_predict_only(self.step.typ):
-                deferred_model, model_udf, deferred_predict = (
-                    deferred_fit_predict_only_sklearn(**kwargs)
-                )
+                instance = deferred_fit_predict_only_sklearn(**kwargs)
             else:
                 predict_kwargs = {
                     "target": self.target,
@@ -391,9 +392,10 @@ class FittedStep:
                         target=self.target,
                     ),
                 }
-                deferred_model, model_udf, deferred_predict = deferred_fit_predict_sklearn(
-                    **kwargs, **predict_kwargs
-                )
+                instance = deferred_fit_predict_sklearn(**kwargs, **predict_kwargs)
+            deferred_model = instance.deferred_model
+            model_udf = instance.model_udaf
+            deferred_predict = instance.deferred_other
         else:
             raise ValueError
 
@@ -464,7 +466,9 @@ class FittedStep:
     @property
     def tag_kwargs(self):
         return {
-            "tag": "FittedStep-transform" if self.is_transform else "FittedStep-predict",
+            "tag": "FittedStep-transform"
+            if self.is_transform
+            else "FittedStep-predict",
             **self.step.tag_kwargs,
             "features": self.features,
         }

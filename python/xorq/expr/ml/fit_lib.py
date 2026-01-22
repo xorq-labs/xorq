@@ -2,6 +2,8 @@ import cloudpickle
 import dask
 import pyarrow as pa
 import toolz
+from attr import field, frozen
+from attr.validators import instance_of, optional
 
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
@@ -13,6 +15,7 @@ from xorq.expr.ml.structer import (
 )
 from xorq.expr.udf import make_pandas_expr_udf
 from xorq.vendor import ibis
+from xorq.vendor.ibis.expr.types.core import Expr
 
 
 def decode_encoded_column(df, col_name="transformed"):
@@ -144,6 +147,110 @@ def _maybe_decode_encoded_columns(df, features, encoded_cols):
     return result_df, tuple(new_features)
 
 
+def _make_name(prefix, to_tokenize, n=32):
+    tokenized = dask.base.tokenize(to_tokenize)
+    return ("_" + prefix + "_" + tokenized)[:n].lower()
+
+
+@frozen
+class DeferredFitOther:
+    """
+    Deferred fit/transform or fit/predict computation.
+
+    Wraps the deferred model fitting and the subsequent transform/predict
+    operation into a single object with accessible properties.
+    """
+
+    expr = field(validator=instance_of(Expr))
+    target = field(validator=optional(instance_of(str)))
+    features = field(converter=tuple)
+    fit = field()
+    other = field()
+    return_type = field(validator=instance_of(dt.DataType))
+    name_infix = field(validator=instance_of(str))
+    cache = field(default=None)
+
+    def __attrs_post_init__(self):
+        if self.features is None or len(self.features) == 0:
+            object.__setattr__(self, "features", tuple(self.expr.schema()))
+
+    @staticmethod
+    @toolz.curry
+    def _inner_fit(df, fit, target, features, encoded_cols):
+        df_decoded, features_decoded = _maybe_decode_encoded_columns(
+            df, features, encoded_cols
+        )
+        args = (df_decoded[list(features_decoded)],) + (
+            (df_decoded[target],) if target else ()
+        )
+        return fit(*args)
+
+    @staticmethod
+    @toolz.curry
+    def _inner_other(model, df, other, features, return_type, encoded_cols):
+        df_decoded, features_decoded = _maybe_decode_encoded_columns(
+            df, features, encoded_cols
+        )
+        return pa.array(
+            other(model, df_decoded[list(features_decoded)]),
+            type=return_type.to_pyarrow(),
+        )
+
+    @property
+    def schema(self):
+        return self.expr.select(self.features).schema()
+
+    @property
+    def encoded_cols(self):
+        return get_kv_encoded_cols(self.expr, self.features)
+
+    @property
+    def fit_schema(self):
+        base = self.schema
+        if self.target:
+            return base | ibis.schema({self.target: self.expr[self.target].type()})
+        return base
+
+    @property
+    def model_udaf(self):
+        return udf.agg.pandas_df(
+            fn=toolz.compose(
+                cloudpickle.dumps,
+                self._inner_fit(
+                    fit=self.fit,
+                    target=self.target,
+                    features=self.features,
+                    encoded_cols=self.encoded_cols,
+                ),
+            ),
+            schema=self.fit_schema,
+            return_type=dt.binary,
+            name=_make_name(f"fit_{self.name_infix}", (self.fit, self.other)),
+        )
+
+    @property
+    def deferred_model(self):
+        result = self.model_udaf.on_expr(self.expr)
+        if self.cache:
+            result = result.as_table().cache(cache=self.cache)
+        return result
+
+    @property
+    def deferred_other(self):
+        return make_pandas_expr_udf(
+            computed_kwargs_expr=self.deferred_model,
+            fn=self._inner_other(
+                other=self.other,
+                features=self.features,
+                return_type=self.return_type,
+                encoded_cols=self.encoded_cols,
+            ),
+            schema=self.schema,
+            return_type=self.return_type,
+            name=_make_name(self.name_infix, (self.fit, self.other)),
+        )
+
+
 @toolz.curry
 def _deferred_fit_other(
     expr,
@@ -155,64 +262,17 @@ def _deferred_fit_other(
     name_infix,
     cache=None,
 ):
-    @toolz.curry
-    def inner_fit(df, fit, target, features, encoded_cols):
-        df_decoded, features_decoded = _maybe_decode_encoded_columns(
-            df, features, encoded_cols
-        )
-        args = (df_decoded[list(features_decoded)],) + (
-            (df_decoded[target],) if target else ()
-        )
-        return fit(*args)
-
-    @toolz.curry
-    def inner_other(model, df, other, features, return_type, encoded_cols):
-        df_decoded, features_decoded = _maybe_decode_encoded_columns(
-            df, features, encoded_cols
-        )
-        return pa.array(
-            other(model, df_decoded[list(features_decoded)]),
-            type=return_type.to_pyarrow(),
-        )
-
-    def make_name(prefix, to_tokenize, n=32):
-        tokenized = dask.base.tokenize(to_tokenize)
-        return ("_" + prefix + "_" + tokenized)[:n].lower()
-
-    features = tuple(features or expr.schema())
-    schema = expr.select(features).schema()
-    encoded_cols = get_kv_encoded_cols(expr, features)
-    fit_schema = schema | (ibis.schema({target: expr[target].type()}) if target else {})
-
-    model_udaf = udf.agg.pandas_df(
-        fn=toolz.compose(
-            cloudpickle.dumps,
-            inner_fit(
-                fit=fit, target=target, features=features, encoded_cols=encoded_cols
-            ),
-        ),
-        schema=fit_schema,
-        return_type=dt.binary,
-        name=make_name(f"fit_{name_infix}", (fit, other)),
-    )
-    deferred_model = model_udaf.on_expr(expr)
-    if cache:
-        deferred_model = deferred_model.as_table().cache(cache=cache)
-
-    deferred_other = make_pandas_expr_udf(
-        computed_kwargs_expr=deferred_model,
-        fn=inner_other(
-            other=other,
-            features=features,
-            return_type=return_type,
-            encoded_cols=encoded_cols,
-        ),
-        schema=schema,
+    """Create a DeferredFitOther instance for deferred fit/transform or fit/predict."""
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit,
+        other=other,
         return_type=return_type,
-        name=make_name(name_infix, (fit, other)),
+        name_infix=name_infix,
+        cache=cache,
     )
-
-    return deferred_model, model_udaf, deferred_other
 
 
 @toolz.curry

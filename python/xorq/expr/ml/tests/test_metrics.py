@@ -482,7 +482,7 @@ def test_predict_proba_metrics():
     auc_expr = deferred_sklearn_metric(
         expr=expr_with_proba,
         target="target",
-        pred_col="predicted_proba",
+        pred_col="proba",
         metric_fn=roc_auc_score,
     )
 
@@ -498,7 +498,7 @@ def test_predict_proba_metrics():
     assert hasattr(proba_expr, "execute")
 
     # Execute and check shape
-    proba_result = proba_expr["predicted_proba"].execute()
+    proba_result = proba_expr["proba"].execute()
     assert len(proba_result) == len(test_df)
 
 
@@ -543,7 +543,7 @@ def test_probability_metric_without_predict_proba():
     auc_expr = deferred_sklearn_metric(
         expr=expr_with_scores,
         target="target",
-        pred_col="decision_function",
+        pred_col="decision",
         metric_fn=roc_auc_score,
     )
 
@@ -602,7 +602,7 @@ def test_probability_metric_multiclass_with_predict_proba():
     auc_expr = deferred_sklearn_metric(
         expr=expr_with_proba,
         target="target",
-        pred_col="predicted_proba",
+        pred_col="proba",
         metric_fn=roc_auc_score,
         metric_kwargs={"multi_class": "ovr"},
     )

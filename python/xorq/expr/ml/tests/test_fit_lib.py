@@ -43,24 +43,16 @@ def test_deferred_fit_predict_linear_regression(tmp_path):
     (df, features, target) = make_data()
     t = con.register(df, "t")
 
-    # uncached run
+    # uncached run - returns DeferredFitOther instance
     instance = deferred_linear_regression(t, target, features)
-    (computed_kwargs_expr, predict_expr_udf) = (
-        instance.deferred_model,
-        instance.deferred_other,
-    )
-    model = computed_kwargs_expr.execute()
-    predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+    model = instance.deferred_model.execute()
+    predicted = t.mutate(instance.deferred_other.on_expr(t)).execute()
 
     # cached run
     cache = ParquetCache.from_kwargs(relative_path=tmp_path, source=con)
     instance = deferred_linear_regression(t, target, features, cache=cache)
-    (computed_kwargs_expr, predict_expr_udf) = (
-        instance.deferred_model,
-        instance.deferred_other,
-    )
-    ((cached_model,),) = computed_kwargs_expr.execute().values
-    cached_predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+    ((cached_model,),) = instance.deferred_model.execute().values
+    cached_predicted = t.mutate(instance.deferred_other.on_expr(t)).execute()
 
     assert predicted.equals(cached_predicted)
     np.testing.assert_almost_equal(
@@ -78,8 +70,7 @@ def test_deferred_fit_predict_linear_regression_multi_into_backend():
     )
 
     instance = deferred_linear_regression(t, target, features)
-    predict_expr_udf = instance.deferred_other
-    predicted = t.mutate(predict_expr_udf.on_expr(t)).execute()
+    predicted = t.mutate(instance.deferred_other.on_expr(t)).execute()
     assert not predicted.empty
 
 
@@ -101,7 +92,6 @@ def test_deferred_fit_transform_series_sklearn():
         test_sizes=(0.9, 0.1),
     )
     instance = deferred_fit_transform_tfidf(train)
-    deferred_transform = instance.deferred_other
 
     from_sklearn = test.execute().assign(
         **{
@@ -110,7 +100,7 @@ def test_deferred_fit_transform_series_sklearn():
             )
         }
     )
-    from_xo = test.mutate(**{transform_key: deferred_transform.on_expr}).execute()
+    from_xo = test.mutate(**{transform_key: instance.deferred_other.on_expr}).execute()
     actual = from_xo[transform_key].apply(pd.Series)
     expected = from_sklearn[transform_key].apply(pd.Series)
     assert actual.equals(expected)
