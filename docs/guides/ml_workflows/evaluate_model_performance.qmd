@@ -6,16 +6,13 @@ Evaluate machine learning (ML) models systematically to compare performance, tra
 
 Xorq's evaluation system combines deferred execution with scikit-learn metrics to efficiently compute accuracy, precision, recall, F1, and other metrics. Your evaluation expressions are lazy and only execute when needed, enabling efficient model comparison and reproducible experiment tracking.
 
-## Prerequisites
-
-Before you start, you need:
-
-- Completed [Quickstart](../../getting_started/quickstart.qmd)
-- Completed [Train models at scale](./train_models_at_scale.qmd)
+:::{.callout-tip}
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
 ## Calculate basic metrics
 
-Start with the simplest evaluation: compute a single metric to get quick feedback on performance. This approach gives you an immediate sense of whether your model learns patterns before you invest time in comprehensive analysis. Use the fitted pipeline's `score_expr()` method, which uses the model's default metric: accuracy for classifiers and R² for regressors.
+Compute a single metric using the fitted pipeline's `score_expr()` method. The default metric is accuracy for classifiers and R² for regressors.
 
 Create `evaluate_basic.py`:
 
@@ -63,7 +60,7 @@ Run the script:
 python evaluate_basic.py
 ```
 
-You should see a result like this:
+You should see a result like this (exact value will vary with random data):
 
 ```
 Accuracy: 0.7500
@@ -71,16 +68,15 @@ Accuracy: 0.7500
 
 **Key points**:
 
-- `score_expr()` computes and returns the default metric value directly
+- `score_expr()` computes the default metric and returns the metric value
 - For classifiers, the default metric is accuracy
 - For regressors, the default metric is R²
-- The metric is computed immediately when you call `score_expr()`
 
 This script provides a simple way to get a single metric value for quick evaluation.
 
 ## Calculate multiple metrics
 
-Basic metrics give you a single number, but production evaluation requires multiple metrics to understand model behavior comprehensively. A single metric, such as accuracy, doesn't reveal precision-recall trade-offs or class-specific performance. Get predictions and compute various metrics directly using scikit-learn.
+Get predictions and compute multiple metrics using scikit-learn functions.
 
 Create `evaluate_multiple_metrics.py`:
 
@@ -143,7 +139,7 @@ Run the script:
 python evaluate_multiple_metrics.py
 ```
 
-You should see a result like this:
+You should see a result like this (exact values will vary with random data):
 
 ```
 accuracy: 0.4167
@@ -156,7 +152,7 @@ f1: 0.0667
 
 - Get predictions once using `fitted.predict(test)` and execute to get a DataFrame
 - Use scikit-learn metrics directly on the target and predicted columns
-- This approach works with all scikit-learn metric functions
+- This approach works with scikit-learn metric functions that take (y_true, y_pred) format
 
 :::{.callout-warning}
 `fitted.predict()` returns class labels, not probabilities. For metrics like ROC-AUC that need probability predictions, you must access the fitted model directly.
@@ -187,7 +183,7 @@ roc_auc = roc_auc_score(y_true, y_proba)
 print(f"ROC-AUC: {roc_auc:.4f}")
 ```
 
-Run this code after the previous example to see:
+Run this code after the previous example to see (exact value will vary with random data):
 
 ```
 ROC-AUC: 0.5273
@@ -195,7 +191,7 @@ ROC-AUC: 0.5273
 
 ## Compare multiple models
 
-Single-model evaluation shows performance, but model selection requires comparing multiple candidates to find the best fit for your data. Different algorithms have different strengths, and you can't know which performs best without a systematic comparison. Evaluate several models systematically to identify the best performer for your data.
+Evaluate multiple models using the same test data and metrics to identify the best performer.
 
 Create `compare_models.py`:
 
@@ -274,7 +270,7 @@ Run the script:
 python compare_models.py
 ```
 
-You should see a result like this:
+You should see a result like this (exact values will vary with random data):
 
 ```
 Logistic Regression: accuracy=0.4167, f1=0.0667
@@ -297,7 +293,7 @@ The deferred execution pattern lets you evaluate many models efficiently. Each m
 
 ## Track experiments
 
-Model comparison identifies the best candidate, but production ML needs experiment tracking to reproduce results and compare versions over time. Without tracking, you can't reproduce past results or understand how model performance changes across iterations. Log metrics, model parameters, and evaluation data to track model performance across iterations.
+Log metrics, model parameters, and evaluation data to track model performance across iterations.
 
 Create `track_experiments.py`:
 
@@ -374,7 +370,7 @@ experiment_result = {
     "metrics": metrics
 }
 
-# In production, write to database or experiment tracking system
+# Print results (in production, log to your experiment tracking system)
 print(json.dumps(experiment_result, indent=2))
 ```
 
@@ -384,7 +380,7 @@ Run the script:
 python track_experiments.py
 ```
 
-Expected output:
+Expected output (timestamp will be current time, metric values are examples):
 
 ```json
 {
@@ -416,11 +412,9 @@ Expected output:
 - Use timestamps and experiment IDs to identify and compare runs
 - Store results in a structured format (JSON) for easy analysis and comparison
 
-In production, integrate with experiment-tracking systems such as MLflow, Weights & Biases, or custom databases to store and query experiment history.
-
 ## Validate model quality
 
-Experiment tracking records performance, but validation ensures models meet quality thresholds before deployment. Tracking shows what happened, but validation prevents deploying models that don't meet your standards. Define acceptance criteria and validate models against them to avoid deploying underperforming models.
+Define acceptance criteria and validate models against them before deployment.
 
 Create `validate_model.py`:
 
@@ -507,7 +501,7 @@ Run the script:
 python validate_model.py
 ```
 
-Expected output:
+Expected output (exact values will vary with random data):
 
 ```
 Accuracy: 0.4608 (threshold: 0.50) - FAIL
@@ -554,35 +548,14 @@ When evaluating models, you may encounter issues computing specific metrics. Her
 - Use `predict()` from fitted pipeline for class-based metrics (accuracy, precision, recall, F1)
 - Document which metrics require probabilities vs class labels in your evaluation code
 
-You need to access the fitted model directly to get probability predictions:
-```python
-from sklearn.metrics import roc_auc_score
-
-# Get transformed test data (features only, after scaling)
-transformed_test = fitted.transform(test).execute()
-X_test = transformed_test[["feature1", "feature2"]].values
-
-# Get the fitted sklearn classifier model
-fitted_model = fitted.predict_step.model
-
-# Get probability predictions using the fitted model
-y_proba = fitted_model.predict_proba(X_test)[:, 1]  # Positive class probability
-
-# Get target values
-test_df = test.execute()
-y_true = test_df["target"].values
-
-# Calculate ROC-AUC
-roc_auc = roc_auc_score(y_true, y_proba)
-print(f"ROC-AUC: {roc_auc:.4f}")
-```
-
 For more troubleshooting help, see the [Troubleshooting guide](../../troubleshooting/index.qmd).
 
 ## Next steps
 
 You now have systematic model evaluation workflows that compute metrics, compare models, track experiments, and validate quality. Evaluation expressions use deferred execution for efficient computation.
 
-- [Deploy models to production](./deploy_models_to_production.qmd) - Serve evaluated models as prediction endpoints
+After evaluating and validating your model, you're ready to deploy it:
+
+- [Deploy models to production](./deploy_models_to_production.qmd) - Build and serve validated models as prediction endpoints
 - [Version and promote models](./version_and_promote_models.qmd) - Manage model versions and compare performance over time
 - [Build feature pipelines](../data_workflows/build_feature_pipelines.qmd) - Create features for model training and evaluation

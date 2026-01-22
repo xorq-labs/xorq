@@ -2,21 +2,601 @@
 title: 'Deploy models to production'
 ---
 
-## Coming soon
+Deploy your trained models as production prediction services using Xorq's Flight server. This guide shows you how to serve your fitted model as a production endpoint that clients can query with streaming data.
 
-This guide will show you how to deploy trained models as production prediction services.
+Xorq's Flight server serves model expressions over Apache Arrow Flight. You'll create a prediction expression from your fitted model and serve it directly as a production endpoint.
 
-You will learn how to serve models via Flight for low-latency inference.
 
-**What you'll accomplish:**
-- Deploy models via Flight server
-- Configure production endpoints
-- Handle prediction requests
-- Monitor model serving
+## Prerequisites
 
-**Prerequisites:**
-- Completed "Deploy your first model" tutorial
-- Trained model available
+Before you start, you need:
 
-Check back soon for the complete guide.
+- [Xorq installed](../../getting_started/installation.qmd)
+- A trained model (see [Train models at scale](./train_models_at_scale.qmd) if you need to train one)
 
+
+## Serve your model
+
+Serve your fitted model directly as a production endpoint. The server accepts streaming data from clients and returns predictions.
+
+### Create a prediction expression
+
+Create `serve_model.py` to serve your model. Use your existing `fitted_pipeline` from training:
+
+::: {.panel-tabset}
+
+### Your own model
+
+If you already have a trained `fitted_pipeline`, create the prediction expression:
+
+```python
+import xorq.api as xo
+
+# Your fitted_pipeline from your training script
+# (You already have this from training)
+
+# Create placeholder input table matching your model's feature schema
+placeholder_input = xo.table(
+    name="input_data",
+    schema={
+        "feature1": "float64",  # Replace with your actual feature names and types
+        "feature2": "float64",
+        # Add all features your model expects
+    }
+).tag("model_input")
+
+# Create prediction expression
+model_expr = fitted_pipeline.predict(placeholder_input)
+```
+
+### Example: Train models at scale
+
+Complete example that trains and serves in one script:
+
+```python
+import xorq.api as xo
+from xorq.expr.ml.pipeline_lib import Pipeline, Step
+from xorq.expr.ml import train_test_splits
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+from xorq.caching import ParquetCache
+from pathlib import Path
+import numpy as np
+
+# Training
+con = xo.connect()
+np.random.seed(42)
+n_samples = 1000
+
+data = xo.memtable({
+    "age": np.random.randint(18, 70, n_samples).tolist(),
+    "income": np.random.randint(20000, 150000, n_samples).tolist(),
+    "credit_score": np.random.randint(300, 850, n_samples).tolist(),
+    "loan_amount": np.random.randint(5000, 50000, n_samples).tolist(),
+}, name="customer_data")
+
+data = data.mutate(
+    approved=((xo._["credit_score"] > 650) & (xo._["income"] > 40000)).cast("int")
+)
+
+train_data, test_data = data.pipe(
+    train_test_splits,
+    test_sizes=[0.8, 0.2],
+    num_buckets=10000,
+    random_seed=42
+)
+
+features = ("age", "income", "credit_score", "loan_amount")
+target = "approved"
+
+scaler_step = Step(StandardScaler, name="scaler")
+model_step = Step(
+    LogisticRegression,
+    name="classifier",
+    params_tuple=(("random_state", 42), ("max_iter", 1000))
+)
+pipeline = Pipeline(steps=(scaler_step, model_step))
+
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./training-cache",
+    base_path=Path(".").absolute()
+)
+
+fitted_pipeline = pipeline.fit(
+    expr=train_data,
+    features=features,
+    target=target,
+    cache=cache
+)
+
+# Create prediction expression
+placeholder_input = xo.table(
+    name="input_data",
+    schema={
+        "age": "int64",
+        "income": "int64",
+        "credit_score": "int64",
+        "loan_amount": "int64"
+    }
+).tag("model_input")
+
+model_expr = fitted_pipeline.predict(placeholder_input)
+```
+
+:::
+
+### Start the server
+
+Add this to your script to serve the model:
+
+```python
+from xorq.flight import FlightUrl
+from functools import partial
+from xorq.common.utils.node_utils import expr_to_unbound
+
+# Configure server
+flight_url = FlightUrl(host="0.0.0.0", port=8080)
+make_server = partial(
+    xo.flight.FlightServer,
+    flight_url=flight_url
+)
+
+# Unbind the expression using the tagged placeholder_input
+unbound_expr = expr_to_unbound(model_expr, None, "model_input", None)
+server, do_exchange = xo.expr.relations.flight_serve_unbound(
+    unbound_expr,
+    make_server=make_server
+)
+
+print(f"Serving model on {flight_url.to_location()}")
+print("Press Ctrl+C to stop the server")
+
+# Keep server running
+try:
+    server.wait()
+except KeyboardInterrupt:
+    print("\nShutting down server...")
+    server.close()
+```
+
+Run the server:
+
+```bash
+python serve_model.py
+```
+
+You should see output like this:
+
+```
+Serving model on grpc://0.0.0.0:8080
+Press Ctrl+C to stop the server
+```
+::: {.callout-note}
+Keep the server running in one terminal while you run the client script below in another terminal. The server stays running until you stop it with Ctrl+C.
+:::
+
+**Key points**:
+
+- The server runs in the same process as your Python script
+- Use `0.0.0.0` to bind to all network interfaces for remote access
+- The placeholder input table becomes the unbound node that clients stream data to
+- The server runs until stopped (Ctrl+C)
+- See [Train models at scale](./train_models_at_scale.qmd) for training examples
+
+## Make predictions from clients
+
+Connect to the server and make predictions using the Flight client. The server accepts streaming data and returns predictions.
+
+### Connect to the server
+
+Create a client script `predict_client.py`:
+
+```python
+import xorq.api as xo
+
+# Connect to the running server
+backend = xo.flight.connect(host="localhost", port=8080)
+
+# Get the exchange (this represents the unbound expression)
+exchange = backend.get_exchange("default")
+
+# Create input data matching your model's feature schema
+input_data = {
+    "age": [35, 42, 28],
+    "income": [75000, 95000, 50000],
+    "credit_score": [720, 680, 650],
+    "loan_amount": [25000, 30000, 15000]
+}
+
+# Convert to Xorq table and pipe through exchange
+# The server replaces the unbound node with your input data
+results = xo.memtable(input_data).pipe(exchange).execute()
+
+print(results)
+```
+
+Run the client:
+
+```bash
+python predict_client.py
+```
+
+**Key points**:
+
+- `xo.flight.connect()` establishes connection to the server
+- `get_exchange("default")` gets the unbound expression exchanger
+- Pipe your data through the exchange to execute predictions
+- The server replaces the unbound node with your input data
+
+### Stream predictions
+
+For larger datasets, stream data in batches:
+
+```python
+import xorq.api as xo
+import pandas as pd
+
+# Connect to server
+backend = xo.flight.connect(host="localhost", port=8080)
+exchange = backend.get_exchange("default")
+
+# Load your dataset (replace with your data source)
+large_dataset = pd.read_csv("your_data.csv")  # Or load from your source
+
+# Process data in batches
+batch_size = 1000
+for i in range(0, len(large_dataset), batch_size):
+    batch = large_dataset[i:i+batch_size]
+    predictions = xo.memtable(batch).pipe(exchange).execute()
+    # Process predictions...
+```
+
+**Key points**:
+
+- Stream large datasets in batches to manage memory
+- Each batch is processed independently
+- Use batch processing for production workloads
+- Replace `pd.read_csv("your_data.csv")` with your actual data loading code
+
+## Configure production settings
+
+Production deployment requires proper configuration for reliability, monitoring, and performance.
+
+### Set host and port
+
+Bind to all interfaces for remote access:
+
+```python
+from xorq.flight import FlightUrl
+from xorq.common.utils.node_utils import expr_to_unbound
+
+flight_url = FlightUrl(host="0.0.0.0", port=8080)
+make_server = partial(xo.flight.FlightServer, flight_url=flight_url)
+unbound_expr = expr_to_unbound(model_expr, None, "model_input", None)
+server, _ = xo.expr.relations.flight_serve_unbound(unbound_expr, make_server=make_server)
+```
+
+Use specific ports for load balancing:
+
+```python
+from xorq.common.utils.node_utils import expr_to_unbound
+
+# Instance 1
+unbound_expr = expr_to_unbound(model_expr, None, "model_input", None)
+flight_url_1 = FlightUrl(host="0.0.0.0", port=8080)
+make_server_1 = partial(xo.flight.FlightServer, flight_url=flight_url_1)
+server_1, _ = xo.expr.relations.flight_serve_unbound(unbound_expr, make_server=make_server_1)
+
+# Instance 2 (in a separate process)
+flight_url_2 = FlightUrl(host="0.0.0.0", port=8081)
+make_server_2 = partial(xo.flight.FlightServer, flight_url=flight_url_2)
+server_2, _ = xo.expr.relations.flight_serve_unbound(unbound_expr, make_server=make_server_2)
+```
+
+**Key points**:
+
+- `0.0.0.0` allows remote connections
+- Use different ports for multiple instances
+- Configure load balancers to route to these ports
+- Run each instance in a separate process
+
+### Enable metrics
+
+Enable Prometheus metrics for monitoring:
+
+```python
+from xorq.flight.metrics import setup_console_metrics
+from xorq.common.utils.node_utils import expr_to_unbound
+
+# Setup metrics before serving
+setup_console_metrics(prometheus_port=9090)
+
+flight_url = FlightUrl(host="0.0.0.0", port=8080)
+make_server = partial(xo.flight.FlightServer, flight_url=flight_url)
+unbound_expr = expr_to_unbound(model_expr, None, "model_input", None)
+server, _ = xo.expr.relations.flight_serve_unbound(unbound_expr, make_server=make_server)
+```
+
+Access metrics at `http://localhost:9090/metrics`.
+
+**Key points**:
+
+- Prometheus metrics require `opentelemetry-sdk` package
+- Metrics include request counts, latency, and errors
+- Use metrics for production monitoring and alerting
+
+### Configure cache directory
+
+Set a persistent cache directory for model artifacts:
+
+```python
+from xorq.caching import ParquetCache
+from pathlib import Path
+
+# Configure cache when fitting your model
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./model_cache",
+    base_path=Path("/var/lib/xorq/cache").absolute()
+)
+
+# Use cache when fitting
+fitted = pipeline.fit(train, features=("feature1", "feature2"), target="target", cache=cache)
+```
+
+**Key points**:
+
+- Cache directory stores fitted models and intermediate results
+- Use persistent storage for production
+- Cache improves performance for repeated predictions
+
+## Production deployment patterns
+
+For production, use process managers and deployment patterns to ensure reliability.
+
+### Use a process manager
+
+Run your server script with a process manager like systemd or supervisor:
+
+**systemd service** (`/etc/systemd/system/xorq-model.service`):
+
+```ini
+[Unit]
+Description=Xorq Model Server
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/opt/xorq
+ExecStart=/usr/bin/python3 /opt/xorq/serve_model.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl enable xorq-model
+sudo systemctl start xorq-model
+```
+
+**Key points**:
+
+- Process managers provide automatic restarts on failure
+- Use systemd for Linux systems
+- Configure appropriate user permissions
+- Set restart policies for reliability
+
+### Health checks
+
+Implement health check endpoints:
+
+```python
+# Health check script
+import xorq.api as xo
+
+try:
+    backend = xo.flight.connect(host="localhost", port=8080)
+    # Try to get the exchange (verifies server is responding)
+    exchange = backend.get_exchange("default")
+    print("OK")
+except Exception as e:
+    print(f"ERROR: {e}")
+    exit(1)
+```
+
+**Key points**:
+
+- Health checks verify server availability
+- Use health checks for load balancer routing
+- Monitor health check failures for alerting
+
+## Monitor model serving
+
+Monitor deployed models to ensure they perform correctly and detect issues early.
+
+### Check server status
+
+Verify the server is running:
+
+```bash
+# Check if server is listening
+netstat -an | grep 8080
+
+# Or use lsof
+lsof -i :8080
+
+# Or check process
+ps aux | grep serve_model.py
+```
+
+### View server logs
+
+Server logs show request processing and errors. Configure logging in your server script:
+
+```python
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+
+logger = logging.getLogger(__name__)
+logger.info(f"Serving model on {flight_url.to_location()}")
+```
+
+**Key points**:
+
+- Monitor logs for errors and performance issues
+- Set up log aggregation for production
+- Use structured logging for better analysis
+
+### Monitor metrics
+
+Query Prometheus metrics:
+
+```bash
+# Query request rate
+curl http://localhost:9090/metrics | grep request_rate
+
+# Query latency
+curl http://localhost:9090/metrics | grep latency
+```
+
+**Key points**:
+
+- Metrics provide quantitative performance data
+- Set up alerts based on metric thresholds
+- Track prediction latency and error rates
+
+## Handle production issues
+
+Production deployments require robust error handling and recovery procedures.
+
+### Server restarts
+
+Restart servers gracefully:
+
+```bash
+# Find server process
+ps aux | grep serve_model.py
+
+# Stop server (send SIGTERM)
+kill <pid>
+
+# Or use systemd
+sudo systemctl restart xorq-model
+```
+
+**Key points**:
+
+- Use process managers (systemd, supervisor) for automatic restarts
+- Implement health checks for automatic recovery
+- Use graceful shutdown to finish in-flight requests
+
+### Error handling
+
+Add error handling to your server script:
+
+```python
+import signal
+import sys
+
+def signal_handler(sig, frame):
+    print("\nShutting down gracefully...")
+    server.close()
+    sys.exit(0)
+
+signal.signal(signal.SIGINT, signal_handler)
+signal.signal(signal.SIGTERM, signal_handler)
+
+# Your server code...
+```
+
+**Key points**:
+
+- Handle SIGTERM for graceful shutdown
+- Catch and log errors appropriately
+- Implement retry logic for transient failures
+
+## Troubleshooting
+
+When deploying models, you may encounter issues with serving, connections, or performance. Here's how to resolve common problems:
+
+### Issue: Server fails to start
+
+**Error**: `Address already in use` or port binding fails
+
+**Cause**: Port is already in use by another process
+
+**Detection**: Server startup fails with port binding error
+
+**Recovery**:
+
+1. Find process using the port: `lsof -i :8080`
+2. Stop the conflicting process or use a different port
+3. Update your `FlightUrl` to use a different port
+
+**Prevention**:
+
+- Use port management tools
+- Check port availability before starting
+- Use environment-specific ports
+
+### Issue: Cannot connect to server
+
+**Error**: Connection refused or timeout
+
+**Cause**: Server not running, wrong host/port, or firewall blocking
+
+**Detection**: Client connection fails
+
+**Recovery**:
+
+1. Verify server is running: `ps aux | grep serve_model.py`
+2. Check host and port match client configuration
+3. Verify firewall allows connections: `telnet localhost 8080`
+4. Use `0.0.0.0` for remote access instead of `localhost`
+
+**Prevention**:
+
+- Document server endpoints
+- Use consistent host/port configuration
+- Test connectivity before deployment
+
+### Issue: High prediction latency
+
+**Error**: Predictions take too long
+
+**Cause**: Large input batches, slow model, or network issues
+
+**Detection**: Metrics show high latency or timeouts
+
+**Recovery**:
+
+1. Reduce batch size for input data
+2. Check model complexity and optimization
+3. Verify network latency between client and server
+4. Enable caching for repeated predictions
+
+**Prevention**:
+
+- Profile model performance before deployment
+- Set appropriate batch sizes
+- Use caching for common inputs
+- Monitor latency metrics
+
+For more troubleshooting help, see the [troubleshooting guide](../../troubleshooting/index.qmd).
+
+## Next steps
+
+You now have production model deployment workflows that serve models, handle client requests, and monitor serving performance. The Flight server provides efficient batch prediction with minimal overhead.
+
+- [Evaluate model performance](./evaluate_model_performance.qmd) - Validate models before production
+- [Optimize pipeline performance](../performance_workflows/optimize_pipeline_performance.qmd) - Improve prediction performance

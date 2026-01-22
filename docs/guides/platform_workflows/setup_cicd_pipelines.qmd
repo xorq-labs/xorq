@@ -2,21 +2,535 @@
 title: 'Set up CI/CD pipelines'
 ---
 
-## Coming soon
+Automate building, testing, and promoting Xorq expressions with CI/CD pipelines. This guide shows you how to set up GitHub Actions workflows to automatically build expressions, run tests, verify builds, and promote them through environments.
 
-This guide will show you how to integrate Xorq into your CI/CD workflows.
+**What you'll accomplish**: By following this guide, you'll set up automated CI/CD pipelines that build expressions, run tests, verify builds, promote versions through environments, and handle rollbacks automatically.
 
-You will learn how to automate testing, building, and deployment of Xorq projects.
+CI/CD pipelines ensure consistent builds, catch issues early, and automate deployment workflows. This guide covers GitHub Actions examples, but patterns apply to other CI/CD systems.
 
-**What you'll accomplish:**
-- Set up automated testing
-- Configure build automation
-- Deploy to production
-- Implement rollback strategies
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
+
+## Prerequisites
+
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- A Git repository with Xorq expressions
 - CI/CD platform access (GitHub Actions, GitLab CI, etc.)
-- Xorq project ready for deployment
 
-Check back soon for the complete guide.
+## GitHub Actions workflow
 
+Set up a complete CI/CD workflow with GitHub Actions.
+
+### Basic workflow
+
+Create `.github/workflows/ci.yml`:
+
+```yaml
+name: Build and Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
+      - name: Install Xorq
+        run: uv pip install xorq
+      
+      - name: Build expression
+        run: |
+          xorq build train_model.py -e model_expr --builds-dir builds
+          export BUILD_HASH=$(xorq build train_model.py -e model_expr --builds-dir builds | tail -1)
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_ENV
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: builds/${{ env.BUILD_HASH }}
+```
+
+**Key points**:
+
+- Trigger on push and pull requests
+- Install dependencies (uv, Xorq)
+- Build expression and capture build hash
+- Upload build artifacts for later use
+
+### Build with uv-build
+
+Use `uv-build` for reproducible builds:
+
+```yaml
+- name: Build with uv-build
+  run: |
+    xorq uv-build train_model.py -e model_expr --builds-dir builds
+    export BUILD_HASH=$(xorq uv-build train_model.py -e model_expr --builds-dir builds | tail -1)
+    echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_ENV
+```
+
+**Key points**:
+
+- `uv-build` creates reproducible builds
+- Ensures consistent environments
+- Use for production deployments
+
+## Testing strategies
+
+Add tests to verify builds work correctly.
+
+### Verify build can be loaded
+
+Test that build can be loaded:
+
+```yaml
+- name: Verify build
+  run: |
+    # Add to catalog
+    xorq catalog add builds/${{ env.BUILD_HASH }} --alias test-build
+    
+    # Verify build loads
+    xorq catalog ls | grep test-build
+```
+
+**Key points**:
+
+- Verify builds can be loaded
+- Test catalog integration
+- Fail CI if verification fails
+
+### Run expression tests
+
+Run tests against built expression:
+
+```yaml
+- name: Run tests
+  run: |
+    # Run test script
+    python test_build.py builds/${{ env.BUILD_HASH }}
+```
+
+Create `test_build.py`:
+
+```python
+import sys
+import xorq.api as xo
+from xorq.common.utils.build_utils import load_expr
+
+# Load build
+build_path = sys.argv[1]
+expr = load_expr(build_path)
+
+# Run tests
+result = expr.execute()
+assert len(result) > 0, "Result should not be empty"
+print("Build verification passed")
+```
+
+**Key points**:
+
+- Test builds execute correctly
+- Verify expected outputs
+- Fail CI on test failures
+
+## Automated catalog promotion
+
+Automate promoting builds through environments.
+
+### Development promotion
+
+Promote to development on merge:
+
+```yaml
+- name: Promote to development
+  if: github.ref == 'refs/heads/develop'
+  run: |
+    xorq catalog add builds/${{ env.BUILD_HASH }} --alias model-dev
+```
+
+### Staging promotion
+
+Promote to staging after tests pass:
+
+```yaml
+- name: Promote to staging
+  if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  run: |
+    # Run staging tests
+    python test_staging.py builds/${{ env.BUILD_HASH }}
+    
+    # Promote if tests pass
+    xorq catalog add builds/${{ env.BUILD_HASH }} --alias model-staging
+```
+
+### Production promotion
+
+Promote to production with manual approval:
+
+```yaml
+production:
+  needs: [build, test]
+  runs-on: ubuntu-latest
+  environment: production
+  steps:
+    - uses: actions/checkout@v3
+    
+    - name: Download build artifacts
+      uses: actions/download-artifact@v3
+      with:
+        name: build-artifacts
+        path: builds/
+    
+    - name: Promote to production
+      run: |
+        xorq catalog add builds/${{ env.BUILD_HASH }} --alias model-prod
+```
+
+**Key points**:
+
+- Automate promotion through environments
+- Use environment protection for production
+- Require manual approval for production
+- Test before promotion
+
+## Build verification
+
+Verify builds before promotion.
+
+### Verify build integrity
+
+Check build artifacts:
+
+```yaml
+- name: Verify build integrity
+  run: |
+    # Check build directory exists
+    test -d builds/${{ env.BUILD_HASH }}
+    
+    # Check required files
+    test -f builds/${{ env.BUILD_HASH }}/expr.yaml
+    test -f builds/${{ env.BUILD_HASH }}/metadata.json
+    
+    # Verify build hash matches
+    echo "Build verified: ${{ env.BUILD_HASH }}"
+```
+
+### Run deployment gates
+
+Add deployment gates:
+
+```yaml
+- name: Deployment gates
+  run: |
+    # Check build size
+    BUILD_SIZE=$(du -sh builds/${{ env.BUILD_HASH }} | cut -f1)
+    echo "Build size: $BUILD_SIZE"
+    
+    # Check for required files
+    python verify_deployment_gates.py builds/${{ env.BUILD_HASH }}
+```
+
+**Key points**:
+
+- Verify builds before deployment
+- Check build integrity
+- Enforce deployment gates
+- Fail CI on verification failures
+
+## Environment promotion with uv
+
+Use uv builds for environment promotion.
+
+### Build with uv for production
+
+Use `uv-build` for production builds:
+
+```yaml
+- name: Build for production
+  if: github.ref == 'refs/heads/main'
+  run: |
+    xorq uv-build train_model.py -e model_expr --builds-dir builds
+    export BUILD_HASH=$(xorq uv-build train_model.py -e model_expr --builds-dir builds | tail -1)
+    echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_ENV
+```
+
+**Key points**:
+
+- Use `uv-build` for production
+- Ensures reproducible builds
+- Consistent across environments
+
+## Rollback procedures
+
+Implement automated rollback procedures.
+
+### Rollback workflow
+
+Create rollback workflow:
+
+```yaml
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to rollback'
+        required: true
+        type: choice
+        options:
+          - staging
+          - production
+      previous_build:
+        description: 'Previous build hash to rollback to'
+        required: true
+
+jobs:
+  rollback:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Install Xorq
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          uv pip install xorq
+      
+      - name: Rollback
+        run: |
+          xorq catalog add builds/${{ github.event.inputs.previous_build }} \
+            --alias model-${{ github.event.inputs.environment }}
+          echo "Rolled back ${{ github.event.inputs.environment }} to ${{ github.event.inputs.previous_build }}"
+```
+
+**Key points**:
+
+- Manual rollback workflow
+- Select environment and previous build
+- Update catalog alias to previous build
+- Document rollback process
+
+## Complete workflow example
+
+Complete CI/CD workflow with all features:
+
+```yaml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+      
+      - name: Install uv
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+      
+      - name: Install Xorq
+        run: uv pip install xorq
+      
+      - name: Build expression
+        run: |
+          xorq build train_model.py -e model_expr --builds-dir builds
+          export BUILD_HASH=$(xorq build train_model.py -e model_expr --builds-dir builds | tail -1)
+          echo "BUILD_HASH=$BUILD_HASH" >> $GITHUB_ENV
+      
+      - name: Verify build
+        run: |
+          xorq catalog add builds/${{ env.BUILD_HASH }} --alias test-build
+          xorq catalog ls | grep test-build
+      
+      - name: Run tests
+        run: |
+          python test_build.py builds/${{ env.BUILD_HASH }}
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: build-artifacts
+          path: builds/${{ env.BUILD_HASH }}
+  
+  promote-dev:
+    needs: [build]
+    if: github.ref == 'refs/heads/develop'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+          path: builds/
+      
+      - name: Install Xorq
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          uv pip install xorq
+      
+      - name: Promote to development
+        run: |
+          BUILD_HASH=$(ls builds/ | head -1)
+          xorq catalog add builds/$BUILD_HASH --alias model-dev
+          echo "Promoted to development: $BUILD_HASH"
+  
+  promote-staging:
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+          path: builds/
+      
+      - name: Install Xorq
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          uv pip install xorq
+      
+      - name: Promote to staging
+        run: |
+          BUILD_HASH=$(ls builds/ | head -1)
+          xorq catalog add builds/$BUILD_HASH --alias model-staging
+          echo "Promoted to staging: $BUILD_HASH"
+  
+  promote-production:
+    needs: [build]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download build artifacts
+        uses: actions/download-artifact@v3
+        with:
+          name: build-artifacts
+          path: builds/
+      
+      - name: Install Xorq
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.cargo/bin" >> $GITHUB_PATH
+          uv pip install xorq
+      
+      - name: Promote to production
+        run: |
+          BUILD_HASH=$(ls builds/ | head -1)
+          xorq catalog add builds/$BUILD_HASH --alias model-prod
+          echo "Promoted to production: $BUILD_HASH"
+```
+
+**Key points**:
+
+- Complete workflow with build, test, and promotion
+- Separate jobs for each environment
+- Environment protection for production
+- Artifact sharing between jobs
+
+## Troubleshooting
+
+When setting up CI/CD pipelines, you may encounter build failures, test issues, or promotion problems.
+
+### Issue: Build fails in CI
+
+**Error**: Build succeeds locally but fails in CI
+
+**Cause**: Environment differences or missing dependencies
+
+**Recovery**:
+
+1. Check Python version: ensure CI uses same version
+2. Use uv-build: ensure consistent environment
+3. Check dependencies: verify all dependencies installed
+4. Review CI logs: identify specific failure
+
+**Prevention**:
+
+- Use uv-build for consistency
+- Test CI configuration locally
+- Document environment requirements
+- Use consistent Python versions
+
+### Issue: Tests fail in CI
+
+**Error**: Tests pass locally but fail in CI
+
+**Cause**: Environment differences or test data issues
+
+**Recovery**:
+
+1. Check test data: ensure test data available in CI
+2. Review test environment: verify environment matches local
+3. Check test logs: identify specific test failure
+4. Run tests locally: replicate CI environment
+
+**Prevention**:
+
+- Use consistent test environments
+- Include test data in repository or CI
+- Document test requirements
+- Test CI configuration locally
+
+### Issue: Promotion fails
+
+**Error**: Build promotion fails
+
+**Cause**: Catalog access issues or build not found
+
+**Recovery**:
+
+1. Check build artifacts: verify artifacts downloaded
+2. Check catalog access: ensure catalog accessible
+3. Verify build hash: ensure build hash correct
+4. Review promotion logs: identify specific failure
+
+**Prevention**:
+
+- Verify build artifacts uploaded
+- Check catalog access in CI
+- Test promotion process manually
+- Document promotion requirements
+
+## Next steps
+
+You now have techniques for setting up CI/CD pipelines, including automated builds, testing, verification, and environment promotion.
+
+- [Build reproducible environments](build_reproducible_environments.qmd) - Create reproducible builds
+- [Manage the compute catalog](manage_compute_catalog.qmd) - Organize builds
+- [Monitor production deployments](monitor_production_deployments.qmd) - Monitor deployments

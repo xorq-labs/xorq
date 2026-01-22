@@ -2,21 +2,443 @@
 title: 'Optimize model serving'
 ---
 
-## Coming soon
+Optimize your deployed models for low-latency predictions and high throughput. This guide shows you how to reduce inference time, batch predictions efficiently, cache results, and monitor serving performance.
 
-This guide will show you how to optimize model serving for low-latency predictions.
+**What you'll accomplish**: By following this guide, you'll optimize your model serving endpoints to achieve <100ms prediction latency, increase throughput, and implement effective caching strategies for production workloads.
 
-You will learn techniques to reduce inference time and increase throughput.
+Xorq's Flight server uses Apache Arrow for zero-copy data transfer, enabling efficient batch prediction. This guide covers connection pooling, caching strategies, batch optimization, and performance monitoring.
 
-**What you'll accomplish:**
-- Reduce prediction latency
-- Batch predictions efficiently
-- Cache prediction results
-- Monitor serving performance
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
-- Deployed model via Flight
-- Performance requirements defined
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
-Check back soon for the complete guide.
+## Prerequisites
 
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- A deployed model via Flight server (see [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd))
+- Performance requirements defined (target latency, throughput)
+
+## Reuse client connections
+
+Reusing Flight client connections reduces connection overhead and improves latency. Create a connection pool or singleton client for your application.
+
+### Create a connection pool
+
+Use a connection pool to manage multiple client connections:
+
+```python
+import xorq.api as xo
+from xorq.flight import FlightUrl
+from threading import Lock
+from queue import Queue
+
+class FlightConnectionPool:
+    def __init__(self, url, pool_size=5):
+        self.url = url
+        self.pool_size = pool_size
+        self._pool = Queue(maxsize=pool_size)
+        self._lock = Lock()
+        
+        # Pre-populate pool
+        for _ in range(pool_size):
+            con = xo.flight.connect(url)
+            self._pool.put(con)
+    
+    def get_connection(self):
+        """Get a connection from the pool."""
+        try:
+            return self._pool.get_nowait()
+        except:
+            # Pool exhausted, create new connection
+            return xo.flight.connect(self.url)
+    
+    def return_connection(self, con):
+        """Return a connection to the pool."""
+        try:
+            self._pool.put_nowait(con)
+        except:
+            # Pool full, close connection
+            pass
+
+# Initialize pool
+url = FlightUrl(host="localhost", port=8080)
+pool = FlightConnectionPool(url, pool_size=5)
+
+# Use connection from pool
+con = pool.get_connection()
+try:
+    backend = con
+    exchange = backend.get_exchange("default")
+    result = exchange(test_data).read_pandas()
+finally:
+    pool.return_connection(con)
+```
+
+**Key points**:
+
+- Reuse connections to avoid connection overhead
+- Pool size should match expected concurrency
+- Handle connection failures gracefully
+- Close connections when pool is full
+
+### Use singleton client for single-threaded apps
+
+For single-threaded applications, use a singleton client:
+
+```python
+import xorq.api as xo
+from xorq.flight import FlightUrl
+
+# Create singleton client
+_url = FlightUrl(host="localhost", port=8080)
+_client = None
+
+def get_client():
+    global _client
+    if _client is None:
+        _client = xo.flight.connect(_url)
+    return _client
+
+# Use singleton client
+con = get_client()
+backend = con
+exchange = backend.get_exchange("default")
+result = exchange(test_data).read_pandas()
+```
+
+**Key points**:
+
+- Singleton pattern works for single-threaded applications
+- Reuse the same connection across requests
+- Thread-safe connection pool needed for multi-threaded apps
+
+## Cache prediction results
+
+Cache frequently requested predictions to reduce computation and improve latency.
+
+### Enable server-side caching
+
+Use the `--cache-dir` flag to enable server-side caching:
+
+```bash
+xorq serve-unbound fraud-detection-prod \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --cache-dir /var/lib/xorq/cache \
+  --to_unbind_tag source_input
+```
+
+The server caches fitted models and intermediate results, reducing prediction time for repeated queries.
+
+**Key points**:
+
+- Server-side caching reduces computation for repeated inputs
+- Cache directory should use fast storage (SSD)
+- Monitor cache hit rates to optimize cache size
+
+### Cache client-side results
+
+For client-side caching, cache prediction results based on input hash:
+
+```python
+import hashlib
+import pickle
+from functools import lru_cache
+
+def hash_dataframe(df):
+    """Create hash of DataFrame for cache key."""
+    return hashlib.sha256(
+        pickle.dumps(df.values.tobytes())
+    ).hexdigest()
+
+# Simple in-memory cache
+_prediction_cache = {}
+
+def cached_predict(con, test_data):
+    """Predict with client-side caching."""
+    cache_key = hash_dataframe(test_data)
+    
+    if cache_key in _prediction_cache:
+        return _prediction_cache[cache_key]
+    
+    backend = con
+    exchange = backend.get_exchange("default")
+    result = exchange(test_data).read_pandas()
+    
+    _prediction_cache[cache_key] = result
+    return result
+```
+
+**Key points**:
+
+- Client-side caching reduces network round-trips
+- Use appropriate cache eviction policy (LRU, TTL)
+- Monitor memory usage for large caches
+
+## Optimize batch size
+
+Batch multiple predictions together to improve throughput and reduce per-request overhead.
+
+### Batch predictions efficiently
+
+Send multiple rows in a single request:
+
+```python
+import pandas as pd
+import xorq.api as xo
+from xorq.flight import FlightUrl
+
+url = FlightUrl(host="localhost", port=8080)
+con = xo.flight.connect(url)
+backend = con
+exchange = backend.get_exchange("default")
+
+# Batch multiple rows
+batch_data = pd.DataFrame({
+    "feature1": [1.0, 2.0, 3.0, 4.0, 5.0],
+    "feature2": [0.5, 1.5, 2.5, 3.5, 4.5]
+})
+
+# Single request for batch
+predictions = exchange(batch_data).read_pandas()
+```
+
+**Key points**:
+
+- Batch size should balance latency and throughput
+- Larger batches improve throughput but increase latency
+- Test optimal batch size for your workload
+
+### Stream large batches
+
+For very large batches, stream results to manage memory:
+
+```python
+import xorq.api as xo
+from xorq.flight import FlightUrl
+
+url = FlightUrl(host="localhost", port=8080)
+con = xo.flight.connect(url)
+backend = con
+exchange = backend.get_exchange("default")
+
+# Stream large dataset
+large_batch = pd.DataFrame({
+    "feature1": range(100000),
+    "feature2": range(100000, 200000)
+})
+
+# Stream results in chunks
+result_stream = exchange(large_batch)
+for batch in result_stream:
+    # Process each batch
+    df = batch.to_pandas()
+    process_predictions(df)
+```
+
+**Key points**:
+
+- Streaming reduces memory usage for large datasets
+- Process results incrementally
+- Arrow zero-copy enables efficient streaming
+
+## Benchmark latency
+
+Measure prediction latency to identify bottlenecks and track performance improvements.
+
+### Time individual predictions
+
+Measure end-to-end prediction latency:
+
+```python
+import time
+import pandas as pd
+import xorq.api as xo
+from xorq.flight import FlightUrl
+
+url = FlightUrl(host="localhost", port=8080)
+con = xo.flight.connect(url)
+backend = con
+exchange = backend.get_exchange("default")
+
+test_data = pd.DataFrame({
+    "feature1": [1.0, 2.0],
+    "feature2": [0.5, 1.5]
+})
+
+# Time prediction
+start = time.time()
+result = exchange(test_data).read_pandas()
+latency = (time.time() - start) * 1000  # Convert to ms
+
+print(f"Prediction latency: {latency:.2f}ms")
+```
+
+**Key points**:
+
+- Measure end-to-end latency including network
+- Track p50, p95, p99 percentiles
+- Set up alerts for latency spikes
+
+### Profile with multiple requests
+
+Profile latency under load:
+
+```python
+import time
+import statistics
+import pandas as pd
+import xorq.api as xo
+from xorq.flight import FlightUrl
+
+url = FlightUrl(host="localhost", port=8080)
+con = xo.flight.connect(url)
+backend = con
+exchange = backend.get_exchange("default")
+
+test_data = pd.DataFrame({
+    "feature1": [1.0, 2.0],
+    "feature2": [0.5, 1.5]
+})
+
+# Run multiple predictions
+latencies = []
+for _ in range(100):
+    start = time.time()
+    result = exchange(test_data).read_pandas()
+    latency = (time.time() - start) * 1000
+    latencies.append(latency)
+
+# Calculate statistics
+print(f"Mean latency: {statistics.mean(latencies):.2f}ms")
+print(f"Median latency: {statistics.median(latencies):.2f}ms")
+print(f"P95 latency: {statistics.quantiles(latencies, n=20)[18]:.2f}ms")
+print(f"P99 latency: {statistics.quantiles(latencies, n=100)[98]:.2f}ms")
+```
+
+**Key points**:
+
+- Profile under realistic load conditions
+- Track latency percentiles for production monitoring
+- Identify latency outliers and their causes
+
+## Monitor serving performance
+
+Use Prometheus metrics to monitor serving performance and set up alerts.
+
+### Enable Prometheus metrics
+
+Enable metrics when starting the server:
+
+```bash
+xorq serve-unbound fraud-detection-prod \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --prometheus-port 9090 \
+  --to_unbind_tag source_input
+```
+
+Access metrics at `http://localhost:9090/metrics`.
+
+**Key points**:
+
+- Prometheus metrics require `opentelemetry-sdk` package
+- Metrics include request counts, latency, and errors
+- Use metrics for production monitoring and alerting
+
+### Query key metrics
+
+Query important performance metrics:
+
+```bash
+# Request rate
+curl http://localhost:9090/metrics | grep request_rate
+
+# Latency percentiles
+curl http://localhost:9090/metrics | grep latency
+
+# Error rate
+curl http://localhost:9090/metrics | grep error_rate
+```
+
+**Key points**:
+
+- Monitor request rate to understand load
+- Track latency percentiles (p50, p95, p99)
+- Alert on high error rates
+
+## Troubleshooting
+
+When optimizing model serving, you may encounter latency issues, connection problems, or performance degradation.
+
+### Issue: High prediction latency
+
+**Error**: Predictions take longer than expected
+
+**Cause**: Network overhead, large batch size, or server-side computation
+
+**Recovery**:
+
+1. Check network latency: measure round-trip time
+2. Reduce batch size: test with smaller batches
+3. Enable server-side caching: use `--cache-dir` flag
+4. Profile server-side: check server logs for slow operations
+
+**Prevention**:
+
+- Use connection pooling to reduce connection overhead
+- Cache frequently requested predictions
+- Optimize batch size for your workload
+- Monitor latency percentiles
+
+### Issue: Connection pool exhaustion
+
+**Error**: Too many concurrent connections
+
+**Cause**: Pool size too small or connections not returned
+
+**Recovery**:
+
+1. Increase pool size: adjust `pool_size` parameter
+2. Check connection return: ensure connections are returned to pool
+3. Implement connection timeout: close idle connections
+4. Use connection limits: restrict concurrent connections
+
+**Prevention**:
+
+- Size connection pool based on expected concurrency
+- Always return connections to pool in finally blocks
+- Monitor connection pool usage
+- Set appropriate connection timeouts
+
+### Issue: Memory errors with large batches
+
+**Error**: `MemoryError` when processing large batches
+
+**Cause**: Processing too much data at once
+
+**Recovery**:
+
+1. Reduce batch size: process smaller batches
+2. Stream results: use streaming for large datasets
+3. Increase server memory: allocate more memory to server
+4. Use chunked processing: process data in chunks
+
+**Prevention**:
+
+- Test with realistic batch sizes
+- Use streaming for large datasets
+- Monitor memory usage
+- Set appropriate batch size limits
+
+## Next steps
+
+You now have techniques for optimizing model serving performance, including connection pooling, caching, batching, and monitoring.
+
+- [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd) - Learn deployment patterns
+- [Optimize pipeline performance](optimize_pipeline_performance.qmd) - Optimize pipeline execution
+- [Monitor production deployments](../platform_workflows/monitor_production_deployments.qmd) - Set up comprehensive monitoring

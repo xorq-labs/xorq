@@ -2,21 +2,432 @@
 title: 'Manage the compute catalog'
 ---
 
-## Coming soon
+Organize and discover your Xorq builds using the compute catalog. This guide shows you how to add builds to the catalog, organize them with aliases, discover existing computations, and manage build versions.
 
-This guide will show you how to use the catalog system to manage builds, aliases, and metadata.
+**What you'll accomplish**: By following this guide, you'll organize builds with aliases, discover existing computations, share catalogs across your team, promote versions through environments, and clean up old builds.
 
-You will learn catalog operations for production deployment workflows.
+The Xorq catalog tracks builds with entry IDs and aliases, making it easy to discover, reference, and manage computations across your team and environments.
 
-**What you'll accomplish:**
-- Add builds to the catalog
-- Create and manage aliases
-- Query catalog metadata
-- Compare builds with diff-builds
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
-- Completed "Your first build" tutorial
-- Understanding of build system
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
-Check back soon for the complete guide.
+## Prerequisites
 
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- Built expressions (see [Build reproducible environments](build_reproducible_environments.qmd))
+
+## Organize builds with aliases
+
+Add builds to the catalog and organize them with human-readable aliases.
+
+### Add build to catalog
+
+Add a build to the catalog:
+
+```bash
+xorq catalog add builds/<build_hash> --alias my-model
+```
+
+**Output:**
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+**Key points**:
+
+- Catalog creates unique entry ID for each build
+- Aliases provide human-readable names
+- Multiple aliases can point to same entry
+- Use aliases in commands instead of build hashes
+
+### List catalog entries
+
+List all catalog entries:
+
+```bash
+xorq catalog ls
+```
+
+**Output:**
+```
+Aliases:
+my-model        <entry_id>    r1
+model-prod      <entry_id>    r1
+
+Entries:
+<entry_id>    r1      <build_hash>
+```
+
+**Key points**:
+
+- Aliases section shows human-readable names
+- Entries section shows entry IDs and build hashes
+- Use `catalog ls` to discover existing builds
+- Track which builds are cataloged
+
+### Show catalog information
+
+Get detailed catalog information:
+
+```bash
+xorq catalog info
+```
+
+This shows catalog storage location, entry count, and other metadata.
+
+**Key points**:
+
+- Catalog info shows storage location
+- Useful for backup and sharing
+- Check catalog health and status
+
+## Discover existing computations
+
+Use the catalog to find and reuse existing builds.
+
+### Search by alias
+
+Find builds by alias:
+
+```bash
+xorq catalog ls | grep my-model
+```
+
+**Key points**:
+
+- Search aliases to find builds
+- Use descriptive aliases for easy discovery
+- Document aliases in team documentation
+
+### Reference builds by alias
+
+Use aliases instead of build hashes:
+
+```bash
+# Instead of build hash
+xorq serve-unbound builds/<build_hash> --host 0.0.0.0 --port 8080
+
+# Use alias
+xorq serve-unbound my-model --host 0.0.0.0 --port 8080
+```
+
+**Key points**:
+
+- Aliases work anywhere build hashes are accepted
+- Easier to remember and type
+- Update aliases to point to new versions
+
+## Catalog storage and backup
+
+Understand catalog storage location and backup strategies.
+
+### Find catalog storage
+
+Catalog is stored in Xorq's data directory:
+
+```bash
+xorq catalog info
+```
+
+Default location is typically `~/.local/share/xorq/catalog/` or similar.
+
+**Key points**:
+
+- Catalog is stored locally by default
+- Location varies by platform
+- Use `catalog info` to find exact location
+
+### Backup catalog
+
+Backup catalog for disaster recovery:
+
+```bash
+# Find catalog location
+CATALOG_DIR=$(xorq catalog info | grep "Location" | awk '{print $2}')
+
+# Backup catalog
+tar -czf catalog-backup-$(date +%Y%m%d).tar.gz "$CATALOG_DIR"
+```
+
+**Key points**:
+
+- Regular backups prevent data loss
+- Include catalog in backup strategy
+- Restore from backup if catalog is lost
+
+## Share catalog across team
+
+Share catalog entries with your team for collaboration.
+
+### Export catalog
+
+Export catalog entries:
+
+```bash
+xorq catalog export --output catalog-export.json
+```
+
+**Key points**:
+
+- Export catalog to share with team
+- JSON format for easy parsing
+- Include in version control or artifact storage
+
+### Import catalog entries
+
+Team members can reference exported entries, though direct import may require manual catalog file copying.
+
+**Key points**:
+
+- Share catalog files for team collaboration
+- Use shared storage for team catalog
+- Document catalog sharing process
+
+### Use shared catalog location
+
+Point to shared catalog location (if supported):
+
+```bash
+# Set catalog location via environment variable or config
+export XORQ_CATALOG_DIR=/shared/catalog
+xorq catalog ls
+```
+
+**Key points**:
+
+- Use shared storage for team catalog
+- Ensure team has access to shared location
+- Document shared catalog setup
+
+## Version promotion workflows
+
+Promote builds through environments using catalog aliases.
+
+### Development alias
+
+Add build with development alias:
+
+```bash
+xorq catalog add builds/<build_hash> --alias model-dev
+```
+
+### Staging alias
+
+Promote to staging:
+
+```bash
+# Update staging alias to point to tested build
+xorq catalog add builds/<build_hash> --alias model-staging
+```
+
+### Production alias
+
+Promote to production:
+
+```bash
+# After staging validation, promote to production
+xorq catalog add builds/<build_hash> --alias model-prod
+```
+
+**Key points**:
+
+- Use environment-specific aliases (dev, staging, prod)
+- Test in each environment before promotion
+- Keep previous versions for rollback
+- Document promotion process
+
+### Update alias to new version
+
+Update alias to point to new build:
+
+```bash
+# Add new build
+xorq catalog add builds/<new_build_hash> --alias model-prod
+
+# Alias now points to new build
+xorq catalog ls | grep model-prod
+```
+
+**Key points**:
+
+- Updating alias points it to new build
+- Previous build still accessible by entry ID
+- Use for version promotion and rollback
+
+## Clean up old builds
+
+Remove old or unused builds from the catalog.
+
+### Remove catalog entry
+
+Remove build from catalog:
+
+```bash
+xorq catalog rm <entry_id>
+```
+
+Or remove by alias:
+
+```bash
+xorq catalog rm my-model
+```
+
+**Key points**:
+
+- Removing entry removes it from catalog
+- Build directory is not deleted (manual cleanup needed)
+- Aliases pointing to entry are also removed
+
+### Remove alias only
+
+To remove just an alias (keeping the entry), you may need to remove and re-add the entry without that alias.
+
+**Key points**:
+
+- Remove aliases to clean up catalog
+- Entry remains accessible by entry ID
+- Re-add entry with different aliases if needed
+
+### Clean up build directories
+
+Manually remove old build directories:
+
+```bash
+# List old builds
+ls builds/
+
+# Remove old build
+rm -rf builds/<old_build_hash>
+```
+
+**Key points**:
+
+- Catalog removal doesn't delete build directories
+- Manually clean up old build directories
+- Keep builds referenced by catalog entries
+- Archive old builds before deletion
+
+## Audit catalog history
+
+Track catalog changes and build history.
+
+### List all entries
+
+View complete catalog:
+
+```bash
+xorq catalog ls
+```
+
+**Key points**:
+
+- Regular catalog listing shows current state
+- Track which builds are cataloged
+- Identify unused entries
+
+### Compare builds
+
+Compare two builds:
+
+```bash
+xorq catalog diff-builds <entry1> <entry2>
+```
+
+**Key points**:
+
+- Compare builds to see differences
+- Useful for understanding changes between versions
+- Helps with debugging and rollback decisions
+
+### Track catalog changes
+
+Version control catalog directory (if accessible):
+
+```bash
+# If catalog is in version control
+git add .xorq/catalog/
+git commit -m "Update catalog"
+```
+
+**Key points**:
+
+- Track catalog changes in version control
+- Review catalog changes in code reviews
+- Document catalog management process
+
+## Troubleshooting
+
+When managing the catalog, you may encounter missing entries, alias conflicts, or storage issues.
+
+### Issue: Build not found in catalog
+
+**Error**: Alias or entry ID not found
+
+**Cause**: Build not added to catalog or alias removed
+
+**Recovery**:
+
+1. Check catalog: run `xorq catalog ls` to see entries
+2. Add build: use `xorq catalog add` to add build
+3. Check alias: verify alias spelling and existence
+4. Use entry ID: reference by entry ID instead of alias
+
+**Prevention**:
+
+- Add builds to catalog after building
+- Use consistent alias naming
+- Document catalog aliases
+- Regular catalog backups
+
+### Issue: Alias points to wrong build
+
+**Error**: Alias references unexpected build
+
+**Cause**: Alias updated to point to different build
+
+**Recovery**:
+
+1. Check current alias: `xorq catalog ls | grep <alias>`
+2. Find correct build: identify correct build hash
+3. Update alias: `xorq catalog add builds/<correct_hash> --alias <alias>`
+4. Verify: check alias points to correct build
+
+**Prevention**:
+
+- Document alias updates
+- Use version-specific aliases
+- Test aliases after updates
+- Keep alias history
+
+### Issue: Catalog storage full
+
+**Error**: Cannot add entries, storage issues
+
+**Cause**: Catalog storage directory full or inaccessible
+
+**Recovery**:
+
+1. Check storage: verify catalog directory exists and is writable
+2. Free space: clean up old builds and entries
+3. Move catalog: relocate catalog to larger storage
+4. Check permissions: ensure write access to catalog directory
+
+**Prevention**:
+
+- Monitor catalog storage usage
+- Regular cleanup of old entries
+- Use adequate storage for catalog
+- Backup catalog regularly
+
+## Next steps
+
+You now have techniques for managing the compute catalog, including organizing builds, discovering computations, sharing catalogs, and version promotion.
+
+- [Build reproducible environments](build_reproducible_environments.qmd) - Create reproducible builds
+- [Set up CI/CD pipelines](setup_cicd_pipelines.qmd) - Automate catalog management
+- [Version and promote models](../ml_workflows/version_and_promote_models.qmd) - Model versioning workflows
