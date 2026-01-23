@@ -1021,9 +1021,9 @@ features_df = pd.read_parquet("features.parquet")
 con = xo.connect()
 features = con.register(features_df, "features")
 
-# Option B: Load from catalog placeholder and execute
-# placeholder = xo.catalog.get_placeholder("penguin-features")
-# features = placeholder.execute()  # Execute to get data
+# Option B: Load from catalog and execute
+# features = xo.catalog.get("penguin-features")
+# features_df = features.execute()  # Execute to get data
 
 # Split data
 train, test = train_test_splits(features, test_size=0.2)
