@@ -33,6 +33,10 @@ from xorq.common.utils.func_utils import (
 )
 from xorq.expr.ml.fit_lib import (
     decision_function_sklearn,
+    deferred_fit_predict_sklearn,
+    deferred_fit_transform_series_sklearn_packed,
+    deferred_fit_transform_sklearn_packed,
+    deferred_fit_transform_sklearn_struct,
     feature_importances_sklearn,
     predict_proba_sklearn,
 )
@@ -388,10 +392,55 @@ class FittedStep:
     @property
     @functools.cache
     def _deferred_fit_other(self):
-        from xorq.expr.ml.fit_lib import DeferredFitOther
+        if self.is_predict:
+            return deferred_fit_predict_sklearn(
+                expr=self.expr,
+                target=self.target,
+                features=self.features,
+                cls=self.step.typ,
+                params=self.step.params_tuple,
+                return_type=get_predict_return_type(
+                    instance=self.step.instance,
+                    step=self.step,
+                    expr=self.expr,
+                    features=self.features,
+                    target=self.target,
+                ),
+                cache=self.cache,
+            )
 
-        _deferred_fit_other = DeferredFitOther.from_fitted_step(self)
-        return _deferred_fit_other
+        structer = Structer.from_instance_expr(
+            self.step.instance, self.expr, features=self.features
+        )
+        target = self.target if structer.needs_target else None
+
+        if structer.is_series and structer.is_kv_encoded:
+            (col,) = self.features
+            return deferred_fit_transform_series_sklearn_packed(
+                expr=self.expr,
+                col=col,
+                cls=self.step.typ,
+                params=self.step.params_tuple,
+                cache=self.cache,
+            )
+        elif structer.is_kv_encoded:
+            return deferred_fit_transform_sklearn_packed(
+                expr=self.expr,
+                features=self.features,
+                cls=self.step.typ,
+                params=self.step.params_tuple,
+                target=target,
+                cache=self.cache,
+            )
+        else:
+            return deferred_fit_transform_sklearn_struct(
+                expr=self.expr,
+                features=self.features,
+                cls=self.step.typ,
+                params=self.step.params_tuple,
+                target=target,
+                cache=self.cache,
+            )
 
     @property
     def deferred_model(self):
@@ -503,12 +552,12 @@ class FittedStep:
         }
 
     def transform(self, expr, retain_others=True):
-        if self.structer is None:
+        if self.structer is None or self.structer.is_kv_encoded:
             col = self.transform_raw(expr)
             if retain_others and (others := self.get_others(expr)):
                 expr = expr.select(*others, col)
             else:
-                return col
+                expr = col.as_table()
         else:
             expr = self.transform_unpack(expr, retain_others=retain_others)
         return expr.tag(
@@ -756,7 +805,10 @@ class Pipeline:
             transformed = fitted_step.transform(transformed)
             # hack: unclear why we need to do this, but we do
             transformed = transformed.pipe(do_into_backend)
-            features = tuple(fitted_step.structer.dtype)
+            if fitted_step.structer.is_kv_encoded:
+                features = (fitted_step.dest_col or "transformed",)
+            else:
+                features = tuple(fitted_step.structer.dtype)
         if step := self.predict_step:
             fitted_step = step.fit(
                 transformed,
