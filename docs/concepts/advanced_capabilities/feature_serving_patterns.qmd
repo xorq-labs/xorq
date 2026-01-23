@@ -7,10 +7,6 @@ ML systems need features in two contexts: Batch training on historical data and 
 
 Xorq solves this by letting you write feature logic once as an expression that works in both contexts. A feature serving pattern defines where and when this computation happens. Your choice determines latency, freshness, and infrastructure complexity.
 
-## The fundamental trade-off
-
-Feature serving requires choosing between computation speed and data freshness, and you cannot optimize both simultaneously. If you precompute features, then you get fast lookups but stale data. If you compute on every request, then you get up-to-date data but slower responses. Patterns represent different positions on this spectrum.
-
 ## What is a feature serving pattern?
 
 A feature serving pattern determines when feature computation happens relative to prediction requests. This timing decision controls three critical properties: response latency, feature freshness, and computational cost.
@@ -20,6 +16,10 @@ A feature serving pattern determines when feature computation happens relative t
 **On-demand computation** runs feature computation when the request arrives. This gives up-to-date features but adds computation time to every request latency.
 
 **Hybrid computation** precomputes expensive features in batch and computes cheap features on-demand, balancing speed and freshness by splitting the workload between the two approaches.
+
+## The fundamental trade-off
+
+Feature serving requires choosing between computation speed and data freshness, and you cannot optimize both simultaneously. If you precompute features, then you get fast lookups but stale data. If you compute on every request, then you get up-to-date data but slower responses. Patterns represent different positions on this spectrum.
 
 ## Why the same expression prevents drift
 
@@ -207,50 +207,7 @@ Hybrid patterns require both data engineering and backend engineering, where tea
 
 ## Choosing the correct pattern
 
-Your choice depends on three constraints: latency requirements, feature characteristics, and organizational capabilities. These constraints interact to determine which pattern fits your specific needs.
-
-### Decision framework
-```{mermaid}
-graph TD
-    A{What's your latency budget?}
-    A -->|Under 10ms| B[Batch only]
-    A -->|10-100ms| C{Are features expensive?}
-    A -->|Over 100ms| D{Need up-to-date data?}
-    
-    C -->|Yes complex joins| B
-    C -->|No simple filters| E[Hybrid]
-    
-    D -->|Yes under 1 hour| F[On-demand or Hybrid]
-    D -->|No daily okay| B
-    
-    style B fill:#90EE90
-    style E fill:#FFD700
-    style F fill:#87CEEB
-```
-
-The following tables help you evaluate which pattern fits your specific constraints.
-
-| Budget | Pattern | Why |
-|--------|---------|-----|
-| Under 10ms | Batch only | No time for computation, must be a lookup |
-| 10-50ms | Batch or Hybrid | Can compute simple features |
-| 50-200ms | Hybrid | Can compute moderate features |
-| Over 200ms | On-demand viable | Sufficient time for complex computation |
-
-| Feature Type | Time Window | Pattern | Why |
-|--------------|-------------|---------|-----|
-| Lifetime aggregations | All history | Batch | Too expensive for real-time |
-| 90-day rolling | 3 months | Batch | Large data volume |
-| Daily summaries | 24 hours | Hybrid | Medium complexity |
-| Hourly features | 1 hour | On-demand | Small data volume |
-| Current session | Minutes | On-demand | Must be up-to-date |
-
-| Capability | Enables Pattern | Why |
-|------------|----------------|-----|
-| Data engineering team | Batch | Can manage scheduled jobs and storage |
-| Backend engineering team | On-demand | Can optimize database queries |
-| Both teams | Hybrid | Can coordinate both approaches |
-| Small team | On-demand | Simpler with fewer moving parts |
+Your choice depends on three constraints: latency requirements, feature characteristics, and organizational capabilities. Each pattern section above includes a "When to use" subsection that explains the specific scenarios where that pattern is optimal. Review those sections to understand which pattern fits your constraints.
 
 ## Common misunderstandings
 

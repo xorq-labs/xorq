@@ -70,9 +70,10 @@ Multi-engine execution operates through three stages that transform expressions 
 
 **Arrow conversion**: During execution, Xorq calls `to_pyarrow_batches()` on the source expression to get a PyArrow RecordBatchReader. This reader streams data in Arrow's columnar format without materializing the entire dataset in memory.
 
-**Backend ingestion**: The target backend's `read_record_batches()` method ingests the Arrow batches and creates a table. Xorq uses `SafeTee` to create multiple independent iterators from the RecordBatchReader. If the same RemoteTable appears numerous times in the expression graph, then each reference gets its own iterator without materializing data to disk.
+**Backend ingestion**: The target backend's `read_record_batches()` method ingests the Arrow batches and creates a table. Xorq uses `SafeTee` to create multiple independent iterators from the RecordBatchReader. If the same RemoteTable appears numerous times in the expression graph, then each reference gets its own iterator without materializing data to disk. The data transfer between engines follows this sequence:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant Source
     participant Arrow
@@ -120,17 +121,6 @@ Multi-engine execution isn't always necessary. For single-engine workflows or si
 - Data movement overhead exceeds benefits. Moving 1TB of data between engines might be slower than processing it in place.
 - You're doing simple exploratory work. Single-engine analysis is faster to set up and easier to debug.
 - Your backends don't support Arrow ingestion. Some backends require manual data export and import, making `into_backend()` unavailable.
-
-```{mermaid}
-graph TD
-    A{Multiple data sources?}
-    A -->|Yes| B{Need different engine strengths?}
-    A -->|No| C{Performance bottleneck?}
-    B -->|Yes| D[Use multi-engine]
-    B -->|No| E[Single engine OK]
-    C -->|Yes| D
-    C -->|No| E
-```
 
 A fraud detection pipeline that loads transactions from PostgreSQL, analyzes patterns in DuckDB, and stores results back in PostgreSQL clearly benefits from multi-engine execution. If you're exploring a small CSV file locally, then DuckDB alone is simpler and faster without the complexity of multiple backends.
 

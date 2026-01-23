@@ -65,9 +65,10 @@ Intelligent caching solves these problems by automatically detecting when source
 
 Xorq's caching operates through four sequential stages that transform expensive operations into instant cache hits on subsequent runs.
 
-When you call `.cache()`, Xorq generates a cache key based on computation logic and optionally source data modification times, including operations, filters, and joins. Before executing, Xorq checks if a valid cache entry exists. If cache hits occur, then results return instantly. If cache misses or invalid entries occur, then Xorq executes the query and stores results in configured storage. On subsequent runs, Xorq checks if source data changed. If data changed, then cache invalidates. If data is unchanged, then cached results return.
+When you call `.cache()`, Xorq generates a cache key based on computation logic and optionally source data modification times, including operations, filters, and joins. Before executing, Xorq checks if a valid cache entry exists. If cache hits occur, then results return instantly. If cache misses or invalid entries occur, then Xorq executes the query and stores results in configured storage. On subsequent runs, Xorq checks if source data changed. If data changed, then cache invalidates. If data is unchanged, then cached results return. The cache lookup and execution flow works like this:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant Xorq
@@ -167,24 +168,6 @@ archive = analysis_result.cache(cache=cache)
 ```
 
 ## Choosing the right cache type
-
-Use this decision framework to select the appropriate cache based on invalidation needs and persistence requirements.
-
-```{mermaid}
-graph TD
-    A{Need auto-invalidation?}
-    A -->|Yes| B{Need persistence?}
-    A -->|No| C{Need persistence?}
-    B -->|Yes| D[ParquetCache]
-    B -->|No| E[SourceCache]
-    C -->|Yes| F[ParquetSnapshotCache]
-    C -->|No| G[SourceSnapshotCache]
-    
-    D --> H[Daily pipelines,<br/>local development]
-    E --> I[Production pipelines,<br/>backend storage]
-    F --> J[Reproducible research,<br/>archives]
-    G --> K[One-off analyses,<br/>manual control]
-```
 
 **When to use each cache type:**
 
@@ -292,7 +275,7 @@ Caching is still lazy execution. Calling `.cache()` doesn't execute the query or
 
 ## Learning more
 
-[Why deferred execution](why_deferred_execution.qmd) explains how caching works with deferred execution. [How Xorq works](how_xorq_works.qmd) shows where caching fits in the pipeline.
+[Why deferred execution](../fundamentals/why_deferred_execution.qmd) explains how caching works with deferred execution. [How Xorq works](../fundamentals/how_xorq_works.qmd) shows where caching fits in the pipeline.
 
 [Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) discusses how cache keys are generated. [Multi-engine execution](multi_engine_execution.qmd) details how caching works across backends.
 

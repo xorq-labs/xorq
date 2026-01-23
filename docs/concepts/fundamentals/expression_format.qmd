@@ -82,9 +82,10 @@ When you run `xorq build`, Xorq creates a build directory with three core artifa
 
 **metadata.json**: Stores build metadata like timestamp, Xorq version, Python dependencies, and content hash, which supports reproducibility and debugging so you can confirm exact reproduction of builds.
 
-**deferred_reads.yaml**: Provides information about data sources that load at execution time rather than build time, including file paths, table names, and read operations that defer until the backend executes them. This artifact is generated only when you run `xorq build` with the `--debug` flag.
+**deferred_reads.yaml**: Provides information about data sources that load at execution time rather than build time, including file paths, table names, and read operations that defer until the backend executes them. This artifact is generated only when you run `xorq build` with the `--debug` flag. The build process generates these artifacts:
 
 ```{mermaid}
+%%| eval: true
 graph TB
     A[Python Code] --> B[xorq build]
     B --> C[expr.yaml]
@@ -109,9 +110,10 @@ The expression format achieves portability through three design choices that sep
 
 **Schema preservation**: Every node in the manifest includes its output schema, which supports compile-time validation and type safety.
 
-**Backend abstraction**: The manifest references backends by profile hash rather than specific connection details, so you can swap a local DuckDB profile for a production Snowflake profile without changing the expression itself.
+**Backend abstraction**: The manifest references backends by profile hash rather than specific connection details, so you can swap a local DuckDB profile for a production Snowflake profile without changing the expression itself. The same manifest can execute on different engines:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant Manifest
     participant DuckDB
@@ -188,17 +190,6 @@ The expression format isn't always necessary. For simple scripts or single-engin
 - You're using a single engine forever with no plans to switch. Portability benefits become irrelevant.
 - You don't need versioning or reproducibility. The build step overhead exceeds the benefits.
 - You're working alone without sharing computations. Reuse capabilities provide no value.
-
-```{mermaid}
-graph TD
-    A{Need multi-engine?}
-    A -->|Yes| B[Use expression format]
-    A -->|No| C{Team sharing?}
-    C -->|Yes| B
-    C -->|No| D{Need versioning?}
-    D -->|Yes| B
-    D -->|No| E[Consider direct execution]
-```
 
 A fraud detection pipeline that runs in DuckDB during development and Snowflake in production clearly benefits from the expression format. If you need versioning for compliance audits, then the format provides value through portability and caching. On the other hand, if you're exploring data in a notebook with throwaway analysis, then immediate pandas code is simpler since you don't need build steps for single-use scripts.
 

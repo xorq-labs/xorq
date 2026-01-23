@@ -1,0 +1,42 @@
+---
+title: 'Concepts'
+description: "Explore Xorq's core concepts and learn how to build portable, multi-engine ML pipelines"
+---
+
+Xorq is a unified platform for building portable ML pipelines that run across multiple compute engines. This section covers the fundamental concepts, architecture, and design principles that make Xorq different from traditional data processing tools.
+
+## Explore the documentation
+
+::: {.docs-grid}
+::: {.doc-card}
+<i class="bi bi-lightbulb"></i>
+
+[**Fundamentals**](fundamentals/how_xorq_works.qmd)
+
+Learn about Xorq's architecture, deferred execution, and expression format
+:::
+
+::: {.doc-card}
+<i class="bi bi-gear"></i>
+
+[**Execution and backends**](execution_and_backends/multi_engine_execution.qmd)
+
+Understand how Xorq executes across engines, caches results, and manages connections
+:::
+
+::: {.doc-card}
+<i class="bi bi-shield-check"></i>
+
+[**Reproducibility**](reproducibility/build_system.qmd)
+
+Discover how Xorq ensures reproducible computations with hashing and versioning
+:::
+
+::: {.doc-card}
+<i class="bi bi-stars"></i>
+
+[**Advanced capabilities**](advanced_capabilities/user_defined_functions.qmd)
+
+Explore UDFs, UDXFs, feature serving, lineage tracking, and batch processing
+:::
+:::

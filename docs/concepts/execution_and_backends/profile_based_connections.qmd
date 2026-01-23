@@ -69,9 +69,10 @@ Profiles operate through three stages that transform configuration into secure, 
 
 **Profile saving** writes the profile to disk as YAML with an optional alias, which supports discovery and reuse.
 
-**Profile loading** retrieves the profile by alias or hash, then calling `.get_con()` creates a connection with environment variables resolved at connection time.
+**Profile loading** retrieves the profile by alias or hash, then calling `.get_con()` creates a connection with environment variables resolved at connection time. The profile loading and connection process works like this:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant Profile
@@ -86,20 +87,15 @@ sequenceDiagram
     Backend-->>User: Return connection
 ```
 
-Profiles are immutable objects that can't be modified after creation, which ensures thread safety and predictability. Think of profiles like published recipes: once shared, they stay fixed so everyone uses the same instructions. If you need different parameters, then create a new profile or use `.clone()` to create a modified copy, just as you'd fork a recipe to create a variant.
+Profiles are immutable objects that can't be modified after creation, which ensures thread safety and predictability. Think of profiles like published recipes: once shared, they stay fixed so everyone uses the same instructions. If you need different parameters, then create a new profile or use `.clone()` to create a modified copy, just as you'd fork a recipe to create a variant. The same code can use different profiles for different environments, as shown here:
 
 ```{mermaid}
-graph TB
-    A[Python Code] --> B{Environment?}
-    B -->|Dev| C[Load dev_profile]
-    B -->|Staging| D[Load staging_profile]
-    B -->|Prod| E[Load prod_profile]
-    C --> F[${DEV_HOST}]
-    D --> G[${STAGING_HOST}]
-    E --> H[${PROD_HOST}]
-    F --> I[Same Code, Different Backend]
-    G --> I
-    H --> I
+%%| eval: true
+graph LR
+    A[Python Code] --> B[Load Profile]
+    B --> C[dev_profile<br/>staging_profile<br/>prod_profile]
+    C --> D[DEV_HOST<br/>STAGING_HOST<br/>PROD_HOST]
+    D --> E[Same Code,<br/>Different Backend]
 ```
 
 :::{.callout-tip}
@@ -289,19 +285,6 @@ You're switching between environments: Local DuckDB for development, staging Pos
 - You're prototyping without a finalized backend choice. Profile management is premature until you settle on a production database.
 - Your exploratory work is simple. Profile management overhead exceeds practical value when reusability or environment portability don't justify the complexity.
 
-```{mermaid}
-graph TD
-    A{Multiple environments?}
-    A -->|Yes 2+| B[Use profiles]
-    A -->|No| C{Team collaboration?}
-    C -->|Yes| B
-    C -->|No| D{Sensitive credentials?}
-    D -->|Yes| B
-    D -->|No| E{Need reusability?}
-    E -->|Yes| B
-    E -->|No| F[Direct connection OK]
-```
-
 A production feature pipeline running in three environments benefits from profiles. If you create three profiles with the same alias pattern but different credential references (like `dev_pipeline`, `staging_pipeline`, and `prod_pipeline`), then your code references `Profile.load(f"{env}_pipeline")` where the environment variable determines which profile loads. This works without code changes. However, if you're exploring data in Jupyter with one-time analysis using local CSV, then direct connection is simpler and faster.
 
 ## Understanding trade-offs
@@ -342,7 +325,7 @@ Profiles are safe to commit to Git because they only contain references without 
 
 ## Learning more
 
-[Overview](../fundamentals/overview.qmd) explains Xorq's architecture. [Multi-engine execution](multi_engine_execution.qmd) covers how profiles enable multi-engine support.
+[How Xorq works](../fundamentals/how_xorq_works.qmd) explains Xorq's architecture. [Multi-engine execution](multi_engine_execution.qmd) covers how profiles enable multi-engine support.
 
 [Build system](../reproducibility/build_system.qmd) discusses how manifests reference profiles by hash. [Reproducible environments with uv](../reproducibility/reproducible_environments_with_uv.qmd) details combining profiles with uv for full reproducibility.
 

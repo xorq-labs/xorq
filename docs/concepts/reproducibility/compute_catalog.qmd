@@ -62,9 +62,10 @@ The catalog operates in four stages:
 
 **Discovery**: Team members run `xorq catalog ls` to see all available computations. They can search by alias or hash to find what they need.
 
-**Execution**: You reference catalog entries by alias in commands like `xorq run customer-features` or `xorq serve-unbound fraud-model`. The catalog resolves the alias to the current build hash.
+**Execution**: You reference catalog entries by alias in commands like `xorq run customer-features` or `xorq serve-unbound fraud-model`. The catalog resolves the alias to the current build hash. The catalog registration and lookup process works like this:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant Dev as Developer
     participant Catalog as Catalog
@@ -82,20 +83,17 @@ sequenceDiagram
     Catalog-->>Dev: Aliases: features  b7e3f1a8c5d9  r2
 ```
 
-The catalog doesn't store builds; it indexes them. Builds live in the `builds/` directory. The catalog maintains aliases that point to those builds.
+The catalog doesn't store builds; it indexes them. Builds live in the `builds/` directory. The catalog maintains aliases that point to those builds. The workflow from registration to execution follows this path:
 
 ```{mermaid}
-graph TB
+%%| eval: true
+graph LR
     A[Developer] --> B[xorq catalog add]
-    B --> C{Alias exists?}
-    C -->|No| D[Create entry r1]
-    C -->|Yes| E[Increment revision r2,r3...]
-    D --> F[Catalog JSON]
-    E --> F
-    F --> G[Discovery via ls]
-    G --> H[Execution via run]
-    H --> I[Resolve alias to hash]
-    I --> J[builds/a3f5c9d2/]
+    B --> C[Catalog JSON]
+    C --> D[Discovery via ls]
+    D --> E[Execution via run]
+    E --> F[Resolve alias to hash]
+    F --> G[builds/a3f5c9d2/]
 ```
 
 :::{.callout-tip}
@@ -318,21 +316,6 @@ Deciding when to use the catalog depends on your versioning and discovery needs.
 - Builds are temporary and don't need persistence for ephemeral experiments.
 - Team size is 1-2 people and coordination is trivial because a Slack message suffices.
 
-```{mermaid}
-graph TD
-    A{Team size > 2?}
-    A -->|Yes| B{Need version tracking?}
-    A -->|No| C[Skip catalog]
-    B -->|Yes| D[Use catalog]
-    B -->|No| E{Building on others' work?}
-    E -->|Yes| D
-    E -->|No| F{Production deployment?}
-    F -->|Yes| D
-    F -->|No| C
-```
-
-### Example decision
-
 If you're doing exploratory analysis alone, then skip the catalog and just build locally. The overhead of naming, registering, and managing catalog entries exceeds the benefit when there's no collaboration.
 
 ## Trade-offs
@@ -363,6 +346,6 @@ If you're working solo on throwaway notebooks, then the catalog adds complexity 
 
 [Build system](build_system.qmd) explains how the catalog indexes builds created by the build system. [Content-addressed hashing](content_addressed_hashing.qmd) covers how the catalog uses content hashes as identifiers.
 
-[Serving expressions as endpoints](serving_expressions_as_endpoints.qmd) discusses how to serve catalog entries as APIs.
+[Serving expressions as endpoints](../advanced_capabilities/serving_expressions_as_endpoints.qmd) discusses how to serve catalog entries as APIs.
 
 [Manage the compute catalog guide](../../guides/platform_workflows/manage_compute_catalog.qmd) provides production catalog workflows. [Catalog CLI reference](../../api_reference/cli/catalog.qmd) covers complete catalog command documentation.

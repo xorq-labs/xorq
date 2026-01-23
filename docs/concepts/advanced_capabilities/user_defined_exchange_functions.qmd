@@ -62,9 +62,10 @@ UDXFs solve these challenges by running in separate processes that communicate v
 
 UDXFs operate through five stages that manage the distributed processing lifecycle.
 
-First, you write a Python function that takes a pandas DataFrame and returns a transformed DataFrame containing your custom logic. Second, you wrap the function with `flight_udxf` and specify input and output schemas, which creates a Flight server configuration. Third, when you execute the expression, Xorq starts a Flight server in a separate process that hosts your processing function. Fourth, Xorq sends data to the server via Arrow Flight protocol. The server processes it using your function and sends results back using Arrow's zero-copy transfer mechanism. Fifth, after execution completes, Xorq automatically shuts down the Flight server and cleans up the separate process.
+First, you write a Python function that takes a pandas DataFrame and returns a transformed DataFrame containing your custom logic. Second, you wrap the function with `flight_udxf` and specify input and output schemas, which creates a Flight server configuration. Third, when you execute the expression, Xorq starts a Flight server in a separate process that hosts your processing function. Fourth, Xorq sends data to the server via Arrow Flight protocol. The server processes it using your function and sends results back using Arrow's zero-copy transfer mechanism. Fifth, after execution completes, Xorq automatically shuts down the Flight server and cleans up the separate process. The UDXF execution sequence looks like this:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant Query as Query Engine
     participant Flight as Flight Server
@@ -81,9 +82,10 @@ sequenceDiagram
     Flight->>Process: Terminate
 ```
 
-Arrow Flight uses zero-copy data transfer that moves data between processes without serialization overhead. This makes distributed processing performance nearly comparable to in-process execution for large datasets.
+Arrow Flight uses zero-copy data transfer that moves data between processes without serialization overhead. This makes distributed processing performance nearly comparable to in-process execution for large datasets. The architecture diagram shows the data flow:
 
 ```{mermaid}
+%%| eval: true
 graph TB
     A[Query Engine] --> B[Start Flight Server]
     B --> C[Separate Process]
@@ -306,19 +308,6 @@ Deciding when to use UDXFs depends on your isolation needs, computation patterns
 - You're doing simple transformations that complete in under 100ms without external dependencies or heavy computation.
 - You're performing arithmetic operations, string transformations, or basic data cleaning that runs faster without communication overhead.
 - You're implementing operations tightly coupled to the query engine, like custom aggregations that interact with the query planner.
-
-```{mermaid}
-graph TD
-    A{External API call?}
-    A -->|Yes| B[Use UDXF]
-    A -->|No| C{Heavy computation?}
-    C -->|Yes| D{> 100ms or > 1GB memory?}
-    D -->|Yes| B
-    D -->|No| E[Use UDF]
-    C -->|No| F{Microservice needed?}
-    F -->|Yes| B
-    F -->|No| E
-```
 
 Processing one million customer reviews with OpenAI sentiment analysis requires UDXFs. External API calls with seconds of latency would block the query engine if run as regular UDFs. The UDXF process handles API calls independently, batches requests for efficiency, and isolates failures so one bad review doesn't crash the pipeline.
 

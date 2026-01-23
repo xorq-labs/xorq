@@ -85,9 +85,10 @@ Xorq generates content hashes through three stages that transform expressions in
 
 **Hash computation** serializes the normalized expression to canonical form and applies MD5 hashing via Dask's tokenize function.
 
-**Hash assignment** uses this hash as the identifier for build directories, cache keys, and catalog entries. Xorq truncates the hash to 12 characters by default for human readability.
+**Hash assignment** uses this hash as the identifier for build directories, cache keys, and catalog entries. Xorq truncates the hash to 12 characters by default for human readability. The hash generation process follows this sequence:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant Xorq
@@ -101,9 +102,10 @@ sequenceDiagram
     Xorq->>User: Build at builds/a3f5c9d2/
 ```
 
-The hash depends on what you're computing, which means the operations, predicates, and transformations applied to data. If you change a filter threshold from 100 to 101, then you get a different hash because logic changed. If you run the same filter on different dates, then you get the same hash because logic remained constant.
+The hash depends on what you're computing, which means the operations, predicates, and transformations applied to data. If you change a filter threshold from 100 to 101, then you get a different hash because logic changed. If you run the same filter on different dates, then you get the same hash because logic remained constant. The hash computation pipeline looks like this:
 
 ```{mermaid}
+%%| eval: true
 graph TB
     A[Expression Graph] --> B[Normalize]
     B --> C[Extract Operations]
@@ -221,17 +223,6 @@ Team size and computation cost determine whether content addressing justifies it
 - Your workflows don't use caching or catalogs. Hashing provides no infrastructure value.
 - Your analyses are one-off without reuse opportunities.
 
-```{mermaid}
-graph TD
-    A{Team size > 3?}
-    A -->|Yes| B{Computation > 10s?}
-    A -->|No| C[Simple versioning OK]
-    B -->|Yes| D[Use content hashing]
-    B -->|No| E{Need reproducibility?}
-    E -->|Yes| D
-    E -->|No| C
-```
-
 If you're working on a data science team where three people independently build customer segmentation features, then content hashing helps enormously. When Developer B writes the same logic as Developer A, they automatically get identical hashes. However, if you're working solo on exploratory notebooks that complete in under five seconds, then hashing overhead is unjustified.
 
 
@@ -265,7 +256,7 @@ Xorq generates hashes automatically during builds so you never compute hashes ma
 
 ## Learning more
 
-[Overview](../fundamentals/overview.qmd) explains input-addressed computation. [Expression format](../fundamentals/expression_format.qmd) covers expression manifests.
+[Expression format](../fundamentals/expression_format.qmd) covers expression manifests.
 
 [Build system](build_system.qmd) discusses how builds generate and use content hashes. [Compute catalog](compute_catalog.qmd) details catalog indexing. [Intelligent caching system](../execution_and_backends/intelligent_caching_system.qmd) explains caching mechanisms using content hashes.
 

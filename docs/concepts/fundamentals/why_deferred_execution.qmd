@@ -93,19 +93,21 @@ Deferred execution provides four capabilities that improve performance and suppo
 
 **Multi-engine execution**: The expression graph is engine-independent, so you can switch backends without code changes. You can build on DuckDB locally, then execute on Snowflake in production without rewriting logic.
 
-**Compile-time validation**: Xorq catches schema mismatches and type errors before execution happens on expensive operations. With immediate execution, you discover errors only after expensive operations complete and resources are wasted.
+**Compile-time validation**: Xorq catches schema mismatches and type errors before execution happens on expensive operations. With immediate execution, you discover errors only after expensive operations complete and resources are wasted. Deferred execution enables optimization that immediate execution cannot:
 
 ```{mermaid}
-graph TB
+%%| eval: true
+graph LR
     A[Write Operations] --> B[Build Expression Graph]
-    B --> C{Deferred?}
-    C -->|Yes| D[Optimize Full Pipeline]
-    C -->|No| E[Execute Each Step]
-    D --> F[Check Cache]
-    F --> G[Execute Once]
-    E --> H[Execute N Times]
-    G --> I[Efficient]
-    H --> J[Wasteful]
+    B --> C[Deferred Execution]
+    C --> D[Optimize Full Pipeline]
+    D --> E[Check Cache]
+    E --> F[Execute Once]
+    F --> G[Efficient Results]
+    
+    B -.Immediate.-> H[Execute Each Step]
+    H --> I[Execute N Times]
+    I --> J[Wasteful]
 ```
 
 Deferred execution changes your code from imperative instructions to declarative specifications of what you want computed. This shift allows optimization because Xorq can choose how to compute rather than executing steps sequentially.
@@ -118,9 +120,10 @@ Deferred execution operates in three phases that transform your code from expres
 
 **Optimization**: When you call `.execute()`, Xorq compiles the expression graph to SQL for your target backend. The backend's query optimizer then merges operations, eliminates dead code, and reorders operations for efficiency.
 
-**Execution**: The backend executes the optimized SQL query and returns results. Different backends get different SQL dialects optimized for their specific query planners and execution engines.
+**Execution**: The backend executes the optimized SQL query and returns results. Different backends get different SQL dialects optimized for their specific query planners and execution engines. The deferred execution workflow follows this sequence:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant Xorq
@@ -162,20 +165,6 @@ Choosing between deferred and immediate execution depends on your workflow, data
 - Your pipeline is simple with one or two operations. There's no optimization benefit from deferral.
 - You need results right now for interactive work. Latency matters more than optimization throughput.
 - You're working in a notebook and want fast feedback during development. Immediate execution keeps you productive.
-
-```{mermaid}
-graph TD
-    A{Large dataset?}
-    A -->|Yes 100GB+| B{Multi-step pipeline?}
-    A -->|No| C[Consider immediate]
-    B -->|Yes| D[Use deferred]
-    B -->|No| E{Need portability?}
-    E -->|Yes| D
-    E -->|No| C
-    C --> F{Exploratory work?}
-    F -->|Yes| G[Use immediate]
-    F -->|No| H[Either works]
-```
 
 ```python
 import xorq.api as xo
@@ -231,7 +220,7 @@ The trade-off is worth it when you're building production pipelines that run rep
 
 ## Learning more
 
-[Overview](overview.qmd) provides context on where deferred execution fits in Xorq's overall architecture. [How Xorq works](how_xorq_works.qmd) shows where deferred execution fits in the pipeline.
+[How Xorq works](how_xorq_works.qmd) shows where deferred execution fits in the pipeline.
 
 [Intelligent caching system](../execution_and_backends/intelligent_caching_system.qmd) explains how deferred execution supports automatic caching. [Multi-engine execution](../execution_and_backends/multi_engine_execution.qmd) covers how deferred expressions run on multiple backends. [Build system](../reproducibility/build_system.qmd) discusses how deferred expressions become executable manifests.
 

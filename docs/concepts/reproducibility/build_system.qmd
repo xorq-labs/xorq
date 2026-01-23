@@ -55,9 +55,10 @@ Building operates in four stages:
 
 **Artifact generation**: Xorq generates three core files: `expr.yaml` contains the expression, `profiles.yaml` contains backend configs, and `metadata.json` contains build info. When you run `xorq build` with the `--debug` flag, Xorq also generates `deferred_reads.yaml` containing data source information.
 
-**Hash computation**: Xorq computes a content hash from the expression logic. This hash becomes the build directory name and serves as the unique identifier.
+**Hash computation**: Xorq computes a content hash from the expression logic. This hash becomes the build directory name and serves as the unique identifier. The build process follows this sequence:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant CLI
@@ -77,9 +78,10 @@ sequenceDiagram
     BuildManager-->>User: builds/a3f5c9d2/
 ```
 
-The build process is deterministic. Building the same expression twice produces the same hash and identical artifacts. This enables reproducible deployments.
+The build process is deterministic. Building the same expression twice produces the same hash and identical artifacts. This enables reproducible deployments. The transformation from expression to build artifacts looks like this:
 
 ```{mermaid}
+%%| eval: true
 graph TB
     A[Python Expression] --> B[Extract Graph]
     B --> C[Compute Content Hash]
@@ -235,21 +237,6 @@ Deciding when to build depends on your deployment patterns and reproducibility r
 - You don't need reproducibility guarantees for one-off analysis or exploratory work.
 - You're running one-off analyses that never repeat and don't need deployment or versioning.
 - Development and execution happen on the same machine so portability isn't required.
-
-```{mermaid}
-graph TD
-    A{Production deployment?}
-    A -->|Yes| B[Build required]
-    A -->|No| C{Need reproducibility?}
-    C -->|Yes| B
-    C -->|No| D{Multiple environments?}
-    D -->|Yes| B
-    D -->|No| E{Interactive development?}
-    E -->|Yes| F[Run directly]
-    E -->|No| B
-```
-
-### Example decision
 
 If you're on a team where data scientists develop locally but pipelines run on production servers, builds bridge this gap. Scientists write Python locally and builds deploy to production without environment mismatches or version conflicts.
 

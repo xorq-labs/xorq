@@ -48,9 +48,10 @@ Xorq captures the dependency graph as you build expressions. Each operation like
 
 A filter uses specific columns in its predicate. A join uses join keys for matching. A mutate creates new columns from existing columns through transformation expressions.
 
-When you call `xorq lineage`, Xorq walks the expression graph backward from each output column. It builds a dependency tree from final outputs back through intermediate transformations to source columns.
+When you call `xorq lineage`, Xorq walks the expression graph backward from each output column. It builds a dependency tree from final outputs back through intermediate transformations to source columns. Here's an example dependency tree:
 
 ```{mermaid}
+%%| eval: true
 graph TB
     A[fraud_score] --> B[amount_filtered]
     A --> C[transaction_count]
@@ -62,9 +63,10 @@ graph TB
     D --> I[transactions.amount]
 ```
 
-Lineage is structural rather than runtime. Xorq derives lineage from the expression graph, not from execution logs. This means you can inspect lineage without executing the expression.
+Lineage is structural rather than runtime. Xorq derives lineage from the expression graph, not from execution logs. This means you can inspect lineage without executing the expression. The lineage query process works like this:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant Expression
@@ -168,19 +170,6 @@ Inherited pipelines with undocumented transformations become easier to understan
 ### Lineage is less valuable when
 
 Pipelines are simple with one or two operations and single table transformations that are obvious. You're doing exploratory analysis that won't be reused like throwaway notebooks or ad-hoc queries. You don't need governance or debugging support for personal projects or internal tools without compliance requirements. The pipeline is simple enough to understand by reading the code directly.
-
-```{mermaid}
-graph TD
-    A{Complex pipeline?}
-    A -->|Yes: 5+ ops| B[Use lineage]
-    A -->|No: 1-2 ops| C{Regulated industry?}
-    C -->|Yes| B
-    C -->|No| D{Production deployment?}
-    D -->|Yes| B
-    D -->|No| E{Team collaboration?}
-    E -->|Yes| B
-    E -->|No| F[Lineage less valuable]
-```
 
 Building a feature engineering pipeline for a regulated industry like finance or healthcare means lineage provides audit trails. When auditors ask where features came from, you run `xorq lineage` and show complete provenance. The lineage report becomes compliance documentation without manual reconstruction or lengthy explanations written from scratch.
 

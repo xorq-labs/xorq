@@ -1,8 +1,7 @@
 project:
   type: website
 
-execute:
-  mermaid: true
+# Mermaid is enabled by default for HTML output, no explicit configuration needed
   
 website:
   page-navigation: true
@@ -33,7 +32,7 @@ website:
         text: "Tutorials"
       - href: guides/data_workflows/read_write_production_data.qmd
         text: "Guides"
-      - href: concepts/fundamentals/overview.qmd
+      - href: concepts/index.qmd
         text: "Concepts"
       - href: reference/index.qmd
         text: "Reference"
@@ -142,7 +141,6 @@ website:
         - id: fundamentals-section
           section: "Fundamentals"
           contents:
-            - concepts/fundamentals/overview.qmd
             - concepts/fundamentals/how_xorq_works.qmd
             - concepts/fundamentals/why_deferred_execution.qmd
             - concepts/fundamentals/expression_format.qmd
@@ -326,6 +324,8 @@ format:
       theme: dark
     execute:
       eval: false  # Don't execute code blocks by default
+      # Note: Mermaid blocks are processed even with eval: false
+      # They render client-side in the browser
     include-in-header: 
       - "style/google.html"
       - "style/typography-spacing.html"

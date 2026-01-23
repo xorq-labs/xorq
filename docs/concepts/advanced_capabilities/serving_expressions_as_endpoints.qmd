@@ -56,9 +56,10 @@ Serving operates in four stages.
 
 **Request handling**: Clients connect via Flight protocol and send input data. The server executes the expression with the provided data and returns results.
 
-**Server shutdown**: The server runs until you stop it with Ctrl+C. It handles requests concurrently and remains stateless.
+**Server shutdown**: The server runs until you stop it with Ctrl+C. It handles requests concurrently and remains stateless. The request flow between client and server works like this:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant Client
     participant Server as Flight Server
@@ -72,18 +73,17 @@ sequenceDiagram
     Server->>Client: Send results
 ```
 
-The server is stateless. It holds the expression logic but not data. Each request is independent. This supports horizontal scaling by running multiple servers behind a load balancer.
+The server is stateless. It holds the expression logic but not data. Each request is independent. This supports horizontal scaling by running multiple servers behind a load balancer. Multiple clients can connect to the same server:
 
 ```{mermaid}
+%%| eval: true
 graph LR
     A[Build Expression] --> B[xorq build]
     B --> C[builds/a3f5c9d2/]
     C --> D[xorq serve-unbound]
-    D --> E[Flight Server Port 8815]
-    F[Client 1] --> E
-    G[Client 2] --> E
-    H[Client 3] --> E
-    E --> I[Execute & Return]
+    D --> E[Flight Server<br/>Port 8815]
+    F[Multiple Clients] --> E
+    E --> G[Execute & Return]
 ```
 
 :::{.callout-tip}
@@ -241,19 +241,6 @@ Deciding when to serve expressions depends on your API requirements, latency tol
 - You don't need network access for local development or single-machine workflows.
 - Latency requirements are under 10ms and Flight overhead becomes significant.
 - The computation runs once and doesn't need repeated calls like batch jobs or scheduled ETL.
-
-```{mermaid}
-graph TD
-    A{Need API access?}
-    A -->|Yes| B[Serve expression]
-    A -->|No| C{Batch processing?}
-    C -->|Yes| D[Run directly]
-    C -->|No| E{Multiple clients?}
-    E -->|Yes| B
-    E -->|No| F{Latency > 10ms?}
-    F -->|Yes| B
-    F -->|No| D
-```
 
 If you're building a fraud detection model that needs to score transactions in real-time, then serve the model as an endpoint. The transaction service calls the endpoint with transaction data and gets a fraud score back in 50ms. The computation takes 40ms and network adds 10ms. The 10ms Flight overhead is acceptable for this use case.
 

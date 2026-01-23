@@ -62,10 +62,10 @@ UDFs operate in three stages:
 
 **UDF wrapping:** You wrap the function with `make_pandas_udf`, specifying the input schema and return type. This creates a UDF constructor.
 
-**UDF application:** You apply the UDF to expressions using `.on_expr()`. After registration, UDFs can be used in SQL queries by name. Xorq handles data conversion and execution.
-
+**UDF application:** You apply the UDF to expressions using `.on_expr()`. After registration, UDFs can be used in SQL queries by name. Xorq handles data conversion and execution. The UDF lifecycle from definition to execution follows this sequence:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant UDF
@@ -82,21 +82,16 @@ sequenceDiagram
     Xorq-->>User: Results
 ```
 
-UDFs are portable across different database backends, meaning the same UDF works on DuckDB, PostgreSQL, Snowflake, and other supported systems without modification. Xorq handles all the backend-specific implementation details and data format conversions automatically.
+UDFs are portable across different database backends, meaning the same UDF works on DuckDB, PostgreSQL, Snowflake, and other supported systems without modification. Xorq handles all the backend-specific implementation details and data format conversions automatically. The same UDF can execute on multiple backends:
 
 ```{mermaid}
-graph TB
+%%| eval: true
+graph LR
     A[Python Function] --> B[make_pandas_udf]
     B --> C[Schema + Return Type]
     C --> D[UDF Constructor]
-    D --> E[Apply to Expression]
-    D --> F[Use in SQL Query]
-    E --> G[Execute on DuckDB]
-    E --> H[Execute on PostgreSQL]
-    E --> I[Execute on Snowflake]
-    F --> G
-    F --> H
-    F --> I
+    D --> E[Apply to Expression<br/>or Use in SQL Query]
+    E --> F[Execute on<br/>DuckDB / PostgreSQL / Snowflake]
 ```
 
 :::{.callout-tip}
@@ -243,19 +238,6 @@ Deciding when to use UDFs depends on your needs for custom logic and performance
 - The operation is common across many use cases as a standard transformation.
 - You can compose built-ins to achieve your goal by combining filter, mutate, and group_by.
 
-```{mermaid}
-graph TD
-    A{Built-in exists?}
-    A -->|Yes| B[Use built-in]
-    A -->|No| C{Domain-specific logic?}
-    C -->|Yes| D[Create UDF]
-    C -->|No| E{Can compose built-ins?}
-    E -->|Yes| B
-    E -->|No| D
-```
-
-### Example decision
-
 Summing a column or filtering rows works better with built-in operations. This is because they run natively in the backend with full query planner optimization, making them significantly faster than UDF equivalents.
 
 ## UDF best practices
@@ -338,7 +320,7 @@ If built-in functions can do the job like filtering, aggregation, or joins, then
 
 ## Learning more
 
-[Overview](../fundamentals/overview.qmd) explains Xorq's architecture and how UDFs fit into the system.
+[How Xorq works](../fundamentals/how_xorq_works.qmd) explains Xorq's architecture and how UDFs fit into the system.
 
 [User-defined exchange functions](user_defined_exchange_functions.qmd) covers UDXFs for distributed processing.
 

@@ -29,24 +29,25 @@ Xorq consists of six core components that work together to process computations 
 5. **Executor**: Loads manifests, compiles them to backend-specific SQL, checks caches, and runs queries on target engines.
 
 6. **Backend Engines**: The actual compute engines where SQL executes and data lives. Examples include DuckDB, Snowflake, and PostgreSQL.
-```{mermaid}
-graph TB
-    User[User Code] --> ExpGraph[Expression Graph]
-    ExpGraph --> Compiler[Compiler]
-    Compiler --> Manifest[YAML Manifest]
-    Manifest --> Catalog[Catalog]
-    Catalog --> Executor[Executor]
-    Executor --> Backend[Backend Engine]
-    Backend --> Cache[Cache System]
-    Cache -.Reuse.-> Executor
-```
+
+Together, these components form a horizontal, composable architecture. Instead of vertical silos (feature stores, model registries, orchestrators), Xorq provides a unified stack where operations flow as reusable blocks across any backend engine.
+
+::: {.light-only}
+![](../../images/architecture-light.svg){fig-width="14" fig-responsive="true"}
+:::
+
+::: {.dark-only}
+![](../../images/architecture-dark.svg){fig-width="14" fig-responsive="true"}
+:::
 
 The key architectural principle: Xorq separates **what you want to compute**, captured in the manifest, from **how to compute it**, determined by the executor for each backend.
 
-## How Xorq processes computations
+## How Xorq processes computationss
 
-Xorq operates as a four-stage pipeline: expression building, manifest compilation, catalog registration, and execution. Each stage transforms your code step by step from Python expressions into executable results.
+Xorq operates as a four-stage pipeline: expression building, manifest compilation, catalog registration, and execution. Each stage transforms your code step by step from Python expressions into executable results. The following diagram shows how data flows through these stages:
+
 ```{mermaid}
+%%| eval: true
 graph LR
     A[Python Code] --> B[Expression Graph]
     B --> C[YAML Manifest]
@@ -97,8 +98,10 @@ result = filtered.group_by("category").agg(total=xo._.amount.sum())
 print(type(result))  # Table expression type
 ```
 
-Here's the key insight: The expression graph is an intermediate representation (IR) that's independent of any specific engine. This IR is what makes multi-engine execution possible.
+Here's the key insight: The expression graph is an intermediate representation (IR) that's independent of any specific engine. This IR is what makes multi-engine execution possible. This sequence diagram shows how operations build the graph without executing:
+
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant Xorq
@@ -149,8 +152,12 @@ The manifest includes four critical artifacts:
 3. **deferred_reads.yaml**: Information about data sources that load at execution time
 
 4. **metadata.json**: Build timestamp, Xorq version, and dependency information
+
+The compiler generates these four artifacts from the expression graph, as shown here:
+
 ```{mermaid}
-graph TB
+%%| eval: true
+graph LR
     A[Expression Graph] --> B[Compiler]
     B --> C[expr.yaml]
     B --> D[profiles.yaml]
@@ -199,8 +206,10 @@ When you run `xorq run builds/<hash>` or call `.execute()` in Python, Xorq execu
 
 **What we're executing**: The **manifest** stored as YAML files, not the original Python code. The manifest gets compiled to SQL, which executes on the backend engine and produces query results as data.
 
-**Why this matters**: This is where backend-specific optimization happens. Xorq can push operations to the engine, eliminate unnecessary steps, and reuse cached results. Your Python code is long gone — only the manifest matters now.
+**Why this matters**: This is where backend-specific optimization happens. Xorq can push operations to the engine, eliminate unnecessary steps, and reuse cached results. Your Python code is long gone — only the manifest matters now. The execution flow with caching is shown here:
+
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant Executor
@@ -246,8 +255,11 @@ This pipeline provides three critical capabilities:
 - **Versioning**: Content hashes identify exact computations, supporting precise version control.
 - **Reuse**: If anyone computed this before with the same hash, you get cached results automatically.
 
+The complete pipeline from code to cached results looks like this:
+
 ```{mermaid}
-graph TB
+%%| eval: true
+graph LR
     A[Write Python] --> B[Build Expression]
     B --> C[Compile Manifest]
     C --> D[Register in Catalog]
@@ -259,10 +271,10 @@ graph TB
 
 ## Learning more
 
-If you're new to Xorq, start with [Overview](overview.qmd) to learn about the high-level architecture and components. [Why deferred execution](why_deferred_execution.qmd) explains how lazy evaluation works in Xorq.
+If you're new to Xorq, start with [Why deferred execution](why_deferred_execution.qmd) to learn how lazy evaluation works in Xorq. [Expression format](expression_format.qmd) covers the detailed specifications of YAML manifest structure.
 
-[Expression format](expression_format.qmd) covers the detailed specifications of YAML manifest structure. [Build system](../reproducibility/build_system.qmd) explains how `xorq build` works internally. [Compute catalog](../reproducibility/compute_catalog.qmd) details how the catalog supports discovery and reuse across teams.
+[Multi-engine execution](../execution_and_backends/multi_engine_execution.qmd) covers how one manifest runs on multiple backends.
 
-[Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) explains how Xorq generates content hashes. [Multi-engine execution](../execution_and_backends/multi_engine_execution.qmd) covers how one manifest runs on multiple backends.
+[Build system](../reproducibility/build_system.qmd) explains how `xorq build` works internally. [Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) explains how Xorq generates content hashes. [Compute catalog](../reproducibility/compute_catalog.qmd) details how the catalog supports discovery and reuse across teams.
 
 

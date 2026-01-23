@@ -98,9 +98,10 @@ Input-addressed computation solves these problems by making computation logic th
 
 Input addressing operates through three stages that transform expressions into stable identifiers for reuse.
 
-First, specification extraction pulls the computation specification from your expression. This includes operations like filter, join, and aggregate plus their predicates. Second, canonical representation converts the specification to a normalized form that's independent of syntax variations or formatting. Third, address generation computes a content hash from the canonical representation, creating the input address deterministically.
+First, specification extraction pulls the computation specification from your expression. This includes operations like filter, join, and aggregate plus their predicates. Second, canonical representation converts the specification to a normalized form that's independent of syntax variations or formatting. Third, address generation computes a content hash from the canonical representation, creating the input address deterministically. The transformation from expression code to input address follows this path:
 
 ```{mermaid}
+%%| eval: true
 graph TB
     A[Expression Code] --> B[Extract Specification]
     B --> C[Operations: filter, group, agg]

@@ -57,8 +57,10 @@ Reproducible environments with uv operate in four stages:
 
 **Artifact packaging**: The build artifacts include metadata about the environment like Python version. The packaged sdist contains `requirements.txt` with dependency versions. This supports recreation later.
 
+When you run `xorq uv-build`, uv creates an isolated environment, installs locked dependencies, and builds your expression. The build process follows this sequence:
 
 ```{mermaid}
+%%| eval: true
 sequenceDiagram
     participant User
     participant UV
@@ -75,22 +77,18 @@ sequenceDiagram
     Note over Build: Includes env metadata
 ```
 
-The isolated environment is ephemeral. uv creates it for the build, then discards it. The build artifacts capture what you need to recreate the environment later.
+The isolated environment is ephemeral. uv creates it for the build, then discards it. The build artifacts capture what you need to recreate the environment later. The dependency flow from lock file to build artifacts looks like this:
 
 ```{mermaid}
-graph TB
+%%| eval: true
+graph LR
     A[pyproject.toml] --> B[uv lock]
-    B --> C[uv.lock file]
+    B --> C[uv.lock]
     C --> D[xorq uv-build]
-    D --> E[Isolated Environment]
-    E --> F[pandas==2.1.0]
-    E --> G[numpy==1.25.0]
-    E --> H[pyarrow==13.0.0]
-    F --> I[Build Expression]
-    G --> I
-    H --> I
-    I --> J[builds/a3f5c9d2/]
-    J --> K[metadata.json + sdist with requirements.txt]
+    D --> E[Isolated Env<br/>with locked deps]
+    E --> F[Build Expression]
+    F --> G[builds/a3f5c9d2/]
+    G --> H[Artifacts:<br/>metadata.json<br/>+ sdist]
 ```
 
 :::{.callout-tip}
@@ -230,22 +228,6 @@ Deciding when to use reproducible environments depends on your deployment patter
 - You're working solo with no deployment needs and no production risk.
 - Build speed matters more than reproducibility for exploratory work or throwaway code.
 - Code never leaves development like notebooks, experiments, or one-off analyses.
-
-
-```{mermaid}
-graph TD
-    A{Production deployment?}
-    A -->|Yes| B[Use uv-build]
-    A -->|No| C{Compliance required?}
-    C -->|Yes| B
-    C -->|No| D{Team collaboration?}
-    D -->|Yes| E{Long-lived pipeline?}
-    D -->|No| F[Regular build OK]
-    E -->|Yes| B
-    E -->|No| F
-```
-
-### Example decision
 
 If you're exploring data in a notebook, then use regular `build` or run directly with `.execute()` for faster iteration. The overhead of uv, lock files, and environment isolation exceeds the benefit when code never leaves your laptop.
 
