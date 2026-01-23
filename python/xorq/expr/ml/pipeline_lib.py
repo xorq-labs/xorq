@@ -552,7 +552,7 @@ class FittedStep:
         }
 
     def transform(self, expr, retain_others=True):
-        if self.structer is None or self.structer.is_kv_encoded:
+        if self.structer.is_kv_encoded:
             col = self.transform_raw(expr)
             if retain_others and (others := self.get_others(expr)):
                 expr = expr.select(*others, col)
