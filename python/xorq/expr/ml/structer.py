@@ -234,8 +234,9 @@ class Structer:
 
     def get_convert_array(self):
         if self.is_kv_encoded:
-            # For KV-encoded, use KVEncoder.encode
-            return KVEncoder.encode
+            raise ValueError(
+                "get_convert_array cannot be used with KV-encoded Structer"
+            )
         return self.convert_array(self.struct)
 
     @classmethod
@@ -243,8 +244,6 @@ class Structer:
     def convert_array(cls, struct, array):
         import pandas as pd
 
-        if struct is None:
-            raise ValueError("convert_array cannot be used with KV-encoded Structer")
         self = cls(struct)
         return (
             pd.DataFrame(array, columns=struct.fields)

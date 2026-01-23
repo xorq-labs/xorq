@@ -162,6 +162,12 @@ class TestStructer:
         with pytest.raises(ValueError, match="KV-encoded"):
             _ = structer.output_columns
 
+    def test_get_convert_array_kv_encoded_raises(self):
+        """Test get_convert_array raises for KV-encoded."""
+        structer = Structer.kv_encoded(input_columns=("x",))
+        with pytest.raises(ValueError, match="KV-encoded"):
+            structer.get_convert_array()
+
 
 class TestStructerFromInstance:
     """Tests for structer_from_instance dispatch."""
