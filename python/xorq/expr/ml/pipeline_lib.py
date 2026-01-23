@@ -34,8 +34,8 @@ from xorq.common.utils.func_utils import (
 from xorq.expr.ml.fit_lib import (
     decision_function_sklearn,
     deferred_fit_predict_sklearn,
-    deferred_fit_transform_series_sklearn_packed,
-    deferred_fit_transform_sklearn_packed,
+    deferred_fit_transform_series_sklearn_encoded,
+    deferred_fit_transform_sklearn_encoded,
     deferred_fit_transform_sklearn_struct,
     feature_importances_sklearn,
     predict_proba_sklearn,
@@ -416,7 +416,7 @@ class FittedStep:
 
         if structer.is_series and structer.is_kv_encoded:
             (col,) = self.features
-            return deferred_fit_transform_series_sklearn_packed(
+            return deferred_fit_transform_series_sklearn_encoded(
                 expr=self.expr,
                 col=col,
                 cls=self.step.typ,
@@ -424,7 +424,7 @@ class FittedStep:
                 cache=self.cache,
             )
         elif structer.is_kv_encoded:
-            return deferred_fit_transform_sklearn_packed(
+            return deferred_fit_transform_sklearn_encoded(
                 expr=self.expr,
                 features=self.features,
                 cls=self.step.typ,

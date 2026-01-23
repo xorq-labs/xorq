@@ -347,27 +347,25 @@ class TestKVEncoderIntegration:
             Structer.from_instance_expr(SelectKBest(k=1), t, features=("a", "b"))
 
 
-class TestMaybeDecodeEncodedColumns:
-    """Tests for _maybe_decode_encoded_columns helper."""
+class TestDecodeEncodedColumns:
+    """Tests for decode_encoded_column and decode_encoded_columns helpers."""
 
     def test_no_encoded_cols(self):
         """Test passthrough when no encoded columns."""
-        from xorq.expr.ml.fit_lib import _maybe_decode_encoded_columns
+        from xorq.expr.ml.fit_lib import decode_encoded_columns
 
         df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         features = ("a", "b")
         encoded_cols = ()
 
-        result_df, result_features = _maybe_decode_encoded_columns(
-            df, features, encoded_cols
-        )
+        result_df, result_features = decode_encoded_columns(df, features, encoded_cols)
 
         pd.testing.assert_frame_equal(result_df, df)
         assert result_features == features
 
     def test_decode_encoded_column(self):
         """Test decoding KV-encoded column."""
-        from xorq.expr.ml.fit_lib import _maybe_decode_encoded_columns
+        from xorq.expr.ml.fit_lib import decode_encoded_columns
 
         df = pd.DataFrame(
             {
@@ -381,9 +379,7 @@ class TestMaybeDecodeEncodedColumns:
         features = ("encoded", "other")
         encoded_cols = ("encoded",)
 
-        result_df, result_features = _maybe_decode_encoded_columns(
-            df, features, encoded_cols
-        )
+        result_df, result_features = decode_encoded_columns(df, features, encoded_cols)
 
         assert "encoded" not in result_df.columns
         assert "x" in result_df.columns
@@ -391,17 +387,12 @@ class TestMaybeDecodeEncodedColumns:
         assert "other" in result_df.columns
         assert set(result_features) == {"x", "y", "other"}
 
-    def test_missing_encoded_col_skipped(self):
-        """Test that missing encoded columns are skipped."""
-        from xorq.expr.ml.fit_lib import _maybe_decode_encoded_columns
+    def test_missing_encoded_col_raises(self):
+        """Test that missing encoded columns raise ValueError."""
+        from xorq.expr.ml.fit_lib import decode_encoded_column
 
         df = pd.DataFrame({"a": [1.0, 2.0]})
         features = ("a",)
-        encoded_cols = ("nonexistent",)
 
-        result_df, result_features = _maybe_decode_encoded_columns(
-            df, features, encoded_cols
-        )
-
-        pd.testing.assert_frame_equal(result_df, df)
-        assert result_features == features
+        with pytest.raises(ValueError, match="nonexistent not in DataFrame"):
+            decode_encoded_column(df, features, "nonexistent")

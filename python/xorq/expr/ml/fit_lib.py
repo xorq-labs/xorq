@@ -18,10 +18,9 @@ from attr.validators import (
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.name_utils import make_name
-from xorq.expr.ml.structer import KV_ENCODED_TYPE, KVEncoder, Structer
+from xorq.expr.ml.structer import KV_ENCODED_TYPE, KVEncoder, KVField, Structer
 from xorq.expr.udf import make_pandas_expr_udf
 from xorq.vendor import ibis
-from xorq.vendor.ibis.expr.types.core import Expr
 
 
 @toolz.curry
@@ -113,35 +112,30 @@ def kv_encode_output(model, df):
     return KVEncoder.encode(model, df)
 
 
-def _maybe_decode_encoded_columns(df, features, encoded_cols):
-    """
-    Decode specified KV-encoded columns.
+def decode_encoded_column(df, features, encoded_col):
+    """Decode a single KV-encoded column."""
+    if df.empty:
+        raise ValueError("cannot decode empty DataFrame")
+    if (col := df.get(encoded_col)) is None:
+        raise ValueError(f"{encoded_col} not in DataFrame")
+    # remove encoded_col from features and append the columns it becomes
+    new_features = tuple(c for c in features if c != encoded_col) + tuple(
+        item[KVField.KEY] for item in col.iloc[0]
+    )
+    result_df = KVEncoder.decode(df, encoded_col)
+    return result_df, new_features
 
-    Enables Pipeline.from_instance() to work seamlessly with KV-encoded
-    transformers by decoding intermediate encoded columns before fitting
-    subsequent steps.
-    """
-    if not encoded_cols:
-        return df, features
 
-    result_df = df.copy()
-    new_features = list(features)
-
-    for col in encoded_cols:
-        if col not in df.columns:
-            continue
-        first_row = result_df[col].iloc[0]
-        decoded_names = [item["key"] for item in first_row]
-        result_df = KVEncoder.decode(result_df, col)
-        new_features = [f for f in new_features if f != col]
-        new_features.extend(decoded_names)
-
-    return result_df, tuple(new_features)
+def decode_encoded_columns(df, features, encoded_cols):
+    """Decode multiple KV-encoded columns."""
+    for encoded_col in encoded_cols:
+        df, features = decode_encoded_column(df, features, encoded_col)
+    return df, features
 
 
 @frozen
 class DeferredFitOther:
-    expr = field(validator=instance_of(Expr))
+    expr = field(validator=instance_of(ibis.Expr))
     target = field(validator=optional(instance_of(str)))
     features = field(
         validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
@@ -197,7 +191,7 @@ class DeferredFitOther:
             ),
             schema=self.fit_schema,
             return_type=dt.binary,
-            name=make_name(f"fit_{self.name_infix}", (self.fit, self.other)),
+            name=self.make_name(f"fit_{self.name_infix}"),
         )
 
     @property
@@ -215,7 +209,7 @@ class DeferredFitOther:
             fn=fn,
             schema=self.schema,
             return_type=return_type,
-            name=make_name(self.name_infix, (self.fit, self.other)),
+            name=self.make_name(name_infix),
         )
         return deferred_other
 
@@ -239,7 +233,7 @@ class DeferredFitOther:
     @staticmethod
     @toolz.curry
     def _inner_fit(df, fit, target, features, encoded_cols):
-        df_decoded, features_decoded = _maybe_decode_encoded_columns(
+        df_decoded, features_decoded = decode_encoded_columns(
             df, features, encoded_cols
         )
         args = (df_decoded[list(features_decoded)],) + (
@@ -250,7 +244,7 @@ class DeferredFitOther:
     @staticmethod
     @toolz.curry
     def _inner_other(model, df, other, features, return_type, encoded_cols):
-        df_decoded, features_decoded = _maybe_decode_encoded_columns(
+        df_decoded, features_decoded = decode_encoded_columns(
             df, features, encoded_cols
         )
         return pa.array(
@@ -462,8 +456,8 @@ def deferred_fit_transform_series_sklearn(
 
 
 @toolz.curry
-def deferred_fit_transform_series_sklearn_packed(
-    expr, col, cls, params=(), name="transformed_packed", cache=None
+def deferred_fit_transform_series_sklearn_encoded(
+    expr, col, cls, params=(), name="transformed_encoded", cache=None
 ):
     return DeferredFitOther(
         expr=expr,
@@ -495,13 +489,13 @@ def deferred_fit_transform_sklearn_struct(
 
 
 @toolz.curry
-def deferred_fit_transform_sklearn_packed(
+def deferred_fit_transform_sklearn_encoded(
     expr,
     features,
     cls,
     params=(),
     target=None,
-    name_infix="transformed_packed",
+    name_infix="transformed_encoded",
     cache=None,
 ):
     @toolz.curry

@@ -1,4 +1,5 @@
 import operator
+from enum import Enum
 
 import toolz
 from attr import (
@@ -15,9 +16,16 @@ from dask.utils import Dispatch
 import xorq.expr.datatypes as dt
 
 
+class KVField(str, Enum):
+    KEY = "key"
+    VALUE = "value"
+
+
 ENCODED = "encoded"
 # NOTE: may want other types supported
-KV_ENCODED_TYPE = dt.Array(dt.Struct({"key": dt.string, "value": dt.float64}))
+KV_ENCODED_TYPE = dt.Array(
+    dt.Struct({KVField.KEY: dt.string, KVField.VALUE: dt.float64})
+)
 
 
 class KVEncoder:
@@ -27,8 +35,8 @@ class KVEncoder:
     Used for sklearn transformers where output schema is not known until fit time
     (e.g., OneHotEncoder, CountVectorizer, ColumnTransformer).
 
-    The encode method converts fitted sklearn transform output to packed format.
-    The decode method extracts the packed column back to individual columns.
+    The encode method converts fitted sklearn transform output to encoded format.
+    The decode method decodes the encoded column back to individual columns.
     """
 
     return_type = KV_ENCODED_TYPE
@@ -67,7 +75,7 @@ class KVEncoder:
         return pd.Series(
             (
                 tuple(
-                    {"key": key, "value": float(value)}  # forced float
+                    {KVField.KEY: key, KVField.VALUE: float(value)}
                     for key, value in zip(names, row)
                 )
                 for row in result
@@ -79,7 +87,7 @@ class KVEncoder:
         """
         Decode Array[Struct{key, value}] column to individual columns.
 
-        Extracts keys and values from the packed format, then creates
+        Extracts keys and values from the encoded format, then creates
         a DataFrame with the keys as column names.
 
         Parameters
@@ -92,7 +100,7 @@ class KVEncoder:
         Returns
         -------
         pandas.DataFrame
-            DataFrame with the packed column replaced by individual columns
+            DataFrame with the encoded column replaced by individual columns
         """
         import pandas as pd
 
@@ -101,14 +109,14 @@ class KVEncoder:
         if len(series) == 0:
             return df.drop(columns=[col_name])
 
-        # Extract keys and values from the packed format
+        # Extract keys and values from the encoded format
         keys, values = (
-            [tuple(dct[which] for dct in lst) for lst in series]
-            for which in ("key", "value")
+            tuple(tuple(dct[which] for dct in lst) for lst in series)
+            for which in (KVField.KEY, KVField.VALUE)
         )
         # All rows should have the same keys
-        (columns, *rest) = keys
-        assert all(el == columns for el in rest), "Inconsistent keys across rows"
+        (columns, *rest) = set(keys)
+        assert not rest, "Inconsistent keys across rows"
 
         decoded = pd.DataFrame(
             values,
@@ -116,7 +124,7 @@ class KVEncoder:
             columns=columns,
         )
 
-        # Drop the packed column and join with decoded columns
+        # Drop the encoded column and join with decoded columns
         return df.drop(columns=[col_name]).join(decoded)
 
     @classmethod
@@ -152,7 +160,7 @@ class KVEncoder:
     def get_kv_value_type(typ):
         """Extract the value type from KV-encoded format Array[Struct{key, value}]."""
         if KVEncoder.is_kv_encoded_type(typ):
-            return typ.value_type.fields["value"]
+            return typ.value_type.fields[KVField.VALUE]
         return typ
 
 
@@ -235,6 +243,8 @@ class Structer:
     def convert_array(cls, struct, array):
         import pandas as pd
 
+        if struct is None:
+            raise ValueError("convert_array cannot be used with KV-encoded Structer")
         self = cls(struct)
         return (
             pd.DataFrame(array, columns=struct.fields)
