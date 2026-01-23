@@ -468,7 +468,33 @@ xorq catalog sources transform-alias
 
 **Complete Workflow:**
 
-**1. Build Transforms Using Catalog Placeholders:**
+**1. Load and Compose Expressions Directly (RECOMMENDED):**
+
+```python
+import xorq.api as xo
+
+# Load cataloged expressions
+source = xo.catalog.get("batting-source")
+
+# Compose by chaining operations
+lineup_analysis = (
+    source
+    .select("playerID", "yearID", "H", "AB")
+    .mutate(batting_avg=xo._.H / xo._.AB)
+    .filter(xo._.batting_avg > 0.250)
+)
+
+# Execute when ready
+result = lineup_analysis.execute()
+
+# Or build and catalog for reuse
+# xorq build lineup.py -e lineup_analysis
+# xorq catalog add builds/<hash> --alias lineup-analysis
+```
+
+**Alternative: Build Transforms Using Catalog Placeholders:**
+
+Use placeholders when you want to define transforms without loading full expressions:
 
 ```python
 import xorq.api as xo
@@ -546,10 +572,10 @@ xorq catalog sources lineup-transform
 See [examples/catalog_composition_example.py](../examples/catalog_composition_example.py) for a full working example.
 
 **Advantages:**
-- Fast placeholder creation with `xo.catalog.get_placeholder()`
+- Direct composition with `xo.catalog.get()` (simplest, recommended)
+- Fast placeholder creation with `xo.catalog.get_placeholder()` (for build-time transforms)
 - Python-native composition for building transforms
 - Type-safe schema inspection
-- Composable via CLI with `run-unbound`
 - Tag-based composition for clarity
 
 ---

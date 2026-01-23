@@ -234,20 +234,17 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         "compose",
         "Compose cataloged expressions",
         [
-            "Get placeholders with xo.catalog.get_placeholder('alias', tag='tag') (preferred)",
+            "Load expressions with xo.catalog.get('alias') (RECOMMENDED)",
+            "Get placeholders with xo.catalog.get_placeholder('alias', tag='tag') for transforms",
             "Or load from build directory for debugging: xo.catalog.load_expr('builds/<hash>')",
-            "Build transforms using placeholders, then catalog",
-            "Compose via CLI using run-unbound with tags",
+            "Compose directly in Python - expressions compose naturally",
         ],
         [
-            "# Python composition with placeholders (RECOMMENDED)",
-            "# source = xo.catalog.get_placeholder('my-source', tag='src')",
+            "# Python composition (RECOMMENDED)",
+            "# import xorq.api as xo",
+            "# source = xo.catalog.get('my-source')",
             "# transform = source.filter(xo._.value > 100).select('id', 'value')",
-            "# Save transform.py with: expr = transform",
-            "# xorq build transform.py -e expr && xorq catalog add builds/<hash> --alias my-transform",
-            "",
-            "# CLI composition via run-unbound",
-            "xorq run source -o arrow | xorq run-unbound transform --to_unbind_tag src",
+            "# result = transform.execute()",
             "",
             "# View lineage",
             "xorq lineage <alias>",
@@ -762,13 +759,36 @@ def _render_agent_doc(max_lines: int) -> str:
         - Build expressions: `xorq build expr.py -e expr_name`
         - Catalog builds: `xorq catalog add builds/<hash> --alias my-new-pipeline`
 
-        ### 7. Build Transforms Using Catalog Placeholders
+        ### 7. Compose Cataloged Expressions
         ```python
-        # Get placeholder with schema from catalog (Python API)
+        # Compose expressions directly (RECOMMENDED)
+        import xorq.api as xo
+
+        # Load cataloged expressions
+        source = xo.catalog.get("batting-source")
+
+        # Compose by chaining operations
+        lineup_analysis = (
+            source
+            .select("playerID", "H", "AB")
+            .mutate(batting_avg=xo._.H / xo._.AB)
+        )
+
+        # Execute when ready
+        result = lineup_analysis.execute()
+
+        # Or build and catalog for reuse
+        # xorq build lineup.py -e lineup_analysis
+        # xorq catalog add builds/<hash> --alias lineup-analysis
+        ```
+
+        ```python
+        # Alternative: Build transforms using placeholders (for build-time composition)
+        # Use placeholders when you want to define transforms without loading full expressions
         import xorq.api as xo
 
         # Get placeholder - only loads schema, not full expression
-        source_placeholder = xo.catalog.get_placeholder("batting-source")
+        source_placeholder = xo.catalog.get_placeholder("batting-source", tag="src")
 
         # Build transform using placeholder
         lineup_transform = (
@@ -782,32 +802,7 @@ def _render_agent_doc(max_lines: int) -> str:
         # xorq catalog add builds/<hash> --alias lineup-transform
         ```
 
-        ```bash
-        # CLI composition via Arrow IPC (when needed)
-        # Find node hashes to unbind
-        xorq catalog sources my-transform
-
-        # Basic composition: source → transform
-        xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound transform \
-            --to_unbind_hash <hash> \
-            --typ xorq.expr.relations.Read \
-            -o output.parquet
-
-        # Multi-stage with DuckDB exploration
-        xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound lineup-transform \
-            --to_unbind_hash d43ad87ea8a989f3495aab5dff0b5746 \
-            --typ xorq.expr.relations.Read \
-            -f arrow -o /dev/stdout 2>/dev/null | \
-          duckdb -c "LOAD arrow;
-            SELECT playerID, leadoff_fit
-            FROM read_arrow('/dev/stdin')
-            ORDER BY leadoff_fit DESC
-            LIMIT 10"
-        ```
-
-        **Composition patterns:** Use `xo.catalog.get_placeholder()` for Python-native composition (preferred), or Arrow IPC streaming for CLI pipelines. The catalog is the single source of truth for all expressions.
+        **Composition patterns:** Use `xo.catalog.get()` to load and compose expressions directly (simplest). Use `xo.catalog.get_placeholder()` when building transforms at build-time. The catalog is the single source of truth for all expressions.
 
         ### 8. Land the Plane (`xorq agent land`)
         **MANDATORY before session completion:**
