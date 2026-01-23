@@ -101,7 +101,7 @@ encoded_test = fitted_pipeline.transform(test_table)
 predicted_test = fitted_pipeline.predict(test_table)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__main__", "__pytest_main__"):
     predictions_df = predicted_test.execute()
     binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 
