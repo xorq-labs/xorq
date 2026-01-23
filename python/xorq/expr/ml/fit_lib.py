@@ -114,10 +114,10 @@ def kv_encode_output(model, df):
 
 def decode_encoded_column(df, features, encoded_col):
     """Decode a single KV-encoded column."""
-    if df.empty:
-        raise ValueError("cannot decode empty DataFrame")
     if (col := df.get(encoded_col)) is None:
         raise ValueError(f"{encoded_col} not in DataFrame")
+    if col.empty:
+        raise ValueError(f"cannot decode empty column {encoded_col}")
     # remove encoded_col from features and append the columns it becomes
     new_features = tuple(c for c in features if c != encoded_col) + tuple(
         item[KVField.KEY] for item in col.iloc[0]

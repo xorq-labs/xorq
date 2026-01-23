@@ -402,3 +402,13 @@ class TestDecodeEncodedColumns:
 
         with pytest.raises(ValueError, match="nonexistent not in DataFrame"):
             decode_encoded_column(df, features, "nonexistent")
+
+    def test_empty_encoded_col_raises(self):
+        """Test that empty encoded column raises ValueError."""
+        from xorq.expr.ml.fit_lib import decode_encoded_column
+
+        df = pd.DataFrame({"encoded": []})
+        features = ("encoded",)
+
+        with pytest.raises(ValueError, match="cannot decode empty column"):
+            decode_encoded_column(df, features, "encoded")
