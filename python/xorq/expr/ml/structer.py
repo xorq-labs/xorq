@@ -119,16 +119,9 @@ class KVEncoder:
         # Drop the packed column and join with decoded columns
         return df.drop(columns=[col_name]).join(decoded)
 
-    @staticmethod
-    def is_kv_encoded_type(typ):
-        """Check if a type is KV-encoded format (Array[Struct{key: string, value: <any>}])."""
-        if not isinstance(typ, dt.Array):
-            return False
-        if not isinstance(typ.value_type, dt.Struct):
-            return False
-        fields = typ.value_type.fields
-        # Check structure: must have 'key' (string) and 'value' (any type)
-        return "key" in fields and "value" in fields and fields["key"] == dt.string
+    @classmethod
+    def is_kv_encoded_type(cls, typ):
+        return typ == cls.return_type
 
     @staticmethod
     def get_kv_encoded_cols(expr, features=None):
