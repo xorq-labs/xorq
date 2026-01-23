@@ -7,7 +7,7 @@ headline: "Give Claude access to your Xorq functions"
 
 This tutorial shows you how to expose Xorq functions as tools that Claude can call conversationally. You'll learn how to use the Model Context Protocol (MCP) to integrate Xorq with Claude Desktop.
 
-After completing this tutorial, you know how to wrap Xorq UDXFs as MCP tools, configure Claude Desktop to use them, and interact with your data functions through natural language.
+After completing this tutorial, you'll know how to wrap Xorq UDXFs as MCP tools, configure Claude Desktop to use them, and interact with your data functions through natural language.
 
 ## Prerequisites
 
@@ -16,46 +16,23 @@ You need:
 - Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd#install-xorq))
 - FastMCP library: `pip install fastmcp`
 - OpenAI Python client: `pip install openai`
-- OpenAI API key (set as environment variable)
+- OpenAI API key from [platform.openai.com](https://platform.openai.com)
 - Claude Desktop: Download from [claude.ai/download](https://claude.ai/download)
 
-## Set up your API key
-
-Before writing code, set your OpenAI API key as an environment variable.
-
-::: {.panel-tabset}
-
-## macOS / Linux
-
-```bash
-export OPENAI_API_KEY="your-api-key-here"
-```
-
-## Windows 
-
-```cmd
-set OPENAI_API_KEY=your-api-key-here
-```
-
-:::
-
-:::{.callout-tip}
-Never commit API keys to version control. Use environment variables or a secrets manager in production.
+:::{.callout-important}
+Claude Desktop is required for this tutorial. The web version (claude.ai) does NOT support MCP tools. You must download and install the desktop application.
 :::
 
 ## How this tutorial works
 
 You'll build a Python file incrementally. Each section adds new code to the file.
 
-**Two tabs per code block:**
+**Two tabs per code block**:
 
 - **Complete code**: The full runnable file at this stage
 - **Changes**: Just the lines you're adding (shown as diff)
 
 Create a file called `sentiment_mcp_server.py` and build it section by section.
-
-**For Claude Desktop integration:** After completing the tutorial, you'll configure Claude Desktop to use your completed script.
-
 
 :::{.callout-tip}
 Think of MCP as a universal adapter. Claude speaks MCP to request tool executions. Your Xorq functions speak Flight protocol. FlightMCPServer translates between them, exposing Xorq UDXFs as tools Claude can call.
@@ -65,80 +42,64 @@ Think of MCP as a universal adapter. Claude speaks MCP to request tool execution
 
 The architecture connects four components:
 
-- **Claude Desktop** asks questions and calls tools through MCP.
-
-- **MCP server** (FlightMCPServer) receives tool calls and translates them to Flight protocol.
-
-- **Flight server** executes UDXFs (User-Defined Exchange Functions) from Xorq.
-
-- **UDXF** processes data and returns results.
+- **Claude Desktop** asks questions and calls tools through MCP
+- **MCP server** (FlightMCPServer) receives tool calls and translates them to Flight protocol
+- **Flight server** executes UDXFs (User-Defined Exchange Functions) from Xorq
+- **UDXF** processes data and returns results
 
 The flow looks like this:
-
 ```
 User → Claude Desktop → MCP protocol → FlightMCPServer → Flight protocol → UDXF → Results → Claude
 ```
 
-Understanding this flow helps you debug integration issues. If Claude can't call your tool, then check each connection point: MCP server running? Flight server started? UDXF registered?
+Understanding this flow helps you debug integration issues. If Claude can't call your tool, check each connection point: MCP server running? Flight server started? UDXF registered?
 
 ## Create the FlightMCPServer class
 
-Now you'll build the bridge between MCP and Flight protocols. This class handles the translation.
+You'll build the bridge between MCP and Flight protocols. This class handles the translation.
 
 Add this to your `sentiment_mcp_server.py` file:
 
 ::: {.panel-tabset}
 
 ## Complete code
-
-This is your complete `sentiment_mcp_server.py` file at this stage. It defines the FlightMCPServer class that bridges MCP and Flight protocols, handles UDXF registration, and manages communication between Claude Desktop and your Xorq functions.
-
 ```python
-from typing import Callable, Optional 
+from typing import Callable, Optional
+import sys
 import toolz
 from mcp.server.fastmcp import FastMCP
 from xorq.flight import FlightServer, FlightUrl
 
-# <1>
 class FlightMCPServer:
     def __init__(
         self,
         name: str,
         flight_port: int = 8818,
     ):
-        # <2>
         self.name = name
         self.port = flight_port
         self.mcp = FastMCP(name)
         
-        # <3>
         self.flight_server = None
         self.client = None
         
-        # <4>
         self.udxfs = {}
         self.schemas = {}
         self.exchange_functions = {}
     
-    # <5>
     def start_flight_server(self) -> FlightServer:
         if self.flight_server:
             return self.flight_server
         
         try:
-            # <6>
             self.flight_server = FlightServer(
                 FlightUrl(port=self.port), 
                 exchangers=list(self.udxfs.values())
             )
             
-            # <7>
             self.flight_server.serve()
-            
-            # <8>
             self.client = self.flight_server.client
             
-            # <9>
             for udxf_name, udxf in self.udxfs.items():
                 self.exchange_functions[udxf_name] = toolz.curry(
                     self.client.do_exchange, udxf.command
@@ -148,7 +109,6 @@ class FlightMCPServer:
         except Exception:
             raise
     
-    # <10>
     def create_mcp_tool(
         self,
         udxf,
@@ -157,21 +117,16 @@ class FlightMCPServer:
         description: Optional[str] = None,
         output_mapper: Optional[Callable] = None,
     ):
-        # <11>
         udxf_command = udxf.command
         tool_name = tool_name or udxf_command
         
-        # <12>
         self.udxfs[udxf_command] = udxf
         
-        # <13>
         if not self.flight_server:
             self.start_flight_server()
         
-        # <14>
         do_exchange = self.exchange_functions.get(udxf_command)
         
-        # <15>
         if output_mapper is None:
             def default_output_mapper(result_df):
                 if len(result_df) > 0:
@@ -182,18 +137,14 @@ class FlightMCPServer:
         else:
             actual_output_mapper = output_mapper
         
-        # <16>
         @self.mcp.tool(name=tool_name, description=description)
-        async def wrapper(**kwargs):
+        async def wrapper(text: str):
             try:
-                # <17>
-                input_data = input_mapper(**kwargs)
+                input_data = input_mapper(text=text)
                 
-                # <18>
-                _, result = do_exchange(input_data.to_pyarrow_batches())
+                _, result = do_exchange(input_data)
                 result_df = result.read_pandas()
                 
-                # <19>
                 output = actual_output_mapper(result_df)
                 return output
             except Exception as e:
@@ -201,7 +152,6 @@ class FlightMCPServer:
         
         return wrapper
     
-    # <20>
     def run(self, transport: str = "stdio"):
         if not self.flight_server:
             self.start_flight_server()
@@ -213,38 +163,14 @@ class FlightMCPServer:
     def stop(self):
         pass
 
-# <21>
 if __name__ == "__main__":
-    print("FlightMCPServer class created")
+    print("FlightMCPServer class created", file=sys.stderr)
 ```
-1. Define the FlightMCPServer class that bridges MCP and Flight protocols.
-2. Initialize with server name and Flight port (8818 by default).
-3. Create placeholders for Flight server and client.
-4. Track registered UDXFs and their exchange functions.
-5. Start the Flight server that executes UDXFs.
-6. Create Flight server with the specified port and registered UDXFs.
-7. Begin serving Flight requests.
-8. Get a client for calling UDXFs.
-9. Create curried exchange functions for each UDXF.
-10. Wrap a UDXF as an MCP tool that Claude can call.
-11. Extract the UDXF command and set the tool name.
-12. Register the UDXF.
-13. Start Flight server if not already running.
-14. Get the exchange function for this UDXF.
-15. Use default output mapper if none is provided (converts DataFrame to string).
-16. Define the async wrapper function that MCP calls.
-17. Map MCP inputs to Xorq table using the input mapper.
-18. Execute the UDXF via Flight protocol.
-19. Format results using output mapper.
-20. Run the MCP server on stdio transport (Claude Desktop uses stdin/stdout).
-21. Test that the class definition works.
 
 ## Changes
-
-This diff shows the new code you're adding to create the FlightMCPServer class. You're importing necessary libraries and defining a class with methods to start Flight servers, register UDXFs as MCP tools, and handle communication between protocols.
-
 ```diff
 + from typing import Callable, Optional
++ import sys
 + import toolz
 + from mcp.server.fastmcp import FastMCP
 + from xorq.flight import FlightServer, FlightUrl
@@ -317,11 +243,11 @@ This diff shows the new code you're adding to create the FlightMCPServer class. 
 +             actual_output_mapper = output_mapper
 +         
 +         @self.mcp.tool(name=tool_name, description=description)
-+         async def wrapper(**kwargs):
++         async def wrapper(text: str):
 +             try:
-+                 input_data = input_mapper(**kwargs)
++                 input_data = input_mapper(text=text)
 +                 
-+                 _, result = do_exchange(input_data.to_pyarrow_batches())
++                 _, result = do_exchange(input_data)
 +                 result_df = result.read_pandas()
 +                 
 +                 output = actual_output_mapper(result_df)
@@ -343,45 +269,44 @@ This diff shows the new code you're adding to create the FlightMCPServer class. 
 +         pass
 + 
 + if __name__ == "__main__":
-+     print("FlightMCPServer class created")
++     print("FlightMCPServer class created", file=sys.stderr)
 ```
 
 :::
 
-Run the file to verify the class definition:
+:::{.callout-note}
+**Key differences from generic MCP servers**:
 
+1. The `wrapper` function explicitly defines `text: str` as a parameter instead of using `**kwargs` - this ensures proper parameter handling
+2. We call `do_exchange(input_data)` directly, not `input_data.to_pyarrow_batches()` - the input is already in the correct format
+3. All print statements use `file=sys.stderr` to avoid interfering with MCP's JSON communication on stdout
+:::
+
+Run the file to verify the class definition:
 ```bash
 python sentiment_mcp_server.py
 ```
 
-You'll see:
-
+You should see output in your terminal sent to stderr, so it won't interfere with MCP communication:
 ```
 FlightMCPServer class created
 ```
 
-**What just happened?** You created a class that acts as a protocol translator. When Claude calls an MCP tool, FlightMCPServer receives the request, converts inputs to Xorq tables, calls the UDXF via Flight, and formats results back to Claude. The `stdio` transport means communication happens through standard input/output, which is how Claude Desktop connects to MCP servers.
-
-**Think of it this way**: FlightMCPServer is like a bilingual interpreter. Claude speaks MCP (asking for tool executions), Xorq speaks Flight (executing UDXFs), and FlightMCPServer translates between them.
-
 ## Build a sentiment analysis UDXF
 
-Now you'll create a function that analyzes text sentiment using OpenAI.
+Now create a function that analyzes text sentiment using OpenAI.
 
 Update your `sentiment_mcp_server.py` file:
 
 ::: {.panel-tabset}
 
 ## Complete code
-
-This version adds the sentiment analysis UDXF to your file. It includes the OpenAI client setup, the `analyze_sentiment` function that calls GPT-3.5-turbo, schema definitions for input/output validation, and wraps everything as a UDXF using `make_udxf`.
-
 ```python
 from typing import Callable, Optional
+import sys
 import toolz
 from mcp.server.fastmcp import FastMCP
 from xorq.flight import FlightServer, FlightUrl
-# <1>
 import functools
 import os
 from openai import OpenAI
@@ -457,11 +382,11 @@ class FlightMCPServer:
             actual_output_mapper = output_mapper
         
         @self.mcp.tool(name=tool_name, description=description)
-        async def wrapper(**kwargs):
+        async def wrapper(text: str):
             try:
-                input_data = input_mapper(**kwargs)
+                input_data = input_mapper(text=text)
                 
-                _, result = do_exchange(input_data.to_pyarrow_batches())
+                _, result = do_exchange(input_data)
                 result_df = result.read_pandas()
                 
                 output = actual_output_mapper(result_df)
@@ -482,19 +407,16 @@ class FlightMCPServer:
     def stop(self):
         pass
 
-# <2>
 @functools.cache
 def get_client():
     return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
 
-# <3>
 def analyze_sentiment(df: pd.DataFrame) -> pd.DataFrame:
     text = df["text"].iloc[0]
     
     if not text or text.strip() == "":
         return pd.DataFrame({"sentiment": ["NEUTRAL"]})
     
-    # <4>
     messages = [
         {
             "role": "system",
@@ -506,7 +428,6 @@ def analyze_sentiment(df: pd.DataFrame) -> pd.DataFrame:
         }
     ]
     
-    # <5>
     try:
         response = get_client().chat.completions.create(
             model="gpt-3.5-turbo",
@@ -516,14 +437,13 @@ def analyze_sentiment(df: pd.DataFrame) -> pd.DataFrame:
         )
         sentiment = response.choices[0].message.content.strip()
         return pd.DataFrame({"sentiment": [sentiment]})
-    except Exception:
+    except Exception as e:
+        print(f"OpenAI Error: {str(e)}", file=sys.stderr)
         return pd.DataFrame({"sentiment": ["ERROR"]})
 
-# <6>
 schema_in = xo.schema({"text": str})
 schema_out = xo.schema({"sentiment": str})
 
-# <7>
 sentiment_udxf = make_udxf(
     analyze_sentiment,
     schema_in,
@@ -532,28 +452,18 @@ sentiment_udxf = make_udxf(
 )
 
 if __name__ == "__main__":
-    # <8>
     test_df = pd.DataFrame({"text": ["This is amazing!"]})
     result = analyze_sentiment(test_df)
-    print("Testing sentiment function:")
-    print(result)
+    print("Testing sentiment function:", file=sys.stderr)
+    print(result, file=sys.stderr)
     
-    print("\nSentiment UDXF created")
+    print("\nSentiment UDXF created", file=sys.stderr)
 ```
-1. Add imports for OpenAI, pandas, and Xorq components.
-2. Create a cached OpenAI client for reuse.
-3. Define the sentiment analysis function that takes a DataFrame and returns sentiment.
-4. Build a prompt that asks for one-word sentiment classification.
-5. Call OpenAI API with error handling, returning "ERROR" on failure.
-6. Define input schema (requires "text" column) and output schema (returns "sentiment" column).
-7. Wrap the function as a UDXF that Xorq can execute via Flight protocol.
 
 ## Changes
-
-This diff shows the additions for sentiment analysis. You're adding imports for OpenAI and pandas, creating a cached client, defining the sentiment analysis function with schema validation, and wrapping it as a UDXF that can be called via Flight protocol.
-
 ```diff
  from typing import Callable, Optional
++ import sys
  import toolz
  from mcp.server.fastmcp import FastMCP
  from xorq.flight import FlightServer, FlightUrl
@@ -597,7 +507,8 @@ This diff shows the additions for sentiment analysis. You're adding imports for 
 +         )
 +         sentiment = response.choices[0].message.content.strip()
 +         return pd.DataFrame({"sentiment": [sentiment]})
-+     except Exception:
++     except Exception as e:
++         print(f"OpenAI Error: {str(e)}", file=sys.stderr)
 +         return pd.DataFrame({"sentiment": ["ERROR"]})
 + 
 + schema_in = xo.schema({"text": str})
@@ -611,25 +522,26 @@ This diff shows the additions for sentiment analysis. You're adding imports for 
 + )
  
  if __name__ == "__main__":
-+     # Test sentiment function
 +     test_df = pd.DataFrame({"text": ["This is amazing!"]})
 +     result = analyze_sentiment(test_df)
-+     print("Testing sentiment function:")
-+     print(result)
++     print("Testing sentiment function:", file=sys.stderr)
++     print(result, file=sys.stderr)
 +     
-+     print("\nSentiment UDXF created")
++     print("\nSentiment UDXF created", file=sys.stderr)
 ```
 
 :::
 
-Run the file:
+:::{.callout-important}
+Notice we added error logging in the except block: `print(f"OpenAI Error: {str(e)}", file=sys.stderr)`. This helps debug OpenAI API issues without breaking MCP communication.
+:::
 
+Run the file:
 ```bash
 python sentiment_mcp_server.py
 ```
 
-You'll see:
-
+You should see output like:
 ```
 Testing sentiment function:
   sentiment
@@ -638,28 +550,18 @@ Testing sentiment function:
 Sentiment UDXF created
 ```
 
-:::{.callout-note}
-The function signature is crucial. It takes a pandas DataFrame and returns a pandas DataFrame. This contract lets Xorq validate schemas and handle data flow. If your input doesn't have a "text" column, then Xorq catches the error before calling OpenAI.
-:::
-
-Understanding the flow: Claude provides text → Input mapper creates DataFrame with "text" column → UDXF calls OpenAI → Returns DataFrame with "sentiment" column → Output mapper formats for Claude.
-
 ## Create input and output mappers
 
 Claude sends arguments as dictionaries. Your UDXF expects DataFrames. Mapper functions translate between these formats.
-
-You need two mappers: one converts Claude's text argument into a DataFrame for the UDXF, and one formats the UDXF's DataFrame results into a dictionary Claude can display.
 
 Update your `sentiment_mcp_server.py` file:
 
 ::: {.panel-tabset}
 
 ## Complete code
-
-This version adds mapper functions that translate between Claude's tool arguments and Xorq's table format. The input mapper converts text strings into DataFrames with proper schema validation. The output mapper formats UDXF results as dictionaries with human-readable interpretations for Claude.
-
 ```python
 from typing import Callable, Optional
+import sys
 import toolz
 from mcp.server.fastmcp import FastMCP
 from xorq.flight import FlightServer, FlightUrl
@@ -671,8 +573,6 @@ import xorq.api as xo
 from xorq.flight.exchanger import make_udxf
 
 class FlightMCPServer:
-    # ... (class definition unchanged)
-    
     def __init__(
         self,
         name: str,
@@ -740,11 +640,11 @@ class FlightMCPServer:
             actual_output_mapper = output_mapper
         
         @self.mcp.tool(name=tool_name, description=description)
-        async def wrapper(**kwargs):
+        async def wrapper(text: str):
             try:
-                input_data = input_mapper(**kwargs)
+                input_data = input_mapper(text=text)
                 
-                _, result = do_exchange(input_data.to_pyarrow_batches())
+                _, result = do_exchange(input_data)
                 result_df = result.read_pandas()
                 
                 output = actual_output_mapper(result_df)
@@ -795,7 +695,8 @@ def analyze_sentiment(df: pd.DataFrame) -> pd.DataFrame:
         )
         sentiment = response.choices[0].message.content.strip()
         return pd.DataFrame({"sentiment": [sentiment]})
-    except Exception:
+    except Exception as e:
+        print(f"OpenAI Error: {str(e)}", file=sys.stderr)
         return pd.DataFrame({"sentiment": ["ERROR"]})
 
 schema_in = xo.schema({"text": str})
@@ -808,54 +709,34 @@ sentiment_udxf = make_udxf(
     name="sentiment_analyzer"
 )
 
-# <1>
 def sentiment_input_mapper(**kwargs):
-    # <2>
     text = kwargs.get("text", "")
-    
-    # <3>
     return xo.memtable({"text": [text]}, schema=schema_in)
 
-# <4>
 def sentiment_output_mapper(result_df):
-    # <5>
     if len(result_df) == 0:
         return {"sentiment": "NO_RESULT", "text": "No data to analyze"}
     
-    # <6>
     sentiment = result_df["sentiment"].iloc[0]
     
-    # <7>
     return {
         "sentiment": sentiment,
         "interpretation": f"The text sentiment is {sentiment}"
     }
 
 if __name__ == "__main__":
-    # <8>
-    print("Testing input mapper:")
+    print("Testing input mapper:", file=sys.stderr)
     test_input = sentiment_input_mapper(text="This is amazing!")
-    print(test_input.execute())
+    print(test_input.execute(), file=sys.stderr)
     
-    print("\nTesting output mapper:")
+    print("\nTesting output mapper:", file=sys.stderr)
     test_output = sentiment_output_mapper(pd.DataFrame({"sentiment": ["POSITIVE"]}))
-    print(test_output)
+    print(test_output, file=sys.stderr)
     
-    print("\nMappers created and tested")
+    print("\nMappers created and tested", file=sys.stderr)
 ```
-1. Define the input mapper that converts MCP tool arguments to Xorq tables.
-2. Extract the "text" argument from Claude's tool call.
-3. Create a single-row table with the text, matching the UDXF's expected schema.
-4. Define the output mapper that formats UDXF results for Claude.
-5. Handle empty results gracefully.
-6. Extract the sentiment from the result DataFrame.
-7. Return a dictionary with sentiment and human-readable interpretation.
-8. Test both mappers to verify data transformation works correctly.
 
 ## Changes
-
-This diff adds the two mapper functions. The input mapper extracts text from Claude's tool call and creates a Xorq table. The output mapper transforms the UDXF's DataFrame result into a structured dictionary with sentiment and interpretation fields that Claude can present conversationally.
-
 ```diff
  sentiment_udxf = make_udxf(
      analyze_sentiment,
@@ -880,28 +761,25 @@ This diff adds the two mapper functions. The input mapper extracts text from Cla
 +     }
  
  if __name__ == "__main__":
-+     # Test mappers
-+     print("Testing input mapper:")
++     print("Testing input mapper:", file=sys.stderr)
 +     test_input = sentiment_input_mapper(text="This is amazing!")
-+     print(test_input.execute())
++     print(test_input.execute(), file=sys.stderr)
 +     
-+     print("\nTesting output mapper:")
++     print("\nTesting output mapper:", file=sys.stderr)
 +     test_output = sentiment_output_mapper(pd.DataFrame({"sentiment": ["POSITIVE"]}))
-+     print(test_output)
++     print(test_output, file=sys.stderr)
 +     
-+     print("\nMappers created and tested")
++     print("\nMappers created and tested", file=sys.stderr)
 ```
 
 :::
 
 Run the file:
-
 ```bash
 python sentiment_mcp_server.py
 ```
 
-You'll see:
-
+You should see output like this:
 ```
 Testing input mapper:
             text
@@ -913,22 +791,15 @@ Testing output mapper:
 Mappers created and tested
 ```
 
-**What does success look like?** Your mappers translate cleanly between formats. Claude sends `{"text": "..."}` → Input mapper creates a Xorq table → UDXF processes → Output mapper returns `{"sentiment": "...", "interpretation": "..."}` → Claude displays the result conversationally.
+## Register the MCP tool
 
-Most teams find that good output formatting makes a huge difference in user experience. Instead of raw DataFrames, Claude gets structured dictionaries with descriptive field names.
-
-## Wrap the UDXF as an MCP tool
-
-Now you'll connect all the pieces and create an MCP tool.
+Connect all pieces and create the MCP tool that Claude can call.
 
 Update your `sentiment_mcp_server.py` file:
 
 ::: {.panel-tabset}
 
 ## Complete code
-
-This is the final working version of your MCP server. It includes the FlightMCPServer class, the sentiment UDXF, mapper functions, and the tool registration that connects everything. The `if __name__` block handles both testing (default) and production mode (with `--run` flag).
-
 ```python
 from typing import Callable, Optional
 import sys
@@ -1010,11 +881,11 @@ class FlightMCPServer:
             actual_output_mapper = output_mapper
         
         @self.mcp.tool(name=tool_name, description=description)
-        async def wrapper(**kwargs):
+        async def wrapper(text: str):
             try:
-                input_data = input_mapper(**kwargs)
+                input_data = input_mapper(text=text)
                 
-                _, result = do_exchange(input_data.to_pyarrow_batches())
+                _, result = do_exchange(input_data)
                 result_df = result.read_pandas()
                 
                 output = actual_output_mapper(result_df)
@@ -1065,7 +936,8 @@ def analyze_sentiment(df: pd.DataFrame) -> pd.DataFrame:
         )
         sentiment = response.choices[0].message.content.strip()
         return pd.DataFrame({"sentiment": [sentiment]})
-    except Exception:
+    except Exception as e:
+        print(f"OpenAI Error: {str(e)}", file=sys.stderr)
         return pd.DataFrame({"sentiment": ["ERROR"]})
 
 schema_in = xo.schema({"text": str})
@@ -1093,10 +965,8 @@ def sentiment_output_mapper(result_df):
         "interpretation": f"The text sentiment is {sentiment}"
     }
 
-# <1>
 mcp_server = FlightMCPServer("xorq-sentiment")
 
-# <2>
 mcp_server.create_mcp_tool(
     sentiment_udxf,
     input_mapper=sentiment_input_mapper,
@@ -1105,29 +975,17 @@ mcp_server.create_mcp_tool(
     output_mapper=sentiment_output_mapper
 )
 
-# <3>
 if __name__ == "__main__":
-    # <4>
-    import sys
-    if len(sys.argv) > 1 and sys.argv[1] == "--run":
-        try:
-            mcp_server.run(transport="stdio")
-        except Exception:
-            sys.exit(1)
-    else:
-        print("MCP tool registered: analyze_sentiment")
-        print("\nReady for Claude Desktop integration")
-        print("Run with: python sentiment_mcp_server.py --run")
+    try:
+        print("MCP tool registered: analyze_sentiment", file=sys.stderr)
+        print("Starting MCP server...", file=sys.stderr)
+        mcp_server.run(transport="stdio")
+    except Exception as e:
+        print(f"Error starting MCP server: {e}", file=sys.stderr)
+        sys.exit(1)
 ```
-1. Create a FlightMCPServer instance named "xorq-sentiment".
-2. Register the sentiment UDXF as an MCP tool with custom mappers and a clear description.
-3. Add command-line handling for testing vs production use.
-4. When run with `--run` flag, start the MCP server for Claude Desktop. Otherwise, just print status.
 
 ## Changes
-
-This diff shows the final integration code. You're creating a FlightMCPServer instance, registering the sentiment UDXF as an MCP tool with custom mappers and description, and adding command-line handling to support both testing and production modes.
-
 ```diff
  def sentiment_output_mapper(result_df):
      if len(result_df) == 0:
@@ -1151,223 +1009,217 @@ This diff shows the final integration code. You're creating a FlightMCPServer in
 + )
  
  if __name__ == "__main__":
-+     import sys
-+     if len(sys.argv) > 1 and sys.argv[1] == "--run":
-+         try:
-+             mcp_server.run(transport="stdio")
-+         except Exception:
-+             sys.exit(1)
-+     else:
-+         print("FlightMCPServer class created")
-+         print("Sentiment UDXF created")
-+         print("Mappers created")
-+         print("MCP tool registered: analyze_sentiment")
-+         print("\nReady for Claude Desktop integration")
-+         print("Run with: python sentiment_mcp_server.py --run")
++     try:
++         print("MCP tool registered: analyze_sentiment", file=sys.stderr)
++         print("Starting MCP server...", file=sys.stderr)
++         mcp_server.run(transport="stdio")
++     except Exception as e:
++         print(f"Error starting MCP server: {e}", file=sys.stderr)
++         sys.exit(1)
 ```
 
 :::
 
-Run the file to verify everything is set up:
+:::{.callout-warning}
+**Critical change**: The script now runs the MCP server by default (no `--run` flag needed). This ensures Claude Desktop can start it properly.
+:::
 
+Test the script manually to verify it starts:
 ```bash
 python sentiment_mcp_server.py
 ```
 
-The output shows:
-
+You should see output like this:
 ```
-[01/05/26 08:56:22] INFO     Running action healthcheck
-                    INFO     doing action: healthcheck
-                    INFO     done healthcheck
-                    INFO     Flight server unavailable, sleeping 1 seconds
-[01/05/26 08:56:23] INFO     Running action add-exchange
-                    INFO     doing action: add-exchange
+[timestamp] INFO     Running action healthcheck
+                INFO     doing action: healthcheck
+                INFO     done healthcheck
+                INFO     Flight server unavailable, sleeping 1 seconds
+[timestamp] INFO     Running action add-exchange
+                INFO     doing action: add-exchange
 MCP tool registered: analyze_sentiment
-
-Ready for Claude Desktop integration
-Run with: python sentiment_mcp_server.py --run
+Starting MCP server...
 ```
 
-The INFO messages show the Flight server starting up and registering your UDXF. This is normal.
-
-**What just happened?** You created an MCP tool that Claude can discover and call. The tool has a name (`analyze_sentiment`), a description (tells Claude what it does), input mapping (converts Claude's arguments to Xorq format), and output mapping (formats results for Claude).
-
-Understanding the registration: FlightMCPServer starts a Flight server in the background, registers your UDXF, and exposes it through the MCP protocol. When Claude calls `analyze_sentiment`, the server routes the request through Flight to your UDXF.
+The server is now running and waiting for MCP connections. Press `Ctrl+C` to stop it.
 
 ## Configure Claude Desktop
 
-Now you'll tell Claude Desktop where to find your MCP tool. You need to edit a configuration file that Claude Desktop reads on startup.
+Now configure Claude Desktop to use your MCP tool.
 
-### Step 1: Find your script's full path
+### Step 1: Locate your script and virtual environment
 
-You need the complete path to `sentiment_mcp_server.py`.
+First, find where your script and Python virtual environment are located.
 
 ::: {.panel-tabset}
 
 ## macOS / Linux
 
-Open your terminal in the directory where `sentiment_mcp_server.py` is located, then run:
-
+Navigate to your project directory and get the full paths:
 ```bash
+cd /path/to/your/project
 pwd
 ```
 
-This shows your current directory path. Copy the output.
+Copy the output. This is your project directory.
 
-**Example output:**
+You should see output like this:
 ```
-/Users/yourname/projects/xorq-tutorials
-```
-
-Your full script path is this directory + the filename:
-```
-/Users/yourname/projects/xorq-tutorials/sentiment_mcp_server.py
+/Users/yourname/Projects/Xorq_guides/xorq/ai_tutorials
 ```
 
-Copy this full path - you'll need it in Step 2.
+Now find your virtual environment. If you're using a venv in your project:
+```bash
+ls -la | grep venv
+```
+
+Look for `.venv` or `venv` directory. Note if it's in your current directory or the parent directory.
+
+**Finding the parent venv**:
+```bash
+cd ..
+ls -la | grep venv
+pwd
+```
+
+Your venv Python path will be:
+
+- If venv is in current directory: `/Users/yourname/Projects/Xorq_guides/xorq/ai_tutorials/.venv/bin/python`
+- If venv is in parent: `/Users/yourname/Projects/Xorq_guides/xorq/.venv/bin/python`
+
+Your script path is: `/Users/yourname/Projects/Xorq_guides/xorq/ai_tutorials/sentiment_mcp_server.py`
 
 ## Windows
 
-Open your terminal (Command Prompt or PowerShell) in the directory where `sentiment_mcp_server.py` is located, then run:
-
+Navigate to your project directory:
 ```powershell
+cd C:\path\to\your\project
 cd
 ```
 
-This shows your current directory path. Copy the output.
+Copy the output. This is your project directory.
 
-**Example output:**
+You should see output like this:
 ```
-C:\Users\yourname\projects\xorq-tutorials
-```
-
-Your full script path is this directory + the filename:
-```
-C:\Users\yourname\projects\xorq-tutorials\sentiment_mcp_server.py
+C:\Users\yourname\Projects\Xorq_guides\xorq\ai_tutorials
 ```
 
-Copy this full path - you'll need it in Step 2.
+Now find your virtual environment:
+```powershell
+dir
+```
+
+Look for `.venv` or `venv` folder. Note if it's in your current directory or the parent directory.
+
+**Finding the parent venv**:
+```powershell
+cd ..
+dir
+cd
+```
+
+Your venv Python path will be:
+
+- If venv is in current directory: `C:\Users\yourname\Projects\Xorq_guides\xorq\ai_tutorials\.venv\Scripts\python.exe`
+- If venv is in parent: `C:\Users\yourname\Projects\Xorq_guides\xorq\.venv\Scripts\python.exe`
+
+Your script path is: `C:\Users\yourname\Projects\Xorq_guides\xorq\ai_tutorials\sentiment_mcp_server.py`
 
 :::
 
-### Step 2: Find the config file
+### Step 2: Create the Claude Desktop config file
 
-Claude Desktop reads its configuration from a specific file.
+Create the config file in the Claude Desktop configuration directory.
 
 ::: {.panel-tabset}
- 
-## macOS / Linux
 
-The config file is located at:
-```
-~/Library/Application Support/Claude/config.json
-```
+## macOS
 
-Open this file in a text editor. If the file doesn't exist, then create it:
-
+**Create the config file**:
 ```bash
-# Create the directory if it doesn't exist
 mkdir -p ~/Library/Application\ Support/Claude
-
-# Create the empty config file
-touch ~/Library/Application\ Support/Claude/config.json
+echo '{}' > ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```
 
-Then open it with your text editor:
+**Open the file for editing**:
 ```bash
-open ~/Library/Application\ Support/Claude/config.json
+open -a TextEdit ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+Or open with VS Code:
+```bash
+code ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```
 
 ## Windows
 
-The config file is located at:
-```
-%APPDATA%\Claude\claude_desktop_config.json
-```
-
-Open File Explorer and navigate to this file:
+**Create the config file**:
 
 1. Press `Win + R`
 2. Type: `%APPDATA%\Claude`
-3. Press Enter
+3. Press Enter to open the Claude folder
+4. If the folder doesn't exist, create it first
+5. In the folder, right-click → **New** → **Text Document**
+6. Delete the default name and type exactly: `claude_desktop_config.json`
+7. Press Enter
+8. Click **Yes** when warned about changing file extension
 
-If you see `claude_desktop_config.json`, then open it in a text editor like VS Code or Notepad++.
+**Make sure file extensions are visible**:
 
-If the file doesn't exist:
+- In File Explorer: **View** → **Show** → **File name extensions**
 
-1. Right-click in the folder
-2. Select **New** → **Text Document**
-3. Name it exactly: `config.json`
-4. Open it in a text editor
+**Open for editing**:
 
-**Important:** Make sure it's named `config.json`, not `claude_desktop_config.json.txt`. You may need to show file extensions in File Explorer.
+- Right-click the file → **Open with** → **Notepad** or **VS Code**
 
 :::
 
 ### Step 3: Add your MCP server configuration
 
-Copy this configuration into the file, replacing the example path with your actual path from Step 1.
+Now edit the config file with your script and Python paths.
 
 ::: {.panel-tabset}
 
-## macOS / Linux
+## macOS
 
-Copy this into the config file:
-
+Add this configuration, replacing the paths with your actual paths from Step 1:
 ```json
 {
   "mcpServers": {
     "xorq-sentiment": {
-      "command": "python",
-      "args": ["/YOUR/PATH/HERE/sentiment_mcp_server.py", "--run"]
-    }
-  }
-}
-```
-
-**Replace `/YOUR/PATH/HERE/sentiment_mcp_server.py`** with your actual path from Step 1.
-
-Example with real path:
-```json
-{
-  "mcpServers": {
-    "xorq-sentiment": {
-      "command": "python",
-      "args": ["/Users/yourname/projects/xorq-tutorials/sentiment_mcp_server.py", "--run"]
+      "command": "/Users/yourname/Projects/Xorq_guides/xorq/.venv/bin/python",
+      "args": ["/Users/yourname/Projects/Xorq_guides/xorq/ai_tutorials/sentiment_mcp_server.py"],
+      "env": {
+        "OPENAI_API_KEY": "sk-your-actual-api-key-here"
+      }
     }
   }
 }
 ```
 
 Save the file.
+
+**Important**:
+
+1. Replace the `command` path with your venv Python path
+2. Replace the `args` path with your script path
+3. Replace `sk-your-actual-api-key-here` with your actual OpenAI API key (starts with `sk-proj-` or `sk-`)
+4. Use forward slashes `/` in paths
+5. Paths must be absolute (start with `/Users/`)
+
 
 ## Windows
 
-Copy this into the config file:
-
+Add this configuration, replacing the paths with your actual paths from Step 1:
 ```json
 {
   "mcpServers": {
     "xorq-sentiment": {
-      "command": "python",
-      "args": ["C:\\YOUR\\PATH\\HERE\\sentiment_mcp_server.py", "--run"]
-    }
-  }
-}
-```
-
-Replace `C:\\YOUR\\PATH\\HERE\\sentiment_mcp_server.py` with your actual path from Step 1.
-
-**Important:** Use double backslashes (`\\`) between folders, not single backslashes.
-
-Example with real path:
-```json
-{
-  "mcpServers": {
-    "xorq-sentiment": {
-      "command": "python",
-      "args": ["C:\\Users\\yourname\\projects\\xorq-tutorials\\sentiment_mcp_server.py", "--run"]
+      "command": "C:\\Users\\yourname\\Projects\\Xorq_guides\\xorq\\.venv\\Scripts\\python.exe",
+      "args": ["C:\\Users\\yourname\\Projects\\Xorq_guides\\xorq\\ai_tutorials\\sentiment_mcp_server.py"],
+      "env": {
+        "OPENAI_API_KEY": "sk-your-actual-api-key-here"
+      }
     }
   }
 }
@@ -1375,86 +1227,150 @@ Example with real path:
 
 Save the file.
 
+**Important**:
+
+1. Replace the `command` path with your venv Python path
+2. Replace the `args` path with your script path
+3. Replace `sk-your-actual-api-key-here` with your actual OpenAI API key
+4. Use **double backslashes** `\\` in paths (very important!)
+5. Paths must be absolute (start with `C:\`)
+
+
+
 :::
 
-### Step 4: Restart Claude Desktop
+:::{.callout-warning}
+**Security Note**: Your config file now contains your OpenAI API key. Keep this file secure and never commit it to version control.
+:::
 
-**Important:** You must fully quit and restart Claude Desktop.
+### Step 4: Verify your configuration
 
-#### On macOS:
+Before restarting Claude Desktop, verify your paths are correct.
 
-1. Click **Claude** in the menu bar
-2. Click **Quit Claude**
-3. Reopen Claude Desktop from Applications
-
-#### On Windows:
-
-1. Right-click the Claude icon in the system tray
-2. Click **Quit**
-3. Reopen Claude Desktop from the Start menu
-
-After restarting, look for a tool indicator (wrench icon or tool count) in Claude Desktop. This confirms your tool is connected.
-
-
-### Troubleshooting: Tool not appearing?
-
-If you don't see the tool indicator after restarting:
-
-- Open the config file again
-- Verify the path is absolute (starts with `/` on macOS/Linux or `C:\` on Windows)
-- On Windows, verify you used double backslashes: `\\`
-- Verify the `--run` flag is in the `args` array
-- Check for typos in `"xorq-sentiment"` (must match `FlightMCPServer("xorq-sentiment")`)
-
-#### Test your script works:
-Run the script from your terminal to verify it starts without errors and registers the tool correctly.
+:::{.callout-note}
+**Use your actual paths**: Replace `/Users/yourname` (macOS) or `C:\Users\yourname` (Windows) in the commands below with the actual paths you found in Step 1.
+:::
 
 ::: {.panel-tabset}
 
-## macOS / Linux
+## macOS
 
-Run the script using the absolute path to your file:
-
-
+**Test the Python path exists**:
 ```bash
-python /Users/yourname/projects/xorq-tutorials/sentiment_mcp_server.py
+ls -la /Users/yourname/Projects/Xorq_guides/xorq/.venv/bin/python
 ```
 
-Should show: `MCP tool registered: analyze_sentiment`
+Should show the file details (not "No such file").
+![](../../images/tutorials/python-path.png)
+
+**Test the script path exists**:
+```bash
+ls -la /Users/yourname/Projects/Xorq_guides/xorq/ai_tutorials/sentiment_mcp_server.py
+```
+
+Should show the file details.
+![](../../images/tutorials/script-path.png)
+
+**Validate the JSON is correct**:
+```bash
+python3 -m json.tool ~/Library/Application\ Support/Claude/claude_desktop_config.json
+```
+
+If valid, you'll see your formatted JSON. If invalid, you'll see an error.
 
 ## Windows
-Run the script using the absolute path to your file:
 
+**Test the Python path exists**:
 ```powershell
-python C:\Users\yourname\projects\xorq-tutorials\sentiment_mcp_server.py
+dir "C:\Users\yourname\Projects\Xorq_guides\xorq\.venv\Scripts\python.exe"
 ```
 
-Should show: `MCP tool registered: analyze_sentiment`
+Should show the file details (not "File Not Found").
+
+**Test the script path exists**:
+```powershell
+dir "C:\Users\yourname\Projects\Xorq_guides\xorq\ai_tutorials\sentiment_mcp_server.py"
+```
+
+Should show the file details.
+
+**Test running the script with the venv Python**:
+```powershell
+C:\Users\yourname\Projects\Xorq_guides\xorq\.venv\Scripts\python.exe C:\Users\yourname\Projects\Xorq_guides\xorq\ai_tutorials\sentiment_mcp_server.py
+```
+
+Should show:
+```
+MCP tool registered: analyze_sentiment
+Starting MCP server...
+```
+
+Press `Ctrl+C` to stop.
+
+**Validate the JSON is correct**:
+```powershell
+python -c "import json; print(json.load(open(r'%APPDATA%\Claude\claude_desktop_config.json')))"
+```
+
+If valid, you'll see your JSON. If invalid, you'll see an error.
 
 :::
 
-Check Claude Desktop logs:
+### Step 5: Restart Claude Desktop
 
-- **macOS**: `~/Library/Logs/Claude/mcp.log`
-- **Windows**: `%APPDATA%\Claude\logs\mcp.log`
+**You must completely quit and restart Claude Desktop.**
 
-Look for errors related to your MCP server.
+::: {.panel-tabset}
+
+## macOS
+
+1. Click **Claude** in the menu bar 
+2. Click **Quit Claude**
+
+![](../../images/tutorials/claude-quit-menu-macos.png)
+
+3. Wait 5 seconds
+4. Open **Claude Desktop** from Applications folder
+
+**After restart**:
+
+- Open Claude Desktop
+- Go to the **Chat** tab not Cowork or Code
+
+![](../../images/tutorials/claude-desktop-tabs.png)
+
+
+## Windows
+
+1. Look for **Claude icon** in system tray (bottom-right, near clock)
+2. Right-click the icon
+3. Click **Quit**
+4. Wait 5 seconds
+5. Open **Claude Desktop** from Start menu
+
+**After restart**:
+
+- Open Claude Desktop
+- Go to the **Chat** tab (not Cowork or Code)
+
+![](../../images/tutorials/claude-desktop-tabs.png)
+
 :::
+
 
 ## Test with Claude Desktop
 
-Once Claude Desktop is configured and restarted, you can test your tool:
+Time to test your MCP tool! Open Claude Desktop and try it out.
 
-Open Claude Desktop and look for the tool indicator (usually a wrench icon or tool count).
+### Test 1: Positive sentiment
 
-### Ask Claude to use your tool:
+Type this in Claude Desktop:
 
 ```
-"Can you analyze the sentiment of: This product exceeded all my expectations!"
+Analyze the sentiment of this text: "I absolutely love this product!"
 ```
 
-Claude calls your tool and you see the response:
-
+**Expected response**:
 ```
 I've analyzed the sentiment using the sentiment analyzer tool.
 
@@ -1464,350 +1380,187 @@ The text sentiment is POSITIVE
 The review expresses strong satisfaction and excitement about the product.
 ```
 
-**What just happened?** Claude detected that your request needed sentiment analysis, called the `analyze_sentiment` tool through MCP, your FlightMCPServer routed it to the UDXF via Flight, OpenAI processed the text, and results flowed back to Claude for presentation.
+![](../../images/tutorials/claude-sentiment-response.png)
 
-Understanding the flow: Your question → Claude's reasoning → MCP tool call → FlightMCPServer → Flight → UDXF → OpenAI API → Results back through the chain → Claude's response.
-
-### Debugging tool calls
-If Claude doesn't call your tool, then try:
-
-1. Explicitly mention "use the analyze_sentiment tool". 
-2. Check Claude Desktop logs for connection errors. 
-3. Run `python sentiment_mcp_server.py` to verify the script works without errors
-4. Verify the `--run` flag is in your config.
-
-
-## Extend with multiple tools
-
-Now that you have one tool working, you might wonder: can you expose multiple UDXFs as different tools? Yes. The pattern is identical for each additional tool you want to expose.
-
-Create a file called `multi_tool_mcp_server.py` with two tools:
-
-```python
-from typing import Callable, Optional
-import sys
-import toolz
-from mcp.server.fastmcp import FastMCP
-from xorq.flight import FlightServer, FlightUrl
-import functools
-import os
-from openai import OpenAI
-import pandas as pd
-import xorq.api as xo
-from xorq.flight.exchanger import make_udxf
-
-# FlightMCPServer class (same as before)
-class FlightMCPServer:
-    def __init__(self, name: str, flight_port: int = 8818):
-        self.name = name
-        self.port = flight_port
-        self.mcp = FastMCP(name)
-        self.flight_server = None
-        self.client = None
-        self.udxfs = {}
-        self.schemas = {}
-        self.exchange_functions = {}
-    
-    def start_flight_server(self) -> FlightServer:
-        if self.flight_server:
-            return self.flight_server
-        
-        try:
-            self.flight_server = FlightServer(
-                FlightUrl(port=self.port), 
-                exchangers=list(self.udxfs.values())
-            )
-            self.flight_server.serve()
-            self.client = self.flight_server.client
-            
-            for udxf_name, udxf in self.udxfs.items():
-                self.exchange_functions[udxf_name] = toolz.curry(
-                    self.client.do_exchange, udxf.command
-                )
-            
-            return self.flight_server
-        except Exception:
-            raise
-    
-    def create_mcp_tool(
-        self,
-        udxf,
-        input_mapper: Callable,
-        tool_name: Optional[str] = None,
-        description: Optional[str] = None,
-        output_mapper: Optional[Callable] = None,
-    ):
-        udxf_command = udxf.command
-        tool_name = tool_name or udxf_command
-        self.udxfs[udxf_command] = udxf
-        
-        if not self.flight_server:
-            self.start_flight_server()
-        
-        do_exchange = self.exchange_functions.get(udxf_command)
-        
-        if output_mapper is None:
-            def default_output_mapper(result_df):
-                if len(result_df) > 0:
-                    return result_df.to_string()
-                return "No results"
-            actual_output_mapper = default_output_mapper
-        else:
-            actual_output_mapper = output_mapper
-        
-        @self.mcp.tool(name=tool_name, description=description)
-        async def wrapper(**kwargs):
-            try:
-                input_data = input_mapper(**kwargs)
-                _, result = do_exchange(input_data.to_pyarrow_batches())
-                result_df = result.read_pandas()
-                output = actual_output_mapper(result_df)
-                return output
-            except Exception as e:
-                return f"Error executing tool: {str(e)}"
-        
-        return wrapper
-    
-    def run(self, transport: str = "stdio"):
-        if not self.flight_server:
-            self.start_flight_server()
-        try:
-            self.mcp.run(transport=transport)
-        except Exception:
-            raise
-    
-    def stop(self):
-        pass
-
-# OpenAI client
-@functools.cache
-def get_client():
-    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
-
-# TOOL 1: Sentiment analyzer
-def analyze_sentiment(df: pd.DataFrame) -> pd.DataFrame:
-    text = df["text"].iloc[0]
-    
-    if not text or text.strip() == "":
-        return pd.DataFrame({"sentiment": ["NEUTRAL"]})
-    
-    messages = [
-        {
-            "role": "system",
-            "content": "You are a sentiment analyzer. Respond with only one word: POSITIVE, NEGATIVE, or NEUTRAL."
-        },
-        {
-            "role": "user",
-            "content": f"Analyze the sentiment: {text}"
-        }
-    ]
-    
-    try:
-        response = get_client().chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=messages,
-            max_tokens=10,
-            temperature=0,
-        )
-        sentiment = response.choices[0].message.content.strip()
-        return pd.DataFrame({"sentiment": [sentiment]})
-    except Exception:
-        return pd.DataFrame({"sentiment": ["ERROR"]})
-
-sentiment_schema_in = xo.schema({"text": str})
-sentiment_schema_out = xo.schema({"sentiment": str})
-
-sentiment_udxf = make_udxf(
-    analyze_sentiment,
-    sentiment_schema_in,
-    sentiment_schema_out,
-    name="sentiment_analyzer"
-)
-
-def sentiment_input_mapper(**kwargs):
-    text = kwargs.get("text", "")
-    return xo.memtable({"text": [text]}, schema=sentiment_schema_in)
-
-def sentiment_output_mapper(result_df):
-    if len(result_df) == 0:
-        return {"sentiment": "NO_RESULT", "text": "No data to analyze"}
-    
-    sentiment = result_df["sentiment"].iloc[0]
-    return {
-        "sentiment": sentiment,
-        "interpretation": f"The text sentiment is {sentiment}"
-    }
-
-# TOOL 2: Text length counter
-def count_text_length(df: pd.DataFrame) -> pd.DataFrame:
-    text = df["text"].iloc[0]
-    length = len(text) if text else 0
-    word_count = len(text.split()) if text else 0
-    
-    return pd.DataFrame({
-        "character_count": [length],
-        "word_count": [word_count]
-    })
-
-length_schema_in = xo.schema({"text": str})
-length_schema_out = xo.schema({"character_count": int, "word_count": int})
-
-length_udxf = make_udxf(
-    count_text_length,
-    length_schema_in,
-    length_schema_out,
-    name="text_length_counter"
-)
-
-def length_input_mapper(**kwargs):
-    text = kwargs.get("text", "")
-    return xo.memtable({"text": [text]}, schema=length_schema_in)
-
-def length_output_mapper(result_df):
-    if len(result_df) == 0:
-        return {"error": "No data"}
-    
-    return {
-        "character_count": int(result_df["character_count"].iloc[0]),
-        "word_count": int(result_df["word_count"].iloc[0]),
-        "summary": f"{result_df['word_count'].iloc[0]} words, {result_df['character_count'].iloc[0]} characters"
-    }
-
-# Create MCP server and register both tools
-mcp_server = FlightMCPServer("xorq-multi-tools")
-
-mcp_server.create_mcp_tool(
-    sentiment_udxf,
-    input_mapper=sentiment_input_mapper,
-    tool_name="analyze_sentiment",
-    description="Analyze the sentiment of text. Returns POSITIVE, NEGATIVE, or NEUTRAL.",
-    output_mapper=sentiment_output_mapper
-)
-
-mcp_server.create_mcp_tool(
-    length_udxf,
-    input_mapper=length_input_mapper,
-    tool_name="count_text_length",
-    description="Count characters and words in text",
-    output_mapper=length_output_mapper
-)
-
-if __name__ == "__main__":
-    if len(sys.argv) > 1 and sys.argv[1] == "--run":
-        try:
-            mcp_server.run(transport="stdio")
-        except Exception:
-            sys.exit(1)
-    else:
-        # Test both UDXFs
-        print("Testing sentiment analyzer:")
-        test_sentiment = analyze_sentiment(pd.DataFrame({"text": ["This is amazing!"]}))
-        print(test_sentiment)
-        
-        print("\nTesting length counter:")
-        test_length = count_text_length(pd.DataFrame({"text": ["Hello world from Xorq!"]}))
-        print(test_length)
-        
-        print("\nBoth tools registered")
-        print("Run with: python multi_tool_mcp_server.py --run")
-```
-
-Run the file to test:
-
-```bash
-python multi_tool_mcp_server.py
-```
-
-The output shows:
+### Test 2: Negative sentiment
 
 ```
-Testing sentiment analyzer:
-  sentiment
-0  POSITIVE
-
-Testing length counter:
-   character_count  word_count
-0               23           4
-
-Both tools registered
-Run with: python multi_tool_mcp_server.py --run
+Analyze: "This product is terrible and broke after one day."
 ```
 
-### Update Claude Desktop config:
+**Expected response**:
+```
+Result: NEGATIVE
+The text sentiment is NEGATIVE
+```
+![](../../images/tutorials/claude-sentiment-negative.png)
+
+#### What just happened?
+
+1. You typed a message in Claude Desktop
+2. Claude detected it needed sentiment analysis
+3. Claude called your `analyze_sentiment` MCP tool
+4. Your FlightMCPServer routed the request through Flight protocol
+5. Your UDXF processed the text via OpenAI
+6. Results flowed back: UDXF → Flight → FlightMCPServer → MCP → Claude
+7. Claude presented the formatted result to you
+
+Congratulations! Your MCP tool is working. If you encounter any issues or the tool doesn't appear in Claude Desktop, the troubleshooting section below will help you diagnose and fix common problems.
+
+## Troubleshooting
+
+If things aren't working, here's how to debug.
+
+### Issue: Tool not appearing or "Server disconnected" error
+
+![](../../images/tutorials/claude-mcp-error.png)
+
+**Check the MCP logs**:
 
 ::: {.panel-tabset}
 
-#### macOS / Linux
-
-```json
-{
-  "mcpServers": {
-    "xorq-multi-tools": {
-      "command": "python",
-      "args": ["/absolute/path/to/multi_tool_mcp_server.py", "--run"]
-    }
-  }
-}
+## macOS
+```bash
+tail -50 ~/Library/Logs/Claude/mcp-server-xorq-sentiment.log
 ```
 
-#### Windows
+Look for error messages. Common errors:
 
-```json
-{
-  "mcpServers": {
-    "xorq-multi-tools": {
-      "command": "python",
-      "args": ["C:\\absolute\\path\\to\\multi_tool_mcp_server.py", "--run"]
-    }
-  }
-}
+**"Failed to spawn process: No such file or directory"**
+
+- Your Python path or script path is wrong
+- Verify paths in Step 4
+
+**"Address already in use"**
+
+- The Flight server is already running from a previous test
+- Kill it: `lsof -ti:8818 | xargs kill -9`
+- Restart Claude Desktop
+
+## Windows
+```powershell
+type "%APPDATA%\Claude\logs\mcp-server-xorq-sentiment.log"
 ```
+
+Look for error messages. Common errors:
+
+**"Failed to spawn process: No such file or directory"**
+
+- Your Python path or script path is wrong
+- Check you used double backslashes `\\` in paths
+- Verify paths in Step 4
+
+**"Address already in use"**
+
+- The Flight server is already running
+- Restart your computer or kill the Python process in Task Manager
 
 :::
 
-### Test in Claude Desktop:
+### Issue: "Unexpected token" or JSON parsing errors
 
+**Example error**:
 ```
-"Count the words in: This is a test message for the counter"
-```
-
-Claude calls `count_text_length` and responds:
-
-```
-The text contains:
-
-- 9 words
-- 44 characters
+MCP xorq-sentiment: Unexpected token 'M', "MCP tool r"... is not valid JSON
 ```
 
-**What does success look like?** You've exposed two different UDXFs as separate tools. Claude intelligently selects which tool to use based on your request. Ask about sentiment, and Claude calls `analyze_sentiment`. Ask about word count, and Claude calls `count_text_length`.
+**Cause**: Your script is printing messages to stdout instead of stderr.
 
-The pattern scales: create UDXF → define mappers → register with `create_mcp_tool()`. Each tool operates independently, and Claude selects the appropriate one for each request.
+**Fix**: Verify all `print` statements in your script use `file=sys.stderr`:
+```python
+print("MCP tool registered", file=sys.stderr)
+print("Starting server", file=sys.stderr)
+```
+
+### Issue: Sentiment returns "ERROR"
+
+**Check OpenAI API key is set**:
+
+Look in your config file - is the `OPENAI_API_KEY` in the `env` section?
+
+**Check the logs for OpenAI errors**:
+```bash
+# macOS
+tail -20 ~/Library/Logs/Claude/mcp-server-xorq-sentiment.log
+
+# Windows
+type "%APPDATA%\Claude\logs\mcp-server-xorq-sentiment.log"
+```
+
+Look for lines starting with `OpenAI Error:` to see what went wrong.
+
+**Common OpenAI errors**:
+- **"No API key"**: API key not set in config
+- **"Invalid API key"**: Wrong key or expired
+- **"Rate limit exceeded"**: Too many requests, wait a few minutes
+
+### Issue: Script path has wrong directory structure
+
+**Problem**: You might see errors like:
+```
+python3 /Users/mac/Projects/Xorq_guides/xorq/ai_tutorials/python/sentiment_mcp_server.py
+can't open file '/Users/mac/Projects/.../python/sentiment_mcp_server.py': No such file or directory
+```
+
+**Cause**: The script is not in a `python` subdirectory - it's directly in `ai_tutorials`.
+
+**Fix**: Remove `/python/` from your path:
+- Wrong: `.../ai_tutorials/python/sentiment_mcp_server.py`
+- Right: `.../ai_tutorials/sentiment_mcp_server.py`
+
+### Issue: Virtual environment not found
+
+**Problem**: Error finding Python at `.venv/bin/python`
+
+**Cause**: Your venv might be in the parent directory, not the current directory.
+
+**Fix**:
+
+1. Find where your venv actually is:
+```bash
+# macOS
+cd /Users/mac/Projects/Xorq_guides/xorq
+ls -la | grep venv
+
+# Windows
+cd C:\Users\mac\Projects\Xorq_guides\xorq
+dir
+```
+
+2. Update your config with the correct path:
+
+   - If venv is in `xorq` directory: `/Users/mac/Projects/Xorq_guides/xorq/.venv/bin/python`
+   - If venv is in `ai_tutorials`: `/Users/mac/Projects/Xorq_guides/xorq/ai_tutorials/.venv/bin/python`
+
+### Issue: Claude doesn't call the tool automatically
+
+Claude decides when to use tools based on the conversation. If Claude isn't calling your tool:
+
+**Try being explicit**:
+```
+Use the analyze_sentiment tool to analyze: "I love this!"
+```
+
+**Or phrase it differently**:
+```
+Can you check the sentiment of this review: "Great product!"
+```
 
 ## What you learned
 
-You've learned how to expose Xorq UDXFs as tools Claude can call through MCP. Here's what you accomplished:
+You've successfully built a working MCP tool! Here's what you accomplished:
 
-- Understood MCP (Model Context Protocol) and its role in Claude integrations
-- Created FlightMCPServer to bridge MCP and Flight protocols
+- Created a FlightMCPServer class to bridge MCP and Xorq's Flight protocol
 - Built a sentiment analysis UDXF using OpenAI
-- Implemented input and output mappers for data transformation
-- Registered UDXFs as MCP tools with clear descriptions
-- Configured Claude Desktop to discover and use your tools
-- Tested the integration with conversational queries
-- Extended the pattern to multiple tools
+- Implemented input and output mappers to translate between Claude's format and Xorq tables
+- Configured Claude Desktop to discover and use your custom tools
+- Debugged configuration issues including path setup and error handling
 
-The key insight? MCP enables natural language access to Xorq functions. You wrap your data processing logic once, and Claude can call it conversationally. The FlightMCPServer handles all protocol translation, letting you focus on building useful tools.
+The pattern scales to any Xorq function: Build UDXF → create mappers → register with `create_mcp_tool()` → configure Claude Desktop. MCP tools work only in Claude Desktop, not the web version.
 
 ## Next steps
 
 Now that you know how to build MCP tools, continue learning:
 
-- [Add LLM analysis with UDXFs](add_llm_analysis_with_udxfs.qmd) explains UDXF architecture and schema patterns in depth
-- [Call LLMs from expressions](call_llms_from_expressions.qmd) shows advanced LLM integration techniques
-- [Your first build](your_first_build.qmd) covers versioning and deploying Xorq pipelines
-
-
-
-
+- [Write UDFs for SQL and Python](../analytics_tutorials/create_your_first_udf.qmd) shows how to create user-defined functions for data transformations
 

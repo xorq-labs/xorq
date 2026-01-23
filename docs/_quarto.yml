@@ -90,7 +90,7 @@ website:
           contents:
             - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
               text: "Write UDFs for SQL and Python"
-            - href: tutorials/analytics_tutorials/work_with_schemas.qmd
+            # - href: tutorials/analytics_tutorials/work_with_schemas.qmd
 
 
     - id: guides
