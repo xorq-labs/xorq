@@ -1,0 +1,274 @@
+---
+title: 'Content-addressed hashing'
+description: "Understand how Xorq uses content hashes to version computations and enable automatic reuse"
+---
+
+Two developers write identical feature engineering logic independently without knowing about each other's work. Traditional versioning treats them as separate entities with different version numbers, timestamps, and build identifiers. Content-addressed hashing recognizes they're computationally identical and assigns the same hash, which allows automatic reuse across your team.
+
+## What you'll understand
+
+This page explains the following concepts:
+
+- What content-addressed hashing is and how it identifies computations by logic without considering metadata
+- When this approach provides value versus when simpler versioning suffices for your workflow
+- The mechanics of hash generation through normalization and cryptographic algorithms
+- The automatic reuse benefits and hash opacity challenges through practical scenarios
+
+## What is content-addressed hashing?
+
+Content-addressed hashing identifies computations by the logic they perform, including operations, filters, and transformations. Xorq generates a unique hash from your expression's structure without considering when it ran or who executed it.
+
+Two expressions with identical logic receive identical hashes even if they run on different days or machines, so anyone on your team computing this expression gets cached results immediately without coordination or manual version management.
+
+```python
+import xorq.api as xo
+
+# Developer A runs this on Monday
+con = xo.connect()
+data = con.read_parquet("data.parquet")
+result_a = data.filter(xo._.amount > 100).group_by("category").agg(total=xo._.amount.sum())
+
+# Developer B runs this on Tuesday
+result_b = data.filter(xo._.amount > 100).group_by("category").agg(total=xo._.amount.sum())
+
+# Both get the same hash: a3f5c9d2e1b4...
+# Developer B reuses Developer A's cached results
+```
+
+## Content hashing versus traditional versioning
+
+Understanding how content hashing differs from traditional approaches clarifies when to use each method for versioning.
+
+| Aspect | Content hashing | Traditional versioning |
+|--------|-----------------|------------------------|
+| Identifier | Hash of computation logic | Timestamp or version number |
+| Stability | Same computation = same hash | Same computation = different versions |
+| Reuse | Automatic via hash match | Manual via version comparison |
+| Collision risk | Cryptographically unlikely | Common where v1 means different things |
+| Human readability | Low like a3f5c9d2... | High like v1, v2, v3 |
+| Cache invalidation | Built-in when hash changes | Manual when version bumps |
+
+Xorq combines both approaches by using content hashes for machine addressing and aliases for human readability.
+
+```bash
+# Machine-addressable by hash
+xorq run builds/a3f5c9d2
+
+# Human-readable by alias
+xorq catalog add builds/a3f5c9d2 --alias customer-features
+xorq run customer-features
+```
+
+## Why duplicate work happens without content addressing
+
+Traditional versioning uses timestamps, version numbers, or commit hashes to identify computations. If you run the same computation twice, then it produces two different versions because metadata changed even though logic stayed identical. Teams can't systematically detect duplicate work without manual inspection, coordination meetings, and centralized documentation.
+
+Three symptoms reveal why missing content addressing creates costly problems.
+
+### Duplicate work wastes compute resources
+
+Every developer recomputes the same features because there's no systematic way to identify computational equivalence automatically. If three people independently build customer segmentation features and all spend 20 minutes computing identical aggregations, then that's an hour of wasted compute that content addressing eliminates.
+
+### Version drift creates deployment confusion
+
+Version numbers don't convey what actually changed in the computation logic. If two teams independently create "customer_features_v3," then nobody knows if they're the same computation without reading code. Deploying the wrong v3 to production turns debugging into an archaeological investigation of version history.
+
+### Cache invalidation becomes manual guesswork
+
+If you invalidate too aggressively, then you waste compute rerunning unchanged work. If you invalidate too conservatively, then you serve stale results. Either way, humans make decisions the system should make automatically. Content-addressed hashing makes the hash the definitive source of truth since identical computation produces identical hashes.
+
+## How Xorq generates content hashes
+
+Xorq generates content hashes through three stages that transform expressions into stable identifiers.
+
+**Expression normalization** walks your expression graph and extracts computation logic while ignoring metadata like timestamps or usernames.
+
+**Hash computation** serializes the normalized expression to canonical form and applies MD5 hashing via Dask's tokenize function.
+
+**Hash assignment** uses this hash as the identifier for build directories, cache keys, and catalog entries. Xorq truncates the hash to 12 characters by default for human readability.
+
+```{mermaid}
+sequenceDiagram
+    participant User
+    participant Xorq
+    participant Normalizer
+    participant Hasher
+    
+    User->>Xorq: Execute expression
+    Xorq->>Normalizer: Extract computation logic
+    Normalizer->>Hasher: Canonical form
+    Hasher->>Xorq: a3f5c9d2e1b4...
+    Xorq->>User: Build at builds/a3f5c9d2/
+```
+
+The hash depends on what you're computing, which means the operations, predicates, and transformations applied to data. If you change a filter threshold from 100 to 101, then you get a different hash because logic changed. If you run the same filter on different dates, then you get the same hash because logic remained constant.
+
+```{mermaid}
+graph TB
+    A[Expression Graph] --> B[Normalize]
+    B --> C[Extract Operations]
+    C --> D[Serialize to Canonical Form]
+    D --> E[Compute Hash]
+    E --> F[a3f5c9d2e1b4...]
+    F --> G[Build Directory]
+    F --> H[Cache Key]
+    F --> I[Catalog Entry]
+```
+
+:::{.callout-tip}
+Content hashes remain stable across time and space. The same computation produces identical hashes regardless of execution context.
+:::
+
+## What influences the hash
+
+Xorq includes specific computational elements in the hash while excluding metadata that doesn't affect logic.
+
+### Included: Computation logic
+
+**Operations**: Filters, joins, aggregations, and transformations all influence the hash.
+
+**Predicates**: Filter conditions and join conditions affect the hash. If you change `amount > 100` to `amount > 101`, then you get different hashes.
+
+**Column references**: Which columns you select, group by, or aggregate in the computation logic.
+
+**Function calls**: UDFs and aggregation functions influence the hash. If you change `sum()` to `mean()`, then you get different results.
+
+**Operation order**: Filter-then-group differs computationally from group-then-filter even with identical individual operations.
+
+### Excluded: Execution context
+
+**Input data values**: The hash remains unchanged regardless of input data, so the same computation on different datasets produces identical hashes.
+
+**Execution metadata**: Timestamps, user names, and machine IDs don't influence hash computation.
+
+**Backend choice**: Usually doesn't change the hash, though backend-specific operations might affect it depending on semantics.
+
+:::{.callout-warning}
+Running identical filters on different datasets produces identical hashes because Xorq hashes logic, not data values. Only changing the filter logic itself changes the hash, such as adjusting a threshold from 100 to 101. The same customer segmentation logic produces identical hashes whether you run it Monday or Friday on different data.
+:::
+
+## How content hashing enables automatic reuse
+
+Content hashing provides three reuse patterns that eliminate duplicate work automatically.
+
+### Automatic cache reuse
+
+When you execute an expression, Xorq checks if anyone has computed this hash before. If cache hits occur, then results return instantly. If cache misses occur, then Xorq executes and stores results for future reuse.
+
+```python
+# First developer runs expensive computation
+result = expensive_pipeline.execute()  # Takes 10 minutes, caches with hash a3f5c9d2
+
+# Second developer runs same computation
+result = expensive_pipeline.execute()  # Returns instantly from cache
+```
+
+### Team-wide discovery through catalogs
+
+The catalog tracks which hashes exist so you can search for computations and discover others' work.
+
+```bash
+# Check if this computation exists
+xorq catalog ls | grep a3f5c9d2
+
+# Output: customer-features  a3f5c9d2  r1
+# Someone already built this!
+```
+
+### Deterministic builds for deployment
+
+Building the same expression multiple times produces the same hash for reproducible builds.
+
+```bash
+# Build on Monday
+xorq build pipeline.py -e features
+# Output: builds/a3f5c9d2/
+
+# Build on Tuesday with no code changes
+xorq build pipeline.py -e features
+# Output: builds/a3f5c9d2/  (same hash!)
+```
+
+## Hash collisions and security considerations
+
+Xorq uses MD5 hashing via Dask's tokenize function to generate content hashes, truncated to 12 hexadecimal characters by default. With 12 hex characters, you have 16^12 possible values, which equals approximately 281 trillion combinations.
+
+The collision probability remains extremely low for typical workflows. Even with 100,000 expressions computed across your entire team, the collision probability is roughly 0.002%. Most teams compute thousands or tens of thousands of expressions, well below any meaningful collision risk.
+
+The choice of MD5 makes sense for content addressing because the goal is deterministic identifiers for computational graphs, not cryptographic security. MD5 provides fast, consistent hashing so identical expressions produce identical hashes reliably across different machines and time periods.
+
+Content hashes are identifiers for addressing computations, not encryption for securing sensitive data. Xorq uses MD5 for fast, deterministic hashing where the goal is consistent identification rather than cryptographic security. Don't rely on hash obscurity for security since you should use proper access controls and credential management instead.
+
+:::{.callout-warning}
+Hashes are identifiers for addressing computations, not sequential versions for temporal ordering. You can't determine which computation came before or after by comparing hash values. For human-readable versions, use catalog aliases with revision numbers like r1, r2, r3. Use aliases for human workflows like customer-features-r1 and hashes for machine addressing like builds/a3f5c9d2.
+:::
+
+## When content addressing provides value
+
+Team size and computation cost determine whether content addressing justifies its complexity.
+
+### Use content hashing when
+
+- Multiple developers work on shared features or models. Automatic reuse prevents duplicate work across team members.
+- Your team exceeds three people. Coordination overhead exceeds hashing overhead for managing shared computations.
+- Computation time exceeds 10 seconds. Cache reuse provides clear performance wins over recomputation.
+- Reproducibility matters for audits or compliance. The same code must produce demonstrably identical results every time.
+
+### Skip content hashing when
+
+- You work solo with no reuse needs. Coordination problems don't exist.
+- Your computations complete in under one second. Hashing overhead exceeds compute savings from potential cache reuse.
+- Your workflows don't use caching or catalogs. Hashing provides no infrastructure value.
+- Your analyses are one-off without reuse opportunities.
+
+```{mermaid}
+graph TD
+    A{Team size > 3?}
+    A -->|Yes| B{Computation > 10s?}
+    A -->|No| C[Simple versioning OK]
+    B -->|Yes| D[Use content hashing]
+    B -->|No| E{Need reproducibility?}
+    E -->|Yes| D
+    E -->|No| C
+```
+
+If you're working on a data science team where three people independently build customer segmentation features, then content hashing helps enormously. When Developer B writes the same logic as Developer A, they automatically get identical hashes. However, if you're working solo on exploratory notebooks that complete in under five seconds, then hashing overhead is unjustified.
+
+
+## Understanding trade-offs
+
+Content addressing offers significant benefits, but it comes with costs. Here's what you gain:
+
+- **Automatic reuse**: Identical computation produces identical hashes and cached results without coordination.
+
+- **Team discovery**: Find existing work by searching hashes or aliases in the catalog system.
+
+- **Reproducibility guarantees**: Identical code always produces identical hash across machines and time periods without configuration.
+
+- **Deterministic deploys**: Use manifest hashes to guarantee identical computation in production without environmental drift.
+
+Here's what you give up:
+
+- **Hash opacity**: Hashes like `a3f5c9d2` are difficult for humans to interpret without catalog aliases.
+
+- **Computation overhead**: Generating hashes takes time, typically 1 to 10ms per expression during builds.
+
+- **Storage overhead**: Hashes consume space in catalogs, cache keys, and build directory names.
+
+- **Learning curve**: Understanding content addressing requires mental models beyond traditional sequential versioning.
+
+Your bottleneck determines whether trade-offs justify adoption. If duplicate work occurs across team members, then hashing overhead is justified since three people computing the same 20-minute aggregation wastes significant time. However, if you're doing solo work on one-off analyses completing in seconds, then the complexity is unjustified since Git provides adequate versioning.
+
+:::{.callout-note}
+Xorq generates hashes automatically during builds so you never compute hashes manually. The hash appears in build directories and catalog entries without your intervention. Understanding hash generation algorithms isn't necessary because hash generation is fully automated and transparent.
+:::
+
+## Learning more
+
+[Overview](../fundamentals/overview.qmd) explains input-addressed computation. [Expression format](../fundamentals/expression_format.qmd) covers expression manifests.
+
+[Build system](build_system.qmd) discusses how builds generate and use content hashes. [Compute catalog](compute_catalog.qmd) details catalog indexing. [Intelligent caching system](../execution_and_backends/intelligent_caching_system.qmd) explains caching mechanisms using content hashes.
+
+[Your first build tutorial](../../getting_started/your_first_build.qmd) provides hands-on practice with content hashing. [Input-addressed computation](input_addressed_computation.qmd) covers the broader concept.
+
+

@@ -1,0 +1,241 @@
+---
+title: 'Why deferred execution'
+description: "Understand why Xorq delays computation and its benefits"
+---
+
+When you write code in most tools, operations run immediately where each filter executes and each join completes. Each aggregation materializes right away, without considering what operations come next in the computation pipeline. Xorq takes a different approach: It waits, builds a plan, then executes everything optimally.
+
+## What you'll understand
+
+- Why Xorq delays computation, and how this supports whole-pipeline optimization that merges operations and eliminates redundant work
+- What you lose with deferred execution versus what you gain through faster total execution and comprehensive optimization
+- When deferred execution saves compute in production pipelines versus when it adds complexity in exploratory notebook work
+- How to decide between calling `.execute()` once at the end versus calling it after each operation
+
+## What is deferred execution?
+
+Deferred execution means operations don't run immediately when you write them in your Python code. When you write `data.filter(...).group_by(...)`, Xorq builds an expression graph but doesn't query your data immediately. Computation happens only when you explicitly call `.execute()` to trigger backend execution on your target engine.
+
+This pattern appears in other tools, like Polars Lazy, Dask Delayed, and Spark, because it solves a problem. You can't optimize what you can't see before execution, which limits performance improvements and prevents operation merging. If operations run immediately, each step runs in isolation without knowledge of what comes next.
+
+```python
+import xorq.api as xo
+
+# Create sample data
+data = xo.memtable({
+    "amount": [50, 150, 200, 75, 300],
+    "category": ["A", "B", "A", "B", "A"]
+}, name="transactions")
+
+# Deferred: builds a graph, no execution yet
+expr = (
+    data
+    .filter(xo._.amount > 100)
+    .group_by("category")
+    .agg(total=xo._.amount.sum())
+)
+
+# Still no execution — just a plan
+print(type(expr))  # Expression, not results
+
+# Execute when ready
+result = expr.execute()  # NOW computation happens
+```
+
+:::{.callout-important}
+Xorq only has deferred execution. All operations defer until you call `.execute()`, which runs immediately and deterministically. When this page mentions "immediate execution," this clearly means calling `.execute()` after each operation, which breaks optimization. This pattern is compared against tools like pandas, where operations run automatically.
+:::
+
+
+## Comparing deferred and immediate execution
+
+Understanding the differences between these approaches clarifies when to use each pattern for your workflows.
+
+| Aspect | Deferred execution | Immediate execution |
+|--------|-------------------|---------------------|
+| When computation runs | Only when you call `.execute()` | After every operation |
+| Optimization | Full pipeline optimization | Per-operation only |
+| Caching | Automatic based on computation | Manual, based on results |
+| Portability | Engine-independent until execution | Locked to execution engine |
+| Feedback speed | Delayed until `.execute()` | Immediate after each step |
+| Best for | Production pipelines, large data | Exploratory analysis, debugging |
+| Learning curve | Higher, understand deferral | Lower, behaves like normal code |
+
+## Why deferred execution matters
+
+Without deferred execution, you quickly hit three problems that waste compute and limit optimization opportunities.
+
+### No whole-pipeline optimization
+
+Operations running immediately means Xorq can't see what's coming next, which prevents eliminating redundant work. You might filter data once, then filter again later with different predicates on the same columns. With immediate execution, both filters run separately without optimization. With deferred execution, the backend's query optimizer merges them into one optimized filter operation that runs once.
+
+### Wasted computation on intermediate steps
+
+Immediate execution materializes every intermediate result to disk or memory, which wastes resources when unnecessary. Filter 1TB to 100GB, then aggregate to 1MB for final results requiring minimal storage and computation. Immediate execution writes 100GB to disk unnecessarily between operations without considering the final aggregation. Deferred execution skips the intermediate materialization and goes straight from 1TB to 1MB efficiently.
+
+### Locked to one engine
+
+Immediate execution ties your code to one backend where operations execute on specific engines immediately. If your operations run on DuckDB, you can't switch to Snowflake without rewriting code. Deferred execution keeps the expression engine-independent until execution time, when you choose the target backend.
+
+These problems create real costs, like wasting compute on redundant operations and paying for storage. Teams pay for unnecessary storage of intermediate results and maintain duplicate codebases for different engine implementations.
+
+:::{.callout-warning}
+Building the expression graph takes milliseconds because no computation happens during expression building at all. The overhead is negligible while the optimization savings can be substantial on large datasets. Graph building costs milliseconds; optimization saves minutes or hours on 100GB+ datasets through operation merging.
+:::
+
+## What deferred execution provides
+
+Deferred execution provides four capabilities that improve performance and support portability across different backend engines.
+
+**Whole-pipeline optimization**: Xorq sees all operations before running anything, which allows the backend's query optimizer to perform comprehensive optimization passes. The optimizer can merge consecutive filters, eliminate unused columns, and push operations to the most efficient engine.
+
+**Intelligent caching**: Because expressions are deferred, Xorq can check if anyone computed this before execution. If your teammate ran the same feature engineering yesterday, you get cached results automatically without recomputation.
+
+**Multi-engine execution**: The expression graph is engine-independent, so you can switch backends without code changes. You can build on DuckDB locally, then execute on Snowflake in production without rewriting logic.
+
+**Compile-time validation**: Xorq catches schema mismatches and type errors before execution happens on expensive operations. With immediate execution, you discover errors only after expensive operations complete and resources are wasted.
+
+```{mermaid}
+graph TB
+    A[Write Operations] --> B[Build Expression Graph]
+    B --> C{Deferred?}
+    C -->|Yes| D[Optimize Full Pipeline]
+    C -->|No| E[Execute Each Step]
+    D --> F[Check Cache]
+    F --> G[Execute Once]
+    E --> H[Execute N Times]
+    G --> I[Efficient]
+    H --> J[Wasteful]
+```
+
+Deferred execution changes your code from imperative instructions to declarative specifications of what you want computed. This shift allows optimization because Xorq can choose how to compute rather than executing steps sequentially.
+
+## How deferred execution works
+
+Deferred execution operates in three phases that transform your code from expressions to optimized backend queries.
+
+**Graph building**: Each operation adds a node to the expression graph where filters, joins, and aggregations become nodes. These nodes track dependencies without executing queries or moving data at all during this phase.
+
+**Optimization**: When you call `.execute()`, Xorq compiles the expression graph to SQL for your target backend. The backend's query optimizer then merges operations, eliminates dead code, and reorders operations for efficiency.
+
+**Execution**: The backend executes the optimized SQL query and returns results. Different backends get different SQL dialects optimized for their specific query planners and execution engines.
+
+```{mermaid}
+sequenceDiagram
+    participant User
+    participant Xorq
+    participant Optimizer
+    participant Engine
+    
+    User->>Xorq: .filter()
+    Xorq->>Xorq: Add filter node
+    User->>Xorq: .group_by()
+    Xorq->>Xorq: Add group node
+    User->>Xorq: .execute()
+    Xorq->>Optimizer: Optimize graph
+    Optimizer->>Engine: Compile to SQL
+    Engine->>User: Return results
+```
+
+Immediate execution resembles following GPS directions without seeing the full route ahead of your current position. Deferred execution shows you the entire map first, letting you choose the fastest path.
+
+:::{.callout-warning}
+Each `.execute()` call materializes results and prevents further optimization across execution boundaries for subsequent operations. Build your full pipeline first, then execute once at the end for maximum optimization. Calling `.execute()` after every filter means Xorq treats each as a separate query without merging.
+:::
+
+## When to use deferred execution
+
+Choosing between deferred and immediate execution depends on your workflow, data size, and whether you prioritize optimization or fast feedback. Here's how to decide which approach fits your needs.
+
+### Use deferred execution when
+
+- You're building multi-step pipelines where optimization matters. Deferred execution provides clear performance benefits through operation merging.
+- You need portability across engines like local DuckDB to production Snowflake. Deferred execution offers flexibility without code changes.
+- You want automatic caching based on computation logic rather than manual result storage. Deferred execution supports this automatically.
+- You need compile-time validation before expensive operations. This prevents wasting resources on errors discovered too late.
+- You're processing large datasets where optimization saves significant compute. Deferred execution becomes essential for performance.
+
+### Use immediate execution when
+
+- You're doing exploratory analysis where you want to see results after each step. Immediate execution provides the feedback you need.
+- You're debugging code where you need to inspect intermediate values. Immediate execution helps identify problems faster.
+- Your pipeline is simple with one or two operations. There's no optimization benefit from deferral.
+- You need results right now for interactive work. Latency matters more than optimization throughput.
+- You're working in a notebook and want fast feedback during development. Immediate execution keeps you productive.
+
+```{mermaid}
+graph TD
+    A{Large dataset?}
+    A -->|Yes 100GB+| B{Multi-step pipeline?}
+    A -->|No| C[Consider immediate]
+    B -->|Yes| D[Use deferred]
+    B -->|No| E{Need portability?}
+    E -->|Yes| D
+    E -->|No| C
+    C --> F{Exploratory work?}
+    F -->|Yes| G[Use immediate]
+    F -->|No| H[Either works]
+```
+
+```python
+import xorq.api as xo
+import pandas as pd
+
+# Create sample data
+data = xo.memtable({
+    "date": pd.to_datetime(["2024-01-15", "2024-02-10", "2023-12-20"]),
+    "amount": [120, -50, 200],
+    "customer_id": [1, 2, 1]
+}, name="transactions")
+
+# Deferred: optimize full pipeline
+pipeline = (
+    data
+    .filter(xo._.date >= "2024-01-01")
+    .filter(xo._.amount > 0)  # Backend merges these filters
+    .group_by("customer_id")
+    .agg(total=xo._.amount.sum())
+)
+result = pipeline.execute()  # Runs optimized query once
+
+# Immediate: see results after each step
+filtered = data.filter(xo._.date >= "2024-01-01").execute()
+print(filtered.head())  # Inspect
+filtered2 = filtered.filter(xo._.amount > 0).execute()
+print(filtered2.head())  # Inspect again
+```
+
+## Understanding trade-offs
+
+Deferred execution offers significant benefits, but it comes with costs. Here's what you gain:
+
+**Whole-pipeline optimization**: The backend's query optimizer merges operations and eliminates redundant work through comprehensive analysis of the full expression graph.
+
+**Automatic caching**: Reuse results from previous runs with same computation logic without manual cache key management.
+
+**Engine portability**: Same expression runs on DuckDB, Snowflake, and PostgreSQL without code changes between environments.
+
+**Compile-time validation**: Catch errors before expensive execution by validating schemas and types during graph building.
+
+**Reduced I/O**: Skip intermediate materialization when possible by going directly from source data to final results.
+
+Here's what you give up:
+
+- **Learning curve**: You must understand when computation happens versus when graphs build.
+- **Delayed feedback**: You don't see results until you explicitly execute, which slows exploratory work.
+- **Debugging complexity**: Errors might originate from any operation in the graph rather than sequentially.
+- **Mental model shift**: You must think declaratively about what you want rather than imperatively about steps.
+- **Extra step**: You must call `.execute()` explicitly rather than having automatic execution after operations.
+
+The trade-off is worth it when you're building production pipelines that run repeatedly on large data. For daily feature engineering on 100GB+ datasets, deferred execution cuts execution time substantially. For one-off exploratory queries on small data, immediate execution is simpler without significant optimization gains.
+
+## Learning more
+
+[Overview](overview.qmd) provides context on where deferred execution fits in Xorq's overall architecture. [How Xorq works](how_xorq_works.qmd) shows where deferred execution fits in the pipeline.
+
+[Intelligent caching system](../execution_and_backends/intelligent_caching_system.qmd) explains how deferred execution supports automatic caching. [Multi-engine execution](../execution_and_backends/multi_engine_execution.qmd) covers how deferred expressions run on multiple backends. [Build system](../reproducibility/build_system.qmd) discusses how deferred expressions become executable manifests.
+
+[Understand deferred execution tutorial](../../getting_started/understand_deferred_execution.qmd) provides hands-on practice with deferred execution.
+
+
+

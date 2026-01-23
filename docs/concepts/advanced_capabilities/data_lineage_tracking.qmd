@@ -1,0 +1,214 @@
+---
+title: 'Data lineage tracking'
+description: "Understand how Xorq captures column-level lineage automatically"
+---
+
+Your fraud score predicts 0.95 for a transaction that should score 0.10. Something's wrong, but you have 47 transformations between raw data and that score. Which step introduced the error? Manually tracing through filters, joins, and aggregations takes hours. Data lineage tracking solves this by automatically capturing dependencies and letting you trace outputs back to their source quickly.
+
+
+## What is data lineage tracking?
+
+Data lineage tracking captures the flow of data through your pipeline. It records which operations produce each output column and which upstream columns they depend on.
+
+Lineage operates at the column level. You can trace a single output column back through the expression graph to its source columns for debugging and governance.
+
+Xorq generates this lineage automatically from your expression graph without requiring any manual instrumentation or configuration.
+
+```bash
+# View lineage for a build (you can pass a build path or a catalog alias)
+xorq lineage fraud-model
+
+# Output:
+# Lineage for column 'c':
+# Add #1
+# ├── Field:a #2
+# └── Field:b #3
+```
+
+## Why data lineage tracking matters
+
+Without lineage, pipelines are black boxes. When predictions are wrong, you can't quickly find where errors originated. When regulations require proving data provenance, you must reconstruct lineage manually from logs and documentation. This creates four problems in production:
+
+**No quick debugging.** Your fraud model flags legitimate transactions, and you suspect the `amount` column, but the amount goes through 8 operations including filters, joins, aggregations, and normalization. Which operation introduced the anomaly? You add print statements, re-run the pipeline, and check outputs manually for three hours before finding a join condition that changed last week. Lineage would show the dependency chain instantly.
+
+**No impact analysis.** The upstream team changes `transactions.amount` from integer cents to float dollars, and you need to know what breaks. You search the codebase, find 50 "amount" references, and manually trace dependencies, but you miss a critical subquery that only runs for specific segments. Production breaks when the change deploys because you missed that hidden dependency. Lineage would show every downstream dependency automatically.
+
+**No compliance documentation.** A regulator asks how you calculated a customer's credit score. You know it involves income, credit history, and payment patterns, but you can't quickly identify which exact columns from which tables contributed or how they were transformed. You piece together documentation, read code, and write a 20-page explanation manually. Lineage would generate the provenance tree in seconds.
+
+**No knowledge transfer.** Someone left the company, leaving undocumented pipelines with 30 intermediate columns like `feat_7_normalized`, and you need to understand what it computes. You trace backward through mutate operations, group-bys, and window functions for an hour before understanding it's customer lifetime value adjusted for seasonality. Lineage would show the computation path immediately.
+
+Lineage tracking solves these by making the dependency graph explicit and queryable. The lineage is the expression graph itself, not reconstructed logs.
+
+
+## How data lineage tracking works in Xorq
+
+Lineage tracking works in two parts: you build an expression, then you inspect its lineage by walking the expression graph.
+
+Xorq captures the dependency graph as you build expressions. Each operation like filter, join, or mutate creates nodes with parent-child relationships that track data flow. Xorq tracks which columns each operation uses and produces.
+
+A filter uses specific columns in its predicate. A join uses join keys for matching. A mutate creates new columns from existing columns through transformation expressions.
+
+When you call `xorq lineage`, Xorq walks the expression graph backward from each output column. It builds a dependency tree from final outputs back through intermediate transformations to source columns.
+
+```{mermaid}
+graph TB
+    A[fraud_score] --> B[amount_filtered]
+    A --> C[transaction_count]
+    B --> D[raw_amount]
+    B --> E[Filter > 1000]
+    C --> F[Join on customer_id]
+    F --> G[transactions.id]
+    F --> H[customers.id]
+    D --> I[transactions.amount]
+```
+
+Lineage is structural rather than runtime. Xorq derives lineage from the expression graph, not from execution logs. This means you can inspect lineage without executing the expression.
+
+```{mermaid}
+sequenceDiagram
+    participant User
+    participant Expression
+    participant Graph
+    participant Lineage
+    
+    User->>Expression: Build pipeline
+    Expression->>Graph: Record operations
+    Graph->>Graph: Track column deps
+    User->>Lineage: Query column origin
+    Lineage->>Graph: Walk backward
+    Graph-->>Lineage: Dependency tree
+    Lineage-->>User: Full provenance
+```
+
+:::{.callout-tip}
+Lineage in Xorq comes from the expression graph. You do not instrument code or parse logs to get lineage because the expression already encodes dependencies.
+:::
+
+## Column-level lineage
+
+Xorq tracks lineage at the column level rather than just table level for precise dependency analysis. You can trace a single output column through all transformations back to its source columns.
+
+```python
+import xorq.api as xo
+
+# Build a small expression (self-contained)
+tbl = xo.memtable({"a": [1, 2], "b": [3, 4]}, name="tbl")
+expr = tbl.mutate(c=tbl["a"] + tbl["b"])
+
+# To view lineage, build the expression and run `xorq lineage` on the build.
+# The lineage output contains nodes like:
+# - Field:a
+# - Field:b
+# - Add
+```
+
+Each output column has its own lineage tree showing which source columns contributed to it.
+
+
+## What lineage captures
+
+Lineage tracking captures five types of information that together provide complete dependency and provenance tracking.
+
+### Source columns
+
+The original data sources for each column, including table names and column identifiers from your data sources.
+
+### Operations
+
+All transformations applied to the data, such as filters, aggregations, joins, and mathematical operations that create derived columns.
+
+### Dependencies
+
+Direct and transitive relationships between columns, showing which columns depend on which upstream data sources.
+
+### Schemas
+
+Data type information for each column at every stage, tracking how types change through transformations and operations.
+
+### Provenance
+
+Complete history of how each column was created, including the sequence of operations and intermediate results.
+```yaml
+# Lineage comes from the expression graph stored in the build.
+# Xorq does not require a separate lineage section in `expr.yaml`.
+# When you run `xorq lineage`, Xorq walks the serialized expression graph and prints a tree.
+```
+
+## Structural versus runtime lineage
+
+Xorq provides structural lineage rather than runtime lineage where each approach serves different use cases.
+
+### Structural lineage
+
+Structural lineage analyzes the expression graph before execution to determine all possible data flows. This approach shows what could happen based on the logic you write, not what actually happened during execution.
+
+### Runtime lineage
+
+Runtime lineage tracks actual data flows during execution by parsing logs and execution traces. This approach shows what really happened with specific data values during a particular run.
+| Aspect | Structural lineage | Runtime lineage |
+|--------|-------------------|-----------------|
+| Source | Expression graph | Execution logs |
+| Availability | Before execution | After execution |
+| Completeness | All possible paths | Actual paths taken |
+| Accuracy | Based on logic | Based on data |
+| Overhead | None | Log parsing required |
+
+Structural lineage is sufficient for most use cases including debugging logic errors and compliance documentation. Runtime lineage adds value when you need to trace specific data values through execution paths.
+
+## When to use lineage tracking
+
+Lineage tracking is automatic in Xorq, but understanding when it provides value helps you make better architectural decisions.
+
+### Use lineage tracking when
+
+Use lineage tracking for debugging complex pipelines with more than five operations, multiple joins, and nested transformations. Compliance documentation benefits from automatic provenance tracking in financial services, healthcare, and government-regulated industries. Impact analysis before changes helps you understand downstream dependencies and prevent breaking production systems.
+
+Inherited pipelines with undocumented transformations become easier to understand through automatic dependency tracking. Production debugging requires tracing logic through multiple transformation steps efficiently. Team collaboration improves when everyone shares understanding of data flows without manual coordination.
+
+### Lineage is less valuable when
+
+Pipelines are simple with one or two operations and single table transformations that are obvious. You're doing exploratory analysis that won't be reused like throwaway notebooks or ad-hoc queries. You don't need governance or debugging support for personal projects or internal tools without compliance requirements. The pipeline is simple enough to understand by reading the code directly.
+
+```{mermaid}
+graph TD
+    A{Complex pipeline?}
+    A -->|Yes: 5+ ops| B[Use lineage]
+    A -->|No: 1-2 ops| C{Regulated industry?}
+    C -->|Yes| B
+    C -->|No| D{Production deployment?}
+    D -->|Yes| B
+    D -->|No| E{Team collaboration?}
+    E -->|Yes| B
+    E -->|No| F[Lineage less valuable]
+```
+
+Building a feature engineering pipeline for a regulated industry like finance or healthcare means lineage provides audit trails. When auditors ask where features came from, you run `xorq lineage` and show complete provenance. The lineage report becomes compliance documentation without manual reconstruction or lengthy explanations written from scratch.
+
+Doing ad-hoc SQL queries for internal reporting with one-time analysis means lineage overhead isn't justified. The pipeline is simple enough to understand by reading the 10-line query without dependency graphs.
+
+## Understanding trade-offs
+
+Lineage tracking in Xorq provides significant benefits for debugging and compliance, but comes with cognitive complexity costs.
+
+### Benefits:
+
+- Automatic tracking captures lineage without manual annotation or configuration work.
+- Column-level granularity shows exact dependencies between specific columns, not just tables.
+- Available for any built expression because the build stores the full expression graph.
+- No query-execution overhead, because lineage is computed only when you ask for it.
+
+### Costs:
+
+- Complexity grows where large pipelines with 50+ operations create hard-to-navigate graphs.
+- Learning curve requires graph thinking rather than sequential thinking about transformations.
+- Structural only limitation means lineage shows logic paths but not actual data values.
+
+If you need debugging support to find where bad data entered or compliance documentation for audits, then automatic tracking outweighs overhead. If you're building simple pipelines that never need debugging like one-operation filters, then graph complexity isn't justified. But since lineage is automatic, you get it anyway without performance cost or configuration.
+
+## Learning more
+
+[How Xorq works](../fundamentals/how_xorq_works.qmd) explains how lineage comes from the expression graph. [Expression format](../fundamentals/expression_format.qmd) covers how builds store the expression graph.
+
+[Point-in-time correctness](point_in_time_correctness.qmd) discusses how lineage enables temporal correctness for time-based analysis.
+
+[Track data lineage guide](../../guides/advanced_workflows/track_data_lineage.qmd) provides production lineage workflows. [Lineage CLI reference](../../api_reference/cli/lineage.qmd) covers complete lineage command documentation.

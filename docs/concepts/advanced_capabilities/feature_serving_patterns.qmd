@@ -1,0 +1,291 @@
+---
+title: 'Feature serving patterns'
+description: "Understand patterns for serving ML features in online and offline scenarios"
+---
+
+ML systems need features in two contexts: Batch training on historical data and real-time inference on live requests. Traditional systems force you to write feature logic twice. You write once for training in Python/Spark and once for serving in a REST API. The training version and production version drift apart. This causes training-serving skew where models train on different features than they see in production.
+
+Xorq solves this by letting you write feature logic once as an expression that works in both contexts. A feature serving pattern defines where and when this computation happens. Your choice determines latency, freshness, and infrastructure complexity.
+
+## The fundamental trade-off
+
+Feature serving requires choosing between computation speed and data freshness, and you cannot optimize both simultaneously. If you precompute features, then you get fast lookups but stale data. If you compute on every request, then you get up-to-date data but slower responses. Patterns represent different positions on this spectrum.
+
+## What is a feature serving pattern?
+
+A feature serving pattern determines when feature computation happens relative to prediction requests. This timing decision controls three critical properties: response latency, feature freshness, and computational cost.
+
+**Batch precomputation** runs feature computation in scheduled jobs before requests arrive. At request time, you look up precomputed values from storage. This gives microsecond lookups, but features might be hours or days old.
+
+**On-demand computation** runs feature computation when the request arrives. This gives up-to-date features but adds computation time to every request latency.
+
+**Hybrid computation** precomputes expensive features in batch and computes cheap features on-demand, balancing speed and freshness by splitting the workload between the two approaches.
+
+## Why the same expression prevents drift
+
+Traditional ML systems separate training and serving code. Training uses SQL or Spark queries for historical data. Serving uses Python or Java functions for real-time requests. Someone updates the training logic but forgets the serving logic. Aggregation formulas drift, causing models to train on one feature definition but see different features in production.
+
+Xorq solves this through deferred execution, where the expression defines computation without executing it immediately. Training executes the expression on historical data while serving executes it on current data. Same logic everywhere produces zero drift.
+
+This is why patterns matter. If the same expression works in both contexts, then you can choose when to execute it. Batch execution happens before requests, while on-demand execution happens during requests, but the computation logic stays identical regardless of timing.
+
+## Pattern 1: Batch precomputation
+
+Batch precomputation separates computation from serving. Scheduled jobs compute features periodically for all entities. Results store in fast-access storage so requests perform lookups instead of computation.
+
+### The mental model
+
+Think of batch precomputation like a phone book where the phone company compiles all numbers once. When you need a number, you look it up instantly, accepting that new numbers take time to appear in the book.
+
+### How timing works
+
+Understanding when computation and serving happen clarifies why batch precomputation delivers fast responses.
+
+**Before requests**: This is the batch phase. Scheduled jobs run on a regular schedule. The expression executes on the entire dataset. Results write to storage indexed by entity ID. You can now query storage for fast lookups.
+
+**During requests**: This is the serving phase. Requests arrive with entity IDs. The system looks up precomputed features by ID and returns cached results immediately. No computation happens during the request.
+
+### When to use batch precomputation
+
+Specific scenarios make batch precomputation the optimal choice for feature serving:
+
+- Features require expensive computation, like multi-table joins or long time windows
+- You can tolerate staleness where hourly, daily, or weekly updates are acceptable
+- You need sub-10ms response latency
+- You serve millions of entities where batch spreads cost efficiently
+
+**Real examples**:
+
+- Customer lifetime value updated daily
+- Fraud risk scores recomputed hourly  
+- User segments updated weekly
+- 90-day spending aggregations
+
+### Why this pattern works
+
+Batch precomputation spreads expensive computation across all entities at once, reducing per-entity cost. Computing features for one million customers in batch takes about the same time as computing for one customer individually, so the per-request cost drops to simple lookup overhead.
+
+Storage becomes the serving layer. Fast storage, such as in-memory cache or local SSD, provides consistent microsecond latency, making complex computation irrelevant to serving performance.
+
+### Trade-offs
+
+Every pattern involves accepting certain limitations to gain specific benefits.
+
+**You gain**:
+
+- Ultra-fast lookups (1-10ms) regardless of feature complexity
+- Predictable latency since computation happened earlier
+- Efficient resource usage through batching
+
+**You accept**:
+
+- Stale features that are hours to days old
+- Storage infrastructure requirements
+- Batch job management overhead
+- New entities appear only after the next batch run
+
+### Organizational implications
+
+Batch patterns require data engineering capabilities, including skills in scheduling jobs, managing storage, and monitoring batch pipelines. If batch jobs fail, then serving stops working, creating operational dependencies.
+
+## Pattern 2: On-demand computation
+
+On-demand computation merges computation and serving. No precomputation occurs, so every request triggers computation using the current data, and results are never cached between requests.
+
+### The mental model
+
+Think of on-demand like a restaurant cooking to order, where you wait longer for your meal, but the food is prepared exactly when you need it, and nothing sits waiting to be served.
+
+### How timing works
+
+On-demand computation has only one phase, during which everything happens in real time.
+
+**During requests**: This is the only phase. Requests arrive with entity IDs. The expression executes immediately with current data. Computation runs with filters, joins, and aggregations. Results return directly to the requester. Nothing persists for the next request.
+
+No batch phase exists, and no precomputation happens, so every request pays the full computation cost.
+
+### When to use on-demand computation
+
+Specific requirements make on-demand computation the right choice for your serving needs:
+
+- Features must be up-to-date within seconds, like the current cart or the last action
+- Features compute quickly with simple filters on recent data only
+- You tolerate 50-500ms latency
+- You serve thousands of entities, not millions
+
+**Real examples**:
+
+- Current shopping cart contents
+- Last 24-hour activity summaries
+- Real-time session features
+- Most recent user action
+
+### Why this pattern works
+
+On-demand computation eliminates infrastructure complexity. No batch jobs to schedule, no storage to manage, and no cache invalidation logic means the database is the only dependency.
+
+Features are guaranteed to be up-to-date. If data changes one second ago, then features reflect that change immediately with no waiting for batch jobs to catch up.
+
+### Trade-offs
+
+On-demand computation offers distinct benefits and limitations compared to batch processing.
+
+**You gain**:
+
+- Always up-to-date features reflecting the current database state
+- Simplified infrastructure with no batch jobs or storage
+- Immediate feature updates when data changes
+
+**You accept**:
+
+- Higher latency from computation on every request
+- Database load scaling with request volume
+- Unpredictable latency if computation complexity varies
+- Expensive features make all requests slow
+
+### Organizational implications
+
+On-demand patterns require backend engineering that relies on fast databases and optimized queries. Database performance directly impacts serving performance, so if queries slow down, then serving slows down.
+
+## Pattern 3: Hybrid computation
+
+Hybrid computation splits features by computational cost. Expensive features use batch precomputation while cheap features use on-demand computation, and serving combines both at request time.
+
+### The mental model
+
+Think of a hybrid like a restaurant with prep work where the kitchen prepares expensive components ahead, like stocks, sauces, and slow-cooked items, while quick components cook to order, like searing and garnishing, with assembly happening when you order.
+
+### How timing works
+
+Hybrid computation operates in two distinct phases that work together to balance speed and freshness.
+
+**Before requests**: This is the batch phase for expensive features. Scheduled jobs compute them only. Results store for fast lookup.
+
+**During requests**: This is the combined phase. The system quickly looks up precomputed, expensive features. It computes cheap features from current data. It joins both feature sets and returns the combined results.
+
+### When to use hybrid computation
+
+Hybrid patterns work best when you need to balance multiple competing requirements:
+
+- You need both speed and up-to-date data
+- Features are split naturally into expensive and cheap categories
+- Your latency budget is 50-200ms
+- You build production ML systems at scale
+
+**Real examples**:
+
+- Fraud detection combining lifetime patterns with recent behavior
+- Recommendations combining user preferences with the current session
+- Credit scoring combines payment history with recent applications
+
+### Why this pattern works
+
+Hybrid patterns optimize the trade-off curve. You get fast lookups for expensive computation and up-to-date data for cheap computation, achieving better latency than pure on-demand and better freshness than pure batch.
+
+The pattern adapts to your specific features. If 90% of the computation cost comes from three features, then batch those features while computing the remaining features on demand, optimizing where it matters most.
+
+### Trade-offs
+
+Hybrid computation balances the benefits of both batch and on-demand patterns while introducing its own complexity.
+
+**You gain**:
+
+- Balanced speed from batch and up-to-date data from on-demand
+- Flexibility to tune based on specific requirements
+- Optimal performance for most production systems
+
+**You accept**:
+
+- Increased architectural complexity with two computation paths
+- Need to analyze which features should be batch versus on-demand
+- Requirements for both storage infrastructure and database access
+- More components that can fail independently
+
+### Organizational implications
+
+Hybrid patterns require both data engineering and backend engineering, where teams need skills for batch jobs, storage, databases, and serving coordination. Complexity increases, but so does optimization potential.
+
+## Choosing the correct pattern
+
+Your choice depends on three constraints: latency requirements, feature characteristics, and organizational capabilities. These constraints interact to determine which pattern fits your specific needs.
+
+### Decision framework
+```{mermaid}
+graph TD
+    A{What's your latency budget?}
+    A -->|Under 10ms| B[Batch only]
+    A -->|10-100ms| C{Are features expensive?}
+    A -->|Over 100ms| D{Need up-to-date data?}
+    
+    C -->|Yes complex joins| B
+    C -->|No simple filters| E[Hybrid]
+    
+    D -->|Yes under 1 hour| F[On-demand or Hybrid]
+    D -->|No daily okay| B
+    
+    style B fill:#90EE90
+    style E fill:#FFD700
+    style F fill:#87CEEB
+```
+
+The following tables help you evaluate which pattern fits your specific constraints.
+
+| Budget | Pattern | Why |
+|--------|---------|-----|
+| Under 10ms | Batch only | No time for computation, must be a lookup |
+| 10-50ms | Batch or Hybrid | Can compute simple features |
+| 50-200ms | Hybrid | Can compute moderate features |
+| Over 200ms | On-demand viable | Sufficient time for complex computation |
+
+| Feature Type | Time Window | Pattern | Why |
+|--------------|-------------|---------|-----|
+| Lifetime aggregations | All history | Batch | Too expensive for real-time |
+| 90-day rolling | 3 months | Batch | Large data volume |
+| Daily summaries | 24 hours | Hybrid | Medium complexity |
+| Hourly features | 1 hour | On-demand | Small data volume |
+| Current session | Minutes | On-demand | Must be up-to-date |
+
+| Capability | Enables Pattern | Why |
+|------------|----------------|-----|
+| Data engineering team | Batch | Can manage scheduled jobs and storage |
+| Backend engineering team | On-demand | Can optimize database queries |
+| Both teams | Hybrid | Can coordinate both approaches |
+| Small team | On-demand | Simpler with fewer moving parts |
+
+## Common misunderstandings
+
+These misconceptions can lead to poor architectural decisions when choosing feature serving patterns.
+
+### "Online" does not mean "fast"
+
+Online serving means synchronous request-response, not necessarily low latency. Computing expensive features on demand is still online, even if requests take seconds. If you need sub-100ms latency, then you need batch precomputation or straightforward on-demand features.
+
+### Batch can be frequent
+
+Running batch jobs every minute provides minute-level freshness. The batch-versus-on-demand distinction concerns where computation occurs, not the update frequency, since computation occurs in scheduled jobs or on request. A batch job running every minute is still a batch job, not an on-demand one.
+
+### You do not always need feature stores
+
+Traditional feature stores solve training-serving skew by storing precomputed features. If your expression works in both contexts, then you already solved skew, and storage becomes just caching for batch patterns. Many systems need only expressions and caching, not separate feature store infrastructure.
+
+### Preventing training-serving skew
+
+The same expression must define features for both training and serving. Do not reimplement logic in different languages or frameworks, because if training uses one expression and serving reimplements that logic, then drift will occur over time.
+
+The expression is the contract. Training executes it on historical data while serving executes it on current data, guaranteeing identical computation logic.
+
+## When patterns do not apply
+
+If your features never repeat across requests, then serving patterns add unnecessary complexity, and you should compute features directly in application code instead.
+
+If each prediction requires unique custom logic, then patterns offer no reuse benefit, and the overhead of expressions and serving infrastructure outweighs the gains.
+
+Patterns work when computation logic repeats. Repetition enables optimization through timing choices, so without repetition, simpler approaches work better.
+
+## Learning more
+
+[Serving expressions as endpoints](serving_expressions_as_endpoints.qmd) explains how expressions become serving endpoints and the architecture that enables this.
+
+[Intelligent caching system](../execution_and_backends/intelligent_caching_system.qmd) covers caching strategies that power batch patterns, including time-to-live and invalidation logic.
+
+[Point-in-time correctness](point_in_time_correctness.qmd) discusses temporal correctness for features that change over time, preventing data leakage in training.

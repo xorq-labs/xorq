@@ -1,0 +1,82 @@
+---
+title: 'Batch processing with LLMs'
+description: "Understand patterns for efficient LLM integration in data pipelines"
+---
+
+Calling an LLM API for each row in a large dataset creates overhead from network round trips and request processing. Processing tens of thousands of rows this way takes significant time and costs money. Batch processing reduces this overhead by grouping multiple rows into fewer API requests, cutting both execution time and cost.
+
+
+## What is batch processing for LLMs?
+
+Batch processing groups multiple data rows together before sending them to an LLM API. Instead of making one API call per row, you collect rows into batches and process each batch in a single request. This approach trades individual row processing for grouped processing to reduce overhead.
+
+The strategy works because API calls carry fixed costs beyond just processing the data. Authentication, network latency, and request setup happen for every call regardless of payload size. Batching amortizes these fixed costs across multiple rows instead of paying them repeatedly for each individual row.
+
+## Batching for cost and reliability
+
+Batch size determines the trade-off between efficiency and risk. Small batches with 10 to 50 rows isolate failures but increase overhead from more API calls. Large batches with 200 to 1,000 rows minimize overhead but mean more wasted work on failures. Standard batching with 50 to 200 rows balances these concerns effectively.
+
+```python
+import pandas as pd
+
+def process_in_batches(df, batch_size=100):
+    results = []
+    failed_batches = []
+    for start in range(0, len(df), batch_size):
+        batch = df[start:start + batch_size].copy()
+        try:
+            response = call_openai_batch(batch['text'])
+            batch['sentiment'] = response
+            results.append(batch)
+        except Exception as e:
+            print(f"Batch {start} failed: {e}")
+            failed_batches.append(batch)
+    
+    return pd.concat(results)
+```
+
+Processing 100,000 reviews with 100-row batches means 1,000 API calls total. If three batches fail due to rate limits, then you retry only those 300 rows. Micro-batching with 20-row batches would mean 5,000 API calls total with higher overhead.
+
+Rate limits determine optimal batch size. OpenAI limits requests per minute not total throughput. Smaller batches mean more requests per minute which hits rate limits faster. Larger batches mean fewer requests per minute staying under rate limits more easily.
+
+## Cost optimization techniques
+
+LLM APIs often charge per token for both input and output. Prices and model names change frequently, so treat any cost math as an estimate and confirm current pricing with your provider.
+
+Caching eliminates redundant API calls when processing the same data multiple times. The first run costs $6.25 while subsequent runs with identical input return cached results at zero cost. This matters during development when you run the pipeline 10 times while debugging. Ten iterations cost $6.25 with caching versus $62.50 without caching.
+
+Prompt optimization reduces token counts by eliminating unnecessary verbosity. The verbose prompt "Please carefully analyze the sentiment expressed in the following customer review and classify it" uses 15 tokens. The concise alternative "Classify sentiment: positive, negative, or neutral" uses 7 tokens. Saving 8 tokens per review across 100,000 reviews reduces costs by roughly $0.40.
+
+Model selection affects both cost and quality. Higher-capability models often cost more per token and can improve quality on harder tasks. Whether the quality gain justifies the cost depends on your use case.
+
+## When batch processing fits
+
+Batch processing works best for offline analysis where latency can be seconds to minutes. Processing customer feedback overnight, enriching product catalogs weekly, or analyzing support tickets daily all fit this pattern. You process thousands to millions of rows and benefit from caching significantly.
+
+High volume workloads benefit most from batching overhead reduction. Processing 100,000+ rows with batch sizes of 100 to 200 maximizes efficiency. The fixed cost per API call becomes negligible compared to total processing volume.
+
+Cost constraints favor batch processing over streaming. Batch processing with caching can reduce costs by 80% to 90% compared to processing every row individually. This matters when processing millions of rows regularly.
+
+Real-time applications need subsecond latency instead. Chatbots responding to users, content moderation on live posts, and interactive search require immediate responses. Batch processing adds seconds of latency from batching overhead making it unsuitable.
+
+Low-volume workloads don't benefit from batching. Processing fewer than 1,000 rows means batching overhead exceeds the benefits. Individual API calls work fine for small datasets.
+
+Structured data rarely needs LLM processing. If your data is already in columns and categories, then SQL transformations are faster and cheaper. Classification rules run in microseconds not seconds compared to API calls.
+
+```{mermaid}
+graph TD
+    A{Volume > 10,000 rows?}
+    A -->|Yes| B{Latency tolerance?}
+    A -->|No| C[Consider streaming]
+    B -->|Minutes OK| D[Batch processing]
+    B -->|Seconds required| C
+    D --> E{Cost acceptable?}
+    E -->|Yes| F[Use batch LLMs]
+    E -->|No| G[Consider alternatives]
+```
+
+Processing 100,000 customer reviews daily for sentiment trends fits batch processing perfectly. The analysis runs overnight, processes data in batches of 100 reviews, and caches results. Latency is hours which works fine for daily reports while cost is $6.25 per run.
+
+[Intelligent caching system](../execution_and_backends/intelligent_caching_system.qmd) explains caching mechanisms that eliminate redundant API calls. [User-defined exchange functions](user_defined_exchange_functions.qmd) covers how UDXFs provide process isolation for LLM calls.
+
+[Call LLMs from expressions tutorial](../../tutorials/ai_tutorials/call_llms_from_expressions.qmd) provides hands-on implementation guidance. [Your first UDXF tutorial](../../tutorials/ai_tutorials/your_first_udxf.qmd) covers basic patterns.

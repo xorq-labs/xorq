@@ -1,0 +1,271 @@
+---
+title: 'Input-addressed computation'
+description: "Understand how Xorq versions computations by logic rather than results"
+---
+
+Imagine Git versioning your code based on what it accomplishes rather than when you commit changes. Traditional systems use timestamps or results for versioning, which creates duplicate work and coordination overhead. Input-addressed computation works differently: Xorq identifies computations by their logic instead of their outputs.
+
+## What you'll understand
+
+- What input-addressed computation is and why it fundamentally matters for ML infrastructure design
+- How input addressing differs from output addressing in terms of reuse and coordination patterns
+- Problems that input addressing solves in ML pipelines through concrete production scenarios
+- When input addressing provides value versus when it adds unnecessary complexity overhead
+
+## What is input-addressed computation?
+
+Input-addressed computation identifies a computation by its specification rather than by results it produces. Xorq generates a unique identifier from your computation logic without considering the output data or execution context. The specification includes operations and inputs.
+
+Two computations with identical logic receive identical identifiers even if they run on different datasets or times. This property enables automatic reuse. Matching computation logic allows you to reuse cached results immediately. Teams discover existing work automatically when someone writes logically equivalent feature engineering code independently.
+
+```python
+import xorq.api as xo
+
+# Computation A: filter customers by amount > 100
+computation_a = data.filter(xo._.amount > 100)
+
+# Computation B: same logic, different data
+computation_b = different_data.filter(xo._.amount > 100)
+
+# Both have the same input address because same logic
+# Even though they produce different outputs from different data
+```
+
+## Input addressing versus output addressing
+
+Understanding how these approaches differ clarifies when to use input addressing for your infrastructure needs.
+
+| Aspect | Input addressing | Output addressing |
+|--------|------------------|-------------------|
+| Identifier | Hash of computation logic | Hash of result data |
+| Stability | Stable across datasets | Changes with every dataset |
+| Reuse | Automatic with same logic | Manual code copying |
+| Versioning | By computation intent | By execution timestamp |
+| Cache key | Based on operations | Based on output data |
+| Discovery | Find by logic match | Find by result similarity |
+
+**Example**: Feature engineering
+
+### Input addressing in Xorq
+
+```python
+# January: compute features
+features_jan = customers.filter(xo._.amount > 100).group_by("segment")
+# Address: a3f5c9d2... based on logic
+
+# February: same logic, different data
+features_feb = customers.filter(xo._.amount > 100).group_by("segment")
+# Address: a3f5c9d2... same address
+# Xorq knows this is the same computation
+```
+
+### Output addressing in traditional systems
+
+```python
+# January: compute features
+features_jan = compute_features(january_data)
+# Stored as: features_v1_2024_01
+
+# February: same logic, different data
+features_feb = compute_features(february_data)
+# Stored as: features_v2_2024_02
+# No automatic connection between them
+```
+
+## Why output addressing creates infrastructure problems
+
+Traditional systems identify computations by their results. Running identical queries on different data produces different identifiers. This approach creates four critical problems that slow down ML teams and waste computational resources.
+
+### No reuse across datasets
+
+Engineering features on January data prevents you from reusing that identical logic on February data automatically. Your catalog treats them as completely different computations because outputs differ despite identical transformation logic. You rebuild the same feature engineering from scratch every month, wasting time and compute resources.
+
+### Version explosion from dataset changes
+
+Every execution creates a new version because outputs change when data changes. This happens even for identical logic. Your catalog fills with thousands of versions that represent the same computation on different data slices. Finding the right computation becomes an archaeological investigation through version histories and execution timestamps.
+
+### Manual coordination replaces automatic discovery
+
+Reusing someone else's feature engineering requires finding their code, understanding their implementation details, and adapting manually. No automatic system exists to discover that you're computing logically equivalent transformations. Teams coordinate through Slack messages and shared spreadsheets instead of systematic computational equivalence detection.
+
+### Cache invalidation becomes expensive guesswork
+
+Output-based caching requires comparing result data to detect changes. This is computationally expensive and error-prone. You either cache too aggressively and serve stale results or invalidate too often and waste compute. Humans make decisions the system should make automatically based on logic changes.
+
+Input-addressed computation solves these problems by making computation logic the definitive source of truth. Same logic produces the same identifier, enabling automatic reuse without coordination overhead.
+
+## How input-addressed computation works
+
+Input addressing operates through three stages that transform expressions into stable identifiers for reuse.
+
+First, specification extraction pulls the computation specification from your expression. This includes operations like filter, join, and aggregate plus their predicates. Second, canonical representation converts the specification to a normalized form that's independent of syntax variations or formatting. Third, address generation computes a content hash from the canonical representation, creating the input address deterministically.
+
+```{mermaid}
+graph TB
+    A[Expression Code] --> B[Extract Specification]
+    B --> C[Operations: filter, group, agg]
+    B --> D[Predicates: amount > 100]
+    B --> E[Columns: amount, category]
+    C --> F[Canonical Form]
+    D --> F
+    E --> F
+    F --> G[Hash: a3f5c9d2...]
+    G --> H[Input Address]
+```
+
+The input address depends exclusively on what you're computing rather than the data you're computing on. Changing the filter threshold from 100 to 101 produces a different address because logic changed. Running the same filter on different data produces the same address because logic remains constant.
+
+:::{.callout-tip}
+Input addressing is version by intent. The address captures what you intend to compute, not results you get. This makes computation logic reusable across datasets and time periods without manual coordination or version management.
+:::
+
+## What influences the input address
+
+Xorq includes specific computational elements in the input address while excluding execution context and data values.
+
+### Included elements
+
+Operations like filter, join, aggregate, and transform all influence the address computation. Changing operations changes it. Predicates specify conditions in filters and joins. Changing `amount > 100` to `amount > 101` changes address. Column references determine which columns you select, group by, or aggregate. Function calls include UDFs, aggregation functions, and transformations. Changing the function changes the address. Operation order matters significantly because filter-then-group differs computationally from group-then-filter.
+
+### Excluded elements
+
+Input data values don't affect the address at all. The actual row values have no influence for stability. Execution context like timestamps, user names, or machine IDs doesn't ever influence hash computation. Output data doesn't affect the address. Same logic producing different outputs maintains the same address.
+
+Input addressing captures your recipe without recording the meal you cooked or the kitchen you used.
+
+:::{.callout-warning}
+The address depends on computation logic rather than input data. This is a common source of confusion. Running different computations on the same data produces different addresses because logic differs. Running the same computation on different data produces the same address because logic stays constant. Understanding that logic determines identity clarifies when reuse happens across datasets.
+:::
+
+## What input addressing enables
+
+Input addressing unlocks four powerful capabilities that eliminate duplicate work and coordination overhead across ML teams.
+
+### Automatic reuse across datasets
+
+Running the same feature engineering on different months of data triggers Xorq to recognize identical computation. You can reuse pipelines and logic patterns, not just cached results.
+
+```python
+# Define feature engineering once
+feature_pipeline = (
+    data
+    .filter(xo._.amount > 100)
+    .group_by("customer_id")
+    .agg(total=xo._.amount.sum())
+)
+
+# Apply to January data
+jan_features = feature_pipeline.execute()  # Address: a3f5c9d2
+
+# Apply to February data with same address
+feb_features = feature_pipeline.execute()  # Address: a3f5c9d2
+# Xorq knows this is the same computation logic
+```
+
+### Team-wide discovery
+
+Developer B writing the same feature engineering as Developer A triggers Xorq to detect the match automatically. No manual coordination, version comparison, or code review needed for discovering computational equivalence.
+
+```bash
+# Developer A builds features
+xorq build features.py -e customer_features
+# Address: a3f5c9d2
+
+# Developer B independently builds same features
+xorq build my_features.py -e customer_features
+# Address: a3f5c9d2 same
+# Xorq: "This computation already exists in the catalog"
+```
+
+### Precise caching
+
+Caching based on computation logic rather than result data means unchanged logic uses the cache automatically. Changed logic triggers recomputation only when computational behavior actually differs.
+
+```python
+# First run: computes and caches
+result = expensive_computation.execute()  # Address: a3f5c9d2, caches
+
+# Second run: same logic, uses cache
+result = expensive_computation.execute()  # Address: a3f5c9d2, cache hit
+
+# Modified computation: different address, recomputes
+modified = expensive_computation.filter(xo._.amount > 200)
+result = modified.execute()  # Address: b7e3f1a8, cache miss, recomputes
+```
+
+### Structural lineage
+
+The computation graph is the lineage directly. You don't reconstruct lineage from logs. The input address captures the full dependency structure embedded in the expression itself automatically.
+
+```yaml
+# Manifest shows lineage through parent references
+# Each build directory has a unique hash (input address)
+predicted:
+  op: ExprScalarUDF
+  kwargs:
+    bill_length_mm: ...
+    bill_depth_mm: ...
+  meta:
+    __config__:
+      computed_kwargs_expr:  # Training lineage preserved
+        op: AggUDF
+        kwargs:
+          species: ...
+```
+
+## When to use input addressing
+
+Team collaboration patterns and computation reuse opportunities determine whether input addressing justifies its conceptual complexity.
+
+### Use input addressing when:
+
+- You reuse computation logic across datasets regularly, like monthly feature engineering on new data.
+- Multiple team members might independently create the same features, which input addressing detects automatically.
+- Automatic cache invalidation based on logic changes matters for correctness and efficiency.
+- Reproducibility matters because the same code must produce the same identifier across machines and time.
+
+### Skip input addressing when:
+
+- Your analyses are one-off without reuse opportunities.
+- Versioning by execution time matters more than versioning by logic for compliance requirements.
+- Your workflow doesn't involve caching or catalogs so input addressing provides no infrastructure value.
+
+A data science team building customer segmentation features that run monthly on new data benefits greatly from input addressing. When Developer B writes similar segmentation logic, Xorq detects the match and suggests reusing Developer A's work. Doing ad-hoc SQL queries that never repeat makes input addressing add complexity without any reuse benefit.
+
+## Trade-offs
+
+Input addressing provides automatic discovery and precise caching, but it also introduces conceptual complexity and learning requirements.
+
+### Benefits:
+
+- Automatic reuse happens because the same logic produces the same address, letting teams discover existing work automatically.
+- Precise caching invalidates only when logic changes, preventing both stale results and unnecessary recomputation.
+- Team coordination becomes automatic because no manual tracking of who computed what is needed.
+- Reproducibility guarantees the same code always produces the same address across different machines and time periods.
+- Logic-based versioning captures computational intent rather than execution accidents like timestamps or machine IDs.
+- Deduplication is free because identical logic across team members gets unified identifiers automatically.
+
+### Costs:
+
+- Conceptual complexity requires understanding input versus output addressing, a new mental model for developers.
+- Address opacity means hashes like `a3f5c9d2` are difficult for humans to interpret without catalog aliases.
+- Computation overhead for generating addresses takes time, though usually only milliseconds per expression.
+- Learning curve exists because this represents a different mental model compared to timestamp-based versioning.
+- Documentation burden increases because teams need to understand when addresses change versus when they stay stable.
+
+Your bottleneck determines whether trade-offs justify adoption. Duplicate work across team members or manual cache management justifies input addressing's automatic reuse benefits. Working solo on one-off analyses makes the overhead unjustified because no coordination problems exist.
+
+:::{.callout-note}
+Input addressing has nothing to do with caching data. It means identifying computations by their inputs, specifically operations and predicates. Input addressing is about computation identity, not data storage mechanisms. If you confuse input addressing with data caching, you'll misunderstand how Xorq's versioning system works.
+:::
+
+:::{.callout-note}
+Input addressing complements version control rather than replacing it. Git versions your code including source files and commit history. Input addressing versions your computations, including what code computes. You need both systems working together for complete versioning coverage.
+:::
+
+### Learning more
+
+- [Build system](build_system.qmd): How builds generate input addresses
+- [Compute catalog](compute_catalog.qmd): Catalog indexing by address
+- [Intelligent caching system](../execution_and_backends/intelligent_caching_system.qmd): Caching mechanisms using input addresses
+- [Expression format](../fundamentals/expression_format.qmd): Manifests that capture input specifications

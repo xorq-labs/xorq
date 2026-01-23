@@ -1,0 +1,352 @@
+---
+title: 'Profile-based connections'
+description: "Understand how Xorq manages backend connections through reusable profiles"
+---
+
+Your Python pipeline runs perfectly on your laptop with DuckDB, but now you need to deploy it to production Snowflake. Hardcoded connection details force you to rewrite code, wasting time and introducing bugs. Profiles solve this by separating connection configuration from computation logic, providing reusable and immutable configuration objects.
+
+## What you'll understand
+
+This page explains the following concepts:
+
+- What profiles are and how they separate connection config from computation logic
+- When profiles matter versus when direct connections are simpler for your workflow
+- What you gain in portability and security versus what you lose in setup overhead
+- How to choose between creating profiles from scratch, from existing connections, or loading saved ones
+
+## What are profile-based connections?
+
+A profile is an immutable configuration object that captures how to connect to a backend like PostgreSQL or Snowflake. Profiles store connection parameters separately from your computation code, including details like host, port, and database. This separation enables environment portability and reusability.
+
+When you save an expression manifest, Xorq references profiles by hash rather than by specific credential values, so you can run the same manifest in different environments by swapping configurations. Development, staging, and production each use different profiles.
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profile
+
+# Create a profile with environment variables
+profile = Profile(
+    con_name="postgres",
+    kwargs_tuple=(
+        ("host", "${POSTGRES_HOST}"),
+        ("port", 5432),
+        ("database", "production"),
+        ("user", "${POSTGRES_USER}"),
+        ("password", "${POSTGRES_PASSWORD}"),
+    ),
+)
+
+# Save with a human-readable alias
+profile.save(alias="prod_postgres")
+
+# Later, load and connect
+loaded = Profile.load("prod_postgres")
+con = loaded.get_con()
+```
+
+## Why hardcoded connections create deployment problems
+
+Connection details embedded in code means changing environments requires changing code, which breaks the separation between logic and configuration. This approach creates three critical problems that waste time and expose security vulnerabilities.
+
+### Credentials leak into version control
+
+Hardcoded connection strings put sensitive information directly in your codebase, including passwords and API keys. If you commit this to version control, then you expose secrets to everyone with repository access when only authorized operators should see credentials. Recovery means rotating credentials, auditing who saw them, and hoping attackers didn't find them through Git history.
+
+### Environment coupling creates maintenance nightmares
+
+Code written for local development won't work in production without manual changes to hardcoded connection values. You either maintain separate codebases per environment or litter code with conditionals checking environments. Separate codebases double maintenance work, and both approaches break as you add staging, testing, and DR environments.
+
+### Team reusability becomes impossible
+
+If multiple team members need the same connection, then they must configure it separately since no shared configuration layer exists. Connection details drift across the team, so someone uses port 5432 while another uses port 5433. Debugging becomes an archaeological investigation where you're asking which config your colleague used when this worked last week.
+
+Profiles solve these problems by externalizing connection config, using environment variables for secrets, and enabling team-wide reuse.
+
+## How profile-based connections work
+
+Profiles operate through three stages that transform configuration into secure, reusable connections.
+
+**Profile creation** defines connection parameters with sensitive values referencing environment variables instead of hardcoded strings. Values like `${POSTGRES_PASSWORD}` protect credentials.
+
+**Profile saving** writes the profile to disk as YAML with an optional alias, which supports discovery and reuse.
+
+**Profile loading** retrieves the profile by alias or hash, then calling `.get_con()` creates a connection with environment variables resolved at connection time.
+
+```{mermaid}
+sequenceDiagram
+    participant User
+    participant Profile
+    participant Filesystem
+    participant Backend
+    
+    User->>Profile: Create with env vars
+    Profile->>Filesystem: Save as YAML
+    User->>Profile: Load by alias
+    Profile->>Profile: Resolve env vars
+    Profile->>Backend: Connect with resolved credentials
+    Backend-->>User: Return connection
+```
+
+Profiles are immutable objects that can't be modified after creation, which ensures thread safety and predictability. Think of profiles like published recipes: once shared, they stay fixed so everyone uses the same instructions. If you need different parameters, then create a new profile or use `.clone()` to create a modified copy, just as you'd fork a recipe to create a variant.
+
+```{mermaid}
+graph TB
+    A[Python Code] --> B{Environment?}
+    B -->|Dev| C[Load dev_profile]
+    B -->|Staging| D[Load staging_profile]
+    B -->|Prod| E[Load prod_profile]
+    C --> F[${DEV_HOST}]
+    D --> G[${STAGING_HOST}]
+    E --> H[${PROD_HOST}]
+    F --> I[Same Code, Different Backend]
+    G --> I
+    H --> I
+```
+
+:::{.callout-tip}
+Profiles separate what you want to compute from where you want to compute it. The expression defines the 'what' while the backend connection defines the 'where.' If you use the same expression with a different profile, then you get a different execution environment without code changes, which provides portability across deployment targets.
+:::
+
+## Profile properties
+
+A profile has five key properties that support both human-readable aliases and machine-addressable hash identification.
+
+**con_name**: Identifies the backend type like `postgres`, `snowflake`, or `duckdb`, telling Xorq which connection driver to use.
+
+**kwargs_tuple**: Stores connection parameters as immutable tuples, including host, port, database, and credentials.
+
+**hash_name**: Provides a unique hash identifier generated from the profile's content. Identical parameters produce identical hashes for deduplication and cache matching.
+
+**idx**: A unique numeric identifier that gets auto-generated when the profile is created, used internally by Xorq for tracking.
+
+**kwargs_dict**: Provides a dictionary view of kwargs_tuple for convenience when you need key-value access, though it's derived from kwargs_tuple rather than stored separately.
+
+## Creating profiles
+
+You can create profiles through three different approaches depending on your starting point and workflow preferences.
+
+### From scratch
+
+Define connection parameters explicitly with environment variable references for secrets:
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profile
+
+profile = Profile(
+    con_name="snowflake",
+    kwargs_tuple=(
+        ("account", "${SNOWFLAKE_ACCOUNT}"),
+        ("user", "${SNOWFLAKE_USER}"),
+        ("password", "${SNOWFLAKE_PASSWORD}"),
+        ("database", "analytics"),
+        ("warehouse", "compute_wh"),
+    ),
+)
+```
+
+### From an existing connection
+
+Extract a profile from a connection you already created, which reverse-engineers configuration from an active connection:
+
+```python
+import xorq.api as xo
+
+# Create connection
+con = xo.postgres.connect(host="localhost", database="dev")
+
+# Extract profile
+profile = Profile.from_con(con)
+profile.save(alias="local_postgres")
+```
+
+### From a saved profile
+
+Load a profile that someone else saved, which allows team-wide reuse of connection configurations:
+
+```python
+# Load by alias
+profile = Profile.load("local_postgres")
+
+# Or load by hash
+profile = Profile.load("feda6956a9ca4d2b_1")
+```
+
+Creating from scratch is like writing your own recipe, while creating from a connection is like reverse-engineering a recipe from a dish you had at a restaurant. Loading is more like using someone else's recipe that they've already tested and documented.
+
+## Saving and loading profiles
+
+Profiles save to disk as YAML files in your profiles directory (default: `~/.xorq/profiles`) for persistence and reuse. If you save with an optional alias, then Xorq creates both hash-named files and human-readable symbolic links for discovery.
+
+```python
+# Save with alias (creates both hash file and symlink)
+profile.save(alias="prod_snowflake")
+
+# Save without alias (only hash file)
+profile.save()
+
+# Overwrite existing profile
+profile.save(alias="prod_snowflake", clobber=True)
+```
+
+Saving with an alias creates two artifacts on disk. A YAML file named by hash (like `feda6956a9ca4d2b_1.yaml`) serves as the source of truth, while a symbolic link with the alias (like `prod_snowflake`) points to the hash file for easy discovery.
+
+Loading works by alias or hash depending on whether you prefer human readability or machine precision. Think of aliases as bookmarks in your browser that let you return to frequently used profiles by name. Hashes work like direct URLs that give you precise access to the exact configuration.
+
+```python
+# Load by alias (follows symlink)
+profile = Profile.load("prod_snowflake")
+
+# Load by hash (direct file read)
+profile = Profile.load("feda6956a9ca4d2b_1")
+```
+
+## Managing credentials securely
+
+Xorq enforces secure credential handling by checking for sensitive keywords when saving profiles. If values match keywords like password, token, secret, or key, then they must be environment variable references rather than plain text to prevent accidental credential exposure.
+
+A secure approach uses environment variables:
+
+```python
+profile = Profile(
+    con_name="postgres",
+    kwargs_tuple=(
+        ("password", "${POSTGRES_PASSWORD}"),  # Environment variable
+        ("api_key", "${API_KEY}"),              # Environment variable
+    ),
+)
+profile.save(alias="secure_profile")  # Works
+```
+
+An insecure approach uses plain text credentials:
+
+```python
+profile = Profile(
+    con_name="postgres",
+    kwargs_tuple=(
+        ("password", "my_secret_password"),  # Plain text
+    ),
+)
+profile.save(alias="insecure")  # Raises ValueError
+```
+
+At connection time, Xorq resolves environment variables from your shell environment into actual credential values:
+
+```python
+# Set environment variable
+import os
+os.environ["POSTGRES_PASSWORD"] = "actual_password"
+
+# Load profile and connect (password gets resolved)
+profile = Profile.load("secure_profile")
+con = profile.get_con()  # Uses resolved password
+```
+
+This pattern keeps secrets out of version control while allowing profiles to be committed safely to Git.
+
+## Profile collections
+
+The `Profiles` class manages multiple saved profiles through a dictionary-like interface, which supports convenient discovery and access.
+
+```python
+from xorq.vendor.ibis.backends.profiles import Profiles
+
+# Create profiles manager
+profiles = Profiles()
+
+# List all saved profiles
+profiles.list()
+# Output: ('prod_snowflake', 'local_postgres', 'dev_duckdb')
+
+# Access by attribute
+prod_profile = profiles.prod_snowflake
+
+# Access by dictionary key
+dev_profile = profiles['dev_duckdb']
+
+# Get explicitly
+postgres_profile = profiles.get('local_postgres')
+```
+
+This interface supports tab completion in Interactive Python and Jupyter, which makes profile discovery interactive during exploratory work.
+
+## When profile-based connections matter
+
+Choosing between profile-based and direct connections depends on your deployment complexity, team size, and security requirements. Use the following guidelines to determine which approach fits your workflow.
+
+### Use profile-based connections when
+
+You're switching between environments: Local DuckDB for development, staging PostgreSQL for testing, and production Snowflake each need separate configurations.
+- Multiple team members share connection configurations. Data engineering, analytics, and ML teams all connect to the same warehouse.
+- You need to commit connection logic without exposing credentials. Profiles in Git with secrets in environment variables keep credentials separate.
+- Your expressions need portability across backends. The same pipeline runs on different engines without code changes.
+- You're deploying code in CI/CD pipelines. Automated systems need reproducible connections without human intervention.
+- You need audit trails for connection changes. Profile hashes show exactly what changed between versions.
+
+### Skip profile-based connections when
+
+- You're doing quick one-off analyses in notebooks. Connection details won't be reused beyond the current session.
+- Your connection details are non-sensitive and unchanging. A local DuckDB file with no credentials doesn't need profile overhead.
+- You're working alone without team collaboration. Reusability benefits are minimal when setup cost exceeds gains.
+- You're prototyping without a finalized backend choice. Profile management is premature until you settle on a production database.
+- Your exploratory work is simple. Profile management overhead exceeds practical value when reusability or environment portability don't justify the complexity.
+
+```{mermaid}
+graph TD
+    A{Multiple environments?}
+    A -->|Yes 2+| B[Use profiles]
+    A -->|No| C{Team collaboration?}
+    C -->|Yes| B
+    C -->|No| D{Sensitive credentials?}
+    D -->|Yes| B
+    D -->|No| E{Need reusability?}
+    E -->|Yes| B
+    E -->|No| F[Direct connection OK]
+```
+
+A production feature pipeline running in three environments benefits from profiles. If you create three profiles with the same alias pattern but different credential references (like `dev_pipeline`, `staging_pipeline`, and `prod_pipeline`), then your code references `Profile.load(f"{env}_pipeline")` where the environment variable determines which profile loads. This works without code changes. However, if you're exploring data in Jupyter with one-time analysis using local CSV, then direct connection is simpler and faster.
+
+## Understanding trade-offs
+
+Profiles offer significant benefits, but they come with costs. Here's what you gain:
+
+**Environment portability**: Same code runs in dev, staging, and production since you change the profile rather than code.
+
+**Secure-by-default enforcement**: Credential leaks are prevented through ValueError exceptions if you attempt plain text credentials in profile configurations.
+
+**Team reusability**: Share profiles across team members by committing profiles and sharing env variable names.
+
+**Immutability**: Thread-safe and predictable behavior since no surprise mutations occur from concurrent access.
+
+**Content-addressed identification**: Identical configs are deduplicated automatically through hashes, providing storage efficiency.
+
+**Audit trails**: Profile hashes show exactly what changed between environments, supporting compliance and debugging.
+
+Here's what you give up:
+
+- **Setup overhead**: Profile creation, saving to disk, and environment variable configuration are required before first use.
+
+- **Indirection**: An extra layer exists between code and connection since profile loads, then env vars resolve, then connections establish.
+
+- **Environment dependency**: Setting environment variables correctly in each environment is required since forgotten env vars cause connection failures.
+
+- **Learning curve**: Profiles represent new concepts compared to direct connections, so `Profile.load()` differs from `connect()` in approach.
+
+- **Debugging complexity**: Connection failures might be profile issues, env var issues, or actual connectivity problems.
+
+If you're deploying code across multiple environments, then the setup overhead is justified since reusability and security benefits outweigh costs. If you're collaborating with teams on shared infrastructure, then profile management pays off when ten or more people connect to the same warehouse. However, if you're doing solo exploratory work that never leaves your laptop, then direct connections are simpler since profile and env var management add unnecessary complexity.
+
+:::{.callout-note}
+Profiles store environment variable references rather than actual passwords. References like `${PASSWORD}` resolve at connection time, so the YAML file contains `${POSTGRES_PASSWORD}` rather than `my_secret_password`. This provides security through indirection and environment variable resolution.
+
+Profiles are safe to commit to Git because they only contain references without actual credentials or secrets. Your entire team can share the same profile YAML file while each person sets their own environment variables.
+:::
+
+## Learning more
+
+[Overview](../fundamentals/overview.qmd) explains Xorq's architecture. [Multi-engine execution](multi_engine_execution.qmd) covers how profiles enable multi-engine support.
+
+[Build system](../reproducibility/build_system.qmd) discusses how manifests reference profiles by hash. [Reproducible environments with uv](../reproducibility/reproducible_environments_with_uv.qmd) details combining profiles with uv for full reproducibility.
+
+[Profiles API reference](../../api_reference/backends/profiles_api.qmd) provides complete API documentation with detailed method signatures and examples.
+
+
+

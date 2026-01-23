@@ -1,0 +1,168 @@
+---
+title: 'Multi-engine execution'
+description: "Understand how Xorq moves data between different backends within a single expression"
+---
+
+Your data lives in PostgreSQL, but you need DuckDB's analytical performance for aggregations. Moving data manually between engines wastes time and introduces errors. Xorq's multi-engine execution lets you move data between backends within a single expression using `into_backend()`. This lets you use each engine for operations it performs best without manual data transfers.
+
+## What you'll understand
+
+This page explains the following concepts:
+
+- How `into_backend()` moves data between engines using Apache Arrow for zero-copy transfers
+- When multi-engine execution matters versus when single-engine workflows are simpler
+- What you gain in performance and flexibility versus what you lose in complexity and overhead
+- How to decide between multi-engine execution and single-engine workflows
+
+## What is multi-engine execution?
+
+Multi-engine execution lets you use multiple backends within a single Xorq expression. You can load data from PostgreSQL, process it in DuckDB, and join results across engines without manual data exports or imports. The `into_backend()` method moves data between engines using Apache Arrow's columnar format, which preserves schemas and types during transfer.
+
+When you call `expr.into_backend(con)`, Xorq creates a `RemoteTable` that wraps your expression. During execution, Xorq converts the source expression to a PyArrow RecordBatchReader, then ingests those batches into the target backend. Xorq uses `SafeTee` to create multiple independent iterators from the same RecordBatchReader. This allows the same data to be consumed multiple times without materializing to disk.
+
+```python
+import xorq.api as xo
+
+# Connect to engines
+pg = xo.postgres.connect_env()
+db = xo.duckdb.connect()
+
+# Load data from different sources
+batting = pg.table("batting")
+awards = xo.examples.awards_players.fetch(backend=db)
+
+# Filter in respective engines
+recent = batting.filter(batting.yearID == 2015)
+nl_awards = awards.filter(awards.lgID == "NL")
+
+# Move data to PostgreSQL for the join
+result = recent.join(
+    nl_awards.into_backend(pg),
+    ["playerID"]
+)
+
+result.execute()
+```
+
+## Why single-engine workflows create limitations
+
+Working with a single engine forces you to choose between its strengths and accept its weaknesses. If your data lives in PostgreSQL but you need the analytical performance of DuckDB, then you either export data manually or accept slower queries. This approach creates three critical problems that waste time and limit performance.
+
+### Engine strengths go unused
+
+Each engine excels at different tasks. DuckDB handles analytical queries efficiently, PostgreSQL supports complex joins and transactions, and DataFusion provides custom UDF capabilities. Sticking to one engine means you can't use these strengths when they matter most.
+
+### Manual data movement introduces errors
+
+Exporting data from one engine and importing it to another requires manual steps that can fail silently. CSV exports lose type information, Parquet exports might have schema mismatches, and manual transfers don't preserve relationships between tables. Each transfer step is an opportunity for data corruption or loss.
+
+### Performance bottlenecks become unavoidable
+
+If your large table lives in PostgreSQL but you need the aggregation speed of DuckDB, then you either accept slow PostgreSQL queries or manually export data each time. Neither option scales when you're iterating on analysis or running production pipelines repeatedly.
+
+Multi-engine execution solves these problems by moving data during expression execution. It preserves schemas and types through Arrow format conversion, and enables you to use the right engine for each operation.
+
+## How multi-engine execution works
+
+Multi-engine execution operates through three stages that transform expressions into data movement operations.
+
+**Expression wrapping**: When you call `expr.into_backend(con)`, Xorq creates a `RemoteTable` node that wraps your source expression. This node stores the target backend connection and an optional table name, but no data moves yet.
+
+**Arrow conversion**: During execution, Xorq calls `to_pyarrow_batches()` on the source expression to get a PyArrow RecordBatchReader. This reader streams data in Arrow's columnar format without materializing the entire dataset in memory.
+
+**Backend ingestion**: The target backend's `read_record_batches()` method ingests the Arrow batches and creates a table. Xorq uses `SafeTee` to create multiple independent iterators from the RecordBatchReader. If the same RemoteTable appears numerous times in the expression graph, then each reference gets its own iterator without materializing data to disk.
+
+```{mermaid}
+sequenceDiagram
+    participant Source
+    participant Arrow
+    participant Target
+    
+    Source->>Arrow: to_pyarrow_batches()
+    Arrow->>Arrow: Create RecordBatchReader
+    Arrow->>Target: read_record_batches()
+    Target->>Target: Ingest Arrow batches
+    Target-->>Source: Return table reference
+```
+
+The key insight: Data movement happens lazily during execution, not when you call `into_backend()`. The expression graph builds normally, and only when you call `.execute()` does Xorq convert data to Arrow format and move it between engines.
+
+## Zero-copy transfers with Apache Arrow
+
+Xorq uses Apache Arrow for data transfers between engines, which provides zero-copy efficiency. Arrow's columnar format matches how analytical engines store data internally, so backends can ingest Arrow batches directly without serialization overhead.
+
+When data moves from DuckDB to PostgreSQL, Xorq doesn't serialize to CSV or JSON. Instead, it streams Arrow RecordBatches to PostgreSQL for direct ingestion. This avoids memory copies and format conversions that slow down traditional data movement.
+
+```python
+# Data moves as Arrow batches, not serialized formats
+data_in_duckdb = pg_table.into_backend(duckdb_con)
+
+# Arrow format preserves types and schemas exactly
+result = data_in_duckdb.filter(xo._.amount > 100).execute()
+```
+
+Arrow's columnar format preserves schemas and types semantically. A PostgreSQL `TIMESTAMP` converts to an Arrow timestamp, which DuckDB ingests natively. These conversions preserve data values without loss, though type system conversions occur during the transfer.
+
+## When multi-engine execution matters
+
+Multi-engine execution isn't always necessary. For single-engine workflows or simple pipelines, the overhead exceeds the benefits. Here's how to decide whether multi-engine execution is a good fit for your use case.
+
+### Use multi-engine execution when
+
+- You need different engine strengths. Use DuckDB for analytical queries, PostgreSQL for complex joins, and DataFusion for custom UDFs within the same pipeline.
+- Your data sources span multiple backends. Join tables from PostgreSQL and Snowflake, or combine local DuckDB analysis with remote database queries.
+- Performance requires moving data. Small tables should move to where large tables live to avoid network overhead during joins.
+- You're building hybrid workflows. Cache remote PostgreSQL data locally in DuckDB for fast iteration, then move results back to PostgreSQL for persistence.
+
+### Skip multi-engine execution when
+
+- Your entire pipeline runs efficiently on one engine. Single-engine workflows are simpler and avoid data movement overhead.
+- Data movement overhead exceeds benefits. Moving 1TB of data between engines might be slower than processing it in place.
+- You're doing simple exploratory work. Single-engine analysis is faster to set up and easier to debug.
+- Your backends don't support Arrow ingestion. Some backends require manual data export and import, making `into_backend()` unavailable.
+
+```{mermaid}
+graph TD
+    A{Multiple data sources?}
+    A -->|Yes| B{Need different engine strengths?}
+    A -->|No| C{Performance bottleneck?}
+    B -->|Yes| D[Use multi-engine]
+    B -->|No| E[Single engine OK]
+    C -->|Yes| D
+    C -->|No| E
+```
+
+A fraud detection pipeline that loads transactions from PostgreSQL, analyzes patterns in DuckDB, and stores results back in PostgreSQL clearly benefits from multi-engine execution. If you're exploring a small CSV file locally, then DuckDB alone is simpler and faster without the complexity of multiple backends.
+
+## Understanding trade-offs
+
+Multi-engine execution offers significant benefits, but it comes with costs. Here's what you gain:
+
+**Engine specialization**: Use each engine for what it does best: DuckDB for analytics, PostgreSQL for transactions, and DataFusion for custom logic, all within a single pipeline.
+
+**Data source flexibility**: Combine data from any supported backend without manual exports. Join PostgreSQL tables with Snowflake queries, or mix local and remote data sources using `into_backend()` to move data between engines.
+
+**Performance optimization**: Move small tables to where large tables live to minimize network overhead. Process data where it's fastest, then move results where they're needed.
+
+**Zero-copy efficiency**: Apache Arrow transfers avoid serialization overhead, making data movement faster and more memory-efficient than CSV or JSON exports.
+
+Here's what you give up:
+
+- **Complexity**: Multi-engine expressions are harder to debug since data movement happens during execution, not when building the expression graph.
+- **Overhead**: Data movement has costs. Moving 100GB between engines takes time, even with zero-copy transfers.
+- **Backend dependencies**: You must have both source and target backends available and properly configured, which increases setup complexity.
+- **Error handling**: Failures can occur in either the source engine (during Arrow conversion) or target engine (during ingestion), making debugging more complex.
+
+The trade-off is worth it when you need different engine strengths or when data sources span multiple backends. For a pipeline that joins PostgreSQL transactions with Snowflake customer data and analyzes results in DuckDB, multi-engine execution provides clear value. For simple local analysis on a single CSV file, single-engine workflows are simpler and faster.
+
+:::{.callout-note}
+The `into_backend()` method is lazy. Calling `expr.into_backend(con)` doesn't move data immediately. It creates a `RemoteTable` node in the expression graph. Data movement happens only when you call `.execute()` to evaluate the expression. This matches Xorq's deferred execution model, where operations build graphs first, then execute later.
+:::
+
+## Learning more
+
+[Profile-based connections](profile_based_connections.qmd) explains how to manage connections to multiple backends. [Intelligent caching system](intelligent_caching_system.qmd) shows how caching works across different engines.
+
+[How Xorq works](../fundamentals/how_xorq_works.qmd) shows where multi-engine execution fits in the pipeline. [Why deferred execution](../fundamentals/why_deferred_execution.qmd) explains how deferred execution enables multi-engine workflows.
+
+[Switch between backends tutorial](../../tutorials/core_tutorials/switch_between_backends.qmd) provides hands-on practice with multi-engine execution.

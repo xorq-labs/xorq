@@ -1,0 +1,313 @@
+---
+title: 'Build system'
+description: "Understand how Xorq compiles expressions into portable, executable artifacts"
+---
+
+A feature pipeline runs perfectly on your laptop but breaks in production because of different Python versions and missing dependencies. The build system prevents this by compiling your expressions into portable YAML artifacts that execute identically across any environment.
+
+## What you'll understand
+
+After reading this page, you'll understand:
+
+- What a Xorq build is and how it compiles Python expressions into self-contained YAML artifacts expr.yaml, profiles.yaml, metadata.json, plus optional deferred_reads.yaml with debug mode
+- When to build for production deployment, reproducibility, and versioning versus when to run directly for interactive development and exploration
+- How builds enable reproducibility through deterministic artifacts, content hashing, and environment capture in metadata.json
+- What you gain in portable artifacts, separation of concerns, and version control versus what you lose in build step overhead, storage costs, and indirection
+
+## What is the build system?
+
+The build system compiles your Xorq expressions into executable artifacts. When you run `xorq build`, Xorq takes your Python code, extracts the expression graph, and generates YAML files that capture the computation logic.
+
+These artifacts are self-contained. They include the expression definition, backend configurations, data source information, and metadata. You can share them, version them in Git, and execute them on any machine with Xorq installed.
+
+```bash
+# Build an expression
+xorq build pipeline.py -e features
+
+# Output: builds/a3f5c9d2/
+#   ├── expr.yaml
+#   ├── profiles.yaml
+#   └── metadata.json
+#   (deferred_reads.yaml generated only with --debug flag)
+```
+
+## Why the build system matters
+
+Without builds, you distribute Python code and hope it runs the same way everywhere. Dependencies might differ, Python versions might vary, and execution behavior becomes unpredictable.
+
+This creates three problems in production:
+
+**Environment dependency breaks deploys.** Your code works on your laptop with Python 3.11 and pandas 2.1 but fails in production with Python 3.9 and pandas 1.5. Different package versions mean different behavior. You spend hours debugging environment mismatches that shouldn't exist in the first place.
+
+**No separation of concerns slows iteration.** Writing expressions and running them happen in the same step. You can't validate expressions without executing them. You can't execute without the development environment. Change one line? Redeploy the entire codebase.
+
+**Hard to version creates audit nightmares.** Git versions your Python code, but not the computation itself. Two developers with the same code might produce different results if their environments differ. When regulators ask "Which version ran in March?", you can't answer confidently.
+
+The build system solves these by creating a deterministic artifact that captures exactly what to compute, independent of the execution environment.
+
+## How the build system works
+
+Building operates in four stages:
+
+**Expression extraction**: Xorq loads your Python script and extracts the specified expression variable. It validates that the variable contains a valid Xorq expression.
+
+**Graph compilation**: Xorq walks the expression graph and compiles it to a canonical YAML representation. This includes operations, schemas, and dependencies.
+
+**Artifact generation**: Xorq generates three core files: `expr.yaml` contains the expression, `profiles.yaml` contains backend configs, and `metadata.json` contains build info. When you run `xorq build` with the `--debug` flag, Xorq also generates `deferred_reads.yaml` containing data source information.
+
+**Hash computation**: Xorq computes a content hash from the expression logic. This hash becomes the build directory name and serves as the unique identifier.
+
+```{mermaid}
+sequenceDiagram
+    participant User
+    participant CLI
+    participant BuildManager
+    participant Compiler
+    participant Filesystem
+    
+    User->>CLI: xorq build pipeline.py -e features
+    CLI->>BuildManager: Load script
+    BuildManager->>BuildManager: Extract expression
+    BuildManager->>Compiler: Compile to YAML
+    Compiler->>Filesystem: Write expr.yaml
+    Compiler->>Filesystem: Write profiles.yaml
+    Compiler->>Filesystem: Write metadata.json
+    Note over Compiler,Filesystem: deferred_reads.yaml only with --debug
+    Compiler->>BuildManager: Return hash
+    BuildManager-->>User: builds/a3f5c9d2/
+```
+
+The build process is deterministic. Building the same expression twice produces the same hash and identical artifacts. This enables reproducible deployments.
+
+```{mermaid}
+graph TB
+    A[Python Expression] --> B[Extract Graph]
+    B --> C[Compute Content Hash]
+    C --> D[Hash: a3f5c9d2]
+    B --> E[Compile to YAML]
+    E --> F[expr.yaml]
+    E --> G[profiles.yaml]
+    E --> H[metadata.json]
+    E -.Debug mode.-> I[deferred_reads.yaml]
+    D --> J[builds/a3f5c9d2/]
+    F --> J
+    G --> J
+    H --> J
+    I -.-> J
+```
+
+:::{.callout-tip}
+Builds separate development from execution. You write expressions in Python (development), build them to YAML (compilation), then run them anywhere (execution). This separation supports testing, versioning, and deployment workflows.
+:::
+
+## Build artifacts
+
+Each build generates three core artifacts in a content-addressed directory, plus optional debug artifacts:
+
+### expr.yaml
+
+The complete expression definition in YAML format. This includes:
+
+- All operations like filters, joins, and aggregations
+- Column schemas for each operation
+- Dependencies between operations
+- UDF definitions and configurations
+
+This is the core artifact that gets executed. It's engine-independent and portable.
+
+### profiles.yaml
+
+Backend connection configurations. This specifies:
+
+- Which backends the expression uses
+- Connection parameters like host, port, and database
+- Credential references to environment variables
+
+Profiles are referenced by hash, allowing environment-specific configurations.
+
+### deferred_reads.yaml
+
+Information about data sources that load at execution time:
+
+- File paths for Parquet/CSV files
+- Table names for database reads
+- SQL queries for deferred reads
+
+This supports late binding: Data sources resolve at execution time, not build time. This artifact is generated only when you run `xorq build` with the `--debug` flag.
+
+### metadata.json
+
+Build metadata for reproducibility:
+
+- Xorq version (`current_library_version`)
+- Python version (`sys-version-info`)
+- Git state (`git_state`) if Git is present
+- Metadata version (`metadata_version`)
+
+This supports debugging and ensures you can identify the build environment. Note that dependency versions are not included in regular builds; use `xorq uv-build` for dependency tracking.
+
+## Build directory structure
+
+Builds organize in a content-addressed directory structure:
+
+```
+builds/
+├── a3f5c9d2e1b4/          # Build hash
+│   ├── expr.yaml
+│   ├── profiles.yaml
+│   └── metadata.json
+│   (deferred_reads.yaml only with --debug)
+├── b7e3f1a8c5d9/          # Different expression
+│   ├── expr.yaml
+│   ├── profiles.yaml
+│   └── metadata.json
+```
+
+The directory name is the content hash. Same expression = same hash = same directory. This provides automatic deduplication: If you build the same expression twice, you get the same directory.
+
+## How builds enable reproducibility
+
+Builds provide three levels of reproducibility:
+
+### Computation reproducibility
+
+The `expr.yaml` captures computation logic exactly. Same expression = same computation, regardless of when or where you run it.
+
+```bash
+# Developer A builds on Monday
+xorq build features.py -e customer_features
+# Hash: a3f5c9d2
+
+# Developer B builds on Tuesday
+xorq build features.py -e customer_features
+# Hash: a3f5c9d2 (same!)
+# Identical computation guaranteed
+```
+
+### Environment reproducibility
+
+The `metadata.json` captures the build environment. You can recreate the exact Python environment that produced the build.
+
+```json
+{
+  "current_library_version": "0.3.4",
+  "metadata_version": "0.0.0",
+  "sys-version-info": [3, 11, 5, "final", 0],
+  "git_state": {
+    "commit": "a3f5c9d2e1b4...",
+    "branch": "main"
+  }
+}
+```
+
+### Execution reproducibility
+
+The build artifacts are self-contained. You can execute them on any machine with Xorq, without the original Python code.
+
+```bash
+# Build on laptop
+xorq build pipeline.py -e features
+
+# Copy builds/ directory to server
+scp -r builds/ server:/app/
+
+# Execute on server (no pipeline.py needed!)
+xorq run builds/a3f5c9d2
+```
+
+## When to build versus run directly
+
+Deciding when to build depends on your deployment patterns and reproducibility requirements.
+
+### Build when:
+
+- You're deploying to production and need reproducible artifacts for scheduled execution.
+- You need reproducible artifacts for auditing because compliance requires exact computation versioning.
+- You want to separate development from execution so data scientists write expressions while engineers deploy builds.
+- Multiple environments need the same computation so dev, staging, and production run identical logic.
+- You're versioning computations in Git to track which computation version ran when.
+- Execution happens on different machines than development so you build locally and deploy remotely.
+
+### Run directly without building when
+
+- You're doing interactive development in notebooks and need to iterate quickly without build overhead.
+- You're prototyping and the build step slows experimentation.
+- You don't need reproducibility guarantees for one-off analysis or exploratory work.
+- You're running one-off analyses that never repeat and don't need deployment or versioning.
+- Development and execution happen on the same machine so portability isn't required.
+
+```{mermaid}
+graph TD
+    A{Production deployment?}
+    A -->|Yes| B[Build required]
+    A -->|No| C{Need reproducibility?}
+    C -->|Yes| B
+    C -->|No| D{Multiple environments?}
+    D -->|Yes| B
+    D -->|No| E{Interactive development?}
+    E -->|Yes| F[Run directly]
+    E -->|No| B
+```
+
+### Example decision
+
+If you're on a team where data scientists develop locally but pipelines run on production servers, builds bridge this gap. Scientists write Python locally and builds deploy to production without environment mismatches or version conflicts.
+
+## Build commands
+
+Xorq provides two build commands:
+
+### xorq build
+
+Standard build for regular Python environments:
+
+```bash
+xorq build pipeline.py -e features --builds-dir builds
+```
+
+This uses your current Python environment and dependencies.
+
+### xorq uv-build
+
+Hermetic build with isolated Python environment:
+
+```bash
+xorq uv-build pipeline.py -e features --builds-dir builds
+```
+
+This uses `uv` to create an isolated environment with pinned dependencies. The build is fully reproducible across machines.
+
+Use `uv-build` when reproducibility is critical for production deployments. Use regular `build` for development.
+
+## Trade-offs
+
+Building expressions provides reproducibility and portability, but adds storage overhead and workflow complexity.
+
+### Benefits:
+
+- Reproducibility: Same expression = same build = same results across machines and time.
+- Portability: Builds run anywhere with Xorq installed, no Python code deployment needed.
+- Versioning: Commit builds to Git for audit trails, and track which version ran in production.
+- Separation: Develop in Python and execute from YAML, allowing role separation between scientists and engineers.
+- Validation: Catch errors at build time like schema mismatches and invalid operations, not at execution time.
+- Deduplication: Same computation produces same hash, automatic storage optimization.
+
+### Costs
+
+- Build step required: You can't just run Python directly, which adds an extra workflow step.
+- Storage overhead: Build artifacts consume disk space, typically 10-100KB per build.
+- Indirection: One more layer sits between code and execution, creating more moving parts to understand.
+- Learning curve: Understanding builds, artifacts, and content hashing requires new mental models.
+- Debugging complexity: Errors might occur at build time or execution time, creating two failure modes to understand.
+
+### When the trade-off is worth it
+
+If you're doing exploratory analysis that never leaves your laptop like notebook experiments or one-time reports, then building adds unnecessary complexity. Direct execution with `.execute()` is simpler and faster for throwaway work.
+
+## Learning more
+
+[Expression format](../fundamentals/expression_format.qmd) explains how builds generate expression manifests. [Content-addressed hashing](content_addressed_hashing.qmd) covers how build directories are named by content hash.
+
+[Compute catalog](compute_catalog.qmd) details how builds get registered in the catalog. [Reproducible environments with uv](reproducible_environments_with_uv.qmd) discusses how uv-build creates hermetic builds.
+
+[Your first build tutorial](../../getting_started/your_first_build.qmd) provides hands-on practice with building. [Build CLI reference](../../api_reference/cli/build.qmd) covers complete build command documentation.
