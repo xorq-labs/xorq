@@ -252,6 +252,60 @@ class DeferredFitOther:
             type=return_type.to_pyarrow(),
         )
 
+    @classmethod
+    def choose_deferred_transform(
+        cls, expr, features, sklearn_cls, params=(), target=None, cache=None
+    ):
+        structer = Structer.from_instance_expr(
+            sklearn_cls(**dict(params)), expr, features=features
+        )
+        target = target if structer.needs_target else None
+
+        if structer.is_series and structer.is_kv_encoded:
+            (col,) = features
+            return deferred_fit_transform_series_sklearn_encoded(
+                expr=expr, col=col, cls=sklearn_cls, params=params, cache=cache
+            )
+        elif structer.is_kv_encoded:
+            return deferred_fit_transform_sklearn_encoded(
+                expr=expr,
+                features=features,
+                cls=sklearn_cls,
+                params=params,
+                target=target,
+                cache=cache,
+            )
+        else:
+            return deferred_fit_transform_sklearn_struct(
+                expr=expr,
+                features=features,
+                cls=sklearn_cls,
+                params=params,
+                target=target,
+                cache=cache,
+            )
+
+    @classmethod
+    def choose_deferred_predict(
+        cls,
+        expr,
+        features,
+        sklearn_cls,
+        params=(),
+        target=None,
+        return_type=None,
+        cache=None,
+    ):
+        return deferred_fit_predict_sklearn(
+            expr=expr,
+            target=target,
+            features=features,
+            cls=sklearn_cls,
+            params=params,
+            return_type=return_type,
+            cache=cache,
+        )
+
 
 @toolz.curry
 def deferred_fit_other_sklearn(

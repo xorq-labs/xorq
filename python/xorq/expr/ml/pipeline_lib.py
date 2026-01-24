@@ -32,11 +32,8 @@ from xorq.common.utils.func_utils import (
     return_constant,
 )
 from xorq.expr.ml.fit_lib import (
+    DeferredFitOther,
     decision_function_sklearn,
-    deferred_fit_predict_sklearn,
-    deferred_fit_transform_series_sklearn_encoded,
-    deferred_fit_transform_sklearn_encoded,
-    deferred_fit_transform_sklearn_struct,
     feature_importances_sklearn,
     predict_proba_sklearn,
 )
@@ -393,12 +390,12 @@ class FittedStep:
     @functools.cache
     def _deferred_fit_other(self):
         if self.is_predict:
-            return deferred_fit_predict_sklearn(
+            return DeferredFitOther.choose_deferred_predict(
                 expr=self.expr,
-                target=self.target,
                 features=self.features,
-                cls=self.step.typ,
+                sklearn_cls=self.step.typ,
                 params=self.step.params_tuple,
+                target=self.target,
                 return_type=get_predict_return_type(
                     instance=self.step.instance,
                     step=self.step,
@@ -408,39 +405,14 @@ class FittedStep:
                 ),
                 cache=self.cache,
             )
-
-        structer = Structer.from_instance_expr(
-            self.step.instance, self.expr, features=self.features
+        return DeferredFitOther.choose_deferred_transform(
+            expr=self.expr,
+            features=self.features,
+            sklearn_cls=self.step.typ,
+            params=self.step.params_tuple,
+            target=self.target,
+            cache=self.cache,
         )
-        target = self.target if structer.needs_target else None
-
-        if structer.is_series and structer.is_kv_encoded:
-            (col,) = self.features
-            return deferred_fit_transform_series_sklearn_encoded(
-                expr=self.expr,
-                col=col,
-                cls=self.step.typ,
-                params=self.step.params_tuple,
-                cache=self.cache,
-            )
-        elif structer.is_kv_encoded:
-            return deferred_fit_transform_sklearn_encoded(
-                expr=self.expr,
-                features=self.features,
-                cls=self.step.typ,
-                params=self.step.params_tuple,
-                target=target,
-                cache=self.cache,
-            )
-        else:
-            return deferred_fit_transform_sklearn_struct(
-                expr=self.expr,
-                features=self.features,
-                cls=self.step.typ,
-                params=self.step.params_tuple,
-                target=target,
-                cache=self.cache,
-            )
 
     @property
     def deferred_model(self):
@@ -552,15 +524,10 @@ class FittedStep:
         }
 
     def transform(self, expr, retain_others=True):
-        if self.structer.is_kv_encoded:
-            col = self.transform_raw(expr)
-            if retain_others and (others := self.get_others(expr)):
-                expr = expr.select(*others, col)
-            else:
-                expr = col.as_table()
-        else:
-            expr = self.transform_unpack(expr, retain_others=retain_others)
-        return expr.tag(
+        col = self.transform_raw(expr)
+        others = self.get_others(expr) if retain_others else ()
+        expr = expr.select(*others, col) if others else col.as_table()
+        return self.structer.maybe_unpack(expr, col.get_name()).tag(
             **self.tag_kwargs,
         )
 
@@ -805,10 +772,9 @@ class Pipeline:
             transformed = fitted_step.transform(transformed)
             # hack: unclear why we need to do this, but we do
             transformed = transformed.pipe(do_into_backend)
-            if fitted_step.structer.is_kv_encoded:
-                features = (fitted_step.dest_col or "transformed",)
-            else:
-                features = tuple(fitted_step.structer.dtype)
+            features = fitted_step.structer.get_output_columns(
+                fitted_step.dest_col or "transformed"
+            )
         if step := self.predict_step:
             fitted_step = step.fit(
                 transformed,

@@ -1,5 +1,10 @@
 import operator
-from enum import Enum
+
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
 
 import toolz
 from attr import (
@@ -16,7 +21,7 @@ from dask.utils import Dispatch
 import xorq.expr.datatypes as dt
 
 
-class KVField(str, Enum):
+class KVField(StrEnum):
     KEY = "key"
     VALUE = "value"
 
@@ -24,7 +29,7 @@ class KVField(str, Enum):
 ENCODED = "encoded"
 # NOTE: may want other types supported
 KV_ENCODED_TYPE = dt.Array(
-    dt.Struct({KVField.KEY.value: dt.string, KVField.VALUE.value: dt.float64})
+    dt.Struct({KVField.KEY: dt.string, KVField.VALUE: dt.float64})
 )
 
 
@@ -173,8 +178,7 @@ class Structer:
     1. Known schema (struct is set): Output columns are known at build time
     2. KV-encoded (struct is None): Output uses KVEncoder format, resolved at runtime
 
-    For KV-encoded mode, input_columns tracks which columns get transformed,
-    and passthrough_columns tracks columns that pass through unchanged.
+    For KV-encoded mode, input_columns tracks which columns get transformed.
 
     The needs_target field indicates whether the transformer requires a target
     variable (y) during fitting (e.g., supervised feature selectors like SelectKBest).
@@ -188,11 +192,6 @@ class Structer:
         validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
         default=None,
         converter=lambda x: tuple(x) if x is not None else None,
-    )
-    passthrough_columns = field(
-        validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
-        default=(),
-        converter=tuple,
     )
     needs_target = field(
         validator=instance_of(bool),
@@ -232,6 +231,18 @@ class Structer:
             )
         return tuple(self.struct.fields.keys())
 
+    def get_output_columns(self, dest_col="transformed"):
+        """Return the output column names for use as features in the next step."""
+        if self.is_kv_encoded:
+            return (dest_col,)
+        return tuple(self.dtype.keys())
+
+    def maybe_unpack(self, expr, col_name):
+        """Unpack struct column if needed, otherwise return expr unchanged."""
+        if self.is_kv_encoded:
+            return expr
+        return expr.unpack(col_name)
+
     def get_convert_array(self):
         if self.is_kv_encoded:
             raise ValueError(
@@ -265,7 +276,7 @@ class Structer:
         return cls.from_names_typ(names, typ)
 
     @classmethod
-    def kv_encoded(cls, input_columns, passthrough_columns=()):
+    def kv_encoded(cls, input_columns):
         """
         Create a Structer for KV-encoded output.
 
@@ -275,8 +286,6 @@ class Structer:
         ----------
         input_columns : tuple
             Columns that will be transformed (output as KV-encoded)
-        passthrough_columns : tuple
-            Columns that pass through unchanged
 
         Returns
         -------
@@ -286,7 +295,6 @@ class Structer:
         return cls(
             struct=None,
             input_columns=input_columns,
-            passthrough_columns=passthrough_columns,
         )
 
     @classmethod

@@ -12,6 +12,7 @@ from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import (
     deferred_read_parquet,
 )
+from xorq.expr.ml.fit_lib import DeferredFitOther
 from xorq.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
@@ -19,6 +20,8 @@ from xorq.ml import (
 
 
 sk_linear_model = pytest.importorskip("sklearn.linear_model")
+sk_preprocessing = pytest.importorskip("sklearn.preprocessing")
+sk_feature_selection = pytest.importorskip("sklearn.feature_selection")
 sk_feature_extraction_text = pytest.importorskip("sklearn.feature_extraction.text")
 
 
@@ -114,3 +117,117 @@ def test_deferred_fit_transform_series_sklearn():
     actual = from_xo[transform_key].apply(pd.Series)
     expected = from_sklearn[transform_key].apply(pd.Series)
     assert actual.equals(expected)
+
+
+class TestDeferredFitOtherChooseDeferred:
+    """Tests for DeferredFitOther.choose_deferred_transform and choose_deferred_predict."""
+
+    def test_choose_deferred_transform_known_schema(self):
+        """Test choose_deferred_transform returns struct deferred for StandardScaler."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        features = ("a", "b")
+
+        deferred = DeferredFitOther.choose_deferred_transform(
+            expr=t,
+            features=features,
+            sklearn_cls=sk_preprocessing.StandardScaler,
+        )
+
+        assert deferred is not None
+        assert deferred.expr is t
+        assert deferred.features == features
+        # Known schema transformers should not be KV-encoded
+        assert "struct" in deferred.name_infix or "transformed" in deferred.name_infix
+
+    def test_choose_deferred_transform_kv_encoded(self):
+        """Test choose_deferred_transform returns encoded deferred for OneHotEncoder."""
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        features = ("cat",)
+
+        deferred = DeferredFitOther.choose_deferred_transform(
+            expr=t,
+            features=features,
+            sklearn_cls=sk_preprocessing.OneHotEncoder,
+        )
+
+        assert deferred is not None
+        assert deferred.expr is t
+        assert deferred.features == features
+        # KV-encoded transformers should have encoded in name
+        assert "encoded" in deferred.name_infix
+
+    def test_choose_deferred_transform_series_kv_encoded(self):
+        """Test choose_deferred_transform returns series encoded deferred for TfidfVectorizer."""
+        t = xo.memtable({"text": ["hello world", "foo bar"]})
+        features = ("text",)
+
+        deferred = DeferredFitOther.choose_deferred_transform(
+            expr=t,
+            features=features,
+            sklearn_cls=sk_feature_extraction_text.TfidfVectorizer,
+        )
+
+        assert deferred is not None
+        assert deferred.expr is t
+        # TfidfVectorizer is series + KV-encoded
+        assert "encoded" in deferred.name_infix
+
+    def test_choose_deferred_transform_with_target(self):
+        """Test choose_deferred_transform passes target for supervised transformers."""
+        t = xo.memtable(
+            {"a": [1.0, 2.0, 3.0, 4.0], "b": [4.0, 3.0, 2.0, 1.0], "y": [0, 0, 1, 1]}
+        )
+        features = ("a", "b")
+
+        deferred = DeferredFitOther.choose_deferred_transform(
+            expr=t,
+            features=features,
+            sklearn_cls=sk_feature_selection.SelectKBest,
+            params=(("k", 1),),
+            target="y",
+        )
+
+        assert deferred is not None
+        assert deferred.target == "y"
+
+    def test_choose_deferred_predict(self):
+        """Test choose_deferred_predict returns predict deferred."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "y": [0.0, 1.0]})
+        features = ("a", "b")
+
+        deferred = DeferredFitOther.choose_deferred_predict(
+            expr=t,
+            features=features,
+            sklearn_cls=sk_linear_model.LinearRegression,
+            target="y",
+            return_type=dt.float64,
+        )
+
+        assert deferred is not None
+        assert deferred.expr is t
+        assert deferred.features == features
+        assert deferred.target == "y"
+
+    def test_choose_deferred_transform_with_params(self):
+        """Test choose_deferred_transform passes params correctly and executes."""
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        features = ("cat",)
+        params = (("sparse_output", False),)
+
+        deferred = DeferredFitOther.choose_deferred_transform(
+            expr=t,
+            features=features,
+            sklearn_cls=sk_preprocessing.OneHotEncoder,
+            params=params,
+        )
+
+        assert deferred is not None
+        # Verify deferred can be used to transform
+        col = deferred.deferred_other.on_expr(t)
+        result = t.mutate(col).execute()
+        # The column name is based on the UDF, check it exists and has KV-encoded data
+        assert len(result.columns) == 2  # cat + transformed column
+        transformed_col = [c for c in result.columns if c != "cat"][0]
+        # Should have KV-encoded data
+        first_row = result[transformed_col].iloc[0]
+        assert all("key" in d and "value" in d for d in first_row)

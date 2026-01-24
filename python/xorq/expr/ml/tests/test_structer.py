@@ -6,11 +6,91 @@ import xorq.expr.datatypes as dt
 from xorq.expr.ml.structer import (
     KV_ENCODED_TYPE,
     KVEncoder,
+    KVField,
     Structer,
 )
 
 
 sklearn = pytest.importorskip("sklearn")
+
+
+class TestKVField:
+    """Pedantic tests for KVField StrEnum behavior."""
+
+    def test_kvfield_is_strenum(self):
+        """Test KVField inherits from StrEnum."""
+        try:
+            from enum import StrEnum
+        except ImportError:
+            from strenum import StrEnum
+        assert issubclass(KVField, StrEnum)
+
+    def test_kvfield_members_are_strings(self):
+        """Test KVField members are string instances."""
+        assert isinstance(KVField.KEY, str)
+        assert isinstance(KVField.VALUE, str)
+
+    def test_kvfield_string_equality(self):
+        """Test KVField members equal their string values."""
+        assert KVField.KEY == "key"
+        assert KVField.VALUE == "value"
+
+    def test_kvfield_membership_by_member(self):
+        """Test membership check works with enum members."""
+        assert KVField.KEY in KVField
+        assert KVField.VALUE in KVField
+
+    def test_kvfield_callable_lookup(self):
+        """Test KVField can be called with string value to get member."""
+        assert KVField("key") is KVField.KEY
+        assert KVField("value") is KVField.VALUE
+        with pytest.raises(ValueError):
+            KVField("nonexistent")
+
+    def test_kvfield_value_attribute(self):
+        """Test .value attribute returns the string value."""
+        assert KVField.KEY.value == "key"
+        assert KVField.VALUE.value == "value"
+
+    def test_kvfield_name_attribute(self):
+        """Test .name attribute returns the member name."""
+        assert KVField.KEY.name == "KEY"
+        assert KVField.VALUE.name == "VALUE"
+
+    def test_kvfield_iteration(self):
+        """Test iterating over KVField yields all members."""
+        members = list(KVField)
+        assert len(members) == 2
+        assert KVField.KEY in members
+        assert KVField.VALUE in members
+
+    def test_kvfield_as_dict_key(self):
+        """Test KVField members work as dictionary keys."""
+        d = {KVField.KEY: "key_value", KVField.VALUE: "value_value"}
+        assert d["key"] == "key_value"
+        assert d["value"] == "value_value"
+        assert d[KVField.KEY] == "key_value"
+        assert d[KVField.VALUE] == "value_value"
+
+    def test_kvfield_string_operations(self):
+        """Test KVField members support string operations."""
+        assert KVField.KEY.upper() == "KEY"
+        assert KVField.VALUE.capitalize() == "Value"
+        assert KVField.KEY + "_suffix" == "key_suffix"
+
+    def test_kvfield_hash_matches_string(self):
+        """Test KVField members hash the same as their string values."""
+        assert hash(KVField.KEY) == hash("key")
+        assert hash(KVField.VALUE) == hash("value")
+
+    def test_kv_encoded_type_uses_kvfield(self):
+        """Test KV_ENCODED_TYPE struct uses KVField values as keys."""
+        struct_fields = KV_ENCODED_TYPE.value_type.fields
+        assert KVField.KEY in struct_fields
+        assert KVField.VALUE in struct_fields
+        # Also works with raw strings since KVField members are strings
+        assert "key" in struct_fields
+        assert "value" in struct_fields
 
 
 class TestKVEncoder:
@@ -167,6 +247,53 @@ class TestStructer:
         structer = Structer.kv_encoded(input_columns=("x",))
         with pytest.raises(ValueError, match="KV-encoded"):
             structer.get_convert_array()
+
+    def test_get_output_columns_known_schema(self):
+        """Test get_output_columns returns dtype keys for known schema."""
+        structer = Structer.from_names_typ(("a", "b"), dt.float64)
+        assert structer.get_output_columns() == ("a", "b")
+        # dest_col is ignored for known schema
+        assert structer.get_output_columns(dest_col="foo") == ("a", "b")
+
+    def test_get_output_columns_kv_encoded(self):
+        """Test get_output_columns returns dest_col tuple for KV-encoded."""
+        structer = Structer.kv_encoded(input_columns=("x",))
+        assert structer.get_output_columns() == ("transformed",)
+        assert structer.get_output_columns(dest_col="encoded") == ("encoded",)
+
+    def test_maybe_unpack_known_schema(self):
+        """Test maybe_unpack unpacks struct column for known schema."""
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        step = xo.Step.from_instance_name(StandardScaler(), name="scaler")
+        fitted = step.fit(t, features=("a", "b"))
+
+        # Transform returns struct column that needs unpacking
+        result = fitted.transform(t)
+        df = result.execute()
+
+        # Should have unpacked columns, not a struct column
+        assert "a" in df.columns
+        assert "b" in df.columns
+        assert "transformed" not in df.columns
+
+    def test_maybe_unpack_kv_encoded(self):
+        """Test maybe_unpack returns expr unchanged for KV-encoded."""
+        from sklearn.preprocessing import OneHotEncoder
+
+        t = xo.memtable({"cat": ["a", "b", "a"]})
+        step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
+        fitted = step.fit(t, features=("cat",))
+
+        # Transform returns KV-encoded column (not unpacked)
+        result = fitted.transform(t)
+        df = result.execute()
+
+        # Should have KV-encoded column, not unpacked
+        assert "transformed" in df.columns
+        # The column contains tuples of dicts
+        assert all("key" in d and "value" in d for d in df["transformed"].iloc[0])
 
 
 class TestStructerFromInstance:
