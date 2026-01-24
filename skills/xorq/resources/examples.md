@@ -94,6 +94,46 @@ accuracy = deferred_sklearn_metric(
 
 ---
 
+### as_struct_pattern.py ⭐
+**Pattern:** Column preservation through ML predictions
+**Demonstrates:**
+- as_struct pattern for keeping all columns during predict
+- Comparison: with vs without as_struct
+- Downstream analysis with full context (IDs, timestamps, metadata)
+- Avoiding manual column reconstruction
+
+**Key code:**
+```python
+@toolz.curry
+def as_struct(expr, name=None):
+    """Convert all columns into a struct column."""
+    struct = xo.struct({c: expr[c] for c in expr.columns})
+    return struct.name(name) if name else struct
+
+# Step 1: Bundle all columns into struct
+test_with_struct = test.mutate(as_struct(name="original_data"))
+
+# Step 2: Predict (features + struct)
+test_predicted = fitted_pipeline.predict(test_with_struct)
+
+# Step 3: Unpack struct to restore ALL columns
+result = (
+    test_predicted
+    .select("original_data", "predicted")
+    .unpack("original_data")
+)
+```
+
+**Why use this:**
+- ✓ Preserve non-feature columns (IDs, timestamps, metadata)
+- ✓ Compare predictions with original labels
+- ✓ Perform downstream analysis with full context
+- ✓ Avoid manual column tracking and joining
+
+**Use when:** Making predictions where you need to preserve columns beyond features
+
+---
+
 ### pipeline_example_SelectKBest.py
 **Pattern:** Feature selection in pipeline
 **Demonstrates:** SelectKBest + LinearSVC pipeline
@@ -154,6 +194,50 @@ accuracy = deferred_sklearn_metric(
 - ParquetCache for expensive operations
 
 **Use when:** Building production ML pipelines
+
+---
+
+### baseball_breakout_predictor.py ⭐
+**Pattern:** Real-world ML prediction with window functions and feature engineering
+**Demonstrates:**
+- Complex feature engineering with window functions (lag, rank, sum, std)
+- Career statistics and trend analysis
+- Train/test split by year
+- RandomForestClassifier with class_weight="balanced"
+- as_struct pattern for preserving columns through predict
+- Handling Decimal128 from rank() by casting to float
+
+**Key concepts:**
+```python
+# Window functions for career stats
+career_years = xo._.yearID.rank().over(
+    group_by="playerID",
+    order_by="yearID"
+).cast("float")  # MUST cast rank() to float for sklearn
+
+# Lag for prior season features
+prior_ops = xo._.ops.lag(1).over(group_by="playerID", order_by="yearID")
+
+# Cumulative aggregation
+career_pa = xo._.pa.sum().over(
+    group_by="playerID",
+    order_by="yearID",
+    rows=(None, 0)  # All rows up to current
+)
+
+# as_struct pattern for predictions
+with_struct = test.mutate(as_struct(name="original_row"))
+predicted = fitted_pipeline.predict(with_struct)
+predictions = predicted.drop(...).unpack("original_row")
+```
+
+**Critical patterns:**
+1. **Chained mutates**: Split into separate .mutate() calls when referencing newly created columns
+2. **rank() type issue**: Always cast rank() to float, not int64 (returns Decimal128)
+3. **Target types**: Use float literals (1.0, 0.0) not integers for classification labels
+4. **as_struct workflow**: pack → predict → drop originals → unpack → use predicted
+
+**Use when:** Building production ML with complex features, time-series patterns, sports analytics
 
 ---
 

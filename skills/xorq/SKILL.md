@@ -268,34 +268,13 @@ xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
 
 ### Catalog Composition Pattern (PREFERRED)
 
-**Pattern:** Load and compose cataloged expressions directly.
-
-```python
-import xorq.api as xo
-
-# Load cataloged expressions
-source = xo.catalog.get("my-source")
-
-# Compose by chaining operations
-transform = source.select("col1", "col2").filter(xo._.col1 > 0)
-
-# Execute when ready
-result = transform.execute()
-
-# Or build and catalog for reuse
-# xorq build transform.py -e transform
-# xorq catalog add builds/<hash> --alias my-transform
-```
-
-**Alternative: Build-time composition with placeholders**
-
-Use placeholders when you want to define transforms without loading full expressions:
+**Pattern:** Build transforms using catalog placeholders.
 
 ```python
 import xorq.api as xo
 
 # Get placeholder memtable with same schema (for building transforms)
-placeholder = xo.catalog.get_placeholder("my-source", tag="src")
+placeholder = xo.catalog.get_placeholder("my-source")
 print(placeholder.schema())  # Shows schema without loading full expression
 
 # Build transform using placeholder
@@ -308,8 +287,8 @@ new_transform = placeholder.select("col1", "col2").filter(xo._.col1 > 0)
 
 **Why this pattern:**
 - Catalog is the single source of truth
-- Python-native, simple API - use `get()` for direct composition
-- Use `get_placeholder()` for build-time transforms
+- Python-native, simple API
+- Direct execution without intermediate steps
 - Type-safe with actual schemas
 
 **Reference:** See [examples/catalog_composition_example.py](resources/examples.md)
