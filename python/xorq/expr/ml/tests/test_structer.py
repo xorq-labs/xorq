@@ -83,14 +83,15 @@ class TestKVField:
         assert hash(KVField.KEY) == hash("key")
         assert hash(KVField.VALUE) == hash("value")
 
-    def test_kv_encoded_type_uses_kvfield(self):
-        """Test KV_ENCODED_TYPE struct uses KVField values as keys."""
+    def test_kv_encoded_type_uses_kvfield_values(self):
+        """Test KV_ENCODED_TYPE struct uses KVField.value strings as keys."""
         struct_fields = KV_ENCODED_TYPE.value_type.fields
-        assert KVField.KEY in struct_fields
-        assert KVField.VALUE in struct_fields
-        # Also works with raw strings since KVField members are strings
+        # Keys are plain strings (for YAML serialization compatibility)
         assert "key" in struct_fields
         assert "value" in struct_fields
+        # KVField members also work due to string equality
+        assert KVField.KEY in struct_fields
+        assert KVField.VALUE in struct_fields
 
 
 class TestKVEncoder:

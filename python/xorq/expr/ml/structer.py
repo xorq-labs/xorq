@@ -29,7 +29,7 @@ class KVField(StrEnum):
 ENCODED = "encoded"
 # NOTE: may want other types supported
 KV_ENCODED_TYPE = dt.Array(
-    dt.Struct({KVField.KEY: dt.string, KVField.VALUE: dt.float64})
+    dt.Struct({KVField.KEY.value: dt.string, KVField.VALUE.value: dt.float64})
 )
 
 
