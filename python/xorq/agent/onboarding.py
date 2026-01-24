@@ -11,9 +11,7 @@ from textwrap import dedent
 
 
 def find_builds_dir() -> Path | None:
-    """Find the builds/ directory in current project."""
     cwd = Path.cwd()
-    # Check both .xorq/builds and builds/
     xorq_builds = cwd / ".xorq" / "builds"
     if xorq_builds.exists() and xorq_builds.is_dir():
         return xorq_builds
@@ -23,15 +21,10 @@ def find_builds_dir() -> Path | None:
 
 
 def get_recent_builds(limit: int = 5) -> list[tuple[str, str]]:
-    """Get most recently modified build directories with timestamps.
-
-    Returns: List of (hash, relative_time) tuples
-    """
     builds_dir = find_builds_dir()
     if not builds_dir:
         return []
 
-    # Get all build directories sorted by modification time
     build_dirs = [
         d for d in builds_dir.iterdir() if d.is_dir() and not d.name.startswith(".")
     ]
@@ -39,7 +32,6 @@ def get_recent_builds(limit: int = 5) -> list[tuple[str, str]]:
 
     results = []
     for d in build_dirs[:limit]:
-        # Get relative time (e.g., "2 hours ago")
         try:
             mtime = d.stat().st_mtime
             seconds_ago = time.time() - mtime
@@ -59,10 +51,6 @@ def get_recent_builds(limit: int = 5) -> list[tuple[str, str]]:
 
 
 def get_catalog_entries(limit: int = 10) -> list[dict]:
-    """Get recent catalog entries using xorq catalog ls.
-
-    Returns: List of dicts with alias, revision, hash, root_tag
-    """
     try:
         result = subprocess.run(
             ["xorq", "catalog", "ls"],
@@ -169,15 +157,15 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         "templates",
         "Learn from templates",
         [
-            "Use `xorq agent templates list` to see available templates",
-            "Scaffold templates to your project: `xorq agent templates scaffold <name>`",
+            "Use `xorq agents templates list` to see available templates",
+            "Scaffold templates to your project: `xorq agents templates scaffold <name>`",
             "Templates show how to implement pipelines, ML workflows, and feature engineering",
             "Examples include: pipeline_example, sklearn classifiers, diamonds price prediction",
         ],
         [
-            "xorq agent templates list",
-            "xorq agent templates scaffold pipeline_example --dest my_pipeline.py",
-            "xorq agent templates show <name>",
+            "xorq agents templates list",
+            "xorq agents templates scaffold pipeline_example --dest my_pipeline.py",
+            "xorq agents templates show <name>",
         ],
         [],
     ),
@@ -556,7 +544,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
     # Simplified workflow steps
     sections.extend([
         "1. **Learn deferred patterns** - Study templates & invoke xorq skills",
-        "   - Templates: `xorq agent templates list`",
+        "   - Templates: `xorq agents templates list`",
         "   - **Use xorq skills** for deferred pandas/sklearn patterns (fit, transform, predict)",
         "2. **Build deferred expressions** - `xorq build expr.py -e expr`",
         "   - All work must be deferred xorq/ibis expressions",
@@ -568,7 +556,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
         "   ```",
         "5. **Commit and push** - `xorq agents land` for checklist",
         "",
-        "**For detailed step-by-step guide:** `xorq agent onboard --step <init|templates|build|catalog|explore|compose|land>`",
+        "**For detailed step-by-step guide:** `xorq agents onboard --step <init|templates|build|catalog|explore|compose|land>`",
         "",
     ])
 
@@ -617,7 +605,7 @@ def _format_onboarding_step(step: OnboardingStep) -> list[str]:
 
 
 def _render_agent_doc(max_lines: int) -> str:
-    """Render minimal AGENTS.md pointing to xorq agent commands as source of truth."""
+    """Render minimal AGENTS.md pointing to xorq agents commands as source of truth."""
     content = dedent(
         """\
         # Agent Instructions
@@ -626,10 +614,10 @@ def _render_agent_doc(max_lines: int) -> str:
 
         ## Workflow Context
 
-        Run `xorq agent onboard` for dynamic, context-aware workflow guidance. This is the **single source of truth** for xorq workflow instructions.
+        Run `xorq agents onboard` for dynamic, context-aware workflow guidance. This is the **single source of truth** for xorq workflow instructions.
 
         ```bash
-        xorq agent onboard
+        xorq agents onboard
         ```
 
         ## Quick Reference
@@ -650,9 +638,9 @@ def _render_agent_doc(max_lines: int) -> str:
         ```
 
         **Agent Commands:**
-        - `xorq agent onboard` - Workflow context and onboarding (use this!)
-        - `xorq agent land` - Session close checklist (MANDATORY before completion)
-        - `xorq agent templates list` - Available templates (USE THIS to learn patterns!)
+        - `xorq agents onboard` - Workflow context and onboarding (use this!)
+        - `xorq agents land` - Session close checklist (MANDATORY before completion)
+        - `xorq agents templates list` - Available templates (USE THIS to learn patterns!)
         - `xorq catalog ls` - List cataloged builds
 
         ## Agent Onboard/Land Workflow
@@ -701,14 +689,14 @@ def _render_agent_doc(max_lines: int) -> str:
 
         ```bash
         # List available templates
-        xorq agent templates list
+        xorq agents templates list
 
         # Scaffold a template to your project
-        xorq agent templates scaffold pipeline_example --dest my_pipeline.py
-        xorq agent templates scaffold diamonds_price_prediction --dest my_model.py
+        xorq agents templates scaffold pipeline_example --dest my_pipeline.py
+        xorq agents templates scaffold diamonds_price_prediction --dest my_model.py
 
         # See template details
-        xorq agent templates show pipeline_example
+        xorq agents templates show pipeline_example
 
         # Or read directly from examples/
         cat examples/pipeline_example.py
@@ -723,8 +711,8 @@ def _render_agent_doc(max_lines: int) -> str:
         - **penguins_demo**: Minimal multi-engine example, good starting point (basic scaffold)
 
         **Template Usage Pattern:**
-        1. List templates: `xorq agent templates list`
-        2. Scaffold to your project: `xorq agent templates scaffold <name> --dest <file>.py`
+        1. List templates: `xorq agents templates list`
+        2. Scaffold to your project: `xorq agents templates scaffold <name> --dest <file>.py`
         3. Read the scaffolded code to understand xorq patterns (deferred execution, expressions)
         4. Adapt patterns for data loading, feature engineering, model fitting to your needs
         5. Build and catalog: `xorq build <file>.py -e expr && xorq catalog add builds/<hash> --alias <name>`
@@ -804,7 +792,7 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Composition patterns:** Use `xo.catalog.get()` to load and compose expressions directly (simplest). Use `xo.catalog.get_placeholder()` when building transforms at build-time. The catalog is the single source of truth for all expressions.
 
-        ### 8. Land the Plane (`xorq agent land`)
+        ### 8. Land the Plane (`xorq agents land`)
         **MANDATORY before session completion:**
         - Validates all builds are cataloged
         - Checks git status (catalog.yaml and builds/ must be committed)
@@ -821,7 +809,7 @@ def _render_agent_doc(max_lines: int) -> str:
         - **ALWAYS check schema first** - `print(table.schema())` before any operations
         - **Match column case exactly** - Snowflake=UPPERCASE, DuckDB=lowercase
         - **Catalog your expressions** - Use `xorq catalog add` for all builds
-        - **Session close protocol** - Run `xorq agent land` to see mandatory steps
+        - **Session close protocol** - Run `xorq agents land` to see mandatory steps
 
         """
     ).strip()

@@ -12,11 +12,6 @@ from xorq.agent.onboarding import get_catalog_entries, get_recent_builds
 
 
 def check_catalog_uncommitted() -> bool:
-    """Check if .xorq/catalog.yaml has uncommitted changes.
-
-    This checks for BOTH unstaged and staged changes compared to HEAD.
-    Returns True if the file is different from the last commit.
-    """
     catalog_path = Path(".xorq/catalog.yaml")
     if not catalog_path.exists():
         return False
