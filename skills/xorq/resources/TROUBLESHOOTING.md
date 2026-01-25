@@ -412,16 +412,17 @@ SkillError: Skill 'foo' not found
 
 **Solution:**
 
-1. **List available skills:**
+1. **Check available examples:**
 ```bash
-xorq agents templates list
+# Check examples directory for available patterns
+ls examples/
 ```
 
 2. **Initialize with template:**
 ```bash
-# If skill corresponds to template
+# If you need a template
 xorq init -t penguins
-xorq agents templates scaffold penguins_demo
+# Create your expression file manually
 ```
 
 ---

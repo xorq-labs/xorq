@@ -42,8 +42,9 @@ When xorq docs reference Claude-specific tools, use your Codex equivalents:
 ## Critical Python Patterns
 
 ```python
-# Always use xorq's vendored ibis
-from xorq.vendor import ibis
+# CRITICAL: Always use xorq's vendored ibis (NOT standalone ibis)
+from xorq.vendor import ibis  # ✅ Has custom operators like .into_backend(), .cache(), ExprScalarUDF
+# NOT: import ibis  # ❌ Missing xorq's deferred execution features
 import xorq.api as xo
 
 # Connect to backend
@@ -114,8 +115,11 @@ predictions = (
 BEFORE writing any code:
 1. Run `xorq agents onboard` to see project state
 2. Check `xorq catalog ls` for existing pipelines
-3. Use `xorq agents templates list` to find starter code
-4. ALWAYS `print(table.schema())` before operations
+3. **Use vignettes for comprehensive examples**: `xorq agents vignette list`
+   - Scaffold a vignette: `xorq agents vignette scaffold baseball_breakout_expr_scalar`
+   - Vignettes show advanced patterns with ExprScalarUDF, ML pipelines, etc.
+4. Check `ls examples/` for simple patterns
+5. ALWAYS `print(table.schema())` before operations
 
 AFTER completing work:
 1. Verify catalog state with `xorq catalog ls`
@@ -125,7 +129,8 @@ AFTER completing work:
 ## Getting Help
 
 - `xorq agents onboard` - Workflow context and status
-- `xorq agents templates list` - Available templates
+- `xorq agents vignette list` - Comprehensive working examples with advanced patterns
+- `ls examples/` - Simple example patterns
 - `xorq catalog ls` - Cataloged builds
 - `xorq --help` - Full command reference
 

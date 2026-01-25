@@ -485,6 +485,8 @@ def agents_command(args):
             return agent_hooks_command(args)
         case "templates":
             return agent_templates_command(args)
+        case "vignette":
+            return agent_vignette_command(args)
         case _:
             raise ValueError(f"Unknown agents subcommand: {args.agents_subcommand}")
 
@@ -686,6 +688,40 @@ def agent_templates_scaffold_command(name, dest, overwrite):
         print(str(exc), file=sys.stderr)
         sys.exit(1)
     print(f"Wrote template scaffold to {written}")
+
+
+def agent_vignette_command(args):
+    match args.vignette_command:
+        case "list":
+            return agent_vignette_list_command()
+        case "show":
+            return agent_vignette_show_command(args.name)
+        case "scaffold":
+            return agent_vignette_scaffold_command(
+                args.name, args.dest, args.overwrite
+            )
+        case _:
+            raise ValueError(f"Unknown vignette command: {args.vignette_command}")
+
+
+def agent_vignette_list_command():
+    from xorq.agent.vignettes import format_vignette_list
+    print(format_vignette_list())
+
+
+def agent_vignette_show_command(name):
+    from xorq.agent.vignettes import format_vignette_details
+    print(format_vignette_details(name))
+
+
+def agent_vignette_scaffold_command(name, dest, overwrite):
+    from xorq.agent.vignettes import scaffold_vignette
+    try:
+        written = scaffold_vignette(name, dest, overwrite=overwrite)
+        print(f"Scaffolded vignette to {written}")
+    except (ValueError, FileExistsError) as exc:
+        print(str(exc), file=sys.stderr)
+        sys.exit(1)
 
 
 def parse_args(override=None):
@@ -1175,6 +1211,48 @@ def parse_args(override=None):
         help="Destination path for the scaffold (default: skills/<name>.py)",
     )
     templates_scaffold.add_argument(
+        "--overwrite",
+        action="store_true",
+        help="Replace destination file if it exists",
+    )
+
+    # Add vignette subparser
+    vignette_parser = agents_subparsers.add_parser(
+        "vignette",
+        help="Code vignettes - comprehensive working examples",
+    )
+    vignette_subparsers = vignette_parser.add_subparsers(
+        dest="vignette_command",
+        help="Vignette commands",
+    )
+    vignette_subparsers.required = True
+
+    vignette_subparsers.add_parser("list", help="List available vignettes")
+
+    vignette_show = vignette_subparsers.add_parser(
+        "show", help="Show details for a specific vignette"
+    )
+    from xorq.agent.vignettes import get_vignette_names
+    vignette_show.add_argument(
+        "name",
+        choices=get_vignette_names(),
+        help="Vignette identifier",
+    )
+
+    vignette_scaffold = vignette_subparsers.add_parser(
+        "scaffold", help="Scaffold a vignette to your project"
+    )
+    vignette_scaffold.add_argument(
+        "name",
+        choices=get_vignette_names(),
+        help="Vignette identifier",
+    )
+    vignette_scaffold.add_argument(
+        "--dest",
+        default=None,
+        help="Destination path for the vignette (default: vignettes/<name>.py)",
+    )
+    vignette_scaffold.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace destination file if it exists",

@@ -314,52 +314,66 @@ xorq agents prompt show must_check_schema
 
 ---
 
-### `xorq agents templates`
+### `xorq agents vignette`
 
-Manage agent skills (templates).
+Manage code vignettes (comprehensive working examples).
 
-#### `xorq agents templates list`
+#### `xorq agents vignette list`
 
-List all registered templates.
+List all available vignettes organized by difficulty.
 
 ```bash
-xorq agents templates list
+xorq agents vignette list
 ```
 
 **Output:**
 ```
-NAME              TEMPLATE        DESCRIPTION
-penguins_demo     penguins        Minimal multi-engine example
-sklearn_pipeline  sklearn         Deferred sklearn pipeline
-cached_fetcher    cached-fetcher  Hydrate and cache upstream tables
+Available xorq vignettes:
+
+ADVANCED LEVEL:
+  • baseball_breakout_expr_scalar
+    Demonstrates advanced ML patterns in xorq using ExprScalarUDF for
+    model training
+    Tags: ml, udaf, expr_scalar_udf, feature_engineering, sports_analytics
 ```
 
-#### `xorq agents templates show`
+#### `xorq agents vignette show`
 
-Show details for a specific skill.
+Show detailed information about a specific vignette.
 
 ```bash
-xorq agents templates show <skill-name>
+xorq agents vignette show <vignette-name>
 ```
 
 **Example:**
 ```bash
-xorq agents templates show sklearn_pipeline
+xorq agents vignette show baseball_breakout_expr_scalar
 ```
 
-#### `xorq agents templates scaffold`
+#### `xorq agents vignette scaffold`
 
-Generate a starter file from a skill.
+Scaffold a vignette to your project.
 
 ```bash
-xorq agents templates scaffold <skill-name>
+xorq agents vignette scaffold <vignette-name> [--dest <path>] [--overwrite]
 ```
 
-**Example:**
+**Examples:**
 ```bash
-xorq agents templates scaffold penguins_demo
-# Creates: skills/penguins_demo.py
+# Scaffold to default location (vignettes/ directory)
+xorq agents vignette scaffold baseball_breakout_expr_scalar
+
+# Scaffold to custom location
+xorq agents vignette scaffold baseball_breakout_expr_scalar --dest my_analysis.py
+
+# Overwrite existing file
+xorq agents vignette scaffold baseball_breakout_expr_scalar --overwrite
 ```
+
+**Vignettes vs Templates:**
+- **Templates**: Simple starter code for common patterns
+- **Vignettes**: Complete, working examples with real-world use cases
+- **Vignettes** include comprehensive documentation and demonstrate advanced techniques
 
 ---
 
@@ -505,7 +519,6 @@ xorq lineage my-expr
 ```bash
 xorq agents onboard
 xorq agents prompt list --tier core
-xorq agents templates scaffold sklearn_pipeline
 xorq build sklearn_pipeline.py -e pipeline
 ```
 

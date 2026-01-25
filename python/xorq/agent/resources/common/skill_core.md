@@ -11,6 +11,16 @@ A compute manifest system providing persistent, cacheable, and portable expressi
 
 ## Quick Start
 
+**Start with a vignette (recommended):**
+```bash
+# See comprehensive working examples
+xorq agents vignette list
+
+# Scaffold a complete ML pipeline example
+xorq agents vignette scaffold baseball_breakout_expr_scalar
+```
+
+**Or build from scratch:**
 ```bash
 xorq agents onboard
 
@@ -18,6 +28,8 @@ xorq build expr.py -e expr      # Build expression
 xorq catalog add builds/<hash> --alias my-expr
 xorq run my-expr -o output.parquet
 ```
+
+💡 **Vignettes show advanced patterns** like ExprScalarUDF, windowing, and ML pipelines with xorq's vendored ibis.
 
 ## Essential CLI Commands
 
@@ -29,7 +41,6 @@ xorq run my-expr -o output.parquet
 | `xorq catalog add/ls` | Manage build registry |
 | `xorq lineage <alias>` | Show column-level lineage |
 | `xorq agents onboard` | Guided workflow for agents |
-| `xorq agents templates list` | List available templates |
 
 **Full reference:** Run `xorq --help` or see [resources/CLI_REFERENCE.md](resources/CLI_REFERENCE.md)
 
@@ -37,10 +48,18 @@ xorq run my-expr -o output.parquet
 
 ### Imports and Connection
 
-**✅ Correct imports:**
+**✅ Correct imports (CRITICAL):**
 ```python
 import xorq.api as xo
+from xorq.vendor import ibis  # ⚠️ ALWAYS use xorq's vendored ibis
 from xorq.caching import ParquetCache
+
+# Why xorq.vendor.ibis?
+# xorq extends ibis with custom operators:
+# - .into_backend(con) - Move expressions between backends
+# - .cache() - Cache with Parquet/SQLite/etc
+# - ExprScalarUDF - Pass expression results to UDFs
+# - Enhanced window functions and ML support
 
 # Catalog functions (multiple aliases for discoverability)
 expr = xo.catalog.get("my-alias")           # Load from catalog
@@ -329,17 +348,17 @@ ranked = table.mutate(
 ### Templates (Starter Code)
 
 ```bash
-# List available templates
-xorq agents templates list
+# List available examples
+ls examples/
 
-# Show template details
-xorq agents templates show sklearn_pipeline
+# View example code
+cat examples/sklearn_pipeline.py
 
-# Scaffold from template
-xorq agents templates scaffold penguins_demo
+# Copy an example to start
+cp examples/penguins_demo.py my_pipeline.py
 ```
 
-Available templates:
+Available example patterns in examples/:
 - `penguins_demo` - Minimal multi-engine example
 - `sklearn_pipeline` - Deferred sklearn with train/predict
 - `cached_fetcher` - Hydrate and cache upstream tables

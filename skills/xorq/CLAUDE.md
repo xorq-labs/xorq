@@ -161,8 +161,7 @@ Claude Code automatically discovers and loads hooks from this location.
 
 1. **Update agent commands** section in SKILL.md
 2. **Refresh prompt list** from `xorq agents prompt list`
-3. **Update templates** from `xorq agents templates list`
-4. **Update onboarding steps** if workflow changes
+3. **Update onboarding steps** if workflow changes
 
 ### When Adding Resources
 
@@ -322,12 +321,11 @@ Add triggers when:
 
 4. Add content pattern to skill-rules.json if unique
 
-### Adding a New Agent Prompt/Template
+### Adding a New Agent Prompt
 
 1. Verify it exists:
    ```bash
    xorq agents prompt show new-prompt
-   xorq agents templates show new-template
    ```
 
 2. Add to Agent-Native Features section in SKILL.md
