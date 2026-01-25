@@ -479,8 +479,10 @@ def agents_command(args):
             return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
-        case "land":
-            return agent_land_command(args)
+        case "prime":
+            return agent_prime_command(args)
+        case "hooks":
+            return agent_hooks_command(args)
         case "templates":
             return agent_templates_command(args)
         case _:
@@ -519,17 +521,115 @@ def agents_init_command(args):
 
 
 def agent_onboard_command(args):
-    from xorq.agent.onboarding import render_onboarding_summary
+    from xorq.agent.onboarding import render_lean_onboarding
 
-    summary = render_onboarding_summary(step=args.step)
+    # Always render lean version for onboard
+    summary = render_lean_onboarding()
     print(summary.rstrip())
 
 
-def agent_land_command(args):
-    from xorq.agent.land import agent_land_command as land_cmd
+def agent_prime_command(args):
+    from xorq.agent.onboarding import render_onboarding_summary
 
-    limit = getattr(args, "limit", 10)
-    return land_cmd(args, limit=limit)
+    # Prime provides the full workflow context
+    summary = render_onboarding_summary(step=getattr(args, "step", None))
+    print(summary.rstrip())
+
+
+def agent_hooks_command(args):
+    match args.hooks_subcommand:
+        case "install":
+            return hooks_install_command(args)
+        case "uninstall":
+            return hooks_uninstall_command(args)
+        case _:
+            print(f"Unknown hooks command: {args.hooks_subcommand}")
+            return None
+
+
+def hooks_install_command(args):
+    """Install shell hooks to auto-inject xorq agents prime at session start."""
+    import os
+    from pathlib import Path
+    from textwrap import dedent
+
+    shell = os.environ.get("SHELL", "/bin/bash")
+    shell_name = Path(shell).name
+
+    # Determine the right rc file
+    home = Path.home()
+    if shell_name == "zsh":
+        rc_file = home / ".zshrc"
+    elif shell_name == "bash":
+        rc_file = home / ".bashrc"
+    else:
+        print(f"Unsupported shell: {shell_name}. Only bash and zsh are supported.")
+        return 1
+
+    hook_marker = "# XORQ_AGENT_HOOK"
+    hook_content = dedent(f"""\
+        {hook_marker}
+        # Auto-inject xorq workflow context at session start
+        if command -v xorq >/dev/null 2>&1 && [ -f catalog.yaml ]; then
+            echo "\\033[1;36m🚀 xorq workflow context loaded (run 'xorq agents prime' for details)\\033[0m"
+        fi
+        {hook_marker}_END
+        """)
+
+    # Check if hook already exists
+    if rc_file.exists():
+        content = rc_file.read_text()
+        if hook_marker in content:
+            print(f"Hook already installed in {rc_file}")
+            return 0
+
+    # Append the hook
+    with rc_file.open("a") as f:
+        f.write("\n" + hook_content + "\n")
+
+    print(f"✅ Installed xorq agent hook in {rc_file}")
+    print(f"   Restart your shell or run: source {rc_file}")
+    return 0
+
+
+def hooks_uninstall_command(args):
+    """Uninstall shell hooks."""
+    import os
+    import re
+    from pathlib import Path
+
+    shell = os.environ.get("SHELL", "/bin/bash")
+    shell_name = Path(shell).name
+
+    home = Path.home()
+    if shell_name == "zsh":
+        rc_file = home / ".zshrc"
+    elif shell_name == "bash":
+        rc_file = home / ".bashrc"
+    else:
+        print(f"Unsupported shell: {shell_name}")
+        return 1
+
+    if not rc_file.exists():
+        print(f"No {rc_file} found")
+        return 0
+
+    hook_marker = "# XORQ_AGENT_HOOK"
+    content = rc_file.read_text()
+
+    # Remove the hook section
+    pattern = rf"{re.escape(hook_marker)}.*?{re.escape(hook_marker)}_END\n?"
+    new_content = re.sub(pattern, "", content, flags=re.DOTALL)
+
+    if new_content != content:
+        rc_file.write_text(new_content)
+        print(f"✅ Removed xorq agent hook from {rc_file}")
+    else:
+        print(f"No xorq agent hook found in {rc_file}")
+
+    return 0
+
+
 
 
 def agent_templates_command(args):
@@ -1006,24 +1106,38 @@ def parse_args(override=None):
 
     onboard_parser = agents_subparsers.add_parser(
         "onboard",
-        help="Guided onboarding summary for xorq agents",
-    )
-    onboard_parser.add_argument(
-        "--step",
-        choices=("init", "templates", "build", "catalog", "explore", "compose", "land"),
-        default=None,
-        help="Filter onboarding instructions to a specific step",
+        help="Lean onboarding instructions for AGENTS.md",
     )
 
-    land_parser = agents_subparsers.add_parser(
-        "land",
-        help="Show session summary and landing checklist",
+    prime_parser = agents_subparsers.add_parser(
+        "prime",
+        help="Full dynamic workflow context for xorq agents",
     )
-    land_parser.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Number of recent builds to show (default: 10)",
+    prime_parser.add_argument(
+        "--step",
+        choices=("init", "templates", "build", "catalog", "explore", "compose"),
+        default=None,
+        help="Filter workflow instructions to a specific step",
+    )
+
+    hooks_parser = agents_subparsers.add_parser(
+        "hooks",
+        help="Manage shell hooks for auto-injection of workflow context",
+    )
+    hooks_subparsers = hooks_parser.add_subparsers(
+        dest="hooks_subcommand",
+        help="Hooks management commands",
+    )
+    hooks_subparsers.required = True
+
+    hooks_install_parser = hooks_subparsers.add_parser(
+        "install",
+        help="Install shell hooks to auto-inject xorq workflow at session start",
+    )
+
+    hooks_uninstall_parser = hooks_subparsers.add_parser(
+        "uninstall",
+        help="Remove shell hooks",
     )
 
     templates_parser = agents_subparsers.add_parser(

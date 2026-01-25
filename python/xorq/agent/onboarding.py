@@ -239,19 +239,6 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         ],
         [],
     ),
-    OnboardingStep(
-        "land",
-        "Commit and push",
-        [
-            "Commit catalog.yaml and builds/ directory",
-        ],
-        [
-            "git add .xorq/catalog.yaml builds/",
-            "git commit -m 'Update catalog and builds'",
-            "git push",
-        ],
-        [],
-    ),
 )
 
 
@@ -486,7 +473,46 @@ def bootstrap_agent_docs(
     return created
 
 
+def render_lean_onboarding() -> str:
+    """Render a minimal onboarding message for AGENTS.md, bd-style."""
+    return dedent("""\
+        # xorq Onboarding
+
+        Add this minimal snippet to AGENTS.md (or create it):
+
+        --- BEGIN AGENTS.MD CONTENT ---
+        ## xorq Expression Framework
+
+        This project uses **xorq** for deferred data pipelines.
+        Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
+
+        **Quick reference:**
+        - `xorq catalog ls` - Find available expressions
+        - `xorq build expr.py -e expr` - Build expression
+        - `xorq catalog add builds/<hash> --alias name` - Catalog build
+        - `xorq run <alias> -f arrow -o /dev/stdout | ...` - Stream expression
+        - `xorq agents prime` - Get current workflow context and state
+
+        **Key principle:** Everything is a deferred expression - no eager pandas/NumPy!
+        For ML patterns, use `xorq skill` for deferred sklearn guidance.
+
+        For full workflow details: `xorq agents prime`
+        --- END AGENTS.MD CONTENT ---
+
+        For GitHub Copilot users:
+        Add the same content to .github/copilot-instructions.md
+
+        How it works:
+           • xorq agents prime provides dynamic workflow context (~100 lines)
+           • xorq agents hooks install auto-injects prime at session start
+           • AGENTS.md only needs this minimal pointer, not full instructions
+
+        This keeps AGENTS.md lean while `xorq agents prime` provides up-to-date workflow details.
+        """).strip()
+
+
 def render_onboarding_summary(step: str | None = None) -> str:
+    """Render dynamic workflow context (the 'prime' command)."""
     selected_steps = (
         tuple(s for s in ONBOARDING_STEPS if step is None or s.key == step)
         or ONBOARDING_STEPS
@@ -494,71 +520,109 @@ def render_onboarding_summary(step: str | None = None) -> str:
 
     # Get current project state
     recent_builds = get_recent_builds(limit=3)
-    catalog_entries = get_catalog_entries(limit=5)
+    catalog_entries = get_catalog_entries(limit=10)
 
-    sections = [
-        "# xorq Agent Onboarding",
-        "",
-        "## Core Principle: Everything is a Deferred Expression",
-        "",
-        "**ALL work in xorq must be deferred expressions** - no eager pandas/NumPy operations!",
-        "- Data transformations: Use xorq/ibis deferred expressions",
-        "- ML pipelines: Use deferred sklearn patterns via xorq skills",
-        "- Feature engineering: Build composable deferred transforms",
-        "- **Use xorq skills** for guidance on deferred ML patterns (fit, transform, predict)",
-        "",
-        "## Quick Reference",
-        "",
-        "- `xorq catalog ls` - List all cataloged expressions",
-        "- `xorq run <alias>` - Run a cataloged expression",
-        "- `xorq build expr.py -e expr` - Build an expression",
-        "- `xorq catalog add builds/<hash> --alias <name>` - Catalog a build",
-        "",
-    ]
+    sections = ["# xorq Workflow Context", ""]
 
-    # Show project state if it exists
-    if recent_builds or catalog_entries:
-        sections.append("## Current Project State")
+    # Show project state
+    if catalog_entries:
+        sections.append("## Active Catalog")
+        for entry in catalog_entries[:8]:
+            alias = entry.get("alias", "")
+            root_tag = entry.get("root_tag", "")
+            tag_str = f" → {root_tag}" if root_tag else ""
+            sections.append(f"- `{alias}`{tag_str}")
+        if len(catalog_entries) > 8:
+            sections.append(f"- ...and {len(catalog_entries) - 8} more")
         sections.append("")
 
-        if recent_builds:
-            sections.append("**Recent Builds:**")
-            for build_hash, time_str in recent_builds[:3]:
-                sections.append(f"- `{build_hash[:12]}...` ({time_str})")
-            sections.append("")
+    if recent_builds and not catalog_entries:
+        sections.append("## Recent Builds (uncataloged)")
+        for build_hash, time_str in recent_builds[:3]:
+            sections.append(f"- `{build_hash[:12]}...` ({time_str})")
+        sections.append("💡 Catalog these: `xorq catalog add builds/<hash> --alias name`")
+        sections.append("")
 
-        if catalog_entries:
-            sections.append("**Cataloged:**")
-            for entry in catalog_entries[:5]:
-                alias = entry.get("alias", "")
-                revision = entry.get("revision", "")
-                sections.append(f"- `{alias}` @ {revision}")
-            sections.append("")
-        else:
-            sections.append("*No catalog entries yet*")
-            sections.append("")
+    # Context-aware guidance
+    sections.append("## Next Steps")
 
-    sections.append("## Workflow Steps")
+    if not catalog_entries:
+        sections.extend([
+            "1. **Build your first expression:**",
+            "   ```python",
+            "   # expr.py",
+            "   import xorq.api as xo",
+            "   expr = xo.catalog.get('source').filter(xo._.value > 0)",
+            "   ```",
+            "   `xorq build expr.py -e expr`",
+            "",
+            "2. **Catalog it:** `xorq catalog add builds/<hash> --alias my-expr`",
+            "",
+            "3. **Explore templates:** `xorq agents templates list`",
+        ])
+    elif len(catalog_entries) < 3:
+        sections.extend([
+            "- **Compose expressions:** Use `xo.catalog.get('alias')`",
+            "- **Study templates:** `xorq agents templates scaffold <name>`",
+            "- **Explore data:**",
+            "  ```bash",
+            "  xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | \\",
+            "    duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10\"",
+            "  ```",
+        ])
+    else:
+        sections.extend([
+            "- **Compose pipelines:** Reference with `xo.catalog.get()`",
+            "- **Run expressions:** `xorq run <alias> -f arrow`",
+            "- **Add ML models:** Use deferred sklearn patterns (invoke xorq skill)",
+        ])
+
+    sections.append("")
+    sections.append("## Core Commands")
+    sections.append("```bash")
+    sections.append("xorq catalog ls                     # List expressions")
+    sections.append("xorq build expr.py -e expr          # Build expression")
+    sections.append("xorq catalog add builds/<h> --alias # Catalog build")
+    sections.append("xorq run <alias> -f arrow           # Run expression")
+    sections.append("xorq agents templates list          # View templates")
+    sections.append("```")
+    sections.append("")
+    sections.append("**Remember:** Everything is a deferred expression. No eager pandas/NumPy!")
     sections.append("")
 
-    # Simplified workflow steps
-    sections.extend([
-        "1. **Learn deferred patterns** - Study templates & invoke xorq skills",
-        "   - Templates: `xorq agents templates list`",
-        "   - **Use xorq skills** for deferred pandas/sklearn patterns (fit, transform, predict)",
-        "2. **Build deferred expressions** - `xorq build expr.py -e expr`",
-        "   - All work must be deferred xorq/ibis expressions",
-        "3. **Catalog builds** - `xorq catalog add builds/<hash> --alias <name>`",
-        "4. **Explore with DuckDB** - Stream expressions to DuckDB CLI",
-        "   ```bash",
-        "   xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | \\",
-        "     duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10\"",
-        "   ```",
-        "5. **Commit and push** - `xorq agents land` for checklist",
-        "",
-        "**For detailed step-by-step guide:** `xorq agents onboard --step <init|templates|build|catalog|explore|compose|land>`",
-        "",
-    ])
+    # Add Common Mistakes section
+    sections.append("## ⚠️  Common Mistakes to Avoid")
+    sections.append("")
+    sections.append("**1. Not using the xorq skill proactively**")
+    sections.append("   - ❌ Writing pandas/sklearn-style code with eager operations")
+    sections.append("   - ✅ Invoke xorq skill immediately when working with xorq expressions")
+    sections.append("")
+    sections.append("**2. Wrong API usage patterns**")
+    sections.append("   - ❌ `xo.catalog.get_placeholder()` when you should use `xo.catalog.get()`")
+    sections.append("   - ❌ `.to_pandas().map_batches()` (pandas DataFrames don't have map_batches)")
+    sections.append("   - ❌ `dt.struct()` (doesn't exist in xorq.expr.datatypes)")
+    sections.append("")
+    sections.append("**3. Not following xorq workflow properly**")
+    sections.append("   - ❌ Creating multiple intermediate files that clutter the workspace")
+    sections.append("   - ✅ Start with `xorq agents onboard` immediately")
+    sections.append("   - ✅ Check schema first: `print(table.schema())` before operations")
+    sections.append("")
+    sections.append("**4. Visualization not fully deferred**")
+    sections.append("   - ❌ Using matplotlib/seaborn directly in final code")
+    sections.append("   - ✅ Wrap all visualization in deferred UDFs/UDAFs")
+    sections.append("")
+    sections.append("**5. Not leveraging templates effectively**")
+    sections.append("   - ❌ Writing from scratch without studying patterns")
+    sections.append("   - ✅ Use `xorq agents templates list` and scaffold examples")
+    sections.append("   - ✅ Study UDF/UDAF patterns for deferred operations")
+    sections.append("")
+    sections.append("**6. Wrong optimization approach**")
+    sections.append("   - ❌ Row-by-row processing with window functions")
+    sections.append("   - ✅ Operate on entire filtered dataset at once")
+    sections.append("   - ✅ Use pandas UDF aggregation for MILP optimization")
+    sections.append("")
+    sections.append("**Remember:** Start with `xorq agents onboard`, use xorq skill proactively, and keep everything deferred!")
+    sections.append("")
 
     return "\n".join(sections).strip() + "\n"
 
@@ -638,12 +702,11 @@ def _render_agent_doc(max_lines: int) -> str:
         ```
 
         **Agent Commands:**
-        - `xorq agents onboard` - Workflow context and onboarding (use this!)
-        - `xorq agents land` - Session close checklist (MANDATORY before completion)
+        - `xorq agents prime` - Dynamic workflow context (use this!)
         - `xorq agents templates list` - Available templates (USE THIS to learn patterns!)
         - `xorq catalog ls` - List cataloged builds
 
-        ## Agent Onboard/Land Workflow
+        ## Agent Workflow
 
         The agent workflow follows a discover → explore → learn → build → compose pattern:
 
@@ -792,15 +855,6 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Composition patterns:** Use `xo.catalog.get()` to load and compose expressions directly (simplest). Use `xo.catalog.get_placeholder()` when building transforms at build-time. The catalog is the single source of truth for all expressions.
 
-        ### 8. Land the Plane (`xorq agents land`)
-        **MANDATORY before session completion:**
-        - Validates all builds are cataloged
-        - Checks git status (catalog.yaml and builds/ must be committed)
-        - Ensures remote is up to date
-        - Provides validation commands
-
-        **Never skip this step.** Work is not done until pushed and validated.
-
         ## Non-Negotiable Rules
 
         - **All work must be deferred xorq/ibis expressions** - No eager pandas/NumPy operations!
@@ -809,7 +863,6 @@ def _render_agent_doc(max_lines: int) -> str:
         - **ALWAYS check schema first** - `print(table.schema())` before any operations
         - **Match column case exactly** - Snowflake=UPPERCASE, DuckDB=lowercase
         - **Catalog your expressions** - Use `xorq catalog add` for all builds
-        - **Session close protocol** - Run `xorq agents land` to see mandatory steps
 
         """
     ).strip()

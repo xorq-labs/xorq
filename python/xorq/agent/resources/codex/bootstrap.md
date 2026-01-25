@@ -10,7 +10,7 @@ You have xorq superpowers for building ML pipelines and deferred data analysis.
 2. **Use deferred expressions only**: No pandas/NumPy eager scripts
 3. **Match column case exactly**: Snowflake=UPPERCASE, DuckDB=lowercase
 4. **Catalog your builds**: `xorq catalog add builds/<hash> --alias name`
-5. **Commit before session end**: Run `xorq agents land` to verify
+5. **Commit before session end**: Commit catalog and builds
 
 ## Essential Commands
 
@@ -107,7 +107,7 @@ predictions = (
 2. **Build**: Create deferred expressions (check schema first!)
 3. **Catalog**: Register builds with aliases
 4. **Test**: Run and verify outputs
-5. **Land**: `xorq agents land` - Verify before committing
+5. **Commit**: Ensure catalog and builds are committed
 
 ## When Working on xorq Projects
 
@@ -118,14 +118,13 @@ BEFORE writing any code:
 4. ALWAYS `print(table.schema())` before operations
 
 AFTER completing work:
-1. Run `xorq agents land` to verify catalog state
+1. Verify catalog state with `xorq catalog ls`
 2. Commit catalog and builds: `git add .xorq/catalog.yaml builds/`
 3. Push changes
 
 ## Getting Help
 
 - `xorq agents onboard` - Workflow context and status
-- `xorq agents land` - Pre-commit checklist
 - `xorq agents templates list` - Available templates
 - `xorq catalog ls` - Cataloged builds
 - `xorq --help` - Full command reference
