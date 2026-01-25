@@ -518,6 +518,591 @@ return_type=dt.float64
 
 ---
 
+## Storing Plots and Visualizations in UDAFs
+
+### Overview
+
+UDAFs can generate and store visualizations as binary data alongside statistics. This enables creating plots per group/segment while maintaining deferred execution. Plots are stored as PNG bytes using `dt.binary` return type.
+
+**Key principle:** Generate plots in memory, serialize to bytes, return as binary data.
+
+---
+
+### Pattern: Basic Plot Storage
+
+**Use case**: Generate distribution plots per category
+
+```python
+import xorq.api as xo
+import xorq.expr.datatypes as dt
+from xorq.expr.udf import agg
+import pandas as pd
+from io import BytesIO
+import matplotlib.pyplot as plt
+
+def create_distribution_plot(df):
+    """Generate distribution plot and return as binary"""
+    # Create figure
+    fig, ax = plt.subplots(figsize=(10, 6))
+
+    # Create plot (histogram example)
+    ax.hist(df['value'], bins=30, edgecolor='black')
+    ax.set_title(f'Distribution for {df["category"].iloc[0]}')
+    ax.set_xlabel('Value')
+    ax.set_ylabel('Frequency')
+
+    # Save to bytes buffer
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    plot_bytes = buf.read()
+
+    # Close figure to free memory (IMPORTANT!)
+    plt.close(fig)
+
+    return plot_bytes
+
+# Create UDAF for plot generation
+plot_udf = agg.pandas_df(
+    fn=create_distribution_plot,
+    schema=table.select(['value', 'category']).schema(),
+    return_type=dt.binary,  # Binary type for images
+    name="distribution_plot"
+)
+
+# Generate plots per category
+plots = table.group_by('category').agg(
+    plot=plot_udf.on_expr(table)
+)
+
+# Retrieve and display
+result = plots.execute()
+plot_bytes = result.iloc[0]['plot']
+
+# Display in Jupyter
+from IPython.display import Image, display
+display(Image(plot_bytes))
+
+# Or save to file
+with open('category_plot.png', 'wb') as f:
+    f.write(plot_bytes)
+```
+
+**Key points:**
+- Use `BytesIO` buffer to capture plot in memory
+- Always `plt.close(fig)` to prevent memory leaks
+- Return type is `dt.binary` for image data
+- Can display with IPython or save to file
+
+---
+
+### Pattern: Multi-Output with Plots and Statistics
+
+**Use case**: Generate visualizations alongside statistical summaries
+
+```python
+def create_analysis_with_plot(df):
+    """Generate both statistics and visualization"""
+    # Calculate statistics
+    stats = {
+        'mean': df['value'].mean(),
+        'std': df['value'].std(),
+        'count': len(df),
+        'q25': df['value'].quantile(0.25),
+        'q75': df['value'].quantile(0.75)
+    }
+
+    # Create comprehensive plot
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    # Histogram
+    axes[0, 0].hist(df['value'], bins=20, edgecolor='black', alpha=0.7)
+    axes[0, 0].axvline(stats['mean'], color='red', linestyle='--', label=f"Mean: {stats['mean']:.2f}")
+    axes[0, 0].set_title('Distribution')
+    axes[0, 0].legend()
+
+    # Box plot
+    axes[0, 1].boxplot(df['value'])
+    axes[0, 1].set_title('Box Plot')
+    axes[0, 1].set_ylabel('Value')
+
+    # Q-Q plot for normality check
+    from scipy import stats as scipy_stats
+    scipy_stats.probplot(df['value'], dist="norm", plot=axes[1, 0])
+    axes[1, 0].set_title('Q-Q Plot')
+
+    # Cumulative distribution
+    sorted_vals = np.sort(df['value'])
+    axes[1, 1].plot(sorted_vals, np.linspace(0, 1, len(sorted_vals)))
+    axes[1, 1].set_title('Cumulative Distribution')
+    axes[1, 1].set_xlabel('Value')
+    axes[1, 1].set_ylabel('Cumulative Probability')
+    axes[1, 1].grid(True, alpha=0.3)
+
+    plt.tight_layout()
+
+    # Save plot to bytes
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=100)
+    buf.seek(0)
+    plot_bytes = buf.read()
+    plt.close(fig)
+
+    # Return structured output with stats and plot
+    return {
+        'mean': stats['mean'],
+        'std': stats['std'],
+        'count': stats['count'],
+        'q25': stats['q25'],
+        'q75': stats['q75'],
+        'plot': plot_bytes
+    }
+
+# Create UDAF with structured return
+analysis_udf = agg.pandas_df(
+    fn=create_analysis_with_plot,
+    schema=table.select(['value']).schema(),
+    return_type=dt.Struct({
+        'mean': dt.float64,
+        'std': dt.float64,
+        'count': dt.int64,
+        'q25': dt.float64,
+        'q75': dt.float64,
+        'plot': dt.binary  # Binary for plot image
+    }),
+    name="analysis_with_plot"
+)
+
+# Apply and unpack results
+results = (
+    table
+    .group_by('category')
+    .agg(analysis=analysis_udf.on_expr(table))
+    .unpack('analysis')  # Expands struct to separate columns
+)
+```
+
+---
+
+### Pattern: Model Training with Performance Plots
+
+**Use case**: Train models and create performance visualizations per segment
+
+```python
+import pickle
+from sklearn.ensemble import RandomForestRegressor
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import r2_score, mean_squared_error
+import numpy as np
+
+def train_and_visualize(df):
+    """Train model and create performance plots"""
+    # Prepare data
+    features = ['feature1', 'feature2', 'feature3']
+    X = df[features]
+    y = df['target']
+
+    # Split and train
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+    model = RandomForestRegressor(n_estimators=100, random_state=42)
+    model.fit(X_train, y_train)
+
+    # Predictions
+    y_pred = model.predict(X_test)
+
+    # Calculate metrics
+    r2 = r2_score(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+    # Create performance visualization
+    fig, axes = plt.subplots(2, 2, figsize=(12, 10))
+
+    # Actual vs Predicted
+    axes[0, 0].scatter(y_test, y_pred, alpha=0.5)
+    axes[0, 0].plot([y_test.min(), y_test.max()],
+                    [y_test.min(), y_test.max()], 'r--', lw=2)
+    axes[0, 0].set_xlabel('Actual')
+    axes[0, 0].set_ylabel('Predicted')
+    axes[0, 0].set_title(f'Actual vs Predicted (R²={r2:.3f})')
+
+    # Residuals histogram
+    residuals = y_test - y_pred
+    axes[0, 1].hist(residuals, bins=30, edgecolor='black')
+    axes[0, 1].axvline(0, color='red', linestyle='--')
+    axes[0, 1].set_xlabel('Residuals')
+    axes[0, 1].set_title(f'Residual Distribution (RMSE={rmse:.3f})')
+
+    # Feature importance
+    importances = model.feature_importances_
+    axes[1, 0].bar(features, importances)
+    axes[1, 0].set_xlabel('Features')
+    axes[1, 0].set_ylabel('Importance')
+    axes[1, 0].set_title('Feature Importance')
+    axes[1, 0].tick_params(axis='x', rotation=45)
+
+    # Residuals vs Predicted
+    axes[1, 1].scatter(y_pred, residuals, alpha=0.5)
+    axes[1, 1].axhline(0, color='red', linestyle='--')
+    axes[1, 1].set_xlabel('Predicted')
+    axes[1, 1].set_ylabel('Residuals')
+    axes[1, 1].set_title('Residuals vs Predicted')
+
+    plt.tight_layout()
+
+    # Save plot
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=100)
+    buf.seek(0)
+    plot_bytes = buf.read()
+    plt.close(fig)
+
+    # Return model, visualization, and metrics
+    return {
+        'model': pickle.dumps(model),
+        'performance_plot': plot_bytes,
+        'r2_score': r2,
+        'rmse': rmse,
+        'feature_importances': importances.tolist()
+    }
+
+# Create UDAF
+model_viz_udf = agg.pandas_df(
+    fn=train_and_visualize,
+    schema=table.select(features + ['target']).schema(),
+    return_type=dt.Struct({
+        'model': dt.binary,
+        'performance_plot': dt.binary,
+        'r2_score': dt.float64,
+        'rmse': dt.float64,
+        'feature_importances': dt.array(dt.float64)
+    }),
+    name="model_with_viz"
+)
+
+# Train models with visualizations per segment
+segment_models = (
+    table
+    .group_by('segment')
+    .agg(results=model_viz_udf.on_expr(table))
+    .unpack('results')
+)
+```
+
+---
+
+### Pattern: Time Series Visualization
+
+**Use case**: Create time series plots with trends and seasonality
+
+```python
+def create_timeseries_plot(df):
+    """Create comprehensive time series visualization"""
+    # Sort by date
+    df = df.sort_values('date')
+
+    # Calculate rolling statistics
+    df['ma_7'] = df['value'].rolling(7, center=True).mean()
+    df['ma_30'] = df['value'].rolling(30, center=True).mean()
+    df['std_7'] = df['value'].rolling(7, center=True).std()
+
+    # Create figure with subplots
+    fig, axes = plt.subplots(3, 1, figsize=(14, 10), sharex=True)
+
+    # Main time series with moving averages
+    axes[0].plot(df['date'], df['value'], alpha=0.5, label='Raw', linewidth=1)
+    axes[0].plot(df['date'], df['ma_7'], label='7-day MA', linewidth=2)
+    axes[0].plot(df['date'], df['ma_30'], label='30-day MA', linewidth=2)
+    axes[0].set_ylabel('Value')
+    axes[0].set_title(f'Time Series for {df["series_id"].iloc[0]}')
+    axes[0].legend(loc='best')
+    axes[0].grid(True, alpha=0.3)
+
+    # Volatility band
+    axes[1].plot(df['date'], df['value'], alpha=0.3, color='blue')
+    axes[1].fill_between(df['date'],
+                         df['ma_7'] - 2*df['std_7'],
+                         df['ma_7'] + 2*df['std_7'],
+                         alpha=0.2, color='blue', label='±2 std')
+    axes[1].plot(df['date'], df['ma_7'], color='red', label='7-day MA')
+    axes[1].set_ylabel('Value with Volatility')
+    axes[1].set_title('Volatility Bands')
+    axes[1].legend(loc='best')
+    axes[1].grid(True, alpha=0.3)
+
+    # Volume or secondary metric
+    if 'volume' in df.columns:
+        axes[2].bar(df['date'], df['volume'], alpha=0.7, width=0.8)
+        axes[2].set_ylabel('Volume')
+        axes[2].set_xlabel('Date')
+        axes[2].set_title('Trading Volume')
+        axes[2].grid(True, alpha=0.3)
+    else:
+        # Show daily changes
+        df['daily_change'] = df['value'].pct_change() * 100
+        axes[2].bar(df['date'], df['daily_change'],
+                   color=['green' if x >= 0 else 'red' for x in df['daily_change']],
+                   alpha=0.7)
+        axes[2].set_ylabel('Daily Change (%)')
+        axes[2].set_xlabel('Date')
+        axes[2].set_title('Daily Percentage Change')
+        axes[2].axhline(0, color='black', linewidth=0.5)
+        axes[2].grid(True, alpha=0.3)
+
+    # Format x-axis dates
+    fig.autofmt_xdate()
+    plt.tight_layout()
+
+    # Save to bytes
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight')
+    buf.seek(0)
+    plot_bytes = buf.read()
+    plt.close(fig)
+
+    # Calculate summary stats
+    return {
+        'plot': plot_bytes,
+        'start_date': df['date'].min().isoformat(),
+        'end_date': df['date'].max().isoformat(),
+        'total_points': len(df),
+        'mean_value': df['value'].mean(),
+        'volatility': df['value'].std()
+    }
+
+# Create UDAF for time series plots
+ts_plot_udf = agg.pandas_df(
+    fn=create_timeseries_plot,
+    schema=table.select(['date', 'value', 'series_id']).schema(),
+    return_type=dt.Struct({
+        'plot': dt.binary,
+        'start_date': dt.string,
+        'end_date': dt.string,
+        'total_points': dt.int64,
+        'mean_value': dt.float64,
+        'volatility': dt.float64
+    }),
+    name="timeseries_plot"
+)
+
+# Generate plots per time series
+ts_results = (
+    table
+    .group_by('series_id')
+    .agg(analysis=ts_plot_udf.on_expr(table))
+    .unpack('analysis')
+)
+```
+
+---
+
+### Pattern: Correlation Matrix Heatmaps
+
+**Use case**: Generate correlation heatmaps per group
+
+```python
+import seaborn as sns
+
+def create_correlation_heatmap(df):
+    """Generate correlation matrix heatmap"""
+    # Select numeric columns
+    numeric_cols = df.select_dtypes(include=[np.number]).columns
+
+    # Calculate correlation matrix
+    corr_matrix = df[numeric_cols].corr()
+
+    # Create heatmap
+    fig, ax = plt.subplots(figsize=(10, 8))
+    sns.heatmap(corr_matrix,
+                annot=True,
+                fmt='.2f',
+                cmap='coolwarm',
+                center=0,
+                square=True,
+                linewidths=1,
+                cbar_kws={"shrink": 0.8},
+                ax=ax)
+    ax.set_title(f'Correlation Matrix for {df["group_id"].iloc[0]}')
+
+    plt.tight_layout()
+
+    # Save to bytes
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=100)
+    buf.seek(0)
+    plot_bytes = buf.read()
+    plt.close(fig)
+
+    return plot_bytes
+
+# Create UDAF
+corr_plot_udf = agg.pandas_df(
+    fn=create_correlation_heatmap,
+    schema=table.schema(),  # Use full schema
+    return_type=dt.binary,
+    name="correlation_heatmap"
+)
+
+# Generate heatmaps per group
+heatmaps = table.group_by('group_id').agg(
+    heatmap=corr_plot_udf.on_expr(table)
+)
+```
+
+---
+
+### Best Practices for Plot-Storing UDAFs
+
+#### 1. Memory Management
+
+```python
+# Always close figures after saving
+plt.close(fig)  # Critical to prevent memory leaks
+
+# For many plots, consider clearing matplotlib cache
+import matplotlib
+matplotlib.pyplot.clf()
+matplotlib.pyplot.cla()
+matplotlib.pyplot.close('all')
+```
+
+#### 2. Plot Quality Settings
+
+```python
+# High quality for reports
+fig.savefig(buf, format='png', dpi=300, bbox_inches='tight')
+
+# Lower quality for previews (smaller file size)
+fig.savefig(buf, format='png', dpi=72)
+
+# Use compression for large plots
+fig.savefig(buf, format='png', dpi=100, optimize=True)
+```
+
+#### 3. Error Handling in Plot Generation
+
+```python
+def safe_plot_generation(df):
+    """Handle errors gracefully"""
+    try:
+        if len(df) < 2:
+            # Return empty plot or placeholder
+            fig, ax = plt.subplots(figsize=(8, 6))
+            ax.text(0.5, 0.5, 'Insufficient data',
+                   ha='center', va='center', fontsize=16)
+            ax.set_title(f'No data for {df["category"].iloc[0]}')
+        else:
+            # Normal plot generation
+            fig, ax = plt.subplots(figsize=(10, 6))
+            ax.hist(df['value'], bins=30)
+            ax.set_title(f'Distribution for {df["category"].iloc[0]}')
+
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=100)
+        buf.seek(0)
+        plot_bytes = buf.read()
+        plt.close(fig)
+        return plot_bytes
+
+    except Exception as e:
+        # Return error placeholder
+        fig, ax = plt.subplots(figsize=(8, 6))
+        ax.text(0.5, 0.5, f'Error: {str(e)}',
+               ha='center', va='center', fontsize=12, color='red')
+        buf = BytesIO()
+        fig.savefig(buf, format='png', dpi=100)
+        buf.seek(0)
+        plot_bytes = buf.read()
+        plt.close(fig)
+        return plot_bytes
+```
+
+#### 4. Retrieving and Using Stored Plots
+
+```python
+# Execute and get results
+results = plots.execute()
+
+# Save all plots to files
+for idx, row in results.iterrows():
+    category = row['category']
+    plot_bytes = row['plot']
+
+    # Save to file
+    filename = f'plot_{category}.png'
+    with open(filename, 'wb') as f:
+        f.write(plot_bytes)
+
+    print(f'Saved plot for {category} to {filename}')
+
+# Display in Jupyter notebook
+from IPython.display import Image, display
+for idx, row in results.iterrows():
+    print(f"Category: {row['category']}")
+    display(Image(row['plot']))
+
+# Convert to base64 for web display
+import base64
+plot_b64 = base64.b64encode(row['plot']).decode('utf-8')
+html = f'<img src="data:image/png;base64,{plot_b64}"/>'
+```
+
+#### 5. Batch Processing Considerations
+
+```python
+def batch_plot_processor(df):
+    """Process large groups efficiently"""
+    # Limit plot complexity for large datasets
+    sample_size = min(len(df), 10000)
+    if len(df) > sample_size:
+        df_sample = df.sample(n=sample_size, random_state=42)
+    else:
+        df_sample = df
+
+    # Use matplotlib's non-interactive backend
+    import matplotlib
+    matplotlib.use('Agg')  # Non-interactive backend
+
+    # Generate plot with sample
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.hist(df_sample['value'], bins=50)
+    ax.set_title(f'Distribution (n={len(df)}, shown={len(df_sample)})')
+
+    # Save with optimization
+    buf = BytesIO()
+    fig.savefig(buf, format='png', dpi=100, optimize=True)
+    buf.seek(0)
+    plot_bytes = buf.read()
+    plt.close(fig)
+
+    return plot_bytes
+```
+
+---
+
+### Summary
+
+**Key points for plot-storing UDAFs:**
+- Use `dt.binary` return type for storing images
+- Always use `BytesIO` buffer for in-memory generation
+- **Always** close figures with `plt.close(fig)` to prevent memory leaks
+- Cache remote data first - UDAFs only work on local backend
+- Combine plots with statistics using `dt.Struct` return type
+- Handle errors gracefully with placeholder images
+- Consider memory and performance for large datasets
+
+**Common use cases:**
+- Distribution analysis per group
+- Model performance visualization per segment
+- Time series plots per entity
+- Correlation heatmaps per category
+- Quality control charts per batch
+
+This approach keeps visualizations within the deferred xorq pipeline, enabling scalable analytics with integrated plotting.
+
+---
+
 ## User Defined Exchangers (UDXFs)
 
 ### Pattern: Basic Exchanger

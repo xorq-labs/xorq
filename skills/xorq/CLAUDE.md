@@ -341,6 +341,7 @@ Add triggers when:
 | 0.1.0 | 2026-01-16 | Initial xorq skill for Claude Code |
 | 0.2.0 | 2026-01-18 | Consolidated with xorq-ibis, added auto-activation, progressive disclosure |
 | 0.2.1 | 2026-01-20 | Added Claude Code hooks integration (Setup, SessionStart events), UDAF+ExprScalarUDF examples for unsupported models |
+| 0.2.2 | 2026-01-24 | Added comprehensive plot-storing UDAF patterns and complete ML pipeline with ROC visualization example |
 
 ## Auto-Installation
 
