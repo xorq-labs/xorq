@@ -21,7 +21,15 @@ That's it. Every xorq session follows this loop.
 
 ## Quick Start
 
+**Start with a vignette for comprehensive examples:**
 ```bash
+# See available vignettes (complete working examples)
+xorq agents vignette list
+
+# Scaffold a vignette to learn patterns
+xorq agents vignette scaffold baseball_breakout_expr_scalar
+
+# Or start from scratch:
 # 1. Build an expression from Python
 xorq build pipeline.py -e predictions
 
@@ -31,6 +39,8 @@ xorq catalog add builds/<hash> --alias predictions
 # 3. Run it
 xorq run predictions -o results.parquet
 ```
+
+**Vignettes are your best starting point** - they show real-world patterns with advanced features like ExprScalarUDF, windowing, and ML pipelines.
 
 ## Catalog is the API
 
@@ -64,6 +74,7 @@ An expression is a deferred computation. Build one in Python:
 # pipeline.py
 import xorq.api as xo
 from xorq.api import _
+from xorq.vendor import ibis  # xorq's enhanced ibis with custom operators
 
 con = xo.connect()  # DuckDB default
 data = con.table("my_table")
@@ -243,10 +254,21 @@ acc = deferred_sklearn_metric(
 
 Always check: `print(table.schema())`
 
-**Use xorq's ibis**
+**Use xorq's vendored ibis (CRITICAL)**
 ```python
-from xorq.vendor import ibis  # Not: import ibis
+from xorq.vendor import ibis  # ✅ ALWAYS use this
+# NOT: import ibis  # ❌ Never use standalone ibis
 ```
+
+**Why xorq vendors ibis:**
+xorq extends ibis with custom operators essential for deferred execution:
+- `.into_backend(con)` - Move expressions between backends
+- `.cache()` - Cache expressions with various backends (Parquet, SQLite, etc.)
+- `ExprScalarUDF` - Pass expression results as inputs to UDFs
+- Enhanced window functions and aggregations
+- Deferred ML pipeline support
+
+These extensions make xorq's deferred execution model possible.
 
 **Commit your catalog**
 ```bash

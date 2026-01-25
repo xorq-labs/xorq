@@ -178,16 +178,9 @@ Prompts cover:
 - Reliability (schema checks, error fixes)
 - Advanced (ML patterns, optimizations)
 
-### Skills
-```bash
-# List available skills
-xorq agents templates list
+### Example Patterns
 
-# Scaffold from skill
-xorq agents templates scaffold sklearn_pipeline
-```
-
-Built-in skills:
+Check the `examples/` directory for patterns:
 - `penguins_demo` - Minimal example
 - `sklearn_pipeline` - ML pipeline template
 - `cached_fetcher` - Data hydration pattern
@@ -226,10 +219,10 @@ xorq lineage my-pipeline
 # Start from template
 xorq init -t sklearn
 
-# Scaffold skill
-xorq agents templates scaffold sklearn_pipeline
+# Create your pipeline file
+# (Use examples/ directory for reference)
 
-# Edit, build, run
+# Build and run
 xorq build sklearn_pipeline.py -e pipeline
 ```
 

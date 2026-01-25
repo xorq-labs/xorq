@@ -1,23 +1,22 @@
 #!/usr/bin/env python
 """
-ML Pipeline with ROC Visualization using UDAFs
+ML Pipeline with ROC Visualization using Functional Pattern
 
 This example demonstrates:
-1. Building a complete deferred ML pipeline
-2. Training a classifier and making predictions
+1. Building a complete deferred ML pipeline using functional .pipe() pattern
+2. Training a classifier and making predictions through composable transformations
 3. Computing standard ML metrics (accuracy, precision, recall, F1, ROC-AUC)
 4. Generating ROC curves and storing them as binary data in a UDAF
 5. Maintaining pure deferred execution until the final execute() calls
 
 Key Pattern:
-    data_expr → train_expr → fitted_pipeline → predictions_with_probs → roc_expr
-         ↓           ↓              ↓                    ↓                  ↓
-    (deferred)  (deferred)     (deferred)         (deferred)         (deferred)
-                                                                          ↓
-                                                                     execute()
+    data_expr.pipe(clean).pipe(split).pipe(train).pipe(predict).pipe(analyze)
+         ↓          ↓         ↓         ↓         ↓          ↓
+    (deferred) (deferred) (deferred) (deferred) (deferred) (deferred)
+                                                              ↓
+                                                          execute()
 
-The ROC visualization is generated inside a UDAF and stored as base64-encoded binary data,
-demonstrating how to integrate plotting into xorq's deferred expression pipeline.
+The functional pattern makes the pipeline more composable and easier to extend.
 """
 
 import sklearn
@@ -27,6 +26,7 @@ from sklearn.pipeline import Pipeline as SkPipeline
 import toolz
 import pickle
 import base64
+from typing import Tuple, Dict, Any, Optional
 
 import xorq.api as xo
 from xorq.api import _
@@ -44,16 +44,17 @@ from sklearn.metrics import (
 )
 
 
-# Configuration
-FEATURES = ["bill_length_mm", "bill_depth_mm"]  # Only bill measurements
+FEATURES = ["bill_length_mm", "bill_depth_mm"]
 TARGET = "species"
 
 
-def get_data_expr():
-    """Load and clean the penguins dataset as a deferred expression."""
-    penguins = xo.examples.penguins.fetch()
+# =============================================================================
+# Functional Pipeline Components for Expression Chaining
+# =============================================================================
 
-    clean_data = penguins.filter(
+def clean_missing_values(expr):
+    """Remove rows with null values in key columns."""
+    return expr.filter(
         _.bill_length_mm.notnull()
         & _.bill_depth_mm.notnull()
         & _.flipper_length_mm.notnull()
@@ -61,23 +62,38 @@ def get_data_expr():
         & _.species.notnull()
     )
 
-    return clean_data
+
+def add_row_id(expr):
+    """Add a row ID for splitting."""
+    return expr.mutate(row_id=xo.row_number())
 
 
-def create_train_test_expr(data_expr, test_size=0.2, random_seed=42):
-    """Split data into train/test sets and cache them."""
-    train_expr, test_expr = xo.train_test_splits(
-        data_expr,
-        test_sizes=test_size,
-        num_buckets=1000,
-        random_seed=random_seed,
-    )
-    cache = ParquetCache.from_kwargs()
-    return train_expr.cache(cache), test_expr.cache(cache)
+def split_train_test(test_size=0.2, random_seed=42):
+    """Split data into train/test using row sampling."""
+    def _split(expr):
+        # Use modulo for deterministic split based on row_id
+        train_mask = (expr.row_id % 100) >= (test_size * 100)
+        train_expr = expr.filter(train_mask)
+        test_expr = expr.filter(~train_mask)
+
+        # Cache both splits
+        cache = ParquetCache.from_kwargs()
+        return {
+            'train': train_expr.cache(cache),
+            'test': test_expr.cache(cache),
+        }
+    return _split
 
 
-def create_fitted_pipeline_expr(train_expr, model_params=None):
-    """Create and fit a sklearn pipeline in a deferred manner."""
+def prepare_for_training(expr):
+    """Prepare data for ML training by extracting features and target."""
+    return expr.select(FEATURES + [TARGET])
+
+
+def fit_classifier(features=None, target=None, model_params=None):
+    """Fit a classifier on the training data."""
+    features = features or FEATURES
+    target = target or TARGET
     params = model_params or {
         "classifier__C": 0.1,
         "classifier__penalty": "l2",
@@ -85,60 +101,47 @@ def create_fitted_pipeline_expr(train_expr, model_params=None):
         "classifier__random_state": 42
     }
 
-    sklearn_pipeline = SkPipeline([
-        ("scaler", StandardScaler()),
-        ("classifier", LogisticRegression())
-    ]).set_params(**params)
+    def _fit(expr):
+        sklearn_pipeline = SkPipeline([
+            ("scaler", StandardScaler()),
+            ("classifier", LogisticRegression())
+        ]).set_params(**params)
 
-    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+        xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 
-    fitted_pipeline = xorq_pipeline.fit(
-        train_expr,
-        features=FEATURES,
-        target=TARGET
-    )
+        # Return the fitted pipeline as an attribute on the expression
+        fitted = xorq_pipeline.fit(expr, features=features, target=target)
 
-    return fitted_pipeline
+        # Store fitted pipeline in expression metadata (conceptually)
+        expr._fitted_pipeline = fitted
+        return expr
+
+    return _fit
 
 
-def create_predictions_with_probs_expr(fitted_pipeline, test_expr):
-    """Generate predictions with probability scores for each class."""
+def add_predictions_column(fitted_pipeline, test_expr):
+    """Add predictions as a new column to the test expression."""
+    predictions = fitted_pipeline.predict(test_expr)
+    # Join predictions back to test data
+    return predictions
+
+
+def add_probability_columns(fitted_pipeline, test_expr):
+    """Add probability columns for each class."""
     predictions_proba = fitted_pipeline.predict_proba(test_expr)
 
-    # Extract individual class probabilities
-    predictions_with_probs = predictions_proba.mutate(
+    # Add individual probability columns
+    enhanced = predictions_proba.mutate(
         prob_Adelie=predictions_proba['predicted_proba'][0],
         prob_Chinstrap=predictions_proba['predicted_proba'][1],
         prob_Gentoo=predictions_proba['predicted_proba'][2],
-        # Determine predicted class based on highest probability
-        predicted=xo.cases(
-            (
-                (predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][1]) &
-                (predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][2]),
-                'Adelie'
-            ),
-            (
-                (predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][0]) &
-                (predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][2]),
-                'Chinstrap'
-            ),
-            else_='Gentoo'
-        )
     )
 
-    return predictions_with_probs, predictions_proba
+    return enhanced
 
 
-def create_roc_analysis_udf():
-    """
-    Create a UDAF that computes ROC analysis and generates visualization.
-
-    This function demonstrates how to:
-    1. Compute ROC scores for multi-class classification
-    2. Generate ROC curves using matplotlib
-    3. Store the plot as base64-encoded binary data
-    4. Return everything as a pickled dictionary with dt.binary type
-    """
+def create_roc_visualization_expr(expr):
+    """Create ROC visualization using UDAF."""
     def compute_roc(df):
         try:
             from sklearn.metrics import roc_auc_score, roc_curve, auc
@@ -233,170 +236,322 @@ def create_roc_analysis_udf():
                 'traceback': traceback.format_exc()
             })
 
-    return compute_roc
-
-
-def create_roc_expr(predictions_with_probs):
-    """Create a deferred expression for ROC analysis using UDAF."""
-    roc_udf_fn = create_roc_analysis_udf()
-    schema = predictions_with_probs.schema()
-
-    # Create UDAF with binary return type for pickled data
+    schema = expr.schema()
     roc_udf = agg.pandas_df(
-        fn=roc_udf_fn,
+        fn=compute_roc,
         schema=schema,
         return_type=dt.binary,
         name="compute_roc_analysis"
     )
 
-    # Apply UDAF to aggregate all predictions
-    roc_expr = predictions_with_probs.aggregate([
-        roc_udf.on_expr(predictions_with_probs).name('roc_analysis')
+    return expr.aggregate([
+        roc_udf.on_expr(expr).name('roc_analysis')
     ])
 
-    return roc_expr
 
-
-def create_metric_expressions(predictions, predictions_proba):
-    """Create deferred expressions for standard ML metrics."""
+def create_metrics_dict(predictions_expr, predictions_proba_expr=None):
+    """Create a dictionary of metric expressions."""
     metrics = {
         'accuracy': deferred_sklearn_metric(
-            expr=predictions,
+            expr=predictions_expr,
             target=TARGET,
             pred_col="predicted",
             metric_fn=accuracy_score,
         ),
         'precision': deferred_sklearn_metric(
-            expr=predictions,
+            expr=predictions_expr,
             target=TARGET,
             pred_col="predicted",
             metric_fn=precision_score,
             metric_kwargs={"average": "weighted", "zero_division": 0},
         ),
         'recall': deferred_sklearn_metric(
-            expr=predictions,
+            expr=predictions_expr,
             target=TARGET,
             pred_col="predicted",
             metric_fn=recall_score,
             metric_kwargs={"average": "weighted", "zero_division": 0},
         ),
         'f1': deferred_sklearn_metric(
-            expr=predictions,
+            expr=predictions_expr,
             target=TARGET,
             pred_col="predicted",
             metric_fn=f1_score,
             metric_kwargs={"average": "weighted", "zero_division": 0},
         ),
-        'roc_auc': deferred_sklearn_metric(
-            expr=predictions_proba,
+    }
+
+    if predictions_proba_expr is not None:
+        metrics['roc_auc'] = deferred_sklearn_metric(
+            expr=predictions_proba_expr,
             target=TARGET,
             pred_col="predicted_proba",
             metric_fn=roc_auc_score,
             metric_kwargs={"multi_class": "ovr", "average": "weighted"},
         )
-    }
 
     return metrics
 
 
-def build_complete_pipeline():
-    """
-    Build the complete deferred ML pipeline.
+# =============================================================================
+# Main Pipeline Builder using Functional Composition
+# =============================================================================
 
-    Returns a dictionary with all deferred expressions.
-    Nothing is executed until explicitly calling .execute()
+def build_ml_pipeline():
     """
-    # Build deferred pipeline components
-    data_expr = get_data_expr()
-    train_expr, test_expr = create_train_test_expr(data_expr)
-    fitted_pipeline = create_fitted_pipeline_expr(train_expr)
+    Build the complete ML pipeline using functional composition with .pipe().
 
-    # Generate predictions
-    predictions_with_probs, predictions_proba = create_predictions_with_probs_expr(
-        fitted_pipeline, test_expr
+    This demonstrates how to chain transformations on xorq expressions
+    to create a clean, readable pipeline.
+    """
+
+    # Step 1: Data preparation pipeline
+    clean_data = (
+        xo.examples.penguins.fetch()
+        .pipe(clean_missing_values)
+        .pipe(prepare_for_training)
     )
-    predictions = fitted_pipeline.predict(test_expr)
 
-    # Create analysis expressions
-    roc_expr = create_roc_expr(predictions_with_probs)
-    metrics = create_metric_expressions(predictions, predictions_proba)
+    # Step 2: Train/test split (using xorq's built-in method)
+    train_expr, test_expr = xo.train_test_splits(
+        clean_data,
+        test_sizes=0.2,
+        num_buckets=1000,
+        random_seed=42,
+    )
+
+    # Cache the splits
+    cache = ParquetCache.from_kwargs()
+    train_cached = train_expr.cache(cache)
+    test_cached = test_expr.cache(cache)
+
+    # Step 3: Fit the model
+    sklearn_pipeline = SkPipeline([
+        ("scaler", StandardScaler()),
+        ("classifier", LogisticRegression())
+    ]).set_params(**{
+        "classifier__C": 0.1,
+        "classifier__penalty": "l2",
+        "classifier__max_iter": 2000,
+        "classifier__random_state": 42
+    })
+
+    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+    fitted_pipeline = xorq_pipeline.fit(
+        train_cached,
+        features=FEATURES,
+        target=TARGET
+    )
+
+    # Step 4: Generate predictions using functional chaining
+    predictions = fitted_pipeline.predict(test_cached)
+    predictions_proba = fitted_pipeline.predict_proba(test_cached)
+
+    # Step 5: Enhanced predictions with probabilities - using pipe for transformations
+    predictions_with_probs = (
+        predictions_proba
+        .pipe(lambda expr: expr.mutate(
+            prob_Adelie=expr['predicted_proba'][0],
+            prob_Chinstrap=expr['predicted_proba'][1],
+            prob_Gentoo=expr['predicted_proba'][2],
+            predicted=xo.cases(
+                (
+                    (expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
+                    (expr['predicted_proba'][0] >= expr['predicted_proba'][2]),
+                    'Adelie'
+                ),
+                (
+                    (expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
+                    (expr['predicted_proba'][1] >= expr['predicted_proba'][2]),
+                    'Chinstrap'
+                ),
+                else_='Gentoo'
+            )
+        ))
+    )
+
+    # Step 6: Create ROC analysis using pipe
+    roc_expr = predictions_with_probs.pipe(create_roc_visualization_expr)
+
+    # Step 7: Create metrics
+    metrics = create_metrics_dict(predictions, predictions_proba)
 
     return {
-        'roc_expr': roc_expr,
-        'metrics': metrics,
+        'train': train_cached,
+        'test': test_cached,
+        'fitted_pipeline': fitted_pipeline,
         'predictions': predictions,
         'predictions_proba': predictions_proba,
-        'fitted_pipeline': fitted_pipeline
+        'predictions_with_probs': predictions_with_probs,
+        'roc_expr': roc_expr,
+        'metrics': metrics
     }
 
 
-def execute_and_display(pipeline_dict):
-    """Execute the deferred pipeline and display results."""
+def add_probability_columns(expr):
+    return expr.mutate(
+        prob_Adelie=expr['predicted_proba'][0],
+        prob_Chinstrap=expr['predicted_proba'][1],
+        prob_Gentoo=expr['predicted_proba'][2],
+        predicted=xo.cases(
+            (
+                (expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
+                (expr['predicted_proba'][0] >= expr['predicted_proba'][2]),
+                'Adelie'
+            ),
+            (
+                (expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
+                (expr['predicted_proba'][1] >= expr['predicted_proba'][2]),
+                'Chinstrap'
+            ),
+            else_='Gentoo'
+        )
+    )
+
+
+def build_ml_pipeline():
+    """
+    Alternative implementation with more aggressive functional chaining.
+
+    This shows how far we can push the .pipe() pattern.
+    """
+
+    # Prepare clean data with single chain
+    clean_data = (
+        xo.examples.penguins.fetch()
+        .pipe(clean_missing_values)
+        .pipe(lambda expr: expr.select(FEATURES + [TARGET]))
+        .pipe(lambda expr: expr.cache(ParquetCache.from_kwargs()))
+    )
+
+    # Split data
+    train_expr, test_expr = xo.train_test_splits(
+        clean_data,
+        test_sizes=0.2,
+        num_buckets=1000,
+        random_seed=42,
+    )
+
+    # Cache splits
+    cache = ParquetCache.from_kwargs()
+    train_cached = train_expr.pipe(lambda e: e.cache(cache))
+    test_cached = test_expr.pipe(lambda e: e.cache(cache))
+
+    # Fit pipeline
+    fitted_pipeline = Pipeline.from_instance(
+        SkPipeline([
+            ("scaler", StandardScaler()),
+            ("classifier", LogisticRegression(C=0.1, penalty="l2", max_iter=2000, random_state=42))
+        ])
+    ).fit(train_cached, features=FEATURES, target=TARGET)
+
+    # Generate predictions with chaining
+    predictions_with_probs = (
+        fitted_pipeline.predict_proba(test_cached)
+        .pipe(add_probability_columns)
+    )
+
+    # Create ROC visualization
+    roc_expr = predictions_with_probs.pipe(create_roc_visualization_expr)
+
+    return {
+        'predictions_with_probs': predictions_with_probs,
+        'roc_expr': roc_expr,
+        'fitted_pipeline': fitted_pipeline,
+    }
+
+
+def execute_pipeline(pipeline_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """Execute the deferred pipeline and collect results."""
     import time
 
-    print("Executing ML Pipeline with ROC Visualization\n")
-    print("Standard Metrics:")
+    results = {}
 
-    # Execute metric expressions
-    for name, metric_expr in pipeline_dict['metrics'].items():
-        start = time.time()
-        value = metric_expr.execute()  # <-- EXECUTION happens here
-        elapsed = time.time() - start
-        print(f"  {name:10s}: {value:.4f} (executed in {elapsed:.3f}s)")
+    # Execute metrics
+    if 'metrics' in pipeline_dict:
+        results['metrics'] = {}
+        for name, metric_expr in pipeline_dict['metrics'].items():
+            start = time.time()
+            value = metric_expr.execute()
+            elapsed = time.time() - start
+            results['metrics'][name] = {
+                'value': value,
+                'time': elapsed
+            }
 
-    print("\nROC Analysis:")
     # Execute ROC analysis
-    start = time.time()
-    roc_result = pipeline_dict['roc_expr'].execute()  # <-- EXECUTION happens here
-    elapsed = time.time() - start
+    if 'roc_expr' in pipeline_dict:
+        start = time.time()
+        roc_result = pipeline_dict['roc_expr'].execute()
+        elapsed = time.time() - start
 
-    # Unpickle the results
-    roc_data = pickle.loads(roc_result['roc_analysis'].iloc[0])
+        # Unpickle the results
+        roc_data = pickle.loads(roc_result['roc_analysis'].iloc[0])
+        results['roc'] = {
+            'data': roc_data,
+            'time': elapsed
+        }
 
-    if roc_data['status'] == 'success':
-        roc_scores = roc_data['roc_scores']
-        if 'per_class' in roc_scores:
-            print("  Per-class AUC scores:")
-            for cls, score in roc_scores['per_class'].items():
-                print(f"    {cls}: {score:.4f}")
-            print(f"  Macro-average AUC: {roc_scores['macro']:.4f}")
-            print(f"  Weighted-average AUC: {roc_scores['weighted']:.4f}")
+    return results
 
-        # Save plot to file
-        if 'plot_base64' in roc_data:
-            plot_data = base64.b64decode(roc_data['plot_base64'])
-            with open('roc_visualization.png', 'wb') as f:
-                f.write(plot_data)
-            print(f"\n✓ ROC plot saved to 'roc_visualization.png'")
-            print(f"  (executed in {elapsed:.3f}s)")
 
-        print(f"\nTotal samples analyzed: {roc_data['n_samples']}")
-    else:
-        print(f"  Error: {roc_data['error']}")
-        if 'traceback' in roc_data:
-            print(f"  Traceback:\n{roc_data['traceback']}")
+def display_results(results: Dict[str, Any]) -> None:
+    """Display the execution results."""
+    print("ML Pipeline Execution Results\n")
+    print("=" * 50)
 
-    return roc_data
+    # Display metrics
+    if 'metrics' in results:
+        print("\nStandard Metrics:")
+        for name, info in results['metrics'].items():
+            print(f"  {name:10s}: {info['value']:.4f} ({info['time']:.3f}s)")
+
+    # Display ROC analysis
+    if 'roc' in results:
+        roc_data = results['roc']['data']
+        print("\nROC Analysis:")
+
+        if roc_data['status'] == 'success':
+            roc_scores = roc_data['roc_scores']
+            if 'per_class' in roc_scores:
+                print("  Per-class AUC scores:")
+                for cls, score in roc_scores['per_class'].items():
+                    print(f"    {cls}: {score:.4f}")
+                print(f"  Macro-average AUC: {roc_scores['macro']:.4f}")
+                print(f"  Weighted-average AUC: {roc_scores['weighted']:.4f}")
+
+            # Save plot to file
+            if 'plot_base64' in roc_data:
+                plot_data = base64.b64decode(roc_data['plot_base64'])
+                with open('roc_visualization.png', 'wb') as f:
+                    f.write(plot_data)
+                print(f"\n✓ ROC plot saved to 'roc_visualization.png'")
+                print(f"  (executed in {results['roc']['time']:.3f}s)")
+
+            print(f"\nTotal samples analyzed: {roc_data['n_samples']}")
+        else:
+            print(f"  Error: {roc_data['error']}")
 
 
 def main():
-    """Main execution function."""
-    print("Building deferred ML pipeline...")
-    pipeline_dict = build_complete_pipeline()
-    print("Pipeline built (nothing executed yet)\n")
+    """Main execution function demonstrating the functional pipeline."""
+    print("Building ML Pipeline with Functional Pattern...")
+    print("Using .pipe() for composable transformations\n")
 
-    # Execute the entire pipeline
-    roc_data = execute_and_display(pipeline_dict)
+    # Build the pipeline (nothing executed yet)
+    pipeline_dict = build_ml_pipeline()
+    print("✓ Pipeline built (deferred execution)")
 
-    # Optionally cache the ROC analysis for reuse
-    print("\nCaching ROC analysis for reuse...")
-    cached_roc = pipeline_dict['roc_expr'].cache(ParquetCache.from_kwargs())
-    result2 = cached_roc.execute()
-    print("✓ ROC analysis cached successfully")
+    # Execute and display results
+    print("\nExecuting pipeline...")
+    results = execute_pipeline(pipeline_dict)
 
-    return pipeline_dict
+    print("\n" + "=" * 50)
+    display_results(results)
+
+    return pipeline_dict, results
 
 
 if __name__ == "__main__":
-    pipeline = main()
-    print("\nPipeline execution complete!")
+    pipeline, results = main()
+    print("\n✓ Pipeline execution complete!")

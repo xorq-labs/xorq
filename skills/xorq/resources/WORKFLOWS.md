@@ -17,11 +17,8 @@ xorq init -t penguins
 xorq agents init
 # Creates: AGENTS.md, CLAUDE.md
 
-# 3. Check available skills
-xorq agents templates list
-
-# 4. Scaffold a skill if needed
-xorq agents templates scaffold penguins_demo
+# 3. Create your expression file
+# (Write from scratch or use examples as reference)
 ```
 
 **When to use:**
@@ -168,9 +165,9 @@ xorq init -t sklearn
 ```
 
 2. **Scaffold skill:**
-```bash
-xorq agents templates scaffold sklearn_pipeline
-# Creates: skills/sklearn_pipeline.py
+```python
+# Create sklearn_pipeline.py with your pipeline
+# (Example structure available in examples/ directory)
 ```
 
 3. **Edit pipeline:**
@@ -314,8 +311,8 @@ xorq agents prompt show xorq_core
 
 **Phase 2: Build**
 ```bash
-xorq agents templates scaffold penguins_demo
-xorq build skills/penguins_demo.py -e expr
+# Create penguins_demo.py with your expression
+xorq build penguins_demo.py -e expr
 xorq agents prompt show must_check_schema
 ```
 

@@ -154,18 +154,16 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         [],
     ),
     OnboardingStep(
-        "templates",
-        "Learn from templates",
+        "examples",
+        "Learn from examples",
         [
-            "Use `xorq agents templates list` to see available templates",
-            "Scaffold templates to your project: `xorq agents templates scaffold <name>`",
-            "Templates show how to implement pipelines, ML workflows, and feature engineering",
+            "Check the examples/ directory for patterns and templates",
+            "Examples show how to implement pipelines, ML workflows, and feature engineering",
             "Examples include: pipeline_example, sklearn classifiers, diamonds price prediction",
         ],
         [
-            "xorq agents templates list",
-            "xorq agents templates scaffold pipeline_example --dest my_pipeline.py",
-            "xorq agents templates show <name>",
+            "ls examples/",
+            "cat examples/pipeline_example.py",
         ],
         [],
     ),
@@ -558,12 +556,12 @@ def render_onboarding_summary(step: str | None = None) -> str:
             "",
             "2. **Catalog it:** `xorq catalog add builds/<hash> --alias my-expr`",
             "",
-            "3. **Explore templates:** `xorq agents templates list`",
+            "3. **Explore examples:** `ls examples/`",
         ])
     elif len(catalog_entries) < 3:
         sections.extend([
             "- **Compose expressions:** Use `xo.catalog.get('alias')`",
-            "- **Study templates:** `xorq agents templates scaffold <name>`",
+            "- **Study examples:** Check `examples/` directory for patterns",
             "- **Explore data:**",
             "  ```bash",
             "  xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | \\",
@@ -584,7 +582,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("xorq build expr.py -e expr          # Build expression")
     sections.append("xorq catalog add builds/<h> --alias # Catalog build")
     sections.append("xorq run <alias> -f arrow           # Run expression")
-    sections.append("xorq agents templates list          # View templates")
+    sections.append("ls examples/                        # View example patterns")
     sections.append("```")
     sections.append("")
     sections.append("**Remember:** Everything is a deferred expression. No eager pandas/NumPy!")
@@ -613,7 +611,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("")
     sections.append("**5. Not leveraging templates effectively**")
     sections.append("   - ❌ Writing from scratch without studying patterns")
-    sections.append("   - ✅ Use `xorq agents templates list` and scaffold examples")
+    sections.append("   - ✅ Use `ls examples/` to find patterns and reference implementations")
     sections.append("   - ✅ Study UDF/UDAF patterns for deferred operations")
     sections.append("")
     sections.append("**6. Wrong optimization approach**")
@@ -703,7 +701,7 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Agent Commands:**
         - `xorq agents prime` - Dynamic workflow context (use this!)
-        - `xorq agents templates list` - Available templates (USE THIS to learn patterns!)
+        - `xorq agents vignette list` - Comprehensive code examples (USE THIS for advanced patterns!)
         - `xorq catalog ls` - List cataloged builds
 
         ## Agent Workflow
@@ -747,24 +745,35 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Key insight:** Everything in xorq is an expression. Sources are expressions, transforms are expressions, models are expressions. They all compose via Arrow IPC streaming.
 
-        ### 4. Learn from Templates
-        Before building new expressions, study and scaffold existing templates:
+        ### 4. Learn from Examples and Vignettes
 
+        **Examples** (simple patterns):
         ```bash
-        # List available templates
-        xorq agents templates list
+        # Check available examples
+        ls examples/
 
-        # Scaffold a template to your project
-        xorq agents templates scaffold pipeline_example --dest my_pipeline.py
-        xorq agents templates scaffold diamonds_price_prediction --dest my_model.py
-
-        # See template details
-        xorq agents templates show pipeline_example
-
-        # Or read directly from examples/
+        # Read example patterns directly
         cat examples/pipeline_example.py
-        cat examples/diamonds_price_prediction.py
+
+        # Copy an example to start your own implementation
+        cp examples/pipeline_example.py my_pipeline.py
         ```
+
+        **Vignettes** (comprehensive working code):
+        ```bash
+        # List available vignettes with descriptions
+        xorq agents vignette list
+
+        # See details about a vignette
+        xorq agents vignette show baseball_breakout_expr_scalar
+
+        # Scaffold a vignette to your project
+        xorq agents vignette scaffold baseball_breakout_expr_scalar
+        ```
+
+        **When to use what:**
+        - **Examples**: Quick reference for basic patterns
+        - **Vignettes**: Complete solutions for complex use cases (ML pipelines, advanced UDFs, etc.)
 
         **Available Templates:**
         - **pipeline_example**: sklearn pipelines with StandardScaler + KNeighborsClassifier on iris
@@ -773,10 +782,10 @@ def _render_agent_doc(max_lines: int) -> str:
         - **deferred_fit_transform_predict**: Complete deferred ML workflow pattern
         - **penguins_demo**: Minimal multi-engine example, good starting point (basic scaffold)
 
-        **Template Usage Pattern:**
-        1. List templates: `xorq agents templates list`
-        2. Scaffold to your project: `xorq agents templates scaffold <name> --dest <file>.py`
-        3. Read the scaffolded code to understand xorq patterns (deferred execution, expressions)
+        **Example Usage Pattern:**
+        1. List examples: `ls examples/`
+        2. Copy an example to your project: `cp examples/<name>.py my_<name>.py`
+        3. Read the example code to understand xorq patterns (deferred execution, expressions)
         4. Adapt patterns for data loading, feature engineering, model fitting to your needs
         5. Build and catalog: `xorq build <file>.py -e expr && xorq catalog add builds/<hash> --alias <name>`
 
