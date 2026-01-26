@@ -47,6 +47,24 @@ body:not(.homepage) h1 {
   letter-spacing: -0.03125rem; /* -5 tracking per brand guidelines */
 }
 
+/* Homepage hero H1 */
+body.homepage .hero-section .hero-content h1,
+body.homepage .hero-content h1,
+body.homepage .hero-section h1,
+.hero-section .hero-content h1,
+.hero-content h1,
+.hero-section h1 {
+  font-size: clamp(2.75rem, 7.5vw, 4rem) !important;
+  font-weight: 400 !important;
+  line-height: 1.0 !important;
+  letter-spacing: -0.5px !important;
+}
+
+/* Ensure homepage non-hero H1s stay small */
+body.homepage .content-section h1 {
+  font-size: clamp(2rem, 4.5vw, 2.5rem) !important;
+}
+
 body:not(.homepage) .quarto-content h2,
 body:not(.homepage) main h2,
 body:not(.homepage) .page-columns h2,
@@ -197,6 +215,14 @@ body:not(.homepage) h6 {
     font-size: 2.25rem !important;
   }
   
+  /* Hero H1 stays large on tablet */
+  body.homepage .hero-section .hero-content h1,
+  body.homepage .hero-content h1,
+  .hero-section .hero-content h1,
+  .hero-content h1 {
+    font-size: 3.25rem !important;
+  }
+  
   body:not(.homepage) .quarto-content h2,
   body:not(.homepage) main h2,
   body:not(.homepage) .page-columns h2,
@@ -233,6 +259,15 @@ body:not(.homepage) h6 {
   body:not(.homepage) h1 {
     font-size: clamp(1.75rem, 6vw, 2.25rem) !important;
   }
+  
+  /* Hero H1 stays large even on mobile */
+  body.homepage .hero-section .hero-content h1,
+  body.homepage .hero-content h1,
+  .hero-section .hero-content h1,
+  .hero-content h1 {
+    font-size: clamp(2.5rem, 7.5vw, 3.25rem) !important;
+  }
+}
   
   body:not(.homepage) .quarto-content h2,
   body:not(.homepage) main h2,
