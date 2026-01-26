@@ -667,9 +667,9 @@ def install_skill_command(args):
     force = args.force
 
     if agent == "claude":
-        # Check if already installed
-        claude_skills_dir = Path.home() / ".claude" / "skills"
-        skill_dest = claude_skills_dir / "xorq"
+        # Check if already installed (project-local)
+        project_root = Path.cwd()
+        skill_dest = project_root / ".claude" / "skills" / "xorq"
 
         if skill_dest.exists() and not force:
             print(f"ℹ️  xorq skill already installed at {skill_dest}")
@@ -680,9 +680,9 @@ def install_skill_command(args):
         skill_path = register_claude_skill()
         if skill_path:
             print(f"✅ Installed xorq skill for Claude Code at {skill_path}")
-            print("✅ Setup skill auto-activation in ~/.claude/skills/skill-rules.json")
+            print(f"✅ Setup skill auto-activation in {skill_path.parent}/skill-rules.json")
             print("\n📝 Next steps:")
-            print("1. The skill is now available in all Claude Code sessions")
+            print("1. The skill is now available in Claude Code sessions in this project")
             print("2. Auto-activation is configured for xorq-related operations")
             print("3. You can manually invoke it with /skill xorq in Claude Code")
             return 0
@@ -724,12 +724,13 @@ def uninstall_skill_command(args):
     agent = args.agent
 
     if agent == "claude":
-        claude_skills_dir = Path.home() / ".claude" / "skills"
-        skill_dest = claude_skills_dir / "xorq"
-        skill_rules_file = claude_skills_dir / "skill-rules.json"
+        # Project-local installation
+        project_root = Path.cwd()
+        skill_dest = project_root / ".claude" / "skills" / "xorq"
+        skill_rules_file = project_root / ".claude" / "skills" / "skill-rules.json"
 
         if not skill_dest.exists():
-            print("ℹ️  xorq skill is not installed")
+            print("ℹ️  xorq skill is not installed in this project")
             return 0
 
         # Remove skill directory
@@ -783,12 +784,12 @@ def list_skills_command(args):
     print("Installed xorq skills:")
     print()
 
-    # Check Claude Code skill
-    claude_skills_dir = Path.home() / ".claude" / "skills"
-    claude_skill_path = claude_skills_dir / "xorq"
+    # Check Claude Code skill (project-local)
+    project_root = Path.cwd()
+    claude_skill_path = project_root / ".claude" / "skills" / "xorq"
 
     if claude_skill_path.exists():
-        print(f"✅ Claude Code: {claude_skill_path}")
+        print(f"✅ Claude Code (current project): {claude_skill_path}")
 
         # Check for SKILL.md to get version info
         skill_md = claude_skill_path / "SKILL.md"
@@ -796,22 +797,22 @@ def list_skills_command(args):
             content = skill_md.read_text()
             # Try to extract version from the file
             for line in content.split('\n'):
-                if 'Version:' in line:
+                if 'Version:' in line or 'version:' in line:
                     print(f"   {line.strip()}")
                     break
 
         # Check skill-rules.json
-        skill_rules_file = claude_skills_dir / "skill-rules.json"
+        skill_rules_file = project_root / ".claude" / "skills" / "skill-rules.json"
         if skill_rules_file.exists():
             try:
                 with skill_rules_file.open() as f:
                     rules = json.load(f)
-                if "xorq" in rules:
+                if "skills" in rules and "xorq" in rules["skills"]:
                     print("   Auto-activation: Configured")
             except:
                 pass
     else:
-        print(f"❌ Claude Code: Not installed")
+        print(f"❌ Claude Code (current project): Not installed")
         print(f"   Run 'xorq agents skill install' to install")
 
     print()
