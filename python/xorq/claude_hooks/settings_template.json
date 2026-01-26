@@ -12,10 +12,10 @@
         "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/user_prompt_submit.py"
       }]
     }],
-    "PostToolUseFailure": [{
+    "PreToolUse": [{
       "hooks": [{
         "type": "command",
-        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_tool_use_failure.py"
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_use.py"
       }]
     }],
     "PreCompact": [{
