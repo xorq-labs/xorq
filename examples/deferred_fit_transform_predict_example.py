@@ -1,4 +1,3 @@
-import pandas as pd
 import xgboost as xgb
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
@@ -26,18 +25,15 @@ def fit_xgboost_model(feature_df, target_series, seed=0):
     xgb_r = xgb.XGBRegressor(
         objective="reg:squarederror",
         eval_metric=mean_absolute_error,
-        # max_depth=10,
-        # learning_rate=1,
         n_estimators=20,
         seed=seed,
     )
-    X = pd.DataFrame(feature_df.squeeze().tolist())
-    xgb_r.fit(X, target_series)
+    xgb_r.fit(feature_df, target_series)
     return xgb_r
 
 
 def predict_xgboost_model(model, df):
-    return model.predict(df.squeeze().tolist())
+    return model.predict(df)
 
 
 def make_splits(con):
