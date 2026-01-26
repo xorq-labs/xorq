@@ -1,7 +1,6 @@
 import functools
 import pickle
 
-import dask
 import toolz
 from attr import (
     field,
@@ -30,6 +29,9 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 )
 from xorq.common.utils.func_utils import (
     return_constant,
+)
+from xorq.common.utils.name_utils import (
+    make_name,
 )
 from xorq.expr.ml.fit_lib import (
     DeferredFitOther,
@@ -66,10 +68,6 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
     assert isinstance(return_type, dt.DataType)
     other, which = arbitrate_transform_predict(transform, predict)
     assert hasattr(fit, "__call__") and hasattr(other, "__call__")
-
-    def make_name(prefix, to_tokenize, n=32):
-        tokenized = dask.base.tokenize(to_tokenize)
-        return ("_" + prefix + "_" + tokenized)[:n].lower()
 
     def wrapped_fit(self, *args, **kwargs):
         self._model = fit(*args, **kwargs)
@@ -379,6 +377,10 @@ class FittedStep:
         # we should now have everything fixed
 
     @property
+    def instance(self):
+        return self.step.instance
+
+    @property
     def is_transform(self):
         return hasattr(self.step.typ, "transform")
 
@@ -387,32 +389,13 @@ class FittedStep:
         return hasattr(self.step.typ, "predict")
 
     @property
+    def predict_return_type(self):
+        return get_predict_return_type(self)
+
+    @property
     @functools.cache
     def _deferred_fit_other(self):
-        if self.is_predict:
-            return DeferredFitOther.choose_deferred_predict(
-                expr=self.expr,
-                features=self.features,
-                sklearn_cls=self.step.typ,
-                params=self.step.params_tuple,
-                target=self.target,
-                return_type=get_predict_return_type(
-                    instance=self.step.instance,
-                    step=self.step,
-                    expr=self.expr,
-                    features=self.features,
-                    target=self.target,
-                ),
-                cache=self.cache,
-            )
-        return DeferredFitOther.choose_deferred_transform(
-            expr=self.expr,
-            features=self.features,
-            sklearn_cls=self.step.typ,
-            params=self.step.params_tuple,
-            target=self.target,
-            cache=self.cache,
-        )
+        return DeferredFitOther.from_fitted_step(self)
 
     @property
     def deferred_model(self):
@@ -983,12 +966,18 @@ def get_target_type(step_instance, step, expr, features, target):
 registry = Dispatch()
 
 
-def get_predict_return_type(instance, step, expr, features, target):
-    assert isinstance(instance, step.typ)
+def get_predict_return_type(fitted_step):
+    instance = fitted_step.step.instance
     if return_type := getattr(instance, "return_type", None):
         return return_type
     else:
-        return registry(instance, step, expr, features, target)
+        return registry(
+            instance,
+            fitted_step.step,
+            fitted_step.expr,
+            fitted_step.features,
+            fitted_step.target,
+        )
 
 
 @registry.register(object)

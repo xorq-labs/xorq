@@ -119,107 +119,92 @@ def test_deferred_fit_transform_series_sklearn():
     assert actual.equals(expected)
 
 
-class TestDeferredFitOtherChooseDeferred:
-    """Tests for DeferredFitOther.choose_deferred_transform and choose_deferred_predict."""
+class TestDeferredFitOtherFromFittedStep:
+    """Tests for DeferredFitOther.from_fitted_step factory method."""
 
-    def test_choose_deferred_transform_known_schema(self):
-        """Test choose_deferred_transform returns struct deferred for StandardScaler."""
+    def test_from_fitted_step_transform_known_schema(self):
+        """Test from_fitted_step returns struct deferred for StandardScaler."""
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
-        features = ("a", "b")
-
-        deferred = DeferredFitOther.choose_deferred_transform(
-            expr=t,
-            features=features,
-            sklearn_cls=sk_preprocessing.StandardScaler,
+        step = xo.Step.from_instance_name(
+            sk_preprocessing.StandardScaler(), name="scaler"
         )
+        fitted = step.fit(t, features=("a", "b"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
 
         assert deferred is not None
-        assert deferred.expr is t
-        assert deferred.features == features
-        # Known schema transformers should not be KV-encoded
-        assert "struct" in deferred.name_infix or "transformed" in deferred.name_infix
+        assert deferred.expr is fitted.expr
+        assert deferred.features == fitted.features
+        # Known schema transformers should have "transformed" in name
+        assert "transformed" in deferred.name_infix
 
-    def test_choose_deferred_transform_kv_encoded(self):
-        """Test choose_deferred_transform returns encoded deferred for OneHotEncoder."""
+    def test_from_fitted_step_transform_kv_encoded(self):
+        """Test from_fitted_step returns encoded deferred for OneHotEncoder."""
         t = xo.memtable({"cat": ["a", "b", "c"]})
-        features = ("cat",)
+        step = xo.Step.from_instance_name(sk_preprocessing.OneHotEncoder(), name="ohe")
+        fitted = step.fit(t, features=("cat",))
 
-        deferred = DeferredFitOther.choose_deferred_transform(
-            expr=t,
-            features=features,
-            sklearn_cls=sk_preprocessing.OneHotEncoder,
-        )
+        deferred = DeferredFitOther.from_fitted_step(fitted)
 
         assert deferred is not None
-        assert deferred.expr is t
-        assert deferred.features == features
+        assert deferred.expr is fitted.expr
+        assert deferred.features == fitted.features
         # KV-encoded transformers should have encoded in name
         assert "encoded" in deferred.name_infix
 
-    def test_choose_deferred_transform_series_kv_encoded(self):
-        """Test choose_deferred_transform returns series encoded deferred for TfidfVectorizer."""
+    def test_from_fitted_step_transform_series_kv_encoded(self):
+        """Test from_fitted_step returns series encoded deferred for TfidfVectorizer."""
         t = xo.memtable({"text": ["hello world", "foo bar"]})
-        features = ("text",)
-
-        deferred = DeferredFitOther.choose_deferred_transform(
-            expr=t,
-            features=features,
-            sklearn_cls=sk_feature_extraction_text.TfidfVectorizer,
+        step = xo.Step.from_instance_name(
+            sk_feature_extraction_text.TfidfVectorizer(), name="tfidf"
         )
+        fitted = step.fit(t, features=("text",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
 
         assert deferred is not None
-        assert deferred.expr is t
+        assert deferred.expr is fitted.expr
         # TfidfVectorizer is series + KV-encoded
         assert "encoded" in deferred.name_infix
 
-    def test_choose_deferred_transform_with_target(self):
-        """Test choose_deferred_transform passes target for supervised transformers."""
+    def test_from_fitted_step_transform_with_target(self):
+        """Test from_fitted_step passes target for supervised transformers."""
         t = xo.memtable(
             {"a": [1.0, 2.0, 3.0, 4.0], "b": [4.0, 3.0, 2.0, 1.0], "y": [0, 0, 1, 1]}
         )
-        features = ("a", "b")
-
-        deferred = DeferredFitOther.choose_deferred_transform(
-            expr=t,
-            features=features,
-            sklearn_cls=sk_feature_selection.SelectKBest,
-            params=(("k", 1),),
-            target="y",
+        step = xo.Step.from_instance_name(
+            sk_feature_selection.SelectKBest(k=1), name="skb"
         )
+        fitted = step.fit(t, features=("a", "b"), target="y")
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
 
         assert deferred is not None
         assert deferred.target == "y"
 
-    def test_choose_deferred_predict(self):
-        """Test choose_deferred_predict returns predict deferred."""
+    def test_from_fitted_step_predict(self):
+        """Test from_fitted_step returns predict deferred for predictor."""
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "y": [0.0, 1.0]})
-        features = ("a", "b")
+        step = xo.Step.from_instance_name(sk_linear_model.LinearRegression(), name="lr")
+        fitted = step.fit(t, features=("a", "b"), target="y")
 
-        deferred = DeferredFitOther.choose_deferred_predict(
-            expr=t,
-            features=features,
-            sklearn_cls=sk_linear_model.LinearRegression,
-            target="y",
-            return_type=dt.float64,
-        )
+        deferred = DeferredFitOther.from_fitted_step(fitted)
 
         assert deferred is not None
-        assert deferred.expr is t
-        assert deferred.features == features
+        assert deferred.expr is fitted.expr
+        assert deferred.features == fitted.features
         assert deferred.target == "y"
+        assert "predict" in deferred.name_infix
 
-    def test_choose_deferred_transform_with_params(self):
-        """Test choose_deferred_transform passes params correctly and executes."""
+    def test_from_fitted_step_transform_with_params_executes(self):
+        """Test from_fitted_step passes params correctly and executes."""
         t = xo.memtable({"cat": ["a", "b", "c"]})
-        features = ("cat",)
-        params = (("sparse_output", False),)
-
-        deferred = DeferredFitOther.choose_deferred_transform(
-            expr=t,
-            features=features,
-            sklearn_cls=sk_preprocessing.OneHotEncoder,
-            params=params,
+        step = xo.Step.from_instance_name(
+            sk_preprocessing.OneHotEncoder(sparse_output=False), name="ohe"
         )
+        fitted = step.fit(t, features=("cat",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
 
         assert deferred is not None
         # Verify deferred can be used to transform

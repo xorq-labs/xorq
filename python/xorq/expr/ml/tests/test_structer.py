@@ -128,46 +128,26 @@ class TestKVEncoder:
         assert keys == expected_names
 
     def test_decode_basic(self):
-        """Test KVEncoder.decode expands to individual columns."""
-        df = pd.DataFrame(
-            {
-                "encoded": [
-                    ({"key": "a", "value": 1.0}, {"key": "b", "value": 0.0}),
-                    ({"key": "a", "value": 0.0}, {"key": "b", "value": 1.0}),
-                ]
-            }
+        """Test KVEncoder.decode expands series to individual columns."""
+        series = pd.Series(
+            [
+                ({"key": "a", "value": 1.0}, {"key": "b", "value": 0.0}),
+                ({"key": "a", "value": 0.0}, {"key": "b", "value": 1.0}),
+            ]
         )
 
-        result = KVEncoder.decode(df, "encoded")
+        result = KVEncoder.decode(series)
 
         assert "a" in result.columns
         assert "b" in result.columns
-        assert "encoded" not in result.columns
         assert result["a"].tolist() == [1.0, 0.0]
         assert result["b"].tolist() == [0.0, 1.0]
 
-    def test_decode_preserves_other_columns(self):
-        """Test that decode preserves non-encoded columns."""
-        df = pd.DataFrame(
-            {
-                "id": [1, 2],
-                "encoded": [
-                    ({"key": "x", "value": 1.0},),
-                    ({"key": "x", "value": 2.0},),
-                ],
-            }
-        )
-
-        result = KVEncoder.decode(df, "encoded")
-
-        assert "id" in result.columns
-        assert result["id"].tolist() == [1, 2]
-
-    def test_decode_empty_dataframe(self):
-        """Test decode handles empty DataFrame."""
-        df = pd.DataFrame({"encoded": []})
-        result = KVEncoder.decode(df, "encoded")
-        assert "encoded" not in result.columns
+    def test_decode_empty_series_raises(self):
+        """Test decode raises ValueError for empty series."""
+        series = pd.Series([], dtype=object)
+        with pytest.raises(ValueError):
+            KVEncoder.decode(series)
 
     def test_is_kv_encoded_type_true(self):
         """Test is_kv_encoded_type returns True for KV format."""
@@ -382,7 +362,7 @@ class TestKVEncoderIntegration:
         assert "transformed" in df.columns
 
         # Decode and verify
-        decoded = KVEncoder.decode(df, "transformed")
+        decoded = KVEncoder.decode(df["transformed"])
         assert "cat_a" in decoded.columns
         assert "cat_b" in decoded.columns
         assert "cat_c" in decoded.columns
@@ -402,7 +382,7 @@ class TestKVEncoderIntegration:
         assert "transformed" in df.columns
 
         # Decode and verify we get vocabulary columns
-        decoded = KVEncoder.decode(df, "transformed")
+        decoded = KVEncoder.decode(df["transformed"])
         assert "hello" in decoded.columns
         assert "world" in decoded.columns
         assert "foo" in decoded.columns
@@ -420,7 +400,7 @@ class TestKVEncoderIntegration:
         fitted = step.fit(t, features=("text",))
         result = fitted.transform(t)
         df = result.execute()
-        xorq_decoded = KVEncoder.decode(df, "transformed")
+        xorq_decoded = KVEncoder.decode(df["transformed"])
 
         # sklearn result
         model = TfidfVectorizer()
@@ -482,25 +462,23 @@ class TestKVEncoderIntegration:
 
 
 class TestDecodeEncodedColumns:
-    """Tests for decode_encoded_column and decode_encoded_columns helpers."""
+    """Tests for KVEncoder.decode_encoded_column and decode_encoded_columns."""
 
     def test_no_encoded_cols(self):
         """Test passthrough when no encoded columns."""
-        from xorq.expr.ml.fit_lib import decode_encoded_columns
-
         df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         features = ("a", "b")
         encoded_cols = ()
 
-        result_df, result_features = decode_encoded_columns(df, features, encoded_cols)
+        result_df, result_features = KVEncoder.decode_encoded_columns(
+            df, features, encoded_cols
+        )
 
         pd.testing.assert_frame_equal(result_df, df)
         assert result_features == features
 
     def test_decode_encoded_column(self):
         """Test decoding KV-encoded column."""
-        from xorq.expr.ml.fit_lib import decode_encoded_columns
-
         df = pd.DataFrame(
             {
                 "encoded": [
@@ -513,7 +491,9 @@ class TestDecodeEncodedColumns:
         features = ("encoded", "other")
         encoded_cols = ("encoded",)
 
-        result_df, result_features = decode_encoded_columns(df, features, encoded_cols)
+        result_df, result_features = KVEncoder.decode_encoded_columns(
+            df, features, encoded_cols
+        )
 
         assert "encoded" not in result_df.columns
         assert "x" in result_df.columns
@@ -523,20 +503,16 @@ class TestDecodeEncodedColumns:
 
     def test_missing_encoded_col_raises(self):
         """Test that missing encoded columns raise ValueError."""
-        from xorq.expr.ml.fit_lib import decode_encoded_column
-
         df = pd.DataFrame({"a": [1.0, 2.0]})
         features = ("a",)
 
         with pytest.raises(ValueError, match="nonexistent not in DataFrame"):
-            decode_encoded_column(df, features, "nonexistent")
+            KVEncoder.decode_encoded_column(df, features, "nonexistent")
 
     def test_empty_encoded_col_raises(self):
         """Test that empty encoded column raises ValueError."""
-        from xorq.expr.ml.fit_lib import decode_encoded_column
-
         df = pd.DataFrame({"encoded": []})
         features = ("encoded",)
 
         with pytest.raises(ValueError, match="cannot decode empty column"):
-            decode_encoded_column(df, features, "encoded")
+            KVEncoder.decode_encoded_column(df, features, "encoded")

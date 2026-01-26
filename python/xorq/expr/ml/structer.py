@@ -88,7 +88,7 @@ class KVEncoder:
         )
 
     @staticmethod
-    def decode(df, col_name):
+    def decode(series):
         """
         Decode Array[Struct{key, value}] column to individual columns.
 
@@ -97,22 +97,18 @@ class KVEncoder:
 
         Parameters
         ----------
-        df : pandas.DataFrame
-            DataFrame containing a KV-encoded column
-        col_name : str
-            Name of the column containing Array[Struct{key, value}] data
+        series : pandas.Series
+            A KV-encoded column
 
         Returns
         -------
         pandas.DataFrame
-            DataFrame with the encoded column replaced by individual columns
+            DataFrame with decoded columns
         """
         import pandas as pd
 
-        series = df[col_name]
-
         if len(series) == 0:
-            return df.drop(columns=[col_name])
+            raise ValueError
 
         # Extract keys and values from the encoded format
         keys, values = (
@@ -128,9 +124,28 @@ class KVEncoder:
             index=series.index,
             columns=columns,
         )
+        return decoded
 
-        # Drop the encoded column and join with decoded columns
-        return df.drop(columns=[col_name]).join(decoded)
+    @classmethod
+    def decode_encoded_column(cls, df, features, encoded_col):
+        """Decode a single KV-encoded column."""
+        if (col := df.get(encoded_col)) is None:
+            raise ValueError(f"{encoded_col} not in DataFrame")
+        if col.empty:
+            raise ValueError(f"cannot decode empty column {encoded_col}")
+        # remove encoded_col from features and append the columns it becomes
+        new_features = tuple(c for c in features if c != encoded_col) + tuple(
+            item[KVField.KEY] for item in col.iloc[0]
+        )
+        result_df = df.drop(columns=[encoded_col]).join(cls.decode(df[encoded_col]))
+        return result_df, new_features
+
+    @classmethod
+    def decode_encoded_columns(cls, df, features, encoded_cols):
+        """Decode multiple KV-encoded columns."""
+        for encoded_col in encoded_cols:
+            df, features = cls.decode_encoded_column(df, features, encoded_col)
+        return df, features
 
     @classmethod
     def is_kv_encoded_type(cls, typ):
