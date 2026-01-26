@@ -27,7 +27,8 @@ This guide uses synthetic data for demonstration. For production, replace `xo.me
 
 Create `load_and_split.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import train_test_splits
 
@@ -110,7 +111,8 @@ Once you've split your data, the next challenge at scale is avoiding redundant c
 
 Create `train_with_cache.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Step, Pipeline, train_test_splits
 from sklearn.preprocessing import StandardScaler
@@ -215,7 +217,6 @@ Predictions sample:
 - Cache keys change when data, features, or parameters change
 
 :::: {.callout-note}
-### Deferred execution
 `.fit()` and `.predict()` create lazy expressions. Actual model training and prediction happen only when you call `.execute()`. This allows Xorq to optimize execution and manage memory efficiently, especially for large datasets.
 ::::
 
@@ -227,7 +228,8 @@ Caching speeds up iteration, but to optimize training at scale, you need visibil
 
 Create `monitor_training.py`:
 
-```python
+```{python}
+#| eval: true
 import time
 import xorq.api as xo
 from xorq.expr.ml import Step, Pipeline, train_test_splits
@@ -355,7 +357,8 @@ The dataset sizes above are example guidelines. Actual performance depends on yo
 
 Switch backends without changing your training code:
 
-```python
+```{python}
+#| eval: true
 # Train on different backends with the same pipeline
 con = xo.connect()              # Embedded: <10GB
 ddb = xo.duckdb.connect()       # DuckDB: 10-100GB  
@@ -376,7 +379,8 @@ Backend choice affects memory usage, but you also need strategies to control mem
 
 Execute transformations in batches to avoid loading the entire dataset:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 import numpy as np
 
@@ -409,7 +413,8 @@ print(f"Mean amount: {mean_value:.2f}")
 
 Select only required columns before training:
 
-```python
+```{python}
+#| eval: true
 # Bad: loads all columns
 data = xo.deferred_read_csv(path="data.csv", con=con)
 fitted = pipeline.fit(data, features=features, target=target)
@@ -423,7 +428,6 @@ fitted = pipeline.fit(data, features=features, target=target)
 **Memory troubleshooting**:
 
 :::: {.callout-warning}
-### Out of memory errors
 If training fails with `MemoryError` or system freezes:
 
 1. Reduce `chunk_size` in `to_pyarrow_batches()` from 50,000 to 10,000
@@ -438,7 +442,8 @@ Memory management prevents crashes, but monitoring tells you when you're approac
 
 **Instrument training pipelines**:
 
-```python
+```{python}
+#| eval: true
 import psutil
 import logging
 
@@ -470,7 +475,8 @@ Monitoring shows you when things go wrong. Checkpointing ensures you don't lose 
 
 Xorq's caching system automatically checkpoints fitted models:
 
-```python
+```{python}
+#| eval: true
 from xorq.caching import ParquetCache
 from pathlib import Path
 
@@ -492,7 +498,8 @@ fitted = pipeline.fit(data, features=features, target=target, cache=cache)
 
 Use different cache strategies for different training workflows:
 
-```python
+```{python}
+#| eval: true
 from xorq.caching import ParquetSnapshotCache
 
 # For reproducible experiments: fixed snapshots
@@ -523,7 +530,8 @@ Even with proper backend selection, memory management, and checkpointing, you'll
 
 Check where time is spent:
 
-```python
+```{python}
+#| eval: true
 import time
 
 stages = {}
@@ -559,7 +567,8 @@ for stage, duration in stages.items():
 
 Select only necessary columns:
 
-```python
+```{python}
+#| eval: true
 # Load only features and target
 data = xo.deferred_read_csv(path="data.csv", con=con)
 data = data.select(*features, target)
@@ -567,7 +576,8 @@ data = data.select(*features, target)
 
 Process in smaller chunks:
 
-```python
+```{python}
+#| eval: true
 # Reduce chunk size from default
 for batch in data.to_pyarrow_batches(chunk_size=10000):  # Was 50000
     df = batch.to_pandas()
@@ -577,7 +587,8 @@ for batch in data.to_pyarrow_batches(chunk_size=10000):  # Was 50000
 
 Switch to a lower-memory backend:
 
-```python
+```{python}
+#| eval: true
 # DuckDB uses less memory than embedded DataFusion
 ddb = xo.duckdb.connect()
 data = xo.deferred_read_csv(path="data.csv", con=ddb)
@@ -591,7 +602,8 @@ data = xo.deferred_read_csv(path="data.csv", con=ddb)
 
 Check cache exists:
 
-```python
+```{python}
+#| eval: true
 from pathlib import Path
 
 cache_path = Path("./training-cache")
@@ -601,7 +613,8 @@ print(f"Cache contents: {list(cache_path.glob('*'))}")
 
 Verify cache strategy:
 
-```python
+```{python}
+#| eval: true
 # SourceCache invalidates when data changes
 from xorq.caching import ParquetCache
 

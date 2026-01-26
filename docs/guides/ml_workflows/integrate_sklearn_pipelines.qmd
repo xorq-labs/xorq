@@ -5,7 +5,7 @@ title: 'Integrate with scikit-learn pipelines'
 Integrate your existing scikit-learn pipelines with Xorq to add deferred execution, caching, and seamless deployment. This guide shows you how to wrap sklearn pipelines while preserving full API compatibility, enabling you to use your existing sklearn code with Xorq's optimization features.
 
 
-Xorq's `Pipeline.from_instance()` method wraps scikit-learn pipelines, preserving all sklearn functionality while adding deferred execution and integration with Xorq expressions. Your existing sklearn code works unchanged - you just wrap it to gain Xorq's benefits.
+Xorq's `Pipeline.from_instance()` method wraps scikit-learn pipelines, preserving all sklearn functionality while adding deferred execution and integration with Xorq expressions. Your existing sklearn code works unchanged - you wrap it to gain Xorq's benefits.
 
 :::{.callout-tip}
 If you haven't installed Xorq yet, then see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
@@ -13,19 +13,14 @@ If you haven't installed Xorq yet, then see the [installation guide](../../getti
 
 ## Wrap your sklearn pipeline
 
-Wrap your existing sklearn pipelines with `Pipeline.from_instance()` to add deferred execution and Xorq integration. The wrapped pipeline preserves all sklearn functionality while enabling optimization and caching.
-
-**Key points**:
-
-- `Pipeline.from_instance()` accepts any sklearn `Pipeline` object
-- You can use `make_pipeline()` or `Pipeline()` constructors - both work
-- The wrapped pipeline is immutable (frozen) but supports parameter updates
+Wrap your existing sklearn pipelines with `Pipeline.from_instance()` to add deferred execution and Xorq integration. The wrapped pipeline preserves all sklearn functionality while enabling optimization and caching. You can use `make_pipeline()` or `Pipeline()` constructors—both work. The wrapped pipeline is immutable but supports parameter updates via `set_params()`.
 
 ### Use with Xorq expressions
 
 Create `wrap_and_predict.py` to use your wrapped pipeline with Xorq expressions:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline, train_test_splits
 from sklearn.preprocessing import StandardScaler
@@ -92,12 +87,7 @@ The output is a pandas DataFrame with predictions:
 [306 rows x 2 columns]
 ```
 
-**Key points**:
-
-- Wrapped pipelines work with Xorq expressions, not pandas DataFrames
-- `.fit()` returns a `FittedPipeline` that supports deferred execution
-- `.predict()` creates an expression that executes only when you call `.execute()`
-- This enables optimization and caching of the entire pipeline
+Wrapped pipelines work with Xorq expressions, not pandas DataFrames. `.fit()` returns a `FittedPipeline` that supports deferred execution, and `.predict()` creates an expression that executes only when you call `.execute()`. This deferred execution enables optimization and caching of the entire pipeline.
 
 ## Manage pipeline parameters
 
@@ -107,7 +97,8 @@ Xorq pipelines support sklearn's parameter naming convention for updating parame
 
 Create `update_params.py` to modify pipeline parameters and verify the changes:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -173,18 +164,14 @@ Updated parameters:
 Pipeline fitted successfully with updated parameters.
 ```
 
-**Key points**:
-
-- Use `step_name__parameter_name` syntax (double underscore)
-- `set_params()` returns a new pipeline instance (pipelines are immutable)
-- All sklearn parameter names and values are supported
-- Parameter updates work the same as in sklearn
+Use `step_name__parameter_name` syntax (double underscore) to update parameters. `set_params()` returns a new pipeline instance since pipelines are immutable. All sklearn parameter names and values are supported.
 
 ### Compare parameter settings
 
 Create `compare_params.py` to test different parameter combinations:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -237,12 +224,7 @@ Uniform weights: 0.4444
 Distance weights: 0.4314
 ```
 
-**Key points**:
-
-- Create multiple pipeline variants efficiently
-- Each `set_params()` call creates a new pipeline instance
-- Use `score_expr()` to evaluate fitted pipelines on test data
-- Compare parameter settings without modifying original pipeline
+Each `set_params()` call creates a new pipeline instance, enabling efficient comparison of parameter settings without modifying the original pipeline. Use `score_expr()` to evaluate fitted pipelines on test data.
 
 ## Verify sklearn compatibility
 
@@ -252,7 +234,8 @@ Xorq pipelines produce identical results to sklearn pipelines. You can verify eq
 
 Create `test_equivalence.py` to compare Xorq and sklearn pipeline outputs:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -309,12 +292,7 @@ You should see a result like this:
 ✓ Xorq and sklearn pipelines produce identical results!
 ```
 
-**Key points**:
-
-- Xorq pipelines produce identical predictions to sklearn
-- Use `np.allclose()` for floating-point comparisons
-- Scores should match exactly (or within floating-point precision)
-- This equivalence enables seamless migration from sklearn to Xorq
+Xorq pipelines produce identical predictions to sklearn. Use `np.allclose()` for floating-point comparisons. This equivalence enables seamless migration from sklearn to Xorq.
 
 ### Access sklearn instance
 
@@ -322,7 +300,8 @@ Access the underlying sklearn pipeline when you need sklearn-specific methods or
 
 Create `access_sklearn_instance.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -366,12 +345,7 @@ Same object: False
 Pipeline parameters: ['memory', 'steps', 'transform_input']...
 ```
 
-**Key points**:
-
-- `.instance` property returns the equivalent sklearn pipeline
-- Useful for debugging or when you need sklearn-specific features not exposed by Xorq
-- The instance reflects current parameter settings
-- Changes to the instance don't affect the Xorq pipeline (immutability)
+The `.instance` property returns the equivalent sklearn pipeline, useful for debugging or when you need sklearn-specific features not exposed by Xorq. The instance reflects current parameter settings, but changes to the instance don't affect the Xorq pipeline due to immutability.
 
 ## Enable caching for fitted pipelines
 
@@ -381,7 +355,8 @@ Add caching to your wrapped sklearn pipelines to speed up repeated training and 
 
 Create `cache_pipeline.py` to add caching to your wrapped sklearn pipelines. Caching speeds up repeated training by reusing fitted models:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from xorq.caching import ParquetCache
@@ -461,12 +436,7 @@ Second fit completed in 0.005 seconds
 Cache speedup: 12.1x faster
 ```
 
-**Key points**:
-
-- Caching works with wrapped sklearn pipelines
-- Fitted models are cached based on content-addressed hashing
-- Cache hits avoid recomputation of fitted steps
-- See [Train models at scale](./train_models_at_scale.qmd) for detailed caching examples
+Caching works with wrapped sklearn pipelines. Fitted models are cached based on content-addressed hashing, and cache hits avoid recomputation of fitted steps. See [Train models at scale](./train_models_at_scale.qmd) for detailed caching examples.
 
 ## Deploy sklearn models
 
@@ -476,7 +446,8 @@ Prepare your wrapped sklearn pipelines for deployment by creating a prediction e
 
 Create `prepare_deployment.py` to create a prediction expression for serving:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -509,7 +480,7 @@ fitted_pipeline = xorq_pipeline.fit(
     target="target"
 )
 
-# Create placeholder input table matching your model's feature schema
+# Create a placeholder input table matching your model's feature schema
 placeholder_input = xo.table(
     name="input_data",
     schema={
@@ -540,12 +511,7 @@ Expression schema: ibis.Schema {
 }
 ```
 
-**Key points**:
-
-- Use a placeholder input table with the same schema as your training features
-- Tag the placeholder with `"model_input"` for deployment
-- The prediction expression is deferred until execution
-- See [Deploy models to production](./deploy_models_to_production.qmd) for complete deployment workflow including server setup and client code
+Use a placeholder input table with the same schema as your training features. Tag the placeholder with `"model_input"` for deployment. The prediction expression is deferred until execution. See [Deploy models to production](./deploy_models_to_production.qmd) for complete deployment workflow including server setup and client code.
 
 ## Troubleshooting
 
@@ -553,9 +519,9 @@ When integrating sklearn pipelines, you may encounter issues with parameter upda
 
 ### Issue: Parameter updates don't work
 
-**Error**: `set_params()` doesn't change behavior or raises an error
+**Error**: `set_params()` doesn't change behavior or raise an error
 
-**Cause**: Using wrong parameter name format or parameter doesn't exist
+**Cause**: Using the wrong parameter name format, or the parameter doesn't exist
 
 **Detection**: Parameter changes don't affect pipeline behavior
 
@@ -597,7 +563,7 @@ When integrating sklearn pipelines, you may encounter issues with parameter upda
 
 ### Issue: Cannot access fitted sklearn model
 
-**Error**: Need to access underlying sklearn model for custom operations
+**Error**: Need to access the underlying sklearn model for custom operations
 
 **Cause**: Xorq's `FittedPipeline` wraps sklearn models
 
@@ -628,8 +594,8 @@ When integrating sklearn pipelines, you may encounter issues with parameter upda
 
 1. Verify pipeline is a sklearn `Pipeline` object: `isinstance(pipeline, sklearn.pipeline.Pipeline)`
 2. Check step types are supported: most sklearn estimators work
-3. Update sklearn version: ensure compatible sklearn version
-4. Test with simple pipeline first: wrap a minimal pipeline to isolate issue
+3. Update sklearn version: ensure a compatible sklearn version
+4. Test with a simple pipeline first: wrap a minimal pipeline to isolate the issue
 
 **Prevention**:
 

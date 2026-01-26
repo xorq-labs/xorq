@@ -2,21 +2,920 @@
 title: 'Integrate with existing tools'
 ---
 
-## Coming soon
+Integrate Xorq with your existing data and ML infrastructure. This guide shows you how to connect Xorq to orchestration tools, data warehouses, BI platforms, and ML systems.
 
-This guide will show you how to integrate Xorq with your existing data and ML infrastructure.
+**Goal**: Connect Xorq to your existing tool stack without rewriting your infrastructure.
 
-You will learn integration patterns for common tools in the modern data stack.
+## Prerequisites
 
-**What you'll accomplish:**
-- Integrate with Airflow/Dagster
-- Connect to existing data warehouses
-- Export to BI tools
-- Bridge with existing ML platforms
+Before you start, you need:
 
-**Prerequisites:**
-- Existing tool stack to integrate with
-- Understanding of tool APIs
+- [Xorq installed](../../../getting_started/installation.qmd)
+- Access to the tools you want to integrate with
+- Understanding of your existing tool APIs
 
-Check back soon for the complete guide.
+## Integration patterns
 
+Xorq integrates with existing tools through several patterns:
+
+1. **CLI execution**: Run Xorq commands from orchestration tools
+2. **Python API**: Import Xorq in Python scripts
+3. **Arrow Flight**: Serve expressions as network services
+4. **Build artifacts**: Share builds across systems
+5. **Catalog access**: Query catalog from external tools
+
+## Integrate with orchestration tools
+
+Run Xorq pipelines from Airflow, Dagster, Prefect, or other orchestrators.
+
+### Airflow integration
+
+Set up Airflow to run Xorq builds as scheduled tasks.
+
+#### Install Airflow
+
+Install Apache Airflow:
+
+::: {.panel-tabset}
+
+## Quick install
+
+Install Airflow for development and testing:
+
+```bash
+pip install apache-airflow
+```
+
+
+## With constraints 
+
+Use constraints files for reproducible installations in production environments. This prevents dependency conflicts and ensures consistent package versions across deployments.
+
+
+```bash
+PYTHON_VERSION="$(python --version | cut -d " " -f 2 | cut -d "." -f 1-2)"
+PYTHON_MAJOR_MINOR=$(echo "$PYTHON_VERSION" | tr -d '.')
+# Use Airflow 3.0.0+ for Python 3.12+, or 2.8.0 for Python 3.9-3.11
+if [ "$PYTHON_MAJOR_MINOR" -ge 312 ]; then
+  AIRFLOW_VERSION=3.0.0
+else
+  AIRFLOW_VERSION=2.8.0
+fi
+CONSTRAINT_URL="https://raw.githubusercontent.com/apache/airflow/constraints-${AIRFLOW_VERSION}/constraints-${PYTHON_VERSION}.txt"
+pip install "apache-airflow==${AIRFLOW_VERSION}" --constraint "${CONSTRAINT_URL}"
+```
+:::{.callout-note}
+These commands run sequentially. The script automatically selects Airflow 3.0.0+ for Python 3.12+ or Airflow 2.8.0 for Python 3.9-3.11, then sets the constraint URL and installs.
+:::
+
+:::
+
+#### Initialize Airflow
+
+Initialize Airflow database:
+
+::: {.panel-tabset}
+
+## Airflow 3.0+ (Python 3.12+)
+
+```bash
+airflow db migrate
+```
+
+**Expected output**:
+```
+[2026-01-26T01:15:01.935+0100] {providers_manager.py:946} INFO - The hook_class 'airflow.providers.standard.hooks.filesystem.FSHook' is not fully initialized (UI widgets will be missing), because the 'flask_appbuilder' package is not installed, however it is not required for Airflow components to work
+DB: sqlite:////Users/username/airflow/airflow.db
+Performing upgrade to the metadata database sqlite:////Users/username/airflow/airflow.db
+[2026-01-26T01:15:02.040+0100] {db.py:729} INFO - Creating Airflow database tables from the ORM
+[2026-01-26T01:15:02.085+0100] {migration.py:618} INFO - Running stamp_revision  -> 29ce7909c52b
+[2026-01-26T01:15:02.086+0100] {db.py:740} INFO - Airflow database tables created
+Database migrating done!
+```
+
+:::{.callout-notes}
+The warnings about `flask_appbuilder` are normal and don't affect functionality. They only impact UI widgets, not core Airflow operations.
+:::
+
+## Airflow 2.x (Python 3.9-3.11)
+
+```bash
+airflow db init
+```
+
+**Expected output**:
+```
+DB: sqlite:////Users/username/airflow/airflow.db
+[2024-01-19 10:30:00,000] {db.py:1500} INFO - Creating tables
+...
+Initialization done
+```
+
+:::
+
+#### Create Airflow user
+
+Airflow 3.0+ uses Simple auth manager by default, which provides a default admin user. **No user creation needed** - you can log in directly with:
+
+- **Username**: `admin`
+- **Password**: `admin`
+
+**For Airflow 2.x** (if authentication is enabled), create a user with this command. **Run this in your terminal** (works on macOS, Linux, and Windows):
+
+```bash
+airflow users create \
+  --username admin \
+  --firstname Admin \
+  --lastname User \
+  --role Admin \
+  --email admin@example.com \
+  --password admin
+```
+
+**Expected output**:
+```
+User "admin" created with role "Admin"
+```
+
+**Note**: 
+- **Airflow 3.0+**: Default credentials are `admin:admin` - no command needed, just log in
+- **Airflow 2.x**: Use the command above if authentication is enabled
+- The command works on **macOS, Linux, and Windows** (the backslash `\` is for line continuation and works in all shells)
+
+#### Create DAG directory
+
+Create directory for your DAGs:
+
+```bash
+mkdir -p ~/airflow/dags
+```
+
+Or set custom DAG folder in `~/airflow/airflow.cfg`:
+
+```ini
+[core]
+dags_folder = /path/to/your/dags
+```
+
+#### Create Xorq project structure
+
+Set up your project:
+
+```bash
+mkdir xorq-airflow-project
+cd xorq-airflow-project
+
+# Create your Xorq expression file
+cat > train_model.py << 'EOF'
+import xorq.api as xo
+
+con = xo.connect()
+data = xo.examples.iris.fetch(backend=con)
+
+model_expr = data.filter(xo._.sepal_length > 6)
+EOF
+
+# Create builds directory
+mkdir builds
+```
+
+**Project structure**:
+```
+xorq-airflow-project/
+├── train_model.py
+├── builds/
+└── dags/
+    └── xorq_pipeline.py
+```
+
+#### Create Airflow DAG file
+
+Create `~/airflow/dags/xorq_pipeline.py`:
+
+```python
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from datetime import datetime
+from pathlib import Path
+
+# Update this path to your project directory
+PROJECT_DIR = Path("/path/to/xorq-airflow-project")
+
+dag = DAG(
+    'xorq_pipeline',
+    start_date=datetime(2024, 1, 1),
+    schedule_interval='@daily',
+    catchup=False
+)
+
+# Build expression
+build_task = BashOperator(
+    task_id='build_expression',
+    bash_command=f'cd {PROJECT_DIR} && xorq build train_model.py -e model_expr --builds-dir builds',
+    dag=dag
+)
+
+# Run expression
+run_task = BashOperator(
+    task_id='run_expression',
+    bash_command=f'cd {PROJECT_DIR} && xorq run builds/$(ls -t builds | head -1) -o output.parquet',
+    dag=dag
+)
+
+# Add to catalog
+catalog_task = BashOperator(
+    task_id='add_to_catalog',
+    bash_command=f'cd {PROJECT_DIR} && xorq catalog add builds/$(ls -t builds | head -1) --alias daily-model',
+    dag=dag
+)
+
+build_task >> run_task >> catalog_task
+```
+
+**What happens**:
+- DAG file created in Airflow's DAGs folder
+- Tasks defined with dependencies
+- Commands run in project directory
+
+#### Verify DAG loads
+
+Check that Airflow recognizes your DAG:
+
+```bash
+airflow dags list | grep xorq_pipeline
+```
+
+**Expected output**:
+```
+xorq_pipeline
+```
+
+**Note**: You may see a warning about `graphviz` not being installed. This is optional and only affects graph visualization in the UI. Core Airflow functionality works without it. To enable visualization, install with: `pip install graphviz` (also requires system package: `brew install graphviz` on macOS or `apt-get install graphviz` on Linux).
+
+Test DAG syntax:
+
+```bash
+airflow dags list-import-errors
+```
+
+**Expected output**: (empty if no errors)
+
+#### Start Airflow
+
+Start Airflow API server (webserver in Airflow 3.0+):
+
+::: {.panel-tabset}
+
+## Airflow 3.0+ (Python 3.12+)
+
+```bash
+airflow api-server --port 8080
+```
+
+In another terminal, start scheduler:
+
+```bash
+airflow scheduler
+```
+
+**Expected output**:
+```
+[2026-01-26 01:15:00,000] {scheduler_job.py:1500} INFO - Starting the scheduler
+```
+
+## Airflow 2.x (Python 3.9-3.11)
+
+```bash
+airflow webserver --port 8080
+```
+
+In another terminal, start scheduler:
+
+```bash
+airflow scheduler
+```
+
+**Expected output**:
+```
+[2024-01-19 10:30:00,000] {scheduler_job.py:1500} INFO - Starting the scheduler
+```
+
+:::
+
+#### Access Airflow UI
+
+Open `http://localhost:8080` in your browser.
+
+Log in with the credentials you created:
+- **Username**: `admin`
+- **Password**: `admin` (or the password you set)
+
+**What you'll see**:
+- DAG list with `xorq_pipeline`
+- DAG graph showing task dependencies
+- Ability to trigger DAGs manually
+
+#### Test the DAG
+
+Trigger the DAG manually:
+
+1. Go to Airflow UI
+2. Find `xorq_pipeline` DAG
+3. Click "Play" button to trigger
+4. Watch tasks execute
+
+**Expected behavior**:
+- `build_expression` task runs first
+- `run_expression` runs after build completes
+- `catalog_task` runs last
+- All tasks show green (success) status
+
+### Dagster integration
+
+Set up Dagster to manage Xorq builds as assets.
+
+#### Install Dagster
+
+Install Dagster:
+
+```bash
+pip install dagster dagster-webserver
+```
+
+**Expected output**:
+```
+Successfully installed dagster-1.5.0 ...
+```
+
+#### Create project structure
+
+Set up your Dagster project:
+
+```bash
+mkdir xorq-dagster-project
+cd xorq-dagster-project
+
+# Create your Xorq expression file
+cat > train_model.py << 'EOF'
+import xorq.api as xo
+
+con = xo.connect()
+data = xo.examples.iris.fetch(backend=con)
+
+model_expr = data.filter(xo._.sepal_length > 6)
+EOF
+
+# Create builds directory
+mkdir builds
+```
+
+**Project structure**:
+```
+xorq-dagster-project/
+├── train_model.py
+├── builds/
+└── dagster_project.py
+```
+
+#### Create Dagster project file
+
+Create `dagster_project.py`:
+
+```python
+from dagster import Definitions, asset, AssetExecutionContext
+import subprocess
+from pathlib import Path
+
+PROJECT_DIR = Path(__file__).parent
+
+@asset
+def build_xorq_expression(context: AssetExecutionContext):
+    """Build Xorq expression."""
+    result = subprocess.run(
+        ["xorq", "build", "train_model.py", "-e", "model_expr", "--builds-dir", "builds"],
+        cwd=PROJECT_DIR,
+        capture_output=True,
+        text=True
+    )
+    
+    if result.returncode != 0:
+        raise Exception(f"Build failed: {result.stderr}")
+    
+    # Extract build hash from output
+    build_hash = result.stdout.strip().split("/")[-1]
+    context.log.info(f"Built: {build_hash}")
+    
+    return build_hash
+
+@asset(deps=[build_xorq_expression])
+def run_xorq_expression(context: AssetExecutionContext, build_xorq_expression: str):
+    """Run Xorq expression."""
+    build_path = PROJECT_DIR / "builds" / build_xorq_expression
+    output_path = PROJECT_DIR / "output.parquet"
+    
+    subprocess.run(
+        ["xorq", "run", str(build_path), "-o", str(output_path)],
+        cwd=PROJECT_DIR,
+        check=True
+    )
+    
+    context.log.info(f"Output saved to {output_path}")
+    return str(output_path)
+
+defs = Definitions(
+    assets=[build_xorq_expression, run_xorq_expression]
+)
+```
+
+**What happens**:
+- Dagster project file defines assets
+- Assets have dependencies
+- Build hash passed between assets
+
+#### Start Dagster
+
+Start Dagster webserver:
+
+```bash
+cd xorq-dagster-project
+dagster dev
+```
+
+**Expected output**:
+```
+2024-01-19 10:30:00 - dagster - INFO - Started Dagster webserver on http://127.0.0.1:3000
+```
+
+#### Access Dagster UI
+
+Open `http://localhost:3000` in your browser.
+
+**What you'll see**:
+- Asset graph showing dependencies
+- Ability to materialize assets
+- Asset lineage visualization
+
+#### Test the assets
+
+Materialize assets:
+
+1. Go to Dagster UI
+2. Navigate to Assets
+3. Click "Materialize all"
+4. Watch assets execute
+
+**Expected behavior**:
+- `build_xorq_expression` materializes first
+- `run_xorq_expression` materializes after build completes
+- Both assets show success status
+
+### Python API integration
+
+Use Xorq's Python API directly:
+
+```python
+from pathlib import Path
+from xorq.ibis_yaml.compiler import load_expr, build_expr
+import xorq.api as xo
+
+# Build expression
+con = xo.connect()
+data = xo.examples.iris.fetch(backend=con)
+expr = data.filter(xo._.sepal_length > 6)
+
+build_path = build_expr(expr, builds_dir="builds")
+
+# Load and execute
+loaded_expr = load_expr(build_path)
+result = loaded_expr.execute()
+
+# Use result in your pipeline
+process_result(result)
+```
+
+**What happens**:
+- Xorq expressions are Python objects
+- Integrate directly into Python workflows
+- No CLI calls needed
+
+## Connect to data warehouses
+
+Read from and write to existing data warehouses.
+
+### Read from Snowflake
+
+Connect to Snowflake and read data:
+
+```python
+import xorq.api as xo
+
+# Connect to Snowflake
+con = xo.snowflake.connect(
+    account="your-account",
+    user="your-user",
+    password="your-password",
+    database="your-database",
+    schema="your-schema"
+)
+
+# Read table
+data = con.table("your_table")
+
+# Build expression
+expr = data.filter(xo._.column > 100)
+
+# Build and execute
+xorq build your_script.py -e expr --builds-dir builds
+```
+
+**What happens**:
+- Xorq connects to Snowflake using existing credentials
+- Tables are accessible as Xorq expressions
+- Expressions can be built and executed
+
+### Write to data warehouse
+
+Write Xorq results back to warehouses:
+
+```python
+import xorq.api as xo
+from xorq.ibis_yaml.compiler import load_expr
+
+# Load built expression
+expr = load_expr("builds/<build_hash>")
+
+# Execute and get result
+result = expr.execute()
+
+# Write to Snowflake
+con = xo.snowflake.connect(...)
+con.create_table("output_table", result, overwrite=True)
+```
+
+**What happens**:
+- Xorq executes the expression
+- Results are written to your warehouse
+- Existing warehouse tools can query the results
+
+## Export to BI tools
+
+Export Xorq results for BI visualization.
+
+### Export to Parquet
+
+Export results as Parquet files:
+
+```bash
+xorq run builds/<build_hash> -o results.parquet
+```
+
+**What happens**:
+- Results saved as Parquet file
+- BI tools can read Parquet directly
+- Compatible with Tableau, Power BI, Looker, etc.
+
+### Export to CSV
+
+Export results as CSV:
+
+```python
+from xorq.ibis_yaml.compiler import load_expr
+import pandas as pd
+
+# Load and execute
+expr = load_expr("builds/<build_hash>")
+result = expr.execute()
+
+# Convert to DataFrame and export
+df = result.to_pandas()
+df.to_csv("results.csv", index=False)
+```
+
+**What happens**:
+- Results converted to pandas DataFrame
+- Exported as CSV
+- BI tools can import CSV files
+
+### Serve via Flight for real-time queries
+
+Serve expressions as Flight services for real-time BI queries:
+
+```bash
+xorq serve-unbound builds/<build_hash> \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --to_unbind_tag source_input
+```
+
+**What happens**:
+- Expression served as Arrow Flight service
+- BI tools can query via Flight protocol
+- Real-time data access without file exports
+
+## Bridge with ML platforms
+
+Integrate Xorq with MLflow, Weights & Biases, or other ML platforms.
+
+### Log builds to MLflow
+
+Log Xorq builds as MLflow artifacts:
+
+```python
+import mlflow
+from pathlib import Path
+import subprocess
+
+# Build expression
+subprocess.run([
+    "xorq", "build", "train_model.py", "-e", "model_expr", "--builds-dir", "builds"
+], check=True)
+
+# Get build hash
+build_hash = subprocess.run(
+    ["ls", "-t", "builds"], capture_output=True, text=True
+).stdout.split()[0]
+
+# Log to MLflow
+with mlflow.start_run():
+    mlflow.log_artifacts(f"builds/{build_hash}", "xorq_build")
+    mlflow.log_param("build_hash", build_hash)
+    mlflow.log_param("xorq_version", "0.3.4")
+```
+
+**What happens**:
+- Xorq build logged as MLflow artifact
+- Build hash tracked as parameter
+- Builds versioned alongside models
+
+### Track experiments with W&B
+
+Track Xorq builds in Weights & Biases:
+
+```python
+import wandb
+from pathlib import Path
+
+# Initialize W&B
+run = wandb.init(project="xorq-pipelines")
+
+# Build expression
+build_path = build_expr(expr, builds_dir="builds")
+
+# Log build
+wandb.log_artifact(
+    str(build_path),
+    name="xorq-build",
+    type="xorq_expression"
+)
+
+# Log metadata
+wandb.config.update({
+    "build_hash": build_path.name,
+    "expression_name": "model_expr"
+})
+```
+
+**What happens**:
+- Build artifacts tracked in W&B
+- Metadata logged for experiment tracking
+- Builds linked to model training runs
+
+## Access catalog from external tools
+
+Query the Xorq catalog from external systems.
+
+### Read catalog programmatically
+
+Access catalog from Python:
+
+```python
+from xorq.catalog import load_catalog
+
+# Load catalog
+catalog = load_catalog()
+
+# List entries
+for entry in catalog.entries:
+    print(f"Entry ID: {entry.entry_id}")
+    print(f"Build ID: {entry.history[0].build.build_id}")
+    print(f"Path: {entry.history[0].build.path}")
+
+# Get alias
+alias = catalog.aliases.get("my-model")
+if alias:
+    print(f"Alias points to: {alias.entry_id}")
+```
+
+**What happens**:
+- Catalog loaded from `~/.config/xorq/catalog.yaml`
+- Entries and aliases accessible as Python objects
+- Use in custom tooling or scripts
+
+### Export catalog metadata
+
+Export catalog information:
+
+```bash
+xorq catalog ls > catalog_export.txt
+```
+
+Or programmatically:
+
+```python
+from xorq.catalog import load_catalog
+import json
+
+catalog = load_catalog()
+
+# Export to dictionary
+catalog_dict = {
+    "entries": [
+        {
+            "entry_id": entry.entry_id,
+            "build_id": entry.history[0].build.build_id,
+            "aliases": [
+                name for name, alias in catalog.aliases.items()
+                if alias.entry_id == entry.entry_id
+            ]
+        }
+        for entry in catalog.entries
+    ]
+}
+
+# Save to JSON
+with open("catalog.json", "w") as f:
+    json.dump(catalog_dict, f, indent=2)
+```
+
+## Integration examples
+
+Complete integration examples for common scenarios.
+
+### Example: Airflow DAG with catalog
+
+Complete Airflow DAG that builds, tests, and catalogs:
+
+```python
+from airflow import DAG
+from airflow.operators.bash import BashOperator
+from airflow.operators.python import PythonOperator
+from datetime import datetime
+
+def get_build_hash(**context):
+    """Extract build hash from previous task."""
+    # In production, use XCom to pass build hash
+    import subprocess
+    result = subprocess.run(
+        ["ls", "-t", "builds"], capture_output=True, text=True
+    )
+    return result.stdout.split()[0]
+
+dag = DAG(
+    'xorq_pipeline',
+    start_date=datetime(2024, 1, 1),
+    schedule_interval='@daily'
+)
+
+build = BashOperator(
+    task_id='build',
+    bash_command='xorq build train_model.py -e model_expr --builds-dir builds',
+    dag=dag
+)
+
+test = BashOperator(
+    task_id='test',
+    bash_command='python test_build.py builds/{{ ti.xcom_pull(task_ids="get_hash") }}',
+    dag=dag
+)
+
+get_hash = PythonOperator(
+    task_id='get_hash',
+    python_callable=get_build_hash,
+    dag=dag
+)
+
+catalog = BashOperator(
+    task_id='catalog',
+    bash_command='xorq catalog add builds/{{ ti.xcom_pull(task_ids="get_hash") }} --alias daily-{{ ds }}',
+    dag=dag
+)
+
+build >> get_hash >> test >> catalog
+```
+
+### Example: Dagster asset with lineage
+
+Dagster asset that tracks lineage:
+
+```python
+from dagster import asset, AssetExecutionContext
+from xorq.ibis_yaml.compiler import load_expr
+from xorq.common.utils.lineage_utils import build_column_trees
+import json
+
+@asset
+def xorq_expression_with_lineage(context: AssetExecutionContext):
+    """Build expression and export lineage."""
+    # Build (from previous asset)
+    build_hash = context.instance.get_materialization("build_xorq_expression").metadata["build_hash"].value
+    
+    # Load expression
+    expr = load_expr(f"builds/{build_hash}")
+    
+    # Get lineage
+    trees = build_column_trees(expr)
+    
+    # Export lineage
+    lineage_dict = {
+        col: {
+            "op": str(tree.op),
+            "children_count": len(tree.children)
+        }
+        for col, tree in trees.items()
+    }
+    
+    # Log lineage
+    context.log.info(f"Lineage: {json.dumps(lineage_dict, indent=2)}")
+    
+    return {"build_hash": build_hash, "lineage": lineage_dict}
+```
+
+## Troubleshooting
+
+Common issues when integrating Xorq with existing tools.
+
+### Issue: Build hash not available in orchestrator
+
+**Error**: Can't pass build hash between tasks
+
+**Fix**:
+
+1. **Use XCom (Airflow)**:
+   ```python
+   def get_build_hash(**context):
+       # Extract from build output
+       return build_hash
+   
+   # In next task
+   bash_command='xorq run builds/{{ ti.xcom_pull(task_ids="build") }} -o output.parquet'
+   ```
+
+2. **Use file system**:
+   ```python
+   # Save build hash to file
+   with open("build_hash.txt", "w") as f:
+       f.write(build_hash)
+   
+   # Read in next task
+   with open("build_hash.txt") as f:
+       build_hash = f.read().strip()
+   ```
+
+### Issue: Catalog not accessible in CI/CD
+
+**Error**: Catalog entries not found in CI environment
+
+**Fix**:
+
+1. **Export catalog**:
+   ```bash
+   xorq catalog export -o catalog_backup/
+   ```
+
+2. **Import in CI**:
+   ```bash
+   # Copy catalog files to CI
+   cp -r catalog_backup/* ~/.config/xorq/
+   ```
+
+3. **Use build hashes directly** instead of aliases in CI
+
+### Issue: Flight server not accessible
+
+**Error**: Can't connect to Flight server from external tool
+
+**Fix**:
+
+1. **Verify server is running**:
+   ```bash
+   curl http://localhost:8080/health  # If health endpoint exists
+   ```
+
+2. **Check firewall/network**:
+   ```bash
+   # Test connection
+   telnet <host> <port>
+   ```
+
+3. **Use correct connection string**:
+   ```python
+   backend = xo.flight.connect(host="your-host", port=8080)
+   ```
+
+## Next steps
+
+You now know how to integrate Xorq with your existing tools:
+
+- [Track data lineage](track_data_lineage.qmd) - Understand data flow
+- [Manage the compute catalog](../platform_workflows/manage_compute_catalog.qmd) - Organize builds
+- [Set up CI/CD pipelines](../platform_workflows/setup_cicd_pipelines.qmd) - Automate deployments
