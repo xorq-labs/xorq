@@ -1,120 +1,53 @@
-import functools
 from pathlib import Path
 
-import pandas as pd
+import sklearn.pipeline
 import xgboost as xgb
-from sklearn.base import (
-    BaseEstimator,
-)
+from sklearn.base import BaseEstimator
 from sklearn.metrics import (
     classification_report,
     confusion_matrix,
     roc_auc_score,
 )
-from sklearn.preprocessing import (
-    OneHotEncoder,
-)
+from sklearn.preprocessing import OneHotEncoder
 
 import xorq.api as xo
 import xorq.expr.selectors as s
 import xorq.vendor.ibis.expr.datatypes as dt
-from xorq.caching import (
-    ParquetCache,
-)
+from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_csv
-from xorq.expr.ml import (
-    train_test_splits,
-)
-from xorq.expr.ml.fit_lib import (
-    transform_sklearn_feature_names_out,
-)
-from xorq.expr.ml.pipeline_lib import (
-    FittedPipeline,
-    Step,
-)
-from xorq.expr.ml.structer import (
-    ENCODED,
-)
+from xorq.expr.ml import train_test_splits
+from xorq.expr.ml.pipeline_lib import Pipeline
 
 
-class OneHotStep(OneHotEncoder):
-    @functools.wraps(OneHotEncoder.transform)
-    def transform(self, *args, **kwargs):
-        transformed = transform_sklearn_feature_names_out(super(), *args, **kwargs)
-        return transformed
-
-    @classmethod
-    def get_step_kwargs(cls):
-        from xorq.expr.ml.fit_lib import transform_sklearn
-
-        kwargs = {
-            "other": transform_sklearn,
-            "target": None,
-            "return_type": dt.Array(dt.Struct({"key": str, "value": float})),
-            "name_infix": "transformed",
-        }
-        return kwargs
-
-
-class XGBoostModelExplodeEncoded(BaseEstimator):
-    def __init__(self, num_boost_round=10, params=None, encoded_col=ENCODED):
-        self.encoded_col = encoded_col
+class XGBoostClassifier(BaseEstimator):
+    def __init__(self, num_boost_round=10, max_depth=4, eta=1, seed=0):
         self.num_boost_round = num_boost_round
-        self.params = params or {
-            "max_depth": 4,
-            "eta": 1,
-            "objective": "binary:logistic",
-            "seed": 0,
-        }
+        self.max_depth = max_depth
+        self.eta = eta
+        self.seed = seed
         self.model = None
 
     return_type = dt.float64
 
-    def do_explode_encoded(self, X):
-        def explode_series(series):
-            (keys, values) = (
-                [tuple(dct[which] for dct in lst) for lst in series]
-                for which in ("key", "value")
-            )
-            (columns, *rest) = keys
-            assert all(el == columns for el in rest)
-            df = pd.DataFrame(
-                values,
-                index=series.index,
-                columns=columns,
-            )
-            return df
-
-        X = X.drop(columns=self.encoded_col).join(explode_series(X[self.encoded_col]))
-        return X
-
-    def make_dmatrix(self, X, y=None):
-        X = self.do_explode_encoded(X)
-        dmatrix = xgb.DMatrix(X, y)
-        return dmatrix
-
     def fit(self, X, y):
-        dtrain = self.make_dmatrix(X, y)
-        self.model = xgb.train(
-            self.params, dtrain, num_boost_round=self.num_boost_round
-        )
-        print("fitting")
+        params = {
+            "max_depth": self.max_depth,
+            "eta": self.eta,
+            "objective": "binary:logistic",
+            "seed": self.seed,
+        }
+        dtrain = xgb.DMatrix(X, y)
+        self.model = xgb.train(params, dtrain, num_boost_round=self.num_boost_round)
         return self
 
     def predict(self, X):
-        dmatrix = self.make_dmatrix(X)
+        dmatrix = xgb.DMatrix(X)
         return self.model.predict(dmatrix)
 
 
-one_hot_step = Step(
-    OneHotStep,
-    "one_hot_step",
-    params_tuple=(("handle_unknown", "ignore"), ("drop", "first")),
-)
-xgbee_step = Step(
-    XGBoostModelExplodeEncoded,
-    name="xgbee_step",
-    params_tuple=(("encoded_col", ENCODED),),
+sklearn_pipeline = sklearn.pipeline.make_pipeline(
+    OneHotEncoder(handle_unknown="ignore", drop="first", sparse_output=False),
+    XGBoostClassifier(),
 )
 
 
@@ -135,25 +68,17 @@ def make_pipeline(dataset_name, target_column, predicted_col, con=None, cache=No
         random_seed=42,
     )
     pattern = f"^(?!{target_column}$)"
-    numeric_features = tuple(
-        train_table.select(s.all_of(s.numeric(), s.matches(pattern))).columns
+    features = tuple(
+        train_table.select(
+            s.any_of(s.numeric(), s.of_type(str)) & s.matches(pattern)
+        ).columns
     )
-    fitted_one_hot_step = one_hot_step.fit(
+    xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+    fitted_pipeline = xorq_pipeline.fit(
         train_table,
-        features=train_table.select(s.of_type(str)).columns,
-        dest_col=ENCODED,
-        cache=cache,
-    )
-    fitted_xgbee_step = xgbee_step.fit(
-        expr=train_table.mutate(fitted_one_hot_step.mutate),
-        features=numeric_features + (ENCODED,),
+        features=features,
         target=target_column,
-        dest_col=predicted_col,
         cache=cache,
-    )
-    fitted_pipeline = FittedPipeline(
-        (fitted_one_hot_step, fitted_xgbee_step),
-        train_table,
     )
     return (train_table, test_table, fitted_pipeline)
 
@@ -176,7 +101,7 @@ encoded_test = fitted_pipeline.transform(test_table)
 predicted_test = fitted_pipeline.predict(test_table)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__main__", "__pytest_main__"):
     predictions_df = predicted_test.execute()
     binary_predictions = (predictions_df[predicted_col] >= 0.5).astype(int)
 
