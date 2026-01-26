@@ -28,13 +28,12 @@ from xorq.expr.udf import agg
 import xorq.expr.datatypes as dt
 
 #source_expr = xo.catalog.get("expr-alias")
-
-source_expr = xo.examples.diamonds.fetch()
+con = xo.connect()
+source_expr = xo.examples.diamonds.fetch(con)
 expr = source_expr.filter(xo._.carat >1)
 
-def complex_pandas_fn(df):
-    # complex things
-    return df
+def complex_pandas_agg_fn(df):
+    return tuple(row.to_dict() for _, row in df.iterrows())
 
 
 return_fields = {
@@ -52,20 +51,28 @@ return_fields = {
 return_type = dt.Array(dt.Struct(return_fields))
 
 complex_pandas_udaf = agg.pandas_df(
-    fn=complex_pandas_fn,
+    fn=complex_pandas_agg_fn,
     schema=expr.schema(),
     return_type=return_type,
     name='optimize_portfolio'
 )
 
-expr = expr.aggregate(complex_pandas_udaf.on_expr)
+expr = expr.aggregate(complex_pandas_udaf.on_expr(expr))
 
 expr.execute()
 ```
+```bash
+0  [{'carat': 1.06, 'cut': 'Very Good', 'color': ...
+```
 
+```
+xorq build expr.py
 
-# do some complicated pandas df stuff
+xorq catalog add .xorq/builds/...
+```
 
+This pattern can be further generalized to visualizations or objects using
+pickled dt.binary type.
 
 ## Quick Start
 
