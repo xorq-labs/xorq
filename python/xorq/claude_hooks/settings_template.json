@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session_start.py"
+      }]
+    }],
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/user_prompt_submit.py"
+      }]
+    }],
+    "PreToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_use.py"
+      }]
+    }],
+    "PreCompact": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_compact.py"
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/stop.py"
+      }]
+    }],
+    "SessionEnd": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session_end.py"
+      }]
+    }]
+  }
+}

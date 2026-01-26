@@ -481,15 +481,16 @@ def render_lean_onboarding() -> str:
         --- BEGIN AGENTS.MD CONTENT ---
         ## xorq Expression Framework
 
-        This project uses **xorq** for deferred data pipelines.
         Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
 
-        **Quick reference:**
-        - `xorq catalog ls` - Find available expressions
-        - `xorq build expr.py -e expr` - Build expression
-        - `xorq catalog add builds/<hash> --alias name` - Catalog build
-        - `xorq run <alias> -f arrow -o /dev/stdout | ...` - Stream expression
-        - `xorq agents prime` - Get current workflow context and state
+        ## Mandatory Workflow
+        1. `xorq agents vignette list` - discover patterns
+        2. `xorq agents vignette scaffold <name> --dest reference.py` - get template
+        3. Follow the scaffolded pattern exactly
+        4. `xorq build <file>.py -e expr` - build expression
+        5. `xorq catalog add .xorq/builds/<hash> --alias <name>` - register
+        6 `xorq catalog ls` - Find available expressions
+        6 `xorq agents prime` - Get current workflow context and state
 
         **Key principle:** Everything is a deferred expression - no eager pandas/NumPy!
         For ML patterns, use `xorq skill` for deferred sklearn guidance.
@@ -583,9 +584,27 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("xorq catalog add builds/<h> --alias # Catalog build")
     sections.append("xorq run <alias> -f arrow           # Run expression")
     sections.append("ls examples/                        # View example patterns")
+    sections.append("xorq agents vignette list            # List available vignettes")
     sections.append("```")
     sections.append("")
     sections.append("**Remember:** Everything is a deferred expression. No eager pandas/NumPy!")
+    sections.append("")
+
+    # Add vignettes section
+    sections.append("## Available Vignettes")
+    sections.append("")
+    sections.append("Learn from comprehensive working examples:")
+    sections.append("")
+    sections.append("**BEGINNER:**")
+    sections.append("- `penguins_classification_intro` - ML pipeline for penguin species classification")
+    sections.append("")
+    sections.append("**INTERMEDIATE:**")
+    sections.append("- `ml_pipeline_roc_visualization` - Production-ready ML with ROC visualization")
+    sections.append("")
+    sections.append("**ADVANCED:**")
+    sections.append("- `baseball_breakout_expr_scalar` - Advanced ML patterns with ExprScalarUDF")
+    sections.append("")
+    sections.append("Use `xorq agents vignette show <name>` for details or `xorq agents vignette scaffold <name>` to get started.")
     sections.append("")
 
     # Add Common Mistakes section
