@@ -19,14 +19,15 @@ Feature pipelines start with individual transformation steps. Steps integrate sc
 
 Create `feature_scaling.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Step
 from sklearn.preprocessing import StandardScaler
 from xorq.caching import ParquetCache
 from pathlib import Path
 
-# Connect and create sample data
+# <1>
 con = xo.connect()
 data = xo.memtable({
     "age": [25, 45, 35, 50, 28],
@@ -34,20 +35,20 @@ data = xo.memtable({
     "credit_score": [680, 750, 700, 780, 690]
 }, name="customers")
 
-# Create a transformation step
+# <2>
 scaler_step = Step(
     typ=StandardScaler,
     name="scaler"
 )
 
-# Set up caching for the fitted model
+# <3>
 cache = ParquetCache.from_kwargs(
     source=con,
     relative_path="./feature-cache",
     base_path=Path(".").absolute()
 )
 
-# Fit the scaler on the data
+# <4>
 fitted_scaler = scaler_step.fit(
     expr=data,
     features=("age", "income", "credit_score"),
@@ -55,13 +56,19 @@ fitted_scaler = scaler_step.fit(
     cache=cache
 )
 
-# Transform the data
+# <5>
 scaled_data = fitted_scaler.transform(data)
 
-# Execute to see results
+# <6>
 result = scaled_data.execute()
 print(result)
 ```
+1. Import Xorq API and connect to the default backend. Create an in-memory table from a Python dictionary with customer data (age, income, credit_score). The `name` parameter helps identify the table in logs and debugging.
+2. Create a `Step` that wraps a scikit-learn `StandardScaler` transformer. The `typ` parameter specifies the transformer class, and `name` is a human-readable identifier for this step in the pipeline.
+3. Set up a `ParquetCache` to store fitted models on disk. The cache persists across Python sessions and enables reuse of fitted transformers. `relative_path` specifies the cache directory relative to `base_path`.
+4. Fit the scaler on the specified features. The `fit()` method trains the StandardScaler on the data and returns a `FittedStep` containing the trained model. The fitted model is automatically cached to disk for reuse.
+5. Apply the fitted scaler transformation to the data. The `transform()` method creates a lazy expression that doesn't execute until `.execute()` is called, enabling deferred computation.
+6. Execute the transformation expression to materialize the results. The scaler standardizes features to have zero mean and unit variance, which is printed as a pandas DataFrame.
 
 Run the script:
 
@@ -80,13 +87,6 @@ You should see a result like this:
 4 -0.612372 -0.612372     -0.612372
 ```
 
-**Key points**:
-
-- `Step` integrates any scikit-learn transformer or model with Xorq
-- `.fit()` creates a `FittedStep` with the trained model cached
-- `.transform()` applies the transformation lazily (no execution until `.execute()`)
-- `cache` parameter stores the fitted model for reuse across sessions
-
 The fitted model is cached automatically. On subsequent runs, Xorq loads the cached model instead of refitting.
 
 ## Compose multi-step pipelines
@@ -95,7 +95,8 @@ Chain multiple transformation steps to create a complete feature engineering pip
 
 Create `feature_pipeline.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline, Step
 from sklearn.preprocessing import StandardScaler
@@ -104,16 +105,16 @@ from sklearn.linear_model import LogisticRegression
 from xorq.caching import ParquetCache
 from pathlib import Path
 
-# Connect and create classification data
+# <1>
 con = xo.connect()
 data = xo.memtable({
     "age": [25, 45, 35, 50, 28, 42, 31, 48],
     "income": [45000, 85000, 65000, 95000, 50000, 80000, 60000, 90000],
     "credit_score": [680, 750, 700, 780, 690, 740, 695, 770],
-    "approved": [0, 1, 0, 1, 0, 1, 0, 1]  # Target variable
+    "approved": [0, 1, 0, 1, 0, 1, 0, 1]
 }, name="applications")
 
-# Create pipeline steps
+# <2>
 scaler_step = Step(StandardScaler, name="scaler")
 selector_step = Step(
     SelectKBest,
@@ -126,17 +127,17 @@ model_step = Step(
     params_tuple=(("random_state", 42),)
 )
 
-# Combine steps into a pipeline
+# <3>
 pipeline = Pipeline(steps=(scaler_step, selector_step, model_step))
 
-# Set up caching
+# <4>
 cache = ParquetCache.from_kwargs(
     source=con,
     relative_path="./pipeline-cache",
     base_path=Path(".").absolute()
 )
 
-# Fit the entire pipeline
+# <5>
 fitted_pipeline = pipeline.fit(
     expr=data,
     features=("age", "income", "credit_score"),
@@ -144,11 +145,17 @@ fitted_pipeline = pipeline.fit(
     cache=cache
 )
 
-# Make predictions
+# <6>
 predictions = fitted_pipeline.predict(data)
 result = predictions.execute()
 print(result)
 ```
+1. Connect to the default backend and create an in-memory table with customer application data. The `approved` column is the target variable for binary classification (0 = rejected, 1 = approved).
+2. Create three pipeline steps: a scaler to standardize features, a selector to choose the top 2 features, and a classifier for predictions. `params_tuple` passes parameters to the scikit-learn transformers (e.g., `k=2` for SelectKBest, `random_state=42` for LogisticRegression).
+3. Combine the steps into a `Pipeline`. Steps execute sequentially: data flows through scaler → selector → classifier. The final step with a `predict()` method becomes the prediction step.
+4. Set up caching to store fitted models for each step. Each step's fitted model is cached independently, so changing one step's parameters only invalidates that step and downstream steps.
+5. Fit the entire pipeline on the data. The `fit()` method trains each step in sequence: scaler fits on features, selector fits on scaled features, classifier fits on selected features. All fitted models are cached automatically.
+6. Make predictions by transforming data through all fitted steps. The `predict()` method applies scaler → selector → classifier transformations and returns predictions. Execution happens when `.execute()` is called.
 
 Run the script:
 
@@ -170,14 +177,6 @@ You should see a result like this:
 7         1           1
 ```
 
-**Key points**:
-
-- `Pipeline` chains multiple `Step` objects in sequence
-- Each step's transformation feeds into the next step
-- Final step with `predict()` method becomes the prediction step
-- `.fit()` trains all steps in order, caching each fitted model
-- `.predict()` transforms data through all steps and returns predictions
-
 Caching applies to each step independently. If you refit with different parameters for one step, only that step and downstream steps recompute.
 
 ## Test pipeline correctness
@@ -186,7 +185,8 @@ Verify your pipeline produces expected transformations before production deploym
 
 Create `test_feature_pipeline.py`:
 
-```python
+```{python}
+#| eval: true
 import pytest
 import pandas as pd
 import xorq.api as xo
@@ -196,6 +196,7 @@ from sklearn.feature_selection import SelectKBest
 
 def test_pipeline_transforms_data():
     """Test pipeline creates expected transformations."""
+    # <1>
     con = xo.connect()
     data = xo.memtable({
         "feature1": [1.0, 2.0, 3.0, 4.0, 5.0],
@@ -204,12 +205,12 @@ def test_pipeline_transforms_data():
         "target": [0, 0, 1, 1, 1]
     }, name="test_data")
     
-    # Create simple pipeline
+    # <2>
     scaler = Step(StandardScaler, name="scaler")
     selector = Step(SelectKBest, name="selector", params_tuple=(("k", 2),))
     pipeline = Pipeline(steps=(scaler, selector))
     
-    # Fit and transform
+    # <3>
     fitted = pipeline.fit(
         expr=data,
         features=("feature1", "feature2", "feature3"),
@@ -218,7 +219,7 @@ def test_pipeline_transforms_data():
     transformed = fitted.transform(data)
     result = transformed.execute()
     
-    # Verify pipeline executed successfully
+    # <4>
     assert len(result) == 5, f"Expected 5 rows, got {len(result)}"
     assert "target" in result.columns, "Target column missing"
     
@@ -227,6 +228,7 @@ def test_pipeline_transforms_data():
 
 def test_pipeline_cached_model():
     """Test fitted models are cached correctly."""
+    # <5>
     con = xo.connect()
     from xorq.caching import ParquetCache
     from pathlib import Path
@@ -236,20 +238,22 @@ def test_pipeline_cached_model():
         "y": [0, 1, 1]
     }, name="cache_test")
     
+    # <6>
     cache = ParquetCache.from_kwargs(
         source=con,
         relative_path="./test-cache",
         base_path=Path(".").absolute()
     )
     
+    # <7>
     scaler = Step(StandardScaler, name="test_scaler")
     fitted = scaler.fit(expr=data, features=("x",), cache=cache)
     
-    # Transform data to trigger cache write
+    # <8>
     transformed = fitted.transform(data)
     result = transformed.execute()
     
-    # Verify transformation completed
+    # <9>
     assert len(result) == 3, f"Expected 3 rows, got {len(result)}"
     print("✓ Model cached correctly")
 
@@ -258,6 +262,15 @@ if __name__ == "__main__":
     test_pipeline_cached_model()
     print("\nAll tests passed!")
 ```
+1. Create test data with three features and a binary target. Use `xo.memtable()` to create an in-memory table for testing transformations.
+2. Create a pipeline with two steps: a scaler and a feature selector. The selector is configured to keep only the top 2 features (`k=2`).
+3. Fit the pipeline on the test data and transform it. The `fit()` method trains both steps, and `transform()` applies the transformations. Execute to materialize results.
+4. Assert that the pipeline produces the expected output structure. Verify row count matches input data and target column is preserved through transformations.
+5. Set up a separate test for caching functionality. Create minimal test data with a single feature and target.
+6. Configure a cache for storing fitted models. The cache directory is set to `./test-cache` for isolated testing.
+7. Fit a scaler step with caching enabled. The fitted model is automatically written to the cache directory when transformation is executed.
+8. Transform the data to trigger cache write. The transformation must be executed (via `.execute()`) for the cache to be written.
+9. Verify the transformation completed successfully. The assertion confirms the pipeline executed correctly and the cached model can be used.
 
 Run the tests:
 
@@ -275,13 +288,6 @@ You should see a result like this:
 All tests passed!
 ```
 
-**Key points**:
-
-- Test that transformations produce the expected output structure
-- Verify feature selection and dimensionality reduction work correctly
-- Check cached models exist and can be loaded
-- Use assertions to catch regressions in feature engineering logic
-
 For production pipelines, add tests for:
 
 - Different data distributions (edge cases, nulls, outliers)
@@ -298,39 +304,45 @@ Choose caching based on your feature engineering workflow and iteration speed re
 
 Use ParquetCache when you need features to persist across Python sessions and be reusable by different team members:
 
-```python
+```{python}
+#| eval: true
 from xorq.caching import ParquetCache
 from pathlib import Path
 
-# Features persist on disk, survive restarts
+# <1>
 cache = ParquetCache.from_kwargs(
     source=con,
     relative_path="./shared-features",
     base_path=Path("/mnt/shared-storage")
 )
 ```
+1. Create a `ParquetCache` that persists fitted models on disk. Features survive Python session restarts and can be shared across team members when `base_path` points to shared storage (e.g., network mount, S3). The cache directory is created at `base_path / relative_path`.
 
 **SourceCache for automatic invalidation**:
 
 Use SourceCache when features depend on frequently updated source tables, and you want automatic cache invalidation:
 
-```python
+```{python}
+#| eval: true
 from xorq.caching import SourceCache
 
-# Cache invalidates when source data changes
+# <1>
 cache = SourceCache.from_kwargs(source=con)
 ```
+1. Create a `SourceCache` that automatically invalidates when source data changes. The cache tracks data source modifications and refits models when upstream data is updated, ensuring features always reflect the latest data.
 
 **ParquetSnapshotCache for reproducible experiments**:
 
 Use ParquetSnapshotCache for fixed feature snapshots in research or model evaluation:
 
-```python
+```{python}
+#| eval: true
 from xorq.caching import ParquetSnapshotCache
 
-# No automatic invalidation - manual control
+# <1>
 cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path="./experiment-v1")
 ```
+1. Create a `ParquetSnapshotCache` for fixed feature snapshots. Unlike `ParquetCache` or `SourceCache`, snapshot caches never auto-invalidate, giving you manual control over when to refresh features. Useful for reproducible experiments where you want features to remain fixed even if source data changes.
 
 **Cache placement**:
 
@@ -346,15 +358,18 @@ Caching improves performance, but versioning ensures consistency. Version your f
 
 Change parameters to automatically create new cache keys. Different parameters result in different fitted models:
 
-```python
-# Parameter changes automatically create new cache keys
+```{python}
+#| eval: true
+# <1>
 selector_top5 = Step(SelectKBest, name="selector", params_tuple=(("k", 5),))
 selector_top10 = Step(SelectKBest, name="selector", params_tuple=(("k", 10),))
 
-# These create different cache entries
+# <2>
 fitted_top5 = selector_top5.fit(data, features=cols, target=target, cache=cache)
 fitted_top10 = selector_top10.fit(data, features=cols, target=target, cache=cache)
 ```
+1. Create two selector steps with different parameters (`k=5` vs `k=10`). Parameter changes automatically create new cache keys, so each configuration gets its own cached model.
+2. Fit both selectors with the same cache. They create separate cache entries because their `params_tuple` values differ. The cache key includes the transformer type and all parameters, ensuring different configurations don't interfere.
 
 **Important**: Step names alone don't affect cache keys. Only the transformer type (`typ`) and parameters (`params_tuple`) determine caching. Two Steps with different names but identical type and parameters share the same cache entry.
 
@@ -363,12 +378,15 @@ fitted_top10 = selector_top10.fit(data, features=cols, target=target, cache=cach
 Use Xorq's build system to version entire pipelines:
 
 ```bash
-# Build captures pipeline graph and fitted models
+# <1>
 xorq build feature_pipeline.py
 
+# <2>
 # Output: builds/a3f8d2c1/
 # Contains: expr.yaml (pipeline graph), cached models, metadata
 ```
+1. Build the feature pipeline to create a versioned artifact. The build command captures the entire pipeline graph, fitted models, and dependencies into a content-addressed directory.
+2. The build output is a directory named with a hash (e.g., `a3f8d2c1`) that uniquely identifies this pipeline configuration. The directory contains `expr.yaml` (pipeline structure), cached fitted models, and metadata for reproducibility.
 
 The build manifest includes pipeline steps, parameters, and dependencies. You can recreate the exact feature pipeline from any build directory.
 
@@ -378,13 +396,16 @@ Versioning lets you recreate pipelines, but monitoring tells you when features d
 
 **Log transformation metrics**:
 
-```python
+```{python}
+#| eval: true
 import logging
 
 def monitored_pipeline_fit(pipeline, expr, features, target, cache):
     """Fit pipeline with monitoring."""
+    # <1>
     logging.info(f"Fitting pipeline with {len(features)} features")
     
+    # <2>
     fitted = pipeline.fit(
         expr=expr,
         features=features,
@@ -392,7 +413,7 @@ def monitored_pipeline_fit(pipeline, expr, features, target, cache):
         cache=cache
     )
     
-    # Check for cached vs refit
+    # <3>
     for step in fitted.fitted_steps:
         if step.deferred_model.ls.exists():
             logging.info(f"Step '{step.step.name}' loaded from cache")
@@ -401,17 +422,25 @@ def monitored_pipeline_fit(pipeline, expr, features, target, cache):
     
     return fitted
 ```
+1. Log pipeline configuration before fitting. Record the number of features to track pipeline complexity and aid debugging.
+2. Fit the pipeline with caching enabled. The `fit()` method trains all steps sequentially and caches each fitted model automatically.
+3. Check cache status for each step after fitting. The `step.deferred_model.ls.exists()` method returns `True` if the step's model was loaded from cache, `False` if it was refitted. Logging cache hits helps monitor caching effectiveness.
 
 **Monitor feature statistics**:
 
-```python
+```{python}
+#| eval: true
 def log_feature_stats(data, feature_cols):
     """Log feature statistics for drift detection."""
+    # <1>
     result = data.select(feature_cols).execute()
     
+    # <2>
     for col in feature_cols:
         logging.info(f"{col}: mean={result[col].mean():.2f}, std={result[col].std():.2f}")
 ```
+1. Select only the feature columns and execute to materialize statistics. The `select()` method projects specific columns, reducing memory usage when computing statistics on large datasets.
+2. Log mean and standard deviation for each feature. These statistics help detect data drift: if production feature distributions differ significantly from training, it may indicate data quality issues or distribution shifts that could affect model performance.
 
 **Key metrics to track**:
 
@@ -432,27 +461,34 @@ Monitoring alerts you to problems, but maintainability prevents them. Keep featu
 
 **Document transformation choices**:
 
-```python
+```{python}
+#| eval: true
+# <1>
 scaler_step = Step(
     StandardScaler,
     name="income_scaler"
 )
 
-# Document why this transformation matters
+# <2>
 # Income scaling prevents high-magnitude features from dominating distance metrics in K-Nearest Neighbors (KNN)
 ```
+1. Create a scaler step with a descriptive name. The `name` parameter helps identify this step in logs, monitoring, and debugging. Use names that describe the transformation purpose (e.g., `income_scaler` rather than generic `scaler`).
+2. Document the transformation rationale in comments. Explain why this specific transformation is needed (e.g., preventing feature magnitude bias in distance-based algorithms). This documentation helps maintainers understand design decisions when modifying pipelines.
 
 **Keep pipelines modular**:
 
-```python
-# Build separate pipelines for different feature groups
+```{python}
+#| eval: true
+# <1>
 numeric_pipeline = Pipeline(steps=(scaler_step, selector_step))
 categorical_pipeline = Pipeline(steps=(encoder_step,))
 
-# Combine fitted pipelines for full feature set
+# <2>
 fitted_numeric = numeric_pipeline.fit(data, features=numeric_cols, target=target, cache=cache)
 fitted_categorical = categorical_pipeline.fit(data, features=categorical_cols, target=target, cache=cache)
 ```
+1. Create separate pipelines for different feature groups (numeric vs categorical). Modular pipelines are easier to test, debug, and modify independently. Each pipeline handles transformations specific to its feature type.
+2. Fit each pipeline independently on its feature subset. Separate fitting allows you to cache, version, and monitor each feature group separately. Combine the fitted pipelines later (e.g., concatenate transformed features) for the full feature set.
 
 **Test pipelines in isolation**:
 
@@ -468,11 +504,13 @@ Even with proper caching, versioning, and monitoring, you'll encounter issues wh
 
 **Solution**: Check your cache strategy. ParquetSnapshotCache doesn't auto-invalidate:
 
-```python
-# Replace SnapshotCache with SourceCache for auto-invalidation
+```{python}
+#| eval: true
+# <1>
 from xorq.caching import SourceCache
 cache = SourceCache.from_kwargs(source=con)
 ```
+1. Replace `ParquetSnapshotCache` with `SourceCache` to enable automatic cache invalidation. `SourceCache` tracks source data changes and refits models when upstream data is updated, ensuring features reflect the latest data without manual cache clearing.
 
 Or manually clear the cache:
 
@@ -486,17 +524,22 @@ rm -rf ./feature-cache
 
 **Solution**: Validate schema before transformation:
 
-```python
+```{python}
+#| eval: true
 def validate_schema(data, expected_cols):
     """Validate data has expected columns before pipeline."""
+    # <1>
     missing = set(expected_cols) - set(data.columns)
     if missing:
         raise ValueError(f"Missing columns: {missing}")
     return data
 
+# <2>
 validated = validate_schema(inference_data, train_features)
 predictions = fitted_pipeline.predict(validated)
 ```
+1. Check for missing columns by computing the set difference between expected and actual columns. Raise an error if any required columns are missing, preventing pipeline failures from schema mismatches.
+2. Validate inference data schema before running predictions. Schema validation catches data issues early (e.g., renamed columns, missing features) and provides clear error messages instead of cryptic transformation errors.
 
 ### Feature transformation is too slow
 
@@ -504,19 +547,26 @@ predictions = fitted_pipeline.predict(validated)
 
 **Solution**: Profile and cache expensive transformations:
 
-```python
+```{python}
+#| eval: true
 import time
 
+# <1>
 start = time.time()
 fitted = step.fit(data, features=cols, cache=cache)
 fit_time = time.time() - start
 
+# <2>
 start = time.time()
 transformed = fitted.transform(data).execute()
 transform_time = time.time() - start
 
+# <3>
 print(f"Fit: {fit_time:.2f}s, Transform: {transform_time:.2f}s")
 ```
+1. Measure the time to fit the step. Fit time includes model training and cache write operations. Track fit time to identify slow transformations that benefit from caching.
+2. Measure the time to transform data. Transform time includes applying the fitted model and executing the expression. Compare transform time to fit time to determine if caching is effective.
+3. Print timing results to identify bottlenecks. If fit time is high (>1s), caching provides significant benefit. If transform time is high, consider optimizing the transformation or using simpler features.
 
 Cache transformations that take >1s. Consider simpler features or incremental computation for real-time inference.
 

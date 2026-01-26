@@ -63,21 +63,28 @@ Before running these examples, ensure you have:
 
 Create a file called `read_s3.py`:
 
-```python
+```{python}
+#| eval: false
 # read_s3.py
 import xorq.api as xo
 
+# <1>
 con = xo.connect()
 
+# <2>
 customers = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=con,
     table_name="customers"
 )
 
+# <3>
 df = customers.execute()
 print(f"Loaded {len(df)} customers")
 ```
+1. Connect to the default backend. The connection handles authentication using environment variables (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, etc.) configured earlier.
+2. Create a deferred read expression for a CSV file in S3. The `path` parameter uses the `s3://` protocol prefix. The `con` parameter specifies the backend connection. The `table_name` parameter helps identify the table in logs and debugging. This operation doesn't execute until you call `.execute()`.
+3. Execute the deferred expression to load data from S3. The operation reads the CSV file, parses it, and returns a pandas DataFrame. The print statement shows how many rows were loaded.
 
 Run the script:
 
@@ -99,34 +106,46 @@ Use these variations for different file formats and storage providers:
 
 Parquet format is recommended for production workloads.
 
-```python
+```{python}
+#| eval: false
+# <1>
 customers = xo.deferred_read_parquet(
     path="s3://my-bucket/data/customers.parquet",
     con=con,
     table_name="customers"
 )
 ```
+1. Read Parquet files using `deferred_read_parquet()` instead of `deferred_read_csv()`. Parquet format is recommended for production because it's 50-80% smaller than CSV and reads 3-5x faster. The path uses the same `s3://` protocol prefix.
 
 #### Google Cloud Storage
 
-```python
+```{python}
+#| eval: false
+# <1>
 customers = xo.deferred_read_parquet(
     path="gs://my-bucket/data/customers.parquet",
     con=con,
     table_name="customers"
 )
 ```
+1. Read from Google Cloud Storage by using the `gs://` protocol prefix instead of `s3://`. Ensure `GOOGLE_APPLICATION_CREDENTIALS` is set to your service account key file path for authentication.
 
 #### Public buckets without credentials
 
-```python
-con = xo.duckdb.connect()  # DuckDB can access public buckets
+```{python}
+#| eval: false
+# <1>
+con = xo.duckdb.connect()
+
+# <2>
 customers = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=con,
     table_name="customers"
 )
 ```
+1. Connect to DuckDB backend, which can access public S3 buckets without credentials. Use this for public datasets that don't require authentication.
+2. Read from the public S3 bucket. DuckDB handles public bucket access automatically, so no credentials are needed.
 
 If you see connection timeouts or file-not-found errors, then see [Troubleshoot data I/O errors](../../troubleshooting/data-io-errors.qmd).
 
@@ -136,28 +155,39 @@ Apply filters and aggregations to your data before executing. All transformation
 
 Create `transform_data.py`:
 
-```python
+```{python}
+#| eval: false
 # transform_data.py
 import xorq.api as xo
 
+# <1>
 con = xo.connect()
 
+# <2>
 customers = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=con,
     table_name="customers"
 )
 
+# <3>
 active_customers = customers.filter(xo._.status == "active")
 
+# <4>
 summary = active_customers.agg(
     total_customers=xo._.customer_id.count(),
     total_revenue=xo._.revenue.sum()
 )
 
+# <5>
 df = summary.execute()
 print(df)
 ```
+1. Connect to the default backend for data processing.
+2. Create a deferred read expression for the CSV file. This doesn't execute until you call `.execute()`.
+3. Filter rows where the `status` column equals "active". The `xo._` syntax provides column access for building predicates. All transformations remain deferred until execution.
+4. Aggregate the filtered data to compute summary statistics. The `agg()` method calculates `total_customers` (count of customer IDs) and `total_revenue` (sum of revenue). Multiple aggregations are specified as keyword arguments.
+5. Execute the entire pipeline: read → filter → aggregate. The operation processes all transformations in a single execution, returning the aggregated results as a pandas DataFrame.
 
 The pipeline executes when you call `execute()`: read → filter → aggregate → return results.
 
@@ -167,18 +197,22 @@ Write processed data back to S3 or GCS in Parquet format for optimal storage and
 
 Create `write_s3.py`:
 
-```python
+```{python}
+#| eval: false
 # write_s3.py
 import xorq.api as xo
 
+# <1>
 con = xo.connect()
 
+# <2>
 customers = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=con,
     table_name="customers"
 )
 
+# <3>
 active_summary = customers.filter(
     xo._.status == "active"
 ).agg(
@@ -186,18 +220,31 @@ active_summary = customers.filter(
     total_revenue=xo._.revenue.sum()
 )
 
+# <4>
 active_summary.to_parquet("s3://my-bucket/output/customer-summary.parquet")
 ```
+1. Connect to the default backend for data processing.
+2. Create a deferred read expression for the source CSV file in S3.
+3. Build a transformation pipeline: filter active customers and aggregate summary statistics. The pipeline remains deferred until execution.
+4. Write the results to S3 in Parquet format. The `to_parquet()` method executes the pipeline, writes the data to the specified S3 path, and automatically handles authentication using the connection's credentials. Parquet format is recommended for production workloads.
 
 To avoid overwriting existing data, use timestamped paths:
 
-```python
+```{python}
+#| eval: false
+# <1>
 from datetime import datetime
 
+# <2>
 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 output_path = f"s3://my-bucket/output/summary-{timestamp}.parquet"
+
+# <3>
 active_summary.to_parquet(output_path)
 ```
+1. Import `datetime` to generate timestamped file paths.
+2. Create a timestamp string in `YYYYMMDD_HHMMSS` format and construct a unique output path. This prevents overwriting existing files when running the pipeline multiple times.
+3. Write the results to the timestamped path. Each execution creates a new file with a unique name based on the current timestamp.
 
 ## Read from PostgreSQL
 
@@ -213,29 +260,42 @@ Before running PostgreSQL examples, ensure you have:
 
 Create `read_postgres.py`:
 
-```python
+```{python}
+#| eval: false
 # read_postgres.py
 import xorq.api as xo
 
+# <1>
 pg_con = xo.postgres.connect_env()
 
+# <2>
 customers = pg_con.table("customers")
 active_customers = customers.filter(xo._.status == "active")
 
+# <3>
 df = active_customers.execute()
 print(f"Found {len(df)} active customers")
 ```
+1. Connect to PostgreSQL using environment variables. The `connect_env()` method reads connection parameters from environment variables: `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`.
+2. Access a PostgreSQL table using `pg_con.table()`. This creates a deferred expression that references the table. Apply filters using the same `xo._` syntax as with cloud storage data. All operations remain deferred until execution.
+3. Execute the query to fetch filtered data from PostgreSQL. The operation translates the Xorq expression into SQL, executes it on the database, and returns results as a pandas DataFrame.
 
 For raw SQL queries:
 
-```python
+```{python}
+#| eval: false
+# <1>
 recent_orders = pg_con.sql("""
     SELECT customer_id, order_date, total
     FROM orders
     WHERE order_date > '2024-01-01'
 """)
+
+# <2>
 df = recent_orders.execute()
 ```
+1. Execute raw SQL queries using `pg_con.sql()`. This method accepts any valid SQL string and returns a deferred expression. Use this for complex queries that are easier to write in SQL than with Xorq's expression API.
+2. Execute the SQL query to fetch results from PostgreSQL. The operation runs the SQL directly on the database and returns results as a pandas DataFrame.
 
 ## Write to PostgreSQL
 
@@ -243,30 +303,42 @@ Create PostgreSQL tables from Xorq expressions or register temporary tables for 
 
 Create `write_postgres.py`:
 
-```python
+```{python}
+#| eval: false
 # write_postgres.py
 import xorq.api as xo
 
+# <1>
 pg_con = xo.postgres.connect_env()
 
+# <2>
 customers = xo.deferred_read_csv(
     path="s3://my-bucket/data/customers.csv",
     con=xo.connect(),
     table_name="customers"
 )
 
+# <3>
 active_customers = customers.filter(xo._.status == "active")
 
+# <4>
 pg_con.create_table("active_customers", active_customers, overwrite=True)
 ```
+1. Connect to PostgreSQL using environment variables for authentication.
+2. Read data from S3 using a separate connection. You can combine data from different sources (cloud storage, databases) in the same pipeline.
+3. Filter the data to keep only active customers. This transformation remains deferred until execution.
+4. Create a PostgreSQL table from the Xorq expression. The `create_table()` method executes the expression, creates the table with the specified name, and writes the results. Set `overwrite=True` to replace existing tables, or `overwrite=False` (default) to raise an error if the table already exists.
 
 Set `overwrite=True` to replace existing tables. Set `overwrite=False` (default) to raise an error if the table already exists.
 
 For temporary tables that exist only for the current session:
 
-```python
+```{python}
+#| eval: false
+# <1>
 pg_con.register("temp_table", data)
 ```
+1. Register a temporary table in PostgreSQL. Temporary tables exist only for the current database session and are automatically dropped when the connection closes. Use this for intermediate results that don't need to persist across sessions.
 
 ## Handle errors
 
@@ -274,31 +346,46 @@ Now that you've seen the core read/write patterns, production deployments need r
 
 Create `retry_read.py`:
 
-```python
+```{python}
+#| eval: false
 # retry_read.py
 import time
 import xorq.api as xo
 from pyarrow import ArrowIOError
 
+# <1>
 def read_with_retry(path, con=None, max_attempts=3, initial_backoff=2):
+    # <2>
     if con is None:
         con = xo.connect()
     
+    # <3>
     for attempt in range(max_attempts):
         try:
+            # <4>
             data = xo.deferred_read_csv(path=path, con=con)
             return data.execute()
         except ArrowIOError as e:
+            # <5>
             if attempt < max_attempts - 1:
                 wait_time = initial_backoff ** (attempt + 1)
                 print(f"Retry {attempt + 1}/{max_attempts} in {wait_time}s...")
                 time.sleep(wait_time)
             else:
+                # <6>
                 raise RuntimeError(f"Failed after {max_attempts} attempts: {e}")
 
+# <7>
 con = xo.connect()
 df = read_with_retry("s3://my-bucket/data/customers.csv", con=con)
 ```
+1. Define a retry function that handles transient network errors. The function accepts a file path, connection, maximum retry attempts, and initial backoff time for exponential backoff.
+2. Create a connection if none is provided. This allows the function to work with or without an explicit connection parameter.
+3. Loop through retry attempts up to `max_attempts`. Each iteration attempts to read the file, catching and handling errors as needed.
+4. Attempt to read and execute the CSV file. If successful, return the DataFrame immediately. If an `ArrowIOError` occurs (network timeout, connection reset), proceed to retry logic.
+5. Calculate exponential backoff wait time and retry. The wait time increases exponentially: 2s, 4s, 8s for attempts 1, 2, 3. This gives the network time to recover from transient issues.
+6. Raise a runtime error if all retry attempts fail. This provides a clear error message indicating the operation failed after exhausting all retries.
+7. Use the retry function to read data with automatic error handling. The function will retry up to 3 times with exponential backoff if network errors occur.
 
 Retry network timeouts and connection resets. Don't retry authentication failures or file-not-found errors.
 
@@ -308,25 +395,36 @@ Stream data in chunks for files larger than 1GB to keep memory usage constant re
 
 Create `stream_large.py`:
 
-```python
+```{python}
+#| eval: false
 # stream_large.py
 import xorq.api as xo
 
+# <1>
 con = xo.connect()
 
+# <2>
 data = xo.deferred_read_parquet(
     path="s3://my-bucket/large-file.parquet",
     con=con
 )
 
+# <3>
 total_rows = 0
 for batch in data.to_pyarrow_batches(chunk_size=100000):
+    # <4>
     df = batch.to_pandas()
     total_rows += len(df)
     print(f"Processed batch: {len(df)} rows")
 
+# <5>
 print(f"Total: {total_rows} rows")
 ```
+1. Connect to the default backend for data processing.
+2. Create a deferred read expression for a large Parquet file. The file isn't loaded into memory yet.
+3. Initialize a counter to track total rows processed across all batches.
+4. Stream data in chunks using `to_pyarrow_batches()`. The `chunk_size` parameter controls how many rows are loaded per batch (100,000 in this example). Each batch is converted to a pandas DataFrame for processing. This keeps memory usage constant regardless of file size.
+5. Print the total number of rows processed. Streaming allows you to process files larger than available memory by processing them in manageable chunks.
 
 Reduce `chunk_size` to 10,000 if you run out of memory. For persistent memory issues, see [Troubleshoot memory errors](../../troubleshooting/memory-errors.qmd).
 
@@ -336,38 +434,57 @@ Track I/O metrics to identify bottlenecks and optimize pipeline performance.
 
 Create `monitor_io.py`:
 
-```python
+```{python}
+#| eval: false
 # monitor_io.py
 import time
 import logging
 import xorq.api as xo
 
+# <1>
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# <2>
 def monitored_read(path, con=None):
+    # <3>
     if con is None:
         con = xo.connect()
     
+    # <4>
     start = time.time()
     
     try:
+        # <5>
         data = xo.deferred_read_csv(path=path, con=con)
         df = data.execute()
         
+        # <6>
         elapsed = time.time() - start
         rows = len(df)
         mb = df.memory_usage(deep=True).sum() / 1024 / 1024
         
+        # <7>
         logger.info(f"Read {rows:,} rows ({mb:.2f} MB) in {elapsed:.2f}s")
         logger.info(f"Throughput: {rows / elapsed:,.0f} rows/sec")
         return df
     except Exception as e:
+        # <8>
         logger.error(f"Read failed: {e}")
         raise
 
+# <9>
 df = monitored_read("s3://my-bucket/data/customers.csv")
 ```
+1. Configure logging to track I/O operations. Set the log level to INFO and format messages with timestamps for monitoring and debugging.
+2. Define a monitoring function that wraps data reads with performance tracking. The function measures execution time, data size, and throughput.
+3. Create a connection if none is provided, allowing flexible usage with or without an explicit connection.
+4. Record the start time before executing the read operation. This enables precise timing measurements.
+5. Read and execute the CSV file. The operation fetches data from S3 and loads it into memory.
+6. Calculate performance metrics: elapsed time, row count, and memory usage. Memory usage is calculated in megabytes by summing all column memory usage and converting bytes to MB.
+7. Log performance metrics using the configured logger. The logs include row count, data size, execution time, and throughput (rows per second). These metrics help identify bottlenecks and optimize pipeline performance.
+8. Log errors and re-raise exceptions. This ensures errors are tracked in logs while still propagating to calling code for proper error handling.
+9. Use the monitoring function to read data with automatic performance tracking. All I/O operations are logged with detailed metrics for analysis.
 
 ## Production considerations
 
@@ -478,13 +595,18 @@ aws s3 cp s3://my-bucket/data/customers.csv - | head
 
 Use absolute paths with bucket prefix:
 
-```python
+```{python}
+#| eval: false
+# <1>
 # Correct: Full path with bucket
 path = "s3://my-bucket/data/customers.csv"
 
+# <2>
 # Incorrect: Relative path
 path = "data/customers.csv"
 ```
+1. Use absolute paths with the `s3://` protocol prefix and bucket name. This ensures Xorq can locate and access the file in S3.
+2. Avoid relative paths without the bucket prefix. Relative paths won't work with cloud storage and will cause `FileNotFoundError`.
 
 ### Out of memory
 
@@ -494,13 +616,18 @@ path = "data/customers.csv"
 
 **Solution**: Use streaming for files >1GB:
 
-```python
+```{python}
+#| eval: false
+# <1>
 # Stream data in chunks
 for batch in data.to_pyarrow_batches(chunk_size=10000):
-    process_batch(batch)  # Process each chunk separately
+    # <2>
+    process_batch(batch)
 ```
+1. Stream large files in chunks to avoid loading the entire file into memory. The `chunk_size` parameter controls how many rows are processed per batch (10,000 in this example).
+2. Process each batch separately. This keeps memory usage constant regardless of file size, allowing you to handle files larger than available RAM.
 
-If still failing, reduce chunk size to 1,000 or increase instance memory.
+If still failing, then reduce chunk size to 1,000 or increase instance memory.
 
 ### Slow read performance
 
@@ -510,15 +637,22 @@ If still failing, reduce chunk size to 1,000 or increase instance memory.
 
 **Solution**: Profile and optimize:
 
-```python
+```{python}
+#| eval: false
+# <1>
 import time
 
+# <2>
 start = time.time()
 df = data.execute()
 read_time = time.time() - start
 
+# <3>
 print(f"Read time: {read_time:.2f}s for {len(df)} rows")
 ```
+1. Import the `time` module to measure execution duration.
+2. Measure the time taken to execute the data read operation. Record the start time before execution, then calculate elapsed time after completion.
+3. Print performance metrics showing read time and row count. Use this to identify slow operations and optimize based on the results.
 
 Optimize based on results:
 

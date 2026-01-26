@@ -2,33 +2,293 @@
 title: 'Monitor production deployments'
 ---
 
-Track system health and performance of your Xorq deployments using OpenTelemetry, Prometheus metrics, and distributed tracing. This guide shows you how to set up monitoring, track key metrics, configure alerting, and analyze performance.
+Monitor Xorq Flight server performance using Prometheus metrics and OpenTelemetry tracing. This guide shows you how to enable metrics, query them, set up alerts, and view traces.
 
-**What you'll accomplish**: By following this guide, you'll set up comprehensive monitoring for production deployments, track metrics, configure alerts, create dashboards, and use distributed tracing to understand system behavior.
-
-Xorq integrates with OpenTelemetry for distributed tracing and provides Prometheus metrics for monitoring. This guide covers setting up these systems and using them effectively.
-
-:::{.callout-tip}
-## Installation
-
-If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions. You'll also need monitoring infrastructure (Prometheus, OpenTelemetry collector).
-:::
+**Goal**: Set up monitoring for your Xorq deployments so you can track performance, detect issues, and understand system behavior.
 
 ## Prerequisites
 
 Before you start, you need:
 
 - [Xorq installed](../../getting_started/installation.qmd)
-- Deployed Xorq services (see [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd))
-- Monitoring infrastructure (Prometheus, Grafana, or OpenTelemetry collector)
+- A deployed Xorq Flight server (see [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd))
+- Prometheus installed (for scraping metrics)
+- Optional: OpenTelemetry collector (for distributed tracing)
 
-## OpenTelemetry integration
+## Enable Prometheus metrics
 
-Xorq uses OpenTelemetry for distributed tracing and metrics.
+Enable metrics when starting your Flight server.
+
+### Start server with metrics
+
+Start the server with the `--prometheus-port` flag:
+
+```bash
+xorq serve-unbound builds/<build_hash> \
+  --host 0.0.0.0 \
+  --port 8080 \
+  --prometheus-port 9090 \
+  --to_unbind_tag source_input
+```
+
+**What happens**:
+
+- Metrics are exposed on port 9090 (separate from the Flight server port)
+- Server logs: `Prometheus metrics available at :9090`
+- Metrics are available at `http://localhost:9090/metrics`
+
+**Expected output**:
+```
+Loading expression from builds/050dac72b4d8
+Prometheus metrics available at :9090
+Serving expression from 'builds/050dac72b4d8' on grpc://0.0.0.0:8080
+```
+
+:::{.callout-important}
+## Dependencies required
+
+Prometheus metrics require these packages:
+
+- `opentelemetry-exporter-prometheus`
+- `prometheus-client`
+
+Install them with:
+```bash
+pip install opentelemetry-exporter-prometheus prometheus-client
+```
+
+If packages are missing, the server starts but metrics won't be available.
+:::
+
+### Verify metrics endpoint
+
+Check that metrics are accessible:
+
+```bash
+curl http://localhost:9090/metrics
+```
+
+**Expected output**:
+```
+# HELP flight_server_requests_total Total Flight RPC requests
+# TYPE flight_server_requests_total counter
+flight_server_requests_total{method="do_get"} 0
+
+# HELP flight_server_request_duration_seconds Request duration in seconds
+# TYPE flight_server_request_duration_seconds histogram
+flight_server_request_duration_seconds_bucket{method="do_get",le="0.005"} 0
+flight_server_request_duration_seconds_bucket{method="do_get",le="0.01"} 0
+...
+
+# HELP flight_server_active_streams Active concurrent streams
+# TYPE flight_server_active_streams gauge
+flight_server_active_streams 0
+
+# HELP flight_server_bytes_total Total bytes transferred
+# TYPE flight_server_bytes_total counter
+flight_server_bytes_total{method="do_get"} 0
+
+# HELP flight_server_rows_total Total rows processed
+# TYPE flight_server_rows_total counter
+flight_server_rows_total{method="do_get"} 0
+
+# HELP flight_server_throughput_rows_per_sec Rows per second throughput
+# TYPE flight_server_throughput_rows_per_sec histogram
+flight_server_throughput_rows_per_sec_bucket{method="do_get",le="100"} 0
+...
+```
+
+## Available metrics
+
+Xorq Flight server exposes these metrics:
+
+### Request metrics
+
+- **`flight_server.requests_total`**: Total number of Flight RPC requests (counter)
+- **`flight_server.request_duration_seconds`**: Request latency histogram (histogram)
+- **`flight_server.active_streams`**: Current number of active concurrent streams (gauge)
+
+### Throughput metrics
+
+- **`flight_server.bytes_total`**: Total bytes transferred (counter)
+- **`flight_server.rows_total`**: Total rows processed (counter)
+- **`flight_server.throughput_rows_per_sec`**: Rows per second throughput (histogram)
+
+All metrics include a `method` label indicating the RPC method (`do_get`, `do_put`, etc.).
+
+## Query metrics
+
+Query metrics using `curl` or PromQL.
+
+### Query with curl
+
+Get specific metrics:
+
+```bash
+# Request count
+curl http://localhost:9090/metrics | grep requests_total
+
+# Latency histogram
+curl http://localhost:9090/metrics | grep request_duration_seconds
+
+# Active streams
+curl http://localhost:9090/metrics | grep active_streams
+```
+
+**Expected output**:
+```
+flight_server_requests_total{method="do_get"} 42
+flight_server_request_duration_seconds_bucket{method="do_get",le="0.1"} 38
+flight_server_active_streams 2
+```
+
+### Query with PromQL
+
+Use PromQL in Prometheus or Grafana:
+
+**Request rate (requests per second)**:
+```promql
+rate(flight_server_requests_total[5m])
+```
+
+**P95 latency**:
+```promql
+histogram_quantile(0.95, flight_server_request_duration_seconds)
+```
+
+**Current throughput**:
+```promql
+rate(flight_server_rows_total[5m])
+```
+
+## Configure Prometheus scraping
+
+Set up Prometheus to scrape metrics from your Flight server.
+
+### Prometheus configuration
+
+Add to `prometheus.yml`:
+
+```yaml
+scrape_configs:
+  - job_name: 'xorq-flight'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 15s
+```
+
+**What happens**:
+
+- Prometheus scrapes metrics every 15 seconds
+- Metrics are stored in Prometheus time-series database
+- You can query metrics using PromQL
+
+### Verify scraping
+
+Check that Prometheus is scraping:
+
+1. Open Prometheus UI: `http://localhost:9090` (Prometheus default port)
+2. Go to Status → Targets
+3. Verify `xorq-flight` target is UP
+
+**Expected status**: `UP` (green)
+
+## Set up alerting
+
+Create alert rules to detect issues early.
+
+### Alert on high latency
+
+Alert when P95 latency exceeds 1 second:
+
+```yaml
+# prometheus-alerts.yml
+groups:
+  - name: xorq_alerts
+    rules:
+      - alert: HighLatency
+        expr: histogram_quantile(0.95, flight_server_request_duration_seconds) > 1.0
+        for: 5m
+        annotations:
+          summary: "High latency detected"
+          description: "P95 latency is {{ $value }}s"
+```
+
+**What happens**:
+
+- Alert fires when P95 latency > 1s for 5 minutes
+- Alert is sent to your notification channel (email, Slack, etc.)
+
+### Alert on error rate
+
+Alert when error rate is high:
+
+```yaml
+- alert: HighErrorRate
+  expr: rate(flight_server_requests_total{status="error"}[5m]) > 0.1
+  for: 5m
+  annotations:
+    summary: "High error rate"
+    description: "Error rate is {{ $value }} errors/sec"
+```
+
+**Note**: Error status labels depend on your implementation. Adjust the query based on your error handling.
+
+### Load alert rules
+
+Add to `prometheus.yml`:
+
+```yaml
+rule_files:
+  - "prometheus-alerts.yml"
+```
+
+Restart Prometheus to load the rules.
+
+## Create Grafana dashboards
+
+Visualize metrics in Grafana.
+
+### Add Prometheus data source
+
+1. Go to Configuration → Data Sources
+2. Add Prometheus
+3. Set URL: `http://localhost:9090` (your Prometheus server)
+4. Click Save & Test
+
+### Create dashboard panels
+
+**Request rate panel**:
+
+- Query: `rate(flight_server_requests_total[5m])`
+- Visualization: Time series
+- Title: "Request Rate"
+
+**Latency panel**:
+
+- Query: `histogram_quantile(0.95, flight_server_request_duration_seconds)`
+- Visualization: Time series
+- Title: "P95 Latency"
+
+**Throughput panel**:
+
+- Query: `rate(flight_server_rows_total[5m])`
+- Visualization: Time series
+- Title: "Rows per Second"
+
+**Active streams panel**:
+
+- Query: `flight_server_active_streams`
+- Visualization: Gauge
+- Title: "Active Streams"
+
+## OpenTelemetry tracing
+
+Xorq uses OpenTelemetry for distributed tracing. Configure it to view traces in your observability platform.
 
 ### Configure OpenTelemetry
 
-Set environment variables for OpenTelemetry:
+Set environment variables:
 
 ```bash
 export OTEL_SERVICE_NAME="xorq-flight-server"
@@ -44,359 +304,98 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 OTEL_EXPORTER_OTLP_PROTOCOL=grpc
 ```
 
-**Key points**:
-
-- Configure service name for identification
-- Set OTLP endpoint for trace export
-- Choose protocol (grpc or http/protobuf)
-- Environment variables configure OpenTelemetry automatically
-
-### Enable tracing
-
-Tracing is automatically enabled when OpenTelemetry is configured. Traces track request flow through your system.
-
-**Key points**:
-
-- Traces show request flow across services
-- Use for debugging and performance analysis
-- Configure trace sampling for production
-- Export traces to observability platform
-
-## Prometheus metrics
-
-Xorq Flight server provides Prometheus metrics for monitoring.
-
-### Enable Prometheus metrics
-
-Enable Prometheus metrics when starting server:
-
-```bash
-xorq serve-unbound model-prod \
-  --host 0.0.0.0 \
-  --port 8080 \
-  --prometheus-port 9090 \
-  --to_unbind_tag source_input
-```
-
-Access metrics at `http://localhost:9090/metrics`.
-
-**Key points**:
-
-- Prometheus metrics require `opentelemetry-exporter-prometheus` and `prometheus-client`
-- Metrics exposed on separate port
-- Use Prometheus to scrape metrics
-- Set up Grafana dashboards for visualization
-
-### Key metrics to track
-
-Monitor these metrics for production:
-
-**Request metrics**:
-- `flight_server.requests_total`: Total Flight RPC requests
-- `flight_server.request_duration_seconds`: Request latency histogram
-- `flight_server.active_streams`: Active concurrent streams
-
-**Throughput metrics**:
-- `flight_server.bytes_total`: Total bytes transferred
-- `flight_server.rows_total`: Total rows processed
-- `flight_server.throughput_rows_per_sec`: Rows per second throughput
-
-**Key points**:
-
-- Track request rate and latency
-- Monitor throughput and data volume
-- Alert on high latency or error rates
-- Use metrics for capacity planning
-
-### Query metrics
-
-Query Prometheus metrics:
-
-```bash
-# Request rate
-curl http://localhost:9090/metrics | grep requests_total
-
-# Latency percentiles
-curl http://localhost:9090/metrics | grep request_duration_seconds
-
-# Active streams
-curl http://localhost:9090/metrics | grep active_streams
-```
-
-**Key points**:
-
-- Query metrics via HTTP endpoint
-- Use PromQL for advanced queries
-- Set up dashboards for visualization
-- Alert on metric thresholds
-
-## Set up alerting
-
-Configure alerts based on metrics to detect issues early.
-
-### Alert on high latency
-
-Alert when latency exceeds threshold:
-
-```yaml
-# Prometheus alert rule
-groups:
-  - name: xorq_alerts
-    rules:
-      - alert: HighLatency
-        expr: histogram_quantile(0.95, flight_server_request_duration_seconds) > 1.0
-        for: 5m
-        annotations:
-          summary: "High latency detected"
-          description: "P95 latency is {{ $value }}s"
-```
-
-**Key points**:
-
-- Alert on latency percentiles (p95, p99)
-- Set appropriate thresholds
-- Use `for` clause to reduce noise
-- Configure alert notifications
-
-### Alert on error rate
-
-Alert when error rate is high:
-
-```yaml
-- alert: HighErrorRate
-  expr: rate(flight_server_requests_total{status="error"}[5m]) > 0.1
-  for: 5m
-  annotations:
-    summary: "High error rate"
-    description: "Error rate is {{ $value }}"
-```
-
-**Key points**:
-
-- Track error rate over time
-- Alert on sustained high error rates
-- Differentiate transient vs persistent errors
-- Configure escalation policies
-
-### Alert on low throughput
-
-Alert when throughput drops:
-
-```yaml
-- alert: LowThroughput
-  expr: flight_server_throughput_rows_per_sec < 100
-  for: 10m
-  annotations:
-    summary: "Low throughput detected"
-    description: "Throughput is {{ $value }} rows/sec"
-```
-
-**Key points**:
-
-- Monitor throughput for performance issues
-- Alert on sustained low throughput
-- Investigate root causes
-- Adjust thresholds based on workload
-
-## Create dashboards
-
-Build dashboards to visualize metrics and system health.
-
-### Grafana dashboard
-
-Create Grafana dashboard with key panels:
-
-**Request rate panel**:
-```promql
-rate(flight_server_requests_total[5m])
-```
-
-**Latency panel**:
-```promql
-histogram_quantile(0.95, flight_server_request_duration_seconds)
-```
-
-**Throughput panel**:
-```promql
-flight_server_throughput_rows_per_sec
-```
-
-**Key points**:
-
-- Create dashboards for different audiences (ops, dev, business)
-- Include key metrics and trends
-- Use appropriate time ranges
-- Share dashboards with team
-
-### System health dashboard
-
-Monitor overall system health:
-
-- Request rate trends
-- Latency percentiles (p50, p95, p99)
-- Error rate
-- Active connections
-- Throughput trends
-
-**Key points**:
-
-- Single pane of glass for system health
-- Quick identification of issues
-- Historical trends for capacity planning
-- Customize for your needs
-
-## Log aggregation
-
-Aggregate and analyze logs for troubleshooting.
-
-### Structured logging
-
-Use structured logging for better analysis:
-
-```python
-import logging
-
-logger = logging.getLogger("xorq")
-logger.info("Processing request", extra={
-    "request_id": request_id,
-    "method": method,
-    "duration": duration
-})
-```
-
-**Key points**:
-
-- Use structured logs for parsing
-- Include relevant context
-- Use appropriate log levels
-- Aggregate logs centrally
-
-### Log analysis
-
-Analyze logs for patterns:
-
-```bash
-# Find errors
-grep ERROR /var/log/xorq/server.log
-
-# Count requests by method
-grep "Processing request" /var/log/xorq/server.log | awk '{print $5}' | sort | uniq -c
-
-# Find slow requests
-grep "duration" /var/log/xorq/server.log | awk '$NF > 1.0'
-```
-
-**Key points**:
-
-- Use log aggregation tools (ELK, Loki, etc.)
-- Search and filter logs efficiently
-- Correlate logs with metrics
-- Set up log-based alerts
-
-## Distributed tracing
-
-Use distributed tracing to understand request flow.
+**What happens**:
+
+- Traces are automatically exported when OpenTelemetry is configured
+- Traces show request flow through your system
+- View traces in your observability platform (Jaeger, Grafana Cloud, etc.)
 
 ### View traces
 
-View traces in your observability platform:
+Traces are available in your OpenTelemetry-compatible observability platform:
 
-- Request spans across services
-- Timing information for each span
-- Error information
-- Service dependencies
-
-**Key points**:
-
-- Traces show end-to-end request flow
-- Identify bottlenecks in request path
-- Understand service dependencies
-- Debug complex issues
-
-### Trace analysis
-
-Analyze traces for performance:
-
-- Identify slow spans
-- Find common error patterns
-- Understand service interactions
-- Optimize based on trace data
-
-**Key points**:
-
-- Use trace analysis for optimization
-- Identify performance bottlenecks
-- Understand system behavior
-- Make data-driven improvements
+- **Request spans**: Each RPC call creates a span
+- **Timing information**: Duration for each span
+- **Error information**: Errors are recorded in spans
+- **Service dependencies**: See how services interact
 
 ## Troubleshooting
 
-When monitoring production deployments, you may encounter missing metrics, alert noise, or performance issues.
+Common issues when setting up monitoring.
 
-### Issue: Metrics not appearing
+### Issue: Metrics endpoint not accessible
 
-**Error**: Prometheus metrics not available
+**Error**: `curl http://localhost:9090/metrics` returns connection refused
 
-**Cause**: Metrics not enabled or Prometheus not scraping
+**Cause**: Metrics not enabled or wrong port.
 
-**Recovery**:
+**Fix**:
 
-1. Check metrics endpoint: verify `http://localhost:9090/metrics` accessible
-2. Verify Prometheus config: ensure Prometheus scraping endpoint
-3. Check dependencies: verify `opentelemetry-exporter-prometheus` installed
-4. Review server logs: check for metric initialization errors
+1. Verify `--prometheus-port` is set:
+   ```bash
+   xorq serve-unbound builds/<hash> --prometheus-port 9090
+   ```
 
-**Prevention**:
+2. Check server logs for:
+   ```
+   Prometheus metrics available at :9090
+   ```
 
-- Enable metrics on all servers
-- Verify Prometheus configuration
-- Test metrics endpoint
-- Monitor metric availability
+3. Verify dependencies are installed:
+   ```bash
+   pip list | grep prometheus
+   pip list | grep opentelemetry-exporter-prometheus
+   ```
 
-### Issue: Too many alerts
+### Issue: No metrics in Prometheus
 
-**Error**: Alert fatigue from too many notifications
+**Error**: Prometheus shows no data for `xorq-flight` target
 
-**Cause**: Alert thresholds too sensitive or too many alerts
+**Cause**: Prometheus not scraping or wrong endpoint.
 
-**Recovery**:
+**Fix**:
 
-1. Adjust thresholds: increase alert thresholds
-2. Add `for` clause: require sustained condition
-3. Reduce alert frequency: use alert grouping
-4. Review alert rules: remove unnecessary alerts
+1. Check Prometheus targets: Status → Targets
+2. Verify target URL matches your server: `localhost:9090`
+3. Check Prometheus logs for scraping errors
+4. Verify metrics endpoint is accessible:
+   ```bash
+   curl http://localhost:9090/metrics | head -20
+   ```
 
-**Prevention**:
+### Issue: Metrics show zero values
 
-- Set appropriate alert thresholds
-- Use alert grouping and deduplication
-- Test alerts before production
-- Document alert rationale
+**Error**: All metrics are 0 even after requests
 
-### Issue: High cardinality metrics
+**Cause**: No requests have been made or metrics not recording.
 
-**Error**: Too many unique metric labels
+**Fix**:
 
-**Cause**: High cardinality labels (e.g., request IDs)
+1. Make a request to your Flight server
+2. Wait a few seconds for metrics to update
+3. Check metrics again:
+   ```bash
+   curl http://localhost:9090/metrics | grep requests_total
+   ```
 
-**Recovery**:
+### Issue: Prometheus dependencies missing
 
-1. Reduce label cardinality: remove high-cardinality labels
-2. Aggregate metrics: use summary/histogram metrics
-3. Limit label combinations: restrict label values
-4. Use sampling: sample high-cardinality metrics
+**Error**: Server logs show: `Prometheus support requires 'opentelemetry-exporter-prometheus' and 'prometheus-client'`
 
-**Prevention**:
+**Fix**:
 
-- Design metrics with low cardinality
-- Avoid high-cardinality labels
-- Use appropriate metric types
-- Monitor metric cardinality
+Install the required packages:
+
+```bash
+pip install opentelemetry-exporter-prometheus prometheus-client
+```
+
+Restart your Flight server.
 
 ## Next steps
 
-You now have techniques for monitoring production deployments, including OpenTelemetry integration, Prometheus metrics, alerting, dashboards, and distributed tracing.
+You now have monitoring set up for your Xorq deployments:
 
-- [Handle production errors](handle_production_errors.qmd) - Handle errors gracefully
-- [Debug pipeline failures](debug_pipeline_failures.qmd) - Debug issues effectively
-- [Optimize model serving](../performance_workflows/optimize_model_serving.qmd) - Optimize performance
+- [Set up CI/CD pipelines](setup_cicd_pipelines.qmd) - Automate deployments
+- [Manage the compute catalog](manage_compute_catalog.qmd) - Organize builds
+- [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd) - Production deployment guide

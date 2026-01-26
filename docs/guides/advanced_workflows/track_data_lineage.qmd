@@ -2,21 +2,392 @@
 title: 'Track data lineage'
 ---
 
-## Coming soon
+Track column-level data lineage to trace where your data comes from, debug pipeline issues, and export dependency information. By the end of this guide, you'll know how to view lineage for any build, trace data sources, and export lineage data programmatically.
 
-This guide will show you how to implement comprehensive data lineage tracking in production.
+## Prerequisites
 
-You will learn how to use Xorq's lineage system to understand data flow and dependencies.
+Before you start, you need:
 
-**What you'll accomplish:**
-- Generate lineage graphs
-- Track column-level lineage
-- Export lineage for governance
-- Debug using lineage
+- [Xorq installed](../../../getting_started/installation.qmd)
+- A built Xorq expression (see [Build reproducible environments](../platform_workflows/build_reproducible_environments.qmd))
+- Expression added to catalog (optional, for alias support)
 
-**Prerequisites:**
-- Working Xorq pipeline
-- Understanding of lineage concepts
+## View lineage for a build
 
-Check back soon for the complete guide.
+Display column-level lineage trees showing how each output column is derived from source data.
 
+::: {.callout-note}
+This guide assumes you have a build hash from a previously built expression. If you don't have one yet:
+
+1. Visit [Build reproducible environments](../platform_workflows/build_reproducible_environments.qmd) to create a build
+2. Find your build hash in the `builds/` directory (it's the directory name)
+3. Replace `<build_hash>` in the commands below with your actual build hash
+:::
+
+You can view lineage using three methods:
+
+::: {.panel-tabset}
+
+## By build hash
+
+View lineage using the build directory path:
+
+```bash
+xorq lineage builds/<build_hash>
+```
+
+::: {.callout-note}
+Replace `<build_hash>` with your actual build hash from the `builds/` directory.
+:::
+
+You should see a result like this:
+
+```
+Lineage for column 'species':
+Field:species 
+└── InMemoryTable:tbl 
+
+Lineage for column 'avg_bill_length':
+Field:avg_bill_length #1
+└── Aggregate #2
+    ├── Field:bill_length_mm 
+    │   └── InMemoryTable:tbl 
+    └── Field:species 
+        └── InMemoryTable:tbl 
+```
+
+## By catalog alias
+
+View lineage using a catalog alias (requires adding the build to catalog first):
+
+```bash
+xorq lineage my-model
+```
+
+::: {.callout-note}
+Replace `my-model` with your catalog alias. The command automatically resolves the alias to the build directory and displays lineage for all columns.
+:::
+
+## By entry ID
+
+View lineage using a catalog entry ID:
+
+```bash
+xorq lineage a498016e-5bea-4036-aec0-a6393d1b7c0f
+```
+
+::: {.callout-note}
+Replace the entry ID with your actual entry ID from the catalog. The command resolves the entry ID to the current revision's build directory.
+:::
+
+:::
+
+## Trace data sources for a column
+
+Find which source tables and columns contribute to a specific output column.
+
+Use `grep` to filter lineage output for a specific column:
+
+```bash
+xorq lineage my-model | grep -A 15 "column_name"
+```
+
+::: {.callout-note}
+Replace `my-model` with your build target and `column_name` with your column name. The `-A 15` flag shows 15 lines after the match.
+:::
+
+Check available build targets and column names:
+
+Use these commands to discover available build targets (aliases and entry IDs) and column names in your builds.
+
+::: {.panel-tabset}
+
+## List build targets
+
+```bash
+xorq catalog ls
+```
+
+## List column names
+
+```bash
+xorq lineage my-model | grep "Lineage for column"
+```
+
+::: {.callout-note}
+Replace `my-model` with your build target to see all column names in that build.
+:::
+
+:::
+
+**Example**: Find where `total_revenue` comes from:
+
+```bash
+xorq lineage revenue-model | grep -A 15 "total_revenue"
+```
+
+You should see a result like this:
+
+```
+Lineage for column 'total_revenue':
+Field:total_revenue 
+└── Aggregate #2
+    ├── Field:price 
+    │   └── Join #4
+    │       ├── DatabaseTable:orders 
+    │       └── DatabaseTable:products 
+    └── Field:quantity 
+        └── Join 
+```
+
+## View complete dependency chain
+
+See all operations and source tables that contribute to a target column.
+
+View the complete dependency chain with context before and after:
+
+```bash
+xorq lineage my-model | grep -B 5 -A 10 "target_column"
+```
+
+::: {.callout-note}
+Replace `my-model` with your build target and `target_column` with your column name. The `-B 5` shows 5 lines before the match, and `-A 10` shows 10 lines after, giving you full context of the dependency chain.
+:::
+
+## Export lineage to file
+
+Save lineage output to a text file for documentation or sharing.
+
+Save lineage output to a file:
+
+```bash
+xorq lineage my-model > lineage_output.txt
+```
+
+::: {.callout-note}
+Replace `my-model` with your build target. The file contains plain text lineage trees for all columns. Rich formatting (colors) is automatically removed when redirected to a file, making it suitable for documentation.
+:::
+
+## Access lineage programmatically
+
+Use Python to access lineage data and integrate it with your tools.
+
+::: {.panel-tabset}
+
+## Basic access
+
+Load lineage trees and iterate through columns:
+
+```python
+# <1>
+from pathlib import Path
+from xorq.ibis_yaml.compiler import load_expr
+from xorq.common.utils.lineage_utils import build_column_trees
+
+# <2>
+build_path = Path("builds/abc123def456")
+expr = load_expr(build_path)
+trees = build_column_trees(expr)
+
+# <3>
+for column_name, tree in trees.items():
+    print(f"Column: {column_name}")
+    print(f"Root operation: {tree.op}")
+    print(f"Number of children: {len(tree.children)}")
+```
+1. Import `Path` for handling file system paths, `load_expr` to deserialize expressions from YAML build files, and `build_column_trees` to build lineage trees from expressions.
+2. Create a Path object pointing to your build directory (replace `abc123def456` with your actual build hash), deserialize the expression from the YAML files, and build lineage trees for all columns. Returns a dictionary mapping column names to `GenericNode` trees.
+3. Iterate through each column and its lineage tree, printing the column name, root operation node (Field, Aggregate, etc.), and number of child operations that feed into it.
+
+You should see a result like this:
+
+```text
+Column: species
+Root operation: <Field: species>
+Number of children: 1
+
+Column: avg_bill_length
+Root operation: <Field: avg_bill_length>
+Number of children: 1
+```
+
+## Export to JSON
+
+Convert lineage to JSON format for integration with other tools:
+
+```python
+# <1>
+import json
+from pathlib import Path
+from xorq.ibis_yaml.compiler import load_expr
+from xorq.common.utils.lineage_utils import build_column_trees
+
+# <2>
+def lineage_to_dict(tree, depth=0):
+    """Convert lineage tree to dictionary structure."""
+    if depth > 10:
+        return {"op": str(tree.op), "truncated": True}
+    
+    return {
+        "op": tree.op.__class__.__name__,
+        "op_details": str(tree.op),
+        "children": [lineage_to_dict(child, depth + 1) for child in tree.children]
+    }
+
+# <3>
+build_path = Path("builds/abc123def456")
+expr = load_expr(build_path)
+trees = build_column_trees(expr)
+
+# <4>
+lineage_dict = {
+    column: lineage_to_dict(tree)
+    for column, tree in trees.items()
+}
+
+# <5>
+with open("lineage.json", "w") as f:
+    json.dump(lineage_dict, f, indent=2)
+```
+1. Import `json` for serialization, `Path` for file system paths, `load_expr` to deserialize expressions, and `build_column_trees` to build lineage trees.
+2. Define a recursive function that converts `GenericNode` tree to dictionary. The `depth > 10` check prevents infinite recursion for very deep trees. Returns operation class name (e.g., "Field", "Aggregate"), full string representation of the operation, and recursively converted child nodes.
+3. Create Path object (replace `abc123def456` with your actual build hash), load and deserialize the expression from build directory, and build lineage trees for all columns.
+4. Use dictionary comprehension to convert all column trees to dictionaries, creating a nested structure mapping column names to their lineage information.
+5. Write JSON to file with 2-space indentation for readability. The resulting JSON file contains a dictionary mapping column names to their lineage tree structure, suitable for integration with data governance tools or documentation systems.
+
+You should see a result like this:
+
+```json
+{
+  "species": {
+    "op": "Field",
+    "op_details": "Field: species",
+    "children": [
+      {
+        "op": "InMemoryTable",
+        "op_details": "InMemoryTable: tbl",
+        "children": []
+      }
+    ]
+  },
+  "avg_bill_length": {
+    "op": "Field",
+    "op_details": "Field: avg_bill_length",
+    "children": [
+      {
+        "op": "Aggregate",
+        "op_details": "Aggregate",
+        "children": [
+          {
+            "op": "Field",
+            "op_details": "Field: bill_length_mm",
+            "children": []
+          },
+          {
+            "op": "Field",
+            "op_details": "Field: species",
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+:::
+
+## Troubleshooting
+
+Resolve common issues when tracking lineage.
+
+### Build target not found
+
+**Error**: `Build target not found: <target>`
+
+**Cause**: Build doesn't exist or alias not in catalog.
+
+**Fix**:
+
+1. Verify build exists:
+   ```bash
+   ls -la builds/<build_hash>
+   ```
+   ::: {.callout-note}
+   Replace `<build_hash>` with your actual build hash.
+   :::
+
+2. Check catalog for alias:
+   ```bash
+   xorq catalog ls | grep <alias>
+   ```
+   ::: {.callout-note}
+   Replace `<alias>` with your alias name.
+   :::
+
+3. Use full path if needed:
+   ```bash
+   xorq lineage /full/path/to/builds/<build_hash>
+   ```
+   ::: {.callout-note}
+   Use absolute path to build directory.
+   :::
+
+### No lineage output
+
+**Error**: Command runs but shows no output
+
+**Cause**: Expression has no columns or build is corrupted.
+
+**Fix**:
+
+1. Verify expression can be executed:
+   ```bash
+   xorq run builds/<build_hash> -o test.parquet
+   ```
+   ::: {.callout-note}
+   Replace `<build_hash>` with your actual build hash.
+   :::
+
+2. Check build files exist:
+   ```bash
+   ls -la builds/<build_hash>/
+   ```
+   ::: {.callout-note}
+   Should see: `expr.yaml`, `metadata.json`, `profiles.yaml`.
+   :::
+
+3. Verify expression has columns by checking metadata:
+   ```bash
+   cat builds/<build_hash>/metadata.json | grep -i schema
+   ```
+   ::: {.callout-note}
+   Check if schema information exists in the metadata file.
+   :::
+
+4. Rebuild if necessary:
+   ```bash
+   xorq build your_script.py -e expression_name --builds-dir builds
+   ```
+   ::: {.callout-note}
+   Rebuild your expression if the build is corrupted.
+   :::
+
+### Lineage shows unexpected nodes
+
+**Error**: Lineage includes nodes you didn't explicitly create
+
+**Cause**: Xorq adds implicit operations (caching, projections, optimizations).
+
+**Fix**: This is expected behavior. Xorq tracks all operations including:
+- Implicit projections added during optimization
+- Cache operations for performance
+- Backend-specific optimizations
+
+Focus on the data flow from source tables to output columns. Use node references (#1, #2) to identify when the same operation is shared by multiple columns.
+
+## Next steps
+
+- [Manage the compute catalog](../platform_workflows/manage_compute_catalog.qmd) - Organize builds with aliases for easier lineage access
+- [Debug pipeline failures](../platform_workflows/debug_pipeline_failures.qmd) - Use lineage to trace data flow issues
+- [Build reproducible environments](../platform_workflows/build_reproducible_environments.qmd) - Create versioned builds to track lineage over time

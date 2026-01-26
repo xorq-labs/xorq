@@ -7,7 +7,7 @@ Evaluate machine learning (ML) models systematically to compare performance, tra
 Xorq's evaluation system combines deferred execution with scikit-learn metrics to efficiently compute accuracy, precision, recall, F1, and other metrics. Your evaluation expressions are lazy and only execute when needed, enabling efficient model comparison and reproducible experiment tracking.
 
 :::{.callout-tip}
-If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+If you haven't installed Xorq yet, then see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
 :::
 
 ## Calculate basic metrics
@@ -16,7 +16,8 @@ Compute a single metric using the fitted pipeline's `score_expr()` method. The d
 
 Create `evaluate_basic.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -80,7 +81,8 @@ Get predictions and compute multiple metrics using scikit-learn functions.
 
 Create `evaluate_multiple_metrics.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -160,7 +162,8 @@ f1: 0.0667
 
 For probability-based metrics such as ROC-AUC, obtain probability predictions from the fitted model. This example continues from the code above using the same `fitted` pipeline and `test` data:
 
-```python
+```{python}
+#| eval: true
 from sklearn.metrics import roc_auc_score
 
 # Get transformed test data (features only, after scaling)
@@ -195,7 +198,8 @@ Evaluate multiple models using the same test data and metrics to identify the be
 
 Create `compare_models.py`:
 
-```python
+```{python}
+#| eval: true
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -297,7 +301,8 @@ Log metrics, model parameters, and evaluation data to track model performance ac
 
 Create `track_experiments.py`:
 
-```python
+```{python}
+#| eval: true
 import json
 import numpy as np
 import pandas as pd
@@ -418,7 +423,8 @@ Define acceptance criteria and validate models against them before deployment.
 
 Create `validate_model.py`:
 
-```python
+```{python}
+#| eval: true
 import numpy as np
 import pandas as pd
 import xorq.api as xo

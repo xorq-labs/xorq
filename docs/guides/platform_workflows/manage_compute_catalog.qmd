@@ -2,431 +2,471 @@
 title: 'Manage the compute catalog'
 ---
 
-Organize and discover your Xorq builds using the compute catalog. This guide shows you how to add builds to the catalog, organize them with aliases, discover existing computations, and manage build versions.
-
-**What you'll accomplish**: By following this guide, you'll organize builds with aliases, discover existing computations, share catalogs across your team, promote versions through environments, and clean up old builds.
-
-The Xorq catalog tracks builds with entry IDs and aliases, making it easy to discover, reference, and manage computations across your team and environments.
+Organize builds with aliases, discover existing computations, and promote versions through environments using the Xorq catalog. The catalog tracks builds with entry IDs and aliases, making it easy to reference builds by name instead of build hashes.
 
 :::{.callout-tip}
-## Installation
-
-If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+If you haven't installed Xorq yet, then see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
 :::
 
-## Prerequisites
+## Build an expression
 
-Before you start, you need:
+Before adding builds to the catalog, you need to create a build from your Xorq expression.
 
-- [Xorq installed](../../getting_started/installation.qmd)
-- Built expressions (see [Build reproducible environments](build_reproducible_environments.qmd))
+### Create an expression file
 
-## Organize builds with aliases
+::: {.panel-tabset}
 
-Add builds to the catalog and organize them with human-readable aliases.
+## I have an expression
 
-### Add build to catalog
+If you already have a Python file with your Xorq expression, then you can proceed directly to building. Make sure your expression is assigned to a variable (e.g., `model_expr`, `my_expr`, etc.) that you can reference with the `-e` flag.
 
-Add a build to the catalog:
+For example, if your file `my_expression.py` contains an expression variable:
+
+```{python}
+#| eval: false
+import xorq.api as xo
+
+# Your existing expression
+my_expr = xo.memtable(...)  # or any Xorq expression
+```
+
+Then you would build it with:
+
+```bash
+xorq build my_expression.py -e my_expr --builds-dir builds
+```
+
+:::{.callout-note}
+Replace `my_expression.py` with your file path and `my_expr` with your expression variable name.
+:::
+
+## I need to create one
+
+If you don't have an expression file yet, then create a Python file with your Xorq expression. For example, create `train_model.py`:
+
+```{python}
+#| eval: true
+import pandas as pd
+import xorq.api as xo
+
+
+def _build_training_table() -> xo.Table:
+    """Create a small in-memory training table."""
+    df = pd.DataFrame(
+        {
+            "feature": [1.0, 2.0, 3.0, 4.0],
+            "label": [0.0, 0.0, 1.0, 1.0],
+        }
+    )
+    return xo.memtable(df)
+
+
+# Expression referenced by the guides
+train_data = _build_training_table()
+
+# A trivial "model expression" that computes a derived feature.
+# In a real project this would be your trained model or full pipeline.
+model_expr = train_data.mutate(
+    feature_scaled=train_data.feature / 4.0,
+)
+```
+
+Save this file as `train_model.py` and proceed with building.
+
+:::
+
+### Build the expression
+
+Build your expression into a reusable artifact. Replace `<your_file.py>` with your Python file path and `<expression_name>` with the variable name of your expression:
+
+```bash
+xorq build <your_file.py> -e <expression_name> --builds-dir builds
+```
+
+For example, if you created `train_model.py` with `model_expr`:
+
+```bash
+xorq build train_model.py -e model_expr --builds-dir builds
+```
+
+**You should see output like this:**
+
+```
+Building model_expr from train_model.py
+Written 'model_expr' to builds/abc123def456
+builds/abc123def456
+```
+
+:::{.callout-important}
+The last line (`builds/abc123def456`) is the build hash directory. **Copy this hash** - you'll need it in the next step to add the build to the catalog. Replace `abc123def456` with your actual hash.
+:::
+
+## Add builds to the catalog
+
+Add builds to the catalog so you can reference them by alias instead of build hash.
+
+### Add a build with an alias
+
+Add a build directory to the catalog:
 
 ```bash
 xorq catalog add builds/<build_hash> --alias my-model
 ```
 
-**Output:**
+**You should see a result like this:**
+
 ```
 Added build <build_hash> as entry <entry_id> revision r1
 ```
 
-**Key points**:
-
-- Catalog creates unique entry ID for each build
-- Aliases provide human-readable names
-- Multiple aliases can point to same entry
-- Use aliases in commands instead of build hashes
+The catalog creates a unique entry ID for the build and associates your alias with it. You can now reference this build using `my-model` instead of the build hash.
 
 ### List catalog entries
 
-List all catalog entries:
+View all entries and aliases in your catalog:
 
 ```bash
 xorq catalog ls
 ```
 
-**Output:**
+**You should see a result like this:**
+
 ```
 Aliases:
-my-model        <entry_id>    r1
-model-prod      <entry_id>    r1
-
+my-model	ce9fe1e5-0004-4087-b668-f67dfbdea6ba	r1
 Entries:
-<entry_id>    r1      <build_hash>
+<entry_id>    r1    <build_hash>
 ```
 
-**Key points**:
+The output shows aliases mapped to entry IDs and revision IDs, plus entries with their current revision and build ID.
 
-- Aliases section shows human-readable names
-- Entries section shows entry IDs and build hashes
-- Use `catalog ls` to discover existing builds
-- Track which builds are cataloged
+### View catalog information
 
-### Show catalog information
-
-Get detailed catalog information:
+Get the catalog storage location and statistics:
 
 ```bash
 xorq catalog info
 ```
 
-This shows catalog storage location, entry count, and other metadata.
+**You should see a result like this:**
 
-**Key points**:
+```
+Catalog path: /Users/username/.config/xorq/catalog.yaml
+Entries: 1
+Aliases: 2
+```
 
-- Catalog info shows storage location
-- Useful for backup and sharing
-- Check catalog health and status
+This shows:
 
-## Discover existing computations
+- **Catalog path**: Where the catalog file is stored (useful for backups)
+- **Entries**: Number of build entries in the catalog
+- **Aliases**: Number of aliases pointing to entries
 
-Use the catalog to find and reuse existing builds.
+:::{.callout-note}
+The catalog path will show your actual home directory path, not `/Users/username/`.
+:::
 
-### Search by alias
+### Search for builds
 
-Find builds by alias:
+Find builds by searching aliases:
 
 ```bash
 xorq catalog ls | grep my-model
 ```
 
-**Key points**:
+**You should see a result like this:**
 
-- Search aliases to find builds
-- Use descriptive aliases for easy discovery
-- Document aliases in team documentation
-
-### Reference builds by alias
-
-Use aliases instead of build hashes:
-
-```bash
-# Instead of build hash
-xorq serve-unbound builds/<build_hash> --host 0.0.0.0 --port 8080
-
-# Use alias
-xorq serve-unbound my-model --host 0.0.0.0 --port 8080
+```
+my-model        <entry_id>    r1
 ```
 
-**Key points**:
+Use descriptive aliases to make builds easy to discover.
 
-- Aliases work anywhere build hashes are accepted
-- Easier to remember and type
-- Update aliases to point to new versions
+## Promote builds through environments
 
-## Catalog storage and backup
+Use environment-specific aliases to promote the same build through development, staging, and production.
 
-Understand catalog storage location and backup strategies.
+### Add development alias
 
-### Find catalog storage
-
-Catalog is stored in Xorq's data directory:
-
-```bash
-xorq catalog info
-```
-
-Default location is typically `~/.local/share/xorq/catalog/` or similar.
-
-**Key points**:
-
-- Catalog is stored locally by default
-- Location varies by platform
-- Use `catalog info` to find exact location
-
-### Backup catalog
-
-Backup catalog for disaster recovery:
-
-```bash
-# Find catalog location
-CATALOG_DIR=$(xorq catalog info | grep "Location" | awk '{print $2}')
-
-# Backup catalog
-tar -czf catalog-backup-$(date +%Y%m%d).tar.gz "$CATALOG_DIR"
-```
-
-**Key points**:
-
-- Regular backups prevent data loss
-- Include catalog in backup strategy
-- Restore from backup if catalog is lost
-
-## Share catalog across team
-
-Share catalog entries with your team for collaboration.
-
-### Export catalog
-
-Export catalog entries:
-
-```bash
-xorq catalog export --output catalog-export.json
-```
-
-**Key points**:
-
-- Export catalog to share with team
-- JSON format for easy parsing
-- Include in version control or artifact storage
-
-### Import catalog entries
-
-Team members can reference exported entries, though direct import may require manual catalog file copying.
-
-**Key points**:
-
-- Share catalog files for team collaboration
-- Use shared storage for team catalog
-- Document catalog sharing process
-
-### Use shared catalog location
-
-Point to shared catalog location (if supported):
-
-```bash
-# Set catalog location via environment variable or config
-export XORQ_CATALOG_DIR=/shared/catalog
-xorq catalog ls
-```
-
-**Key points**:
-
-- Use shared storage for team catalog
-- Ensure team has access to shared location
-- Document shared catalog setup
-
-## Version promotion workflows
-
-Promote builds through environments using catalog aliases.
-
-### Development alias
-
-Add build with development alias:
+Add a build with a development alias:
 
 ```bash
 xorq catalog add builds/<build_hash> --alias model-dev
 ```
 
-### Staging alias
+**You should see a result like this:**
 
-Promote to staging:
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+### Promote to staging
+
+After testing in development, promote the same build to staging:
 
 ```bash
-# Update staging alias to point to tested build
 xorq catalog add builds/<build_hash> --alias model-staging
 ```
 
-### Production alias
+**You should see a result like this:**
 
-Promote to production:
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+### Promote to production
+
+After staging validation, promote to production:
 
 ```bash
-# After staging validation, promote to production
 xorq catalog add builds/<build_hash> --alias model-prod
 ```
 
-**Key points**:
+**You should see a result like this:**
 
-- Use environment-specific aliases (dev, staging, prod)
-- Test in each environment before promotion
-- Keep previous versions for rollback
-- Document promotion process
+```
+Added build <build_hash> as entry <entry_id> revision r1
+```
+
+All three aliases (`model-dev`, `model-staging`, `model-prod`) now point to the same build. You can update any alias to point to a new build when you're ready to promote a new version.
 
 ### Update alias to new version
 
-Update alias to point to new build:
+When you have a new build to promote, update the alias to point to it:
+
+::: {.panel-tabset}
+
+## Build
+
+Build a new version of your model:
 
 ```bash
-# Add new build
-xorq catalog add builds/<new_build_hash> --alias model-prod
+xorq build train_model.py -e model_expr --builds-dir builds
+```
 
-# Alias now points to new build
+## Update alias
+
+Update the production alias to point to the new build:
+
+```bash
+xorq catalog add builds/<new_build_hash> --alias model-prod
+```
+
+## Verify
+
+Verify the alias points to the new build:
+
+```bash
 xorq catalog ls | grep model-prod
 ```
 
-**Key points**:
+:::
 
-- Updating alias points it to new build
-- Previous build still accessible by entry ID
-- Use for version promotion and rollback
+**You should see a result like this:**
 
-## Clean up old builds
+```
+model-prod      <new_entry_id>    r1
+```
 
-Remove old or unused builds from the catalog.
+The alias now points to the new build. The previous build remains accessible by its entry ID or build hash.
 
-### Remove catalog entry
+## Compare builds
 
-Remove build from catalog:
+Compare two builds to see what changed between versions.
+
+### Compare by alias or entry ID
+
+Compare two builds using aliases, entry IDs, or build hashes:
+
+```bash
+xorq catalog diff-builds model-dev model-prod
+```
+
+**You should see a result like this:**
+
+```
+## Diff: expr.yaml
+diff --git a/expr.yaml b/expr.yaml
+index 1234567..abcdefg 100644
+--- a/expr.yaml
++++ b/expr.yaml
+@@ -10,7 +10,7 @@
+     value: 0.5
+   - op: Literal
+     value: 0.8
+```
+
+The command uses `git diff` to show differences in build files. Exit code 0 means no differences; exit code 1 means differences found.
+
+### Compare specific files
+
+Compare only specific files:
+
+```bash
+xorq catalog diff-builds model-dev model-prod --files expr.yaml metadata.json
+```
+
+This limits the comparison to the specified files.
+
+## Remove builds from catalog
+
+Remove entries or aliases when you no longer need them.
+
+### Remove an entry
+
+Remove a build entry from the catalog:
 
 ```bash
 xorq catalog rm <entry_id>
 ```
 
-Or remove by alias:
+**You should see a result like this:**
+
+```
+Removed entry <entry_id>
+```
+
+Removing an entry also removes all aliases pointing to it. The build directory itself is not deleted; you must clean it up manually.
+
+### Remove an alias
+
+Remove just an alias, keeping the entry:
 
 ```bash
 xorq catalog rm my-model
 ```
 
-**Key points**:
+**You should see a result like this:**
 
-- Removing entry removes it from catalog
-- Build directory is not deleted (manual cleanup needed)
-- Aliases pointing to entry are also removed
+```
+Removed alias my-model
+```
 
-### Remove alias only
-
-To remove just an alias (keeping the entry), you may need to remove and re-add the entry without that alias.
-
-**Key points**:
-
-- Remove aliases to clean up catalog
-- Entry remains accessible by entry ID
-- Re-add entry with different aliases if needed
+The entry remains accessible by its entry ID, but the alias is gone.
 
 ### Clean up build directories
 
-Manually remove old build directories:
+The catalog removal doesn't delete build directories. Manually remove old build directories:
+
+::: {.panel-tabset}
+
+## List builds
+
+List all build directories:
 
 ```bash
-# List old builds
 ls builds/
+```
 
-# Remove old build
+## Remove old build
+
+Remove a specific build directory:
+
+```bash
 rm -rf builds/<old_build_hash>
 ```
 
-**Key points**:
+:::
 
-- Catalog removal doesn't delete build directories
-- Manually clean up old build directories
-- Keep builds referenced by catalog entries
-- Archive old builds before deletion
+Only remove build directories that aren't referenced by any catalog entries.
 
-## Audit catalog history
+## Backup catalog
 
-Track catalog changes and build history.
+Back up your catalog to prevent data loss.
 
-### List all entries
+### Find catalog location
 
-View complete catalog:
+Get the catalog storage path:
 
 ```bash
-xorq catalog ls
+xorq catalog info
 ```
 
-**Key points**:
+**You should see a result like this:**
 
-- Regular catalog listing shows current state
-- Track which builds are cataloged
-- Identify unused entries
+```
+Catalog path: /Users/username/.config/xorq/catalog.yaml
+Entries: 1
+Aliases: 2
+```
 
-### Compare builds
+### Backup catalog directory
 
-Compare two builds:
+Back up the entire catalog directory:
 
 ```bash
-xorq catalog diff-builds <entry1> <entry2>
+CATALOG_PATH=$(xorq catalog info | grep "Catalog path:" | sed 's/Catalog path: //')
+CATALOG_DIR=$(dirname "$CATALOG_PATH")
+tar -czf catalog-backup-$(date +%Y%m%d).tar.gz "$CATALOG_DIR"
 ```
 
-**Key points**:
+**You should see a result like this:**
 
-- Compare builds to see differences
-- Useful for understanding changes between versions
-- Helps with debugging and rollback decisions
-
-### Track catalog changes
-
-Version control catalog directory (if accessible):
-
-```bash
-# If catalog is in version control
-git add .xorq/catalog/
-git commit -m "Update catalog"
+```
+catalog-backup-20260119.tar.gz
 ```
 
-**Key points**:
-
-- Track catalog changes in version control
-- Review catalog changes in code reviews
-- Document catalog management process
+This creates a compressed archive of your catalog configuration and build references.
 
 ## Troubleshooting
 
-When managing the catalog, you may encounter missing entries, alias conflicts, or storage issues.
+Common issues when managing the catalog.
+
+### Issue: Script not found
+
+**Error**: `Error: Script not found at <filename>`
+
+**Cause**: The Python file doesn't exist in the current directory or the path is incorrect.
+
+**Fix**:
+
+1. Verify the file exists: `ls <filename>` or `ls *.py`
+2. Check you're in the correct directory: `pwd`
+3. Use the full path if the file is elsewhere: `xorq build /full/path/to/file.py -e <expression_name> --builds-dir builds`
+4. If you haven't created the file yet, see the [Create an expression file](#create-an-expression-file) section above
 
 ### Issue: Build not found in catalog
 
-**Error**: Alias or entry ID not found
+**Error**: `Entry <alias> not found in catalog`
 
-**Cause**: Build not added to catalog or alias removed
+**Cause**: The alias or entry ID doesn't exist in the catalog.
 
-**Recovery**:
+**Fix**:
 
-1. Check catalog: run `xorq catalog ls` to see entries
-2. Add build: use `xorq catalog add` to add build
-3. Check alias: verify alias spelling and existence
-4. Use entry ID: reference by entry ID instead of alias
-
-**Prevention**:
-
-- Add builds to catalog after building
-- Use consistent alias naming
-- Document catalog aliases
-- Regular catalog backups
+1. List catalog entries: `xorq catalog ls`
+2. Verify the alias spelling
+3. Add the build if it's missing: `xorq catalog add builds/<build_hash> --alias <alias>`
+4. Use the entry ID instead of alias if the alias was removed
 
 ### Issue: Alias points to wrong build
 
-**Error**: Alias references unexpected build
+**Error**: Alias references an unexpected build.
 
-**Cause**: Alias updated to point to different build
+**Cause**: The alias was updated to point to a different build.
 
-**Recovery**:
+**Fix**:
 
 1. Check current alias: `xorq catalog ls | grep <alias>`
-2. Find correct build: identify correct build hash
+2. Find the correct build hash
 3. Update alias: `xorq catalog add builds/<correct_hash> --alias <alias>`
-4. Verify: check alias points to correct build
+4. Verify: `xorq catalog ls | grep <alias>`
 
-**Prevention**:
+### Issue: Cannot add entry
 
-- Document alias updates
-- Use version-specific aliases
-- Test aliases after updates
-- Keep alias history
+**Error**: Permission denied or storage full.
 
-### Issue: Catalog storage full
+**Cause**: Catalog directory is not writable or storage is full.
 
-**Error**: Cannot add entries, storage issues
+**Fix**:
 
-**Cause**: Catalog storage directory full or inaccessible
-
-**Recovery**:
-
-1. Check storage: verify catalog directory exists and is writable
-2. Free space: clean up old builds and entries
-3. Move catalog: relocate catalog to larger storage
-4. Check permissions: ensure write access to catalog directory
-
-**Prevention**:
-
-- Monitor catalog storage usage
-- Regular cleanup of old entries
-- Use adequate storage for catalog
-- Backup catalog regularly
+1. Check catalog location: `xorq catalog info`
+2. Verify write permissions on the catalog directory
+3. Free up disk space if storage is full
+4. Check that the build directory exists and is readable
 
 ## Next steps
 
-You now have techniques for managing the compute catalog, including organizing builds, discovering computations, sharing catalogs, and version promotion.
+You now know how to organize builds with aliases, discover existing computations, promote versions through environments, and manage the catalog.
 
 - [Build reproducible environments](build_reproducible_environments.qmd) - Create reproducible builds
 - [Set up CI/CD pipelines](setup_cicd_pipelines.qmd) - Automate catalog management
