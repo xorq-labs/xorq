@@ -11,12 +11,6 @@ from opentelemetry import trace
 import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
 from xorq.agent.onboarding import bootstrap_agent_docs
-from xorq.agent.templates import (
-    get_template,
-    iter_templates,
-    list_template_names,
-    scaffold_template,
-)
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog import (
     ServerRecord,
@@ -294,9 +288,24 @@ def run_unbound_command(
 
     # Load the expression and make it unbound
     expr = load_expr(expr_path, cache_dir=cache_dir)
-    unbound_expr = expr_to_unbound(
-        expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ
-    ).to_expr()
+
+    # Try with SnapshotStrategy first (new behavior), fall back to None for backward compatibility
+    try:
+        unbound_expr = expr_to_unbound(
+            expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=SnapshotStrategy()
+        ).to_expr()
+    except (ValueError, StopIteration) as e:
+        # If hash not found with SnapshotStrategy, try without strategy (legacy mode)
+        # This handles cases where expressions were cataloged with old hash computation
+        print(
+            "[run-unbound] Warning: Hash not found with SnapshotStrategy, "
+            "trying legacy mode (strategy=None). Consider re-running 'xorq catalog sources' "
+            "to get updated hashes.",
+            file=sys.stderr
+        )
+        unbound_expr = expr_to_unbound(
+            expr, hash=to_unbind_hash, tag=to_unbind_tag, typs=typ, strategy=None
+        ).to_expr()
 
     # Read Arrow IPC from instream
     print("[run-unbound] Reading Arrow IPC from instream...", file=sys.stderr)
@@ -458,16 +467,35 @@ def init_command(
     return path
 
 
+def git_hooks_command(args):
+    """Handle git hooks commands."""
+    from xorq.hooks import install_hooks, uninstall_hooks, run_hook, list_hooks
+
+    match args.hooks_subcommand:
+        case "install":
+            return install_hooks(force=args.force)
+        case "uninstall":
+            return uninstall_hooks()
+        case "run":
+            return run_hook(args.hook_name, args.hook_args)
+        case "list":
+            return list_hooks()
+        case _:
+            raise ValueError(f"Unknown hooks subcommand: {args.hooks_subcommand}")
+
+
 def agents_command(args):
     match args.agents_subcommand:
         case "init":
             return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
-        case "land":
-            return agent_land_command(args)
-        case "templates":
-            return agent_templates_command(args)
+        case "prime":
+            return agent_prime_command(args)
+        case "hooks":
+            return agent_claude_hooks_command(args)
+        case "vignette":
+            return agent_vignette_command(args)
         case _:
             raise ValueError(f"Unknown agents subcommand: {args.agents_subcommand}")
 
@@ -504,73 +532,148 @@ def agents_init_command(args):
 
 
 def agent_onboard_command(args):
-    from xorq.agent.onboarding import render_onboarding_summary
+    from xorq.agent.onboarding import render_lean_onboarding
 
-    summary = render_onboarding_summary(step=args.step)
+    # Always render lean version for onboard
+    summary = render_lean_onboarding()
     print(summary.rstrip())
 
 
-def agent_land_command(args):
-    from xorq.agent.land import agent_land_command as land_cmd
+def agent_prime_command(args):
+    from xorq.agent.onboarding import render_onboarding_summary
 
-    limit = getattr(args, "limit", 10)
-    return land_cmd(args, limit=limit)
+    # Prime provides the full workflow context
+    summary = render_onboarding_summary(step=getattr(args, "step", None))
+    print(summary.rstrip())
 
 
-def agent_templates_command(args):
-    match args.templates_command:
+def agent_claude_hooks_command(args):
+    match args.hooks_subcommand:
+        case "install":
+            return install_claude_hooks_command(args)
+        case _:
+            print(f"Unknown hooks command: {args.hooks_subcommand}")
+            return 1
+
+
+def install_claude_hooks_command(args):
+    """Install Claude Code hooks for xorq integration."""
+    import json
+    import shutil
+    from pathlib import Path
+
+    # Get the source hooks directory from the xorq package
+    import xorq
+    xorq_package_dir = Path(xorq.__file__).parent
+    hooks_source_dir = xorq_package_dir / "claude_hooks"
+
+    # Target directories
+    project_dir = Path.cwd()
+    claude_dir = project_dir / ".claude"
+    hooks_dir = claude_dir / "hooks"
+    settings_file = claude_dir / "settings.json"
+
+    # Create directories
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+
+    # Copy hook scripts
+    hook_files = [
+        "session_start.py",
+        "user_prompt_submit.py",
+        "pre_tool_use.py",
+        "pre_compact.py",
+        "stop.py",
+        "session_end.py",
+    ]
+
+    installed_hooks = []
+    for hook_name in hook_files:
+        source_path = hooks_source_dir / hook_name
+        target_path = hooks_dir / hook_name
+        if source_path.exists():
+            shutil.copy2(source_path, target_path)
+            # Make executable
+            target_path.chmod(0o755)
+            installed_hooks.append(hook_name)
+
+    # Handle settings.json
+    if settings_file.exists() and not args.force:
+        # Load existing settings
+        try:
+            with settings_file.open() as f:
+                settings = json.load(f)
+        except json.JSONDecodeError:
+            print(f"Error: Existing {settings_file} is not valid JSON")
+            return 1
+
+        # Check if hooks already exist
+        if "hooks" in settings:
+            print(f"Warning: {settings_file} already contains hooks configuration")
+            print("Use --force to overwrite or manually merge the hooks")
+            print("\nTo manually add xorq hooks, add these to your settings.json:")
+            print(json.dumps(json.loads((hooks_source_dir / "settings_template.json").read_text()), indent=2))
+            return 0
+    else:
+        # Load template settings
+        template_path = hooks_source_dir / "settings_template.json"
+        with template_path.open() as f:
+            settings = json.load(f)
+
+    # Write settings
+    with settings_file.open("w") as f:
+        json.dump(settings, f, indent=2)
+
+    print("✅ Installed Claude Code hooks for xorq")
+    print(f"   Created: {claude_dir}/")
+    print(f"   Settings: {settings_file}")
+    for hook in installed_hooks:
+        print(f"   Hook: hooks/{hook}")
+
+    print("\n📝 Next steps:")
+    print("1. Restart Claude Code to activate the hooks")
+    print("2. The following hooks are now available (currently dummy implementations):")
+    print("   - SessionStart: Triggered when a Claude Code session begins")
+    print("   - UserPromptSubmit: Triggered when user submits a prompt")
+    print("   - PreToolUse: Triggered before a tool is used")
+    print("   - PreCompact: Triggered before context compaction")
+    print("   - Stop: Triggered when Claude Code execution is stopped")
+    print("   - SessionEnd: Triggered when a Claude Code session ends")
+
+    return 0
+
+
+def agent_vignette_command(args):
+    match args.vignette_command:
         case "list":
-            return agent_templates_list_command()
+            return agent_vignette_list_command()
         case "show":
-            return agent_templates_show_command(args.name)
+            return agent_vignette_show_command(args.name)
         case "scaffold":
-            return agent_templates_scaffold_command(
+            return agent_vignette_scaffold_command(
                 args.name, args.dest, args.overwrite
             )
         case _:
-            raise ValueError(
-                f"Unknown agent templates command: {args.templates_command}"
-            )
+            raise ValueError(f"Unknown vignette command: {args.vignette_command}")
 
 
-def agent_templates_list_command():
-    print(f"{'NAME':20} {'INIT TEMPLATE':18} DESCRIPTION")
-    for template in iter_templates():
-        print(f"{template.name:20} {template.template.value:18} {template.description}")
+def agent_vignette_list_command():
+    from xorq.agent.vignettes import format_vignette_list
+    print(format_vignette_list())
 
 
-def agent_templates_show_command(name):
-    template = get_template(name)
-    lines = [
-        f"# Template: {template.name}",
-        f"Init template: {template.template.value}",
-        f"Catalog alias hint: {template.catalog_hint}",
-        f"Default table: {template.default_table}",
-        "",
-        "Prompts:",
-    ]
-    lines.extend(f"- {prompt}" for prompt in template.prompts)
-    lines.extend(
-        [
-            "",
-            "Suggested workflow:",
-            f"- Run `xorq init --template {template.template.value}` if the project lacks this template",
-            "- Customize the scaffolded expression and build it",
-            f"- Register with `xorq catalog add ... --alias {template.catalog_hint}`",
-        ]
-    )
-    print("\n".join(lines))
+def agent_vignette_show_command(name):
+    from xorq.agent.vignettes import format_vignette_details
+    print(format_vignette_details(name))
 
 
-def agent_templates_scaffold_command(name, dest, overwrite):
-    template = get_template(name)
-    dest_path = Path(dest) if dest else Path("skills") / f"{template.name}.py"
+def agent_vignette_scaffold_command(name, dest, overwrite):
+    from xorq.agent.vignettes import scaffold_vignette
     try:
-        written = scaffold_template(template, dest_path, overwrite=overwrite)
-    except FileExistsError as exc:
+        written = scaffold_vignette(name, dest, overwrite=overwrite)
+        print(f"Scaffolded vignette to {written}")
+    except (ValueError, FileExistsError) as exc:
         print(str(exc), file=sys.stderr)
         sys.exit(1)
-    print(f"Wrote template scaffold to {written}")
 
 
 def parse_args(override=None):
@@ -991,64 +1094,110 @@ def parse_args(override=None):
 
     onboard_parser = agents_subparsers.add_parser(
         "onboard",
-        help="Guided onboarding summary for xorq agents",
+        help="Lean onboarding instructions for AGENTS.md",
     )
-    onboard_parser.add_argument(
+
+    prime_parser = agents_subparsers.add_parser(
+        "prime",
+        help="Full dynamic workflow context for xorq agents",
+    )
+    prime_parser.add_argument(
         "--step",
-        choices=("init", "templates", "build", "catalog", "explore", "compose", "land"),
+        choices=("init", "build", "catalog", "explore", "compose"),
         default=None,
-        help="Filter onboarding instructions to a specific step",
+        help="Filter workflow instructions to a specific step",
     )
 
-    land_parser = agents_subparsers.add_parser(
-        "land",
-        help="Show session summary and landing checklist",
+    # Add hooks subparser for Claude Code integration
+    hooks_parser = agents_subparsers.add_parser(
+        "hooks",
+        help="Manage Claude Code hooks for xorq integration",
     )
-    land_parser.add_argument(
-        "--limit",
-        type=int,
-        default=10,
-        help="Number of recent builds to show (default: 10)",
+    hooks_subparsers = hooks_parser.add_subparsers(
+        dest="hooks_subcommand",
+        help="Claude Code hooks commands",
+    )
+    hooks_subparsers.required = True
+
+    hooks_install_parser = hooks_subparsers.add_parser(
+        "install",
+        help="Install Claude Code hooks for automatic context injection",
+    )
+    hooks_install_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Overwrite existing settings.json even if it contains hooks",
     )
 
-    templates_parser = agents_subparsers.add_parser(
-        "templates",
-        help="Template registry commands",
+    # Add vignette subparser
+    vignette_parser = agents_subparsers.add_parser(
+        "vignette",
+        help="Code vignettes - comprehensive working examples",
     )
-    templates_subparsers = templates_parser.add_subparsers(
-        dest="templates_command",
-        help="Templates commands",
+    vignette_subparsers = vignette_parser.add_subparsers(
+        dest="vignette_command",
+        help="Vignette commands",
     )
-    templates_subparsers.required = True
+    vignette_subparsers.required = True
 
-    templates_subparsers.add_parser("list", help="List registered templates")
+    vignette_subparsers.add_parser("list", help="List available vignettes")
 
-    templates_show = templates_subparsers.add_parser(
-        "show", help="Show details for a specific template"
+    vignette_show = vignette_subparsers.add_parser(
+        "show", help="Show details for a specific vignette"
     )
-    templates_show.add_argument(
+    from xorq.agent.vignettes import get_vignette_names
+    vignette_show.add_argument(
         "name",
-        choices=list_template_names(),
-        help="Template identifier",
+        choices=get_vignette_names(),
+        help="Vignette identifier",
     )
 
-    templates_scaffold = templates_subparsers.add_parser(
-        "scaffold", help="Scaffold an expression file for a template"
+    vignette_scaffold = vignette_subparsers.add_parser(
+        "scaffold", help="Scaffold a vignette to your project"
     )
-    templates_scaffold.add_argument(
+    vignette_scaffold.add_argument(
         "name",
-        choices=list_template_names(),
-        help="Template identifier",
+        choices=get_vignette_names(),
+        help="Vignette identifier",
     )
-    templates_scaffold.add_argument(
+    vignette_scaffold.add_argument(
         "--dest",
         default=None,
-        help="Destination path for the scaffold (default: skills/<name>.py)",
+        help="Destination path for the vignette (default: vignettes/<name>.py)",
     )
-    templates_scaffold.add_argument(
+    vignette_scaffold.add_argument(
         "--overwrite",
         action="store_true",
         help="Replace destination file if it exists",
+    )
+
+    # Git hooks management
+    hooks_parser = subparsers.add_parser("hooks", help="Manage git hooks for xorq")
+    hooks_subparsers = hooks_parser.add_subparsers(
+        dest="hooks_subcommand",
+        help="Git hooks commands",
+    )
+    hooks_subparsers.required = True
+
+    hooks_install_parser = hooks_subparsers.add_parser(
+        "install", help="Install xorq git hooks"
+    )
+    hooks_install_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force reinstall even if hooks already exist",
+    )
+
+    hooks_subparsers.add_parser("uninstall", help="Uninstall xorq git hooks")
+
+    hooks_subparsers.add_parser("list", help="List installed git hooks status")
+
+    hooks_run_parser = hooks_subparsers.add_parser(
+        "run", help="Run a specific git hook (internal use)"
+    )
+    hooks_run_parser.add_argument("hook_name", help="Name of the hook to run")
+    hooks_run_parser.add_argument(
+        "hook_args", nargs="*", default=[], help="Arguments to pass to the hook"
     )
 
     args = parser.parse_args(override)
@@ -1170,6 +1319,11 @@ def main():
             case "agents":
                 f, f_args = (
                     agents_command,
+                    (args,),
+                )
+            case "hooks":
+                f, f_args = (
+                    git_hooks_command,
                     (args,),
                 )
             case _:
