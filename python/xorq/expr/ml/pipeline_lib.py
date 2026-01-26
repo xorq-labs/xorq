@@ -1,7 +1,6 @@
 import functools
 import pickle
 
-import dask
 import toolz
 from attr import (
     field,
@@ -31,7 +30,11 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 from xorq.common.utils.func_utils import (
     return_constant,
 )
+from xorq.common.utils.name_utils import (
+    make_name,
+)
 from xorq.expr.ml.fit_lib import (
+    DeferredFitOther,
     decision_function_sklearn,
     feature_importances_sklearn,
     predict_proba_sklearn,
@@ -65,10 +68,6 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
     assert isinstance(return_type, dt.DataType)
     other, which = arbitrate_transform_predict(transform, predict)
     assert hasattr(fit, "__call__") and hasattr(other, "__call__")
-
-    def make_name(prefix, to_tokenize, n=32):
-        tokenized = dask.base.tokenize(to_tokenize)
-        return ("_" + prefix + "_" + tokenized)[:n].lower()
 
     def wrapped_fit(self, *args, **kwargs):
         self._model = fit(*args, **kwargs)
@@ -378,6 +377,10 @@ class FittedStep:
         # we should now have everything fixed
 
     @property
+    def instance(self):
+        return self.step.instance
+
+    @property
     def is_transform(self):
         return hasattr(self.step.typ, "transform")
 
@@ -386,12 +389,13 @@ class FittedStep:
         return hasattr(self.step.typ, "predict")
 
     @property
+    def predict_return_type(self):
+        return get_predict_return_type(self)
+
+    @property
     @functools.cache
     def _deferred_fit_other(self):
-        from xorq.expr.ml.fit_lib import DeferredFitOther
-
-        _deferred_fit_other = DeferredFitOther.from_fitted_step(self)
-        return _deferred_fit_other
+        return DeferredFitOther.from_fitted_step(self)
 
     @property
     def deferred_model(self):
@@ -503,15 +507,10 @@ class FittedStep:
         }
 
     def transform(self, expr, retain_others=True):
-        if self.structer is None:
-            col = self.transform_raw(expr)
-            if retain_others and (others := self.get_others(expr)):
-                expr = expr.select(*others, col)
-            else:
-                return col
-        else:
-            expr = self.transform_unpack(expr, retain_others=retain_others)
-        return expr.tag(
+        col = self.transform_raw(expr)
+        others = self.get_others(expr) if retain_others else ()
+        expr = expr.select(*others, col) if others else col.as_table()
+        return self.structer.maybe_unpack(expr, col.get_name()).tag(
             **self.tag_kwargs,
         )
 
@@ -756,7 +755,9 @@ class Pipeline:
             transformed = fitted_step.transform(transformed)
             # hack: unclear why we need to do this, but we do
             transformed = transformed.pipe(do_into_backend)
-            features = tuple(fitted_step.structer.dtype)
+            features = fitted_step.structer.get_output_columns(
+                fitted_step.dest_col or "transformed"
+            )
         if step := self.predict_step:
             fitted_step = step.fit(
                 transformed,
@@ -965,12 +966,18 @@ def get_target_type(step_instance, step, expr, features, target):
 registry = Dispatch()
 
 
-def get_predict_return_type(instance, step, expr, features, target):
-    assert isinstance(instance, step.typ)
+def get_predict_return_type(fitted_step):
+    instance = fitted_step.step.instance
     if return_type := getattr(instance, "return_type", None):
         return return_type
     else:
-        return registry(instance, step, expr, features, target)
+        return registry(
+            instance,
+            fitted_step.step,
+            fitted_step.expr,
+            fitted_step.features,
+            fitted_step.target,
+        )
 
 
 @registry.register(object)

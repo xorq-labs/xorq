@@ -1,5 +1,4 @@
 import functools
-from functools import wraps
 from typing import Callable
 
 import cloudpickle
@@ -19,7 +18,7 @@ from attr.validators import (
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.name_utils import make_name
-from xorq.expr.ml.structer import Structer
+from xorq.expr.ml.structer import KV_ENCODED_TYPE, KVEncoder, Structer
 from xorq.expr.udf import make_pandas_expr_udf
 from xorq.vendor import ibis
 
@@ -29,6 +28,13 @@ def fit_sklearn(df, target=None, *, cls, params):
     obj = cls(**dict(params))
     obj.fit(df, target)
     return obj
+
+
+@toolz.curry
+def fit_sklearn_args(df, *args, cls, params):
+    instance = cls(**dict(params))
+    instance.fit(df, *args)
+    return instance
 
 
 @toolz.curry
@@ -50,24 +56,8 @@ def transform_sklearn_series(model, df, col):
 
 
 @toolz.curry
-def transform_sklearn_feature_names_out(model, df):
-    import pandas as pd
-
-    names = model.get_feature_names_out()
-    return pd.Series(
-        (
-            tuple({"key": key, "value": float(value)} for key, value in zip(names, row))
-            for row in model.transform(df).toarray()
-        )
-    )
-
-
-@toolz.curry
-def fit_sklearn_struct(df, *args, cls, params):
-    instance = cls(**dict(params))
-    # if args exists, is likely (target,): see TfidfVectorizer
-    instance.fit(df, *args)
-    return instance
+def transform_sklearn_series_kv(model, df, col):
+    return KVEncoder.encode(model, df[col])
 
 
 @toolz.curry
@@ -104,6 +94,18 @@ def feature_importances_sklearn(model, df):
     return [importances.tolist()]
 
 
+@toolz.curry
+def kv_encode_output(model, df):
+    """
+    Convert sklearn transform output to Array[Struct{key, value}] encoded format.
+
+    Enables fully deferred execution by using a fixed return type regardless
+    of the actual output schema, which is resolved at execution time via
+    get_feature_names_out().
+    """
+    return KVEncoder.encode(model, df)
+
+
 @frozen
 class DeferredFitOther:
     expr = field(validator=instance_of(ibis.Expr))
@@ -125,7 +127,7 @@ class DeferredFitOther:
             raise ValueError(
                 f"cache must be of type Optional[Cache], is of type {type(self.cache)}"
             )
-        if self.features is None:
+        if self.features is None or len(self.features) == 0:
             object.__setattr__(self, "features", tuple(self.expr.schema()))
 
     def make_name(self, prefix):
@@ -138,24 +140,32 @@ class DeferredFitOther:
         return schema
 
     @property
+    def encoded_cols(self):
+        return KVEncoder.get_kv_encoded_cols(self.expr, self.features)
+
+    @property
+    def fit_schema(self):
+        base = self.schema
+        if self.target:
+            return base | ibis.schema({self.target: self.expr[self.target].type()})
+        return base
+
+    @property
     def model_udaf(self):
-        fit_schema = self.schema | (
-            ibis.schema({self.target: self.expr[self.target].type()})
-            if self.target
-            else {}
-        )
-        model_udaf = udf.agg.pandas_df(
+        return udf.agg.pandas_df(
             fn=toolz.compose(
                 cloudpickle.dumps,
-                self.inner_fit(
-                    fit=self.fit, target=self.target, features=self.features
+                self._inner_fit(
+                    fit=self.fit,
+                    target=self.target,
+                    features=self.features,
+                    encoded_cols=self.encoded_cols,
                 ),
             ),
-            schema=fit_schema,
+            schema=self.fit_schema,
             return_type=dt.binary,
             name=self.make_name(f"fit_{self.name_infix}"),
         )
-        return model_udaf
 
     @property
     def deferred_model(self):
@@ -179,8 +189,11 @@ class DeferredFitOther:
     @property
     def deferred_other(self):
         return self.make_deferred_other(
-            fn=self.inner_other(
-                other=self.other, features=self.features, return_type=self.return_type
+            fn=self._inner_other(
+                other=self.other,
+                features=self.features,
+                return_type=self.return_type,
+                encoded_cols=self.encoded_cols,
             ),
             return_type=self.return_type,
             name_infix=self.name_infix,
@@ -192,126 +205,91 @@ class DeferredFitOther:
 
     @staticmethod
     @toolz.curry
-    def inner_fit(df, fit, target, features):
-        # fixme: use inspect to ensure that `fit`'s signature has `features` and `target`/`*args` as arg names
-        args = (df[list(features)],) + ((df[target],) if target else ())
-        obj = fit(*args)
-        return obj
+    def _inner_fit(df, fit, target, features, encoded_cols):
+        df_decoded, features_decoded = KVEncoder.decode_encoded_columns(
+            df, features, encoded_cols
+        )
+        args = (df_decoded[list(features_decoded)],) + (
+            (df_decoded[target],) if target else ()
+        )
+        return fit(*args)
 
     @staticmethod
     @toolz.curry
-    def inner_other(model, df, other, features, return_type):
+    def _inner_other(model, df, other, features, return_type, encoded_cols):
+        df_decoded, features_decoded = KVEncoder.decode_encoded_columns(
+            df, features, encoded_cols
+        )
         return pa.array(
-            other(model, df[list(features)]),
+            other(model, df_decoded[list(features_decoded)]),
             type=return_type.to_pyarrow(),
         )
 
     @classmethod
     def from_fitted_step(cls, fitted_step):
         kwargs = {
+            # still need to add: fit, other, return_type, name_infix
             "expr": fitted_step.expr,
             "target": fitted_step.target,
             "features": fitted_step.features,
-            # missing: fit, other, return_type, name_infix
             "cache": fitted_step.cache,
         }
-        sklearn_cls, params = fitted_step.step.typ, fitted_step.step.params_tuple
-
-        if fitted_step.is_transform:
-            # at the end of each of these conditions, we should have the kwargs for a DeferredFitOther
-            match fitted_step.step.typ:
-                # FIXME: formalize registration of non-Structer handling
-                case type(__name__="TfidfVectorizer"):
-                    # features must be length 1
-                    (col,) = kwargs["features"]
-                    kwargs = kwargs | {
-                        "fit": fit_sklearn_series(
-                            col=col, cls=sklearn_cls, params=params
+        if fitted_step.is_predict:
+            return cls(
+                fit=fit_sklearn(
+                    cls=fitted_step.step.typ, params=fitted_step.step.params_tuple
+                ),
+                other=predict_sklearn,
+                return_type=fitted_step.predict_return_type,
+                name_infix="predict",
+                **kwargs,
+            )
+        elif fitted_step.is_transform:
+            structer = Structer.from_instance_expr(
+                fitted_step.instance, fitted_step.expr, features=fitted_step.features
+            )
+            target = fitted_step.target if structer.needs_target else None
+            match (structer.is_series, structer.is_kv_encoded):
+                case (True, True):
+                    (col,) = fitted_step.features
+                    return cls(
+                        fit=fit_sklearn_series(
+                            col=col,
+                            cls=fitted_step.step.typ,
+                            params=fitted_step.step.params_tuple,
                         ),
-                        "other": transform_sklearn_series(col=col),
-                        "return_type": dt.Array(dt.float64),
-                        "name_infix": "transformed",
-                    }
-                case type(__name__="SelectKBest"):
-                    # SelectKBest is a Structer special case that needs target
-                    structer = Structer.from_instance_expr(
-                        sklearn_cls(**dict(params)),
-                        fitted_step.expr,
-                        features=fitted_step.features,
-                    )
-                    kwargs = kwargs | {
-                        "fit": fit_sklearn_struct(cls=sklearn_cls, params=params),
-                        "other": transform_sklearn_struct(structer.get_convert_array()),
-                        "return_type": structer.return_type,
-                        "name_infix": "transformed",
-                    }
-                case type(get_step_kwargs=get_step_kwargs):
-                    # FIXME: create abstract class for BaseEstimator with get_step_kwargs
-                    kwargs = (
-                        kwargs
+                        other=transform_sklearn_series_kv(col=col),
+                        return_type=KV_ENCODED_TYPE,
+                        name_infix="transformed_encoded",
+                        **kwargs
                         | {
-                            "fit": fit_sklearn(cls=sklearn_cls, params=params),
-                        }
-                        | get_step_kwargs()
+                            "target": target,
+                        },
+                    )
+                case (False, True):
+                    return cls(
+                        fit=fit_sklearn_args(
+                            cls=fitted_step.step.typ,
+                            params=fitted_step.step.params_tuple,
+                        ),
+                        other=kv_encode_output,
+                        return_type=KV_ENCODED_TYPE,
+                        name_infix="transformed_encoded",
+                        **kwargs,
                     )
                 case _:
-                    structer = Structer.from_instance_expr(
-                        sklearn_cls(**dict(params)),
-                        fitted_step.expr,
-                        features=fitted_step.features,
-                    )
-                    kwargs = kwargs | {
-                        "fit": fit_sklearn_struct(
-                            cls=sklearn_cls,
-                            params=params,
+                    return cls(
+                        fit=fit_sklearn_args(
+                            cls=fitted_step.step.typ,
+                            params=fitted_step.step.params_tuple,
                         ),
-                        "other": transform_sklearn_struct(structer.get_convert_array()),
-                        "return_type": structer.return_type,
-                        "name_infix": "transformed",
-                    }
-        elif fitted_step.is_predict:
-            from xorq.expr.ml.pipeline_lib import get_predict_return_type
-
-            kwargs = kwargs | {
-                "fit": fit_sklearn(cls=sklearn_cls, params=params),
-                "other": predict_sklearn,
-                "return_type": get_predict_return_type(
-                    instance=fitted_step.step.instance,
-                    step=fitted_step.step,
-                    expr=fitted_step.expr,
-                    features=fitted_step.features,
-                    target=fitted_step.target,
-                ),
-                "name_infix": "predicted",
-            }
+                        other=transform_sklearn_struct(structer.get_convert_array()),
+                        return_type=structer.return_type,
+                        name_infix="transformed",
+                        **kwargs,
+                    )
         else:
-            raise ValueError("fitted_step is neither transform nor predict")
-        instance = cls(**kwargs)
-        return instance
-
-
-@wraps(DeferredFitOther)
-@toolz.curry
-def deferred_fit_other(
-    expr,
-    target,
-    features,
-    fit,
-    other,
-    return_type,
-    name_infix,
-    cache=None,
-):
-    return DeferredFitOther(
-        expr=expr,
-        target=target,
-        features=features,
-        fit=fit,
-        other=other,
-        return_type=return_type,
-        name_infix=name_infix,
-        cache=cache,
-    )
+            raise ValueError("fitted_step is neither predict nor transform")
 
 
 @toolz.curry
@@ -338,28 +316,166 @@ def deferred_fit_other_sklearn(
     )
 
 
-deferred_fit_transform = deferred_fit_other(target=None, name_infix="transform")
-deferred_fit_predict = deferred_fit_other_sklearn(name_infix="predict")
-deferred_fit_transform_sklearn = deferred_fit_other_sklearn(
-    other=transform_sklearn,
+# Begin specific deferred
+@toolz.curry
+def deferred_fit_transform(
+    expr,
+    features,
+    fit,
+    other,
+    return_type,
+    target=None,
+    name_infix="transform",
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit,
+        other=other,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+
+
+@toolz.curry
+def deferred_fit_predict(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
+    name_infix="predict",
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=predict_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+
+
+@toolz.curry
+def deferred_fit_transform_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
     name_infix="transformed",
-)
-deferred_fit_predict_sklearn = deferred_fit_other_sklearn(
-    other=predict_sklearn,
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=transform_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+
+
+@toolz.curry
+def deferred_fit_predict_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
     name_infix="predicted",
-)
-deferred_fit_predict_proba_sklearn = deferred_fit_other_sklearn(
-    other=predict_proba_sklearn,
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=predict_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+
+
+@toolz.curry
+def deferred_fit_predict_proba_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
     name_infix="predicted_proba",
-)
-deferred_fit_decision_function_sklearn = deferred_fit_other_sklearn(
-    other=decision_function_sklearn,
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=predict_proba_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+
+
+@toolz.curry
+def deferred_fit_decision_function_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
     name_infix="decision_function",
-)
-deferred_fit_feature_importances_sklearn = deferred_fit_other_sklearn(
-    other=feature_importances_sklearn,
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=decision_function_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
+
+
+@toolz.curry
+def deferred_fit_feature_importances_sklearn(
+    expr,
+    target,
+    features,
+    cls,
+    return_type,
+    params=(),
     name_infix="feature_importances_",
-)
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=target,
+        features=features,
+        fit=fit_sklearn(cls=cls, params=params),
+        other=feature_importances_sklearn,
+        return_type=return_type,
+        name_infix=name_infix,
+        cache=cache,
+    )
 
 
 @toolz.curry
@@ -379,6 +495,22 @@ def deferred_fit_transform_series_sklearn(
 
 
 @toolz.curry
+def deferred_fit_transform_series_sklearn_encoded(
+    expr, col, cls, params=(), name="transformed_encoded", cache=None
+):
+    return DeferredFitOther(
+        expr=expr,
+        target=None,
+        features=(col,),
+        fit=fit_sklearn_series(col=col, cls=cls, params=params),
+        other=transform_sklearn_series_kv(col=col),
+        return_type=KV_ENCODED_TYPE,
+        name_infix=name,
+        cache=cache,
+    )
+
+
+@toolz.curry
 def deferred_fit_transform_sklearn_struct(
     expr, features, cls, params=(), target=None, name_infix="transformed", cache=None
 ):
@@ -386,9 +518,31 @@ def deferred_fit_transform_sklearn_struct(
     return DeferredFitOther(
         expr=expr,
         features=list(features),
-        fit=fit_sklearn_struct(cls=cls, params=params),
+        fit=fit_sklearn_args(cls=cls, params=params),
         other=transform_sklearn_struct(structer.get_convert_array()),
         return_type=structer.return_type,
+        target=target,
+        name_infix=name_infix,
+        cache=cache,
+    )
+
+
+@toolz.curry
+def deferred_fit_transform_sklearn_encoded(
+    expr,
+    features,
+    cls,
+    params=(),
+    target=None,
+    name_infix="transformed_encoded",
+    cache=None,
+):
+    return DeferredFitOther(
+        expr=expr,
+        features=list(features),
+        fit=fit_sklearn_args(cls=cls, params=params),
+        other=kv_encode_output,
+        return_type=KV_ENCODED_TYPE,
         target=target,
         name_infix=name_infix,
         cache=cache,
