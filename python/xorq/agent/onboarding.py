@@ -444,19 +444,10 @@ def bootstrap_agent_docs(
 
     # Setup Claude
     if "claude" in agents:
-        content = _render_agent_doc(max_lines=max_lines)
-        for filename in ("AGENTS.md", "CLAUDE.md"):
-            dest = root / filename
-            if dest.exists():
-                continue
-            dest.write_text(content, encoding="utf-8")
-            created.append(dest)
-
-        # Register the xorq skill with Claude Code
-        skill_path = register_claude_skill()
-        if skill_path:
-            print(f"✅ Registered xorq skill with Claude Code at {skill_path}")
-            print("✅ Setup skill auto-activation in ~/.claude/skills/skill-rules.json")
+        # Note: CLAUDE.md and AGENTS.md are no longer created here
+        # Use 'xorq agents skill install' to install the skill instead
+        print("ℹ️  To install the xorq skill for Claude Code, run: xorq agents skill install")
+        print("ℹ️  To see lean onboarding instructions, run: xorq agents onboard")
 
     # Setup Codex
     if "codex" in agents:

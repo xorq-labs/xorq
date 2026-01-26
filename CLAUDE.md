@@ -18,6 +18,6 @@ Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq ag
 - `xorq agents prime` - Get current workflow context and state
 
 **Key principle:** Everything is a deferred expression - no eager pandas/NumPy!
-For ML patterns, use `xorq skill` for deferred sklearn guidance.
+For ML patterns, use `xorq agents vignette` for deferred sklearn guidance.
 
 For full workflow details: `xorq agents prime`
