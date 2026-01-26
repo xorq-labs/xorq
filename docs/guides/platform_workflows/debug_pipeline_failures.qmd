@@ -2,21 +2,456 @@
 title: 'Debug pipeline failures'
 ---
 
-## Coming soon
+Diagnose and fix pipeline failures in production using Xorq's debugging tools. This guide shows you how to inspect expression graphs, use lineage for debugging, identify failure points, and reproduce issues locally.
 
-This guide will show you how to diagnose and fix pipeline failures in production.
+**What you'll accomplish**: By following this guide, you'll use Xorq's debugging capabilities to inspect expression graphs, trace data lineage, identify failure points, and reproduce issues locally for effective troubleshooting.
 
-You will learn debugging techniques specific to Xorq's deferred execution model.
+Xorq's deferred execution model and built-in debugging tools help you diagnose issues quickly. This guide covers expression inspection, lineage tracking, failure identification, and local reproduction.
 
-**What you'll accomplish:**
-- Inspect expression graphs
-- Use lineage for debugging
-- Identify failure points
-- Reproduce issues locally
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
-- Failed pipeline to debug
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
+
+## Prerequisites
+
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- A failed pipeline or expression to debug
 - Understanding of Xorq execution model
 
-Check back soon for the complete guide.
+## Inspect expression graphs
 
+Examine expression graphs to understand pipeline structure and identify issues.
+
+### View expression structure
+
+Inspect expression structure:
+
+```python
+import xorq.api as xo
+
+# Create expression
+expr = (
+    data
+    .filter(xo._.value > 100)
+    .group_by("category")
+    .agg(count=xo._.value.count())
+)
+
+# Inspect expression
+print(expr)
+print(expr.op())
+```
+
+**Key points**:
+
+- Expression structure shows operations
+- Understand data flow through pipeline
+- Identify potential issues in structure
+- Use for debugging complex pipelines
+
+### List expression nodes
+
+List all nodes in expression:
+
+```python
+# Get expression nodes
+nodes = expr.op().find_nodes()
+
+for node in nodes:
+    print(f"Node: {node}, Type: {type(node)}")
+```
+
+**Key points**:
+
+- List all nodes in expression graph
+- Understand expression composition
+- Identify specific nodes causing issues
+- Use for detailed debugging
+
+## Use lineage for debugging
+
+Trace data lineage to understand where data comes from and how it's transformed.
+
+### View lineage
+
+Use `xorq lineage` command to view lineage:
+
+```bash
+xorq lineage <build_hash>
+```
+
+Or for a specific column:
+
+```bash
+xorq lineage <build_hash> --column avg_bill_length
+```
+
+**Key points**:
+
+- Lineage shows data flow
+- Trace columns to their sources
+- Understand transformations
+- Identify data quality issues
+
+### Lineage in code
+
+Access lineage programmatically:
+
+```python
+from xorq.common.utils.build_utils import load_expr
+
+# Load build
+expr = load_expr("builds/<build_hash>")
+
+# Access lineage information
+# (Lineage access depends on Xorq API - check documentation)
+```
+
+**Key points**:
+
+- Access lineage programmatically
+- Use for automated debugging
+- Integrate with monitoring
+- Custom lineage analysis
+
+## Identify failure points
+
+Locate where failures occur in your pipeline.
+
+### Check execution logs
+
+Review execution logs for errors:
+
+```python
+import logging
+
+logging.basicConfig(level=logging.DEBUG)
+
+# Execute expression with detailed logging
+result = expr.execute()
+```
+
+**Key points**:
+
+- Enable debug logging for detailed information
+- Review logs for error messages
+- Identify which operation failed
+- Check error context
+
+### Execute step by step
+
+Execute pipeline steps individually:
+
+```python
+# Execute each step separately
+filtered = data.filter(xo._.value > 100)
+filtered_result = filtered.execute()  # Check if filter works
+
+grouped = filtered.group_by("category")
+grouped_result = grouped.execute()  # Check if group_by works
+
+final = grouped.agg(count=xo._.value.count())
+final_result = final.execute()  # Check if aggregation works
+```
+
+**Key points**:
+
+- Execute steps individually
+- Identify which step fails
+- Verify intermediate results
+- Isolate problem operations
+
+### Check intermediate results
+
+Inspect intermediate results:
+
+```python
+# Execute and inspect intermediate results
+step1 = data.filter(xo._.value > 100)
+result1 = step1.execute()
+print(f"Step 1 result: {len(result1)} rows")
+print(result1.head())
+
+step2 = result1.group_by("category")
+result2 = step2.execute()
+print(f"Step 2 result: {len(result2)} rows")
+```
+
+**Key points**:
+
+- Inspect intermediate results
+- Verify data at each step
+- Check data quality
+- Identify where data changes unexpectedly
+
+## Reproduce issues locally
+
+Reproduce production issues locally for debugging.
+
+### Load production build
+
+Load production build locally:
+
+```python
+from xorq.common.utils.build_utils import load_expr
+
+# Load production build
+expr = load_expr("builds/<production_build_hash>")
+
+# Execute locally
+result = expr.execute()
+```
+
+**Key points**:
+
+- Load production builds locally
+- Reproduce issues in controlled environment
+- Debug without affecting production
+- Test fixes before deployment
+
+### Use production data
+
+Use production data for local testing:
+
+```python
+# Load production data
+production_data = load_production_data()
+
+# Create expression with production data
+expr = (
+    production_data
+    .filter(xo._.value > 100)
+    .group_by("category")
+    .agg(count=xo._.value.count())
+)
+
+# Execute and debug
+result = expr.execute()
+```
+
+**Key points**:
+
+- Use production data for accurate reproduction
+- Test with real data patterns
+- Identify data-specific issues
+- Verify fixes with production data
+
+### Isolate problematic operations
+
+Isolate and test problematic operations:
+
+```python
+# Isolate specific operation
+problematic_op = expr.op().find_node("Filter")
+
+# Test operation in isolation
+test_data = create_test_data()
+test_result = problematic_op.execute(test_data)
+
+# Debug isolated operation
+print(f"Test result: {test_result}")
+```
+
+**Key points**:
+
+- Isolate problematic operations
+- Test operations independently
+- Simplify debugging
+- Verify fixes in isolation
+
+## Debug common issues
+
+Debug common pipeline failure patterns.
+
+### Schema mismatches
+
+Debug schema issues:
+
+```python
+# Check schema
+print(f"Data schema: {data.schema()}")
+print(f"Expression schema: {expr.schema()}")
+
+# Verify schema compatibility
+try:
+    result = expr.execute()
+except SchemaError as e:
+    print(f"Schema error: {e}")
+    print(f"Expected: {e.expected_schema}")
+    print(f"Got: {e.actual_schema}")
+```
+
+**Key points**:
+
+- Check schemas at each step
+- Verify schema compatibility
+- Handle schema mismatches
+- Use schema validation
+
+### Data quality issues
+
+Debug data quality problems:
+
+```python
+# Check data quality
+print(f"Data shape: {data.shape()}")
+print(f"Null values: {data.isnull().sum()}")
+print(f"Data types: {data.dtypes()}")
+
+# Filter problematic data
+clean_data = data.dropna().filter(xo._.value > 0)
+```
+
+**Key points**:
+
+- Check data quality metrics
+- Identify problematic data
+- Clean data before processing
+- Handle missing values
+
+### Performance issues
+
+Debug performance problems:
+
+```python
+import time
+import cProfile
+
+# Time execution
+start = time.time()
+result = expr.execute()
+duration = time.time() - start
+print(f"Execution time: {duration:.2f}s")
+
+# Profile execution
+profiler = cProfile.Profile()
+profiler.enable()
+result = expr.execute()
+profiler.disable()
+profiler.print_stats()
+```
+
+**Key points**:
+
+- Time execution to identify slow operations
+- Profile to find bottlenecks
+- Optimize based on profiling data
+- Monitor performance metrics
+
+## Use debugging tools
+
+Leverage Xorq's built-in debugging tools.
+
+### Expression visualization
+
+Visualize expression graphs (if supported):
+
+```python
+# Visualize expression
+# (Check Xorq documentation for visualization tools)
+expr.visualize()  # If available
+```
+
+**Key points**:
+
+- Visualize expression structure
+- Understand data flow
+- Identify complex dependencies
+- Share with team for debugging
+
+### Build introspection
+
+Introspect builds for debugging:
+
+```python
+from xorq.common.utils.build_utils import load_expr
+
+# Load build
+expr = load_expr("builds/<build_hash>")
+
+# Inspect build metadata
+# (Check Xorq API for introspection methods)
+```
+
+**Key points**:
+
+- Introspect builds for debugging
+- Access build metadata
+- Understand build structure
+- Use for troubleshooting
+
+## Troubleshooting
+
+When debugging pipeline failures, you may encounter issues with reproduction, lineage access, or expression inspection.
+
+### Issue: Cannot reproduce locally
+
+**Error**: Issue occurs in production but not locally
+
+**Cause**: Environment differences or data differences
+
+**Recovery**:
+
+1. Check environment: verify local environment matches production
+2. Use production data: test with actual production data
+3. Check dependencies: verify dependency versions match
+4. Review logs: compare local and production logs
+
+**Prevention**:
+
+- Use reproducible builds (uv-build)
+- Test with production-like data
+- Document environment requirements
+- Use consistent environments
+
+### Issue: Lineage not available
+
+**Error**: Cannot access lineage information
+
+**Cause**: Lineage not tracked or build missing lineage data
+
+**Recovery**:
+
+1. Check build: verify build includes lineage
+2. Rebuild: rebuild with lineage tracking
+3. Check version: ensure Xorq version supports lineage
+4. Review documentation: check lineage requirements
+
+**Prevention**:
+
+- Enable lineage tracking in builds
+- Use builds with lineage data
+- Keep Xorq version up to date
+- Document lineage requirements
+
+### Issue: Expression too complex to debug
+
+**Error**: Expression graph too complex to understand
+
+**Cause**: Large or deeply nested expressions
+
+**Recovery**:
+
+1. Break into steps: execute steps individually
+2. Simplify: reduce expression complexity
+3. Use visualization: visualize expression structure
+4. Document: document expression structure
+
+**Prevention**:
+
+- Keep expressions manageable
+- Break complex pipelines into steps
+- Use visualization tools
+- Document complex expressions
+
+## Next steps
+
+You now have techniques for debugging pipeline failures, including expression inspection, lineage tracking, failure identification, and local reproduction.
+
+- [Handle production errors](handle_production_errors.qmd) - Handle errors gracefully
+- [Monitor production deployments](monitor_production_deployments.qmd) - Monitor for issues
+- [Optimize pipeline performance](../performance_workflows/optimize_pipeline_performance.qmd) - Optimize based on debugging insights

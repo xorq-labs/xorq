@@ -2,21 +2,491 @@
 title: 'Handle production errors'
 ---
 
-## Coming soon
+Implement error handling and recovery strategies for production Xorq pipelines. This guide shows you how to categorize errors, implement retry logic, handle partial failures, and log errors effectively.
 
-This guide will show you how to implement error handling and recovery in production pipelines.
+**What you'll accomplish**: By following this guide, you'll implement robust error handling that gracefully handles failures, retries transient errors, recovers from partial failures, and logs errors for effective troubleshooting.
 
-You will learn patterns for graceful failure and automated recovery.
+Production pipelines must handle errors gracefully to maintain reliability. This guide covers error categorization, retry strategies, partial failure handling, and effective error logging.
 
-**What you'll accomplish:**
-- Implement error handling
-- Set up retry logic
-- Handle partial failures
-- Log errors effectively
+:::{.callout-tip}
+## Installation
 
-**Prerequisites:**
-- Production Xorq pipeline
-- Understanding of error scenarios
+If you haven't installed Xorq yet, see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
-Check back soon for the complete guide.
+## Prerequisites
 
+Before you start, you need:
+
+- [Xorq installed](../../getting_started/installation.qmd)
+- Production pipeline deployed
+- Understanding of error scenarios in your pipeline
+
+## Categorize errors
+
+Distinguish between transient and permanent errors to handle them appropriately.
+
+### Transient errors
+
+Transient errors are temporary and should be retried:
+
+- Network timeouts
+- Rate limit errors
+- Temporary service unavailability
+- Connection errors
+
+**Key points**:
+
+- Transient errors are retryable
+- Use exponential backoff for retries
+- Set maximum retry attempts
+- Log retry attempts
+
+### Permanent errors
+
+Permanent errors indicate issues that won't resolve with retries:
+
+- Invalid input data
+- Authentication failures
+- Malformed requests
+- Configuration errors
+
+**Key points**:
+
+- Permanent errors should not be retried
+- Log permanent errors for investigation
+- Return clear error messages
+- Handle gracefully without retries
+
+### Error categorization function
+
+Categorize errors programmatically:
+
+```python
+def categorize_error(error):
+    """Categorize error as transient or permanent."""
+    error_str = str(error).lower()
+    
+    # Transient error patterns
+    transient_patterns = [
+        "timeout",
+        "rate_limit",
+        "connection",
+        "temporary",
+        "server_error",
+        "503",
+        "502",
+    ]
+    
+    # Permanent error patterns
+    permanent_patterns = [
+        "invalid",
+        "authentication",
+        "authorization",
+        "malformed",
+        "400",
+        "401",
+        "404",
+    ]
+    
+    if any(pattern in error_str for pattern in transient_patterns):
+        return "transient"
+    elif any(pattern in error_str for pattern in permanent_patterns):
+        return "permanent"
+    else:
+        return "unknown"  # Default to not retrying unknown errors
+```
+
+**Key points**:
+
+- Categorize errors based on error message
+- Use error codes when available
+- Default to not retrying unknown errors
+- Log error categories for analysis
+
+## Implement retry logic
+
+Retry transient errors with exponential backoff.
+
+### Retry with exponential backoff
+
+Implement retry logic:
+
+```python
+import time
+import random
+
+def retry_with_backoff(func, max_retries=3, initial_delay=1, backoff_factor=2):
+    """Retry function with exponential backoff."""
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except Exception as e:
+            if attempt == max_retries - 1:
+                raise  # Last attempt, raise exception
+            
+            # Check if error is transient
+            if categorize_error(e) == "transient":
+                delay = initial_delay * (backoff_factor ** attempt)
+                # Add jitter to avoid thundering herd
+                jitter = random.uniform(0, delay * 0.1)
+                time.sleep(delay + jitter)
+            else:
+                # Permanent error, don't retry
+                raise
+    return None
+
+# Use retry logic
+def process_data(data):
+    """Process data with retry logic."""
+    def call_api():
+        # Your API call here
+        return api_call(data)
+    
+    return retry_with_backoff(call_api, max_retries=3)
+```
+
+**Key points**:
+
+- Retry transient errors only
+- Use exponential backoff
+- Add jitter to prevent thundering herd
+- Set maximum retry attempts
+
+### Retry with circuit breaker
+
+Implement circuit breaker pattern:
+
+```python
+class CircuitBreaker:
+    def __init__(self, failure_threshold=5, timeout=60):
+        self.failure_threshold = failure_threshold
+        self.timeout = timeout
+        self.failure_count = 0
+        self.last_failure_time = None
+        self.state = "closed"  # closed, open, half_open
+    
+    def call(self, func):
+        """Call function with circuit breaker."""
+        if self.state == "open":
+            if time.time() - self.last_failure_time > self.timeout:
+                self.state = "half_open"
+            else:
+                raise CircuitBreakerOpenError("Circuit breaker is open")
+        
+        try:
+            result = func()
+            if self.state == "half_open":
+                self.state = "closed"
+                self.failure_count = 0
+            return result
+        except Exception as e:
+            self.failure_count += 1
+            self.last_failure_time = time.time()
+            
+            if self.failure_count >= self.failure_threshold:
+                self.state = "open"
+            
+            raise
+
+# Use circuit breaker
+circuit_breaker = CircuitBreaker(failure_threshold=5, timeout=60)
+
+def process_with_circuit_breaker(data):
+    """Process data with circuit breaker."""
+    return circuit_breaker.call(lambda: api_call(data))
+```
+
+**Key points**:
+
+- Circuit breaker prevents cascading failures
+- Open circuit after threshold failures
+- Half-open state for testing recovery
+- Reset after timeout period
+
+## Handle partial failures
+
+Handle cases where some operations succeed and others fail.
+
+### Batch processing with partial failure
+
+Handle partial failures in batch processing:
+
+```python
+def process_batch_with_partial_failure(batch):
+    """Process batch, handling partial failures."""
+    results = []
+    errors = []
+    
+    for item in batch:
+        try:
+            result = process_item(item)
+            results.append(result)
+        except Exception as e:
+            errors.append({
+                "item": item,
+                "error": str(e),
+                "error_type": categorize_error(e)
+            })
+            # Continue processing other items
+            continue
+    
+    return {
+        "results": results,
+        "errors": errors,
+        "success_count": len(results),
+        "error_count": len(errors)
+    }
+```
+
+**Key points**:
+
+- Continue processing on individual failures
+- Track successful and failed items
+- Return partial results
+- Log errors for investigation
+
+### Retry failed items
+
+Retry failed items separately:
+
+```python
+def process_batch_with_retry(batch):
+    """Process batch with retry for failed items."""
+    results = []
+    failed_items = []
+    
+    # First pass
+    for item in batch:
+        try:
+            result = process_item(item)
+            results.append(result)
+        except Exception as e:
+            if categorize_error(e) == "transient":
+                failed_items.append(item)
+            else:
+                # Permanent error, log and skip
+                log_error(item, e)
+    
+    # Retry failed items
+    for item in failed_items:
+        try:
+            result = retry_with_backoff(lambda: process_item(item))
+            results.append(result)
+        except Exception as e:
+            log_error(item, e)
+    
+    return results
+```
+
+**Key points**:
+
+- Retry only transient failures
+- Skip permanent failures
+- Log all errors
+- Return complete results when possible
+
+## Log errors effectively
+
+Log errors with sufficient context for troubleshooting.
+
+### Structured error logging
+
+Use structured logging for errors:
+
+```python
+import logging
+
+logger = logging.getLogger("xorq")
+
+def log_error(context, error, error_type=None):
+    """Log error with context."""
+    logger.error("Error processing request", extra={
+        "error": str(error),
+        "error_type": error_type or categorize_error(error),
+        "context": context,
+        "timestamp": time.time()
+    })
+```
+
+**Key points**:
+
+- Include error message and type
+- Add context for debugging
+- Use structured logging format
+- Include timestamps
+
+### Error logging best practices
+
+Follow error logging best practices:
+
+```python
+def process_with_logging(data):
+    """Process data with comprehensive error logging."""
+    try:
+        result = process_data(data)
+        logger.info("Processing successful", extra={
+            "data_id": data.get("id"),
+            "duration": duration
+        })
+        return result
+    except TransientError as e:
+        logger.warning("Transient error, will retry", extra={
+            "error": str(e),
+            "data_id": data.get("id"),
+            "retry_count": retry_count
+        })
+        raise
+    except PermanentError as e:
+        logger.error("Permanent error, cannot retry", extra={
+            "error": str(e),
+            "data_id": data.get("id"),
+            "error_details": error_details
+        })
+        raise
+    except Exception as e:
+        logger.exception("Unexpected error", extra={
+            "error": str(e),
+            "data_id": data.get("id")
+        })
+        raise
+```
+
+**Key points**:
+
+- Log at appropriate levels (info, warning, error)
+- Include relevant context
+- Use exception logging for stack traces
+- Differentiate error types in logs
+
+## Error recovery strategies
+
+Implement recovery strategies for different error scenarios.
+
+### Graceful degradation
+
+Degrade gracefully when services are unavailable:
+
+```python
+def process_with_fallback(data):
+    """Process data with fallback strategy."""
+    try:
+        return process_with_primary_service(data)
+    except Exception as e:
+        if categorize_error(e) == "transient":
+            # Retry with primary service
+            return retry_with_backoff(
+                lambda: process_with_primary_service(data)
+            )
+        else:
+            # Use fallback service
+            logger.warning("Using fallback service", extra={
+                "error": str(e)
+            })
+            return process_with_fallback_service(data)
+```
+
+**Key points**:
+
+- Use fallback services when primary fails
+- Retry transient errors first
+- Log fallback usage
+- Monitor fallback service health
+
+### Dead letter queue
+
+Send failed items to dead letter queue:
+
+```python
+def process_with_dlq(data):
+    """Process data, sending failures to DLQ."""
+    try:
+        return process_data(data)
+    except Exception as e:
+        # Send to dead letter queue
+        send_to_dlq(data, error=str(e))
+        logger.error("Sent to DLQ", extra={
+            "error": str(e),
+            "data_id": data.get("id")
+        })
+        raise
+```
+
+**Key points**:
+
+- Dead letter queue for failed items
+- Allows manual investigation
+- Prevents data loss
+- Enables reprocessing
+
+## Troubleshooting
+
+When handling production errors, you may encounter retry loops, error categorization issues, or logging problems.
+
+### Issue: Retry loops
+
+**Error**: Retries continue indefinitely
+
+**Cause**: Maximum retry attempts not set or error misclassified
+
+**Recovery**:
+
+1. Set maximum retries: limit retry attempts
+2. Check error categorization: verify errors classified correctly
+3. Add timeout: set overall timeout for operation
+4. Monitor retry patterns: alert on excessive retries
+
+**Prevention**:
+
+- Always set maximum retry attempts
+- Verify error categorization
+- Set appropriate timeouts
+- Monitor retry metrics
+
+### Issue: Errors not categorized correctly
+
+**Error**: Transient errors treated as permanent or vice versa
+
+**Cause**: Error categorization logic incorrect
+
+**Recovery**:
+
+1. Review error patterns: analyze error messages
+2. Update categorization: adjust patterns
+3. Test categorization: verify with real errors
+4. Monitor categorization: track error types
+
+**Prevention**:
+
+- Test error categorization thoroughly
+- Review error patterns regularly
+- Update patterns based on experience
+- Log error categories for analysis
+
+### Issue: Insufficient error context
+
+**Error**: Errors logged without enough context
+
+**Cause**: Missing context in error logs
+
+**Recovery**:
+
+1. Add context: include relevant data in logs
+2. Use structured logging: format logs consistently
+3. Include request IDs: track requests across services
+4. Review logs: identify missing context
+
+**Prevention**:
+
+- Include context in all error logs
+- Use structured logging format
+- Add request IDs for tracing
+- Review logs regularly
+
+## Next steps
+
+You now have techniques for handling production errors, including error categorization, retry logic, partial failure handling, and effective error logging.
+
+- [Debug pipeline failures](debug_pipeline_failures.qmd) - Debug errors effectively
+- [Monitor production deployments](monitor_production_deployments.qmd) - Monitor error rates
+- [Deploy models to production](../ml_workflows/deploy_models_to_production.qmd) - Production deployment patterns
