@@ -40,6 +40,10 @@ download-data owner="ibis-project" repo="testing-data" rev="master":
 up *backends:
     docker compose up --build --wait {{ backends }}
 
+# generate release notes from CHANGELOG.md
+docs-release-notes:
+    python3 scripts/generate_release_notes.py
+
 # generate API documentation
 docs-apigen *args:
     cd docs && uv run --no-sync quartodoc interlinks
@@ -47,7 +51,13 @@ docs-apigen *args:
 
 # build documentation
 docs-render:
+    just docs-release-notes
     uv run --no-sync quarto render docs
+
+# preview documentation locally
+docs-preview:
+    just docs-release-notes
+    cd docs && uv run --no-sync quarto preview
 
 # deploy docs to netlify
 docs-deploy:
@@ -55,5 +65,6 @@ docs-deploy:
 
 # run the entire docs build pipeline
 docs-build-all:
+    just docs-release-notes
     just docs-apigen --verbose
     just docs-render

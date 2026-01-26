@@ -1,6 +1,8 @@
 project:
   type: website
 
+pre-render: python3 ../scripts/generate_release_notes.py
+
 execute:
   mermaid: true
   
