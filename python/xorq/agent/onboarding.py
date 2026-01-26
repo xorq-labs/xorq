@@ -243,7 +243,9 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
 def register_claude_skill() -> Path | None:
     """Register the xorq skill with Claude Code.
 
-    Returns the path where the skill was registered, or None if already exists.
+    Installs to .claude/skills/xorq in the current project directory.
+
+    Returns the path where the skill was registered, or None if source not found.
     """
 
     # Generate fresh skill from shared content
@@ -254,29 +256,27 @@ def register_claude_skill() -> Path | None:
     except Exception as e:
         print(f"⚠️  Could not regenerate skills: {e}")
 
-    # Find the skill source directory (should be in the package)
+    # Find the skill source directory in package resources
     import xorq
 
-    xorq_package_dir = Path(xorq.__file__).parent.parent.parent
-    skill_source = xorq_package_dir / "skills" / "xorq"
-
-    # Claude Code skills directory
-    claude_skills_dir = Path.home() / ".claude" / "skills"
-    skill_dest = claude_skills_dir / "xorq"
+    xorq_package_dir = Path(xorq.__file__).parent
+    skill_source = xorq_package_dir / "agent" / "resources" / "claude"
 
     # Check if skill source exists
     if not skill_source.exists():
-        # If not found, try relative to project root
-        import sys
-
-        for path in sys.path:
-            candidate = Path(path) / "skills" / "xorq"
-            if candidate.exists():
-                skill_source = candidate
-                break
+        # Fallback: try development setup (skills/xorq at repo root)
+        repo_root = xorq_package_dir.parent.parent
+        skill_source_dev = repo_root / "skills" / "xorq"
+        if skill_source_dev.exists():
+            skill_source = skill_source_dev
         else:
             # Can't find skill source
             return None
+
+    # Install to project-local .claude/skills directory
+    project_root = Path.cwd()
+    claude_skills_dir = project_root / ".claude" / "skills"
+    skill_dest = claude_skills_dir / "xorq"
 
     # Create Claude skills directory if needed
     claude_skills_dir.mkdir(parents=True, exist_ok=True)
