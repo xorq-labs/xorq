@@ -18,13 +18,10 @@ def main():
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            # Inject onboarding content as additional context
+            # Inject onboarding content as system message
             payload = {
                 "suppressOutput": False,
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": result.stdout.strip()
-                }
+                "systemMessage": result.stdout.strip()
             }
             print(json.dumps(payload))
         else:
