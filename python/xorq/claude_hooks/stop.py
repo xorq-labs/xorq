@@ -60,9 +60,14 @@ def main():
             message += f"Found {len(uncataloged)} uncataloged build(s) in .xorq/builds/:\n"
             for build_hash in uncataloged:
                 message += f"  • {build_hash}\n"
-            message += "\n📝 To catalog these builds:\n"
-            message += "  xorq catalog add .xorq/builds/<hash> --alias <name>\n\n"
-            message += "💡 Use 'xorq catalog ls' to view cataloged builds"
+            message += "\n📝 REQUIRED STEPS TO COMPLETE YOUR WORK:\n\n"
+            message += "1. Catalog the builds:\n"
+            message += "   xorq catalog add .xorq/builds/<hash> --alias <name>\n\n"
+            message += "2. Commit to git:\n"
+            message += "   git add .xorq/builds/ .xorq/catalog.yaml\n"
+            message += "   git commit -m \"feat: add <name> expression\"\n\n"
+            message += "⚠️  WORK IS NOT DONE UNTIL BUILDS ARE CATALOGED AND COMMITTED!\n\n"
+            message += "💡 Use 'xorq catalog ls' to verify cataloged builds"
 
             payload = {
                 "suppressOutput": False,

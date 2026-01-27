@@ -66,17 +66,25 @@ When xorq errors are detected, Claude receives specific troubleshooting steps an
 
 ### Stop Hook (Catalog Checker)
 
-Checks for uncataloged builds in `.xorq/builds/` when Claude stops working. If uncataloged builds are found, provides a helpful reminder to catalog them.
+Checks for uncataloged builds in `.xorq/builds/` when Claude stops working. If uncataloged builds are found, provides a helpful reminder to catalog them AND commit to git.
 
 **Benefits:**
 - Ensures builds don't get lost
 - Reminds users to catalog their work
-- Shows exact commands to catalog builds
+- Enforces git commit workflow for builds and catalog
+- Shows exact commands to complete the workflow
 
 **Checks:**
 - Lists all builds in `.xorq/builds/`
 - Compares with `xorq catalog ls` output
 - Warns about any uncataloged builds (up to 5)
+- Provides 2-step workflow: catalog → git commit
+
+**Required workflow:**
+1. Catalog builds: `xorq catalog add .xorq/builds/<hash> --alias <name>`
+2. Commit to git: `git add .xorq/builds/ .xorq/catalog.yaml && git commit`
+
+⚠️ Work is not done until builds are cataloged AND committed!
 
 ## Usage
 
