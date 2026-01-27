@@ -588,6 +588,450 @@ class FittedStep:
         return col.as_table().tag(**self.tag_kwargs)
 
 
+def _is_container_transformer(instance):
+    """Check if instance is a container transformer (ColumnTransformer, FeatureUnion, Pipeline)."""
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import FeatureUnion
+    from sklearn.pipeline import Pipeline as SklearnPipeline
+
+    return isinstance(instance, (ColumnTransformer, FeatureUnion, SklearnPipeline))
+
+
+def _analyze_child_structer(transformer, expr, columns):
+    """Analyze a child transformer to determine if it's KV-encoded."""
+    if transformer in ("drop", "passthrough"):
+        return None
+
+    # Recursively check containers
+    if _is_container_transformer(transformer):
+        child_info = _analyze_container(transformer, expr, columns)
+        # Container is KV-encoded if any child is KV-encoded
+        any_kv = any(c["is_kv_encoded"] for c in child_info if c is not None)
+        return {"is_kv_encoded": any_kv, "child_info": child_info}
+
+    # For simple transformers, use Structer to determine
+    try:
+        structer = Structer.from_instance_expr(transformer, expr, features=columns)
+        return {"is_kv_encoded": structer.is_kv_encoded, "structer": structer}
+    except ValueError:
+        # Unregistered transformer - assume KV-encoded for safety
+        return {"is_kv_encoded": True}
+
+
+def _analyze_container(instance, expr, features=None):
+    """
+    Analyze a container transformer to identify child structure.
+
+    Returns list of child info dicts with:
+    - name: transformer name
+    - transformer: the transformer instance
+    - columns: columns this transformer operates on
+    - is_kv_encoded: whether this child produces KV-encoded output
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import FeatureUnion
+    from sklearn.pipeline import Pipeline as SklearnPipeline
+
+    features = features or tuple(expr.columns)
+    children = []
+
+    if isinstance(instance, ColumnTransformer):
+        transformers = getattr(instance, "transformers_", None) or instance.transformers
+        for name, transformer, columns in transformers:
+            if transformer == "drop":
+                continue
+            # Normalize columns
+            if isinstance(columns, str):
+                columns = (columns,)
+            elif isinstance(columns, list):
+                columns = tuple(columns)
+            elif columns is None:
+                columns = ()
+
+            child_analysis = _analyze_child_structer(transformer, expr, columns)
+            if child_analysis is not None:
+                children.append(
+                    freeze(
+                        {
+                            "name": name,
+                            "columns": columns,
+                            "is_kv_encoded": child_analysis["is_kv_encoded"],
+                        }
+                    )
+                )
+
+    elif isinstance(instance, FeatureUnion):
+        for name, transformer in instance.transformer_list:
+            child_analysis = _analyze_child_structer(transformer, expr, features)
+            if child_analysis is not None:
+                children.append(
+                    freeze(
+                        {
+                            "name": name,
+                            "columns": features,
+                            "is_kv_encoded": child_analysis["is_kv_encoded"],
+                        }
+                    )
+                )
+
+    elif isinstance(instance, SklearnPipeline):
+        # For Pipeline, we care about the final step's output
+        # but we track all steps for completeness
+        current_features = features
+        for name, transformer in instance.steps:
+            if transformer == "passthrough":
+                children.append(
+                    freeze(
+                        {
+                            "name": name,
+                            "columns": current_features,
+                            "is_kv_encoded": False,
+                        }
+                    )
+                )
+                continue
+
+            child_analysis = _analyze_child_structer(
+                transformer, expr, current_features
+            )
+            if child_analysis is not None:
+                children.append(
+                    freeze(
+                        {
+                            "name": name,
+                            "columns": current_features,
+                            "is_kv_encoded": child_analysis["is_kv_encoded"],
+                        }
+                    )
+                )
+                # If not KV-encoded, we might know the output columns
+                # For simplicity, keep tracking original features
+                # (accurate tracking would require structer.output_columns)
+
+    return children
+
+
+@frozen
+class ComplexStep:
+    """
+    A step for container transformers (ColumnTransformer, FeatureUnion, Pipeline).
+
+    Unlike Step which wraps simple sklearn estimators, ComplexStep handles
+    containers that may have mixed known-schema and KV-encoded children.
+    The bookkeeping for hybrid output is managed by ComplexFittedStep.
+
+    Parameters
+    ----------
+    typ : type
+        The sklearn container class (ColumnTransformer, FeatureUnion, or Pipeline).
+    name : str
+        A unique name for this step.
+    params_tuple : tuple
+        Tuple of (parameter_name, parameter_value) pairs.
+    child_info : tuple
+        Analyzed child structure from _analyze_container.
+    """
+
+    typ = field(validator=instance_of(type))
+    name = field(validator=optional(instance_of(str)), default=None)
+    params_tuple = field(validator=instance_of(tuple), default=(), converter=freeze)
+    child_info = field(validator=instance_of(tuple), default=())
+
+    def __attrs_post_init__(self):
+        from sklearn.base import BaseEstimator
+
+        assert BaseEstimator in self.typ.mro()
+        if self.name is None:
+            object.__setattr__(self, "name", f"{self.typ.__name__.lower()}_{id(self)}")
+        object.__setattr__(self, "params_tuple", tuple(sorted(self.params_tuple)))
+
+    @property
+    def tag_kwargs(self):
+        return {name: getattr(self, name) for name in ("typ", "name", "params_tuple")}
+
+    @property
+    def instance(self):
+        """Create an instance of the container with configured parameters."""
+        return self.typ(**dict(self.params_tuple))
+
+    @property
+    def kv_child_names(self):
+        """Names of children that produce KV-encoded output."""
+        return tuple(c["name"] for c in self.child_info if c["is_kv_encoded"])
+
+    @property
+    def known_child_names(self):
+        """Names of children that produce known-schema output."""
+        return tuple(c["name"] for c in self.child_info if not c["is_kv_encoded"])
+
+    @property
+    def is_hybrid(self):
+        """True if container has both KV-encoded and known-schema children."""
+        return bool(self.kv_child_names) and bool(self.known_child_names)
+
+    @property
+    def is_all_kv(self):
+        """True if all children are KV-encoded."""
+        return bool(self.kv_child_names) and not self.known_child_names
+
+    @property
+    def is_all_known(self):
+        """True if all children have known schema."""
+        return bool(self.known_child_names) and not self.kv_child_names
+
+    def fit(self, expr, features=None, target=None, cache=None, dest_col=None):
+        """
+        Fit this container step to the given expression data.
+
+        Returns
+        -------
+        ComplexFittedStep
+            A fitted step that can transform data with proper hybrid handling.
+        """
+        features = features or tuple(expr.columns)
+        return ComplexFittedStep(
+            step=self,
+            expr=expr,
+            features=features,
+            target=target,
+            cache=cache,
+            dest_col=dest_col,
+        )
+
+    @classmethod
+    def from_instance_name(cls, instance, name=None, expr=None, features=None):
+        """
+        Create a ComplexStep from an sklearn container instance.
+
+        Parameters
+        ----------
+        instance : ColumnTransformer, FeatureUnion, or Pipeline
+            The sklearn container instance.
+        name : str, optional
+            Name for the step.
+        expr : Expr, optional
+            Expression for analyzing child structure. If None, child analysis is deferred.
+        features : tuple, optional
+            Feature columns for analysis.
+
+        Returns
+        -------
+        ComplexStep
+        """
+        if not _is_container_transformer(instance):
+            raise ValueError(
+                f"ComplexStep requires a container transformer, got {type(instance)}"
+            )
+
+        params_tuple = tuple(instance.get_params(deep=False).items())
+
+        # Analyze children if expr is provided
+        if expr is not None:
+            child_info = tuple(_analyze_container(instance, expr, features))
+        else:
+            child_info = ()
+
+        return cls(
+            typ=type(instance),
+            name=name,
+            params_tuple=params_tuple,
+            child_info=child_info,
+        )
+
+    __dask_tokenize__ = normalize_attrs
+
+
+@frozen
+class ComplexFittedStep:
+    """
+    A fitted container step with hybrid transform support.
+
+    This class handles the bookkeeping for containers with mixed known-schema
+    and KV-encoded children. The transform methods properly remap sklearn's
+    prefixed output columns to the hybrid struct format.
+
+    The key insight is that sklearn containers use naming conventions like
+    'transformer_name__feature_name' for output columns. This class uses
+    kv_child_names to determine which columns should be grouped into KV arrays
+    vs extracted as known struct fields.
+    """
+
+    step = field(validator=instance_of(ComplexStep))
+    expr = field(validator=instance_of(Expr))
+    features = field(
+        validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
+        default=None,
+        converter=tuple,
+    )
+    target = field(validator=optional(instance_of(str)), default=None)
+    cache = field(
+        validator=optional(
+            instance_of(
+                (
+                    ParquetCache,
+                    SourceCache,
+                    ParquetSnapshotCache,
+                    ParquetTTLSnapshotCache,
+                )
+            )
+        ),
+        default=None,
+    )
+    dest_col = field(validator=optional(instance_of(str)), default=None)
+
+    def __attrs_post_init__(self):
+        if self.features is None:
+            features = tuple(col for col in self.expr.columns if col != self.target)
+            object.__setattr__(self, "features", features)
+
+        # Re-analyze children now that we have expr
+        if not self.step.child_info:
+            child_info = tuple(
+                _analyze_container(self.step.instance, self.expr, self.features)
+            )
+            # Update step's child_info (need to create new step since it's frozen)
+            new_step = ComplexStep(
+                typ=self.step.typ,
+                name=self.step.name,
+                params_tuple=self.step.params_tuple,
+                child_info=child_info,
+            )
+            object.__setattr__(self, "step", new_step)
+
+    @property
+    def instance(self):
+        return self.step.instance
+
+    @property
+    def kv_child_names(self):
+        return self.step.kv_child_names
+
+    @property
+    def is_hybrid(self):
+        return self.step.is_hybrid
+
+    @property
+    def is_transform(self):
+        return hasattr(self.step.typ, "transform")
+
+    @property
+    @functools.cache
+    def structer(self):
+        """Build Structer with hybrid/KV info based on child analysis."""
+        return Structer.from_instance_expr(
+            self.step.instance, self.expr, features=self.features
+        )
+
+    @property
+    @functools.cache
+    def _deferred_fit_other(self):
+        """Create DeferredFitOther with hybrid support."""
+        from xorq.expr.ml.fit_lib import (
+            DeferredFitOther,
+            fit_sklearn_args,
+            kv_encode_output,
+            transform_sklearn_hybrid,
+            transform_sklearn_struct,
+        )
+
+        kwargs = {
+            "expr": self.expr,
+            "target": self.target,
+            "features": self.features,
+            "cache": self.cache,
+        }
+
+        structer = self.structer
+
+        if structer.is_hybrid:
+            # Hybrid: use transform_sklearn_hybrid with kv_child_names
+            return DeferredFitOther(
+                fit=fit_sklearn_args(
+                    cls=self.step.typ,
+                    params=self.step.params_tuple,
+                ),
+                other=transform_sklearn_hybrid(self.kv_child_names),
+                return_type=structer.return_type,
+                name_infix="transformed_hybrid",
+                **kwargs,
+            )
+        elif structer.is_kv_encoded:
+            # All KV: use standard KV encoding
+            return DeferredFitOther(
+                fit=fit_sklearn_args(
+                    cls=self.step.typ,
+                    params=self.step.params_tuple,
+                ),
+                other=kv_encode_output,
+                return_type=structer.return_type,
+                name_infix="transformed_encoded",
+                **kwargs,
+            )
+        else:
+            # All known schema: use struct conversion
+            return DeferredFitOther(
+                fit=fit_sklearn_args(
+                    cls=self.step.typ,
+                    params=self.step.params_tuple,
+                ),
+                other=transform_sklearn_struct(structer.get_convert_array()),
+                return_type=structer.return_type,
+                name_infix="transformed",
+                **kwargs,
+            )
+
+    @property
+    def deferred_model(self):
+        return self._deferred_fit_other.deferred_model
+
+    @property
+    def deferred_transform(self):
+        if self.is_transform:
+            return self._deferred_fit_other.deferred_other
+        return None
+
+    @property
+    def tag_kwargs(self):
+        return {
+            "tag": "ComplexFittedStep-transform",
+            **self.step.tag_kwargs,
+            "features": self.features,
+        }
+
+    def get_others(self, expr):
+        return tuple(other for other in expr.columns if other not in self.features)
+
+    def transform_raw(self, expr, name=None):
+        """
+        Raw transform - returns the UDF output column.
+
+        For hybrid containers, this returns a struct with known fields
+        and named KV array fields, as produced by transform_sklearn_hybrid.
+        """
+        transformed = self.deferred_transform.on_expr(expr).name(
+            name or self.dest_col or "transformed"
+        )
+        return transformed
+
+    def transform(self, expr, retain_others=True):
+        """
+        Transform with proper unpacking.
+
+        For hybrid containers, unpacks the struct to expose known fields
+        while keeping KV array fields intact.
+        """
+        col = self.transform_raw(expr)
+        others = self.get_others(expr) if retain_others else ()
+        expr = expr.select(*others, col) if others else col.as_table()
+        return self.structer.maybe_unpack(expr, col.get_name()).tag(
+            **self.tag_kwargs,
+        )
+
+    @property
+    def transformed(self):
+        return self.transform(self.expr)
+
+
 @frozen
 class Pipeline:
     """

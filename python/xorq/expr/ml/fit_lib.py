@@ -106,6 +106,84 @@ def kv_encode_output(model, df):
     return KVEncoder.encode(model, df)
 
 
+@toolz.curry
+def transform_sklearn_hybrid(kv_child_names, model, df):
+    """
+    Transform with hybrid output: known-schema fields + named KV array fields.
+
+    For containers (FeatureUnion, ColumnTransformer) with mixed known/KV-encoded children.
+    Known-schema columns are packed into struct fields, KV-encoded children become
+    named Array[{key, value}] fields.
+
+    Parameters
+    ----------
+    kv_child_names : tuple of str
+        Names of KV-encoded child transformers (used to identify their columns
+        by prefix in feature names)
+    model : sklearn estimator
+        Fitted container transformer (FeatureUnion or ColumnTransformer)
+    df : pandas.DataFrame
+        Input DataFrame to transform
+
+    Returns
+    -------
+    list of dict
+        List of records with known fields + named KV array fields
+    """
+    from xorq.expr.ml.structer import KVField
+
+    result = model.transform(df)
+    # Handle sparse matrices
+    if hasattr(result, "toarray"):
+        result = result.toarray()
+
+    feature_names = model.get_feature_names_out()
+
+    # Identify which columns belong to which KV-encoded child by prefix
+    # sklearn uses "transformername__originalfeature" naming convention
+    kv_child_col_indices = {name: [] for name in kv_child_names}
+    kv_child_col_names = {name: [] for name in kv_child_names}
+    known_col_indices = []
+    known_col_names = []
+
+    for idx, fname in enumerate(feature_names):
+        matched = False
+        for child_name in kv_child_names:
+            if fname.startswith(f"{child_name}__"):
+                kv_child_col_indices[child_name].append(idx)
+                kv_child_col_names[child_name].append(fname)
+                matched = True
+                break
+        if not matched:
+            known_col_indices.append(idx)
+            known_col_names.append(fname)
+
+    # Build output records
+    records = []
+    for row_idx in range(result.shape[0]):
+        record = {}
+
+        # Add known-schema fields directly
+        for col_idx, col_name in zip(known_col_indices, known_col_names):
+            # Strip transformer prefix if present (e.g., "num__age" → "age")
+            # But keep the full name if no prefix
+            clean_name = col_name.split("__", 1)[-1] if "__" in col_name else col_name
+            record[clean_name] = float(result[row_idx, col_idx])
+
+        # Add KV-encoded fields for each KV child
+        for child_name in kv_child_names:
+            indices = kv_child_col_indices[child_name]
+            names = kv_child_col_names[child_name]
+            record[child_name] = tuple(
+                {KVField.KEY: name, KVField.VALUE: float(result[row_idx, idx])}
+                for idx, name in zip(indices, names)
+            )
+
+        records.append(record)
+
+    return records
+
+
 @frozen
 class DeferredFitOther:
     expr = field(validator=instance_of(ibis.Expr))
@@ -249,8 +327,20 @@ class DeferredFitOther:
                 fitted_step.instance, fitted_step.expr, features=fitted_step.features
             )
             target = fitted_step.target if structer.needs_target else None
-            match (structer.is_series, structer.is_kv_encoded):
-                case (True, True):
+            match (structer.is_series, structer.is_kv_encoded, structer.is_hybrid):
+                case (_, _, True):
+                    # Hybrid: mixed known-schema + KV-encoded children
+                    return cls(
+                        fit=fit_sklearn_args(
+                            cls=fitted_step.step.typ,
+                            params=fitted_step.step.params_tuple,
+                        ),
+                        other=transform_sklearn_hybrid(structer.kv_child_names),
+                        return_type=structer.return_type,
+                        name_infix="transformed_hybrid",
+                        **kwargs,
+                    )
+                case (True, True, _):
                     (col,) = fitted_step.features
                     return cls(
                         fit=fit_sklearn_series(
@@ -266,7 +356,7 @@ class DeferredFitOther:
                             "target": target,
                         },
                     )
-                case (False, True):
+                case (False, True, _):
                     return cls(
                         fit=fit_sklearn_args(
                             cls=fitted_step.step.typ,

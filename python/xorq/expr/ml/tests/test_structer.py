@@ -514,8 +514,15 @@ class TestColumnTransformerStructer:
         )
         structer = Structer.from_instance_expr(ct, t)
 
-        # Any KV-encoded child makes the whole output KV-encoded
-        assert structer.is_kv_encoded
+        # Mixed children produce hybrid output:
+        # - Known-schema children (scaler) have their fields in struct
+        # - KV-encoded children (encoder) become named KV array fields
+        assert not structer.is_kv_encoded
+        assert structer.is_hybrid
+        assert structer.struct is not None
+        assert "num" in structer.struct.fields  # from scaler
+        assert "encoder" in structer.struct.fields  # KV array for encoder
+        assert structer.kv_child_names == ("encoder",)
         assert set(structer.input_columns) == {"num", "cat"}
 
     def test_passthrough_explicit(self):
@@ -633,8 +640,17 @@ class TestColumnTransformerStructer:
         )
         structer = Structer.from_instance_expr(outer_ct, t)
 
-        # Inner is KV-encoded, so outer becomes KV-encoded
-        assert structer.is_kv_encoded
+        # Inner is KV-encoded, outer has mixed children, so outer is hybrid
+        # - inner child is KV-encoded, becomes 'inner' KV array field
+        # - scaler child is known-schema, contributes 'num' field
+        assert not structer.is_kv_encoded
+        assert structer.is_hybrid
+        assert structer.struct is not None
+        assert "num" in structer.struct.fields  # from scaler
+        assert (
+            "inner" in structer.struct.fields
+        )  # KV array for inner (which contains encoder)
+        assert structer.kv_child_names == ("inner",)
 
     def test_unregistered_child_raises(self):
         """Test ColumnTransformer with unregistered child transformer raises."""
@@ -756,8 +772,11 @@ class TestFeatureUnionStructer:
 
         assert not structer.is_kv_encoded
         assert structer.struct is not None
-        assert "num1" in structer.struct.fields
-        assert "num2" in structer.struct.fields
+        # FeatureUnion prefixes field names with transformer name
+        assert "scaler__num1" in structer.struct.fields
+        assert "scaler__num2" in structer.struct.fields
+        assert "imputer__num1" in structer.struct.fields
+        assert "imputer__num2" in structer.struct.fields
 
     def test_kv_encoded_transformer(self):
         """Test FeatureUnion with KV-encoded transformer."""
@@ -789,8 +808,16 @@ class TestFeatureUnionStructer:
         )
         structer = Structer.from_instance_expr(fu, t, features=("num", "cat"))
 
-        # Any KV-encoded child makes the whole output KV-encoded
-        assert structer.is_kv_encoded
+        # Mixed children produce hybrid output:
+        # - Known-schema children (scaler) have their fields in struct
+        # - KV-encoded children (encoder) become named KV array fields
+        assert not structer.is_kv_encoded
+        assert structer.is_hybrid
+        assert structer.struct is not None
+        assert "num" in structer.struct.fields  # from scaler
+        assert "cat" in structer.struct.fields  # from scaler
+        assert "encoder" in structer.struct.fields  # KV array for encoder
+        assert structer.kv_child_names == ("encoder",)
         assert set(structer.input_columns) == {"num", "cat"}
 
     def test_unregistered_child_raises(self):
@@ -828,8 +855,11 @@ class TestFeatureUnionStructer:
         structer = Structer.from_instance_expr(outer_fu, t, features=("a", "b"))
 
         assert not structer.is_kv_encoded
-        assert "a" in structer.struct.fields
-        assert "b" in structer.struct.fields
+        # Nested FeatureUnion prefixes with both outer and inner transformer names
+        assert "inner__scaler1__a" in structer.struct.fields
+        assert "inner__scaler1__b" in structer.struct.fields
+        assert "scaler2__a" in structer.struct.fields
+        assert "scaler2__b" in structer.struct.fields
 
 
 class TestSklearnPipelineStructer:

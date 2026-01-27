@@ -367,7 +367,7 @@ class TestDeeplyNestedPipelines:
         # Assert predictions match
         assert np.array_equal(predictions["predicted"].values, sklearn_preds)
 
-    def test_non_kv_deeply_nested_pipeline(self):
+    def test_non_kv_deeply_nested_pipeline(self):  # noqa: C901
         """Test depth-4 nested pipeline with all known-schema transformers.
 
         Pipeline structure:
@@ -468,3 +468,459 @@ class TestDeeplyNestedPipelines:
 
         # Assert predictions match
         assert np.array_equal(predictions["predicted"].values, sklearn_preds)
+
+
+class TestIsContainerTransformer:
+    """Tests for _is_container_transformer helper function."""
+
+    def test_column_transformer_is_container(self):
+        """Test ColumnTransformer is recognized as a container."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _is_container_transformer
+
+        ct = ColumnTransformer([("scaler", StandardScaler(), ["a"])])
+        assert _is_container_transformer(ct) is True
+
+    def test_feature_union_is_container(self):
+        """Test FeatureUnion is recognized as a container."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _is_container_transformer
+
+        fu = FeatureUnion([("scaler", StandardScaler())])
+        assert _is_container_transformer(fu) is True
+
+    def test_sklearn_pipeline_is_container(self):
+        """Test sklearn Pipeline is recognized as a container."""
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _is_container_transformer
+
+        pipe = SklearnPipeline([("scaler", StandardScaler())])
+        assert _is_container_transformer(pipe) is True
+
+    def test_simple_transformer_is_not_container(self):
+        """Test simple transformers are not recognized as containers."""
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _is_container_transformer
+
+        assert _is_container_transformer(StandardScaler()) is False
+        assert _is_container_transformer(OneHotEncoder()) is False
+
+    def test_estimator_is_not_container(self):
+        """Test estimators are not recognized as containers."""
+        from sklearn.linear_model import LinearRegression
+
+        from xorq.expr.ml.pipeline_lib import _is_container_transformer
+
+        assert _is_container_transformer(LinearRegression()) is False
+
+
+class TestAnalyzeChildStructer:
+    """Tests for _analyze_child_structer helper function."""
+
+    def test_drop_returns_none(self):
+        """Test 'drop' transformer returns None."""
+        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+
+        result = _analyze_child_structer("drop", None, None)
+        assert result is None
+
+    def test_passthrough_returns_none(self):
+        """Test 'passthrough' transformer returns None."""
+        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+
+        result = _analyze_child_structer("passthrough", None, None)
+        assert result is None
+
+    def test_known_schema_transformer(self):
+        """Test known-schema transformer is correctly identified."""
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        result = _analyze_child_structer(StandardScaler(), t, ("a", "b"))
+
+        assert result is not None
+        assert result["is_kv_encoded"] is False
+        assert "structer" in result
+
+    def test_kv_encoded_transformer(self):
+        """Test KV-encoded transformer is correctly identified."""
+        from sklearn.preprocessing import OneHotEncoder
+
+        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+
+        t = xo.memtable({"cat": ["x", "y", "z"]})
+        result = _analyze_child_structer(OneHotEncoder(), t, ("cat",))
+
+        assert result is not None
+        assert result["is_kv_encoded"] is True
+        assert "structer" in result
+
+    def test_nested_container_with_kv_child(self):
+        """Test nested container with KV-encoded child is correctly identified."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import OneHotEncoder
+
+        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+
+        t = xo.memtable({"cat": ["x", "y", "z"]})
+        fu = FeatureUnion([("encoder", OneHotEncoder())])
+        result = _analyze_child_structer(fu, t, ("cat",))
+
+        assert result is not None
+        assert result["is_kv_encoded"] is True
+        assert "child_info" in result
+
+    def test_nested_container_with_known_children(self):
+        """Test nested container with known-schema children."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+
+        t = xo.memtable({"a": [1.0, 2.0]})
+        fu = FeatureUnion([("scaler", StandardScaler())])
+        result = _analyze_child_structer(fu, t, ("a",))
+
+        assert result is not None
+        assert result["is_kv_encoded"] is False
+        assert "child_info" in result
+
+
+class TestAnalyzeContainer:
+    """Tests for _analyze_container helper function."""
+
+    def test_column_transformer_children(self):
+        """Test ColumnTransformer child analysis."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _analyze_container
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["x", "y"]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num"]),
+                ("encoder", OneHotEncoder(), ["cat"]),
+            ]
+        )
+        children = _analyze_container(ct, t)
+
+        assert len(children) == 2
+        # Find by name
+        scaler_child = next(c for c in children if c["name"] == "scaler")
+        encoder_child = next(c for c in children if c["name"] == "encoder")
+
+        assert scaler_child["is_kv_encoded"] is False
+        assert scaler_child["columns"] == ("num",)
+        assert encoder_child["is_kv_encoded"] is True
+        assert encoder_child["columns"] == ("cat",)
+
+    def test_column_transformer_drop_ignored(self):
+        """Test ColumnTransformer 'drop' transformers are ignored."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _analyze_container
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["a"]),
+                ("dropped", "drop", ["b"]),
+            ]
+        )
+        children = _analyze_container(ct, t)
+
+        assert len(children) == 1
+        assert children[0]["name"] == "scaler"
+
+    def test_feature_union_children(self):
+        """Test FeatureUnion child analysis."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _analyze_container
+
+        t = xo.memtable({"a": [1.0, 2.0]})
+        fu = FeatureUnion(
+            [
+                ("scaler", StandardScaler()),
+                ("encoder", OneHotEncoder()),
+            ]
+        )
+        children = _analyze_container(fu, t, features=("a",))
+
+        assert len(children) == 2
+        scaler_child = next(c for c in children if c["name"] == "scaler")
+        encoder_child = next(c for c in children if c["name"] == "encoder")
+
+        assert scaler_child["is_kv_encoded"] is False
+        assert encoder_child["is_kv_encoded"] is True
+
+    def test_sklearn_pipeline_children(self):
+        """Test sklearn Pipeline child analysis."""
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _analyze_container
+
+        t = xo.memtable({"a": [1.0, 2.0]})
+        pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("encoder", OneHotEncoder()),
+            ]
+        )
+        children = _analyze_container(pipe, t, features=("a",))
+
+        assert len(children) == 2
+        assert children[0]["name"] == "scaler"
+        assert children[0]["is_kv_encoded"] is False
+        assert children[1]["name"] == "encoder"
+        assert children[1]["is_kv_encoded"] is True
+
+    def test_pipeline_passthrough_step(self):
+        """Test Pipeline with passthrough step."""
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import _analyze_container
+
+        t = xo.memtable({"a": [1.0, 2.0]})
+        pipe = SklearnPipeline(
+            [
+                ("pass", "passthrough"),
+                ("scaler", StandardScaler()),
+            ]
+        )
+        children = _analyze_container(pipe, t, features=("a",))
+
+        assert len(children) == 2
+        assert children[0]["name"] == "pass"
+        assert children[0]["is_kv_encoded"] is False
+        assert children[1]["name"] == "scaler"
+
+
+class TestComplexStep:
+    """Tests for ComplexStep class."""
+
+    def test_from_column_transformer(self):
+        """Test ComplexStep creation from ColumnTransformer."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["x", "y"]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num"]),
+                ("encoder", OneHotEncoder(), ["cat"]),
+            ]
+        )
+        step = ComplexStep.from_instance_name(ct, name="my_ct", expr=t)
+
+        assert step.typ == ColumnTransformer
+        assert step.name == "my_ct"
+        assert len(step.child_info) == 2
+        assert step.kv_child_names == ("encoder",)
+        assert step.known_child_names == ("scaler",)
+        assert step.is_hybrid is True
+
+    def test_from_feature_union(self):
+        """Test ComplexStep creation from FeatureUnion."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"a": [1.0, 2.0]})
+        fu = FeatureUnion([("scaler", StandardScaler())])
+        step = ComplexStep.from_instance_name(fu, name="my_fu", expr=t, features=("a",))
+
+        assert step.typ == FeatureUnion
+        assert step.name == "my_fu"
+        assert step.is_all_known is True
+        assert step.is_hybrid is False
+
+    def test_from_simple_transformer_raises(self):
+        """Test ComplexStep rejects simple transformers."""
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        with pytest.raises(ValueError, match="container transformer"):
+            ComplexStep.from_instance_name(StandardScaler())
+
+    def test_is_all_kv(self):
+        """Test is_all_kv property."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"cat1": ["x", "y"], "cat2": ["a", "b"]})
+        ct = ColumnTransformer(
+            [
+                ("enc1", OneHotEncoder(), ["cat1"]),
+                ("enc2", OneHotEncoder(), ["cat2"]),
+            ]
+        )
+        step = ComplexStep.from_instance_name(ct, expr=t)
+
+        assert step.is_all_kv is True
+        assert step.is_hybrid is False
+        assert step.is_all_known is False
+
+    def test_is_all_known(self):
+        """Test is_all_known property."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.impute import SimpleImputer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["a"]),
+                ("imputer", SimpleImputer(), ["b"]),
+            ]
+        )
+        step = ComplexStep.from_instance_name(ct, expr=t)
+
+        assert step.is_all_known is True
+        assert step.is_hybrid is False
+        assert step.is_all_kv is False
+
+    def test_deferred_child_analysis(self):
+        """Test ComplexStep with deferred child analysis (no expr)."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        ct = ColumnTransformer([("scaler", StandardScaler(), ["a"])])
+        step = ComplexStep.from_instance_name(ct, name="deferred")
+
+        # No child_info yet since no expr was provided
+        assert step.child_info == ()
+        assert step.kv_child_names == ()
+        assert step.known_child_names == ()
+
+    def test_auto_generated_name(self):
+        """Test ComplexStep auto-generates name if not provided."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        ct = ColumnTransformer([("scaler", StandardScaler(), ["a"])])
+        step = ComplexStep.from_instance_name(ct)
+
+        assert step.name.startswith("columntransformer_")
+
+
+class TestComplexFittedStep:
+    """Tests for ComplexFittedStep class."""
+
+    def test_fitted_step_from_complex_step(self):
+        """Test ComplexFittedStep creation via ComplexStep.fit()."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"num": [1.0, 2.0, 3.0], "cat": ["x", "y", "x"]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num"]),
+                ("encoder", OneHotEncoder(), ["cat"]),
+            ]
+        )
+        step = ComplexStep.from_instance_name(ct, expr=t)
+        fitted = step.fit(t)
+
+        assert fitted.features == ("num", "cat")
+        assert fitted.is_hybrid is True
+        assert fitted.kv_child_names == ("encoder",)
+
+    def test_fitted_step_deferred_analysis(self):
+        """Test ComplexFittedStep performs deferred analysis if needed."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        ct = ColumnTransformer([("scaler", StandardScaler(), ["a", "b"])])
+
+        # Create step without expr (deferred analysis)
+        step = ComplexStep.from_instance_name(ct)
+        assert step.child_info == ()
+
+        # Fit should trigger analysis
+        fitted = step.fit(t)
+        assert len(fitted.step.child_info) == 1
+        assert fitted.step.is_all_known is True
+
+    def test_fitted_step_structer(self):
+        """Test ComplexFittedStep structer property."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["x", "y"]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num"]),
+                ("encoder", OneHotEncoder(), ["cat"]),
+            ]
+        )
+        step = ComplexStep.from_instance_name(ct, expr=t)
+        fitted = step.fit(t)
+
+        structer = fitted.structer
+        assert structer.is_hybrid is True
+        assert "encoder" in structer.kv_child_names
+
+    def test_fitted_step_is_transform(self):
+        """Test ComplexFittedStep is_transform property."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"a": [1.0, 2.0]})
+        ct = ColumnTransformer([("scaler", StandardScaler(), ["a"])])
+        step = ComplexStep.from_instance_name(ct, expr=t)
+        fitted = step.fit(t)
+
+        assert fitted.is_transform is True
+
+    def test_fitted_step_with_explicit_features(self):
+        """Test ComplexFittedStep with explicit features."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import ComplexStep
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "y": [0, 1]})
+        ct = ColumnTransformer([("scaler", StandardScaler(), ["a", "b"])])
+        step = ComplexStep.from_instance_name(ct)
+        # Explicitly pass features excluding target
+        fitted = step.fit(t, features=("a", "b"), target="y")
+
+        assert fitted.features == ("a", "b")
+        assert "y" not in fitted.features
+        assert fitted.target == "y"
