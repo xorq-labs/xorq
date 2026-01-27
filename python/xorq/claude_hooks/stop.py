@@ -71,10 +71,7 @@ def main():
 
             payload = {
                 "suppressOutput": False,
-                "hookSpecificOutput": {
-                    "hookEventName": "Stop",
-                    "additionalContext": message
-                }
+                "systemMessage": message
             }
             print(json.dumps(payload))
         else:
