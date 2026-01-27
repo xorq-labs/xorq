@@ -5,7 +5,6 @@ import shutil
 import stat
 import subprocess
 import time
-from dataclasses import dataclass
 from pathlib import Path
 from textwrap import dedent
 
@@ -89,135 +88,6 @@ def get_catalog_entries(limit: int = 10) -> list[dict]:
         return []
 
 
-def _format_builds_status(
-    recent_builds: list[tuple[str, str]], catalog_entries: list[dict]
-) -> str:
-    """Format the current builds status section."""
-    if not recent_builds and not catalog_entries:
-        return dedent("""\
-            ## Current Project State
-
-            - No builds or catalog entries found
-            - Run `xorq build expr.py -e expr` to create your first build
-            - Then: `xorq catalog add builds/<hash> --alias my-pipeline`
-            """).strip()
-
-    output = "## Current Project State\n\n"
-
-    # Recent builds
-    if recent_builds:
-        output += "**Recent Builds:**\n"
-        for build_hash, time_str in recent_builds[:5]:
-            output += f"- `{build_hash[:12]}...` ({time_str})\n"
-        output += "\n"
-
-    # Catalog entries
-    if catalog_entries:
-        output += "**Cataloged Pipelines:**\n"
-        for entry in catalog_entries[:10]:
-            alias = entry.get("alias", "")
-            revision = entry.get("revision", "")
-            root_tag = entry.get("root_tag", "")
-            if root_tag:
-                output += f"- `{alias}` @ {revision} → {root_tag}\n"
-            else:
-                output += f"- `{alias}` @ {revision}\n"
-        output += "\n"
-        output += "Run `xorq catalog ls` for full list.\n"
-    else:
-        output += "**No catalog entries yet.**\n"
-        output += "- Catalog builds: `xorq catalog add builds/<hash> --alias name`\n"
-
-    return output.strip()
-
-
-@dataclass(frozen=True)
-class OnboardingStep:
-    key: str
-    title: str
-    checklist: list[str]
-    commands: list[str]
-    prompt_refs: list[str]
-
-
-ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
-    OnboardingStep(
-        "init",
-        "xorq agents prime",
-        [
-            "Run `xorq agents prime` and start a new expression build",
-        ],
-        [],
-        []
-    ),
-    OnboardingStep(
-        "build",
-        "Build deferred expressions",
-        [
-            "Build expressions from Python files",
-            "Reference templates for common patterns",
-        ],
-        [
-            "xorq build expr.py -e expr",
-        ],
-        [],
-    ),
-    OnboardingStep(
-        "catalog",
-        "Catalog builds",
-        [
-            "Add builds with aliases for reuse",
-        ],
-        [
-            "xorq catalog add builds/<hash> --alias <name>",
-            "xorq catalog ls",
-        ],
-        [],
-    ),
-    OnboardingStep(
-        "explore",
-        "Explore with DuckDB CLI",
-        [
-            "Stream expressions to DuckDB for interactive SQL exploration",
-            "Use Arrow IPC streaming for ad-hoc analytics",
-            "Find source nodes with `xorq catalog sources` for composition",
-            "Verify schema compatibility with `xorq catalog schema`",
-        ],
-        [
-            "# Simple: Stream source to DuckDB",
-            "xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10\"",
-            "",
-            "# Advanced: Compose pipeline and explore interactively",
-            "xorq run source -f arrow -o /dev/stdout 2>/dev/null | xorq run-unbound transform --to_unbind_hash <hash> --typ xorq.expr.relations.Read -f arrow -o /dev/stdout 2>/dev/null | duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin')\"",
-            "",
-            "# Find source nodes for composition",
-            "xorq catalog sources <alias>",
-            "xorq catalog schema <alias>",
-        ],
-        [],
-    ),
-    OnboardingStep(
-        "compose",
-        "Compose cataloged expressions",
-        [
-            "Load expressions with xo.catalog.get('alias') (RECOMMENDED)",
-            "Get placeholders with xo.catalog.get_placeholder('alias', tag='tag') for transforms",
-            "Or load from build directory for debugging: xo.catalog.load_expr('builds/<hash>')",
-            "Compose directly in Python - expressions compose naturally",
-        ],
-        [
-            "# Python composition (RECOMMENDED)",
-            "# import xorq.api as xo",
-            "# source = xo.catalog.get('my-source')",
-            "# transform = source.filter(xo._.value > 100).select('id', 'value')",
-            "# result = transform.execute()",
-            "",
-            "# View lineage",
-            "xorq lineage <alias>",
-        ],
-        [],
-    ),
-)
 
 
 def register_claude_skill() -> Path | None:
@@ -467,11 +337,6 @@ For full workflow details: `xorq agents prime`
 
 def render_onboarding_summary(step: str | None = None) -> str:
     """Render dynamic workflow context (the 'prime' command)."""
-    selected_steps = (
-        tuple(s for s in ONBOARDING_STEPS if step is None or s.key == step)
-        or ONBOARDING_STEPS
-    )
-
     # Get current project state
     recent_builds = get_recent_builds(limit=3)
     catalog_entries = get_catalog_entries(limit=10)
@@ -575,260 +440,24 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("   - ✅ Operate on entire filtered dataset at once")
     sections.append("   - ✅ Use pandas UDF aggregation for MILP optimization")
     sections.append("")
+    sections.append("**7. Type coercion errors in UDF/UDAF pipelines**")
+    sections.append("   - ❌ Passing expressions directly to UDAFs without type coercion")
+    sections.append("   - ❌ Getting \"Failed to coerce arguments\" errors (Decimal128→Int64, Utf8View→Utf8)")
+    sections.append("   - ✅ Use `.into_backend()` before passing data to UDF/UDAF operations")
+    sections.append("   - Example:")
+    sections.append("     ```python")
+    sections.append("     # Prepare data with explicit type coercion")
+    sections.append("     data = (")
+    sections.append("         source")
+    sections.append("         .filter(conditions)")
+    sections.append("         .select([col.cast('int64'), col2.cast('float64')])")
+    sections.append("     ).into_backend()  # <-- Resolves type inference issues")
+    sections.append("     ")
+    sections.append("     # Now safe to use in UDAF")
+    sections.append("     result = data.aggregate(my_udaf.on_expr(data))")
+    sections.append("     ```")
+    sections.append("")
     sections.append("**Remember:** Start with `xorq agents onboard`, use xorq skill proactively, and keep everything deferred!")
     sections.append("")
 
     return "\n".join(sections).strip() + "\n"
-
-
-def _format_onboarding_step_simple(step: OnboardingStep, number: int) -> list[str]:
-    """Format onboarding step in a cleaner, more concise way."""
-    lines = [
-        f"### {number}. {step.title}",
-        "",
-    ]
-    # Show only first 2-3 most important checklist items
-    lines.extend(f"- {item}" for item in step.checklist[:3])
-    lines.append("")
-    # Show key commands
-    lines.append("**Commands:**")
-    lines.append("```bash")
-    for cmd in step.commands[:3]:  # Limit to top 3 commands
-        if not cmd.strip().startswith("#"):  # Skip commented commands
-            lines.append(cmd)
-    lines.append("```")
-    lines.append("")
-    return lines
-
-
-def _format_onboarding_step(step: OnboardingStep) -> list[str]:
-    """Original detailed formatting (kept for compatibility)."""
-    lines = [
-        f"## {step.title}",
-        "",
-        f"Key: `{step.key}`",
-        "",
-        "**Checklist:**",
-    ]
-    lines.extend(f"- {item}" for item in step.checklist)
-    lines.append("")
-    lines.append("**Commands:**")
-    lines.extend(f"- `{cmd}`" for cmd in step.commands)
-    if step.prompt_refs:
-        lines.append("")
-        lines.append("**Reference Prompts:**")
-        lines.extend(f"- `{name}`" for name in step.prompt_refs)
-    lines.append("")
-    return lines
-
-
-def _render_agent_doc(max_lines: int) -> str:
-    """Render minimal AGENTS.md pointing to xorq agents commands as source of truth."""
-    content = dedent(
-        """\
-        # Agent Instructions
-
-        This project uses **xorq** for composable ML pipelines and deferred data analysis.
-
-        ## Workflow Context
-
-        Run `xorq agents onboard` for dynamic, context-aware workflow guidance. This is the **single source of truth** for xorq workflow instructions.
-
-        ```bash
-        xorq agents onboard
-        ```
-
-        ## Quick Reference
-
-        **Core Workflow:**
-        ```bash
-        # 1. Check schema FIRST (mandatory)
-        print(table.schema())
-
-        # 2. Build expression
-        xorq build expr.py -e expr
-
-        # 3. Catalog the build
-        xorq catalog add builds/<hash> --alias my-pipeline
-
-        # 4. Run when needed
-        xorq run builds/<hash> -f arrow | ...
-        ```
-
-        **Agent Commands:**
-        - `xorq agents prime` - Dynamic workflow context (use this!)
-        - `xorq agents vignette list` - Comprehensive code examples (USE THIS for advanced patterns!)
-        - `xorq catalog ls` - List cataloged builds
-
-        ## Agent Workflow
-
-        The agent workflow follows a discover → explore → learn → build → compose pattern:
-
-        ### 1. Catalog Discovery (`xorq catalog ls`)
-        - List all available cataloged builds with aliases and revisions
-        - Shows root tags to identify what each catalog entry produces
-        - First step to understand available data sources and pipelines
-
-        ### 2. Deep Catalog Exploration (when needed)
-        - Navigate to `builds/<hash>/` directories from catalog listings
-        - Use standard Unix tools to inspect build artifacts:
-          - `grep`, `sed`, `awk` for searching manifest.yaml and metadata
-          - `cat` for reading full files
-          - `find` for locating specific files
-        - Understand expression structure, dependencies, and schemas
-
-        ### 3. Interactive Source Exploration
-        ```bash
-        # Stream Arrow IPC to DuckDB for SQL exploration
-        xorq run <catalog-alias> -f arrow -o /dev/stdout 2>/dev/null | \
-          duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10"
-
-        # Check available source nodes for composition
-        xorq catalog sources <catalog-alias>
-
-        # Verify schema compatibility
-        xorq catalog schema <catalog-alias>
-
-        # Examples:
-        xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
-          duckdb -c "LOAD arrow;
-            SELECT playerID, SUM(H) as hits
-            FROM read_arrow('/dev/stdin')
-            GROUP BY playerID
-            ORDER BY hits DESC
-            LIMIT 10"
-        ```
-
-        **Key insight:** Everything in xorq is an expression. Sources are expressions, transforms are expressions, models are expressions. They all compose via Arrow IPC streaming.
-
-        ### 4. Learn from Examples and Vignettes
-
-        **Examples** (simple patterns):
-        ```bash
-        # Check available examples
-        ls examples/
-
-        # Read example patterns directly
-        cat examples/pipeline_example.py
-
-        # Copy an example to start your own implementation
-        cp examples/pipeline_example.py my_pipeline.py
-        ```
-
-        **Vignettes** (comprehensive working code):
-        ```bash
-        # List available vignettes with descriptions
-        xorq agents vignette list
-
-        # See details about a vignette
-        xorq agents vignette show baseball_breakout_expr_scalar
-
-        # Scaffold a vignette to your project
-        xorq agents vignette scaffold baseball_breakout_expr_scalar
-        ```
-
-        **When to use what:**
-        - **Examples**: Quick reference for basic patterns
-        - **Vignettes**: Complete solutions for complex use cases (ML pipelines, advanced UDFs, etc.)
-
-        **Available Templates:**
-        - **pipeline_example**: sklearn pipelines with StandardScaler + KNeighborsClassifier on iris
-        - **diamonds_price_prediction**: Feature engineering, train/test splits, LinearRegression
-        - **sklearn_classifier_comparison**: Compare multiple classifiers on same dataset
-        - **deferred_fit_transform_predict**: Complete deferred ML workflow pattern
-        - **penguins_demo**: Minimal multi-engine example, good starting point (basic scaffold)
-
-        **Example Usage Pattern:**
-        1. List examples: `ls examples/`
-        2. Copy an example to your project: `cp examples/<name>.py my_<name>.py`
-        3. Read the example code to understand xorq patterns (deferred execution, expressions)
-        4. Adapt patterns for data loading, feature engineering, model fitting to your needs
-        5. Build and catalog: `xorq build <file>.py -e expr && xorq catalog add builds/<hash> --alias <name>`
-
-        ### 5. Import Patterns for Build Scripts
-
-        **✅ Correct imports (always use these):**
-        ```python
-        import xorq.api as xo           # Main xorq API
-        from xorq.caching import ParquetCache  # For caching
-
-        # Catalog functions
-        placeholder = xo.catalog.get_placeholder("my-alias", tag="tag")  # Get placeholder (for transforms)
-        expr = xo.catalog.load_expr("builds/...")   # Load from build dir (for debugging)
-        ```
-
-        **❌ Don't use these (not available in build context):**
-        ```python
-        from xorq.common.utils.ibis_utils import from_ibis  # Will fail!
-        from xorq.vendor import ibis  # Use xo._ instead
-        ```
-
-        **Key principle:** Use `xo.*` for all operations. The `xo` namespace provides everything you need.
-
-        ### 6. Build New Expressions (All Deferred!)
-        - **Invoke xorq skills** for deferred expression patterns (Ibis, sklearn, pandas)
-        - **All work must be deferred** - No eager pandas/NumPy operations
-        - Use xorq skills for:
-          - Ibis expression grammar and data transforms
-          - Deferred sklearn patterns (fit, transform, predict)
-          - Composable ML pipelines with deferred execution
-        - Build expressions: `xorq build expr.py -e expr_name`
-        - Catalog builds: `xorq catalog add builds/<hash> --alias my-new-pipeline`
-
-        ### 7. Compose Cataloged Expressions
-        ```python
-        # Compose expressions directly (RECOMMENDED)
-        import xorq.api as xo
-
-        # Load cataloged expressions
-        source = xo.catalog.get("batting-source")
-
-        # Compose by chaining operations
-        lineup_analysis = (
-            source
-            .select("playerID", "H", "AB")
-            .mutate(batting_avg=xo._.H / xo._.AB)
-        )
-
-        # Execute when ready
-        result = lineup_analysis.execute()
-
-        # Or build and catalog for reuse
-        # xorq build lineup.py -e lineup_analysis
-        # xorq catalog add builds/<hash> --alias lineup-analysis
-        ```
-
-        ```python
-        # Alternative: Build transforms using placeholders (for build-time composition)
-        # Use placeholders when you want to define transforms without loading full expressions
-        import xorq.api as xo
-
-        # Get placeholder - only loads schema, not full expression
-        source_placeholder = xo.catalog.get_placeholder("batting-source", tag="src")
-
-        # Build transform using placeholder
-        lineup_transform = (
-            source_placeholder
-            .select("playerID", "H", "AB")
-            .mutate(batting_avg=xo._.H / xo._.AB)
-        )
-
-        # Build and catalog
-        # xorq build transform.py -e lineup_transform
-        # xorq catalog add builds/<hash> --alias lineup-transform
-        ```
-
-        **Composition patterns:** Use `xo.catalog.get()` to load and compose expressions directly (simplest). Use `xo.catalog.get_placeholder()` when building transforms at build-time. The catalog is the single source of truth for all expressions.
-
-        ## Non-Negotiable Rules
-
-        - **All work must be deferred xorq/ibis expressions** - No eager pandas/NumPy operations!
-        - **ML must use deferred patterns** - Use xorq skills for deferred sklearn (fit, transform, predict)
-        - **Pandas/sklearn via xorq skills** - Invoke xorq skills for guidance on deferred ML patterns
-        - **ALWAYS check schema first** - `print(table.schema())` before any operations
-        - **Match column case exactly** - Snowflake=UPPERCASE, DuckDB=lowercase
-        - **Catalog your expressions** - Use `xorq catalog add` for all builds
-
-        """
-    ).strip()
-    return content + "\n"
