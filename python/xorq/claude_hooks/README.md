@@ -4,13 +4,22 @@ Simple hook system for Claude Code lifecycle events.
 
 ## Available Hooks
 
-- **session_start.py** - Triggered when a Claude Code session begins
+- **session_start.py** - **Onboarding context** - Runs `xorq agents onboard` at session start
 - **user_prompt_submit.py** - Triggered when user submits a prompt
 - **PreToolUse (prompt-based)** - **Deferred execution guard** - Blocks eager pandas/visualization operations
 - **post_tool_use_failure.py** - **Troubleshooting assistant** - Detects xorq errors and provides guidance
 - **pre_compact.py** - Triggered before context compaction
-- **stop.py** - Triggered when Claude Code execution is stopped
+- **stop.py** - **Catalog checker** - Warns about uncataloged builds when stopping
 - **session_end.py** - Triggered when a Claude Code session ends
+
+### SessionStart Hook (Onboarding Context)
+
+Automatically runs `xorq agents onboard` when a Claude Code session begins and injects the onboarding content as context. This provides lean workflow guidance without cluttering the codebase.
+
+**Benefits:**
+- Dynamic, context-aware workflow guidance
+- No need for large AGENTS.md files
+- Always up-to-date instructions
 
 ### PreToolUse Hook (Deferred Execution Guard)
 
@@ -54,6 +63,20 @@ The PostToolUseFailure hook analyzes tool failures to detect xorq-related errors
 - Following deferred execution patterns
 
 When xorq errors are detected, Claude receives specific troubleshooting steps and relevant commands to resolve the issue.
+
+### Stop Hook (Catalog Checker)
+
+Checks for uncataloged builds in `.xorq/builds/` when Claude stops working. If uncataloged builds are found, provides a helpful reminder to catalog them.
+
+**Benefits:**
+- Ensures builds don't get lost
+- Reminds users to catalog their work
+- Shows exact commands to catalog builds
+
+**Checks:**
+- Lists all builds in `.xorq/builds/`
+- Compares with `xorq catalog ls` output
+- Warns about any uncataloged builds (up to 5)
 
 ## Usage
 
