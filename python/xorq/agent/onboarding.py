@@ -446,20 +446,22 @@ def render_lean_onboarding() -> str:
     """Render a minimal onboarding message for AGENTS.md, bd-style."""
     return dedent("""\
         # xorq Onboarding
+Track ALL expression in xorq catalog
+All data work gets cataloged as expression for reuse, reproducibility and composability
+Always commit the builds and catalog
+Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
 
-        Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
+## Mandatory Workflow
+1. `xorq agents vignette list` - discover patterns
+2. `xorq agents vignette scaffold <name> --dest reference.py` - get template
+3. Follow the scaffolded pattern exactly
+4. `xorq build <file>.py -e expr` - build expression
+5. `xorq catalog add .xorq/builds/<hash> --alias <name>` - register
+6. `xorq catalog ls` - Find available expressions
+7. `git add .xorq/builds/ .xorq/catalog.yaml` - add the new builds to git
+8. `git commit` with a commit message
 
-        ## Mandatory Workflow
-        1. `xorq agents vignette list` - discover patterns
-        2. `xorq agents vignette scaffold <name> --dest reference.py` - get template
-        3. Follow the scaffolded pattern exactly
-        4. `xorq build <file>.py -e expr` - build expression
-        5. `xorq catalog add .xorq/builds/<hash> --alias <name>` - register
-        6. `xorq catalog ls` - Find available expressions
-        7. `git add .xorq/builds/ .xorq/catalog.yaml` - add the new builds to git
-        8. `git commit` with a commit message
-
-        For full workflow details: `xorq agents prime`
+For full workflow details: `xorq agents prime`
         """).strip()
 
 
