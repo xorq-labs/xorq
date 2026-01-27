@@ -103,6 +103,7 @@ fitted_pipeline = xorq_pipeline.fit(
     cache=cache,
 )
 
+encoded_test = fitted_pipeline.transform(test_table)
 predicted_test = fitted_pipeline.predict(test_table)
 
 if __name__ in ("__main__", "__pytest_main__"):
