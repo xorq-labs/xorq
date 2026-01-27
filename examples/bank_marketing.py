@@ -36,7 +36,7 @@ categorical_features = [
     "poutcome",
 ]
 all_features = numeric_features + categorical_features
-
+# Set up cache & input expression, train test split
 con = xo.connect()
 cache = ParquetCache.from_kwargs(
     source=con,
@@ -55,7 +55,7 @@ train_table, test_table = expr.pipe(
     num_buckets=2,
     random_seed=42,
 )
-
+# Define the preprocessing and modeling pipeline
 preprocessor = ColumnTransformer(
     [
         (
@@ -95,6 +95,7 @@ sklearn_pipeline = SklearnPipeline(
 )
 
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+# This pipeline is now deferred & has has caching for all registered sklearn pipeline operations
 fitted_pipeline = xorq_pipeline.fit(
     train_table,
     features=tuple(all_features),
