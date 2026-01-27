@@ -6,10 +6,24 @@ Simple hook system for Claude Code lifecycle events.
 
 - **session_start.py** - Triggered when a Claude Code session begins
 - **user_prompt_submit.py** - Triggered when user submits a prompt
-- **pre_tool_use.py** - Triggered before a tool is used
+- **PreToolUse (prompt-based)** - **Deferred execution guard** - Blocks eager pandas/visualization operations
 - **pre_compact.py** - Triggered before context compaction
 - **stop.py** - Triggered when Claude Code execution is stopped
 - **session_end.py** - Triggered when a Claude Code session ends
+
+### PreToolUse Hook (Deferred Execution Guard)
+
+The PreToolUse hook uses a **prompt-based evaluation** (not a command script) to detect and block eager operations that violate xorq's deferred execution principle.
+
+**Blocks:**
+- `.to_pandas()` - Eager pandas execution
+- `.execute()` - Eager ibis execution
+- `plt.`, `sns.`, `plotly.` - Visualization libraries
+- `.plot()`, `.show()`, `.savefig()` - Plotting methods
+
+When violations are detected, Claude is blocked and receives guidance to use:
+- `xorq agents prime` - Get workflow context
+- `xorq agents vignette list` - Find deferred patterns
 
 ## Usage
 

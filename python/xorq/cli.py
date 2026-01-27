@@ -633,13 +633,16 @@ def install_claude_hooks_command(args):
 
     print("\n📝 Next steps:")
     print("1. Restart Claude Code to activate the hooks")
-    print("2. The following hooks are now available (currently dummy implementations):")
+    print("2. The following hooks are now available:")
     print("   - SessionStart: Triggered when a Claude Code session begins")
     print("   - UserPromptSubmit: Triggered when user submits a prompt")
-    print("   - PreToolUse: Triggered before a tool is used")
+    print("   - PreToolUse (prompt-based): BLOCKS eager pandas/visualization operations")
     print("   - PreCompact: Triggered before context compaction")
     print("   - Stop: Triggered when Claude Code execution is stopped")
     print("   - SessionEnd: Triggered when a Claude Code session ends")
+    print("\n⚡ The PreToolUse hook will block operations like:")
+    print("   .to_pandas(), .execute(), plt., sns., .plot(), .show()")
+    print("   and guide you to use deferred patterns via vignettes")
 
     return 0
 
@@ -685,6 +688,7 @@ def install_skill_command(args):
             print("1. The skill is now available in Claude Code sessions in this project")
             print("2. Auto-activation is configured for xorq-related operations")
             print("3. You can manually invoke it with /skill xorq in Claude Code")
+            print("\n💡 Tip: Install deferred execution guard with: xorq agents hooks install")
             return 0
         else:
             print("❌ Failed to install skill - could not find skill source")
