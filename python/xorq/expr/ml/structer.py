@@ -410,47 +410,53 @@ def lazy_register_sklearn():
         """
         transformers = getattr(instance, "transformers_", None) or instance.transformers
 
-        combined_fields = {}
-        any_kv_encoded = False
-        all_input_cols = []
-        passthrough_cols = []
+        classified = [
+            (_normalize_columns(columns), transformer)
+            for name, transformer, columns in transformers
+            if transformer != "drop"
+        ]
 
-        for name, transformer, columns in transformers:
-            if transformer == "drop":
-                continue
+        passthrough_cols = [
+            col
+            for cols, transformer in classified
+            if transformer == "passthrough"
+            for col in cols
+        ]
+        transform_items = [
+            (cols, transformer)
+            for cols, transformer in classified
+            if transformer != "passthrough"
+        ]
 
-            cols = _normalize_columns(columns)
-
-            if transformer == "passthrough":
-                # Passthrough keeps original columns with original types
-                passthrough_cols.extend(cols)
-                for col in cols:
-                    combined_fields[col] = expr.schema()[col]
-                continue
-
-            all_input_cols.extend(cols)
-
-            # Get child's Structer (raises if unregistered)
-            child_expr = expr.select(*cols) if cols else expr
-            child_structer = structer_from_instance(
-                transformer, child_expr, features=cols if cols else None
+        child_structers = [
+            structer_from_instance(
+                transformer,
+                expr.select(*cols) if cols else expr,
+                features=cols or None,
             )
+            for cols, transformer in transform_items
+        ]
 
-            if child_structer.is_kv_encoded:
-                any_kv_encoded = True
-            else:
-                # Add child's output columns to combined schema
-                combined_fields.update(child_structer.struct.fields)
+        all_input_cols = [col for cols, _ in transform_items for col in cols]
+        any_kv_encoded = any(s.is_kv_encoded for s in child_structers)
 
-        # Handle remainder if set to passthrough
+        schema = expr.schema()
+        combined_fields = {col: schema[col] for col in passthrough_cols}
+        combined_fields.update(
+            {
+                k: v
+                for s in child_structers
+                if not s.is_kv_encoded
+                for k, v in s.struct.fields.items()
+            }
+        )
+
         if instance.remainder == "passthrough":
             handled_cols = set(all_input_cols) | set(passthrough_cols)
             remainder_cols = [c for c in expr.columns if c not in handled_cols]
-            passthrough_cols.extend(remainder_cols)
-            for col in remainder_cols:
-                combined_fields[col] = expr.schema()[col]
+            passthrough_cols = passthrough_cols + remainder_cols
+            combined_fields.update({col: schema[col] for col in remainder_cols})
 
-        # Build the Structer
         if any_kv_encoded:
             return Structer(
                 struct=None,
@@ -458,7 +464,6 @@ def lazy_register_sklearn():
                 passthrough_columns=tuple(passthrough_cols),
             )
 
-        # All children have known schemas - combine them
         return Structer(
             struct=dt.Struct(combined_fields),
             passthrough_columns=tuple(passthrough_cols),
@@ -475,26 +480,22 @@ def lazy_register_sklearn():
         """
         features = features or tuple(expr.columns)
 
-        combined_fields = {}
-        any_kv_encoded = False
+        child_structers = [
+            structer_from_instance(transformer, expr, features=features)
+            for name, transformer in instance.transformer_list
+        ]
 
-        for name, transformer in instance.transformer_list:
-            # Get child's Structer (raises if unregistered)
-            child_structer = structer_from_instance(
-                transformer, expr, features=features
-            )
-
-            if child_structer.is_kv_encoded:
-                any_kv_encoded = True
-            else:
-                # Add child's output columns to combined schema
-                combined_fields.update(child_structer.struct.fields)
+        any_kv_encoded = any(s.is_kv_encoded for s in child_structers)
 
         if any_kv_encoded:
             return Structer(
                 struct=None,
                 input_columns=features,
             )
+
+        combined_fields = {
+            k: v for s in child_structers for k, v in s.struct.fields.items()
+        }
 
         return Structer(
             struct=dt.Struct(combined_fields),
@@ -513,37 +514,35 @@ def lazy_register_sklearn():
         - Raises if any step has an unregistered transformer.
         """
         features = features or tuple(expr.columns)
-        current_features = features
-        last_structer = None
 
-        for name, transformer in instance.steps:
+        def get_structer(transformer, current_features):
             if transformer == "passthrough":
-                # Passthrough keeps current features unchanged
-                last_structer = Structer.from_names_typ(
-                    current_features,
-                    dt.float64,  # Default type; actual types preserved at runtime
-                )
-                continue
+                return Structer.from_names_typ(current_features, dt.float64)
+            return structer_from_instance(transformer, expr, features=current_features)
 
-            # Get child's Structer (raises if unregistered)
-            child_structer = structer_from_instance(
-                transformer, expr, features=current_features
+        def chain_step(acc, step):
+            current_features, _ = acc
+            name, transformer = step
+            child_structer = get_structer(transformer, current_features)
+            next_features = (
+                current_features
+                if child_structer.is_kv_encoded
+                else child_structer.output_columns
             )
-            last_structer = child_structer
+            return (next_features, child_structer)
 
-            if child_structer.is_kv_encoded:
-                # Once we hit KV-encoded, we stay KV-encoded
-                return Structer(
-                    struct=None,
-                    input_columns=features,
-                    passthrough_columns=child_structer.passthrough_columns,
-                )
-
-            # Update features for next step based on this step's output
-            current_features = child_structer.output_columns
-
-        if last_structer is None:
+        steps = [(name, t) for name, t in instance.steps]
+        if not steps:
             raise ValueError("Pipeline has no steps")
+
+        _, last_structer = toolz.reduce(chain_step, steps, (features, None))
+
+        if last_structer.is_kv_encoded:
+            return Structer(
+                struct=None,
+                input_columns=features,
+                passthrough_columns=last_structer.passthrough_columns,
+            )
 
         return Structer(
             struct=last_structer.struct,
