@@ -42,6 +42,7 @@ from xorq.expr.ml.fit_lib import (
 from xorq.expr.ml.structer import (
     Structer,
 )
+from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.expr.types.core import Expr
 
 
@@ -88,6 +89,11 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
         },
     )
     return typ
+
+
+def _freeze_params(params):
+    """Convert params_tuple values to hashable equivalents."""
+    return tuple((k, freeze(v)) for k, v in params)
 
 
 @frozen
@@ -150,7 +156,9 @@ class Step:
 
     typ = field(validator=instance_of(type))
     name = field(validator=optional(instance_of(str)), default=None)
-    params_tuple = field(validator=instance_of(tuple), default=(), converter=tuple)
+    params_tuple = field(
+        validator=instance_of(tuple), default=(), converter=_freeze_params
+    )
 
     def __attrs_post_init__(self):
         from sklearn.base import BaseEstimator

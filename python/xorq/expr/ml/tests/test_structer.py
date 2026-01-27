@@ -461,6 +461,574 @@ class TestKVEncoderIntegration:
             Structer.from_instance_expr(SelectKBest(k=1), t, features=("a", "b"))
 
 
+class TestColumnTransformerStructer:
+    """Tests for ColumnTransformer structer_from_instance registration."""
+
+    def test_known_schema_all_transformers(self):
+        """Test ColumnTransformer with all known-schema transformers."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num1", "num2"]),
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert structer.struct is not None
+        assert "num1" in structer.struct.fields
+        assert "num2" in structer.struct.fields
+        assert structer.passthrough_columns == ()
+
+    def test_kv_encoded_transformer(self):
+        """Test ColumnTransformer with KV-encoded transformer."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder
+
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        ct = ColumnTransformer(
+            [
+                ("encoder", OneHotEncoder(), ["cat"]),
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert structer.is_kv_encoded
+        assert structer.input_columns == ("cat",)
+        assert structer.passthrough_columns == ()
+
+    def test_mixed_known_and_kv_encoded(self):
+        """Test ColumnTransformer with mixed known-schema and KV-encoded."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num"]),
+                ("encoder", OneHotEncoder(), ["cat"]),
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        # Any KV-encoded child makes the whole output KV-encoded
+        assert structer.is_kv_encoded
+        assert set(structer.input_columns) == {"num", "cat"}
+
+    def test_passthrough_explicit(self):
+        """Test ColumnTransformer with explicit passthrough."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num"]),
+                ("pass", "passthrough", ["cat"]),
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert "num" in structer.struct.fields
+        assert "cat" in structer.struct.fields
+        assert structer.passthrough_columns == ("cat",)
+
+    def test_remainder_passthrough(self):
+        """Test ColumnTransformer with remainder='passthrough'."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"], "other": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [("scaler", StandardScaler(), ["num"])],
+            remainder="passthrough",
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert "num" in structer.struct.fields
+        assert "cat" in structer.struct.fields
+        assert "other" in structer.struct.fields
+        assert set(structer.passthrough_columns) == {"cat", "other"}
+
+    def test_remainder_passthrough_with_kv_encoded(self):
+        """Test ColumnTransformer with remainder='passthrough' and KV-encoded transformer."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder
+
+        t = xo.memtable({"cat": ["a", "b"], "num1": [1.0, 2.0], "num2": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [("encoder", OneHotEncoder(), ["cat"])],
+            remainder="passthrough",
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert structer.is_kv_encoded
+        assert structer.input_columns == ("cat",)
+        assert set(structer.passthrough_columns) == {"num1", "num2"}
+
+    def test_drop_transformer(self):
+        """Test ColumnTransformer with drop transformer."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["num"]),
+                ("drop", "drop", ["cat"]),
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert "num" in structer.struct.fields
+        assert "cat" not in structer.struct.fields
+
+    def test_nested_column_transformer(self):
+        """Test nested ColumnTransformer (ColumnTransformer inside ColumnTransformer)."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "c": [5.0, 6.0]})
+        inner_ct = ColumnTransformer(
+            [
+                ("scaler_inner", StandardScaler(), ["a", "b"]),
+            ]
+        )
+        outer_ct = ColumnTransformer(
+            [
+                ("inner", inner_ct, ["a", "b"]),
+                ("scaler_c", StandardScaler(), ["c"]),
+            ]
+        )
+        structer = Structer.from_instance_expr(outer_ct, t)
+
+        # Both inner and outer have known schemas
+        assert not structer.is_kv_encoded
+        assert "a" in structer.struct.fields
+        assert "b" in structer.struct.fields
+        assert "c" in structer.struct.fields
+
+    def test_nested_column_transformer_with_kv_encoded(self):
+        """Test nested ColumnTransformer where inner has KV-encoded."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        t = xo.memtable({"cat": ["a", "b"], "num": [1.0, 2.0]})
+        inner_ct = ColumnTransformer(
+            [
+                ("encoder", OneHotEncoder(), ["cat"]),
+            ]
+        )
+        outer_ct = ColumnTransformer(
+            [
+                ("inner", inner_ct, ["cat"]),
+                ("scaler", StandardScaler(), ["num"]),
+            ]
+        )
+        structer = Structer.from_instance_expr(outer_ct, t)
+
+        # Inner is KV-encoded, so outer becomes KV-encoded
+        assert structer.is_kv_encoded
+
+    def test_unregistered_child_raises(self):
+        """Test ColumnTransformer with unregistered child transformer raises."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import RobustScaler  # Not registered
+
+        t = xo.memtable({"num": [1.0, 2.0]})
+        ct = ColumnTransformer(
+            [
+                ("robust", RobustScaler(), ["num"]),
+            ]
+        )
+
+        with pytest.raises(ValueError, match="can't handle type"):
+            Structer.from_instance_expr(ct, t)
+
+    def test_single_column_string(self):
+        """Test ColumnTransformer with single column as string (not list)."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "other": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), "num"),  # string, not list
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert "num" in structer.struct.fields
+
+
+class TestFeatureUnionStructer:
+    """Tests for FeatureUnion structer_from_instance registration."""
+
+    def test_known_schema_all_transformers(self):
+        """Test FeatureUnion with all known-schema transformers."""
+        from sklearn.impute import SimpleImputer
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
+        fu = FeatureUnion(
+            [
+                ("scaler", StandardScaler()),
+                ("imputer", SimpleImputer()),
+            ]
+        )
+        structer = Structer.from_instance_expr(fu, t, features=("num1", "num2"))
+
+        assert not structer.is_kv_encoded
+        assert structer.struct is not None
+        assert "num1" in structer.struct.fields
+        assert "num2" in structer.struct.fields
+
+    def test_kv_encoded_transformer(self):
+        """Test FeatureUnion with KV-encoded transformer."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import OneHotEncoder
+
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        fu = FeatureUnion(
+            [
+                ("encoder", OneHotEncoder()),
+            ]
+        )
+        structer = Structer.from_instance_expr(fu, t, features=("cat",))
+
+        assert structer.is_kv_encoded
+        assert structer.input_columns == ("cat",)
+
+    def test_mixed_known_and_kv_encoded(self):
+        """Test FeatureUnion with mixed known-schema and KV-encoded."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
+        fu = FeatureUnion(
+            [
+                ("scaler", StandardScaler()),
+                ("encoder", OneHotEncoder()),
+            ]
+        )
+        structer = Structer.from_instance_expr(fu, t, features=("num", "cat"))
+
+        # Any KV-encoded child makes the whole output KV-encoded
+        assert structer.is_kv_encoded
+        assert set(structer.input_columns) == {"num", "cat"}
+
+    def test_unregistered_child_raises(self):
+        """Test FeatureUnion with unregistered child transformer raises."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import RobustScaler  # Not registered
+
+        t = xo.memtable({"num": [1.0, 2.0]})
+        fu = FeatureUnion(
+            [
+                ("robust", RobustScaler()),
+            ]
+        )
+
+        with pytest.raises(ValueError, match="can't handle type"):
+            Structer.from_instance_expr(fu, t, features=("num",))
+
+    def test_nested_feature_union(self):
+        """Test nested FeatureUnion."""
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        inner_fu = FeatureUnion(
+            [
+                ("scaler1", StandardScaler()),
+            ]
+        )
+        outer_fu = FeatureUnion(
+            [
+                ("inner", inner_fu),
+                ("scaler2", StandardScaler()),
+            ]
+        )
+        structer = Structer.from_instance_expr(outer_fu, t, features=("a", "b"))
+
+        assert not structer.is_kv_encoded
+        assert "a" in structer.struct.fields
+        assert "b" in structer.struct.fields
+
+
+class TestSklearnPipelineStructer:
+    """Tests for sklearn Pipeline structer_from_instance registration."""
+
+    def test_known_schema_pipeline(self):
+        """Test Pipeline with all known-schema transformers."""
+        from sklearn.impute import SimpleImputer
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
+        pipe = Pipeline(
+            [
+                ("imputer", SimpleImputer()),
+                ("scaler", StandardScaler()),
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t, features=("num1", "num2"))
+
+        assert not structer.is_kv_encoded
+        assert structer.struct is not None
+        assert "num1" in structer.struct.fields
+        assert "num2" in structer.struct.fields
+
+    def test_kv_encoded_pipeline(self):
+        """Test Pipeline with KV-encoded transformer."""
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import OneHotEncoder
+
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        pipe = Pipeline(
+            [
+                ("encoder", OneHotEncoder()),
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t, features=("cat",))
+
+        assert structer.is_kv_encoded
+        assert structer.input_columns == ("cat",)
+
+    def test_kv_encoded_early_exit(self):
+        """Test Pipeline returns KV-encoded once any step is KV-encoded."""
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import OneHotEncoder
+
+        t = xo.memtable({"cat": ["a", "b"]})
+        # Even if there are steps after OneHotEncoder, we return KV-encoded
+        pipe = Pipeline(
+            [
+                ("encoder", OneHotEncoder()),
+                # StandardScaler can't actually follow OneHotEncoder in practice,
+                # but for schema computation we exit early at KV-encoded
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t, features=("cat",))
+
+        assert structer.is_kv_encoded
+
+    def test_nested_pipeline(self):
+        """Test nested Pipeline (Pipeline inside Pipeline)."""
+        from sklearn.impute import SimpleImputer
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        inner_pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+            ]
+        )
+        outer_pipe = Pipeline(
+            [
+                ("inner", inner_pipe),
+                ("imputer", SimpleImputer()),
+            ]
+        )
+        structer = Structer.from_instance_expr(outer_pipe, t, features=("a", "b"))
+
+        assert not structer.is_kv_encoded
+        assert "a" in structer.struct.fields
+        assert "b" in structer.struct.fields
+
+    def test_pipeline_with_column_transformer(self):
+        """Test Pipeline containing ColumnTransformer."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
+        pipe = Pipeline(
+            [
+                (
+                    "ct",
+                    ColumnTransformer(
+                        [
+                            ("scaler", StandardScaler(), ["num"]),
+                        ],
+                        remainder="passthrough",
+                    ),
+                ),
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t)
+
+        assert not structer.is_kv_encoded
+        assert "num" in structer.struct.fields
+        assert "cat" in structer.struct.fields
+        assert "cat" in structer.passthrough_columns
+
+    def test_pipeline_with_kv_column_transformer(self):
+        """Test Pipeline containing ColumnTransformer with KV-encoded child."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import OneHotEncoder
+
+        t = xo.memtable({"cat": ["a", "b"], "num": [1.0, 2.0]})
+        pipe = Pipeline(
+            [
+                (
+                    "ct",
+                    ColumnTransformer(
+                        [
+                            ("encoder", OneHotEncoder(), ["cat"]),
+                        ],
+                        remainder="passthrough",
+                    ),
+                ),
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t)
+
+        assert structer.is_kv_encoded
+        # input_columns tracks the original features passed to the pipeline
+        assert set(structer.input_columns) == {"cat", "num"}
+        # passthrough_columns from the ColumnTransformer is preserved
+        assert set(structer.passthrough_columns) == {"num"}
+
+    def test_unregistered_step_raises(self):
+        """Test Pipeline with unregistered transformer raises."""
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import RobustScaler  # Not registered
+
+        t = xo.memtable({"num": [1.0, 2.0]})
+        pipe = Pipeline(
+            [
+                ("robust", RobustScaler()),
+            ]
+        )
+
+        with pytest.raises(ValueError, match="can't handle type"):
+            Structer.from_instance_expr(pipe, t, features=("num",))
+
+    def test_empty_pipeline_raises(self):
+        """Test empty Pipeline raises ValueError."""
+        from sklearn.pipeline import Pipeline
+
+        t = xo.memtable({"num": [1.0, 2.0]})
+        pipe = Pipeline([])
+
+        with pytest.raises(ValueError, match="Pipeline has no steps"):
+            Structer.from_instance_expr(pipe, t, features=("num",))
+
+    def test_passthrough_step(self):
+        """Test Pipeline with 'passthrough' step."""
+        from sklearn.pipeline import Pipeline
+
+        t = xo.memtable({"num1": [1.0, 2.0], "num2": [3.0, 4.0]})
+        pipe = Pipeline(
+            [
+                ("pass", "passthrough"),
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t, features=("num1", "num2"))
+
+        assert not structer.is_kv_encoded
+        assert "num1" in structer.struct.fields
+        assert "num2" in structer.struct.fields
+
+    def test_passthrough_columns_from_final_step(self):
+        """Test passthrough_columns reflects only the final step."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.impute import SimpleImputer
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
+        # ColumnTransformer has passthrough, but SimpleImputer doesn't
+        pipe = Pipeline(
+            [
+                (
+                    "ct",
+                    ColumnTransformer(
+                        [
+                            ("scaler", StandardScaler(), ["num"]),
+                        ],
+                        remainder="passthrough",
+                    ),
+                ),
+                ("imputer", SimpleImputer()),
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t)
+
+        assert not structer.is_kv_encoded
+        # passthrough_columns is from final step (SimpleImputer), which is empty
+        assert structer.passthrough_columns == ()
+
+    def test_nested_pipeline_with_passthrough(self):
+        """Test Pipeline(Pipeline()) where inner pipeline has passthrough columns."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
+        inner_pipe = Pipeline(
+            [
+                (
+                    "ct",
+                    ColumnTransformer(
+                        [
+                            ("scaler", StandardScaler(), ["num"]),
+                        ],
+                        remainder="passthrough",
+                    ),
+                ),
+            ]
+        )
+        outer_pipe = Pipeline(
+            [
+                ("inner", inner_pipe),
+            ]
+        )
+        structer = Structer.from_instance_expr(outer_pipe, t)
+
+        assert not structer.is_kv_encoded
+        assert "num" in structer.struct.fields
+        assert "cat" in structer.struct.fields
+        # passthrough_columns from inner pipeline's ColumnTransformer propagates
+        assert structer.passthrough_columns == ("cat",)
+
+    def test_chained_feature_transforms(self):
+        """Test Pipeline where features change between steps."""
+        from sklearn.feature_selection import SelectKBest
+        from sklearn.pipeline import Pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable(
+            {
+                "a": [1.0, 2.0, 3.0, 4.0],
+                "b": [4.0, 3.0, 2.0, 1.0],
+                "target": [0, 0, 1, 1],
+            }
+        )
+        pipe = Pipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("selector", SelectKBest(k=1)),
+            ]
+        )
+        structer = Structer.from_instance_expr(pipe, t, features=("a", "b"))
+
+        # SelectKBest reduces to k=1 features
+        assert not structer.is_kv_encoded
+        assert len(structer.struct.fields) == 1
+
+
 class TestDecodeEncodedColumns:
     """Tests for KVEncoder.decode_encoded_column and decode_encoded_columns."""
 
