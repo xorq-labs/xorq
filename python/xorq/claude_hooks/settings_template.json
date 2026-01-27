@@ -15,8 +15,14 @@
     "PreToolUse": [{
       "hooks": [{
         "type": "prompt",
-        "prompt": "You are evaluating tool use for xorq deferred execution compliance.\n\nAnalyze $ARGUMENTS for these EAGER operations:\n\n❌ BLOCK these patterns:\n- .to_pandas()\n- .execute()\n- plt., sns., plotly. (visualizations)\n- .plot(), .show(), .savefig()\n\nIf ANY detected in Bash/Write/Edit tools, respond:\n{\n  \"ok\": false,\n  \"reason\": \"🛑 BLOCKED: Eager pandas/visualization detected!\\n\\n✅ Use deferred patterns:\\n  • xorq agents prime - Get workflow context\\n  • xorq agents vignette list - Find patterns\\n  • Keep everything as expressions!\\n\\nEverything in xorq must be DEFERRED!\"\n}\n\nOtherwise respond: {\"ok\": true}",
+        "prompt": "You are evaluating tool use for xorq deferred execution compliance.\n\nAnalyze $ARGUMENTS for these PROBLEMATIC patterns:\n\n❌ BLOCK:\n1. **Eager pandas with processing**: .to_pandas() followed by pandas operations (df[...], df.groupby(), etc.)\n2. **Eager execute with processing**: .execute() followed by result manipulation\n3. **Inline visualization**: plt., sns., plotly., .plot(), .show(), .savefig() in expression code\n\n✅ ALLOW:\n- Expression execution: `xorq run <alias>` is fine\n- Piping results: `.execute()` or `xorq run` when output is piped/saved without processing\n- Storing results: Assigning to variable if not further processed\n\nIf problematic patterns detected in Write/Edit/NotebookEdit tools, respond:\n{\n  \"ok\": false,\n  \"reason\": \"🛑 BLOCKED: Eager pandas processing or inline visualization detected!\\n\\n✅ Use deferred patterns:\\n  • Build expressions, run them separately\\n  • Use 'xorq run' to execute, pipe output\\n  • Avoid .to_pandas() + pandas ops in same code\\n  • No plt/sns/plotly in expression definitions\\n\\nGet help: xorq agents prime\"\n}\n\nOtherwise respond: {\"ok\": true}",
         "timeout": 30
+      }]
+    }],
+    "PostToolUseFailure": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_tool_use_failure.py"
       }]
     }],
     "PreCompact": [{

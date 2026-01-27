@@ -7,23 +7,53 @@ Simple hook system for Claude Code lifecycle events.
 - **session_start.py** - Triggered when a Claude Code session begins
 - **user_prompt_submit.py** - Triggered when user submits a prompt
 - **PreToolUse (prompt-based)** - **Deferred execution guard** - Blocks eager pandas/visualization operations
+- **post_tool_use_failure.py** - **Troubleshooting assistant** - Detects xorq errors and provides guidance
 - **pre_compact.py** - Triggered before context compaction
 - **stop.py** - Triggered when Claude Code execution is stopped
 - **session_end.py** - Triggered when a Claude Code session ends
 
 ### PreToolUse Hook (Deferred Execution Guard)
 
-The PreToolUse hook uses a **prompt-based evaluation** (not a command script) to detect and block eager operations that violate xorq's deferred execution principle.
+The PreToolUse hook uses a **prompt-based evaluation** (not a command script) to detect and block problematic eager patterns that violate xorq's deferred execution principle.
 
 **Blocks:**
-- `.to_pandas()` - Eager pandas execution
-- `.execute()` - Eager ibis execution
-- `plt.`, `sns.`, `plotly.` - Visualization libraries
-- `.plot()`, `.show()`, `.savefig()` - Plotting methods
+1. **Eager pandas with processing**: `.to_pandas()` followed by pandas operations (df[...], df.groupby(), etc.)
+2. **Eager execute with processing**: `.execute()` followed by result manipulation
+3. **Inline visualization**: `plt.`, `sns.`, `plotly.`, `.plot()`, `.show()`, `.savefig()` in expression code
 
-When violations are detected, Claude is blocked and receives guidance to use:
-- `xorq agents prime` - Get workflow context
-- `xorq agents vignette list` - Find deferred patterns
+**Allows:**
+- Expression execution via `xorq run <alias>`
+- Piping results: `.execute()` or `xorq run` when output is piped/saved without further processing
+- Storing results if not further processed
+
+When violations are detected, Claude is blocked and receives guidance to:
+- Build expressions and run them separately
+- Use `xorq run` to execute and pipe output
+- Avoid eager pandas operations in expression definitions
+- Get help with `xorq agents prime`
+
+### PostToolUseFailure Hook (Troubleshooting Assistant)
+
+The PostToolUseFailure hook analyzes tool failures to detect xorq-related errors and provides contextual troubleshooting guidance.
+
+**Detects:**
+- Type coercion errors (suggests `.into_backend()`)
+- Expression not found in catalog
+- Build failures
+- File/directory not found errors
+- Import errors
+- Catalog operation failures
+- Deferred execution issues
+
+**Provides guidance for:**
+- Fixing type coercion errors with `.into_backend()`
+- Listing and cataloging expressions
+- Building expressions correctly
+- Using vignette templates
+- Debugging common xorq workflows
+- Following deferred execution patterns
+
+When xorq errors are detected, Claude receives specific troubleshooting steps and relevant commands to resolve the issue.
 
 ## Usage
 
@@ -59,6 +89,12 @@ Configure in `.claude/settings.json`:
       "hooks": [{
         "type": "command",
         "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_use.py"
+      }]
+    }],
+    "PostToolUseFailure": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_tool_use_failure.py"
       }]
     }],
     "PreCompact": [{
