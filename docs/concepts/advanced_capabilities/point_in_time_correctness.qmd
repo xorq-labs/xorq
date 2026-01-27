@@ -1,0 +1,60 @@
+---
+title: 'Point-in-time correctness'
+description: "Understand how to prevent data leakage with temporal consistency"
+---
+
+If you've trained a fraud model on January data while computing features from the entire year, then you're using future months that don't exist yet. Point-in-time correctness ensures features only use data available before prediction.
+
+
+## What is point-in-time correctness?
+
+Point-in-time correctness means that features computed for a specific time use only data available at that time. When training a model to predict outcomes on January 1st, features must use only data from before January 1st. Using data from after January 1st creates data leakage.
+
+The model learned patterns from data that won't be available at inference time.
+
+```python
+# Incorrect: uses all data (includes future)
+features = (
+    transactions
+    .group_by("customer_id")
+    .agg(total_spend=xo._.amount.sum())
+)
+
+# Correct: filters to point-in-time
+features = (
+    transactions
+    .filter(xo._.timestamp <= prediction_time)
+    .group_by("customer_id")
+    .agg(total_spend=xo._.amount.sum())
+)
+```
+
+## Why point-in-time correctness matters
+
+Without temporal filters, feature computations include records with timestamps after the prediction timestamp. The model achieves high accuracy during training but fails in production because those later records aren't available at inference time.
+
+This manifests in three ways. The model achieves 95% accuracy in training by using future data but drops to 60% in production because future data isn't available. The model predicts fraud using transaction counts from the next week, but at inference time next week's data doesn't exist yet. A join brings in data from the future without obvious signs where the leakage is invisible in code but catastrophic in production.
+
+Point-in-time correctness prevents these by enforcing temporal constraints. Features use only data from before the prediction time.
+
+## When point-in-time correctness matters
+
+Point-in-time correctness is critical when training models on temporal data like fraud detection, forecasting, and recommendations. Features that depend on aggregations over time require temporal filtering. Data that updates frequently such as customer profiles and inventory needs point-in-time constraints. Predictions that are time-sensitive for real-time scoring must use only available data.
+
+Point-in-time correctness is less critical when data is static for historical analysis or one-time reports. Features that don't depend on time in cases like image classification or text analysis don't need temporal filtering. Exploratory analysis that's not building production models can skip the complexity.
+
+Building a credit risk model that predicts default probability requires point-in-time correctness. Using future payment data to predict past defaults creates leakage that makes the model useless in production. Analyzing historical sales trends for a report doesn't require strict temporal correctness because you're not making predictions.
+
+## Understanding trade-offs
+
+Point-in-time correctness prevents data leakage where models work in production as expected. Training metrics accurately reflect production performance without inflated accuracy from future data. Historical predictions can be reconstructed exactly showing what data was available at decision time. Decisions are auditable where you can prove what data was used.
+
+Temporal filters add code complexity requiring careful timestamp management throughout the pipeline. Filtering and bounded windows are slower than unrestricted operations on full datasets. Development time increases as engineers must think carefully about temporal correctness. Testing requires temporal test cases to verify correctness under different time scenarios.
+
+Building production ML models on temporal data requires point-in-time correctness as mandatory practice. The complexity is justified by preventing catastrophic leakage that breaks models in production. Doing exploratory analysis on static data doesn't justify the complexity overhead.
+
+## Learning more
+
+[Data lineage tracking](data_lineage_tracking.qmd) explains how lineage helps identify temporal dependencies. [Feature serving patterns](feature_serving_patterns.qmd) covers how feature serving must maintain temporal correctness.
+
+[Build a feature store guide](../../guides/advanced_workflows/build_feature_store.qmd) details implementing temporal correctness in feature stores. 
