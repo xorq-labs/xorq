@@ -143,37 +143,17 @@ class OnboardingStep:
 ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
     OnboardingStep(
         "init",
-        "Initialize project",
+        "xorq agents prime",
         [
-            "Run `xorq init` to setup a new project, then `xorq agents init` to setup agent guides",
-        ],
-        [
-            "xorq init",
-            "xorq agents init",
+            "Run `xorq agents prime` and start a new expression build",
         ],
         [],
-    ),
-    OnboardingStep(
-        "examples",
-        "Learn from examples",
-        [
-            "Check the examples/ directory for patterns and templates",
-            "Examples show how to implement pipelines, ML workflows, and feature engineering",
-            "Examples include: pipeline_example, sklearn classifiers, diamonds price prediction",
-        ],
-        [
-            "ls examples/",
-            "cat examples/pipeline_example.py",
-        ],
-        [],
+        []
     ),
     OnboardingStep(
         "build",
         "Build deferred expressions",
         [
-            "Check schema first: `print(table.schema())`",
-            "ALL work must be deferred xorq/ibis expressions",
-            "Use xorq skills for deferred pandas/sklearn patterns",
             "Build expressions from Python files",
             "Reference templates for common patterns",
         ],
@@ -186,7 +166,7 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
         "catalog",
         "Catalog builds",
         [
-            "Register builds with aliases for reuse",
+            "Add builds with aliases for reuse",
         ],
         [
             "xorq catalog add builds/<hash> --alias <name>",
@@ -467,11 +447,6 @@ def render_lean_onboarding() -> str:
     return dedent("""\
         # xorq Onboarding
 
-        Add this minimal snippet to AGENTS.md (or create it):
-
-        --- BEGIN AGENTS.MD CONTENT ---
-        ## xorq Expression Framework
-
         Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
 
         ## Mandatory Workflow
@@ -480,24 +455,11 @@ def render_lean_onboarding() -> str:
         3. Follow the scaffolded pattern exactly
         4. `xorq build <file>.py -e expr` - build expression
         5. `xorq catalog add .xorq/builds/<hash> --alias <name>` - register
-        6 `xorq catalog ls` - Find available expressions
-        6 `xorq agents prime` - Get current workflow context and state
-
-        **Key principle:** Everything is a deferred expression - no eager pandas/NumPy!
-        For ML patterns, use `xorq skill` for deferred sklearn guidance.
+        6. `xorq catalog ls` - Find available expressions
+        7. `git add .xorq/builds/ .xorq/catalog.yaml` - add the new builds to git
+        8. `git commit` with a commit message
 
         For full workflow details: `xorq agents prime`
-        --- END AGENTS.MD CONTENT ---
-
-        For GitHub Copilot users:
-        Add the same content to .github/copilot-instructions.md
-
-        How it works:
-           • xorq agents prime provides dynamic workflow context (~100 lines)
-           • xorq agents hooks install auto-injects prime at session start
-           • AGENTS.md only needs this minimal pointer, not full instructions
-
-        This keeps AGENTS.md lean while `xorq agents prime` provides up-to-date workflow details.
         """).strip()
 
 
@@ -538,33 +500,15 @@ def render_onboarding_summary(step: str | None = None) -> str:
 
     if not catalog_entries:
         sections.extend([
-            "1. **Build your first expression:**",
-            "   ```python",
-            "   # expr.py",
-            "   import xorq.api as xo",
-            "   expr = xo.catalog.get('source').filter(xo._.value > 0)",
-            "   ```",
-            "   `xorq build expr.py -e expr`",
-            "",
-            "2. **Catalog it:** `xorq catalog add builds/<hash> --alias my-expr`",
-            "",
-            "3. **Explore examples:** `ls examples/`",
+            ""
         ])
     elif len(catalog_entries) < 3:
         sections.extend([
-            "- **Compose expressions:** Use `xo.catalog.get('alias')`",
-            "- **Study examples:** Check `examples/` directory for patterns",
-            "- **Explore data:**",
-            "  ```bash",
-            "  xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | \\",
-            "    duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10\"",
-            "  ```",
+            "",
         ])
     else:
         sections.extend([
-            "- **Compose pipelines:** Reference with `xo.catalog.get()`",
-            "- **Run expressions:** `xorq run <alias> -f arrow`",
-            "- **Add ML models:** Use deferred sklearn patterns (invoke xorq skill)",
+            "",
         ])
 
     sections.append("")
