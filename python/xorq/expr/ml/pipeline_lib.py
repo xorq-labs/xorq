@@ -923,62 +923,16 @@ class ComplexFittedStep:
         )
 
     @property
+    def is_predict(self):
+        return False  # Container transformers don't have predict
+
+    @property
     @functools.cache
     def _deferred_fit_other(self):
         """Create DeferredFitOther with hybrid support."""
-        from xorq.expr.ml.fit_lib import (
-            DeferredFitOther,
-            fit_sklearn_args,
-            kv_encode_output,
-            transform_sklearn_hybrid,
-            transform_sklearn_struct,
-        )
+        from xorq.expr.ml.fit_lib import DeferredFitOther
 
-        kwargs = {
-            "expr": self.expr,
-            "target": self.target,
-            "features": self.features,
-            "cache": self.cache,
-        }
-
-        structer = self.structer
-
-        if structer.is_hybrid:
-            # Hybrid: use transform_sklearn_hybrid with kv_child_names
-            return DeferredFitOther(
-                fit=fit_sklearn_args(
-                    cls=self.step.typ,
-                    params=self.step.params_tuple,
-                ),
-                other=transform_sklearn_hybrid(self.kv_child_names),
-                return_type=structer.return_type,
-                name_infix="transformed_hybrid",
-                **kwargs,
-            )
-        elif structer.is_kv_encoded:
-            # All KV: use standard KV encoding
-            return DeferredFitOther(
-                fit=fit_sklearn_args(
-                    cls=self.step.typ,
-                    params=self.step.params_tuple,
-                ),
-                other=kv_encode_output,
-                return_type=structer.return_type,
-                name_infix="transformed_encoded",
-                **kwargs,
-            )
-        else:
-            # All known schema: use struct conversion
-            return DeferredFitOther(
-                fit=fit_sklearn_args(
-                    cls=self.step.typ,
-                    params=self.step.params_tuple,
-                ),
-                other=transform_sklearn_struct(structer.get_convert_array()),
-                return_type=structer.return_type,
-                name_infix="transformed",
-                **kwargs,
-            )
+        return DeferredFitOther.from_fitted_step(self)
 
     @property
     def deferred_model(self):
