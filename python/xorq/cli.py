@@ -512,7 +512,7 @@ def agents_init_command(args):
 
     # Parse comma-separated agent list
     agents = [a.strip().lower() for a in args.agents.split(",")]
-    valid_agents = {"claude", "codex"}
+    valid_agents = {"claude"}
     invalid = set(agents) - valid_agents
     if invalid:
         print(f"Warning: Unknown agents {invalid}. Valid options: {valid_agents}")
@@ -663,120 +663,70 @@ def agent_skill_command(args):
 
 
 def install_skill_command(args):
-    """Install xorq skill for Claude Code or Codex."""
+    """Install expression-builder skill for Claude Code."""
     from pathlib import Path
-    from xorq.agent.onboarding import register_claude_skill, register_codex_skill
+    from xorq.agent.onboarding import register_claude_skill
 
-    agent = args.agent
     force = args.force
 
-    if agent == "claude":
-        # Check if already installed (project-local)
-        project_root = Path.cwd()
-        skill_dest = project_root / ".claude" / "skills" / "xorq"
+    # Check if already installed (project-local)
+    project_root = Path.cwd()
+    skill_dest = project_root / ".claude" / "skills" / "expression-builder"
 
-        if skill_dest.exists() and not force:
-            print(f"ℹ️  xorq skill already installed at {skill_dest}")
-            print("   Use --force to reinstall")
-            return 0
+    if skill_dest.exists() and not force:
+        print(f"ℹ️  expression-builder skill already installed at {skill_dest}")
+        print("   Use --force to reinstall")
+        return 0
 
-        # Install the skill
-        skill_path = register_claude_skill()
-        if skill_path:
-            print(f"✅ Installed xorq skill for Claude Code at {skill_path}")
-            print(f"✅ Setup skill auto-activation in {skill_path.parent}/skill-rules.json")
-            print("\n📝 Next steps:")
-            print("1. The skill is now available in Claude Code sessions in this project")
-            print("2. Auto-activation is configured for xorq-related operations")
-            print("3. You can manually invoke it with /skill xorq in Claude Code")
-            print("\n💡 Tip: Install deferred execution guard with: xorq agents hooks install")
-            return 0
-        else:
-            print("❌ Failed to install skill - could not find skill source")
-            return 1
-
-    elif agent == "codex":
-        # For Codex, we need the project root
-        project_root = Path.cwd()
-
-        # Check if .xorq directory exists
-        if not (project_root / ".xorq").exists():
-            print("❌ Error: Not in a xorq project directory")
-            print("   Run 'xorq init' first to initialize a xorq project")
-            return 1
-
-        skill_path = register_codex_skill(project_root)
-        if skill_path:
-            print(f"✅ Installed xorq skill for Codex at {skill_path}")
-            print("✅ Added bootstrap to ~/.codex/AGENTS.md")
-            print("\n📝 Next steps:")
-            print("1. The skill is now available in Codex sessions")
-            print("2. Restart Codex to load the updated configuration")
-            return 0
-        else:
-            print("❌ Failed to install skill - could not find skill source")
-            return 1
-
-    return 0
+    # Install the skill
+    skill_path = register_claude_skill()
+    if skill_path:
+        print(f"✅ Installed expression-builder skill for Claude Code at {skill_path}")
+        print(f"✅ Setup skill auto-activation in {skill_path.parent}/skill-rules.json")
+        print("\n📝 Next steps:")
+        print("1. The skill is now available in Claude Code sessions in this project")
+        print("2. Auto-activation is configured for xorq-related operations")
+        print("3. You can manually invoke it with /skill expression-builder in Claude Code")
+        print("\n💡 Tip: Install deferred execution guard with: xorq agents hooks install")
+        return 0
+    else:
+        print("❌ Failed to install skill - could not find skill source")
+        return 1
 
 
 def uninstall_skill_command(args):
-    """Uninstall xorq skill from Claude Code or Codex."""
+    """Uninstall expression-builder skill from Claude Code."""
     import shutil
     from pathlib import Path
     import json
 
-    agent = args.agent
+    # Project-local installation
+    project_root = Path.cwd()
+    skill_dest = project_root / ".claude" / "skills" / "expression-builder"
+    skill_rules_file = project_root / ".claude" / "skills" / "skill-rules.json"
 
-    if agent == "claude":
-        # Project-local installation
-        project_root = Path.cwd()
-        skill_dest = project_root / ".claude" / "skills" / "xorq"
-        skill_rules_file = project_root / ".claude" / "skills" / "skill-rules.json"
-
-        if not skill_dest.exists():
-            print("ℹ️  xorq skill is not installed in this project")
-            return 0
-
-        # Remove skill directory
-        shutil.rmtree(skill_dest)
-        print(f"✅ Uninstalled xorq skill from {skill_dest}")
-
-        # Remove from skill-rules.json if it exists
-        if skill_rules_file.exists():
-            try:
-                with skill_rules_file.open() as f:
-                    rules = json.load(f)
-
-                # Remove xorq entry if it exists
-                if "xorq" in rules:
-                    del rules["xorq"]
-                    with skill_rules_file.open("w") as f:
-                        json.dump(rules, f, indent=2)
-                    print("✅ Removed xorq from skill-rules.json")
-            except Exception as e:
-                print(f"⚠️  Could not update skill-rules.json: {e}")
-
+    if not skill_dest.exists():
+        print("ℹ️  expression-builder skill is not installed in this project")
         return 0
 
-    elif agent == "codex":
-        project_root = Path.cwd()
-        skill_dest = project_root / ".xorq" / "codex"
+    # Remove skill directory
+    shutil.rmtree(skill_dest)
+    print(f"✅ Uninstalled expression-builder skill from {skill_dest}")
 
-        if not skill_dest.exists():
-            print("ℹ️  xorq skill is not installed for Codex in this project")
-            return 0
+    # Remove from skill-rules.json if it exists
+    if skill_rules_file.exists():
+        try:
+            with skill_rules_file.open() as f:
+                rules = json.load(f)
 
-        # Remove skill directory
-        shutil.rmtree(skill_dest)
-        print(f"✅ Uninstalled xorq skill from {skill_dest}")
-
-        # Note: We don't remove the bootstrap from ~/.codex/AGENTS.md
-        # as it might be used by other projects
-        print("ℹ️  Note: Bootstrap in ~/.codex/AGENTS.md was not removed")
-        print("   (it may be used by other xorq projects)")
-
-        return 0
+            # Remove expression-builder entry if it exists
+            if "skills" in rules and "expression-builder" in rules["skills"]:
+                del rules["skills"]["expression-builder"]
+                with skill_rules_file.open("w") as f:
+                    json.dump(rules, f, indent=2)
+                print("✅ Removed expression-builder from skill-rules.json")
+        except Exception as e:
+            print(f"⚠️  Could not update skill-rules.json: {e}")
 
     return 0
 
@@ -791,10 +741,10 @@ def list_skills_command(args):
 
     # Check Claude Code skill (project-local)
     project_root = Path.cwd()
-    claude_skill_path = project_root / ".claude" / "skills" / "xorq"
+    claude_skill_path = project_root / ".claude" / "skills" / "expression-builder"
 
     if claude_skill_path.exists():
-        print(f"✅ Claude Code (current project): {claude_skill_path}")
+        print(f"✅ expression-builder (current project): {claude_skill_path}")
 
         # Check for SKILL.md to get version info
         skill_md = claude_skill_path / "SKILL.md"
@@ -802,7 +752,7 @@ def list_skills_command(args):
             content = skill_md.read_text()
             # Try to extract version from the file
             for line in content.split('\n'):
-                if 'Version:' in line or 'version:' in line:
+                if 'version:' in line.lower():
                     print(f"   {line.strip()}")
                     break
 
@@ -812,42 +762,13 @@ def list_skills_command(args):
             try:
                 with skill_rules_file.open() as f:
                     rules = json.load(f)
-                if "skills" in rules and "xorq" in rules["skills"]:
+                if "skills" in rules and "expression-builder" in rules["skills"]:
                     print("   Auto-activation: Configured")
             except:
                 pass
     else:
-        print(f"❌ Claude Code (current project): Not installed")
+        print(f"❌ expression-builder (current project): Not installed")
         print(f"   Run 'xorq agents skill install' to install")
-
-    print()
-
-    # Check Codex skill (project-specific)
-    project_root = Path.cwd()
-    codex_skill_path = project_root / ".xorq" / "codex"
-
-    if codex_skill_path.exists():
-        print(f"✅ Codex (current project): {codex_skill_path}")
-
-        # Check for SKILL.md to get version info
-        skill_md = codex_skill_path / "SKILL.md"
-        if skill_md.exists():
-            content = skill_md.read_text()
-            for line in content.split('\n'):
-                if 'Version:' in line:
-                    print(f"   {line.strip()}")
-                    break
-    else:
-        print(f"❌ Codex (current project): Not installed")
-        print(f"   Run 'xorq agents skill install --agent codex' to install")
-
-    # Check global Codex bootstrap
-    codex_agents_file = Path.home() / ".codex" / "AGENTS.md"
-    if codex_agents_file.exists():
-        content = codex_agents_file.read_text()
-        if "xorq" in content.lower():
-            print()
-            print(f"ℹ️  Codex bootstrap found in {codex_agents_file}")
 
     return 0
 
@@ -1286,7 +1207,7 @@ def parse_args(override=None):
 
     agents_init_parser = agents_subparsers.add_parser(
         "init",
-        help="Bootstrap agent guides (claude, codex, or both)",
+        help="Bootstrap agent guides (claude)",
     )
     agents_init_parser.add_argument(
         "-p",
@@ -1298,8 +1219,8 @@ def parse_args(override=None):
     agents_init_parser.add_argument(
         "--agents",
         type=str,
-        default="claude,codex",
-        help="Comma-separated list of agents to bootstrap (claude, codex, or both)",
+        default="claude",
+        help="Comma-separated list of agents to bootstrap (currently only claude is supported)",
     )
 
     onboard_parser = agents_subparsers.add_parser(
@@ -1356,9 +1277,9 @@ def parse_args(override=None):
     )
     skill_install_parser.add_argument(
         "--agent",
-        choices=["claude", "codex"],
+        choices=["claude"],
         default="claude",
-        help="Agent to install skill for (default: claude)",
+        help="Agent to install skill for (only claude is supported)",
     )
     skill_install_parser.add_argument(
         "--force",
@@ -1372,9 +1293,9 @@ def parse_args(override=None):
     )
     skill_uninstall_parser.add_argument(
         "--agent",
-        choices=["claude", "codex"],
+        choices=["claude"],
         default="claude",
-        help="Agent to uninstall skill from (default: claude)",
+        help="Agent to uninstall skill from (only claude is supported)",
     )
 
     skill_list_parser = skill_subparsers.add_parser(

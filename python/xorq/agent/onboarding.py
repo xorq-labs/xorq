@@ -91,42 +91,32 @@ def get_catalog_entries(limit: int = 10) -> list[dict]:
 
 
 def register_claude_skill() -> Path | None:
-    """Register the xorq skill with Claude Code.
+    """Register the expression-builder skill with Claude Code.
 
-    Installs to .claude/skills/xorq in the current project directory.
+    Installs to .claude/skills/expression-builder in the current project directory.
 
     Returns the path where the skill was registered, or None if source not found.
     """
-
-    # Generate fresh skill from shared content
-    try:
-        from xorq.agent.resources.common.generate_skills import generate_all_skills
-
-        generate_all_skills()
-    except Exception as e:
-        print(f"⚠️  Could not regenerate skills: {e}")
-
-    # Find the skill source directory in package resources
+    # Find the skill source directory (no generation needed, direct copy)
     import xorq
 
     xorq_package_dir = Path(xorq.__file__).parent
-    skill_source = xorq_package_dir / "agent" / "resources" / "claude"
 
-    # Check if skill source exists
+    # Try development setup first (skills/expression-builder at repo root)
+    repo_root = xorq_package_dir.parent.parent
+    skill_source = repo_root / "skills" / "expression-builder"
+
     if not skill_source.exists():
-        # Fallback: try development setup (skills/xorq at repo root)
-        repo_root = xorq_package_dir.parent.parent
-        skill_source_dev = repo_root / "skills" / "xorq"
-        if skill_source_dev.exists():
-            skill_source = skill_source_dev
-        else:
-            # Can't find skill source
+        # Fallback: try package resources (if skills are bundled)
+        skill_source = xorq_package_dir / "agent" / "resources" / "expression-builder"
+        if not skill_source.exists():
+            print(f"⚠️  Could not find expression-builder skill source")
             return None
 
     # Install to project-local .claude/skills directory
     project_root = Path.cwd()
     claude_skills_dir = project_root / ".claude" / "skills"
-    skill_dest = claude_skills_dir / "xorq"
+    skill_dest = claude_skills_dir / "expression-builder"
 
     # Create Claude skills directory if needed
     claude_skills_dir.mkdir(parents=True, exist_ok=True)
@@ -153,74 +143,6 @@ def register_claude_skill() -> Path | None:
     return skill_dest
 
 
-def register_codex_skill(project_root: Path) -> Path | None:
-    """Register the xorq skill with OpenAI Codex.
-
-    This copies the Codex skill from package resources to the project's .xorq/codex directory
-    and appends bootstrap content to ~/.codex/AGENTS.md
-
-    Returns the path where the skill was registered, or None if source not found.
-    """
-    import xorq
-
-    # Generate fresh skill from shared content
-    try:
-        from xorq.agent.resources.common.generate_skills import generate_all_skills
-
-        generate_all_skills()
-    except Exception as e:
-        print(f"⚠️  Could not regenerate skills: {e}")
-
-    project_root = Path(project_root)
-    skill_dest = project_root / ".xorq" / "codex"
-
-    # Find the skill source in package resources
-    xorq_package_dir = Path(xorq.__file__).parent
-    skill_source = xorq_package_dir / "agent" / "resources" / "codex"
-
-    # Check if skill source exists in package
-    if not skill_source.exists():
-        return None
-
-    # Copy skill to project .xorq directory if it doesn't exist or update it
-    skill_dest.parent.mkdir(parents=True, exist_ok=True)
-
-    if skill_dest.exists():
-        # Update existing skill files (handle read-only files)
-        def handle_remove_readonly(func, path, exc):
-            """Error handler for shutil.rmtree to handle read-only files."""
-            if isinstance(exc[1], PermissionError):
-                # Make the file writable and try again
-                os.chmod(path, stat.S_IWRITE)
-                func(path)
-            else:
-                raise
-
-        shutil.rmtree(skill_dest, onerror=handle_remove_readonly)
-
-    shutil.copytree(skill_source, skill_dest)
-
-    # Add bootstrap to ~/.codex/AGENTS.md
-    codex_agents_file = Path.home() / ".codex" / "AGENTS.md"
-    codex_agents_file.parent.mkdir(parents=True, exist_ok=True)
-
-    bootstrap_file = skill_dest / "bootstrap.md"
-    if bootstrap_file.exists():
-        bootstrap_content = bootstrap_file.read_text()
-
-        # Check if bootstrap already exists
-        if codex_agents_file.exists():
-            existing_content = codex_agents_file.read_text()
-            if "Xorq Superpowers for Codex" not in existing_content:
-                # Append bootstrap
-                with codex_agents_file.open("a") as f:
-                    f.write("\n\n")
-                    f.write(bootstrap_content)
-        else:
-            # Create file with bootstrap
-            codex_agents_file.write_text(bootstrap_content)
-
-    return skill_dest
 
 
 def _setup_skill_rules(claude_skills_dir: Path, skill_source: Path) -> None:
@@ -234,25 +156,25 @@ def _setup_skill_rules(claude_skills_dir: Path, skill_source: Path) -> None:
     if not skill_rules_source.exists():
         return
 
-    # Load the xorq skill rules template
-    xorq_rules = json.loads(skill_rules_source.read_text())
+    # Load the expression-builder skill rules template
+    skill_rules = json.loads(skill_rules_source.read_text())
 
     # Check if skill-rules.json already exists
     if skill_rules_path.exists():
         # Merge with existing rules
         existing_rules = json.loads(skill_rules_path.read_text())
 
-        # Update only the xorq skill entry, preserve others
+        # Update only the expression-builder skill entry, preserve others
         if "skills" not in existing_rules:
             existing_rules["skills"] = {}
 
-        # Update xorq skill entry
-        if "skills" in xorq_rules and "xorq" in xorq_rules["skills"]:
-            existing_rules["skills"]["xorq"] = xorq_rules["skills"]["xorq"]
+        # Update expression-builder skill entry
+        if "skills" in skill_rules and "expression-builder" in skill_rules["skills"]:
+            existing_rules["skills"]["expression-builder"] = skill_rules["skills"]["expression-builder"]
 
         # Ensure version and description exist
         if "version" not in existing_rules:
-            existing_rules["version"] = xorq_rules.get("version", "1.0")
+            existing_rules["version"] = skill_rules.get("version", "1.0")
         if "description" not in existing_rules:
             existing_rules["description"] = "Skill activation triggers for Claude Code"
 
@@ -273,7 +195,7 @@ def bootstrap_agent_docs(
     project_root : str | Path
         Project root directory
     agents : list[str] | None
-        List of agents to setup. Valid values: ["claude", "codex"].
+        List of agents to setup. Valid values: ["claude"].
         If None, defaults to ["claude"] for backwards compatibility.
     max_lines : int
         Maximum lines for agent doc content
@@ -298,16 +220,6 @@ def bootstrap_agent_docs(
         # Use 'xorq agents skill install' to install the skill instead
         print("ℹ️  To install the xorq skill for Claude Code, run: xorq agents skill install")
         print("ℹ️  To see lean onboarding instructions, run: xorq agents onboard")
-
-    # Setup Codex
-    if "codex" in agents:
-        skill_path = register_codex_skill(root)
-        if skill_path:
-            print(f"✅ Registered xorq skill for Codex at {skill_path}")
-            print("✅ Added bootstrap to ~/.codex/AGENTS.md")
-            created.append(skill_path)
-        else:
-            print("⚠️  Could not find Codex skill source")
 
     return created
 
