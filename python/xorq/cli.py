@@ -634,15 +634,16 @@ def install_claude_hooks_command(args):
     print("\n📝 Next steps:")
     print("1. Restart Claude Code to activate the hooks")
     print("2. The following hooks are now available:")
-    print("   - SessionStart: Triggered when a Claude Code session begins")
+    print("   - SessionStart: Runs 'xorq agents onboard' at session start")
     print("   - UserPromptSubmit: Triggered when user submits a prompt")
     print("   - PreToolUse (prompt-based): BLOCKS eager pandas/visualization operations")
     print("   - PreCompact: Triggered before context compaction")
-    print("   - Stop: Triggered when Claude Code execution is stopped")
+    print("   - Stop: Checks for uncataloged builds and reminds you to catalog them")
     print("   - SessionEnd: Triggered when a Claude Code session ends")
-    print("\n⚡ The PreToolUse hook will block operations like:")
-    print("   .to_pandas(), .execute(), plt., sns., .plot(), .show()")
-    print("   and guide you to use deferred patterns via vignettes")
+    print("\n⚡ Key features:")
+    print("   • SessionStart provides lean onboarding context automatically")
+    print("   • PreToolUse blocks: .to_pandas(), .execute(), plt., sns., .plot(), .show()")
+    print("   • Stop warns about uncataloged builds in .xorq/builds/")
 
     return 0
 
