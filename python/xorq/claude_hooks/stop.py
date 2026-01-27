@@ -55,7 +55,7 @@ def main():
         uncataloged = get_uncataloged_builds()
 
         if uncataloged:
-            # Warn about uncataloged builds
+            # Block stopping until builds are cataloged
             message = "⚠️  UNCATALOGED BUILDS DETECTED\n\n"
             message += f"Found {len(uncataloged)} uncataloged build(s) in .xorq/builds/:\n"
             for build_hash in uncataloged:
@@ -71,7 +71,8 @@ def main():
 
             payload = {
                 "suppressOutput": False,
-                "systemMessage": message
+                "decision": "block",
+                "reason": message
             }
             print(json.dumps(payload))
         else:

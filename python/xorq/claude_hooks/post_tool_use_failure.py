@@ -92,6 +92,10 @@ Type inference issues between ibis expressions and xorq's ML pipeline.
 **Need a template?**
 - `xorq agents vignette list` - See available patterns
 - `xorq agents vignette scaffold <name> --dest reference.py`
+
+**Need comprehensive guidance?**
+- Use the xorq skill: Type "use xorq availbe expresison builder skill"
+- The skill provides complete workflow patterns and examples
 """
         },
         "no such file or directory": {
@@ -140,6 +144,10 @@ Type inference issues between ibis expressions and xorq's ML pipeline.
 - Start with a vignette: `xorq agents vignette scaffold <name>`
 - Follow deferred patterns (no .to_pandas(), .execute())
 - Test expression structure before building
+
+**Need comprehensive guidance?**
+- Use the xorq skill: Type "use xorq skill" or "help with xorq"
+- The skill provides complete API patterns and examples
 """
         },
         "catalog": {
@@ -173,6 +181,10 @@ Type inference issues between ibis expressions and xorq's ML pipeline.
 - No .to_pandas() or .execute() in expression code
 - No matplotlib/seaborn in expression definitions
 - Keep computations lazy until runtime
+
+**Need comprehensive guidance?**
+- Use the xorq skill: Type "use xorq skill" or "help with xorq"
+- The skill provides complete deferred execution patterns
 """
         }
     }
@@ -200,7 +212,9 @@ Type inference issues between ibis expressions and xorq's ML pipeline.
 - `xorq run <alias> -f arrow` - Run expression
 - `xorq agents vignette list` - See patterns
 
-**Need help?**
+**Need comprehensive help?**
+- Use the xorq skill: Type "use xorq skill" or "help with xorq"
+- The skill provides complete workflow guidance and API reference
 - `xorq agents prime` - Get current context
 - Check CLAUDE.md in project root
 """
