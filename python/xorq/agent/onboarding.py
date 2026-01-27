@@ -328,8 +328,6 @@ Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq ag
 4. `xorq build <file>.py -e expr` - build expression
 5. `xorq catalog add .xorq/builds/<hash> --alias <name>` - register
 6. `xorq catalog ls` - Find available expressions
-7. `git add .xorq/builds/ .xorq/catalog.yaml` - add the new builds to git
-8. `git commit` with a commit message
 
 For full workflow details: `xorq agents prime`
         """).strip()
