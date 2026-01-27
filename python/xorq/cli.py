@@ -643,7 +643,7 @@ def install_claude_hooks_command(args):
     print("\n⚡ Key features:")
     print("   • SessionStart provides lean onboarding context automatically")
     print("   • PreToolUse blocks: .to_pandas(), .execute(), plt., sns., .plot(), .show()")
-    print("   • Stop warns about uncataloged builds in .xorq/builds/")
+    print("   • Stop enforces workflow: catalog builds → commit to git")
 
     return 0
 
