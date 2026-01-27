@@ -14,8 +14,9 @@
     }],
     "PreToolUse": [{
       "hooks": [{
-        "type": "command",
-        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_use.py"
+        "type": "prompt",
+        "prompt": "You are evaluating tool use for xorq deferred execution compliance.\n\nAnalyze $ARGUMENTS for these EAGER operations:\n\n❌ BLOCK these patterns:\n- .to_pandas()\n- .execute()\n- plt., sns., plotly. (visualizations)\n- .plot(), .show(), .savefig()\n\nIf ANY detected in Bash/Write/Edit tools, respond:\n{\n  \"ok\": false,\n  \"reason\": \"🛑 BLOCKED: Eager pandas/visualization detected!\\n\\n✅ Use deferred patterns:\\n  • xorq agents prime - Get workflow context\\n  • xorq agents vignette list - Find patterns\\n  • Keep everything as expressions!\\n\\nEverything in xorq must be DEFERRED!\"\n}\n\nOtherwise respond: {\"ok\": true}",
+        "timeout": 30
       }]
     }],
     "PreCompact": [{
