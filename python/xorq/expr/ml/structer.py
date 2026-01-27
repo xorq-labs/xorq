@@ -19,6 +19,7 @@ from attr.validators import (
 from dask.utils import Dispatch
 
 import xorq.expr.datatypes as dt
+from xorq.common.utils.func_utils import if_not_none
 
 
 class KVField(StrEnum):
@@ -208,12 +209,12 @@ class Structer:
     input_columns = field(
         validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
         default=None,
-        converter=lambda x: tuple(x) if x is not None else None,
+        converter=if_not_none(tuple),
     )
     passthrough_columns = field(
         validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
         default=(),
-        converter=lambda x: tuple(x) if x is not None else (),
+        converter=if_not_none(tuple),
     )
     needs_target = field(
         validator=instance_of(bool),
@@ -344,13 +345,17 @@ def lazy_register_sklearn():
 
     def _normalize_columns(columns):
         """Normalize columns to tuple format."""
-        if isinstance(columns, list):
-            return tuple(columns)
-        elif isinstance(columns, str):
-            return (columns,)
-        elif columns is not None:
-            return tuple(columns)
-        return ()
+        match columns:
+            case list():
+                return tuple(columns)
+            case str():
+                return (columns,)
+            case tuple():
+                return columns
+            case None:
+                return ()
+            case _:
+                raise TypeError(f"Unsupported columns type: {type(columns)}")
 
     @structer_from_instance.register(SimpleImputer)
     def _(instance, expr, features=None):

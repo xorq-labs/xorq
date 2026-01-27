@@ -91,11 +91,6 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
     return typ
 
 
-def _freeze_params(params):
-    """Convert params_tuple values to hashable equivalents."""
-    return tuple((k, freeze(v)) for k, v in params)
-
-
 @frozen
 class Step:
     """
@@ -156,9 +151,7 @@ class Step:
 
     typ = field(validator=instance_of(type))
     name = field(validator=optional(instance_of(str)), default=None)
-    params_tuple = field(
-        validator=instance_of(tuple), default=(), converter=_freeze_params
-    )
+    params_tuple = field(validator=instance_of(tuple), default=(), converter=freeze)
 
     def __attrs_post_init__(self):
         from sklearn.base import BaseEstimator

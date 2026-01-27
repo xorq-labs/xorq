@@ -651,8 +651,27 @@ class TestColumnTransformerStructer:
         with pytest.raises(ValueError, match="can't handle type"):
             Structer.from_instance_expr(ct, t)
 
-    def test_single_column_string(self):
-        """Test ColumnTransformer with single column as string (not list)."""
+    # Tests for _normalize_columns (column spec normalization)
+
+    def test_normalize_columns_list(self):
+        """Test _normalize_columns handles list -> tuple."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["a", "b"]),  # list
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert "a" in structer.struct.fields
+        assert "b" in structer.struct.fields
+
+    def test_normalize_columns_string(self):
+        """Test _normalize_columns handles string -> single-element tuple."""
         from sklearn.compose import ColumnTransformer
         from sklearn.preprocessing import StandardScaler
 
@@ -666,6 +685,55 @@ class TestColumnTransformerStructer:
 
         assert not structer.is_kv_encoded
         assert "num" in structer.struct.fields
+
+    def test_normalize_columns_tuple(self):
+        """Test _normalize_columns handles tuple -> tuple (passthrough)."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ("a", "b")),  # tuple, not list
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert "a" in structer.struct.fields
+        assert "b" in structer.struct.fields
+
+    def test_normalize_columns_none(self):
+        """Test _normalize_columns handles None -> empty tuple."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), ["a"]),
+                ("pass", "passthrough", None),  # None columns
+            ]
+        )
+        structer = Structer.from_instance_expr(ct, t)
+
+        assert not structer.is_kv_encoded
+        assert "a" in structer.struct.fields
+
+    def test_normalize_columns_invalid_type_raises(self):
+        """Test _normalize_columns raises TypeError for unsupported types."""
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import StandardScaler
+
+        t = xo.memtable({"a": [1.0, 2.0]})
+        ct = ColumnTransformer(
+            [
+                ("scaler", StandardScaler(), 123),  # invalid type
+            ]
+        )
+
+        with pytest.raises(TypeError, match="Unsupported columns type"):
+            Structer.from_instance_expr(ct, t)
 
 
 class TestFeatureUnionStructer:
