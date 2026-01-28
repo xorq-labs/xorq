@@ -1,8 +1,6 @@
 ---
-title: 'CLI commands'
+title: 'Overview'
 ---
-
-## Overview
 
 Xorq provides command-line tools for building, running, and managing your data and ML pipelines.
 
@@ -29,4 +27,4 @@ Xorq provides command-line tools for building, running, and managing your data a
 |--------------------------------------------|--------------------------------------------------------------------------------------|
 | [lineage](lineage.qmd)                     | Track and display data lineage information.                                          |
 | [ps](ps.qmd)                               | List running Xorq processes.                                                         |
-| [catalog](catalog/add.qmd)                 | Manage the compute catalog (add, ls, info, rm, diff-builds).                        |
+| [catalog](catalog/add.qmd)                 | Manage the compute catalog (add, ls, info, rm, diff-builds).                       
