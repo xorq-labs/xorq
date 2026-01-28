@@ -51,6 +51,9 @@ jobs:
       - name: start services
         run: docker compose up --build --wait
 
+      - name: generate release notes
+        run: just docs-release-notes
+
       - name: build api docs
         run: just docs-apigen --verbose
 
