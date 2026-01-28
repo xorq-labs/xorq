@@ -48,6 +48,28 @@ class KVEncoder:
     return_type = KV_ENCODED_TYPE
 
     @staticmethod
+    def encode_arrays(feature_names, values):
+        """
+        Encode feature names and values into KV tuple format.
+
+        Parameters
+        ----------
+        feature_names : iterable of str
+            Feature names (keys)
+        values : iterable of numeric
+            Feature values
+
+        Returns
+        -------
+        tuple
+            Tuple of dicts with 'key' and 'value' fields
+        """
+        return tuple(
+            {KVField.KEY: fname, KVField.VALUE: float(v)}
+            for fname, v in zip(feature_names, values)
+        )
+
+    @staticmethod
     @toolz.curry
     def encode(model, df):
         """
@@ -78,15 +100,7 @@ class KVEncoder:
             result = result.toarray()
 
         # Force float64 to match return_type and ensure PyArrow compatibility
-        return pd.Series(
-            (
-                tuple(
-                    {KVField.KEY: key, KVField.VALUE: float(value)}
-                    for key, value in zip(names, row)
-                )
-                for row in result
-            )
-        )
+        return pd.Series(KVEncoder.encode_arrays(names, row) for row in result)
 
     @staticmethod
     def decode(series):

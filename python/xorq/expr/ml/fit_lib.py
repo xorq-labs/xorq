@@ -175,7 +175,7 @@ def transform_sklearn_hybrid(kv_child_names, model, df):
     list of dict
         List of records with known fields + named KV array fields
     """
-    from xorq.expr.ml.structer import KVField
+    from xorq.expr.ml.structer import KVEncoder
 
     result = model.transform(df)
     # Handle sparse matrices
@@ -200,10 +200,7 @@ def transform_sklearn_hybrid(kv_child_names, model, df):
 
             if name in kv_child_names:
                 # KV-encoded child: pack as array of {key, value}
-                record[name] = tuple(
-                    {KVField.KEY: fname, KVField.VALUE: float(v)}
-                    for fname, v in zip(feature_names, values)
-                )
+                record[name] = KVEncoder.encode_arrays(feature_names, values)
             else:
                 # Known-schema child: add fields directly
                 for fname, v in zip(feature_names, values):
