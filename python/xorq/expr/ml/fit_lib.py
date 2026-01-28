@@ -106,6 +106,38 @@ def kv_encode_output(model, df):
     return KVEncoder.encode(model, df)
 
 
+def _get_output_indices(model):
+    """
+    Get output column indices for each transformer in a container.
+
+    Uses sklearn's output_indices_ for ColumnTransformer, computes for FeatureUnion.
+    """
+    if hasattr(model, "output_indices_"):
+        # ColumnTransformer has this attribute
+        return model.output_indices_
+    # FeatureUnion: compute from per-transformer feature counts
+    output_indices = {}
+    offset = 0
+    for name, trans in model.transformer_list:
+        n = len(trans.get_feature_names_out())
+        output_indices[name] = slice(offset, offset + n)
+        offset += n
+    return output_indices
+
+
+def _get_named_transformers(model):
+    """
+    Get named transformers dict from a container.
+
+    Works for both ColumnTransformer (named_transformers_) and FeatureUnion (named_transformers).
+    """
+    if hasattr(model, "named_transformers_"):
+        return model.named_transformers_
+    if hasattr(model, "named_transformers"):
+        return model.named_transformers
+    return dict(model.transformer_list)
+
+
 @toolz.curry
 def transform_sklearn_hybrid(kv_child_names, model, df):
     """
@@ -115,11 +147,13 @@ def transform_sklearn_hybrid(kv_child_names, model, df):
     Known-schema columns are packed into struct fields, KV-encoded children become
     named Array[{key, value}] fields.
 
+    Uses sklearn's output_indices_ and per-transformer get_feature_names_out() to
+    avoid manual prefix parsing.
+
     Parameters
     ----------
     kv_child_names : tuple of str
-        Names of KV-encoded child transformers (used to identify their columns
-        by prefix in feature names)
+        Names of KV-encoded child transformers
     model : sklearn estimator
         Fitted container transformer (FeatureUnion or ColumnTransformer)
     df : pandas.DataFrame
@@ -137,47 +171,32 @@ def transform_sklearn_hybrid(kv_child_names, model, df):
     if hasattr(result, "toarray"):
         result = result.toarray()
 
-    feature_names = model.get_feature_names_out()
-
-    # Identify which columns belong to which KV-encoded child by prefix
-    # sklearn uses "transformername__originalfeature" naming convention
-    kv_child_col_indices = {name: [] for name in kv_child_names}
-    kv_child_col_names = {name: [] for name in kv_child_names}
-    known_col_indices = []
-    known_col_names = []
-
-    for idx, fname in enumerate(feature_names):
-        matched = False
-        for child_name in kv_child_names:
-            if fname.startswith(f"{child_name}__"):
-                kv_child_col_indices[child_name].append(idx)
-                kv_child_col_names[child_name].append(fname)
-                matched = True
-                break
-        if not matched:
-            known_col_indices.append(idx)
-            known_col_names.append(fname)
+    output_indices = _get_output_indices(model)
+    named_transformers = _get_named_transformers(model)
 
     # Build output records
     records = []
     for row_idx in range(result.shape[0]):
         record = {}
 
-        # Add known-schema fields directly
-        for col_idx, col_name in zip(known_col_indices, known_col_names):
-            # Strip transformer prefix if present (e.g., "num__age" → "age")
-            # But keep the full name if no prefix
-            clean_name = col_name.split("__", 1)[-1] if "__" in col_name else col_name
-            record[clean_name] = float(result[row_idx, col_idx])
+        for name, trans in named_transformers.items():
+            sl = output_indices.get(name)
+            if sl is None or sl.start == sl.stop:
+                continue
 
-        # Add KV-encoded fields for each KV child
-        for child_name in kv_child_names:
-            indices = kv_child_col_indices[child_name]
-            names = kv_child_col_names[child_name]
-            record[child_name] = tuple(
-                {KVField.KEY: name, KVField.VALUE: float(result[row_idx, idx])}
-                for idx, name in zip(indices, names)
-            )
+            feature_names = trans.get_feature_names_out()
+            values = result[row_idx, sl]
+
+            if name in kv_child_names:
+                # KV-encoded child: pack as array of {key, value}
+                record[name] = tuple(
+                    {KVField.KEY: fname, KVField.VALUE: float(v)}
+                    for fname, v in zip(feature_names, values)
+                )
+            else:
+                # Known-schema child: add fields directly
+                for fname, v in zip(feature_names, values):
+                    record[fname] = float(v)
 
         records.append(record)
 

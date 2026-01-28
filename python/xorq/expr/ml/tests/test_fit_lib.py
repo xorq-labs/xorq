@@ -12,7 +12,12 @@ from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import (
     deferred_read_parquet,
 )
-from xorq.expr.ml.fit_lib import DeferredFitOther
+from xorq.expr.ml.fit_lib import (
+    DeferredFitOther,
+    _get_named_transformers,
+    _get_output_indices,
+    transform_sklearn_hybrid,
+)
 from xorq.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
@@ -216,3 +221,232 @@ class TestDeferredFitOtherFromFittedStep:
         # Should have KV-encoded data
         first_row = result[transformed_col].iloc[0]
         assert all("key" in d and "value" in d for d in first_row)
+
+
+sk_compose = pytest.importorskip("sklearn.compose")
+sk_pipeline = pytest.importorskip("sklearn.pipeline")
+sk_decomposition = pytest.importorskip("sklearn.decomposition")
+
+
+class TestGetOutputIndices:
+    """Tests for _get_output_indices helper function."""
+
+    def test_column_transformer_uses_output_indices_attr(self):
+        """ColumnTransformer should use its output_indices_ attribute."""
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("num", sk_preprocessing.StandardScaler(), ["a", "b"]),
+                ("cat", sk_preprocessing.OneHotEncoder(sparse_output=False), ["c"]),
+            ]
+        )
+        df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0], "c": ["x", "y"]})
+        ct.fit(df)
+
+        result = _get_output_indices(ct)
+
+        # Should return the same as output_indices_
+        assert result == ct.output_indices_
+        assert "num" in result
+        assert "cat" in result
+        assert result["num"] == slice(0, 2)
+
+    def test_feature_union_computes_indices(self):
+        """FeatureUnion should compute indices from transformer feature counts."""
+        fu = sk_pipeline.FeatureUnion(
+            [
+                ("scale", sk_preprocessing.StandardScaler()),
+                ("pca", sk_decomposition.PCA(n_components=2)),
+            ]
+        )
+        df = pd.DataFrame(
+            {"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "c": [7.0, 8.0, 9.0]}
+        )
+        fu.fit(df)
+
+        result = _get_output_indices(fu)
+
+        # scale outputs 3 features, pca outputs 2
+        assert result["scale"] == slice(0, 3)
+        assert result["pca"] == slice(3, 5)
+
+
+class TestGetNamedTransformers:
+    """Tests for _get_named_transformers helper function."""
+
+    def test_column_transformer_uses_named_transformers_attr(self):
+        """ColumnTransformer should use named_transformers_ attribute."""
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("num", sk_preprocessing.StandardScaler(), ["a"]),
+                ("cat", sk_preprocessing.OneHotEncoder(sparse_output=False), ["b"]),
+            ]
+        )
+        df = pd.DataFrame({"a": [1.0, 2.0], "b": ["x", "y"]})
+        ct.fit(df)
+
+        result = _get_named_transformers(ct)
+
+        assert result == ct.named_transformers_
+        assert "num" in result
+        assert "cat" in result
+        assert isinstance(result["num"], sk_preprocessing.StandardScaler)
+
+    def test_feature_union_uses_named_transformers_property(self):
+        """FeatureUnion should use named_transformers property."""
+        fu = sk_pipeline.FeatureUnion(
+            [
+                ("scale", sk_preprocessing.StandardScaler()),
+                ("pca", sk_decomposition.PCA(n_components=2)),
+            ]
+        )
+        df = pd.DataFrame({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0]})
+        fu.fit(df)
+
+        result = _get_named_transformers(fu)
+
+        assert result == fu.named_transformers
+        assert "scale" in result
+        assert "pca" in result
+
+
+class TestTransformSklearnHybrid:
+    """Tests for transform_sklearn_hybrid function."""
+
+    def test_column_transformer_mixed_children(self):
+        """Test hybrid output with mixed known/KV-encoded children."""
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("num", sk_preprocessing.StandardScaler(), ["age", "income"]),
+                (
+                    "cat",
+                    sk_preprocessing.OneHotEncoder(sparse_output=False),
+                    ["category"],
+                ),
+            ]
+        )
+        df = pd.DataFrame(
+            {
+                "age": [25.0, 30.0, 35.0],
+                "income": [50000.0, 60000.0, 70000.0],
+                "category": ["a", "b", "a"],
+            }
+        )
+        ct.fit(df)
+
+        # cat is KV-encoded, num is known-schema
+        result = transform_sklearn_hybrid(("cat",), ct, df)
+
+        assert len(result) == 3
+        # Known-schema fields should be unpacked directly
+        assert "age" in result[0]
+        assert "income" in result[0]
+        # KV-encoded field should be a tuple of {key, value} dicts
+        assert "cat" in result[0]
+        assert isinstance(result[0]["cat"], tuple)
+        assert all("key" in d and "value" in d for d in result[0]["cat"])
+
+    def test_feature_union_mixed_children(self):
+        """Test hybrid output with FeatureUnion."""
+        fu = sk_pipeline.FeatureUnion(
+            [
+                ("scale", sk_preprocessing.StandardScaler()),
+                ("pca", sk_decomposition.PCA(n_components=2)),
+            ]
+        )
+        df = pd.DataFrame(
+            {
+                "a": [1.0, 2.0, 3.0, 4.0, 5.0],
+                "b": [5.0, 4.0, 3.0, 2.0, 1.0],
+                "c": [1.0, 1.0, 1.0, 1.0, 1.0],
+            }
+        )
+        fu.fit(df)
+
+        # pca is KV-encoded, scale is known-schema
+        result = transform_sklearn_hybrid(("pca",), fu, df)
+
+        assert len(result) == 5
+        # scale outputs a, b, c as known fields
+        assert "a" in result[0]
+        assert "b" in result[0]
+        assert "c" in result[0]
+        # pca outputs as KV-encoded
+        assert "pca" in result[0]
+        assert isinstance(result[0]["pca"], tuple)
+        assert len(result[0]["pca"]) == 2  # n_components=2
+
+    def test_all_known_schema_children(self):
+        """Test with no KV-encoded children (all known)."""
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("num1", sk_preprocessing.StandardScaler(), ["a"]),
+                ("num2", sk_preprocessing.StandardScaler(), ["b"]),
+            ]
+        )
+        df = pd.DataFrame({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        ct.fit(df)
+
+        # No KV-encoded children
+        result = transform_sklearn_hybrid((), ct, df)
+
+        assert len(result) == 2
+        # All fields should be unpacked directly
+        assert "a" in result[0]
+        assert "b" in result[0]
+        # No KV-encoded fields
+        assert not any(isinstance(v, tuple) for v in result[0].values())
+
+    def test_all_kv_encoded_children(self):
+        """Test with all KV-encoded children."""
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("cat1", sk_preprocessing.OneHotEncoder(sparse_output=False), ["a"]),
+                ("cat2", sk_preprocessing.OneHotEncoder(sparse_output=False), ["b"]),
+            ]
+        )
+        df = pd.DataFrame({"a": ["x", "y"], "b": ["p", "q"]})
+        ct.fit(df)
+
+        # All children are KV-encoded
+        result = transform_sklearn_hybrid(("cat1", "cat2"), ct, df)
+
+        assert len(result) == 2
+        # Both should be KV-encoded fields
+        assert "cat1" in result[0]
+        assert "cat2" in result[0]
+        assert isinstance(result[0]["cat1"], tuple)
+        assert isinstance(result[0]["cat2"], tuple)
+
+    def test_sparse_matrix_handling(self):
+        """Test that sparse matrices are converted to dense."""
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("num", sk_preprocessing.StandardScaler(), ["a"]),
+                ("cat", sk_preprocessing.OneHotEncoder(sparse_output=True), ["b"]),
+            ]
+        )
+        df = pd.DataFrame({"a": [1.0, 2.0], "b": ["x", "y"]})
+        ct.fit(df)
+
+        # Should not raise even with sparse output
+        result = transform_sklearn_hybrid(("cat",), ct, df)
+
+        assert len(result) == 2
+        assert "a" in result[0]
+        assert "cat" in result[0]
+
+    def test_feature_names_without_prefix(self):
+        """Test that feature names don't include transformer prefix."""
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("scaler", sk_preprocessing.StandardScaler(), ["my_feature"]),
+            ]
+        )
+        df = pd.DataFrame({"my_feature": [1.0, 2.0, 3.0]})
+        ct.fit(df)
+
+        result = transform_sklearn_hybrid((), ct, df)
+
+        # Should use "my_feature" not "scaler__my_feature"
+        assert "my_feature" in result[0]
+        assert "scaler__my_feature" not in result[0]
