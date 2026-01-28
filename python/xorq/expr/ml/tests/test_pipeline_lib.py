@@ -469,6 +469,148 @@ class TestDeeplyNestedPipelines:
         # Assert predictions match
         assert np.array_equal(predictions["predicted"].values, sklearn_preds)
 
+    def test_hybrid_deeply_nested_pipeline(self):
+        """Test depth-4 nested pipeline with hybrid output (mixed known + KV-encoded).
+
+        Pipeline structure:
+        - ColumnTransformer (HYBRID: 2 KV-encoded + 1 known-schema child)
+          - FeatureUnion (known schema)
+            - Pipeline (SimpleImputer -> StandardScaler)
+            - Pipeline (SimpleImputer -> StandardScaler)
+          - Pipeline (SimpleImputer -> OneHotEncoder) [KV-encoded: education]
+          - Pipeline (SimpleImputer -> OneHotEncoder) [KV-encoded: region]
+        - SelectKBest
+        - RandomForestClassifier
+
+        This tests the hybrid transform path where the ColumnTransformer has
+        both known-schema children (numeric features) and multiple KV-encoded
+        children (categorical features encoded separately).
+        """
+        import numpy as np
+        import pandas as pd
+        from sklearn.compose import ColumnTransformer
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.feature_selection import SelectKBest, f_classif
+        from sklearn.impute import SimpleImputer
+        from sklearn.pipeline import FeatureUnion
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import Pipeline
+
+        # Create sample data
+        np.random.seed(42)
+        n_samples = 100
+
+        data = pd.DataFrame(
+            {
+                "age": np.random.randint(18, 80, n_samples).astype(float),
+                "income": np.random.randint(20000, 150000, n_samples).astype(float),
+                "credit_score": np.random.randint(300, 850, n_samples).astype(float),
+                "years_employed": np.random.randint(0, 40, n_samples).astype(float),
+                "education": np.random.choice(
+                    ["high_school", "bachelor", "master", "phd"], n_samples
+                ),
+                "region": np.random.choice(
+                    ["north", "south", "east", "west"], n_samples
+                ),
+                "approved": np.random.randint(0, 2, n_samples),
+            }
+        )
+
+        # Add missing values
+        data.loc[np.random.choice(n_samples, 10), "age"] = np.nan
+        data.loc[np.random.choice(n_samples, 8), "income"] = np.nan
+
+        numeric_features = ["age", "income", "credit_score", "years_employed"]
+        cat_feature_1 = ["education"]
+        cat_feature_2 = ["region"]
+        all_features = tuple(numeric_features + cat_feature_1 + cat_feature_2)
+
+        # Build nested sklearn pipeline with HYBRID output
+        # Numeric: FeatureUnion with 2 pipelines (known schema)
+        scaled_pipeline = SklearnPipeline(
+            [
+                ("imputer", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler()),
+            ]
+        )
+
+        imputed_pipeline = SklearnPipeline(
+            [
+                ("imputer", SimpleImputer(strategy="mean")),
+                ("scaler", StandardScaler()),
+            ]
+        )
+
+        numeric_union = FeatureUnion(
+            [
+                ("scaled", scaled_pipeline),
+                ("imputed", imputed_pipeline),
+            ]
+        )
+
+        # Two SEPARATE categorical pipelines (each produces KV-encoded output)
+        education_pipeline = SklearnPipeline(
+            [
+                ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+                (
+                    "encoder",
+                    OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                ),
+            ]
+        )
+
+        region_pipeline = SklearnPipeline(
+            [
+                ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+                (
+                    "encoder",
+                    OneHotEncoder(handle_unknown="ignore", sparse_output=False),
+                ),
+            ]
+        )
+
+        # ColumnTransformer with hybrid output:
+        # - numeric: known schema (8 features from FeatureUnion)
+        # - education: KV-encoded
+        # - region: KV-encoded
+        preprocessor = ColumnTransformer(
+            [
+                ("numeric", numeric_union, numeric_features),
+                ("education", education_pipeline, cat_feature_1),
+                ("region", region_pipeline, cat_feature_2),
+            ]
+        )
+
+        sklearn_pipe = SklearnPipeline(
+            [
+                ("preprocessor", preprocessor),
+                ("selector", SelectKBest(f_classif, k=10)),
+                (
+                    "classifier",
+                    RandomForestClassifier(n_estimators=50, random_state=42),
+                ),
+            ]
+        )
+
+        # Fit and predict with xorq
+        expr = xo.memtable(data)
+        xorq_pipeline = Pipeline.from_instance(sklearn_pipe)
+        fitted_pipeline = xorq_pipeline.fit(
+            expr, features=all_features, target="approved"
+        )
+        predictions = fitted_pipeline.predict(expr).execute()
+
+        # Fit and predict with sklearn
+        X = data[list(all_features)]
+        y = data["approved"]
+        sklearn_pipe.fit(X, y)
+        sklearn_preds = sklearn_pipe.predict(X)
+
+        # Assert predictions match
+        assert np.array_equal(predictions["predicted"].values, sklearn_preds)
+
 
 class TestIsContainerTransformer:
     """Tests for _is_container_transformer helper function."""
