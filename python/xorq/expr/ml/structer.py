@@ -186,6 +186,29 @@ class KVEncoder:
 
 
 @frozen
+class ChildInfo:
+    """
+    Metadata about a child transformer in a container.
+
+    Attributes
+    ----------
+    name : str
+        Name of the child transformer
+    columns : tuple
+        Columns this transformer operates on
+    is_kv_encoded : bool
+        Whether this child produces KV-encoded output
+    """
+
+    name = field(validator=instance_of(str))
+    columns = field(
+        validator=deep_iterable(instance_of(str), instance_of(tuple)),
+        converter=tuple,
+    )
+    is_kv_encoded = field(validator=instance_of(bool))
+
+
+@frozen
 class Structer:
     """
     Describes the output schema of a transformer.
@@ -202,8 +225,8 @@ class Structer:
     The needs_target field indicates whether the transformer requires a target
     variable (y) during fitting (e.g., supervised feature selectors like SelectKBest).
 
-    For hybrid mode, kv_child_names tracks the names of KV-encoded child transformers.
-    The struct contains both known fields and named KV array fields.
+    For container transformers (ColumnTransformer, FeatureUnion, Pipeline), child_info
+    tracks metadata about each child transformer. kv_child_names is derived from child_info.
     """
 
     struct = field(
@@ -228,11 +251,21 @@ class Structer:
         validator=instance_of(bool),
         default=False,
     )
-    kv_child_names = field(
-        validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
+    child_info = field(
+        validator=optional(deep_iterable(instance_of(ChildInfo), instance_of(tuple))),
         default=(),
         converter=if_not_none(tuple),
     )
+
+    @property
+    def kv_child_names(self):
+        """Names of children that produce KV-encoded output."""
+        return tuple(c.name for c in self.child_info if c.is_kv_encoded)
+
+    @property
+    def known_child_names(self):
+        """Names of children that produce known-schema output."""
+        return tuple(c.name for c in self.child_info if not c.is_kv_encoded)
 
     @property
     def is_hybrid(self):
@@ -442,10 +475,11 @@ def lazy_register_sklearn():
             if transformer != "passthrough"
         ]
 
-        # Build child Structer instances for each transformer
+        # Build child Structer instances and ChildInfo for each transformer
         child_items = [
             (
                 name,
+                cols,
                 structer_from_instance(
                     transformer,
                     expr.select(*cols) if cols else expr,
@@ -455,9 +489,19 @@ def lazy_register_sklearn():
             for name, cols, transformer in transform_items
         ]
 
+        # Build child_info from child_items
+        child_info = tuple(
+            ChildInfo(
+                name=name,
+                columns=cols,
+                is_kv_encoded=s.is_kv_encoded or s.is_hybrid,
+            )
+            for name, cols, s in child_items
+        )
+
         all_input_cols = [col for name, cols, _ in transform_items for col in cols]
-        any_kv_encoded = any(s.is_kv_encoded or s.is_hybrid for _, s in child_items)
-        all_kv_encoded = all(s.is_kv_encoded for _, s in child_items)
+        any_kv_encoded = any(s.is_kv_encoded or s.is_hybrid for _, _, s in child_items)
+        all_kv_encoded = all(s.is_kv_encoded for _, _, s in child_items)
 
         schema = expr.schema()
         combined_fields = {col: schema[col] for col in passthrough_cols}
@@ -474,49 +518,42 @@ def lazy_register_sklearn():
                 struct=None,
                 input_columns=tuple(all_input_cols),
                 passthrough_columns=tuple(passthrough_cols),
+                child_info=child_info,
             )
 
         # Mixed known/KV-encoded: build hybrid struct with named KV array fields
         if any_kv_encoded:
             # KV-encoded children become named KV array fields
             kv_fields = {
-                name: KV_ENCODED_TYPE for name, s in child_items if s.is_kv_encoded
+                name: KV_ENCODED_TYPE for name, _, s in child_items if s.is_kv_encoded
             }
             # Known-schema and hybrid children contribute their struct fields
             known_fields = {
                 k: v
-                for name, s in child_items
+                for name, _, s in child_items
                 if not s.is_kv_encoded
                 for k, v in s.struct.fields.items()
             }
-            # Collect all KV child names (direct + from hybrid children)
-            kv_child_names = tuple(
-                name for name, s in child_items if s.is_kv_encoded
-            ) + tuple(
-                kv_name
-                for _, s in child_items
-                if s.is_hybrid
-                for kv_name in s.kv_child_names
-            )
 
             return Structer(
                 struct=dt.Struct({**combined_fields, **known_fields, **kv_fields}),
                 input_columns=tuple(all_input_cols),
                 passthrough_columns=tuple(passthrough_cols),
-                kv_child_names=kv_child_names,
+                child_info=child_info,
             )
 
         # All known-schema: regular struct
         combined_fields.update(
             {
                 k: v
-                for name, child_structer in child_items
+                for name, _, child_structer in child_items
                 for k, v in child_structer.struct.fields.items()
             }
         )
         return Structer(
             struct=dt.Struct(combined_fields),
             passthrough_columns=tuple(passthrough_cols),
+            child_info=child_info,
         )
 
     @structer_from_instance.register(FeatureUnion)
@@ -537,6 +574,16 @@ def lazy_register_sklearn():
             for name, transformer in instance.transformer_list
         ]
 
+        # Build child_info - FeatureUnion children all operate on same features
+        child_info = tuple(
+            ChildInfo(
+                name=name,
+                columns=features,
+                is_kv_encoded=s.is_kv_encoded or s.is_hybrid,
+            )
+            for name, s in child_items
+        )
+
         any_kv_encoded = any(s.is_kv_encoded or s.is_hybrid for _, s in child_items)
         all_kv_encoded = all(s.is_kv_encoded for _, s in child_items)
 
@@ -545,6 +592,7 @@ def lazy_register_sklearn():
             return Structer(
                 struct=None,
                 input_columns=features,
+                child_info=child_info,
             )
 
         # Mixed known/KV-encoded: build hybrid struct with named KV array fields
@@ -560,20 +608,11 @@ def lazy_register_sklearn():
                 if not s.is_kv_encoded
                 for k, v in s.struct.fields.items()
             }
-            # Collect all KV child names (direct + from hybrid children)
-            kv_child_names = tuple(
-                name for name, s in child_items if s.is_kv_encoded
-            ) + tuple(
-                kv_name
-                for _, s in child_items
-                if s.is_hybrid
-                for kv_name in s.kv_child_names
-            )
 
             return Structer(
                 struct=dt.Struct({**known_fields, **kv_fields}),
                 input_columns=features,
-                kv_child_names=kv_child_names,
+                child_info=child_info,
             )
 
         # All known-schema: regular struct with prefixed field names
@@ -586,6 +625,7 @@ def lazy_register_sklearn():
 
         return Structer(
             struct=dt.Struct(combined_fields),
+            child_info=child_info,
         )
 
     @structer_from_instance.register(SklearnPipeline)
@@ -610,12 +650,17 @@ def lazy_register_sklearn():
                 return Structer.from_names_typ(current_features, dt.float64)
             return structer_from_instance(transformer, expr, features=current_features)
 
-        # Chain through steps, but stop analyzing if we hit a KV/hybrid step
+        # Chain through steps, tracking child_info and checking for KV/hybrid
         current_features = features
         last_structer = None
+        child_info_list = []
 
         for name, transformer in instance.steps:
             child_structer = get_structer(transformer, current_features)
+            is_kv = child_structer.is_kv_encoded or child_structer.is_hybrid
+            child_info_list.append(
+                ChildInfo(name=name, columns=current_features, is_kv_encoded=is_kv)
+            )
 
             # If this step is KV-encoded, downstream steps can't be statically analyzed
             if child_structer.is_kv_encoded:
@@ -623,6 +668,7 @@ def lazy_register_sklearn():
                     struct=None,
                     input_columns=features,
                     passthrough_columns=child_structer.passthrough_columns,
+                    child_info=tuple(child_info_list),
                 )
 
             # If this step is hybrid (has KV array fields), downstream steps receive
@@ -630,7 +676,11 @@ def lazy_register_sklearn():
             # We return the hybrid structer - downstream analysis would fail anyway
             # because kv_child_names aren't real columns in expr.
             if child_structer.is_hybrid:
-                return child_structer
+                return Structer(
+                    struct=child_structer.struct,
+                    passthrough_columns=child_structer.passthrough_columns,
+                    child_info=tuple(child_info_list),
+                )
 
             current_features = child_structer.output_columns
             last_structer = child_structer
@@ -638,4 +688,5 @@ def lazy_register_sklearn():
         return Structer(
             struct=last_structer.struct,
             passthrough_columns=last_structer.passthrough_columns,
+            child_info=tuple(child_info_list),
         )

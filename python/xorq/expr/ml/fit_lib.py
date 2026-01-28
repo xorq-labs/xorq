@@ -112,17 +112,23 @@ def _get_output_indices(model):
 
     Uses sklearn's output_indices_ for ColumnTransformer, computes for FeatureUnion.
     """
-    if hasattr(model, "output_indices_"):
-        # ColumnTransformer has this attribute
-        return model.output_indices_
-    # FeatureUnion: compute from per-transformer feature counts
-    output_indices = {}
-    offset = 0
-    for name, trans in model.transformer_list:
-        n = len(trans.get_feature_names_out())
-        output_indices[name] = slice(offset, offset + n)
-        offset += n
-    return output_indices
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import FeatureUnion
+
+    match model:
+        case ColumnTransformer(output_indices_=value):
+            return value
+        case FeatureUnion(transformer_list=transformer_list):
+            # FeatureUnion: compute from per-transformer feature counts
+            output_indices = {}
+            offset = 0
+            for name, trans in transformer_list:
+                n = len(trans.get_feature_names_out())
+                output_indices[name] = slice(offset, offset + n)
+                offset += n
+            return output_indices
+        case _:
+            raise TypeError(f"Unsupported model type: {type(model)}")
 
 
 def _get_named_transformers(model):
@@ -131,11 +137,16 @@ def _get_named_transformers(model):
 
     Works for both ColumnTransformer (named_transformers_) and FeatureUnion (named_transformers).
     """
-    if hasattr(model, "named_transformers_"):
-        return model.named_transformers_
-    if hasattr(model, "named_transformers"):
-        return model.named_transformers
-    return dict(model.transformer_list)
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import FeatureUnion
+
+    match model:
+        case ColumnTransformer(named_transformers_=value):
+            return value
+        case FeatureUnion(named_transformers=value):
+            return value
+        case _:
+            return dict(model.transformer_list)
 
 
 @toolz.curry

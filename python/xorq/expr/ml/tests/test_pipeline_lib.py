@@ -521,89 +521,73 @@ class TestIsContainerTransformer:
         assert _is_container_transformer(LinearRegression()) is False
 
 
-class TestAnalyzeChildStructer:
-    """Tests for _analyze_child_structer helper function."""
-
-    def test_drop_returns_none(self):
-        """Test 'drop' transformer returns None."""
-        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
-
-        result = _analyze_child_structer("drop", None, None)
-        assert result is None
-
-    def test_passthrough_returns_none(self):
-        """Test 'passthrough' transformer returns None."""
-        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
-
-        result = _analyze_child_structer("passthrough", None, None)
-        assert result is None
+class TestStructerChildInfo:
+    """Tests for Structer.child_info from container transformers."""
 
     def test_known_schema_transformer(self):
         """Test known-schema transformer is correctly identified."""
         from sklearn.preprocessing import StandardScaler
 
-        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
-        result = _analyze_child_structer(StandardScaler(), t, ("a", "b"))
+        structer = Structer.from_instance_expr(StandardScaler(), t, features=("a", "b"))
 
-        assert result is not None
-        assert result["is_kv_encoded"] is False
-        assert "structer" in result
+        assert structer.is_kv_encoded is False
+        # Simple transformers don't have child_info
+        assert structer.child_info == ()
 
     def test_kv_encoded_transformer(self):
         """Test KV-encoded transformer is correctly identified."""
         from sklearn.preprocessing import OneHotEncoder
 
-        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"cat": ["x", "y", "z"]})
-        result = _analyze_child_structer(OneHotEncoder(), t, ("cat",))
+        structer = Structer.from_instance_expr(OneHotEncoder(), t, features=("cat",))
 
-        assert result is not None
-        assert result["is_kv_encoded"] is True
-        assert "structer" in result
+        assert structer.is_kv_encoded is True
+        # Simple transformers don't have child_info
+        assert structer.child_info == ()
 
     def test_nested_container_with_kv_child(self):
         """Test nested container with KV-encoded child is correctly identified."""
         from sklearn.pipeline import FeatureUnion
         from sklearn.preprocessing import OneHotEncoder
 
-        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"cat": ["x", "y", "z"]})
         fu = FeatureUnion([("encoder", OneHotEncoder())])
-        result = _analyze_child_structer(fu, t, ("cat",))
+        structer = Structer.from_instance_expr(fu, t, features=("cat",))
 
-        assert result is not None
-        assert result["is_kv_encoded"] is True
-        assert "child_info" in result
+        assert structer.is_kv_encoded is True
+        assert len(structer.child_info) == 1
+        assert structer.child_info[0].name == "encoder"
+        assert structer.child_info[0].is_kv_encoded is True
 
     def test_nested_container_with_known_children(self):
         """Test nested container with known-schema children."""
         from sklearn.pipeline import FeatureUnion
         from sklearn.preprocessing import StandardScaler
 
-        from xorq.expr.ml.pipeline_lib import _analyze_child_structer
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"a": [1.0, 2.0]})
         fu = FeatureUnion([("scaler", StandardScaler())])
-        result = _analyze_child_structer(fu, t, ("a",))
+        structer = Structer.from_instance_expr(fu, t, features=("a",))
 
-        assert result is not None
-        assert result["is_kv_encoded"] is False
-        assert "child_info" in result
-
-
-class TestAnalyzeContainer:
-    """Tests for _analyze_container helper function."""
+        assert structer.is_kv_encoded is False
+        assert len(structer.child_info) == 1
+        assert structer.child_info[0].name == "scaler"
+        assert structer.child_info[0].is_kv_encoded is False
 
     def test_column_transformer_children(self):
         """Test ColumnTransformer child analysis."""
         from sklearn.compose import ColumnTransformer
         from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-        from xorq.expr.ml.pipeline_lib import _analyze_container
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"num": [1.0, 2.0], "cat": ["x", "y"]})
         ct = ColumnTransformer(
@@ -612,24 +596,25 @@ class TestAnalyzeContainer:
                 ("encoder", OneHotEncoder(), ["cat"]),
             ]
         )
-        children = _analyze_container(ct, t)
+        structer = Structer.from_instance_expr(ct, t)
+        children = structer.child_info
 
         assert len(children) == 2
         # Find by name
-        scaler_child = next(c for c in children if c["name"] == "scaler")
-        encoder_child = next(c for c in children if c["name"] == "encoder")
+        scaler_child = next(c for c in children if c.name == "scaler")
+        encoder_child = next(c for c in children if c.name == "encoder")
 
-        assert scaler_child["is_kv_encoded"] is False
-        assert scaler_child["columns"] == ("num",)
-        assert encoder_child["is_kv_encoded"] is True
-        assert encoder_child["columns"] == ("cat",)
+        assert scaler_child.is_kv_encoded is False
+        assert scaler_child.columns == ("num",)
+        assert encoder_child.is_kv_encoded is True
+        assert encoder_child.columns == ("cat",)
 
     def test_column_transformer_drop_ignored(self):
         """Test ColumnTransformer 'drop' transformers are ignored."""
         from sklearn.compose import ColumnTransformer
         from sklearn.preprocessing import StandardScaler
 
-        from xorq.expr.ml.pipeline_lib import _analyze_container
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         ct = ColumnTransformer(
@@ -638,17 +623,18 @@ class TestAnalyzeContainer:
                 ("dropped", "drop", ["b"]),
             ]
         )
-        children = _analyze_container(ct, t)
+        structer = Structer.from_instance_expr(ct, t)
+        children = structer.child_info
 
         assert len(children) == 1
-        assert children[0]["name"] == "scaler"
+        assert children[0].name == "scaler"
 
     def test_feature_union_children(self):
         """Test FeatureUnion child analysis."""
         from sklearn.pipeline import FeatureUnion
         from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-        from xorq.expr.ml.pipeline_lib import _analyze_container
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"a": [1.0, 2.0]})
         fu = FeatureUnion(
@@ -657,21 +643,22 @@ class TestAnalyzeContainer:
                 ("encoder", OneHotEncoder()),
             ]
         )
-        children = _analyze_container(fu, t, features=("a",))
+        structer = Structer.from_instance_expr(fu, t, features=("a",))
+        children = structer.child_info
 
         assert len(children) == 2
-        scaler_child = next(c for c in children if c["name"] == "scaler")
-        encoder_child = next(c for c in children if c["name"] == "encoder")
+        scaler_child = next(c for c in children if c.name == "scaler")
+        encoder_child = next(c for c in children if c.name == "encoder")
 
-        assert scaler_child["is_kv_encoded"] is False
-        assert encoder_child["is_kv_encoded"] is True
+        assert scaler_child.is_kv_encoded is False
+        assert encoder_child.is_kv_encoded is True
 
     def test_sklearn_pipeline_children(self):
         """Test sklearn Pipeline child analysis."""
         from sklearn.pipeline import Pipeline as SklearnPipeline
         from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
-        from xorq.expr.ml.pipeline_lib import _analyze_container
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"a": [1.0, 2.0]})
         pipe = SklearnPipeline(
@@ -680,20 +667,21 @@ class TestAnalyzeContainer:
                 ("encoder", OneHotEncoder()),
             ]
         )
-        children = _analyze_container(pipe, t, features=("a",))
+        structer = Structer.from_instance_expr(pipe, t, features=("a",))
+        children = structer.child_info
 
         assert len(children) == 2
-        assert children[0]["name"] == "scaler"
-        assert children[0]["is_kv_encoded"] is False
-        assert children[1]["name"] == "encoder"
-        assert children[1]["is_kv_encoded"] is True
+        assert children[0].name == "scaler"
+        assert children[0].is_kv_encoded is False
+        assert children[1].name == "encoder"
+        assert children[1].is_kv_encoded is True
 
     def test_pipeline_passthrough_step(self):
         """Test Pipeline with passthrough step."""
         from sklearn.pipeline import Pipeline as SklearnPipeline
         from sklearn.preprocessing import StandardScaler
 
-        from xorq.expr.ml.pipeline_lib import _analyze_container
+        from xorq.expr.ml.structer import Structer
 
         t = xo.memtable({"a": [1.0, 2.0]})
         pipe = SklearnPipeline(
@@ -702,12 +690,13 @@ class TestAnalyzeContainer:
                 ("scaler", StandardScaler()),
             ]
         )
-        children = _analyze_container(pipe, t, features=("a",))
+        structer = Structer.from_instance_expr(pipe, t, features=("a",))
+        children = structer.child_info
 
         assert len(children) == 2
-        assert children[0]["name"] == "pass"
-        assert children[0]["is_kv_encoded"] is False
-        assert children[1]["name"] == "scaler"
+        assert children[0].name == "pass"
+        assert children[0].is_kv_encoded is False
+        assert children[1].name == "scaler"
 
 
 class TestComplexStep:

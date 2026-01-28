@@ -597,120 +597,6 @@ def _is_container_transformer(instance):
     return isinstance(instance, (ColumnTransformer, FeatureUnion, SklearnPipeline))
 
 
-def _analyze_child_structer(transformer, expr, columns):
-    """Analyze a child transformer to determine if it's KV-encoded."""
-    if transformer in ("drop", "passthrough"):
-        return None
-
-    # Recursively check containers
-    if _is_container_transformer(transformer):
-        child_info = _analyze_container(transformer, expr, columns)
-        # Container is KV-encoded if any child is KV-encoded
-        any_kv = any(c["is_kv_encoded"] for c in child_info if c is not None)
-        return {"is_kv_encoded": any_kv, "child_info": child_info}
-
-    # For simple transformers, use Structer to determine
-    try:
-        structer = Structer.from_instance_expr(transformer, expr, features=columns)
-        return {"is_kv_encoded": structer.is_kv_encoded, "structer": structer}
-    except ValueError:
-        # Unregistered transformer - assume KV-encoded for safety
-        return {"is_kv_encoded": True}
-
-
-def _analyze_container(instance, expr, features=None):
-    """
-    Analyze a container transformer to identify child structure.
-
-    Returns list of child info dicts with:
-    - name: transformer name
-    - transformer: the transformer instance
-    - columns: columns this transformer operates on
-    - is_kv_encoded: whether this child produces KV-encoded output
-    """
-    from sklearn.compose import ColumnTransformer
-    from sklearn.pipeline import FeatureUnion
-    from sklearn.pipeline import Pipeline as SklearnPipeline
-
-    features = features or tuple(expr.columns)
-    children = []
-
-    if isinstance(instance, ColumnTransformer):
-        transformers = getattr(instance, "transformers_", None) or instance.transformers
-        for name, transformer, columns in transformers:
-            if transformer == "drop":
-                continue
-            # Normalize columns
-            if isinstance(columns, str):
-                columns = (columns,)
-            elif isinstance(columns, list):
-                columns = tuple(columns)
-            elif columns is None:
-                columns = ()
-
-            child_analysis = _analyze_child_structer(transformer, expr, columns)
-            if child_analysis is not None:
-                children.append(
-                    freeze(
-                        {
-                            "name": name,
-                            "columns": columns,
-                            "is_kv_encoded": child_analysis["is_kv_encoded"],
-                        }
-                    )
-                )
-
-    elif isinstance(instance, FeatureUnion):
-        for name, transformer in instance.transformer_list:
-            child_analysis = _analyze_child_structer(transformer, expr, features)
-            if child_analysis is not None:
-                children.append(
-                    freeze(
-                        {
-                            "name": name,
-                            "columns": features,
-                            "is_kv_encoded": child_analysis["is_kv_encoded"],
-                        }
-                    )
-                )
-
-    elif isinstance(instance, SklearnPipeline):
-        # For Pipeline, we care about the final step's output
-        # but we track all steps for completeness
-        current_features = features
-        for name, transformer in instance.steps:
-            if transformer == "passthrough":
-                children.append(
-                    freeze(
-                        {
-                            "name": name,
-                            "columns": current_features,
-                            "is_kv_encoded": False,
-                        }
-                    )
-                )
-                continue
-
-            child_analysis = _analyze_child_structer(
-                transformer, expr, current_features
-            )
-            if child_analysis is not None:
-                children.append(
-                    freeze(
-                        {
-                            "name": name,
-                            "columns": current_features,
-                            "is_kv_encoded": child_analysis["is_kv_encoded"],
-                        }
-                    )
-                )
-                # If not KV-encoded, we might know the output columns
-                # For simplicity, keep tracking original features
-                # (accurate tracking would require structer.output_columns)
-
-    return children
-
-
 @frozen
 class ComplexStep:
     """
@@ -729,7 +615,7 @@ class ComplexStep:
     params_tuple : tuple
         Tuple of (parameter_name, parameter_value) pairs.
     child_info : tuple
-        Analyzed child structure from _analyze_container.
+        Tuple of ChildInfo objects from Structer.child_info.
     """
 
     typ = field(validator=instance_of(type))
@@ -757,12 +643,12 @@ class ComplexStep:
     @property
     def kv_child_names(self):
         """Names of children that produce KV-encoded output."""
-        return tuple(c["name"] for c in self.child_info if c["is_kv_encoded"])
+        return tuple(c.name for c in self.child_info if c.is_kv_encoded)
 
     @property
     def known_child_names(self):
         """Names of children that produce known-schema output."""
-        return tuple(c["name"] for c in self.child_info if not c["is_kv_encoded"])
+        return tuple(c.name for c in self.child_info if not c.is_kv_encoded)
 
     @property
     def is_hybrid(self):
@@ -827,7 +713,8 @@ class ComplexStep:
 
         # Analyze children if expr is provided
         if expr is not None:
-            child_info = tuple(_analyze_container(instance, expr, features))
+            structer = Structer.from_instance_expr(instance, expr, features=features)
+            child_info = structer.child_info
         else:
             child_info = ()
 
@@ -886,15 +773,15 @@ class ComplexFittedStep:
 
         # Re-analyze children now that we have expr
         if not self.step.child_info:
-            child_info = tuple(
-                _analyze_container(self.step.instance, self.expr, self.features)
+            structer = Structer.from_instance_expr(
+                self.step.instance, self.expr, features=self.features
             )
             # Update step's child_info (need to create new step since it's frozen)
             new_step = ComplexStep(
                 typ=self.step.typ,
                 name=self.step.name,
                 params_tuple=self.step.params_tuple,
-                child_info=child_info,
+                child_info=structer.child_info,
             )
             object.__setattr__(self, "step", new_step)
 
