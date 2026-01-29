@@ -19,6 +19,7 @@ from attr.validators import (
 from dask.utils import Dispatch
 
 import xorq.expr.datatypes as dt
+from xorq.common.utils.func_utils import if_not_none
 
 
 class KVField(StrEnum):
@@ -45,6 +46,14 @@ class KVEncoder:
     """
 
     return_type = KV_ENCODED_TYPE
+
+    @staticmethod
+    def _make_kv_tuple(names, values):
+        """Convert parallel names/values to tuple of {key, value} dicts."""
+        return tuple(
+            {KVField.KEY: key, KVField.VALUE: float(value)}
+            for key, value in zip(names, values)
+        )
 
     @staticmethod
     @toolz.curry
@@ -77,15 +86,7 @@ class KVEncoder:
             result = result.toarray()
 
         # Force float64 to match return_type and ensure PyArrow compatibility
-        return pd.Series(
-            (
-                tuple(
-                    {KVField.KEY: key, KVField.VALUE: float(value)}
-                    for key, value in zip(names, row)
-                )
-                for row in result
-            )
-        )
+        return pd.Series(KVEncoder._make_kv_tuple(names, row) for row in result)
 
     @staticmethod
     def decode(series):
@@ -206,7 +207,7 @@ class Structer:
     input_columns = field(
         validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
         default=None,
-        converter=lambda x: tuple(x) if x is not None else None,
+        converter=if_not_none(tuple),
     )
     needs_target = field(
         validator=instance_of(bool),
@@ -219,9 +220,37 @@ class Structer:
 
     @property
     def is_kv_encoded(self):
-        """True if this Structer uses KV-encoded format."""
-        # NOTE: this could be explicit flag
+        """True if this Structer uses KV-encoded format (leaf transformers only).
+
+        When True, struct is None and output schema is resolved at runtime.
+        For containers with KV fields in struct, use struct_has_kv_fields instead.
+        """
         return self.struct is None
+
+    @property
+    def struct_has_kv_fields(self):
+        """True if struct contains any KV-encoded field types.
+
+        Used for containers (ColumnTransformer, FeatureUnion) where the struct
+        wraps one or more KV-encoded fields. Handles both mixed output (KV + non-KV)
+        and all-KV output cases via convert_struct_with_kv.
+
+        Returns False when struct is None (use is_kv_encoded for leaf case).
+        """
+        if self.struct is None:
+            return False
+        return any(
+            KVEncoder.is_kv_encoded_type(typ) for typ in self.struct.fields.values()
+        )
+
+    @property
+    def has_kv_output(self):
+        """True if this Structer produces any KV-encoded output.
+
+        Combines is_kv_encoded (leaf) and struct_has_kv_fields (container).
+        Use this when you need to check if any KV output exists regardless of form.
+        """
+        return self.is_kv_encoded or self.struct_has_kv_fields
 
     @property
     def dtype(self):
@@ -247,13 +276,25 @@ class Structer:
         return tuple(self.struct.fields.keys())
 
     def get_output_columns(self, dest_col="transformed"):
-        """Return the output column names for use as features in the next step."""
+        """Return the output column names for use as features in the next step.
+
+        For pure KV-encoded output (is_kv_encoded, struct is None),
+        returns the dest_col since the actual columns are resolved at runtime.
+        For hybrid output (struct_has_kv_fields), returns the struct field names
+        which include both known-schema columns and KV column names.
+        """
         if self.is_kv_encoded:
             return (dest_col,)
         return tuple(self.dtype.keys())
 
     def maybe_unpack(self, expr, col_name):
-        """Unpack struct column if needed, otherwise return expr unchanged."""
+        """Unpack struct column if needed, otherwise return expr unchanged.
+
+        For pure KV-encoded output (is_kv_encoded, struct is None),
+        we don't unpack since the schema is resolved at runtime.
+        For hybrid output (struct_has_kv_fields), we unpack to get both
+        known-schema columns and KV columns as separate fields.
+        """
         if self.is_kv_encoded:
             return expr
         return expr.unpack(col_name)
@@ -264,6 +305,75 @@ class Structer:
                 "get_convert_array cannot be used with KV-encoded Structer"
             )
         return self.convert_array(self.struct)
+
+    def get_convert_struct_with_kv(self):
+        """Return a curried function for converting struct with KV fields.
+
+        For containers with both known-schema and KV-encoded columns.
+        """
+        if not self.struct_has_kv_fields:
+            raise ValueError(
+                "get_convert_struct_with_kv requires struct_has_kv_fields to be True"
+            )
+        return self.convert_struct_with_kv(self.struct)
+
+    @classmethod
+    @toolz.curry
+    def convert_struct_with_kv(cls, struct, model, df):
+        """Convert sklearn output to struct with known-schema and KV-encoded columns.
+
+        Parameters
+        ----------
+        struct : dt.Struct
+            The struct schema describing output fields
+        model : sklearn transformer
+            Fitted sklearn transformer with get_feature_names_out() method
+        df : pandas.DataFrame
+            Input DataFrame to transform
+
+        Returns
+        -------
+        list[dict]
+            List of dicts, one per row, with struct fields
+        """
+        result = model.transform(df)
+        if hasattr(result, "toarray"):
+            result = result.toarray()
+        feature_names = tuple(model.get_feature_names_out())
+
+        def accumulate_sklearn_col_slice(acc, field_item):
+            """Accumulate (col_idx, slices) -> (new_col_idx, updated_slices)."""
+            col_idx, slices = acc
+            field_name, field_type = field_item
+            is_kv = KVEncoder.is_kv_encoded_type(field_type)
+            start = col_idx
+            end = (
+                start
+                + sum(
+                    1
+                    for fn in feature_names[start:]
+                    if fn.startswith(f"{field_name}__")
+                )
+                if is_kv
+                else start + 1
+            )
+            return (end, {**slices, field_name: (start, end, is_kv)})
+
+        _, field_slices = toolz.reduce(
+            accumulate_sklearn_col_slice, struct.fields.items(), (0, {})
+        )
+
+        return [
+            {
+                field_name: (
+                    KVEncoder._make_kv_tuple(feature_names[start:end], row[start:end])
+                    if is_kv
+                    else float(row[start])
+                )
+                for field_name, (start, end, is_kv) in field_slices.items()
+            }
+            for row in result
+        ]
 
     @classmethod
     @toolz.curry
@@ -325,11 +435,275 @@ def register_object(instance, expr, features=None):
     raise ValueError(f"can't handle type {instance.__class__}")
 
 
+def _get_transformer_items(model):
+    """
+    Get transformer items from unfitted sklearn container.
+
+    Abstracts over sklearn's inconsistent naming:
+    - ColumnTransformer uses `transformers`
+    - FeatureUnion uses `transformer_list`
+
+    Parameters
+    ----------
+    model : sklearn container
+        ColumnTransformer or FeatureUnion
+
+    Returns
+    -------
+    list
+        For ColumnTransformer: [(name, transformer, columns), ...]
+        For FeatureUnion: [(name, transformer), ...]
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import FeatureUnion
+
+    match model:
+        case ColumnTransformer(transformers=transformers):
+            return transformers
+        case FeatureUnion(transformer_list=transformer_list):
+            return transformer_list
+        case _:
+            raise TypeError(f"Unsupported model type: {type(model)}")
+
+
+def _normalize_columns(columns):
+    """Normalize columns to tuple format."""
+    match columns:
+        case list():
+            return tuple(columns)
+        case str():
+            return (columns,)
+        case tuple():
+            return columns
+        case None:
+            return ()
+        case _:
+            raise TypeError(f"Unsupported columns type: {type(columns)}")
+
+
+def _prefix_fields(fields, prefix):
+    """Prefix all field names with 'prefix__'."""
+    return {f"{prefix}__{name}": typ for name, typ in fields.items()}
+
+
+def _process_child_structer(child, name, input_cols):
+    """Process child structer, returning (fields_dict, kv_cols or None).
+
+    Parameters
+    ----------
+    child : Structer
+        Child structer from recursive get_structer_out call
+    name : str
+        Prefix name for the fields
+    input_cols : tuple
+        Columns to track if child has KV output
+
+    Returns
+    -------
+    tuple
+        (schema_fields dict, kv_input_cols or None)
+    """
+    if child.has_kv_output:
+        return {name: KV_ENCODED_TYPE}, input_cols
+    return _prefix_fields(child.struct.fields, name), None
+
+
+@toolz.curry
+def _process_ct_item(expr, item):
+    """Process single ColumnTransformer item -> (fields, kv_cols or None)."""
+    name, transformer, columns = item
+    cols = _normalize_columns(columns)
+
+    match transformer:
+        case "drop":
+            return ({}, None)
+        case "passthrough":
+            input_schema = expr.schema()
+            return (
+                _prefix_fields({col: input_schema[col] for col in cols}, name),
+                None,
+            )
+        case _:
+            child = get_structer_out(transformer, expr, features=cols)
+            return _process_child_structer(child, name, cols)
+
+
+def _merge_ct_results(acc, result):
+    """Merge (fields, kv_cols) into accumulated (schema_fields, kv_input_cols)."""
+    schema_fields, kv_input_cols = acc
+    fields, kv_cols = result
+    return (
+        {**schema_fields, **fields},
+        kv_input_cols + list(kv_cols) if kv_cols else kv_input_cols,
+    )
+
+
+def _get_remainder_fields(transformer_items, features, expr):
+    """Get fields for remainder='passthrough' columns.
+
+    Columns explicitly assigned to any transformer (including 'drop')
+    are considered handled and excluded from remainder.
+    """
+    handled = {
+        col
+        for name, transformer, columns in transformer_items
+        for col in _normalize_columns(columns)
+    }
+    return {col: expr.schema()[col] for col in features if col not in handled}
+
+
+@toolz.curry
+def _process_fu_item(expr, features, item):
+    """Process single FeatureUnion item -> (fields, kv_cols or None)."""
+    name, transformer = item
+    child = get_structer_out(transformer, expr, features=features)
+    return _process_child_structer(child, name, features)
+
+
+@toolz.curry
+def _accumulate_pipeline_step(expr, acc, step):
+    """Accumulate (features, structer) through pipeline steps."""
+    current_features, _ = acc
+    name, transformer = step
+    if transformer == "passthrough":
+        return acc
+    structer = get_structer_out(transformer, expr, features=current_features)
+    new_features = (
+        current_features if structer.has_kv_output else structer.output_columns
+    )
+    return (new_features, structer)
+
+
+def get_structer_out(sklearnish, expr, features=None):
+    """
+    Compute Structer from sklearn-like objects.
+
+    Single source of truth for container schema computation. Handles
+    ColumnTransformer, FeatureUnion, and Pipeline with support for hybrid
+    output (mixed known-schema + KV-encoded columns).
+
+    For leaf transformers, delegates to structer_from_instance.
+
+    Parameters
+    ----------
+    sklearnish : sklearn estimator or container
+        The sklearn object to compute Structer for (unfitted)
+    expr : ibis.Expr
+        Expression providing input schema context
+    features : tuple, optional
+        Features to consider. If None, uses all expr columns.
+
+    Returns
+    -------
+    Structer
+        Complete Structer with struct and input_columns.
+
+    Raises
+    ------
+    TypeError
+        If sklearnish is not a sklearn BaseEstimator or known container type.
+    """
+    from sklearn.base import BaseEstimator
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import FeatureUnion
+    from sklearn.pipeline import Pipeline as SklearnPipeline
+
+    features = features or tuple(expr.columns)
+
+    match sklearnish:
+        case ColumnTransformer():
+            transformer_items = _get_transformer_items(sklearnish)
+
+            schema_fields, kv_input_cols = toolz.reduce(
+                _merge_ct_results,
+                map(_process_ct_item(expr), transformer_items),
+                ({}, []),
+            )
+
+            if sklearnish.remainder == "passthrough":
+                remainder = _get_remainder_fields(transformer_items, features, expr)
+                schema_fields = {
+                    **schema_fields,
+                    **_prefix_fields(remainder, "remainder"),
+                }
+
+            return Structer(
+                struct=dt.Struct(schema_fields),
+                input_columns=tuple(kv_input_cols) if kv_input_cols else None,
+            )
+
+        case FeatureUnion():
+            transformer_items = _get_transformer_items(sklearnish)
+
+            schema_fields, kv_input_cols = toolz.reduce(
+                _merge_ct_results,
+                map(_process_fu_item(expr, features), transformer_items),
+                ({}, []),
+            )
+
+            return Structer(
+                struct=dt.Struct(schema_fields),
+                input_columns=tuple(kv_input_cols) if kv_input_cols else None,
+            )
+
+        case SklearnPipeline():
+            _, final_structer = toolz.reduce(
+                _accumulate_pipeline_step(expr),
+                sklearnish.steps,
+                (features, None),
+            )
+            # If all steps passthrough return default structer
+            if final_structer is None:
+                return Structer.from_names_typ(features, dt.float64)
+
+            # Wrap pure KV-encoded output in struct with "encoded" column
+            if final_structer.is_kv_encoded:
+                return Structer(
+                    struct=dt.Struct({"encoded": KV_ENCODED_TYPE}),
+                    input_columns=final_structer.input_columns,
+                )
+
+            return final_structer
+
+        case BaseEstimator():
+            return structer_from_instance(sklearnish, expr, features)
+
+        case _:
+            raise TypeError(f"Unexpected type in get_structer_out: {type(sklearnish)}")
+
+
+def get_schema_out(sklearnish, expr, features=None):
+    """
+    Compute output schema from sklearn-like objects.
+
+    Parameters
+    ----------
+    sklearnish : sklearn estimator or container
+        The sklearn object to compute schema for (unfitted)
+    expr : ibis.Expr
+        Expression providing input schema context
+    features : tuple, optional
+        Features to consider. If None, uses all expr columns.
+
+    Returns
+    -------
+    ibis.Schema
+        The output schema for the sklearn object.
+    """
+    from xorq.vendor import ibis
+
+    structer = get_structer_out(sklearnish, expr, features)
+    return ibis.schema(structer.struct.fields)
+
+
 @structer_from_instance.register_lazy("sklearn")
 def lazy_register_sklearn():
+    from sklearn.compose import ColumnTransformer
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.feature_selection import SelectKBest
     from sklearn.impute import SimpleImputer
+    from sklearn.pipeline import FeatureUnion
+    from sklearn.pipeline import Pipeline as SklearnPipeline
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
     @structer_from_instance.register(SimpleImputer)
@@ -373,3 +747,15 @@ def lazy_register_sklearn():
     def _(instance, expr, features=None):
         features = features or tuple(expr.columns)
         return Structer(struct=None, input_columns=features, is_series=True)
+
+    @structer_from_instance.register(ColumnTransformer)
+    def _(instance, expr, features=None):
+        return get_structer_out(instance, expr, features)
+
+    @structer_from_instance.register(FeatureUnion)
+    def _(instance, expr, features=None):
+        return get_structer_out(instance, expr, features)
+
+    @structer_from_instance.register(SklearnPipeline)
+    def _(instance, expr, features=None):
+        return get_structer_out(instance, expr, features)

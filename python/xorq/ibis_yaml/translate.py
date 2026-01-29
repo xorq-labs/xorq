@@ -1132,3 +1132,28 @@ def _schema_to_yaml(schema: Schema, context: TranslationContext) -> dict:
 @register_from_yaml_handler(Schema.__name__)
 def _schema_from_yaml(yaml_dict: dict, context: TranslationContext) -> Schema:
     return Schema(toolz.valmap(context.translate_from_yaml, yaml_dict["value"]))
+
+
+# sklearn estimator YAML translation
+# Registration happens at module import time if sklearn is available
+try:
+    from sklearn.base import BaseEstimator
+
+    @translate_to_yaml.register(BaseEstimator)
+    def _sklearn_estimator_to_yaml(
+        obj: BaseEstimator, context: TranslationContext
+    ) -> dict:
+        return freeze(
+            {
+                "op": "SklearnEstimator",
+                "pickled_estimator": serialize_callable(obj),
+            }
+        )
+
+except ImportError:
+    pass
+
+
+@register_from_yaml_handler("SklearnEstimator")
+def _sklearn_estimator_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
+    return deserialize_callable(yaml_dict["pickled_estimator"])

@@ -42,6 +42,7 @@ from xorq.expr.ml.fit_lib import (
 from xorq.expr.ml.structer import (
     Structer,
 )
+from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.expr.types.core import Expr
 
 
@@ -150,7 +151,7 @@ class Step:
 
     typ = field(validator=instance_of(type))
     name = field(validator=optional(instance_of(str)), default=None)
-    params_tuple = field(validator=instance_of(tuple), default=(), converter=tuple)
+    params_tuple = field(validator=instance_of(tuple), default=(), converter=freeze)
 
     def __attrs_post_init__(self):
         from sklearn.base import BaseEstimator

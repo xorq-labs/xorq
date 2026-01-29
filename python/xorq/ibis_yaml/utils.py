@@ -11,6 +11,8 @@ def freeze(obj):
         return FrozenOrderedDict({k: freeze(v) for k, v in obj.items()})
     elif isinstance(obj, list):
         return tuple(freeze(x) for x in obj)
+    elif isinstance(obj, tuple):
+        return tuple(freeze(x) for x in obj)
     return obj
 
 
