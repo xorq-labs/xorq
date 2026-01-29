@@ -195,8 +195,6 @@ class Structer:
     2. KV-encoded (struct is None): Output uses KVEncoder format, resolved at runtime
 
     For KV-encoded mode, input_columns tracks which columns get transformed.
-    passthrough_columns tracks columns that pass through unchanged (e.g., from
-    ColumnTransformer with remainder='passthrough').
 
     The needs_target field indicates whether the transformer requires a target
     variable (y) during fitting (e.g., supervised feature selectors like SelectKBest).
@@ -209,11 +207,6 @@ class Structer:
     input_columns = field(
         validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
         default=None,
-        converter=if_not_none(tuple),
-    )
-    passthrough_columns = field(
-        validator=optional(deep_iterable(instance_of(str), instance_of(tuple))),
-        default=(),
         converter=if_not_none(tuple),
     )
     needs_target = field(
@@ -502,7 +495,7 @@ def get_structer_out(sklearnish, expr, features=None):
     Returns
     -------
     Structer
-        Complete Structer with struct, passthrough_columns, and input_columns.
+        Complete Structer with struct and input_columns.
     """
     from sklearn.compose import ColumnTransformer
     from sklearn.pipeline import FeatureUnion
@@ -514,7 +507,6 @@ def get_structer_out(sklearnish, expr, features=None):
         case ColumnTransformer():
             transformer_items = _get_transformer_items(sklearnish)
             schema_fields = {}
-            passthrough_cols = []
             kv_input_cols = []
 
             for name, transformer, columns in transformer_items:
@@ -526,9 +518,7 @@ def get_structer_out(sklearnish, expr, features=None):
                     case "passthrough":
                         input_schema = expr.schema()
                         for col in cols:
-                            prefixed = f"{name}__{col}"
-                            schema_fields[prefixed] = input_schema[col]
-                            passthrough_cols.append(prefixed)
+                            schema_fields[f"{name}__{col}"] = input_schema[col]
                     case _:
                         child = get_structer_out(transformer, expr, features=cols)
 
@@ -546,14 +536,11 @@ def get_structer_out(sklearnish, expr, features=None):
                         handled.update(_normalize_columns(columns))
                 for col in features:
                     if col not in handled:
-                        prefixed = f"remainder__{col}"
-                        schema_fields[prefixed] = expr.schema()[col]
-                        passthrough_cols.append(prefixed)
+                        schema_fields[f"remainder__{col}"] = expr.schema()[col]
 
             return Structer(
                 struct=dt.Struct(schema_fields),
                 input_columns=tuple(kv_input_cols) if kv_input_cols else None,
-                passthrough_columns=tuple(passthrough_cols),
             )
 
         case FeatureUnion():

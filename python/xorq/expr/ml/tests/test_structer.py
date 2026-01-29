@@ -483,7 +483,6 @@ class TestColumnTransformerStructer:
         # sklearn-style prefixes
         assert "scaler__num1" in structer.struct.fields
         assert "scaler__num2" in structer.struct.fields
-        assert structer.passthrough_columns == ()
 
     def test_kv_encoded_transformer(self):
         """Test ColumnTransformer with KV-encoded transformer."""
@@ -501,7 +500,6 @@ class TestColumnTransformerStructer:
         # Containers use any_kv_encoded (has KV column in hybrid struct)
         assert structer.any_kv_encoded
         assert structer.input_columns == ("cat",)
-        assert structer.passthrough_columns == ()
         # KV-encoded child produces named KV column
         assert "encoder" in structer.struct.fields
 
@@ -547,7 +545,6 @@ class TestColumnTransformerStructer:
         # sklearn-style prefixes
         assert "scaler__num" in structer.struct.fields
         assert "pass__cat" in structer.struct.fields
-        assert structer.passthrough_columns == ("pass__cat",)
 
     def test_remainder_passthrough(self):
         """Test ColumnTransformer with remainder='passthrough'."""
@@ -566,10 +563,6 @@ class TestColumnTransformerStructer:
         assert "scaler__num" in structer.struct.fields
         assert "remainder__cat" in structer.struct.fields
         assert "remainder__other" in structer.struct.fields
-        assert set(structer.passthrough_columns) == {
-            "remainder__cat",
-            "remainder__other",
-        }
 
     def test_remainder_passthrough_with_kv_encoded(self):
         """Test ColumnTransformer with remainder='passthrough' and KV-encoded transformer."""
@@ -585,11 +578,6 @@ class TestColumnTransformerStructer:
 
         assert structer.any_kv_encoded
         assert structer.input_columns == ("cat",)
-        # sklearn-style prefixes for remainder
-        assert set(structer.passthrough_columns) == {
-            "remainder__num1",
-            "remainder__num2",
-        }
 
     def test_drop_transformer(self):
         """Test ColumnTransformer with drop transformer."""
@@ -1059,35 +1047,6 @@ class TestSklearnPipelineStructer:
         assert not structer.any_kv_encoded
         assert "num1" in structer.struct.fields
         assert "num2" in structer.struct.fields
-
-    def test_passthrough_columns_from_final_step(self):
-        """Test passthrough_columns reflects only the final step."""
-        from sklearn.compose import ColumnTransformer
-        from sklearn.impute import SimpleImputer
-        from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import StandardScaler
-
-        t = xo.memtable({"num": [1.0, 2.0], "cat": ["a", "b"]})
-        # ColumnTransformer has passthrough, but SimpleImputer doesn't
-        pipe = Pipeline(
-            [
-                (
-                    "ct",
-                    ColumnTransformer(
-                        [
-                            ("scaler", StandardScaler(), ["num"]),
-                        ],
-                        remainder="passthrough",
-                    ),
-                ),
-                ("imputer", SimpleImputer()),
-            ]
-        )
-        structer = Structer.from_instance_expr(pipe, t)
-
-        assert not structer.any_kv_encoded
-        # passthrough_columns is from final step (SimpleImputer), which is empty
-        assert structer.passthrough_columns == ()
 
     def test_nested_pipeline_with_passthrough(self):
         """Test Pipeline(Pipeline()) where inner pipeline has passthrough columns."""
