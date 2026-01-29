@@ -5,16 +5,6 @@ description: "Understand how Xorq uses uv to create hermetic, reproducible Pytho
 
 Your pipeline works perfectly on your laptop today. You deploy it to production next week, and it breaks because pandas updated from 2.1.0 to 2.2.0. A method you use changed behavior. Code that hasn't changed produces different results because the environment changed. Reproducible environments with uv solve this by locking every dependency to exact versions, ensuring identical execution across time and machines.
 
-## What you'll understand
-
-After reading this page, you'll understand:
-
-- Why reproducible environments matter for preventing environment drift, transitive dependency conflicts, and time-based failures that cause production breaks from dependency updates
-- How `uv-build` creates hermetic builds through dependency resolution, environment isolation, build execution in locked environments, and artifact packaging with metadata
-- When to use `uv-build` for production deployments, compliance audits, and team collaboration versus regular `build` for development iteration, prototyping, and solo work
-- What you gain in full reproducibility, audit trails, and isolation versus what you lose in slower builds, tooling complexity, and lock file management
-
-
 ## What are reproducible environments?
 
 A reproducible environment is a Python environment where every dependency, including transitive dependencies, is locked to a specific version. Running code in this environment produces identical results regardless of when or where you execute it.
@@ -109,7 +99,7 @@ xorq build pipeline.py -e features
 
 ### Pros
 
-- Fast with no environment creation, typically under one second.
+- Fast with no environment creation.
 - Simple because it uses your existing environment with no additional tools.
 - Good for development iteration with quick build, test, and repeat cycles.
 
@@ -140,7 +130,7 @@ xorq uv-build pipeline.py -e features
 
 ### Cons
 
-- Slower because it creates an environment each time, typically 10-30 seconds.
+- Slower because it creates an environment each time.
 - Requires uv installed as an additional tooling dependency.
 - More complex setup requiring pyproject.toml and lock files.
 - Lock file management requiring commits and updates to uv.lock.
@@ -212,24 +202,13 @@ The build directory also includes a packaged sdist (`.tar.gz` file) that contain
 
 Deciding when to use reproducible environments depends on your deployment patterns and collaboration needs.
 
-### Use reproducible environments when:
+### Use reproducible environments when
 
-- You're deploying to production with daily scheduled pipelines that need consistency.
-- Compliance requires audit trails because regulators ask "which versions?".
-- Multiple people collaborate on the same pipeline and the team needs identical environments.
-- You need to recreate results months later for research reproducibility or compliance audits.
-- Environment consistency matters more than build speed, prioritizing correctness over convenience.
-- Production stakes are high because failures cost money, reputation, and compliance.
+- Deploying to production; compliance or audit trails matter; multiple people need identical environments; you need to recreate results later.
 
 ### Use regular builds when
 
-- You're doing interactive development with iterate, test, and repeat cycles.
-- You're prototyping and iterating quickly, prioritizing speed over reproducibility.
-- You're working solo with no deployment needs and no production risk.
-- Build speed matters more than reproducibility for exploratory work or throwaway code.
-- Code never leaves development like notebooks, experiments, or one-off analyses.
-
-If you're exploring data in a notebook, then use regular `build` or run directly with `.execute()` for faster iteration. The overhead of uv, lock files, and environment isolation exceeds the benefit when code never leaves your laptop.
+- Interactive development or prototyping; solo, no deployment; build speed matters more than reproducibility; code never leaves your machine.
 
 ## Reproducibility guarantees
 
@@ -269,27 +248,9 @@ For full system-level reproducibility including system libraries like OpenSSL, c
 
 ## Trade-offs
 
-Reproducible environments provide deployment consistency, but require additional tooling and workflow changes.
+**Benefits**: Full reproducibility, audit trails, isolation, time-proof builds, team alignment.
 
-### Benefits:
-
-- **Full reproducibility:** Same code + same environment = same results, guaranteed.
-- **Audit trails:** Know exactly which versions were used where pandas 2.1.0, numpy 1.25.0.
-- **Isolation:** No environment pollution from other projects, clean slate every build.
-- **Time-proof:** Builds work the same way months later, immune to external updates.
-- **Team alignment:** Everyone uses identical environments, no "works on my machine."
-
-### Costs:
-
-- **Build time:** Creating isolated environments takes longer, typically 10-30 seconds versus under 1 second.
-- **Complexity:** Requires understanding uv, pyproject.toml, lock files, and environment isolation.
-- **Storage:** Lock files and metadata consume space, typically 100-500KB per project.
-- **Tooling dependency:** Requires uv installed and configured correctly.
-- **Lock file management:** Need to commit, update, and resolve conflicts in uv.lock.
-
-### When the trade-off is worth it
-
-If you're doing exploratory work that never leaves your laptop like ad-hoc analyses, prototype notebooks, or one-time reports, then the overhead isn't justified. Regular builds or direct execution provide faster iteration with acceptable risk.
+**Costs**: Longer build time, complexity from uv and lock files, storage, tooling dependency, and lock file management.
 
 ## Learning more
 
@@ -298,7 +259,3 @@ If you're doing exploratory work that never leaves your laptop like ad-hoc analy
 [Compute catalog](compute_catalog.qmd) discusses how to catalog uv-builds like regular builds.
 
 [Build reproducible environments guide](../../guides/platform_workflows/build_reproducible_environments.qmd) provides production workflows with uv. [uv-build CLI reference](../../api_reference/cli/uv-build.qmd) covers complete uv-build documentation.
-
-
-
-

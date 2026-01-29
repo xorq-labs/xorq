@@ -5,13 +5,6 @@ description: "Understand how UDXFs enable distributed processing with Apache Arr
 
 Calling OpenAI's API to analyze one million customer reviews using regular UDFs means blocking the query engine for seconds per API call. A single API timeout or network failure crashes your entire pipeline because the UDF and query engine share the same process. UDXFs solve this challenge by running your Python logic in separate processes that communicate via Apache Arrow Flight. This provides process isolation that protects the query engine from failures and enables safe external service calls.
 
-## What you'll understand
-
-- What UDXFs are and how they differ from regular UDFs through distributed execution architecture
-- When to use UDXFs for external API calls and heavy computation versus regular UDFs for simple transformations
-- How Arrow Flight enables efficient distributed processing through zero-copy data transfer between processes
-- The trade-offs between process isolation benefits and communication overhead costs in production systems
-
 ## What are user-defined exchange functions?
 
 User-defined exchange functions are distributed UDFs that execute in separate processes or remote services rather than running in the same process as your query engine. Unlike regular UDFs that run through direct function calls, UDXFs communicate over Apache Arrow Flight protocol to exchange data between processes.
@@ -294,49 +287,15 @@ This pattern enables sharing processing logic across multiple applications. It p
 
 ## When to use UDXFs
 
-Deciding when to use UDXFs depends on your isolation needs, computation patterns, and service architecture requirements.
+**Use UDXFs when**: You call external APIs or LLMs with unpredictable latency, run heavy ML models that need memory or GPU, run unreliable or untrusted code, or build microservices.
 
-### Use UDXFs when:
-
-- You're calling external APIs with REST APIs, LLM services, or other HTTP endpoints that have unpredictable latency.
-- You're running heavy ML models that consume gigabytes of memory or require GPU acceleration for inference.
-- You're executing unreliable operations that might crash or hang, like processing untrusted data or experimental code.
-- You're building microservice architectures with processing logic that needs to run as an independent service for multiple clients.
-
-### Use regular UDFs when:
-
-- You're doing simple transformations that complete in under 100ms without external dependencies or heavy computation.
-- You're performing arithmetic operations, string transformations, or basic data cleaning that runs faster without communication overhead.
-- You're implementing operations tightly coupled to the query engine, like custom aggregations that interact with the query planner.
-
-Processing one million customer reviews with OpenAI sentiment analysis requires UDXFs. External API calls with seconds of latency would block the query engine if run as regular UDFs. The UDXF process handles API calls independently, batches requests for efficiency, and isolates failures so one bad review doesn't crash the pipeline.
-
-Calculating the ratio between two columns works better as a regular UDF. The operation completes in microseconds while Flight communication overhead takes milliseconds. This makes the overhead larger than the computation time itself.
+**Use regular UDFs when**: Transforms are simple and fast with no external dependencies, you need arithmetic or string operations, or operations are tightly coupled to the query engine.
 
 ## Trade-offs
 
-UDXFs provide process isolation and distributed execution, but they also introduce operational complexity and communication overhead costs.
+**Benefits**: Process isolation, remote execution, resource management, parallel execution, fault tolerance, microservices pattern.
 
-### Benefits:
-
-- Process isolation prevents crashes in custom code from affecting the query engine, supporting safe execution of untrusted code.
-- Remote execution lets you deploy processing logic on different machines or specialized hardware like GPU servers.
-- Resource management becomes explicit because you can dedicate specific CPU and memory allocations to UDXF processes.
-- Parallel execution scales naturally by running multiple UDXF processes across machines without manual orchestration.
-- Fault tolerance improves because UDXF failures don't crash entire pipelines, allowing graceful degradation.
-- Microservices pattern enables deploying as standalone services that multiple clients can access independently.
-
-### Costs:
-
-- Communication overhead from Arrow Flight adds latency, typically 1-5ms per batch transfer depending on data size.
-- Complexity increases through server startup and shutdown coordination, error handling across process boundaries, and monitoring multiple services.
-- Debugging becomes more challenging since errors span multiple processes and require distributed tracing to understand failures.
-- Server management overhead includes process spawning costs, typically 10-50ms, and resource allocation coordination.
-- Development complexity increases because you need explicit schemas for both input and output data.
-
-External API calls and heavy ML model inference justify the UDXF overhead. The alternative of in-process execution creates worse problems through blocked query engines and crash contagion. A 5ms Flight overhead is negligible compared to 500ms API call latency.
-
-Simple transformations like string concatenation or arithmetic operations work better as regular UDFs. The computation takes microseconds while Flight communication takes milliseconds, making the overhead larger than the benefit.
+**Costs**: Communication overhead, complexity from server startup and shutdown and cross-process errors, debugging that may require distributed tracing, server management, and explicit schemas.
 
 ## Learning more
 

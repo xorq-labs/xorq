@@ -177,22 +177,9 @@ Doing ad-hoc SQL queries for internal reporting with one-time analysis means lin
 
 ## Understanding trade-offs
 
-Lineage tracking in Xorq provides significant benefits for debugging and compliance, but comes with cognitive complexity costs.
+**Benefits**: Automatic tracking, column-level granularity, available for any built expression, and no execution overhead because lineage is computed only when you ask for it.
 
-### Benefits:
-
-- Automatic tracking captures lineage without manual annotation or configuration work.
-- Column-level granularity shows exact dependencies between specific columns, not just tables.
-- Available for any built expression because the build stores the full expression graph.
-- No query-execution overhead, because lineage is computed only when you ask for it.
-
-### Costs:
-
-- Complexity grows where large pipelines with 50+ operations create hard-to-navigate graphs.
-- Learning curve requires graph thinking rather than sequential thinking about transformations.
-- Structural only limitation means lineage shows logic paths but not actual data values.
-
-If you need debugging support to find where bad data entered or compliance documentation for audits, then automatic tracking outweighs overhead. If you're building simple pipelines that never need debugging like one-operation filters, then graph complexity isn't justified. But since lineage is automatic, you get it anyway without performance cost or configuration.
+**Costs**: Complexity when pipelines are large and graphs are hard to navigate, a learning curve to think in graphs rather than sequences, and structural-only visibility so you see logic paths but not actual data values.
 
 ## Learning more
 

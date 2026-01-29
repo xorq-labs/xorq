@@ -5,13 +5,6 @@ description: "Understand how Xorq versions computations by logic rather than res
 
 Imagine Git versioning your code based on what it accomplishes rather than when you commit changes. Traditional systems use timestamps or results for versioning, which creates duplicate work and coordination overhead. Input-addressed computation works differently: Xorq identifies computations by their logic instead of their outputs.
 
-## What you'll understand
-
-- What input-addressed computation is and why it fundamentally matters for ML infrastructure design
-- How input addressing differs from output addressing in terms of reuse and coordination patterns
-- Problems that input addressing solves in ML pipelines through concrete production scenarios
-- When input addressing provides value versus when it adds unnecessary complexity overhead
-
 ## What is input-addressed computation?
 
 Input-addressed computation identifies a computation by its specification rather than by results it produces. Xorq generates a unique identifier from your computation logic without considering the output data or execution context. The specification includes operations and inputs.
@@ -216,52 +209,18 @@ predicted:
 
 ## When to use input addressing
 
-Team collaboration patterns and computation reuse opportunities determine whether input addressing justifies its conceptual complexity.
+**Use input addressing when**: You reuse logic across datasets; multiple people might create the same features; logic-based cache invalidation or reproducibility matters.
 
-### Use input addressing when:
-
-- You reuse computation logic across datasets regularly, like monthly feature engineering on new data.
-- Multiple team members might independently create the same features, which input addressing detects automatically.
-- Automatic cache invalidation based on logic changes matters for correctness and efficiency.
-- Reproducibility matters because the same code must produce the same identifier across machines and time.
-
-### Skip input addressing when:
-
-- Your analyses are one-off without reuse opportunities.
-- Versioning by execution time matters more than versioning by logic for compliance requirements.
-- Your workflow doesn't involve caching or catalogs so input addressing provides no infrastructure value.
-
-A data science team building customer segmentation features that run monthly on new data benefits greatly from input addressing. When Developer B writes similar segmentation logic, Xorq detects the match and suggests reusing Developer A's work. Doing ad-hoc SQL queries that never repeat makes input addressing add complexity without any reuse benefit.
+**Skip input addressing when**: One-off analyses; versioning by execution time is required; you don't use caching or catalogs.
 
 ## Trade-offs
 
-Input addressing provides automatic discovery and precise caching, but it also introduces conceptual complexity and learning requirements.
+**Benefits**: Automatic reuse, precise caching that invalidates only when logic changes, team coordination, reproducibility, logic-based versioning, and deduplication.
 
-### Benefits:
-
-- Automatic reuse happens because the same logic produces the same address, letting teams discover existing work automatically.
-- Precise caching invalidates only when logic changes, preventing both stale results and unnecessary recomputation.
-- Team coordination becomes automatic because no manual tracking of who computed what is needed.
-- Reproducibility guarantees the same code always produces the same address across different machines and time periods.
-- Logic-based versioning captures computational intent rather than execution accidents like timestamps or machine IDs.
-- Deduplication is free because identical logic across team members gets unified identifiers automatically.
-
-### Costs:
-
-- Conceptual complexity requires understanding input versus output addressing, a new mental model for developers.
-- Address opacity means hashes like `a3f5c9d2` are difficult for humans to interpret without catalog aliases.
-- Computation overhead for generating addresses takes time, though usually only milliseconds per expression.
-- Learning curve exists because this represents a different mental model compared to timestamp-based versioning.
-- Documentation burden increases because teams need to understand when addresses change versus when they stay stable.
-
-Your bottleneck determines whether trade-offs justify adoption. Duplicate work across team members or manual cache management justifies input addressing's automatic reuse benefits. Working solo on one-off analyses makes the overhead unjustified because no coordination problems exist.
+**Costs**: Conceptual complexity because you must understand input versus output addressing, address opacity, computation overhead, and learning curve.
 
 :::{.callout-note}
-Input addressing has nothing to do with caching data. It means identifying computations by their inputs, specifically operations and predicates. Input addressing is about computation identity, not data storage mechanisms. If you confuse input addressing with data caching, you'll misunderstand how Xorq's versioning system works.
-:::
-
-:::{.callout-note}
-Input addressing complements version control rather than replacing it. Git versions your code including source files and commit history. Input addressing versions your computations, including what code computes. You need both systems working together for complete versioning coverage.
+Input addressing identifies computations by their logic, such as operations and predicates, not by data. It complements Git: Git versions code; input addressing versions what the code computes.
 :::
 
 ### Learning more

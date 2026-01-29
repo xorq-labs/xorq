@@ -5,15 +5,6 @@ description: "Understand Xorq's YAML-based manifest format and what makes it por
 
 Your Python pipeline runs perfectly on your laptop with DuckDB, but now you need to deploy it to production Snowflake. Rewriting the code for a different engine wastes time and introduces bugs. Xorq solves this with a YAML-based manifest format that works across all engines without rewrites.
 
-## What you'll understand
-
-This page explains the following concepts:
-
-- What the YAML expression format contains and how it supports engine-independent execution across backends
-- When portable manifests matter versus when they add overhead to simple workflows without benefit
-- What you gain in version control, automatic reuse, and portability versus what you lose in direct execution
-- How to decide between building manifests for reuse versus running immediate code
-
 ## What is the expression format?
 
 The expression format is Xorq's YAML-based serialization of your computation. It describes what operations to perform without specifying how to execute them. When you run `xorq build`, Xorq converts your Python code into declarative YAML files. Since this format is engine-independent, the same manifest can execute on DuckDB, Snowflake, PostgreSQL, or any backend.
@@ -99,7 +90,7 @@ graph TB
 The `expr.yaml` file is engine-independent while `profiles.yaml` is engine-specific for configuration and connection management across environments. This separation means you can change backends by swapping profiles without touching the expression manifest itself.
 
 :::{.callout-tip}
-The manifest is small, typically only a few KB, because it contains computation logic, not data. A pipeline processing 100GB of data might have a 10KB manifest. Logic is compact even when data is large.
+The manifest is small because it contains computation logic, not data. Logic is compact even when data is large.
 :::
 
 ## How the format provides portability
@@ -175,23 +166,9 @@ The definitions-then-expression structure supports deduplication. If operations 
 
 ## When expression format matters
 
-The expression format isn't always necessary. For simple scripts or single-engine workflows, the build step adds overhead without clear benefits. Here's how to decide whether building manifests is worth it for your use case.
+**Use expression format when**: You need portability across engines; versioning or compliance; team-wide reuse; production pipelines with caching.
 
-### Use expression format when
-
-- You need portability across engines. The same manifest runs on local DuckDB, production Snowflake, and staging PostgreSQL without changes.
-- You're versioning ML pipelines for reproducibility and compliance. Declarative manifests version computation separately from code.
-- You want team-wide computation reuse. Data engineering, analytics, and ML teams can share features through manifests.
-- You're building production infrastructure that runs repeatedly. Automatic caching uses computation logic hashes to reuse results.
-
-### Skip expression format when
-
-- You're writing one-off exploratory scripts that run once and get deleted. The manifest overhead exceeds the value for throwaway work.
-- You're using a single engine forever with no plans to switch. Portability benefits become irrelevant.
-- You don't need versioning or reproducibility. The build step overhead exceeds the benefits.
-- You're working alone without sharing computations. Reuse capabilities provide no value.
-
-A fraud detection pipeline that runs in DuckDB during development and Snowflake in production clearly benefits from the expression format. If you need versioning for compliance audits, then the format provides value through portability and caching. On the other hand, if you're exploring data in a notebook with throwaway analysis, then immediate pandas code is simpler since you don't need build steps for single-use scripts.
+**Skip expression format when**: One-off scripts; single engine forever; no versioning or sharing; solo, no reuse.
 
 ## When to inspect manifests
 
@@ -229,7 +206,8 @@ Xorq manifests support roundtrip conversion, so you can go from Python expressio
 
 ```python
 import xorq.api as xo
-from xorq.ibis_yaml.compiler import BuildManager
+from pathlib import Path
+from xorq.ibis_yaml.compiler import build_expr, load_expr
 
 # Build expression
 data = xo.memtable({
@@ -238,12 +216,11 @@ data = xo.memtable({
 })
 expr = data.filter(xo._.amount > 100)
 
-# Compile to manifest
-build_manager = BuildManager("builds")
-expr_hash = build_manager.compile_expr(expr)
+# Compile to manifest (returns path to build directory)
+build_path = build_expr(expr, builds_dir=Path("builds"))
 
 # Load back from manifest
-roundtrip_expr = build_manager.load_expr(expr_hash)
+roundtrip_expr = load_expr(build_path)
 
 # roundtrip_expr is equivalent to original expr
 ```
@@ -252,26 +229,9 @@ This roundtrip capability means manifests aren't just for execution. They also s
 
 ## Understanding trade-offs
 
-The expression format offers significant benefits, but it comes with costs. Here's what you gain:
+**Benefits**: Engine portability, human-readable format, version-friendly because manifests diff cleanly in Git, composable because you can roundtrip to Python, and automatic caching.
 
-**Engine portability**: The same manifest runs on DuckDB, Snowflake, PostgreSQL, and more without rewrites when switching backends.
-
-**Human-readable format**: You can inspect manifests to understand what they compute, which helps significantly during debugging sessions.
-
-**Version-friendly**: Manifests diff cleanly in Git, showing exactly what changed and supporting effective code review processes.
-
-**Composable**: Manifests load back into Python for extension or modification, enabling collaborative development through roundtrip conversion.
-
-**Automatic caching**: Content hashes provide automatic result reuse without manual cache key management overhead.
-
-Here's what you give up:
-
-- **Build step required**: You can't just run Python directly since you need `xorq build` first to generate manifests.
-- **Format complexity**: The YAML structure is sophisticated and not trivial to parse manually for inspection.
-- **Abstraction overhead**: The manifest adds a layer between your code and execution, which complicates debugging in some scenarios.
-- **Learning curve**: Understanding when to build versus when to execute takes time, though experience clarifies the decision framework.
-
-The trade-off is worth it when you need portability across engines, versioning of computation logic, or team-wide feature reuse. For production ML pipelines running daily on 100GB+ datasets, the format supports optimizations that save hours of compute time. For one-off analyses that never need reuse or sharing, the build step overhead exceeds the benefits.
+**Costs**: Build step required, format complexity, abstraction overhead, learning curve.
 
 :::{.callout-note}
 The manifest contains computation logic, not data. It describes what to compute: filter rows, join tables, aggregate values. These operations don't include actual row values.
@@ -286,8 +246,3 @@ A 100GB dataset produces a compact manifest because only the computation logic s
 [How Xorq works](how_xorq_works.qmd) shows where manifest compilation fits in the pipeline. [Why deferred execution](why_deferred_execution.qmd) explains how manifests capture deferred expressions.
 
 [Build system](../reproducibility/build_system.qmd) discusses how `xorq build` generates manifests. [Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) explains how manifests get unique hashes. [Compute catalog](../reproducibility/compute_catalog.qmd) details how manifests get registered and discovered.
-
-
-
-
-

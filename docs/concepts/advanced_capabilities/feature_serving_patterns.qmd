@@ -47,19 +47,7 @@ Understanding when computation and serving happen clarifies why batch precomputa
 
 ### When to use batch precomputation
 
-Specific scenarios make batch precomputation the optimal choice for feature serving:
-
-- Features require expensive computation, like multi-table joins or long time windows
-- You can tolerate staleness where hourly, daily, or weekly updates are acceptable
-- You need sub-10ms response latency
-- You serve millions of entities where batch spreads cost efficiently
-
-**Real examples**:
-
-- Customer lifetime value updated daily
-- Fraud risk scores recomputed hourly  
-- User segments updated weekly
-- 90-day spending aggregations
+Features need expensive computation such as multi-table joins or long time windows. Staleness is acceptable at hourly, daily, or weekly updates. You need very low response latency and serve millions of entities so batch spreads cost.
 
 ### Why this pattern works
 
@@ -69,24 +57,7 @@ Storage becomes the serving layer. Fast storage, such as in-memory cache or loca
 
 ### Trade-offs
 
-Every pattern involves accepting certain limitations to gain specific benefits.
-
-**You gain**:
-
-- Ultra-fast lookups (1-10ms) regardless of feature complexity
-- Predictable latency since computation happened earlier
-- Efficient resource usage through batching
-
-**You accept**:
-
-- Stale features that are hours to days old
-- Storage infrastructure requirements
-- Batch job management overhead
-- New entities appear only after the next batch run
-
-### Organizational implications
-
-Batch patterns require data engineering capabilities, including skills in scheduling jobs, managing storage, and monitoring batch pipelines. If batch jobs fail, then serving stops working, creating operational dependencies.
+**You gain**: Ultra-fast lookups, predictable latency, efficient batching. **You accept**: Stale features that are hours to days old, storage and batch job management, and new entities only after the next run.
 
 ## Pattern 2: On-demand computation
 
@@ -106,19 +77,7 @@ No batch phase exists, and no precomputation happens, so every request pays the 
 
 ### When to use on-demand computation
 
-Specific requirements make on-demand computation the right choice for your serving needs:
-
-- Features must be up-to-date within seconds, like the current cart or the last action
-- Features compute quickly with simple filters on recent data only
-- You tolerate 50-500ms latency
-- You serve thousands of entities, not millions
-
-**Real examples**:
-
-- Current shopping cart contents
-- Last 24-hour activity summaries
-- Real-time session features
-- Most recent user action
+Features must be up-to-date within seconds. Computation is cheap with simple filters on recent data. You tolerate higher per-request latency and serve thousands of entities rather than millions.
 
 ### Why this pattern works
 
@@ -128,24 +87,7 @@ Features are guaranteed to be up-to-date. If data changes one second ago, then f
 
 ### Trade-offs
 
-On-demand computation offers distinct benefits and limitations compared to batch processing.
-
-**You gain**:
-
-- Always up-to-date features reflecting the current database state
-- Simplified infrastructure with no batch jobs or storage
-- Immediate feature updates when data changes
-
-**You accept**:
-
-- Higher latency from computation on every request
-- Database load scaling with request volume
-- Unpredictable latency if computation complexity varies
-- Expensive features make all requests slow
-
-### Organizational implications
-
-On-demand patterns require backend engineering that relies on fast databases and optimized queries. Database performance directly impacts serving performance, so if queries slow down, then serving slows down.
+**You gain**: Always up-to-date features, simplified infrastructure with no batch or storage to manage, and immediate updates. **You accept**: Higher latency, database load, unpredictable latency, and expensive features that slow all requests.
 
 ## Pattern 3: Hybrid computation
 
@@ -165,18 +107,7 @@ Hybrid computation operates in two distinct phases that work together to balance
 
 ### When to use hybrid computation
 
-Hybrid patterns work best when you need to balance multiple competing requirements:
-
-- You need both speed and up-to-date data
-- Features are split naturally into expensive and cheap categories
-- Your latency budget is 50-200ms
-- You build production ML systems at scale
-
-**Real examples**:
-
-- Fraud detection combining lifetime patterns with recent behavior
-- Recommendations combining user preferences with the current session
-- Credit scoring combines payment history with recent applications
+You need both speed and freshness. Features split naturally into expensive ones for batch and cheap ones for on-demand. Your latency budget allows combined lookup and computation. You run production ML at scale.
 
 ### Why this pattern works
 
@@ -186,24 +117,7 @@ The pattern adapts to your specific features. If 90% of the computation cost com
 
 ### Trade-offs
 
-Hybrid computation balances the benefits of both batch and on-demand patterns while introducing its own complexity.
-
-**You gain**:
-
-- Balanced speed from batch and up-to-date data from on-demand
-- Flexibility to tune based on specific requirements
-- Optimal performance for most production systems
-
-**You accept**:
-
-- Increased architectural complexity with two computation paths
-- Need to analyze which features should be batch versus on-demand
-- Requirements for both storage infrastructure and database access
-- More components that can fail independently
-
-### Organizational implications
-
-Hybrid patterns require both data engineering and backend engineering, where teams need skills for batch jobs, storage, databases, and serving coordination. Complexity increases, but so does optimization potential.
+**You gain**: Balanced speed and freshness, flexibility, and optimal performance for many production systems. **You accept**: Two computation paths, analysis to split batch versus on-demand, dual infrastructure, and more failure points.
 
 ## Choosing the correct pattern
 

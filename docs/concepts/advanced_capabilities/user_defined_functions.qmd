@@ -5,13 +5,6 @@ description: "Understand how to extend Xorq with custom Python functions that wo
 
 Applying complex business rules requires custom logic beyond standard SQL operations and built-in functions. Built-in functions handle sum, filter, and join operations, but not your specific discount calculations. User-defined functions solve this by wrapping your Python logic for both expressions and queries.
 
-## What you'll understand
-
-- What user-defined functions are and how they extend Xorq built-in operations for custom functionality
-- When to use UDFs versus built-in functions based on your performance and functionality requirements for workflows
-- How to create UDFs using `make_pandas_udf` by defining functions and specifying schemas for implementation
-- The trade-offs between extensibility and performance that UDFs involve in production systems and pipelines
-
 ## What are user-defined functions?
 
 User-defined functions (UDFs) are custom Python functions that work in both Xorq expressions and SQL queries. You write Python code that operates on pandas DataFrames, and Xorq makes it available as a function that executes consistently across different backends. This lets you extend Xorq's built-in operations with domain-specific logic for custom business rules, API calls, and complex transformations that aren't built into the system.
@@ -58,11 +51,11 @@ UDFs solve these by making Python functions first-class operations in Xorq. Your
 
 UDFs operate in three stages:
 
-**Function definition:** You write a Python function that takes a pandas DataFrame and returns a Series or scalar. This function contains your custom logic.
+**Function definition**: You write a Python function that takes a pandas DataFrame and returns a Series or scalar. This function contains your custom logic.
 
-**UDF wrapping:** You wrap the function with `make_pandas_udf`, specifying the input schema and return type. This creates a UDF constructor.
+**UDF wrapping**: You wrap the function with `make_pandas_udf`, specifying the input schema and return type. This creates a UDF constructor.
 
-**UDF application:** You apply the UDF to expressions using `.on_expr()`. After registration, UDFs can be used in SQL queries by name. Xorq handles data conversion and execution. The UDF lifecycle from definition to execution follows this sequence:
+**UDF application**: You apply the UDF to expressions using `.on_expr()`. After registration, UDFs can be used in SQL queries by name. Xorq handles data conversion and execution. The UDF lifecycle from definition to execution follows this sequence:
 
 ```{mermaid}
 %%| eval: true
@@ -221,24 +214,9 @@ The UDF name you specify becomes a SQL function after registration. Once registe
 
 ## When to use UDFs
 
-Deciding when to use UDFs depends on your needs for custom logic and performance requirements.
+**Use UDFs when**: You need domain-specific logic such as business rules, APIs, or complex Python-only transforms, or when you want to share Python logic with SQL users.
 
-### Use UDFs when:
-
-- You need domain-specific logic not available in built-in functions, like custom business rules or industry calculations.
-- You want to share Python logic with SQL users to enable collaboration across teams.
-- You're calling external APIs or services like geocoding, sentiment analysis, or price lookups.
-- You need complex transformations that are easier in Python than SQL, like multi-step calculations or conditional logic.
-- The operation is specific to your domain and not a general-purpose operation.
-
-### Use built-in functions when:
-
-- Xorq has the operation, like sum, filter, join, string operations, or date functions.
-- Performance is critical and the operation is on the hot path, executed millions of times.
-- The operation is common across many use cases as a standard transformation.
-- You can compose built-ins to achieve your goal by combining filter, mutate, and group_by.
-
-Summing a column or filtering rows works better with built-in operations. This is because they run natively in the backend with full query planner optimization, making them significantly faster than UDF equivalents.
+**Use built-in functions when**: Xorq already has the operation, for example sum, filter, or join; performance is critical; or you can compose built-ins to get the result.
 
 ## UDF best practices
 
@@ -296,27 +274,9 @@ discount_udf = make_pandas_udf(...)
 
 ## Trade-offs
 
-UDFs provide extensibility for custom logic, but they introduce performance overhead compared to built-in operations.
+**Benefits**: Extensibility, portability across backends, SQL integration, reusability, maintainability.
 
-### Benefits:
-
-- Extensibility: Add any logic you need; no waiting for Xorq to implement it.
-- Portability: Same UDF works across backends like DuckDB, PostgreSQL, Snowflake, and others.
-- SQL integration: Python logic available in SQL, enabling team collaboration.
-- Reusability: Define once, and use in multiple pipelines and queries.
-- Maintainability: Update logic in one place, and all uses get the update.
-
-### Costs:
-
-- Performance: UDFs are slower than built-in operations, typically 2-10x depending on the operation.
-- Serialization overhead: Data converts between Arrow and pandas, adding latency.
-- Limited optimization: Xorq can't optimize inside UDFs; it treats them as black boxes.
-- Debugging complexity: Errors might be unclear; stack traces span Python and backend.
-- Maintenance burden: Custom code requires documentation and testing.
-
-### When the trade-off is worth it:
-
-If built-in functions can do the job like filtering, aggregation, or joins, then use them for better performance. Built-in operations run natively in the backend with full query optimization, while UDF operations serialize data to Python, adding overhead.
+**Costs**: Performance because UDFs are slower than built-ins, serialization overhead, limited optimization, debugging complexity, and maintenance burden.
 
 ## Learning more
 
@@ -325,7 +285,6 @@ If built-in functions can do the job like filtering, aggregation, or joins, then
 [User-defined exchange functions](user_defined_exchange_functions.qmd) covers UDXFs for distributed processing.
 
 [Create your first UDF tutorial](../../tutorials/analytics_tutorials/create_your_first_udf.qmd) provides hands-on UDF practice. [UDF API reference](../../api_reference/python_api/udf.qmd) covers complete UDF documentation.
-
 
 ### See also
 

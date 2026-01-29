@@ -5,15 +5,6 @@ description: "Understand how Xorq compiles expressions into portable, executable
 
 A feature pipeline runs perfectly on your laptop but breaks in production because of different Python versions and missing dependencies. The build system prevents this by compiling your expressions into portable YAML artifacts that execute identically across any environment.
 
-## What you'll understand
-
-After reading this page, you'll understand:
-
-- What a Xorq build is and how it compiles Python expressions into self-contained YAML artifacts expr.yaml, profiles.yaml, metadata.json, plus optional deferred_reads.yaml with debug mode
-- When to build for production deployment, reproducibility, and versioning versus when to run directly for interactive development and exploration
-- How builds enable reproducibility through deterministic artifacts, content hashing, and environment capture in metadata.json
-- What you gain in portable artifacts, separation of concerns, and version control versus what you lose in build step overhead, storage costs, and indirection
-
 ## What is the build system?
 
 The build system compiles your Xorq expressions into executable artifacts. When you run `xorq build`, Xorq takes your Python code, extracts the expression graph, and generates YAML files that capture the computation logic.
@@ -268,28 +259,9 @@ Use `uv-build` when reproducibility is critical for production deployments. Use 
 
 ## Trade-offs
 
-Building expressions provides reproducibility and portability, but adds storage overhead and workflow complexity.
+**Benefits**: Reproducibility, portability, versioning via Git, separation of Python development from YAML execution, build-time validation, and deduplication.
 
-### Benefits:
-
-- Reproducibility: Same expression = same build = same results across machines and time.
-- Portability: Builds run anywhere with Xorq installed, no Python code deployment needed.
-- Versioning: Commit builds to Git for audit trails, and track which version ran in production.
-- Separation: Develop in Python and execute from YAML, allowing role separation between scientists and engineers.
-- Validation: Catch errors at build time like schema mismatches and invalid operations, not at execution time.
-- Deduplication: Same computation produces same hash, automatic storage optimization.
-
-### Costs
-
-- Build step required: You can't just run Python directly, which adds an extra workflow step.
-- Storage overhead: Build artifacts consume disk space, typically 10-100KB per build.
-- Indirection: One more layer sits between code and execution, creating more moving parts to understand.
-- Learning curve: Understanding builds, artifacts, and content hashing requires new mental models.
-- Debugging complexity: Errors might occur at build time or execution time, creating two failure modes to understand.
-
-### When the trade-off is worth it
-
-If you're doing exploratory analysis that never leaves your laptop like notebook experiments or one-time reports, then building adds unnecessary complexity. Direct execution with `.execute()` is simpler and faster for throwaway work.
+**Costs**: Build step required, storage overhead, indirection, learning curve, and two failure modes at build time versus execution time.
 
 ## Learning more
 

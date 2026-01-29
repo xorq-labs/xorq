@@ -5,13 +5,6 @@ description: "Understand how to deploy Xorq expressions as stateless API endpoin
 
 Your fraud detection model works great in Jupyter notebooks. Now the transaction service needs to score payments in real-time. You could rewrite your feature engineering in Flask, but then your training code and serving code diverge. Serving expressions solves this by deploying your Xorq computation as an Arrow Flight endpoint that clients can call directly, no translation required.
 
-## What you'll understand
-
-- What serve-unbound does and how it starts an Arrow Flight server hosting your expression for network access
-- When to serve expressions for model serving and APIs versus running directly for batch processing
-- How unbound expressions enable parameterized serving by marking input nodes as client-provided placeholders
-- What you gain in consistency and scalability versus what you lose in latency and operational complexity
-
 ## What is serving expressions as endpoints?
 
 Serving expressions as endpoints means deploying a Xorq expression as a network service that accepts input data and returns computed results. You run `xorq serve-unbound` to start an Arrow Flight server hosting your expression. Clients send data to the server, and the server executes the expression and returns results.
@@ -286,28 +279,9 @@ This exposes metrics like request count, latency, and error rates.
 
 ## Trade-offs
 
-Serving expressions provides significant benefits for production systems, but it also introduces operational complexity and network overhead costs.
+**Benefits**: Training or serving consistency, stateless scaling, versioned deployments via the catalog, Arrow Flight protocol, no rewriting, and hot swapping.
 
-### Benefits:
-
-- Training/serving consistency, because the same expression runs in development and production, eliminating skew from reimplementation.
-- Stateless architecture makes it easy to scale horizontally by adding servers behind load balancers without coordination overhead.
-- Versioned deployments through catalog integration support atomic version switching and instant rollbacks without downtime.
-- Standard protocol, because Arrow Flight provides efficient zero-copy transfers with well-supported language-agnostic client libraries.
-- No rewriting required, because you deploy expressions directly without Flask or FastAPI translation layers.
-- Hot swapping capability, because updating catalog entries gives clients new versions on next connection without restarts.
-
-### Costs:
-
-- Network overhead, because Flight protocol adds latency, typically 1-10ms per request.
-- Server management, because you need to run servers, monitor health, handle crashes, and manage resources.
-- Resource usage, because each server consumes memory, typically 100-500MB, plus CPU overhead.
-- Complexity, because you have more moving parts than direct execution including networking, concurrency, and error handling.
-- Port management, because you need to allocate ports, avoid conflicts, and configure firewalls.
-
-If you need to provide computations as an API for model serving or want training/serving consistency, then serving's benefits outweigh its costs. The 1-10ms overhead and server management complexity are acceptable. One misconfigured Flask rewrite can cause weeks of debugging training/serving skew.
-
-If you're doing batch processing like nightly ETL jobs processing terabytes, then direct execution is simpler and faster. No network calls, no server management. You save the 10ms overhead per row. Processing 10 million rows with direct execution takes 30 minutes. Adding serving would add 100,000 seconds, roughly 27 hours, just from network overhead.
+**Costs**: Network overhead, server management, resource usage, complexity from networking and concurrency, and port management.
 
 ## Learning more
 

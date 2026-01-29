@@ -5,20 +5,13 @@ description: "Understand how Xorq's caching system optimizes performance and ena
 
 You run the same expensive aggregation repeatedly during development while the input data hasn't changed at all. Recomputing everything from scratch each time wastes minutes or hours that could be spent on actual development. Xorq's caching system detects when data is unchanged and skips the recomputation automatically, returning cached results instantly.
 
-## What you'll understand
-
-This page explains the following concepts:
-
-- How Xorq's caching detects source data changes through modification time tracking for automatic invalidation
-- When automatic invalidation saves development time versus when snapshots prevent invalidation confusion
-- What you gain in instant reuse and automatic change detection versus what you lose in storage overhead and complexity
-- How to choose between SourceCache, ParquetCache, SourceSnapshotCache, and ParquetSnapshotCache based on patterns
-
 ## What is the intelligent caching system?
 
 Xorq's caching system stores intermediate results from computations so you don't recompute expensive operations on every execution. When you call `.cache()` on an expression, Xorq marks it for caching and saves results to reuse them automatically. The system is intelligent because it knows when to invalidate cache automatically based on source data changes.
 
 If source data changes, then Xorq detects this and recomputes with updated data rather than serving stale results. If nothing changed, then you get cached results instantly without any recomputation overhead or latency from query execution.
+
+The following example shows how to mark an expression for caching and what happens on the first run versus the second:
 
 ```python
 import xorq.api as xo
@@ -27,7 +20,7 @@ from xorq.caching import ParquetCache
 con = xo.connect()
 data = con.read_parquet("large_file.parquet")
 
-# Expensive operation: filter and aggregate 100GB
+# Expensive operation: filter and aggregate
 result = (
     data
     .filter(xo._.amount > 1000)
@@ -127,7 +120,7 @@ ParquetCache writes results to Parquet files in a specified directory while trac
 from pathlib import Path
 from xorq.caching import ParquetCache
 
-cache = ParquetCache.from_kwargs(source=con, base_path=Path.cwd() / "cache")
+cache = ParquetCache.from_kwargs(source=con, relative_path=Path.cwd() / "cache")
 
 # Results persist as Parquet files
 cached = expensive_operation.cache(cache=cache)
@@ -161,7 +154,7 @@ ParquetSnapshotCache works like ParquetCache but without modification time track
 ```python
 from xorq.caching import ParquetSnapshotCache
 
-cache = ParquetSnapshotCache.from_kwargs(source=con, base_path=Path.cwd() / "snapshots")
+cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path=Path.cwd() / "snapshots")
 
 # Durable snapshot that never auto-invalidates
 archive = analysis_result.cache(cache=cache)
@@ -202,75 +195,36 @@ Automatic invalidation resembles a smart refrigerator that knows when food expir
 
 ## Multi-engine caching
 
-Xorq's caching works across multiple engines, so you can cache results from PostgreSQL in DuckDB.
-
-```python
-# Load from PostgreSQL
-pg = xo.postgres.connect_env()
-data = pg.table("large_table")
-
-# Transfer to DuckDB and cache there
-db = xo.duckdb.connect()
-cached = (
-    data
-    .into_backend(db)
-    .filter(xo._.amount > 1000)
-    .cache(cache=ParquetCache.from_kwargs(source=db))
-)
-
-# Subsequent runs use DuckDB cache, not PostgreSQL
-result = cached.execute()
-```
-
-This pattern works well for hybrid workflows since you only load data from slow remote databases once. Cache it locally in DuckDB, then iterate fast on the cached data to avoid hitting remote databases repeatedly.
+Xorq's caching works across multiple engines. For example, you can cache results from PostgreSQL in DuckDB. See [Multi-engine execution](multi_engine_execution.qmd) and [Explore caching tutorial](../../getting_started/explore_caching.qmd) for examples.
 
 ## When intelligent caching matters
 
-Caching isn't always beneficial. For fast queries or one-off analyses, the overhead exceeds the value. Here's how to decide when caching makes sense for your workflow.
-
 ### Use intelligent caching when
 
-- You're iterating on pipelines and rerunning the same operations repeatedly during development. Caching eliminates recomputation entirely.
-- Your upstream operations are expensive, with large joins or aggregations taking minutes or hours. Caching provides clear performance wins.
-- Your source data changes infrequently relative to your iteration speed. If data updates daily but you develop hourly, then cache hits outweigh misses significantly.
-- You need to reduce load on production databases during development. Caching keeps development query load off production infrastructure.
-- You want automatic change detection. SourceCache detects changes for you without manual tracking or invalidation logic.
-- Multiple team members run the same expensive transformations. Shared cache eliminates duplicate computation across the team.
+- **Iterating on pipelines**: Same operations rerun repeatedly; caching eliminates recomputation.
+- **Expensive operations**: Large joins or aggregations; cache hits give clear wins.
+- **Infrequent source changes**: Data updates less often than you iterate; cache hits outweigh misses.
+- **Shared work**: Multiple people run the same expensive transformations.
 
 ### Use snapshot caching when
 
-- You need fixed results for reproducibility in research or compliance contexts. Snapshot caching provides results that never change unless explicitly deleted.
-- Your source data is stable and you want explicit control over invalidation timing. Automatic tracking would interfere with reproducibility.
-- You're archiving analysis outputs. Snapshots persist indefinitely so source changes won't invalidate archived results unexpectedly.
+- **Reproducibility**: Fixed results for research or compliance; no auto-invalidation.
+- **Archiving**: Outputs persist indefinitely; source changes don't invalidate.
 
 ### Skip caching when
 
-- Your operations are cheap, completing in under one second. Cache overhead exceeds the benefit from avoided recomputation.
-- Your source data changes constantly in real-time streams. Cache invalidates too frequently to provide any performance benefit.
-- You're running one-off queries that won't repeat. Single execution means no reuse opportunity exists.
-- Cache storage costs more than recomputation. In some cloud configurations, compute is cheap but storage is expensive.
-- Your backend has built-in caching like DuckDB temp tables or Snowflake query cache. Additional caching adds redundancy without benefit.
+- **Cheap or one-off**: Operations are fast or run once; cache overhead exceeds benefit.
+- **Constantly changing data**: Real-time streams; cache invalidates too often.
+- **Backend already caches**: DuckDB temp tables, Snowflake query cache; extra layer adds little.
 
 ## Understanding trade-offs
 
-Intelligent caching offers significant benefits, but it comes with costs. Here's what you gain:
+**Benefits**: Faster iteration on cache hits, reduced database load, automatic change detection, persistent storage, multi-engine support.
 
-- **Faster iteration**: Expensive computations that take 30 minutes become instant on cache hits, which dramatically improves productivity during development.
-- **Reduced database load**: Caching avoids hammering production databases with repeated queries, keeping development load off production systems.
-- **Automatic change detection**: SourceCache and ParquetCache invalidate when data changes without manual tracking or configuration.
-- **Persistent storage**: Parquet caches survive across sessions so results can be shared across teams for collaboration on expensive computations.
-- **Multi-engine support**: Cache results from any backend in any other backend, providing flexible workflows and hybrid execution patterns.
-
-Here's what you give up:
-
-- **Storage overhead**: Cached data consumes disk space or database storage. A 100GB dataset requires 100GB of cache storage.
-- **Invalidation complexity**: Tracking modification times can fail with some file systems since certain storage backends don't support modification time tracking reliably.
-- **Stale data risk**: Snapshot caches can serve stale results if you forget to invalidate manually when data changes.
-- **Cache management**: You must monitor and clean up old cache entries since disk space management becomes necessary over time.
-- **Overhead for cheap operations**: Sub-second queries might be slower with caching since cache overhead can exceed execution time for very fast queries.
+**Costs**: Storage overhead, invalidation complexity on some backends, stale-data risk with snapshots, cache management, overhead for cheap operations.
 
 :::{.callout-note}
-Caching is still lazy execution. Calling `.cache()` doesn't execute the query or trigger any computation. It marks the expression for caching. Caching happens when you call `.execute()` to evaluate results. This differs from Ibis where `.cache()` executes eagerly and returns results immediately without further execution needed.
+`.cache()` is lazy: it marks the expression for caching. Caching happens when you call `.execute()`. Unlike Ibis, Xorq's `.cache()` does not execute eagerly.
 :::
 
 ## Learning more
@@ -280,6 +234,3 @@ Caching is still lazy execution. Calling `.cache()` doesn't execute the query or
 [Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) discusses how cache keys are generated. [Multi-engine execution](multi_engine_execution.qmd) details how caching works across backends.
 
 [Explore caching tutorial](../../getting_started/explore_caching.qmd) provides hands-on practice with caching. [Optimize pipeline performance guide](../../guides/performance_workflows/optimize_pipeline_performance.qmd) covers production caching strategies.
-
-
-

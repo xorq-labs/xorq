@@ -5,15 +5,6 @@ description: "Understand Xorq's architecture from expression building to executi
 
 Imagine writing Python code that doesn't run immediately but instead builds a blueprint of your computation. Xorq captures this blueprint as a versioned manifest that can execute on any supported engine. This architecture supports optimization, caching, and reuse across different backends without rewriting code for each engine.
 
-## What you'll understand
-
-After reading this page, you'll understand:
-
-- How Xorq processes computations from code to results
-- What happens during expression building versus execution
-- How manifests enable portability and versioning
-- Where optimization and caching occur in the pipeline
-
 ## What is Xorq's architecture?
 
 Xorq consists of six core components that work together to process computations from Python code to results:
@@ -42,7 +33,7 @@ Together, these components form a horizontal, composable architecture. Instead o
 
 The key architectural principle: Xorq separates **what you want to compute**, captured in the manifest, from **how to compute it**, determined by the executor for each backend.
 
-## How Xorq processes computationss
+## How Xorq processes computations
 
 Xorq operates as a four-stage pipeline: expression building, manifest compilation, catalog registration, and execution. Each stage transforms your code step by step from Python expressions into executable results. The following diagram shows how data flows through these stages:
 
@@ -276,5 +267,4 @@ If you're new to Xorq, start with [Why deferred execution](why_deferred_executio
 [Multi-engine execution](../execution_and_backends/multi_engine_execution.qmd) covers how one manifest runs on multiple backends.
 
 [Build system](../reproducibility/build_system.qmd) explains how `xorq build` works internally. [Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) explains how Xorq generates content hashes. [Compute catalog](../reproducibility/compute_catalog.qmd) details how the catalog supports discovery and reuse across teams.
-
 

@@ -5,15 +5,6 @@ description: "Understand how Xorq manages backend connections through reusable p
 
 Your Python pipeline runs perfectly on your laptop with DuckDB, but now you need to deploy it to production Snowflake. Hardcoded connection details force you to rewrite code, wasting time and introducing bugs. Profiles solve this by separating connection configuration from computation logic, providing reusable and immutable configuration objects.
 
-## What you'll understand
-
-This page explains the following concepts:
-
-- What profiles are and how they separate connection config from computation logic
-- When profiles matter versus when direct connections are simpler for your workflow
-- What you gain in portability and security versus what you lose in setup overhead
-- How to choose between creating profiles from scratch, from existing connections, or loading saved ones
-
 ## What are profile-based connections?
 
 A profile is an immutable configuration object that captures how to connect to a backend like PostgreSQL or Snowflake. Profiles store connection parameters separately from your computation code, including details like host, port, and database. This separation enables environment portability and reusability.
@@ -266,61 +257,27 @@ This interface supports tab completion in Interactive Python and Jupyter, which 
 
 ## When profile-based connections matter
 
-Choosing between profile-based and direct connections depends on your deployment complexity, team size, and security requirements. Use the following guidelines to determine which approach fits your workflow.
-
 ### Use profile-based connections when
 
-You're switching between environments: Local DuckDB for development, staging PostgreSQL for testing, and production Snowflake each need separate configurations.
-- Multiple team members share connection configurations. Data engineering, analytics, and ML teams all connect to the same warehouse.
-- You need to commit connection logic without exposing credentials. Profiles in Git with secrets in environment variables keep credentials separate.
-- Your expressions need portability across backends. The same pipeline runs on different engines without code changes.
-- You're deploying code in CI/CD pipelines. Automated systems need reproducible connections without human intervention.
-- You need audit trails for connection changes. Profile hashes show exactly what changed between versions.
+- **Multiple environments**: Dev, staging, and production need different configs.
+- **Team sharing**: Several people connect to the same warehouse.
+- **Credentials in Git**: You want to commit connection logic without secrets by using environment variables.
+- **Portability**: Same pipeline runs on different engines without code changes.
 
 ### Skip profile-based connections when
 
-- You're doing quick one-off analyses in notebooks. Connection details won't be reused beyond the current session.
-- Your connection details are non-sensitive and unchanging. A local DuckDB file with no credentials doesn't need profile overhead.
-- You're working alone without team collaboration. Reusability benefits are minimal when setup cost exceeds gains.
-- You're prototyping without a finalized backend choice. Profile management is premature until you settle on a production database.
-- Your exploratory work is simple. Profile management overhead exceeds practical value when reusability or environment portability don't justify the complexity.
-
-A production feature pipeline running in three environments benefits from profiles. If you create three profiles with the same alias pattern but different credential references (like `dev_pipeline`, `staging_pipeline`, and `prod_pipeline`), then your code references `Profile.load(f"{env}_pipeline")` where the environment variable determines which profile loads. This works without code changes. However, if you're exploring data in Jupyter with one-time analysis using local CSV, then direct connection is simpler and faster.
+- **One-off work**: Notebooks or analyses that won't be reused.
+- **Solo, local only**: No team and no deployment; reusability doesn't matter.
+- **Prototyping**: Backend not chosen yet; profile management is premature.
 
 ## Understanding trade-offs
 
-Profiles offer significant benefits, but they come with costs. Here's what you gain:
+**Benefits**: Environment portability, secure-by-default credentials, team reusability, immutability, content-addressed identification, audit trails.
 
-**Environment portability**: Same code runs in dev, staging, and production since you change the profile rather than code.
-
-**Secure-by-default enforcement**: Credential leaks are prevented through ValueError exceptions if you attempt plain text credentials in profile configurations.
-
-**Team reusability**: Share profiles across team members by committing profiles and sharing env variable names.
-
-**Immutability**: Thread-safe and predictable behavior since no surprise mutations occur from concurrent access.
-
-**Content-addressed identification**: Identical configs are deduplicated automatically through hashes, providing storage efficiency.
-
-**Audit trails**: Profile hashes show exactly what changed between environments, supporting compliance and debugging.
-
-Here's what you give up:
-
-- **Setup overhead**: Profile creation, saving to disk, and environment variable configuration are required before first use.
-
-- **Indirection**: An extra layer exists between code and connection since profile loads, then env vars resolve, then connections establish.
-
-- **Environment dependency**: Setting environment variables correctly in each environment is required since forgotten env vars cause connection failures.
-
-- **Learning curve**: Profiles represent new concepts compared to direct connections, so `Profile.load()` differs from `connect()` in approach.
-
-- **Debugging complexity**: Connection failures might be profile issues, env var issues, or actual connectivity problems.
-
-If you're deploying code across multiple environments, then the setup overhead is justified since reusability and security benefits outweigh costs. If you're collaborating with teams on shared infrastructure, then profile management pays off when ten or more people connect to the same warehouse. However, if you're doing solo exploratory work that never leaves your laptop, then direct connections are simpler since profile and env var management add unnecessary complexity.
+**Costs**: Setup overhead, indirection, environment dependency, learning curve, and debugging complexity because failures can be profile, env var, or connectivity issues.
 
 :::{.callout-note}
-Profiles store environment variable references rather than actual passwords. References like `${PASSWORD}` resolve at connection time, so the YAML file contains `${POSTGRES_PASSWORD}` rather than `my_secret_password`. This provides security through indirection and environment variable resolution.
-
-Profiles are safe to commit to Git because they only contain references without actual credentials or secrets. Your entire team can share the same profile YAML file while each person sets their own environment variables.
+Profiles store environment variable references such as `${POSTGRES_PASSWORD}`, not plain-text secrets. They resolve at connection time and are safe to commit; each person sets their own environment variables.
 :::
 
 ## Learning more
@@ -330,6 +287,3 @@ Profiles are safe to commit to Git because they only contain references without 
 [Build system](../reproducibility/build_system.qmd) discusses how manifests reference profiles by hash. [Reproducible environments with uv](../reproducibility/reproducible_environments_with_uv.qmd) details combining profiles with uv for full reproducibility.
 
 [Profiles API reference](../../api_reference/backends/profiles_api.qmd) provides complete API documentation with detailed method signatures and examples.
-
-
-
