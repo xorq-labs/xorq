@@ -75,10 +75,12 @@ preprocessor.fit(X)
 print("\nsklearn feature_names_out:")
 print(preprocessor.get_feature_names_out())
 
-# Execute and verify predictions match
-sklearn_pipe.fit(X, y)
-sklearn_preds = sklearn_pipe.predict(X)
-predictions = fitted_pipeline.predict(expr).execute()
+if __name__ in ("__main__", "__pytest_main__"):
+    # Execute and verify predictions match
+    sklearn_pipe.fit(X, y)
+    sklearn_preds = sklearn_pipe.predict(X)
+    predictions = fitted_pipeline.predict(expr).execute()
 
-match = np.array_equal(predictions["predicted"].values, sklearn_preds)
-print(f"\nxorq matches sklearn: {match}")
+    match = np.array_equal(predictions["predicted"].values, sklearn_preds)
+    print(f"\nxorq matches sklearn: {match}")
+    pytest_examples_passed = True
