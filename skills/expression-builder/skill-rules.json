@@ -1,0 +1,98 @@
+{
+    "version": "1.0",
+    "description": "Skill activation triggers for expression-builder - xorq deferred expressions",
+    "skills": {
+        "expression-builder": {
+            "type": "domain",
+            "enforcement": "suggest",
+            "priority": "high",
+            "description": "Xorq manifest-driven compute, deferred expressions, ML pipelines, and catalog workflows",
+            "promptTriggers": {
+                "keywords": [
+                    "xorq",
+                    "manifest",
+                    "build expression",
+                    "catalog",
+                    "deferred execution",
+                    "data pipeline",
+                    "ML pipeline",
+                    "ibis",
+                    "xo._",
+                    "xorq.api",
+                    "schema check",
+                    "column lineage",
+                    "Arrow Flight",
+                    "multi-engine",
+                    "ParquetCache",
+                    "deferred_read_parquet",
+                    "xorq agent",
+                    "xorq build",
+                    "xorq run",
+                    "xorq catalog",
+                    "xorq lineage"
+                ],
+                "intentPatterns": [
+                    "(create|build|write|implement).*?(data|ML).*?(pipeline|expression|workflow)",
+                    "(setup|configure|init).*?xorq",
+                    "(catalog|register|publish).*?(build|expression|artifact)",
+                    "(check|show|inspect).*?schema",
+                    "(deferred|lazy).*?(execution|loading|read)",
+                    "xorq.*?(build|run|catalog|lineage|agent)",
+                    "(transform|process|analyze).*?data.*?(xorq|ibis|deferred)",
+                    "(cache|store).*?(expression|computation|result)",
+                    "(train|fit|predict).*?(model|sklearn|pipeline)",
+                    "(connect|backend).*?(DuckDB|Snowflake|Postgres)",
+                    "(filter|select|mutate|group|agg|join).*?(expression|data)"
+                ]
+            },
+            "fileTriggers": {
+                "pathPatterns": [
+                    "**/*expr*.py",
+                    "**/*pipeline*.py",
+                    "**/*xorq*.py",
+                    "**/expr.py",
+                    "**/.xorq/**/*",
+                    "**/AGENTS.md",
+                    "**/CLAUDE.md"
+                ],
+                "contentPatterns": [
+                    "import xorq",
+                    "xorq\\.api",
+                    "xo\\.connect",
+                    "xo\\._",
+                    "from xorq\\.vendor import ibis",
+                    "deferred_read_parquet",
+                    "deferred_read_csv",
+                    "ParquetCache",
+                    "xorq build",
+                    "xorq catalog",
+                    "xorq run",
+                    "xorq agent",
+                    "from_ibis",
+                    "Pipeline\\.from_instance",
+                    "\\.cache\\(",
+                    "\\.execute\\(\\)",
+                    "print\\(.*\\.schema\\(\\)\\)"
+                ]
+            }
+        }
+    },
+    "notes": {
+        "enforcement_types": {
+            "suggest": "Skill suggestion appears but doesn't block execution",
+            "block": "Requires skill to be used before proceeding (guardrail)",
+            "warn": "Shows warning but allows proceeding"
+        },
+        "priority_levels": {
+            "critical": "Highest - Always trigger when matched",
+            "high": "Important - Trigger for most matches",
+            "medium": "Moderate - Trigger for clear matches",
+            "low": "Optional - Trigger only for explicit matches"
+        },
+        "customization": {
+            "pathPatterns": "Adjust to match your project structure",
+            "keywords": "Add domain-specific terms relevant to your project",
+            "intentPatterns": "Use regex for flexible user intent matching"
+        }
+    }
+}
