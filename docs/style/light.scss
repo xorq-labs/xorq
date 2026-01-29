@@ -90,6 +90,43 @@ h3, h4, h5 {
     }
 }
 
+/* Make glossary h3 terms same size as body text */
+.quarto-content h2 ~ h3,
+main h2 ~ h3 {
+    font-size: 0.9375rem !important;
+    font-weight: 400 !important;
+    text-transform: none !important;
+    letter-spacing: 0 !important;
+    font-family: $font-family-sans-serif !important;
+    max-width: 55ch !important;
+    line-height: 1.6 !important;
+    
+    &::before,
+    &::after {
+        content: "" !important;
+        display: none !important;
+    }
+}
+
+/* Keep glossary h3 small on tablets and mobile */
+@media (max-width: 992px) {
+    .quarto-content h2 ~ h3,
+    main h2 ~ h3 {
+        font-size: 0.9375rem !important;
+        text-transform: none !important;
+        font-family: $font-family-sans-serif !important;
+    }
+}
+
+@media (max-width: 576px) {
+    .quarto-content h2 ~ h3,
+    main h2 ~ h3 {
+        font-size: 0.9375rem !important;
+        text-transform: none !important;
+        font-family: $font-family-sans-serif !important;
+    }
+}
+
 h3 .anchor,
 h4 .anchor,
 h5 .anchor,

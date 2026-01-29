@@ -101,6 +101,40 @@ body:not(.homepage) h3::after {
   content: "]";
 }
 
+/* Make glossary h3 terms same size as body text */
+html body:not(.homepage) .quarto-content h2 ~ h3,
+html body:not(.homepage) main h2 ~ h3,
+html body .quarto-content h2 ~ h3,
+html body main h2 ~ h3,
+body:not(.homepage) .quarto-content h2 ~ h3,
+body:not(.homepage) main h2 ~ h3,
+body .quarto-content h2 ~ h3,
+body main h2 ~ h3 {
+  font-size: 0.9375rem !important;
+  font-weight: 400 !important;
+  text-transform: none !important;
+  letter-spacing: 0 !important;
+  font-family: "Inter Tight", "Helvetica Neue", Arial, sans-serif !important;
+  max-width: 55ch !important;
+  line-height: 1.6 !important;
+}
+
+body:not(.homepage) .quarto-content h2 ~ h3::before,
+body:not(.homepage) main h2 ~ h3::before,
+body .quarto-content h2 ~ h3::before,
+body main h2 ~ h3::before {
+  content: "" !important;
+  display: none !important;
+}
+
+body:not(.homepage) .quarto-content h2 ~ h3::after,
+body:not(.homepage) main h2 ~ h3::after,
+body .quarto-content h2 ~ h3::after,
+body main h2 ~ h3::after {
+  content: "" !important;
+  display: none !important;
+}
+
 body:not(.homepage) .quarto-content h4,
 body:not(.homepage) main h4,
 body:not(.homepage) .page-columns h4,
@@ -230,11 +264,25 @@ body:not(.homepage) h6 {
     font-size: 1.75rem !important;
   }
   
-  body:not(.homepage) .quarto-content h3,
-  body:not(.homepage) main h3,
-  body:not(.homepage) .page-columns h3,
-  body:not(.homepage) h3 {
+body:not(.homepage) .quarto-content h3,
+body:not(.homepage) main h3,
+body:not(.homepage) .page-columns h3,
+body:not(.homepage) h3 {
     font-size: 1.5rem !important;
+  }
+  
+  /* Keep glossary h3 small on tablets */
+  html body:not(.homepage) .quarto-content h2 ~ h3,
+  html body:not(.homepage) main h2 ~ h3,
+  html body .quarto-content h2 ~ h3,
+  html body main h2 ~ h3,
+  body:not(.homepage) .quarto-content h2 ~ h3,
+  body:not(.homepage) main h2 ~ h3,
+  body .quarto-content h2 ~ h3,
+  body main h2 ~ h3 {
+    font-size: 0.9375rem !important;
+    text-transform: none !important;
+    font-family: "Inter Tight", "Helvetica Neue", Arial, sans-serif !important;
   }
   
   body:not(.homepage) .quarto-content h4,
@@ -281,6 +329,20 @@ body:not(.homepage) h6 {
   body:not(.homepage) .page-columns h3,
   body:not(.homepage) h3 {
     font-size: clamp(1.25rem, 4.5vw, 1.5rem) !important;
+  }
+  
+  /* Keep glossary h3 small on mobile */
+  html body:not(.homepage) .quarto-content h2 ~ h3,
+  html body:not(.homepage) main h2 ~ h3,
+  html body .quarto-content h2 ~ h3,
+  html body main h2 ~ h3,
+  body:not(.homepage) .quarto-content h2 ~ h3,
+  body:not(.homepage) main h2 ~ h3,
+  body .quarto-content h2 ~ h3,
+  body main h2 ~ h3 {
+    font-size: 0.9375rem !important;
+    text-transform: none !important;
+    font-family: "Inter Tight", "Helvetica Neue", Arial, sans-serif !important;
   }
   
   body:not(.homepage) .quarto-content h4,

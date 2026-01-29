@@ -37,12 +37,8 @@ website:
         text: "Concepts"
       - href: reference/index.qmd
         text: "Reference"
-      - href: troubleshooting/index.qmd
-        text: "Troubleshooting"
       - href: release_notes.qmd
         text: "Release notes"
-      - href: faq.qmd
-        text: "FAQ"
 
   sidebar:
     - id: getting-started
@@ -172,145 +168,147 @@ website:
             - concepts/core_concepts/point_in_time_correctness.qmd
 
     - id: reference
-      title: "Reference"
+      title: "Overview"
       collapse-level: 2
       pinned: true
       contents:
-        - reference/glossary.qmd
-        - href: api_reference/backends/index.qmd
-          text: "Backends"
-        - href: api_reference/cli/index.qmd
-          text: "CLI commands"
         - reference/index.qmd
+        - href: reference/glossary.qmd
+          text: "Glossary"
+        - id: backends-section
+          section: "Backends"
+          contents:
+            - href: api_reference/backends/index.qmd
+              text: "Overview"
+            - api_reference/backends/profiles_api.qmd
+            - api_reference/backends/env_variables.qmd
+            - api_reference/backends/supported_backends.qmd
+        - id: cli-commands-section
+          section: "CLI commands"
+          contents:
+            - api_reference/cli/index.qmd
+            - api_reference/cli/init.qmd
+            - api_reference/cli/build.qmd
+            - api_reference/cli/uv-build.qmd
+            - api_reference/cli/run.qmd
+            - api_reference/cli/uv-run.qmd
+            - api_reference/cli/serve-flight-udxf.qmd
+            - api_reference/cli/serve-unbound.qmd
+            - api_reference/cli/lineage.qmd
+            - api_reference/cli/ps.qmd
+            - id: catalog-section
+              section: "catalog"
+              contents:
+                - api_reference/cli/catalog/add.qmd
+                - api_reference/cli/catalog/ls.qmd
+                - api_reference/cli/catalog/info.qmd
+                - api_reference/cli/catalog/rm.qmd
+                - api_reference/cli/catalog/diff-builds.qmd
+        - id: python-api-section
+          section: "Python API"
+          contents:
+            - id: core-operations-section
+              section: "Core operations"
+              contents:
+                - reference/connect.qmd
+                - reference/execute.qmd
+                - href: reference/ls.qmd
+                  text: "ls"
+                - reference/memtable.qmd
+                - reference/read_csv.qmd
+                - reference/read_parquet.qmd
+                - reference/deferred_read_csv.qmd
+                - reference/deferred_read_parquet.qmd
+                - reference/to_csv.qmd
+                - reference/to_json.qmd
+                - reference/to_parquet.qmd
+                - reference/to_pyarrow.qmd
+                - reference/to_pyarrow_batches.qmd
+                - reference/to_sql.qmd
+                - reference/register.qmd
+                - reference/get_plans.qmd
+            - id: types-schemas-section
+              section: "Types and schemas"
+              contents:
+                - reference/datatypes.qmd
+                - reference/schemas.qmd
+            - id: data-operations-section
+              section: "Data operations"
+              contents:
+                - reference/Column.qmd
+                - reference/DateValue.qmd
+                - reference/DayOfWeek.qmd
+                - reference/FloatingColumn.qmd
+                - reference/GroupedTable.qmd
+                - reference/IntegerColumn.qmd
+                - reference/IntervalValue.qmd
+                - reference/NumericColumn.qmd
+                - reference/Scalar.qmd
+                - reference/StringValue.qmd
+                - reference/Table.qmd
+                - reference/TimeValue.qmd
+                - reference/TimestampValue.qmd
+                - reference/Value.qmd
+                - reference/window.qmd
+                - reference/selectors.qmd
+            - id: udf-system-section
+              section: "UDF system"
+              contents:
+                - reference/agg.pandas_df.qmd
+                - reference/agg.pyarrow.qmd
+                - reference/flight_udxf.qmd
+                - reference/make_pandas_expr_udf.qmd
+                - reference/make_pandas_udf.qmd
+                - reference/pyarrow_udwf.qmd
+            - id: ml-operations-section
+              section: "ML operations"
+              contents:
+                - reference/train_test_splits.qmd
+                - reference/Step.qmd
+                - reference/Pipeline.qmd
+                - reference/FittedPipeline.qmd
+                - reference/FittedStep.qmd
+                - reference/deferred_fit_predict.qmd
+                - reference/deferred_fit_transform.qmd
+                - reference/calc_split_column.qmd
+                - reference/make_quickgrove_udf.qmd
+            - id: caching-section
+              section: "Caching"
+              contents:
+                - reference/ParquetCache.qmd
+                - reference/ParquetSnapshotCache.qmd
+                - reference/SourceCache.qmd
+                - reference/SourceSnapshotCache.qmd
+            - id: lineage-section
+              section: "Lineage"
+              contents:
+                - reference/build_column_trees.qmd
+                - reference/build_tree.qmd
+                - reference/print_tree.qmd
+            - id: flight-operations-section
+              section: "Flight operations"
+              contents:
+                - reference/FlightServer.qmd
+                - reference/FlightUrl.qmd
+                - reference/make_udxf.qmd
+            - id: catalog-operations-section
+              section: "Catalog operations"
+              contents:
+                - reference/XorqCatalog.qmd
+                - reference/Build.qmd
+                - reference/Alias.qmd
+                - reference/CatalogMetadata.qmd
+        - id: troubleshooting-section
+          section: "Troubleshooting"
+          contents:
+            - href: troubleshooting/index.qmd
+            - href: troubleshooting/common_errors.qmd
+            - href: troubleshooting/installation_issues.qmd
+            - href: troubleshooting/pipeline_failures.qmd
+            - href: troubleshooting/performance_problems.qmd
+            - href: troubleshooting/backend_connection_issues.qmd
+            - href: troubleshooting/caching_issues.qmd
 
-    - id: api-reference
-      title: "Python API"
-      collapse-level: 1
-      pinned: true
-      contents:
-        - reference/index.qmd
-        - id: core-operations-section
-          section: "Core operations"
-          contents:
-            - reference/connect.qmd
-            - reference/execute.qmd
-            - reference/memtable.qmd
-            - reference/read_csv.qmd
-            - reference/read_parquet.qmd
-            - reference/deferred_read_csv.qmd
-            - reference/deferred_read_parquet.qmd
-            - reference/to_csv.qmd
-            - reference/to_json.qmd
-            - reference/to_parquet.qmd
-            - reference/to_pyarrow.qmd
-            - reference/to_pyarrow_batches.qmd
-            - reference/to_sql.qmd
-            - reference/register.qmd
-            - reference/get_plans.qmd
-        - id: types-schemas-section
-          section: "Types and schemas"
-          contents:
-            - reference/datatypes.qmd
-            - reference/schemas.qmd
-        - id: data-operations-section
-          section: "Data operations"
-          contents:
-            - reference/Column.qmd
-            - reference/DateValue.qmd
-            - reference/DayOfWeek.qmd
-            - reference/FloatingColumn.qmd
-            - reference/GroupedTable.qmd
-            - reference/IntegerColumn.qmd
-            - reference/IntervalValue.qmd
-            - reference/NumericColumn.qmd
-            - reference/Scalar.qmd
-            - reference/StringValue.qmd
-            - reference/Table.qmd
-            - reference/TimeValue.qmd
-            - reference/TimestampValue.qmd
-            - reference/Value.qmd
-            - reference/window.qmd
-            - reference/selectors.qmd
-        - id: udf-system-section
-          section: "UDF system"
-          contents:
-            - reference/agg.pandas_df.qmd
-            - reference/agg.pyarrow.qmd
-            - reference/flight_udxf.qmd
-            - reference/make_pandas_expr_udf.qmd
-            - reference/make_pandas_udf.qmd
-            - reference/pyarrow_udwf.qmd
-        - id: ml-operations-section
-          section: "ML operations"
-          contents:
-            - reference/deferred_fit_predict.qmd
-            - reference/deferred_fit_transform.qmd
-            - reference/calc_split_column.qmd
-            - reference/make_quickgrove_udf.qmd
-        - id: caching-section
-          section: "Caching"
-          contents:
-            - reference/ParquetCache.qmd
-            - reference/ParquetSnapshotCache.qmd
-            - reference/SourceCache.qmd
-            - reference/SourceSnapshotCache.qmd
-        - id: lineage-section
-          section: "Lineage"
-          contents:
-            - reference/build_column_trees.qmd
-            - reference/build_tree.qmd
-            - reference/print_tree.qmd
-        - id: flight-operations-section
-          section: "Flight operations"
-          contents:
-            - reference/FlightServer.qmd
-            - reference/FlightUrl.qmd
-            - reference/connect_flight.qmd
-            - reference/make_udxf.qmd
-        - id: catalog-operations-section
-          section: "Catalog operations"
-          contents:
-            - reference/XorqCatalog.qmd
-            - reference/Build.qmd
-            - reference/Alias.qmd
-            - reference/CatalogMetadata.qmd
-
-    - id: cli-reference
-      title: "CLI Commands"
-      collapse-level: 2
-      pinned: true
-      contents:
-        - api_reference/cli/index.qmd
-        - api_reference/cli/init.qmd
-        - api_reference/cli/build.qmd
-        - api_reference/cli/uv-build.qmd
-        - api_reference/cli/run.qmd
-        - api_reference/cli/uv-run.qmd
-        - api_reference/cli/serve-flight-udxf.qmd
-        - api_reference/cli/serve-unbound.qmd
-        - api_reference/cli/lineage.qmd
-        - api_reference/cli/ps.qmd
-        - id: catalog-section
-          section: "catalog"
-          contents:
-            - api_reference/cli/catalog/add.qmd
-            - api_reference/cli/catalog/ls.qmd
-            - api_reference/cli/catalog/info.qmd
-            - api_reference/cli/catalog/rm.qmd
-            - api_reference/cli/catalog/diff-builds.qmd
-    
-    - id: troubleshooting
-      title: "Troubleshooting"
-      collapse-level: 1
-      pinned: true
-      contents:
-        - href: troubleshooting/index.qmd
-        - href: troubleshooting/common_errors.qmd
-        - href: troubleshooting/installation_issues.qmd
-        - href: troubleshooting/pipeline_failures.qmd
-        - href: troubleshooting/performance_problems.qmd
-        - href: troubleshooting/backend_connection_issues.qmd
-        - href: troubleshooting/caching_issues.qmd
       
 
 format:
@@ -492,10 +490,6 @@ quartodoc:
         - name: FlightServer
           package: xorq.flight
         - name: FlightUrl
-          package: xorq.flight
-        - name: connect
-          dynamic: true
-          signature_name: full
           package: xorq.flight
         - name: make_udxf
           dynamic: true
