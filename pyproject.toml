@@ -5,6 +5,9 @@ build-backend = "hatchling.build"
 [tool.hatch.build.targets.wheel]
 sources = ["python"]
 
+[tool.hatch.build.targets.wheel.force-include]
+"python/xorq/agent/resources" = "xorq/agent/resources"
+
 [tool.hatch.build.targets.sdist]
 only-include = ["python"]
 
