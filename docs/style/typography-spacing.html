@@ -594,6 +594,214 @@ body:not(.homepage) h3 {
 }
 
 /* Light mode sidebar styling is handled by light.scss */
+
+/* Mermaid diagram styling - responsive and screen-fitting */
+.mermaid,
+.quarto-content .mermaid,
+main .mermaid,
+.quarto-content figure .mermaid,
+main figure .mermaid {
+  max-width: 100% !important;
+  width: 100% !important;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  display: block;
+}
+
+/* Mermaid SVG elements - make responsive */
+.mermaid svg,
+.quarto-content .mermaid svg,
+main .mermaid svg {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block;
+  margin: 0 auto;
+}
+
+/* Mermaid figure containers - constrain to content width */
+.quarto-content figure:has(.mermaid),
+main figure:has(.mermaid),
+.quarto-content .cell-output:has(.mermaid),
+main .cell-output:has(.mermaid) {
+  max-width: 100% !important;
+  width: 100% !important;
+  margin: 1.5rem 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Tablet sizes - ensure proper scaling */
+@media (max-width: 992px) and (min-width: 769px) {
+  .mermaid,
+  .quarto-content .mermaid,
+  main .mermaid {
+    font-size: 0.9rem;
+  }
+  
+  .mermaid svg,
+  .quarto-content .mermaid svg,
+  main .mermaid svg {
+    font-size: 0.8rem;
+  }
+}
+
+/* Ensure mermaid diagrams don't overflow on mobile */
+@media (max-width: 768px) {
+  .mermaid,
+  .quarto-content .mermaid,
+  main .mermaid {
+    font-size: 0.875rem;
+    margin: 1rem 0;
+  }
+  
+  .mermaid svg,
+  .quarto-content .mermaid svg,
+  main .mermaid svg {
+    font-size: 0.75rem;
+    max-width: 100%;
+    height: auto;
+  }
+}
+
+/* Very small screens (phones) */
+@media (max-width: 576px) {
+  .mermaid,
+  .quarto-content .mermaid,
+  main .mermaid {
+    font-size: 0.75rem;
+    margin: 0.75rem 0;
+  }
+  
+  .mermaid svg,
+  .quarto-content .mermaid svg,
+  main .mermaid svg {
+    font-size: 0.65rem;
+    max-width: 100%;
+    height: auto;
+  }
+  
+  /* Ensure horizontal scrolling works smoothly on small screens */
+  .quarto-content figure:has(.mermaid),
+  main figure:has(.mermaid) {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Large screens - constrain to readable width */
+@media (min-width: 1200px) {
+  .mermaid,
+  .quarto-content .mermaid,
+  main .mermaid {
+    max-width: 90%;
+    margin-left: auto;
+    margin-right: auto;
+  }
+}
+
+/* General image responsive styling for all pages */
+.quarto-content figure img,
+main figure img,
+.quarto-content img,
+main img {
+  max-width: 100%;
+  height: auto;
+}
+
+.quarto-content figure,
+main figure {
+  max-width: 100%;
+  margin: 1.5rem 0;
+}
+
+/* Responsive images on small screens */
+@media (max-width: 768px) {
+  .quarto-content figure img,
+  main figure img,
+  .quarto-content img,
+  main img {
+    max-width: 100%;
+    height: auto;
+  }
+  
+  .quarto-content figure,
+  main figure {
+    margin: 1rem 0;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 576px) {
+  .quarto-content figure img,
+  main figure img,
+  .quarto-content img,
+  main img {
+    max-width: 100%;
+    height: auto;
+  }
+  
+  .quarto-content figure,
+  main figure {
+    margin: 0.75rem 0;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Theme-aware image display for architecture diagrams */
+.light-only {
+  display: none;
+}
+
+.dark-only {
+  display: block;
+}
+
+[data-bs-theme="light"] .light-only {
+  display: block;
+}
+
+[data-bs-theme="light"] .dark-only {
+  display: none;
+}
+
+[data-bs-theme="dark"] .light-only {
+  display: none;
+}
+
+[data-bs-theme="dark"] .dark-only {
+  display: block;
+}
+
+/* Architecture images - make them larger and more visible */
+.light-only img[src*="architecture"],
+.dark-only img[src*="architecture"],
+figure:has(img[src*="architecture"]) img {
+  max-width: 100% !important;
+  width: auto !important;
+  height: auto !important;
+  min-width: 700px;
+}
+
+figure:has(img[src*="architecture"]) {
+  max-width: 100% !important;
+  width: 100% !important;
+  margin: 2rem 0 !important;
+  text-align: center;
+}
+
+/* On smaller screens, allow horizontal scroll for architecture images */
+@media (max-width: 1200px) {
+  figure:has(img[src*="architecture"]) {
+    overflow-x: auto;
+  }
+  
+  .light-only img[src*="architecture"],
+  .dark-only img[src*="architecture"],
+  figure:has(img[src*="architecture"]) img {
+    min-width: 900px;
+  }
+}
 </style>
 
 <script>

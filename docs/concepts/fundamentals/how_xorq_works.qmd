@@ -1,0 +1,270 @@
+---
+title: 'How Xorq works'
+description: "Understand Xorq's architecture from expression building to execution"
+---
+
+Imagine writing Python code that doesn't run immediately but instead builds a blueprint of your computation. Xorq captures this blueprint as a versioned manifest that can execute on any supported engine. This architecture supports optimization, caching, and reuse across different backends without rewriting code for each engine.
+
+## What is Xorq's architecture?
+
+Xorq consists of six core components that work together to process computations from Python code to results:
+
+1. **Expression Graph**: In-memory representation of your computation as a directed acyclic graph of operations. Built in Python, engine-independent.
+
+2. **Compiler**: Transforms expression graphs into portable YAML manifests. Generates content hashes and produces four artifacts: expr.yaml, profiles.yaml, deferred_reads.yaml, and metadata.json.
+
+3. **Manifest**: Declarative, engine-independent representation of your computation stored as YAML. This is what gets versioned, cached, and executed.
+
+4. **Catalog**: Registry that stores and versions manifests with human-readable aliases. Supports discovery and reuse across teams.
+
+5. **Executor**: Loads manifests, compiles them to backend-specific SQL, checks caches, and runs queries on target engines.
+
+6. **Backend Engines**: The actual compute engines where SQL executes and data lives. Examples include DuckDB, Snowflake, and PostgreSQL.
+
+Together, these components form a horizontal, composable architecture. Instead of vertical silos (feature stores, model registries, orchestrators), Xorq provides a unified stack where operations flow as reusable blocks across any backend engine.
+
+::: {.light-only}
+![](../../images/architecture-light.svg){fig-width="14" fig-responsive="true"}
+:::
+
+::: {.dark-only}
+![](../../images/architecture-dark.svg){fig-width="14" fig-responsive="true"}
+:::
+
+The key architectural principle: Xorq separates **what you want to compute**, captured in the manifest, from **how to compute it**, determined by the executor for each backend.
+
+## How Xorq processes computations
+
+Xorq operates as a four-stage pipeline: expression building, manifest compilation, catalog registration, and execution. Each stage transforms your code step by step from Python expressions into executable results. The following diagram shows how data flows through these stages:
+
+```{mermaid}
+%%| eval: true
+graph LR
+    A[Python Code] --> B[Expression Graph]
+    B --> C[YAML Manifest]
+    C --> D[Catalog Entry]
+    D --> E[Execute Manifest]
+    E --> F[Query Results]
+    F -.Cache.-> E
+```
+
+## Where optimization happens
+
+Xorq optimizes at three points in the pipeline:
+
+1. During optimization, when `.execute()` is called: Operations fuse automatically. For example, consecutive filters merge into one.
+2. During manifest compilation: The compiler eliminates dead code and simplifies expressions.
+3. During execution: The target engine's optimizer handles SQL-level optimizations.
+
+Xorq optimizes at both the logical level through the expression graph and at the physical level through the SQL execution plan.
+
+:::{.callout-note}
+Xorq uses Apache Arrow for zero-copy data transfers between engines. When you move data from DuckDB to PostgreSQL, Arrow's columnar format avoids serialization overhead.
+:::
+
+## Stage 1: Expression building
+
+When you write Xorq code, operations don't execute immediately. Instead, Xorq builds an expression graph that represents your computation.
+
+**What happens**: Each operation creates a node in the graph. Filter, join, and aggregate operations all become nodes. These nodes track dependencies, schemas, and backend information. No data moves, no queries run.
+
+**Why this matters**: Deferred execution gives Xorq visibility into your entire pipeline before running anything. This allows optimization that's impossible when operations execute immediately.
+
+
+```python
+import xorq.api as xo
+
+# Create sample data (no external files needed)
+con = xo.connect()
+data = xo.memtable({
+    "amount": [50, 150, 200, 75, 300],
+    "category": ["A", "B", "A", "B", "A"]
+}, name="transactions")
+
+# These operations build a graph, but they don't execute.
+filtered = data.filter(xo._.amount > 100)
+result = filtered.group_by("category").agg(total=xo._.amount.sum())
+
+# Still no execution — just a graph in memory.
+print(type(result))  # Table expression type
+```
+
+Here's the key insight: The expression graph is an intermediate representation (IR) that's independent of any specific engine. This IR is what makes multi-engine execution possible. This sequence diagram shows how operations build the graph without executing:
+
+```{mermaid}
+%%| eval: true
+sequenceDiagram
+    participant User
+    participant Xorq
+    participant Graph
+    
+    User->>Xorq: data.filter(...)
+    Xorq->>Graph: Add filter node
+    User->>Xorq: .group_by(...)
+    Xorq->>Graph: Add group_by node
+    User->>Xorq: .agg(...)
+    Xorq->>Graph: Add aggregate node
+    Note over Graph: No execution yet
+```
+
+:::{.callout-tip}
+Expression building is fast because no computation happens. You're just creating a data structure that describes what to compute.
+:::
+
+## Stage 2: Manifest compilation
+
+When you run `xorq build`, Xorq compiles your expression graph into a YAML manifest. This manifest is a declarative, engine-independent representation of your computation.
+
+**What happens**: The compiler walks your expression graph and generates YAML that captures operations, dependencies, schemas, and metadata. Each node gets a content hash based on its computation logic.
+
+**Why this matters**: The manifest is the source of truth. It's what gets versioned, cached, and executed. Two developers building the same expression get identical manifests with the same hash, which allows automatic reuse.
+```yaml
+# Simplified manifest snippet
+filtered_data:
+  op: Filter
+  kwargs:
+    table: source_data
+    predicates:
+      - op: Greater
+        left: amount
+        right: 100
+  schema:
+    amount: int64
+    category: string
+  hash: a3f5c9d2e1b4...
+```
+
+The manifest includes four critical artifacts:
+
+1. **expr.yaml**: Complete expression definition with all operations and schemas
+
+2. **profiles.yaml**: Backend connection configurations showing which engines to use
+
+3. **deferred_reads.yaml**: Information about data sources that load at execution time
+
+4. **metadata.json**: Build timestamp, Xorq version, and dependency information
+
+The compiler generates these four artifacts from the expression graph, as shown here:
+
+```{mermaid}
+%%| eval: true
+graph LR
+    A[Expression Graph] --> B[Compiler]
+    B --> C[expr.yaml]
+    B --> D[profiles.yaml]
+    B --> E[deferred_reads.yaml]
+    B --> F[metadata.json]
+    C --> G[Content Hash]
+    G --> H[Build Directory]
+```
+
+Think of it this way: The manifest is like a recipe. It tells you what ingredients you need, what steps to follow, and what you'll get. But it doesn't cook the meal.
+
+## Stage 3: Catalog registration
+
+After building a manifest, you can register it in the catalog with a human-readable alias. The catalog is your team's shared ledger of computations.
+
+**What happens**: You run `xorq catalog add builds/<hash> --alias feature-pipeline`. The catalog stores the mapping between aliases and build hashes, supporting discovery and reuse.
+
+**Why this matters**: Without the catalog, you'd need to remember or share long content hashes. With it, you reference computations by name and let Xorq handle versioning.
+```bash
+# Register a build
+xorq catalog add builds/a3f5c9d2 --alias fraud-features
+
+# Discover what exists
+xorq catalog ls
+# Output:
+# Aliases:
+# fraud-features          a3f5c9d2    r2
+# customer-features       b1e4d7a9    r1
+```
+
+The catalog tracks three things:
+
+1. **Aliases**: Human-readable names for builds, for example `fraud-features`
+
+2. **Build hashes**: Content-addressed identifiers for exact computations
+
+3. **Revisions**: Version numbers like r1, r2, or r3 when you update an alias
+
+This supports powerful workflows. If someone on your team already computed `fraud-features`, you can reuse their cached results automatically. The hash ensures you're getting exactly the same computation.
+
+## Stage 4: Execution
+
+When you run `xorq run builds/<hash>` or call `.execute()` in Python, Xorq executes the **manifest** by compiling it to backend-specific SQL and running it on your target engine.
+
+**What happens**: The executor reads the YAML manifest, generates optimized SQL for your target backend, checks the cache for existing results, and runs queries only when needed. DuckDB SQL differs from Snowflake SQL, so Xorq generates the appropriate dialect for each backend.
+
+**What we're executing**: The **manifest** stored as YAML files, not the original Python code. The manifest gets compiled to SQL, which executes on the backend engine and produces query results as data.
+
+**Why this matters**: This is where backend-specific optimization happens. Xorq can push operations to the engine, eliminate unnecessary steps, and reuse cached results. Your Python code is long gone — only the manifest matters now. The execution flow with caching is shown here:
+
+```{mermaid}
+%%| eval: true
+sequenceDiagram
+    participant User
+    participant Executor
+    participant Cache
+    participant Engine
+    
+    User->>Executor: xorq run builds/a3f5c9d2
+    Executor->>Cache: Check for cached results
+    alt Cache hit
+        Cache-->>User: Return cached data
+    else Cache miss
+        Executor->>Engine: Compile to SQL
+        Engine->>Engine: Execute query
+        Engine-->>Executor: Return results
+        Executor->>Cache: Store results
+        Executor-->>User: Return results
+    end
+```
+
+The execution stage involves four steps:
+
+1. **Manifest loading**: Read YAML files and reconstruct the expression graph.
+
+2. **Cache checking**: Look for cached results based on content hash.
+
+3. **SQL compilation**: Generate engine-specific SQL for the target backend.
+
+4. **Query execution**: Run SQL on the target backend and return results.
+
+Here's the key insight: Because the manifest captures computation logic rather than data, the same manifest can execute on different engines. Xorq generates different SQL for each backend.
+
+## How the stages connect
+
+The four stages form a pipeline where each stage's output feeds the next:
+
+- **Expression building → Manifest compilation**: Python code becomes YAML artifacts.
+- **Manifest compilation → Catalog registration**: YAML artifacts get human-readable names.
+- **Catalog registration → Execution**: Named computations run on demand with caching.
+
+This pipeline provides three critical capabilities:
+
+- **Portability**: The manifest is engine-independent, so you can switch backends without changing code.
+- **Versioning**: Content hashes identify exact computations, supporting precise version control.
+- **Reuse**: If anyone computed this before with the same hash, you get cached results automatically.
+
+The complete pipeline from code to cached results looks like this:
+
+```{mermaid}
+%%| eval: true
+graph LR
+    A[Write Python] --> B[Build Expression]
+    B --> C[Compile Manifest]
+    C --> D[Register in Catalog]
+    D --> E[Execute on Engine]
+    E --> F[Cache Results]
+    F -.Next run.-> D
+```
+
+
+## Learning more
+
+If you're new to Xorq, start with [Why deferred execution](why_deferred_execution.qmd) to learn how lazy evaluation works in Xorq. [Expression format](expression_format.qmd) covers the detailed specifications of YAML manifest structure.
+
+[Multi-engine execution](../execution_and_backends/multi_engine_execution.qmd) covers how one manifest runs on multiple backends.
+
+[Build system](../reproducibility/build_system.qmd) explains how `xorq build` works internally. [Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) explains how Xorq generates content hashes. [Compute catalog](../reproducibility/compute_catalog.qmd) details how the catalog supports discovery and reuse across teams.
+

@@ -1,0 +1,310 @@
+---
+title: 'Compute catalog'
+description: "Understand how the catalog enables discovery, versioning, and reuse of computations"
+---
+
+Compute catalog lets you name your computations so your team can find and reuse them. Without it, computations exist only as cryptic hashes like `a3f5c9d2e1b4` that nobody can discover.
+
+## What is the compute catalog?
+
+The compute catalog is a registry that maps human-readable names (aliases) to content-addressed builds. When you register a build in the catalog, you create a discoverable entry that your entire team can reference, execute, and compose.
+
+Each catalog entry contains an alias (like `customer-features`), a build hash (like `a3f5c9d2`), and a revision number (like `r1` or `r2`). The alias is the human-readable name you use to reference the build. The build hash identifies the specific build directory. The revision number tracks version history when you update an alias with a new build.
+
+::: {.panel-tabset}
+
+### Register a build
+
+Register a build with an alias so your team can discover and reference it.
+
+```bash
+xorq catalog add builds/a3f5c9d2 --alias customer-features
+```
+
+### List catalog entries
+
+View all aliases and their build hashes and revision numbers.
+
+```bash
+xorq catalog ls
+```
+
+Output:
+
+```
+Aliases:
+customer-features    a3f5c9d2e1b4    r1
+fraud-model          b7e3f1a8c5d9    r2
+Entries:
+a3f5c9d2e1b4    r1    a3f5c9d2e1b4
+b7e3f1a8c5d9    r2    b7e3f1a8c5d9
+```
+
+:::
+
+## Why the compute catalog matters
+
+Without a catalog, builds are just directories with cryptic hashes. Developer A builds `customer-features` and gets hash `a3f5c9d2`. Developer B has no way to discover this work, so they either rebuild from scratch or manually coordinate to share the hash.
+
+This creates four problems at scale:
+
+**No discovery means wasted work.** You can't find existing computations. Every developer rebuilds features that someone else already created. Three people spend 30 minutes each building the same customer segmentation, totaling 90 minutes of duplicate work that a catalog would eliminate in seconds.
+
+**Hash management becomes archaeology.** Content hashes like `a3f5c9d2e1b4` are machine-friendly but human-hostile. You need to remember or document which hash corresponds to which computation. Production breaks because someone deployed `b7e3f1a8` instead of `a3f5c9d2`, and nobody knows which one is the correct customer feature set.
+
+**Version tracking disappears.** Update a computation? You get a new hash. Without a catalog, you lose the connection between versions. You can't tell that `b7e3f1a8` is an updated version of `a3f5c9d2`. Rollbacks become guesswork: "Which hash did we run last week when things worked?"
+
+**Composition requires manual coordination.** Building on someone else's work requires knowing their exact hash. Without a catalog, composition becomes Slack messages and shared spreadsheets instead of automatic discovery. "Hey, what's the hash for customer features?" is asked daily across the team.
+
+The catalog solves these by providing a shared index where computations are discoverable, versioned, and composable.
+
+## How the compute catalog works
+
+The catalog operates in four stages:
+
+**Build registration**: You run `xorq catalog add builds/<hash> --alias <name>`. The catalog creates an entry mapping the alias to the build hash.
+
+**Revision tracking**: If you register a new build with an existing alias, the catalog increments the revision number (r1 becomes r2, r2 becomes r3, and so on). This tracks version history.
+
+**Discovery**: Team members run `xorq catalog ls` to see all available computations (aliases and entries).
+
+**Execution**: You reference catalog entries by alias in commands like `xorq run customer-features` or `xorq serve-unbound fraud-model`. The catalog looks up the alias, finds the current build hash, and executes from that build directory. The catalog registration and lookup process works like this:
+
+```{mermaid}
+%%| eval: true
+sequenceDiagram
+    participant Dev as Developer
+    participant Catalog as Catalog
+    participant Filesystem as Filesystem
+    
+    Dev->>Catalog: add builds/a3f5c9d2 --alias features
+    Catalog->>Filesystem: Write alias → hash mapping
+    Catalog-->>Dev: Registered as r1
+    
+    Dev->>Catalog: add builds/b7e3f1a8 --alias features
+    Catalog->>Filesystem: Update mapping, increment revision
+    Catalog-->>Dev: Updated to r2
+    
+    Dev->>Catalog: ls
+    Catalog-->>Dev: Aliases: features  b7e3f1a8c5d9  r2
+```
+
+The catalog doesn't store builds; it indexes them. The catalog maintains aliases that point to build directories. The workflow from registration to execution follows this path:
+
+```{mermaid}
+%%| eval: true
+graph LR
+    A[Developer] --> B[xorq catalog add]
+    B --> C[catalog.yaml]
+    C --> D[Discovery via ls]
+    D --> E[Execution via run]
+    E --> F[Resolve alias to hash]
+    F --> G[builds/a3f5c9d2/]
+```
+
+:::{.callout-tip}
+The catalog is an addressing system, not a storage system. It maps human-readable names to content hashes, enabling discovery without duplicating build artifacts.
+:::
+
+## Catalog structure
+
+The catalog stores all entries in a single YAML file. By default the path is `~/.config/xorq/catalog.yaml`; if `XDG_CONFIG_HOME` is set, the path is `$XDG_CONFIG_HOME/xorq/catalog.yaml`.
+
+```
+~/.config/xorq/
+└── catalog.yaml
+```
+
+The catalog file contains all aliases and entries:
+
+```yaml
+api_version: xorq.dev/v1
+kind: XorqCatalog
+aliases:
+  customer-features:
+    entry_id: a3f5c9d2e1b4
+    revision_id: r2
+entries:
+  - entry_id: a3f5c9d2e1b4
+    current_revision: r2
+    history:
+      - revision_id: r1
+        build:
+          build_id: a3f5c9d2e1b4
+          path: builds/a3f5c9d2e1b4
+        created_at: 2024-01-15T10:30:00Z
+      - revision_id: r2
+        build:
+          build_id: b7e3f1a8c5d9
+          path: builds/b7e3f1a8c5d9
+        created_at: 2024-01-20T14:45:00Z
+```
+
+This structure enables fast lookups and version tracking.
+
+## Catalog operations
+
+The catalog supports five key operations:
+
+::: {.panel-tabset}
+
+### Adding entries
+
+Register a build with an alias. If the alias doesn't exist, this creates a new entry at r1. If it exists, this updates to a new revision like r2, r3, etc.
+
+```bash
+xorq catalog add builds/a3f5c9d2 --alias customer-features
+```
+
+### Listing entries
+
+View all catalog entries: aliases with their build hashes and revision numbers, and entries with their current revision and build hash.
+
+```bash
+xorq catalog ls
+```
+
+Output:
+
+```
+Aliases:
+customer-features          a3f5c9d2e1b4    r2
+fraud-model                b7e3f1a8c5d9    r1
+recommendation-pipeline    c9d2e1b4f7a8    r3
+Entries:
+a3f5c9d2e1b4    r2    a3f5c9d2e1b4
+b7e3f1a8c5d9    r1    b7e3f1a8c5d9
+c9d2e1b4f7a8    r3    c9d2e1b4f7a8
+```
+
+### Getting info
+
+View catalog file location and total counts of entries and aliases.
+
+```bash
+xorq catalog info
+```
+
+Output:
+
+```
+Catalog path: /home/user/.config/xorq/catalog.yaml
+Entries: 3
+Aliases: 2
+```
+
+### Removing entries
+
+Delete a catalog entry. This removes the catalog entry but does not delete the build directory.
+
+```bash
+xorq catalog rm customer-features
+```
+
+### Comparing builds
+
+Compare two builds.
+
+```bash
+xorq catalog diff-builds builds/a3f5c9d2 builds/b7e3f1a8
+```
+
+:::
+
+## Aliases and revisions
+
+An alias is a human-readable name you assign to a build (like `customer-features`). When you register a build with an alias, the catalog creates an entry. If you later register a different build with the same alias, the catalog creates a new revision (r1, r2, r3) while keeping the old revisions accessible. This lets you track version history and roll back if needed.
+
+::: {.panel-tabset}
+
+### First registration
+
+Create a new catalog entry by registering a build with an alias. This creates `features → a3f5c9d2` at r1.
+
+```bash
+xorq catalog add builds/a3f5c9d2 --alias features
+```
+
+### Update with new build
+
+Register a new build with an existing alias to create a new revision. Previous versions remain accessible via hash.
+
+```bash
+xorq catalog add builds/b7e3f1a8 --alias features
+```
+
+### Access specific revision
+
+Run the current version by alias or a specific revision by build hash.
+
+```bash
+xorq run features
+xorq run builds/a3f5c9d2
+```
+
+:::
+
+This pattern enables safe updates. You can promote new versions while keeping old versions accessible for rollback.
+
+## Catalog workflows
+
+The catalog enables three key workflows:
+
+::: {.panel-tabset}
+
+### Discovery workflow
+
+One developer registers a build with an alias; another discovers it with `catalog ls` and runs it by alias.
+
+```bash
+xorq build features.py -e customer_features
+xorq catalog add builds/a3f5c9d2 --alias customer-features
+xorq catalog ls
+xorq run customer-features
+```
+
+### Versioning workflow
+
+Register new builds with the same alias to create new revisions (r1, r2, r3). Run by alias for current version or by hash to roll back.
+
+```bash
+xorq catalog add builds/a3f5c9d2 --alias features
+xorq catalog add builds/b7e3f1a8 --alias features
+xorq catalog add builds/c9d2e1b4 --alias features
+xorq run builds/b7e3f1a8
+```
+
+### Composition workflow
+
+Load a cataloged expression by alias and use it in your code.
+
+```python
+from xorq.catalog import load_catalog, resolve_build_dir
+from xorq.ibis_yaml.compiler import load_expr
+
+catalog = load_catalog()
+build_dir = resolve_build_dir("customer-features", catalog)
+features = load_expr(build_dir)
+```
+
+:::
+
+## When to use the catalog
+
+**Use the catalog when**: Multiple people discover and reuse computations, you deploy to production and need version tracking, you want human-friendly names such as aliases and composition, or computations are long-lived.
+
+**Don't use the catalog when**: Solo work with no discovery need, one-off or throwaway work, prototyping with no persistence, or a team of 1–2 where coordination is trivial.
+
+## Trade-offs
+
+**Benefits**: Discovery, human-friendly aliases, version tracking via revisions, composition, and audit trail.
+
+**Costs**: Catalog management, naming conventions, storage, coordination when sharing aliases, dangling pointers if builds are deleted without updating the catalog.
+
+## Learning more
+
+[Build system](build_system.qmd) explains how the catalog indexes builds created by the build system. [Content-addressed hashing](content_addressed_hashing.qmd) covers how the catalog uses content hashes as identifiers.
+
+[Serving expressions as endpoints](../advanced_capabilities/serving_expressions_as_endpoints.qmd) discusses how to serve catalog entries as APIs.
+
+[Manage the compute catalog guide](../../guides/platform_workflows/manage_compute_catalog.qmd) provides production catalog workflows. [Catalog CLI reference](../../api_reference/cli/catalog.qmd) covers complete catalog command documentation.

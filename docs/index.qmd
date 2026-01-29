@@ -86,7 +86,7 @@ Production-ready patterns for deploying and scaling your pipelines
 ::: {.doc-card}
 <i class="bi bi-lightbulb"></i>
 
-[**Concepts**](core_concepts/)
+[**Concepts**](concepts)
 
 Deep dives into deferred execution, caching, and architecture
 :::

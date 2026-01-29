@@ -1,0 +1,248 @@
+---
+title: 'Expression format'
+description: "Understand Xorq's YAML-based manifest format and what makes it portable"
+---
+
+Your Python pipeline runs perfectly on your laptop with DuckDB, but now you need to deploy it to production Snowflake. Rewriting the code for a different engine wastes time and introduces bugs. Xorq solves this with a YAML-based manifest format that works across all engines without rewrites.
+
+## What is the expression format?
+
+The expression format is Xorq's YAML-based serialization of your computation. It describes what operations to perform without specifying how to execute them. When you run `xorq build`, Xorq converts your Python code into declarative YAML files. Since this format is engine-independent, the same manifest can execute on DuckDB, Snowflake, PostgreSQL, or any backend.
+
+The manifest captures operations, schemas, dependencies, and metadata in a structure that's both human-readable and machine-executable.
+
+```yaml
+# Simplified expr.yaml example
+definitions:
+  schemas:
+    schema_0:
+      species: String
+      sepal_width: Float64
+      count: Int64
+  
+  nodes:
+    iris_data:
+      op: Read
+      name: iris
+      schema: schema_0
+    
+    filtered:
+      op: Filter
+      parent: iris_data
+      predicates:
+        - op: Greater
+          left: sepal_length
+          right: 6.0
+
+expression:
+  op: Aggregate
+  parent: filtered
+  by: [species]
+  metrics:
+    count: Count(species)
+    avg_width: Mean(sepal_width)
+```
+
+## Why engine-specific code creates deployment problems
+
+ML logic trapped in engine-specific code means you can't move between systems without complete rewrites. If you write a feature pipeline in DuckDB SQL, then you can't run it on Snowflake without rewriting everything. If you use pandas, then you can't scale to Spark without starting over from scratch. All your development work gets lost in the rewrite process.
+
+The expression format solves three critical problems that waste time and prevent teams from being productive.
+
+### No portability between engines
+
+Engine-specific code locks you to one system, so moving from local development with DuckDB to production Snowflake requires rewriting everything. Since teams maintain duplicate codebases for different engines, maintenance costs double and inconsistent implementations lead to bugs.
+
+### Versioning computation becomes impossible
+
+Without a declarative format, you version Python code but not the computation itself, which breaks reproducibility completely. If two developers run the same code on different data, then they get different results, so you can't determine what logic changed between runs. Reproducibility breaks down when computation isn't versioned separately from code, creating consistency problems across runs and deployments.
+
+### Reuse opportunities disappear completely
+
+Without a standard format, you can't discover if someone already computed what you need. Every team rebuilds the same features because there's no way to share computation logic systematically, so work gets duplicated across the organization. Teams waste time reimplementing identical transformations independently since no coordination mechanisms exist for sharing work.
+
+The expression format provides three solutions: portability so the same manifest runs on any engine, versioning through content-addressed computation logic, and reuse through catalogs.
+
+## What artifacts Xorq generates
+
+When you run `xorq build`, Xorq creates a build directory with three core artifacts, plus optional debug artifacts when debug mode is enabled:
+
+**expr.yaml**: Contains the complete expression definition, including all operations, their dependencies, and output schemas. This is the core artifact that backends execute, representing your computation graph as filters, joins, and aggregations.
+
+**profiles.yaml**: Specifies backend connection configurations, including which engines to use and how to connect to them with connection strings, credentials, and engine-specific settings. These configurations vary across environments like development and production.
+
+**metadata.json**: Stores build metadata like timestamp, Xorq version, Python dependencies, and content hash, which supports reproducibility and debugging so you can confirm exact reproduction of builds.
+
+**deferred_reads.yaml**: Provides information about data sources that load at execution time rather than build time, including file paths, table names, and read operations that defer until the backend executes them. This artifact is generated only when you run `xorq build` with the `--debug` flag. The build process generates these artifacts:
+
+```{mermaid}
+%%| eval: true
+graph TB
+    A[Python Code] --> B[xorq build]
+    B --> C[expr.yaml]
+    B --> D[profiles.yaml]
+    B --> F[metadata.json]
+    B -.Debug mode.-> E[deferred_reads.yaml]
+    C --> G[Content Hash]
+    G --> H[builds/a3f5c9d2/]
+```
+
+The `expr.yaml` file is engine-independent while `profiles.yaml` is engine-specific for configuration and connection management across environments. This separation means you can change backends by swapping profiles without touching the expression manifest itself.
+
+:::{.callout-tip}
+The manifest is small because it contains computation logic, not data. Logic is compact even when data is large.
+:::
+
+## How the format provides portability
+
+The expression format achieves portability through three design choices that separate logic from execution details.
+
+**Declarative operations**: The manifest describes what to compute without specifying how to do it. For example, if you need to filter rows where the amount exceeds 100, then the manifest describes this requirement without implementation details, so each engine can compile it to its native format like SQL WHERE clauses or pandas boolean indexing.
+
+**Schema preservation**: Every node in the manifest includes its output schema, which supports compile-time validation and type safety.
+
+**Backend abstraction**: The manifest references backends by profile hash rather than specific connection details, so you can swap a local DuckDB profile for a production Snowflake profile without changing the expression itself. The same manifest can execute on different engines:
+
+```{mermaid}
+%%| eval: true
+sequenceDiagram
+    participant Manifest
+    participant DuckDB
+    participant Snowflake
+    
+    Manifest->>DuckDB: Compile to DuckDB SQL
+    DuckDB->>DuckDB: Execute locally
+    
+    Manifest->>Snowflake: Compile to Snowflake SQL
+    Snowflake->>Snowflake: Execute in cloud
+    
+    Note over Manifest: Same manifest, different engines
+```
+
+The manifest is like a musical score, which can be played by any instrument. A pianist and a guitarist can play from the exact same score, but it will sound very different. Similarly, both DuckDB and Snowflake execute the same manifest, but they use different engines to do so.
+
+## Structure of expr.yaml
+
+The `expr.yaml` file has two main sections that organize computation logic into reusable components and dependencies.
+
+**Definitions section**: Declares schemas and reusable nodes. Schemas define column names and types explicitly, while nodes define operations that other parts of the expression reference through dependency graphs. This structure supports deduplication of common operations.
+
+**Expression section**: Defines the root of the computation graph by referencing nodes from the definitions section. This section describes the final output and how it's computed from source data through transformations.
+
+Build metadata (timestamps, versions, content hashes) is stored separately in `metadata.json`, not in `expr.yaml`.
+
+```yaml
+definitions:
+  schemas:
+    schema_0:
+      customer_id: Int64
+      amount: Float64
+      category: String
+  
+  nodes:
+    source_data:
+      op: Read
+      table: transactions
+      schema: schema_0
+    
+    high_value:
+      op: Filter
+      parent: source_data
+      predicates:
+        - op: Greater
+          left: amount
+          right: 100
+
+expression:
+  op: Aggregate
+  parent: high_value
+  by: [category]
+  metrics:
+    total: Sum(amount)
+    count: Count(customer_id)
+```
+
+The definitions-then-expression structure supports deduplication. If operations are referenced multiple times, then they appear once in definitions and get reused throughout the computation graph.
+
+## When expression format matters
+
+**Use expression format when**: You need portability across engines; versioning or compliance; team-wide reuse; production pipelines with caching.
+
+**Skip expression format when**: One-off scripts; single engine forever; no versioning or sharing; solo, no reuse.
+
+## When to inspect manifests
+
+You typically don't read YAML manifests directly since Xorq handles compilation and execution automatically. However, inspecting manifests is useful in three scenarios:
+
+**Debugging execution failures**: Examine the manifest to see exactly what Xorq tried to run, which operations executed, and where the error occurred. The computation graph shows failure points clearly.
+
+**Lineage tracing**: Use the manifest's preserved dependency graph to trace how data flows from sources through transformations.
+
+**Version comparison**: When updating a pipeline, use manifest diffs to see exactly what changed between versions of the computation.
+
+```bash
+# Compare two builds
+diff builds/a3f5c9d2/expr.yaml builds/b1e4d7a9/expr.yaml
+
+# Output shows exactly what changed
+< predicates:
+<   - op: Greater
+<     left: amount
+<     right: 100
+---
+> predicates:
+>   - op: Greater
+>     left: amount
+>     right: 150
+```
+
+:::{.callout-note}
+Xorq uses a custom YAML serialization format based on Ibis expressions, which provides compact and efficient storage. A JSON specification for the format is in development and will allow third-party tools to read manifests.
+:::
+
+## Roundtrip compatibility
+
+Xorq manifests support roundtrip conversion, so you can go from Python expression to YAML manifest and back. This enables powerful workflows: you build an expression in Python, save it as YAML, and share it with your team, who can then load it back into Python to extend or modify it collaboratively without starting from scratch.
+
+```python
+import xorq.api as xo
+from pathlib import Path
+from xorq.ibis_yaml.compiler import build_expr, load_expr
+
+# Build expression
+data = xo.memtable({
+    "amount": [50, 150, 200, 75, 300],
+    "category": ["A", "B", "A", "B", "A"]
+})
+expr = data.filter(xo._.amount > 100)
+
+# Compile to manifest (returns path to build directory)
+build_path = build_expr(expr, builds_dir=Path("builds"))
+
+# Load back from manifest
+roundtrip_expr = load_expr(build_path)
+
+# roundtrip_expr is equivalent to original expr
+```
+
+This roundtrip capability means manifests aren't just for execution. They also support sharing, versioning, and composing computations across team members.
+
+## Understanding trade-offs
+
+**Benefits**: Engine portability, human-readable format, version-friendly because manifests diff cleanly in Git, composable because you can roundtrip to Python, and automatic caching.
+
+**Costs**: Build step required, format complexity, abstraction overhead, learning curve.
+
+:::{.callout-note}
+The manifest contains computation logic, not data. It describes what to compute: filter rows, join tables, aggregate values. These operations don't include actual row values.
+
+External data sources appear as Read operations that load at execution time. In-memory data like memtables gets persisted as parquet files in the build directory, and the manifest references these files.
+
+A 100GB dataset produces a compact manifest because only the computation logic serializes to YAML, not the data itself. Logic is small, data is large.
+:::
+
+## Learning more
+
+[How Xorq works](how_xorq_works.qmd) shows where manifest compilation fits in the pipeline. [Why deferred execution](why_deferred_execution.qmd) explains how manifests capture deferred expressions.
+
+[Build system](../reproducibility/build_system.qmd) discusses how `xorq build` generates manifests. [Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) explains how manifests get unique hashes. [Compute catalog](../reproducibility/compute_catalog.qmd) details how manifests get registered and discovered.
