@@ -480,15 +480,134 @@ def _normalize_columns(columns):
             raise TypeError(f"Unsupported columns type: {type(columns)}")
 
 
+def get_structer_out(sklearnish, expr, features=None):
+    """
+    Compute Structer from sklearn-like objects.
+
+    Single source of truth for container schema computation. Handles
+    ColumnTransformer, FeatureUnion, and Pipeline with support for hybrid
+    output (mixed known-schema + KV-encoded columns).
+
+    For leaf transformers, delegates to structer_from_instance.
+
+    Parameters
+    ----------
+    sklearnish : sklearn estimator or container
+        The sklearn object to compute Structer for (unfitted)
+    expr : ibis.Expr
+        Expression providing input schema context
+    features : tuple, optional
+        Features to consider. If None, uses all expr columns.
+
+    Returns
+    -------
+    Structer
+        Complete Structer with struct, passthrough_columns, and input_columns.
+    """
+    from sklearn.compose import ColumnTransformer
+    from sklearn.pipeline import FeatureUnion
+    from sklearn.pipeline import Pipeline as SklearnPipeline
+
+    features = features or tuple(expr.columns)
+
+    match sklearnish:
+        case ColumnTransformer():
+            transformer_items = _get_transformer_items(sklearnish)
+            schema_fields = {}
+            passthrough_cols = []
+            kv_input_cols = []
+
+            for name, transformer, columns in transformer_items:
+                cols = _normalize_columns(columns)
+
+                match transformer:
+                    case "drop":
+                        continue
+                    case "passthrough":
+                        input_schema = expr.schema()
+                        for col in cols:
+                            prefixed = f"{name}__{col}"
+                            schema_fields[prefixed] = input_schema[col]
+                            passthrough_cols.append(prefixed)
+                    case _:
+                        child = get_structer_out(transformer, expr, features=cols)
+
+                        if child.any_kv_encoded:
+                            schema_fields[name] = KV_ENCODED_TYPE
+                            kv_input_cols.extend(cols)
+                        else:
+                            for col_name, col_type in child.struct.fields.items():
+                                schema_fields[f"{name}__{col_name}"] = col_type
+
+            if sklearnish.remainder == "passthrough":
+                handled = set()
+                for name, transformer, columns in transformer_items:
+                    if transformer != "drop":
+                        handled.update(_normalize_columns(columns))
+                for col in features:
+                    if col not in handled:
+                        prefixed = f"remainder__{col}"
+                        schema_fields[prefixed] = expr.schema()[col]
+                        passthrough_cols.append(prefixed)
+
+            return Structer(
+                struct=dt.Struct(schema_fields),
+                input_columns=tuple(kv_input_cols) if kv_input_cols else None,
+                passthrough_columns=tuple(passthrough_cols),
+            )
+
+        case FeatureUnion():
+            transformer_items = _get_transformer_items(sklearnish)
+            schema_fields = {}
+            kv_input_cols = []
+
+            for name, transformer in transformer_items:
+                child = get_structer_out(transformer, expr, features=features)
+
+                if child.any_kv_encoded:
+                    schema_fields[name] = KV_ENCODED_TYPE
+                    kv_input_cols.extend(features)
+                else:
+                    for col_name, col_type in child.struct.fields.items():
+                        schema_fields[f"{name}__{col_name}"] = col_type
+
+            return Structer(
+                struct=dt.Struct(schema_fields),
+                input_columns=tuple(kv_input_cols) if kv_input_cols else None,
+            )
+
+        case SklearnPipeline():
+            current_features = features
+            current_structer = None
+
+            for name, transformer in sklearnish.steps:
+                if transformer == "passthrough":
+                    continue
+                current_structer = get_structer_out(
+                    transformer, expr, features=current_features
+                )
+                if not current_structer.any_kv_encoded:
+                    current_features = current_structer.output_columns
+
+            if current_structer is None:
+                return Structer.from_names_typ(features, dt.float64)
+
+            # Wrap pure KV-encoded output in struct with "encoded" column
+            if current_structer.is_kv_encoded:
+                return Structer(
+                    struct=dt.Struct({"encoded": KV_ENCODED_TYPE}),
+                    input_columns=current_structer.input_columns,
+                )
+
+            return current_structer
+
+        case _:
+            return structer_from_instance(sklearnish, expr, features)
+
+
 def get_schema_out(sklearnish, expr, features=None):
     """
     Compute output schema from sklearn-like objects.
-
-    Handles container classes (ColumnTransformer, FeatureUnion, Pipeline) with
-    pattern matching and support for hybrid output (mixed known-schema columns +
-    multiple separate KV-encoded columns). Uses sklearn-style prefixing (name__col).
-
-    For leaf transformers, delegates to structer_from_instance.
 
     Parameters
     ----------
@@ -502,109 +621,12 @@ def get_schema_out(sklearnish, expr, features=None):
     Returns
     -------
     ibis.Schema
-        The output schema for the sklearn object. For hybrid output,
-        known-schema columns have prefixed names (name__col) and
-        KV-encoded transformers get their own column (name: KV_ENCODED_TYPE).
+        The output schema for the sklearn object.
     """
-    from sklearn.compose import ColumnTransformer
-    from sklearn.pipeline import FeatureUnion
-    from sklearn.pipeline import Pipeline as SklearnPipeline
-
     from xorq.vendor import ibis
 
-    features = features or tuple(expr.columns)
-
-    match sklearnish:
-        case ColumnTransformer():
-            transformer_items = _get_transformer_items(sklearnish)
-            schema_fields = {}
-
-            for name, transformer, columns in transformer_items:
-                cols = _normalize_columns(columns)
-
-                match transformer:
-                    case "drop":
-                        continue
-                    case "passthrough":
-                        # Passthrough columns keep original types with prefix
-                        input_schema = expr.schema()
-                        for col in cols:
-                            schema_fields[f"{name}__{col}"] = input_schema[col]
-                    case _:
-                        # Recurse to get child schema
-                        child_schema = get_schema_out(transformer, expr, features=cols)
-
-                        # Check if child is KV-encoded (has KV_ENCODED_TYPE)
-                        child_has_kv = any(
-                            KVEncoder.is_kv_encoded_type(typ)
-                            for typ in child_schema.values()
-                        )
-
-                        if child_has_kv:
-                            # KV-encoded child: add single KV column named after transformer
-                            schema_fields[name] = KV_ENCODED_TYPE
-                        else:
-                            # Known-schema child: prefix all columns with transformer name
-                            for col, typ in child_schema.items():
-                                schema_fields[f"{name}__{col}"] = typ
-
-            # Handle remainder='passthrough'
-            if sklearnish.remainder == "passthrough":
-                handled = set()
-                for name, transformer, columns in transformer_items:
-                    if transformer != "drop":
-                        handled.update(_normalize_columns(columns))
-                remainder_cols = [c for c in features if c not in handled]
-                if remainder_cols:
-                    input_schema = expr.schema()
-                    for col in remainder_cols:
-                        schema_fields[f"remainder__{col}"] = input_schema[col]
-
-            return ibis.schema(schema_fields)
-
-        case FeatureUnion():
-            transformer_items = _get_transformer_items(sklearnish)
-            schema_fields = {}
-
-            for name, transformer in transformer_items:
-                # FeatureUnion applies each transformer to all features
-                child_schema = get_schema_out(transformer, expr, features=features)
-
-                # Check if child is KV-encoded
-                child_has_kv = any(
-                    KVEncoder.is_kv_encoded_type(typ) for typ in child_schema.values()
-                )
-
-                if child_has_kv:
-                    # KV-encoded child: add single KV column named after transformer
-                    schema_fields[name] = KV_ENCODED_TYPE
-                else:
-                    # Known-schema child: prefix all columns with transformer name
-                    for col, typ in child_schema.items():
-                        schema_fields[f"{name}__{col}"] = typ
-
-            return ibis.schema(schema_fields)
-
-        case SklearnPipeline():
-            # Chain through each step, updating the schema as we go
-            current_schema = expr.select(*features).schema()
-
-            for name, transformer in sklearnish.steps:
-                if transformer == "passthrough":
-                    continue
-                current_features = tuple(current_schema.names)
-                current_schema = get_schema_out(
-                    transformer, expr, features=current_features
-                )
-
-            return current_schema
-
-        case _:
-            # Leaf transformer - delegate to existing registrations
-            structer = structer_from_instance(sklearnish, expr, features=features)
-            if structer.is_kv_encoded:
-                return ibis.schema({"encoded": KV_ENCODED_TYPE})
-            return ibis.schema(structer.struct.fields)
+    structer = get_structer_out(sklearnish, expr, features)
+    return ibis.schema(structer.struct.fields)
 
 
 @structer_from_instance.register_lazy("sklearn")
@@ -616,20 +638,6 @@ def lazy_register_sklearn():
     from sklearn.pipeline import FeatureUnion
     from sklearn.pipeline import Pipeline as SklearnPipeline
     from sklearn.preprocessing import OneHotEncoder, StandardScaler
-
-    def _normalize_columns(columns):
-        """Normalize columns to tuple format."""
-        match columns:
-            case list():
-                return tuple(columns)
-            case str():
-                return (columns,)
-            case tuple():
-                return columns
-            case None:
-                return ()
-            case _:
-                raise TypeError(f"Unsupported columns type: {type(columns)}")
 
     @structer_from_instance.register(SimpleImputer)
     def _(instance, expr, features=None):
@@ -675,124 +683,12 @@ def lazy_register_sklearn():
 
     @structer_from_instance.register(ColumnTransformer)
     def _(instance, expr, features=None):
-        """
-        Compute ColumnTransformer schema from children with hybrid output support.
-
-        Supports mixed known-schema + KV-encoded columns:
-        - Known-schema transformers produce prefixed columns (name__col)
-        - KV-encoded transformers produce a single KV column (name)
-        - No pollution: KV columns don't affect known-schema columns
-        """
-        features = features or tuple(expr.columns)
-        schema = get_schema_out(instance, expr, features=features)
-
-        # Extract passthrough columns from transformer items
-        transformer_items = _get_transformer_items(instance)
-        passthrough_cols = []
-        for name, transformer, columns in transformer_items:
-            cols = _normalize_columns(columns)
-            if transformer == "passthrough":
-                passthrough_cols.extend(f"{name}__{col}" for col in cols)
-
-        # Handle remainder='passthrough'
-        if instance.remainder == "passthrough":
-            handled = set()
-            for name, transformer, columns in transformer_items:
-                if transformer != "drop":
-                    handled.update(_normalize_columns(columns))
-            remainder_cols = [c for c in features if c not in handled]
-            passthrough_cols.extend(f"remainder__{col}" for col in remainder_cols)
-
-        # Check if any column is KV-encoded
-        kv_cols = [
-            col for col, typ in schema.items() if KVEncoder.is_kv_encoded_type(typ)
-        ]
-        has_kv = len(kv_cols) > 0
-
-        # Build struct from schema
-        struct_fields = {col: typ for col, typ in schema.items()}
-
-        if has_kv:
-            # Hybrid output: has both known-schema and KV columns
-            # input_columns tracks which original columns feed into KV transformers
-            input_cols = []
-            for name, transformer, columns in transformer_items:
-                if transformer not in ("drop", "passthrough"):
-                    cols = _normalize_columns(columns)
-                    child_schema = get_schema_out(transformer, expr, features=cols)
-                    if any(
-                        KVEncoder.is_kv_encoded_type(t) for t in child_schema.values()
-                    ):
-                        input_cols.extend(cols)
-
-            return Structer(
-                struct=dt.Struct(struct_fields),
-                input_columns=tuple(input_cols),
-                passthrough_columns=tuple(passthrough_cols),
-            )
-
-        return Structer(
-            struct=dt.Struct(struct_fields),
-            passthrough_columns=tuple(passthrough_cols),
-        )
+        return get_structer_out(instance, expr, features)
 
     @structer_from_instance.register(FeatureUnion)
     def _(instance, expr, features=None):
-        """
-        Compute FeatureUnion schema from children with hybrid output support.
-
-        Supports mixed known-schema + KV-encoded columns:
-        - Known-schema transformers produce prefixed columns (name__col)
-        - KV-encoded transformers produce a single KV column (name)
-        """
-        features = features or tuple(expr.columns)
-        schema = get_schema_out(instance, expr, features=features)
-
-        # Check if any column is KV-encoded
-        kv_cols = [
-            col for col, typ in schema.items() if KVEncoder.is_kv_encoded_type(typ)
-        ]
-        has_kv = len(kv_cols) > 0
-
-        # Build struct from schema
-        struct_fields = {col: typ for col, typ in schema.items()}
-
-        if has_kv:
-            return Structer(
-                struct=dt.Struct(struct_fields),
-                input_columns=features,
-            )
-
-        return Structer(
-            struct=dt.Struct(struct_fields),
-        )
+        return get_structer_out(instance, expr, features)
 
     @structer_from_instance.register(SklearnPipeline)
     def _(instance, expr, features=None):
-        """
-        Compute sklearn Pipeline schema from final step.
-
-        Pipeline chains transformers sequentially, so the output schema
-        is determined by the final step.
-        """
-        features = features or tuple(expr.columns)
-        schema = get_schema_out(instance, expr, features=features)
-
-        # Check if any column is KV-encoded
-        kv_cols = [
-            col for col, typ in schema.items() if KVEncoder.is_kv_encoded_type(typ)
-        ]
-        has_kv = len(kv_cols) > 0
-
-        # Build struct from schema
-        struct_fields = {col: typ for col, typ in schema.items()}
-
-        if has_kv:
-            return Structer(
-                struct=dt.Struct(struct_fields),
-                input_columns=features,
-            )
-
-        return Structer(
-            struct=dt.Struct(struct_fields),
-        )
+        return get_structer_out(instance, expr, features)
