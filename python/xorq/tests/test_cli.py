@@ -571,6 +571,41 @@ def test_serve_unbound_hash(serve_hash, pipeline_https_build):
     serve_popened.popen.terminate()
 
 
+@pytest.mark.slow(level=2)
+def test_serve_unbound_schema_logging(pipeline_https_build):
+    """Test that serve-unbound logs input and output schemas"""
+    import time
+
+    serve_hash = "8cd7850627df82fc184a152d770eb205"  # DropColumns
+
+    serve_args = (
+        "xorq",
+        "serve-unbound",
+        str(pipeline_https_build),
+        "--to_unbind_hash",
+        serve_hash,
+        "--typ",
+        "xorq.vendor.ibis.expr.operations.DropColumns",
+    )
+    serve_popened = Popened(serve_args, deferred=False)
+
+    # Wait for server to start and get the port (validates server starts successfully)
+    _ = peek_port(serve_popened)
+
+    # Give the logger a moment to flush messages
+    time.sleep(0.2)
+
+    # Terminate the server so we can read stdout (where PrintLogger writes)
+    serve_popened.popen.terminate()
+
+    # Read stdout where the logger writes (not stderr)
+    stdout_output = serve_popened.stdout
+
+    # Verify that schema information is logged
+    assert "Schema-in (required input):" in stdout_output, "Schema-in not logged"
+    assert "Schema-out (output):" in stdout_output, "Schema-out not logged"
+
+
 serve_tags = (
     "read-batting",
     "read-players",
