@@ -12,7 +12,11 @@ from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import (
     deferred_read_parquet,
 )
-from xorq.expr.ml.fit_lib import DeferredFitOther
+from xorq.expr.ml.fit_lib import (
+    DeferredFitOther,
+    kv_encode_output,
+)
+from xorq.expr.ml.structer import KV_ENCODED_TYPE
 from xorq.ml import (
     deferred_fit_predict_sklearn,
     deferred_fit_transform_series_sklearn,
@@ -216,3 +220,323 @@ class TestDeferredFitOtherFromFittedStep:
         # Should have KV-encoded data
         first_row = result[transformed_col].iloc[0]
         assert all("key" in d and "value" in d for d in first_row)
+
+
+sk_compose = pytest.importorskip("sklearn.compose")
+sk_pipeline = pytest.importorskip("sklearn.pipeline")
+
+
+class TestFromFittedStepMatchStatementBranches:
+    """Tests verifying each branch of the match statement in from_fitted_step."""
+
+    def test_series_kv_encoded_branch_name_infix(self):
+        """Test (True, True, _) branch uses 'transformed_encoded' name_infix for TfidfVectorizer."""
+        t = xo.memtable({"text": ["hello world", "foo bar"]})
+        step = xo.Step.from_instance_name(
+            sk_feature_extraction_text.TfidfVectorizer(), name="tfidf"
+        )
+        fitted = step.fit(t, features=("text",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.name_infix == "transformed_encoded"
+        assert deferred.return_type == KV_ENCODED_TYPE
+
+    def test_pure_kv_encoded_branch_name_infix(self):
+        """Test (False, True, _) branch uses 'transformed_encoded' name_infix for OneHotEncoder."""
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        step = xo.Step.from_instance_name(sk_preprocessing.OneHotEncoder(), name="ohe")
+        fitted = step.fit(t, features=("cat",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.name_infix == "transformed_encoded"
+        assert deferred.return_type == KV_ENCODED_TYPE
+
+    def test_struct_with_kv_fields_branch_name_infix(self):
+        """Test (False, False, True) branch uses 'transformed_struct_kv' for ColumnTransformer with mixed output."""
+        t = xo.memtable({"num": [1.0, 2.0, 3.0], "cat": ["a", "b", "c"]})
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("scaler", sk_preprocessing.StandardScaler(), ["num"]),
+                ("encoder", sk_preprocessing.OneHotEncoder(), ["cat"]),
+            ]
+        )
+        step = xo.Step.from_instance_name(ct, name="ct")
+        fitted = step.fit(t, features=("num", "cat"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.name_infix == "transformed_struct_kv"
+        # Return type should be a struct containing both regular and KV-encoded fields
+        assert deferred.return_type is not None
+
+    def test_pure_struct_branch_name_infix(self):
+        """Test default branch uses 'transformed' name_infix for StandardScaler."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        step = xo.Step.from_instance_name(
+            sk_preprocessing.StandardScaler(), name="scaler"
+        )
+        fitted = step.fit(t, features=("a", "b"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.name_infix == "transformed"
+        # Return type should be a struct
+        assert isinstance(deferred.return_type, dt.Struct)
+
+    def test_predict_branch_name_infix(self):
+        """Test predict branch uses 'predict' name_infix for LinearRegression."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "y": [0.0, 1.0]})
+        step = xo.Step.from_instance_name(sk_linear_model.LinearRegression(), name="lr")
+        fitted = step.fit(t, features=("a", "b"), target="y")
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.name_infix == "predict"
+
+
+class TestFromFittedStepFitFunctions:
+    """Tests verifying correct fit function is used for each transformer type."""
+
+    def test_series_transformer_uses_fit_sklearn_series(self):
+        """Test TfidfVectorizer uses fit_sklearn_series with correct col parameter."""
+        t = xo.memtable({"text": ["hello world", "foo bar"]})
+        step = xo.Step.from_instance_name(
+            sk_feature_extraction_text.TfidfVectorizer(), name="tfidf"
+        )
+        fitted = step.fit(t, features=("text",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # fit_sklearn_series is a curried function, verify it has the col parameter
+        assert deferred.fit.keywords.get("col") == "text"
+
+    def test_multi_column_transformer_uses_fit_sklearn_args(self):
+        """Test StandardScaler with multiple columns uses fit_sklearn_args."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        step = xo.Step.from_instance_name(
+            sk_preprocessing.StandardScaler(), name="scaler"
+        )
+        fitted = step.fit(t, features=("a", "b"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # fit_sklearn_args uses cls and params keywords
+        assert "cls" in deferred.fit.keywords
+        assert deferred.fit.keywords["cls"] == sk_preprocessing.StandardScaler
+
+    def test_predictor_uses_fit_sklearn(self):
+        """Test LinearRegression uses fit_sklearn with target support."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "y": [0.0, 1.0]})
+        step = xo.Step.from_instance_name(sk_linear_model.LinearRegression(), name="lr")
+        fitted = step.fit(t, features=("a", "b"), target="y")
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # fit_sklearn uses cls and params keywords
+        assert "cls" in deferred.fit.keywords
+        assert deferred.fit.keywords["cls"] == sk_linear_model.LinearRegression
+
+
+class TestFromFittedStepOtherFunctions:
+    """Tests verifying correct other (transform/predict) function is used."""
+
+    def test_series_kv_encoded_uses_transform_sklearn_series_kv(self):
+        """Test TfidfVectorizer uses transform_sklearn_series_kv."""
+        t = xo.memtable({"text": ["hello world", "foo bar"]})
+        step = xo.Step.from_instance_name(
+            sk_feature_extraction_text.TfidfVectorizer(), name="tfidf"
+        )
+        fitted = step.fit(t, features=("text",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # transform_sklearn_series_kv has col keyword
+        assert deferred.other.keywords.get("col") == "text"
+
+    def test_pure_kv_encoded_uses_kv_encode_output(self):
+        """Test OneHotEncoder uses kv_encode_output."""
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        step = xo.Step.from_instance_name(sk_preprocessing.OneHotEncoder(), name="ohe")
+        fitted = step.fit(t, features=("cat",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # kv_encode_output is the function itself (not curried with keywords)
+        assert deferred.other is kv_encode_output
+
+    def test_pure_struct_uses_transform_sklearn_struct(self):
+        """Test StandardScaler uses transform_sklearn_struct with convert_array."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        step = xo.Step.from_instance_name(
+            sk_preprocessing.StandardScaler(), name="scaler"
+        )
+        fitted = step.fit(t, features=("a", "b"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # transform_sklearn_struct is the base function (curried with convert_array as first arg)
+        # Check that it's transform_sklearn_struct by verifying function name
+        assert deferred.other.func.__name__ == "transform_sklearn_struct"
+
+
+class TestFromFittedStepReturnTypes:
+    """Tests verifying correct return types for each transformer type."""
+
+    def test_kv_encoded_return_type(self):
+        """Test KV-encoded transformers return KV_ENCODED_TYPE."""
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        step = xo.Step.from_instance_name(sk_preprocessing.OneHotEncoder(), name="ohe")
+        fitted = step.fit(t, features=("cat",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.return_type == KV_ENCODED_TYPE
+        # KV_ENCODED_TYPE is Array[Struct{key: string, value: float64}]
+        assert isinstance(deferred.return_type, dt.Array)
+
+    def test_struct_return_type_has_correct_fields(self):
+        """Test struct transformers return type with correct field names."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        step = xo.Step.from_instance_name(
+            sk_preprocessing.StandardScaler(), name="scaler"
+        )
+        fitted = step.fit(t, features=("a", "b"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert isinstance(deferred.return_type, dt.Struct)
+        # Struct should have same field names as features
+        field_names = set(deferred.return_type.names)
+        assert field_names == {"a", "b"}
+
+    def test_predict_return_type_matches_target(self):
+        """Test predict return type matches the target column type."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "y": [0.0, 1.0]})
+        step = xo.Step.from_instance_name(sk_linear_model.LinearRegression(), name="lr")
+        fitted = step.fit(t, features=("a", "b"), target="y")
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # Return type should be float64 to match target
+        assert deferred.return_type == dt.float64
+
+
+class TestFromFittedStepTargetHandling:
+    """Tests verifying target is correctly passed through for supervised cases."""
+
+    def test_transformer_with_target_passes_target(self):
+        """Test supervised transformer (SelectKBest) preserves target."""
+        t = xo.memtable(
+            {"a": [1.0, 2.0, 3.0, 4.0], "b": [4.0, 3.0, 2.0, 1.0], "y": [0, 0, 1, 1]}
+        )
+        step = xo.Step.from_instance_name(
+            sk_feature_selection.SelectKBest(k=1), name="skb"
+        )
+        fitted = step.fit(t, features=("a", "b"), target="y")
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.target == "y"
+
+    def test_unsupervised_transformer_has_no_target(self):
+        """Test unsupervised transformer (StandardScaler) has None target."""
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        step = xo.Step.from_instance_name(
+            sk_preprocessing.StandardScaler(), name="scaler"
+        )
+        fitted = step.fit(t, features=("a", "b"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        assert deferred.target is None
+
+    def test_kv_encoded_transformer_target_cleared_when_not_needed(self):
+        """Test KV-encoded transformer clears target when structer doesn't need it."""
+        t = xo.memtable({"cat": ["a", "b", "c"]})
+        step = xo.Step.from_instance_name(sk_preprocessing.OneHotEncoder(), name="ohe")
+        # OneHotEncoder doesn't need target even if provided
+        fitted = step.fit(t, features=("cat",))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # Target should be None for unsupervised transformers
+        assert deferred.target is None
+
+
+class TestFromFittedStepColumnTransformerWithKvFields:
+    """Tests for ColumnTransformer producing struct with KV-encoded fields."""
+
+    def test_column_transformer_mixed_output_struct_has_kv_fields(self):
+        """Test ColumnTransformer with scaler + encoder produces struct with KV fields."""
+        t = xo.memtable({"num": [1.0, 2.0, 3.0], "cat": ["a", "b", "c"]})
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("scaler", sk_preprocessing.StandardScaler(), ["num"]),
+                ("encoder", sk_preprocessing.OneHotEncoder(), ["cat"]),
+            ]
+        )
+        step = xo.Step.from_instance_name(ct, name="ct")
+        fitted = step.fit(t, features=("num", "cat"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # Return type should be struct
+        assert isinstance(deferred.return_type, dt.Struct)
+        # Struct should have both regular fields and KV-encoded field
+        field_types = dict(deferred.return_type.items())
+        # scaler output should have regular float fields
+        assert "scaler__num" in field_types
+        # encoder output should be KV-encoded
+        assert "encoder" in field_types
+        assert field_types["encoder"] == KV_ENCODED_TYPE
+
+    def test_column_transformer_all_kv_encoded_uses_struct_kv_branch(self):
+        """Test ColumnTransformer with all KV-encoded outputs uses struct_kv branch."""
+        t = xo.memtable({"cat1": ["a", "b", "c"], "cat2": ["x", "y", "z"]})
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("enc1", sk_preprocessing.OneHotEncoder(), ["cat1"]),
+                ("enc2", sk_preprocessing.OneHotEncoder(), ["cat2"]),
+            ]
+        )
+        step = xo.Step.from_instance_name(ct, name="ct")
+        fitted = step.fit(t, features=("cat1", "cat2"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # Should use struct_kv branch since struct exists with KV fields
+        assert deferred.name_infix == "transformed_struct_kv"
+        # All fields should be KV-encoded
+        field_types = dict(deferred.return_type.items())
+        for name, typ in field_types.items():
+            assert typ == KV_ENCODED_TYPE, f"Field {name} should be KV-encoded"
+
+    def test_column_transformer_mixed_executes_correctly(self):
+        """Test ColumnTransformer with mixed output produces correct result."""
+        t = xo.memtable({"num": [1.0, 2.0, 3.0], "cat": ["a", "b", "a"]})
+        ct = sk_compose.ColumnTransformer(
+            [
+                ("scaler", sk_preprocessing.StandardScaler(), ["num"]),
+                ("encoder", sk_preprocessing.OneHotEncoder(), ["cat"]),
+            ]
+        )
+        step = xo.Step.from_instance_name(ct, name="ct")
+        fitted = step.fit(t, features=("num", "cat"))
+
+        deferred = DeferredFitOther.from_fitted_step(fitted)
+
+        # Execute the transform
+        col = deferred.deferred_other.on_expr(t)
+        result = t.mutate(transformed=col).execute()
+
+        # Verify we get struct output
+        assert "transformed" in result.columns
+        first_row = result["transformed"].iloc[0]
+        # Should have scaler__num (float) and encoder (list of dicts)
+        assert "scaler__num" in first_row
+        assert "encoder" in first_row
+        # encoder should be KV-encoded (list of dicts)
+        assert isinstance(first_row["encoder"], list)
+        assert all("key" in d and "value" in d for d in first_row["encoder"])
