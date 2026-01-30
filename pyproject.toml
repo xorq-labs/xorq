@@ -26,7 +26,7 @@ dependencies = [
     "parsy>=2",
     "python-dateutil>=2.8.2",
     "pytz>=2022.7",
-    "sqlglot>=23.4,!=26.32.0",
+    "sqlglot>=23.4,!=26.32.0,<28.7.0",
     "toolz>=0.11",
     "typing-extensions>=4.3.0",
     "pyyaml>=6.0.2",
