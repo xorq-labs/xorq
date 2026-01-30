@@ -180,9 +180,11 @@ class KVEncoder:
     @staticmethod
     def get_kv_value_type(typ):
         """Extract the value type from KV-encoded format Array[Struct{key, value}]."""
-        if KVEncoder.is_kv_encoded_type(typ):
-            return typ.value_type.fields[KVField.VALUE]
-        return typ
+        return (
+            typ.value_type.fields[KVField.VALUE]
+            if KVEncoder.is_kv_encoded_type(typ)
+            else typ
+        )
 
 
 @frozen
@@ -237,10 +239,12 @@ class Structer:
 
         Returns False when struct is None (use is_kv_encoded for leaf case).
         """
-        if self.struct is None:
-            return False
-        return any(
-            KVEncoder.is_kv_encoded_type(typ) for typ in self.struct.fields.values()
+        return (
+            False
+            if self.struct is None
+            else any(
+                KVEncoder.is_kv_encoded_type(typ) for typ in self.struct.fields.values()
+            )
         )
 
     @property
@@ -675,6 +679,11 @@ def get_structer_out(sklearnish, expr, features=None):
 def get_schema_out(sklearnish, expr, features=None):
     """
     Compute output schema from sklearn-like objects.
+
+    Note: Some sklearn estimators (e.g., OneHotEncoder) have output schemas
+    that cannot be known until fit time. For these, the IR will show a
+    KV-encoded column (Array[Struct{key, value}]) rather than the actual
+    output columns.
 
     Parameters
     ----------
