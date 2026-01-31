@@ -102,16 +102,11 @@ def register_claude_skill() -> Path | None:
 
     xorq_package_dir = Path(xorq.__file__).parent
 
-    # Try development setup first (skills/expression-builder at repo root)
-    repo_root = xorq_package_dir.parent.parent
-    skill_source = repo_root / "skills" / "expression-builder"
-
+    # Use bundled package resources
+    skill_source = xorq_package_dir / "agent" / "resources" / "expression-builder"
     if not skill_source.exists():
-        # Fallback: try package resources (if skills are bundled)
-        skill_source = xorq_package_dir / "agent" / "resources" / "expression-builder"
-        if not skill_source.exists():
-            print(f"⚠️  Could not find expression-builder skill source")
-            return None
+        print(f"⚠️  Could not find expression-builder skill source")
+        return None
 
     # Install to project-local .claude/skills directory
     project_root = Path.cwd()
