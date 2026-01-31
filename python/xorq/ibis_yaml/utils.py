@@ -9,7 +9,7 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 def freeze(obj):
     if isinstance(obj, dict):
         return FrozenOrderedDict({k: freeze(v) for k, v in obj.items()})
-    elif isinstance(obj, list):
+    elif isinstance(obj, (tuple, list)):
         return tuple(freeze(x) for x in obj)
     return obj
 

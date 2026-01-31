@@ -127,11 +127,20 @@ def replace_nodes(replacer, expr):
 
 
 def get_ordered_unique_sources(nodes):
+    def get_hash_name(source):
+        if source._profile and source.name != "pandas":
+            return source._profile.hash_name
+        else:
+            # flight server does not have a _profile
+            # pandas can have unhashables in its profile
+            return id(source)
+
     sources, seen = (), set()
-    for node in nodes:
-        if (value := (node.source, node.source._profile)) not in seen:
-            seen.add(value)
-            sources += (node.source,)
+    for source in (node.source for node in nodes):
+        hash_name = get_hash_name(source)
+        if hash_name not in seen:
+            seen.add(hash_name)
+            sources += (source,)
     return sources
 
 
