@@ -44,7 +44,6 @@ import sklearn
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline as SkPipeline
-import toolz
 import pickle
 import base64
 from typing import Tuple, Dict, Any, Optional

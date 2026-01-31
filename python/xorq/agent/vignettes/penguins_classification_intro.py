@@ -36,7 +36,7 @@ import sklearn
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline as SkPipeline
-import toolz
+from xorq.common.utils.toolz_utils import curry
 import pickle
 import base64
 
@@ -191,7 +191,7 @@ def create_fitted_pipeline_expr(train_expr, model_params=None):
 # =============================================================================
 # STEP 4: Utility Function - as_struct Pattern
 # =============================================================================
-@toolz.curry
+@curry
 def as_struct(expr, name=None):
     """
     Bundle all columns into a single struct column.
@@ -201,7 +201,7 @@ def as_struct(expr, name=None):
     - Pass multiple columns as a single unit
     - Avoid losing columns during operations
 
-    The @toolz.curry decorator makes this function partially applicable,
+    The @curry decorator makes this function partially applicable,
     allowing clean usage in pipelines: expr.mutate(as_struct(name="original"))
     """
     # Create a struct containing all columns
