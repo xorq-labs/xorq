@@ -1,7 +1,7 @@
 import xorq.api as xo
 from xorq.expr.udf import agg, make_pandas_expr_udf
 import xorq.expr.datatypes as dt
-import toolz
+from xorq.common.utils.toolz_utils import curry
 import pickle
 
 batting = xo.examples.batting.fetch()
@@ -120,7 +120,7 @@ FEATURES = [
     "career_avg_ops_prior"
 ]
 
-@toolz.curry
+@curry
 def train_model(df, features=FEATURES, target="breakout_label"):
     from sklearn.ensemble import RandomForestClassifier
     import pickle
@@ -138,7 +138,7 @@ def train_model(df, features=FEATURES, target="breakout_label"):
 
     return pickle.dumps(model)
 
-@toolz.curry
+@curry
 def predict_with_model(model_bytes, df, features=FEATURES):
     model = model_bytes # ExprScalarUDF automatically unpickles
     X = df[list(features)].fillna(0)
