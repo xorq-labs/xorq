@@ -341,8 +341,6 @@ class Expr(Immutable, Coercible):
         import xorq.expr.relations as rel
         from xorq.common.utils.graph_utils import get_ordered_unique_sources
 
-        backends = set()
-        has_unbound = False
         node_types = (
             ops.UnboundTable,
             ops.DatabaseTable,
@@ -351,12 +349,12 @@ class Expr(Immutable, Coercible):
             rel.Read,
         )
         found = self.op().find(node_types)
-        has_unbound = any(isinstance(op, ops.UnboundTable) for op in found)
         bound = tuple(op for op in found if not isinstance(op, ops.UnboundTable))
         backends = tuple(get_ordered_unique_sources(bound))
+        has_unbound = any(isinstance(op, ops.UnboundTable) for op in found)
         return backends, has_unbound
 
-    def _find_backend_original(self, *, use_default: bool = False) -> BaseBackend:
+    def _find_backend(self, *, use_default=True) -> BaseBackend:
         """Find the backend attached to an expression.
 
         Parameters
@@ -376,37 +374,26 @@ class Expr(Immutable, Coercible):
 
         backends, has_unbound = self._find_backends()
 
-        if not backends:
-            if has_unbound:
-                raise XorqError(
-                    "Expression contains unbound tables and therefore cannot "
-                    "be executed. Use `<backend>.execute(expr)` to execute "
-                    "against an explicit backend, or rebuild the expression "
-                    "using bound tables instead."
-                )
-            default = _backend_init() if use_default else None
-            if default is None:
-                raise XorqError(
-                    "Expression depends on no backends, and found no default"
-                )
-            return default
-
-        if len(backends) > 1:
-            raise XorqError("Multiple backends found for this expression")
-
-        return backends[0]
-
-    def _find_backend(self, *, use_default=True):
-        from xorq.config import _backend_init
-
-        try:
-            current_backend = self._find_backend_original(use_default=use_default)
-        except XorqError as e:
-            if "Multiple backends found" in e.args[0]:
-                current_backend = _backend_init()
-            else:
-                raise e
-        return current_backend
+        match backends:
+            case []:
+                if has_unbound:
+                    raise XorqError(
+                        "Expression contains unbound tables and therefore cannot "
+                        "be executed. Use `<backend>.execute(expr)` to execute "
+                        "against an explicit backend, or rebuild the expression "
+                        "using bound tables instead."
+                    )
+                elif use_default:
+                    backend = _backend_init()
+                    return backend
+                else:
+                    raise XorqError(
+                        "Expression depends on no backends, and found no default"
+                    )
+            case [backend]:
+                return backend
+            case _:
+                raise XorqError("Multiple backends found for this expression")
 
     def into_backend(self, con, name=None):
         """
