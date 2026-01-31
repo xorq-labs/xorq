@@ -12,13 +12,6 @@
         "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/user_prompt_submit.py"
       }]
     }],
-    "PreToolUse": [{
-      "hooks": [{
-        "type": "prompt",
-        "prompt": "You are evaluating tool use for xorq deferred execution compliance.\n\nOnly evaluate if $TOOL_NAME is \"Bash\" AND command runs Python with a SCRIPT FILE (e.g., 'python script.py', NOT 'python -c \"...\"' or inline code).\n\nFor all other cases, respond:\n{\n  \"ok\": true,\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PreToolUse\",\n    \"permissionDecision\": \"allow\"\n  }\n}\n\nFor Python script execution, check the script file contents for SUBSTANTIAL eager execution:\n\n🚫 BLOCK if you find:\n1. Substantial code AFTER .to_pandas() or .execute() that processes the result\n   Example: df = expr.to_pandas(); df['new_col'] = df['old_col'] * 2\n2. Substantial pandas DataFrame operations NOT wrapped in @ibis.udf decorator\n   Example: df.groupby('col').agg(...) outside of a UDF\n3. Multiple lines of pandas operations (transformations, aggregations, merges)\n\n✅ ALLOW:\n- .to_pandas() or .execute() at the END with no processing after (just output/return)\n- Pandas code inside @ibis.udf decorated functions\n- Simple pandas operations for visualization/display only\n- Script doesn't exist yet (Write/Edit will be evaluated separately)\n\nIf BLOCKING, respond:\n{\n  \"ok\": false,\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PreToolUse\",\n    \"permissionDecision\": \"block\",\n    \"message\": \"🚫 BLOCKED: Eager execution detected!\\n\\nYour script contains substantial eager pandas/execution code that violates xorq's deferred execution model.\\n\\n❌ Found: [describe what you found]\\n\\n✅ Use deferred patterns instead:\\n  • Keep all operations as ibis expressions\\n  • Only materialize at the very end for output\\n  • Wrap pandas operations in @ibis.udf\\n  • Run 'xorq agents prime' for workflow guidance\\n  • Run 'xorq agents vignette list' for patterns\"\n  }\n}\n\nOtherwise respond:\n{\n  \"ok\": true,\n  \"hookSpecificOutput\": {\n    \"hookEventName\": \"PreToolUse\",\n    \"permissionDecision\": \"allow\"\n  }\n}",
-        "timeout": 30
-      }]
-    }],
     "PostToolUseFailure": [{
       "hooks": [{
         "type": "command",
