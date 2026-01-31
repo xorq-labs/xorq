@@ -339,6 +339,7 @@ class Expr(Immutable, Coercible):
         """
 
         import xorq.expr.relations as rel
+        from xorq.common.utils.graph_utils import get_ordered_unique_sources
 
         backends = set()
         has_unbound = False
@@ -349,13 +350,11 @@ class Expr(Immutable, Coercible):
             rel.CachedNode,
             rel.Read,
         )
-        for table in self.op().find(node_types):
-            if isinstance(table, ops.UnboundTable):
-                has_unbound = True
-            else:
-                backends.add(table.source)
-
-        return list(backends), has_unbound
+        found = self.op().find(node_types)
+        has_unbound = any(isinstance(op, ops.UnboundTable) for op in found)
+        bound = tuple(op for op in found if not isinstance(op, ops.UnboundTable))
+        backends = tuple(get_ordered_unique_sources(bound))
+        return backends, has_unbound
 
     def _find_backend_original(self, *, use_default: bool = False) -> BaseBackend:
         """Find the backend attached to an expression.
