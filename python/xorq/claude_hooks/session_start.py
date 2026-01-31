@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
-"""SessionStart hook - triggered when a Claude Code session begins."""
+"""SessionStart hook - prints xorq agents onboard to stdout."""
 
-import json
 import subprocess
 import sys
 
 
 def main():
-    """SessionStart hook handler - runs xorq agents onboard."""
+    """SessionStart hook handler - runs xorq agents onboard and prints to stdout."""
     try:
         # Run xorq agents onboard to get workflow context
         result = subprocess.run(
@@ -18,21 +17,12 @@ def main():
         )
 
         if result.returncode == 0 and result.stdout.strip():
-            # Inject onboarding content as additional context
-            payload = {
-                "suppressOutput": False,
-                "hookSpecificOutput": {
-                    "hookEventName": "SessionStart",
-                    "additionalContext": result.stdout.strip()
-                }
-            }
-            print(json.dumps(payload))
-        else:
-            # No output or error - don't add context
-            print(json.dumps({"suppressOutput": False}))
+            # Print onboarding content to stdout
+            print(result.stdout)
+
     except Exception:
         # If xorq command fails, don't block session start
-        print(json.dumps({"suppressOutput": False}))
+        pass
 
     return 0
 
