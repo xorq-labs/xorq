@@ -1,5 +1,8 @@
 project:
   type: website
+  resources:
+    - "getting_started/*.ipynb"
+    - "getting_started/*.md"
 
 execute:
   mermaid: true
@@ -48,11 +51,11 @@ website:
       contents:
         - href: getting_started/introduction.qmd
         - href: getting_started/quickstart.qmd
-        - href: getting_started/installation.qmd
+        - href: getting_started/install_xorq.qmd
           text: "Install Xorq"
-        - href: getting_started/understand_deferred_execution.qmd
-        - href: getting_started/explore_caching.qmd
-        - href: getting_started/switch_backends.qmd
+        - href: getting_started/defer_query_execution.qmd
+        - href: getting_started/cache_expression_results.qmd
+        - href: getting_started/switch_between_backends.qmd
         
         # - href: getting_started/your_first_expression.qmd
         #   text: "Your first expression"
@@ -70,7 +73,7 @@ website:
             - href: tutorials/ml_tutorials/explore_model_evaluation.qmd
             # - href: tutorials/ml_tutorials/understand_step_and_pipeline.qmd
             # - href: tutorials/ml_tutorials/use_deferred_fit_predict.qmd
-            - href: tutorials/ml_tutorials/deploy_your_first_model.qmd
+            # - href: tutorials/ml_tutorials/deploy_your_first_model.qmd
         - id: ai-tutorials-section
           section: "AI tutorials"
           contents:
@@ -81,10 +84,9 @@ website:
         - id: analytics-tutorials-section
           section: "Analytics tutorials"
           contents:
-            # - href: tutorials/analytics_tutorials/query_across_engines.qmd
             - href: tutorials/analytics_tutorials/create_your_first_udf.qmd
-            # - href: tutorials/analytics_tutorials/use_window_functions.qmd
-            - href: tutorials/analytics_tutorials/work_with_schemas.qmd
+              text: "Write UDFs for SQL and Python"
+            # - href: tutorials/analytics_tutorials/work_with_schemas.qmd
 
 
     - id: guides
