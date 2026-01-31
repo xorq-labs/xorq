@@ -11,6 +11,7 @@ from pytest import param
 
 import xorq.api as xo
 from xorq.caching import ParquetCache, SourceCache
+from xorq.common.exceptions import XorqError
 from xorq.expr.relations import register_and_transform_remote_tables
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
@@ -640,27 +641,27 @@ def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
 
     table_name = "batting"
     left, right = map(request.getfixturevalue, tables)
-    source = right.op().source
-
-    left_cache = SourceCache.from_kwargs(source=left.op().source)
-    right_cache = SourceCache.from_kwargs(source=right.op().source)
+    (left_source, right_source) = (expr.op().source for expr in (left, right))
+    (left_cache, right_cache) = (
+        SourceCache.from_kwargs(source=source) for source in (left_source, right_source)
+    )
 
     left_t = ls_con.register(left, table_name=f"left-{table_name}")[
         lambda t: t.yearID == 2015
+        # is this a test of cross source caching?
     ].cache(right_cache)
 
     right_t = ls_con.register(right, table_name=f"right-{table_name}")[
         lambda t: t.yearID == 2014
     ].cache(left_cache)
 
-    actual = (
-        left_t.join(
-            right_t.into_backend(source),
-            "playerID",
-        )
-        .cache(left_cache)
-        .execute()
+    joined = left_t.join(
+        right_t.into_backend(left_t._find_backend()),
+        "playerID",
     )
+    assert not joined.execute().empty
+
+    actual = joined.cache(left_cache).execute()
 
     expected = (
         ls_con.table(f"left-{table_name}")[lambda t: t.yearID == 2015]
@@ -709,3 +710,16 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
     )
 
     assert expr.execute() is not None
+
+
+def test_multi_backend(parquet_dir):
+    batting = xo.deferred_read_parquet(
+        parquet_dir.joinpath("batting.parquet"), con=xo.connect()
+    )
+    awards_players = xo.deferred_read_parquet(
+        parquet_dir.joinpath("awards_players.parquet"), con=xo.connect()
+    )
+    on = set(batting.columns).intersection(awards_players.columns)
+    joined = batting.select(on).join(awards_players.select(on), predicates=on)
+    with pytest.raises(XorqError, match="Multiple backends"):
+        joined.execute()
