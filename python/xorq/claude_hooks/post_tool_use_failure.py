@@ -8,21 +8,23 @@ from pathlib import Path
 
 def main():
     """PostToolUseFailure hook handler."""
-    # Find TROUBLESHOOTING.md in package resources
     try:
-        import xorq
-        xorq_package_dir = Path(xorq.__file__).parent
-        troubleshooting_path = xorq_package_dir / "agent" / "resources" / "expression-builder" / "resources" / "TROUBLESHOOTING.md"
-
-        if troubleshooting_path.exists():
-            troubleshooting_content = troubleshooting_path.read_text()
-
-            # Append to stderr
-            print("\n" + "="*60, file=sys.stderr)
-            print("📚 XORQ TROUBLESHOOTING GUIDE", file=sys.stderr)
-            print("="*60, file=sys.stderr)
-            print(troubleshooting_content, file=sys.stderr)
-            print("="*60 + "\n", file=sys.stderr)
+        # Simple troubleshooting reminder
+        print("\n" + "="*60, file=sys.stderr)
+        print("📚 XORQ TROUBLESHOOTING", file=sys.stderr)
+        print("="*60, file=sys.stderr)
+        print("\nCommon fixes:", file=sys.stderr)
+        print("  • Schema errors: Check table.schema() before building", file=sys.stderr)
+        print("  • Import errors: Use 'from xorq.vendor import ibis'", file=sys.stderr)
+        print("  • Build errors: Verify variable name matches -e argument", file=sys.stderr)
+        print("\nQuick commands:", file=sys.stderr)
+        print("  xorq agents prompt list --tier reliability", file=sys.stderr)
+        print("  xorq agents prompt show fix_schema_errors", file=sys.stderr)
+        print("  xorq build <file>.py -e expr --pdb", file=sys.stderr)
+        print("\nGet help:", file=sys.stderr)
+        print("  • Use expression-builder skill if available in Claude Code", file=sys.stderr)
+        print("  • Full guide: skills/expression-builder/resources/TROUBLESHOOTING.md", file=sys.stderr)
+        print("="*60 + "\n", file=sys.stderr)
     except Exception:
         # If we can't find or read the file, just exit gracefully
         pass
