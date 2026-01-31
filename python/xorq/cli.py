@@ -582,7 +582,6 @@ def install_claude_hooks_command(args):
     hook_files = [
         "session_start.py",
         "user_prompt_submit.py",
-        "pre_tool_use.py",
         "post_tool_use_failure.py",
         "pre_compact.py",
         "stop.py",
@@ -637,13 +636,13 @@ def install_claude_hooks_command(args):
     print("2. The following hooks are now available:")
     print("   - SessionStart: Runs 'xorq agents onboard' at session start")
     print("   - UserPromptSubmit: Triggered when user submits a prompt")
-    print("   - PreToolUse (prompt-based): BLOCKS eager pandas/visualization operations")
+    print("   - PostToolUseFailure: Appends TROUBLESHOOTING.md on tool failures")
     print("   - PreCompact: Triggered before context compaction")
     print("   - Stop: Checks for uncataloged builds and reminds you to catalog them")
     print("   - SessionEnd: Triggered when a Claude Code session ends")
     print("\n⚡ Key features:")
-    print("   • SessionStart provides lean onboarding context automatically")
-    print("   • PreToolUse blocks: .to_pandas(), .execute(), plt., sns., .plot(), .show()")
+    print("   • SessionStart provides workflow context automatically")
+    print("   • PostToolUseFailure provides troubleshooting guidance on errors")
     print("   • Stop enforces workflow: catalog builds → commit to git")
 
     return 0
