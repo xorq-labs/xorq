@@ -55,3 +55,12 @@ def test_parquet_examples():
         .empty
         for example_name in parquet_examples
     )
+
+
+def test_fetch_default_backend():
+    batting = xo.examples.batting.fetch()
+    awards_players = xo.examples.awards_players.fetch()
+    assert batting._find_backend() is awards_players._find_backend()
+    on = set(batting.columns).intersection(awards_players.columns)
+    joined = batting.select(on).join(awards_players.select(on), predicates=on).execute()
+    assert not joined.empty
