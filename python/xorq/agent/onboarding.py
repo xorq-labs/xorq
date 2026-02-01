@@ -226,24 +226,25 @@ def render_lean_onboarding() -> str:
 Track ALL expression in xorq catalog
 All data work gets cataloged as expression for reuse, reproducibility and composability
 Always commit the builds and catalog
-Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
+Install hooks (`xorq agents hooks install`) for auto-injection of workflow context.
 
 ## Catalog-First Workflow
 1. `xorq catalog ls` - CHECK CATALOG FIRST! Compose on existing expressions
-2. `xorq agents vignette list` - Discover patterns for new expressions
-3. `xorq agents vignette scaffold <name> --dest expr.py` - Get template
-4. Follow the scaffolded pattern exactly
-5. `xorq build expr.py -e expr` - Build expression
-6. `xorq catalog add .xorq/builds/<hash> --alias <name>` - Register to catalog
+2. **BEFORE writing code** - Invoke expression-builder skill for patterns and guidance
+3. `xorq agents vignette list` - Discover patterns for new expressions
+4. `xorq agents vignette scaffold <name> --dest expr.py` - Get template
+5. Follow the scaffolded pattern exactly
+6. `xorq build expr.py -e expr` - Build expression
+7. `xorq catalog add .xorq/builds/<hash> --alias <name>` - Register to catalog
 
-**Key principle:** Compose on existing catalog entries before creating new ones!
-
-For full workflow details: `xorq agents prime`
+**Key principles:**
+- Compose on existing catalog entries before creating new ones!
+- Always use expression-builder skill before writing code!
         """).strip()
 
 
 def render_onboarding_summary(step: str | None = None) -> str:
-    """Render dynamic workflow context (the 'prime' command)."""
+    """Render dynamic workflow context (the 'onboard' command)."""
     # Get current project state
     recent_builds = get_recent_builds(limit=3)
     catalog_entries = get_catalog_entries(limit=10)
@@ -294,18 +295,26 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("")
     sections.append("## ⚡ Before Writing Code")
     sections.append("")
-    sections.append("**Follow this sequence:**")
+    sections.append("**MANDATORY SEQUENCE:**")
     sections.append("")
     sections.append("1. **Explore xorq catalog** - Check what already exists")
     sections.append("   ```bash")
     sections.append("   xorq catalog ls")
     sections.append("   ```")
     sections.append("")
-    sections.append("2. **Explore expression-builder skill** - Get patterns and guidance")
-    sections.append("   - Invoke the skill before writing code")
-    sections.append("   - Get UDF/UDAF patterns, caching strategies, optimization tips")
+    sections.append("2. **INVOKE expression-builder skill** - ALWAYS do this before writing code!")
+    sections.append("   - Use the skill to get patterns, UDF/UDAF templates, and guidance")
+    sections.append("   - Get caching strategies and optimization tips")
+    sections.append("   - Learn deferred execution patterns")
+    sections.append("   - Ask questions about xorq best practices")
     sections.append("")
-    sections.append("3. **Write your expression** - Follow patterns from skill/vignettes")
+    sections.append("3. **Check vignettes** - Get complete working examples")
+    sections.append("   ```bash")
+    sections.append("   xorq agents vignette list")
+    sections.append("   xorq agents vignette scaffold <name> --dest reference.py")
+    sections.append("   ```")
+    sections.append("")
+    sections.append("4. **Write your expression** - Follow patterns from skill/vignettes")
     sections.append("")
     sections.append("")
     sections.append("## Core Commands")
@@ -342,7 +351,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("     result = data.aggregate(my_udaf.on_expr(data))")
     sections.append("     ```")
     sections.append("")
-    sections.append("**Remember:** Run `xorq agents prime` for dynamic workflow context. Keep everything deferred!")
+    sections.append("**Remember:** Run `xorq agents onboard` for workflow context. Keep everything deferred!")
     sections.append("")
 
     return "\n".join(sections).strip() + "\n"

@@ -490,8 +490,6 @@ def agents_command(args):
             return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
-        case "prime":
-            return agent_prime_command(args)
         case "hooks":
             return agent_claude_hooks_command(args)
         case "skill":
@@ -538,14 +536,6 @@ def agent_onboard_command(args):
 
     # Always render lean version for onboard
     summary = render_lean_onboarding()
-    print(summary.rstrip())
-
-
-def agent_prime_command(args):
-    from xorq.agent.onboarding import render_onboarding_summary
-
-    # Prime provides the full workflow context
-    summary = render_onboarding_summary(step=getattr(args, "step", None))
     print(summary.rstrip())
 
 
@@ -1226,17 +1216,6 @@ def parse_args(override=None):
     onboard_parser = agents_subparsers.add_parser(
         "onboard",
         help="Lean onboarding instructions for AGENTS.md",
-    )
-
-    prime_parser = agents_subparsers.add_parser(
-        "prime",
-        help="Full dynamic workflow context for xorq agents",
-    )
-    prime_parser.add_argument(
-        "--step",
-        choices=("init", "build", "catalog", "explore", "compose"),
-        default=None,
-        help="Filter workflow instructions to a specific step",
     )
 
     # Add hooks subparser for Claude Code integration
