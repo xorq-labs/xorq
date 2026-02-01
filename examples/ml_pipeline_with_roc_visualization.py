@@ -355,16 +355,10 @@ def build_ml_pipeline():
             prob_Chinstrap=expr['predicted_proba'][1],
             prob_Gentoo=expr['predicted_proba'][2],
             predicted=xo.cases(
-                (
-                    (expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
-                    (expr['predicted_proba'][0] >= expr['predicted_proba'][2]),
-                    'Adelie'
-                ),
-                (
-                    (expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
-                    (expr['predicted_proba'][1] >= expr['predicted_proba'][2]),
-                    'Chinstrap'
-                ),
+                ((expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
+                 (expr['predicted_proba'][0] >= expr['predicted_proba'][2]), 'Adelie'),
+                ((expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
+                 (expr['predicted_proba'][1] >= expr['predicted_proba'][2]), 'Chinstrap'),
                 else_='Gentoo'
             )
         ))
@@ -394,16 +388,10 @@ def add_probability_columns(expr):
         prob_Chinstrap=expr['predicted_proba'][1],
         prob_Gentoo=expr['predicted_proba'][2],
         predicted=xo.cases(
-            (
-                (expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
-                (expr['predicted_proba'][0] >= expr['predicted_proba'][2]),
-                'Adelie'
-            ),
-            (
-                (expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
-                (expr['predicted_proba'][1] >= expr['predicted_proba'][2]),
-                'Chinstrap'
-            ),
+            ((expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
+             (expr['predicted_proba'][0] >= expr['predicted_proba'][2]), 'Adelie'),
+            ((expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
+             (expr['predicted_proba'][1] >= expr['predicted_proba'][2]), 'Chinstrap'),
             else_='Gentoo'
         )
     )

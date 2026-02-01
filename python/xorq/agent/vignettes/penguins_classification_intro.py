@@ -239,19 +239,14 @@ def create_predictions_with_probs_expr(fitted_pipeline, test_expr):
 
         # Determine final prediction based on highest probability
         # xo.cases() is like SQL CASE WHEN, but for expressions!
+        # Each (condition, result) pair is a single tuple argument
         predicted=xo.cases(
             # If Adelie has highest probability
-            (
-                (predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][1]) &
-                (predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][2]),
-                'Adelie'
-            ),
+            ((predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][1]) &
+             (predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][2]), 'Adelie'),
             # If Chinstrap has highest probability
-            (
-                (predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][0]) &
-                (predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][2]),
-                'Chinstrap'
-            ),
+            ((predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][0]) &
+             (predictions_proba['predicted_proba'][1] >= predictions_proba['predicted_proba'][2]), 'Chinstrap'),
             # Otherwise, it's Gentoo
             else_='Gentoo'
         )
