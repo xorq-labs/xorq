@@ -39,7 +39,7 @@ When violations are detected, Claude is blocked and receives guidance to:
 - Build expressions and run them separately
 - Use `xorq run` to execute and pipe output
 - Avoid eager pandas operations in expression definitions
-- Get help with `xorq agents prime`
+- Get help with `xorq agents onboard`
 
 ### PostToolUseFailure Hook (Troubleshooting Assistant)
 
