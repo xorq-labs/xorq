@@ -378,19 +378,13 @@ def add_probability_columns(expr):
         prob_Chinstrap=expr['predicted_proba'][1],
         prob_Gentoo=expr['predicted_proba'][2],
 
-        # Determine prediction from probabilities using ibis.cases
-        # Note: We use xo.cases here (from xorq.vendor.ibis)
+        # Determine prediction from probabilities using xo.cases
+        # Each (condition, result) pair is a single tuple argument
         predicted=xo.cases(
-            (
-                (expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
-                (expr['predicted_proba'][0] >= expr['predicted_proba'][2]),
-                'Adelie'
-            ),
-            (
-                (expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
-                (expr['predicted_proba'][1] >= expr['predicted_proba'][2]),
-                'Chinstrap'
-            ),
+            ((expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
+             (expr['predicted_proba'][0] >= expr['predicted_proba'][2]), 'Adelie'),
+            ((expr['predicted_proba'][1] >= expr['predicted_proba'][0]) &
+             (expr['predicted_proba'][1] >= expr['predicted_proba'][2]), 'Chinstrap'),
             else_='Gentoo'
         )
     )
