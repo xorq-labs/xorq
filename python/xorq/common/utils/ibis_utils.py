@@ -1,6 +1,7 @@
 import datetime
 import functools
 import importlib
+from contextlib import contextmanager
 
 import toolz
 from ibis import Schema as IbisSchema
@@ -131,10 +132,25 @@ def map_frozendict(frozendict, kwargs=None):
     )
 
 
+backend_registry = {}
+
+
+@contextmanager
+def backend_registry_context():
+    assert not backend_registry
+    yield
+    backend_registry.clear()
+
+
 @map_ibis.register(IbisBaseBackend)
 def map_backend(backend, kwargs=None):
-    new_backend = Profile.from_con(backend).get_con()
-    new_backend.con = backend.con
+    backend_id = id(backend)
+    if new_backend := backend_registry.get(backend_id):
+        pass
+    else:
+        new_backend = Profile.from_con(backend).get_con()
+        new_backend.con = backend.con
+        backend_registry[backend_id] = new_backend
     return new_backend
 
 
@@ -144,4 +160,5 @@ def map_namespace(namespace, kwargs=None):
 
 
 def from_ibis(ibis_expr):
-    return ibis_expr.op().replace(map_ibis).to_expr()
+    with backend_registry_context():
+        return ibis_expr.op().replace(map_ibis).to_expr()
