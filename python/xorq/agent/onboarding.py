@@ -228,13 +228,15 @@ All data work gets cataloged as expression for reuse, reproducibility and compos
 Always commit the builds and catalog
 Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
 
-## Mandatory Workflow
-1. `xorq agents vignette list` - discover patterns
-2. `xorq agents vignette scaffold <name> --dest reference.py` - get template
-3. Follow the scaffolded pattern exactly
-4. `xorq build <file>.py -e expr` - build expression
-5. `xorq catalog add .xorq/builds/<hash> --alias <name>` - register
-6. `xorq catalog ls` - Find available expressions
+## Catalog-First Workflow
+1. `xorq catalog ls` - CHECK CATALOG FIRST! Compose on existing expressions
+2. `xorq agents vignette list` - Discover patterns for new expressions
+3. `xorq agents vignette scaffold <name> --dest expr.py` - Get template
+4. Follow the scaffolded pattern exactly
+5. `xorq build expr.py -e expr` - Build expression
+6. `xorq catalog add .xorq/builds/<hash> --alias <name>` - Register to catalog
+
+**Key principle:** Compose on existing catalog entries before creating new ones!
 
 For full workflow details: `xorq agents prime`
         """).strip()
@@ -290,33 +292,21 @@ def render_onboarding_summary(step: str | None = None) -> str:
         sections.append("3. Only create new catalog entries when composing isn't enough")
 
     sections.append("")
-    sections.append("## 🔑 Catalog-First Workflow")
+    sections.append("## ⚡ Before Writing Code")
     sections.append("")
-    sections.append("**BEFORE creating new datasets, ALWAYS check the catalog:**")
+    sections.append("**Follow this sequence:**")
     sections.append("")
-    sections.append("```python")
-    sections.append("import xorq as xo")
+    sections.append("1. **Explore xorq catalog** - Check what already exists")
+    sections.append("   ```bash")
+    sections.append("   xorq catalog ls")
+    sections.append("   ```")
     sections.append("")
-    sections.append("# 1. Explore what's available")
-    sections.append("# Run: xorq catalog ls")
+    sections.append("2. **Explore expression-builder skill** - Get patterns and guidance")
+    sections.append("   - Invoke the skill before writing code")
+    sections.append("   - Get UDF/UDAF patterns, caching strategies, optimization tips")
     sections.append("")
-    sections.append("# 2. Load and inspect existing expressions")
-    sections.append("expr = xo.catalog.get('alias-name')")
-    sections.append("print(expr.schema())  # Check columns and types")
+    sections.append("3. **Write your expression** - Follow patterns from skill/vignettes")
     sections.append("")
-    sections.append("# 3. Compose on top of catalog expressions")
-    sections.append("result = (")
-    sections.append("    xo.catalog.get('source-data')")
-    sections.append("    .filter(...)  # Add your transformations")
-    sections.append("    .select([...])  # Build on existing work")
-    sections.append(")")
-    sections.append("```")
-    sections.append("")
-    sections.append("**Why catalog-first?**")
-    sections.append("- ✅ Reuse existing data sources and transformations")
-    sections.append("- ✅ Build composable pipelines instead of monoliths")
-    sections.append("- ✅ Avoid recreating datasets that already exist")
-    sections.append("- ✅ Maintain consistent data sources across projects")
     sections.append("")
     sections.append("## Core Commands")
     sections.append("```bash")
@@ -327,66 +317,11 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("xorq agents vignette list           # List available vignettes")
     sections.append("```")
     sections.append("")
-    sections.append("## 🔍 Interactive Exploration with DuckDB")
-    sections.append("")
-    sections.append("Stream xorq expressions into DuckDB for interactive data exploration:")
-    sections.append("")
-    sections.append("```bash")
-    sections.append("# Explore expression interactively")
-    sections.append("xorq run <alias> -f arrow -o /dev/stdout | \\")
-    sections.append("  duckdb -c \"load arrow; select * from read_arrow('/dev/stdin')\"")
-    sections.append("")
-    sections.append("# Quick aggregations for exploration")
-    sections.append("xorq run <alias> -f arrow -o /dev/stdout | \\")
-    sections.append("  duckdb -c \"load arrow; \\")
-    sections.append("    select category, count(*), avg(price) \\")
-    sections.append("    from read_arrow('/dev/stdin') \\")
-    sections.append("    group by category\"")
-    sections.append("")
-    sections.append("# Inspect data quality interactively")
-    sections.append("xorq run <alias> -f arrow -o /dev/stdout | \\")
-    sections.append("  duckdb -c \"load arrow; \\")
-    sections.append("    select count(*), count(distinct id), \\")
-    sections.append("           min(created_at), max(created_at) \\")
-    sections.append("    from read_arrow('/dev/stdin')\"")
-    sections.append("```")
-    sections.append("")
-    sections.append("**Use this for:** Quick data checks, exploring schemas, validating transformations")
-    sections.append("")
-    sections.append("**Remember:** Everything is a deferred expression. No eager pandas/NumPy!")
-    sections.append("")
 
-    # Add vignettes section
-    sections.append("## Available Vignettes")
+    # Add Critical Errors section
+    sections.append("## ⚠️  Critical Errors (Hard to Debug)")
     sections.append("")
-    sections.append("Learn from comprehensive working examples:")
-    sections.append("")
-    sections.append("**BEGINNER:**")
-    sections.append("- `penguins_classification_intro` - ML pipeline for penguin species classification")
-    sections.append("")
-    sections.append("**INTERMEDIATE:**")
-    sections.append("- `ml_pipeline_roc_visualization` - Production-ready ML with ROC visualization")
-    sections.append("")
-    sections.append("**ADVANCED:**")
-    sections.append("- `baseball_breakout_expr_scalar` - Advanced ML patterns with ExprScalarUDF")
-    sections.append("")
-    sections.append("Use `xorq agents vignette show <name>` for details or `xorq agents vignette scaffold <name>` to get started.")
-    sections.append("")
-
-    # Add Common Mistakes section
-    sections.append("## ⚠️  Common Mistakes to Avoid")
-    sections.append("")
-    sections.append("**1. Not checking the catalog first**")
-    sections.append("   - ❌ Creating new data sources without checking `xorq catalog ls`")
-    sections.append("   - ❌ Recreating datasets that already exist in the catalog")
-    sections.append("   - ✅ ALWAYS run `xorq catalog ls` before creating new datasets")
-    sections.append("   - ✅ Use `xo.catalog.get('alias')` to compose on existing expressions")
-    sections.append("")
-    sections.append("**2. Not using the xorq skill proactively**")
-    sections.append("   - ❌ Writing pandas/sklearn-style code with eager operations")
-    sections.append("   - ✅ Invoke xorq skill immediately when working with xorq expressions")
-    sections.append("")
-    sections.append("**3. Type coercion errors in UDF/UDAF pipelines**")
+    sections.append("**Type coercion errors in UDF/UDAF pipelines:**")
     sections.append("   - ❌ Passing expressions directly to UDAFs without type coercion")
     sections.append("   - ❌ Getting \"Failed to coerce arguments\" errors (Decimal128→Int64, Utf8View→Utf8)")
     sections.append("   - ❌ Calling `.into_backend()` without a connection parameter")
@@ -407,7 +342,7 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("     result = data.aggregate(my_udaf.on_expr(data))")
     sections.append("     ```")
     sections.append("")
-    sections.append("**Remember:** Start with `xorq agents onboard`, use xorq skill proactively, and keep everything deferred!")
+    sections.append("**Remember:** Run `xorq agents prime` for dynamic workflow context. Keep everything deferred!")
     sections.append("")
 
     return "\n".join(sections).strip() + "\n"
