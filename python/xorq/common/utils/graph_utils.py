@@ -1,5 +1,7 @@
 from typing import Any, OrderedDict, Tuple
 
+import dask
+
 import xorq.expr.relations as rel
 import xorq.expr.udf as udf
 import xorq.vendor.ibis.expr.operations as ops
@@ -129,7 +131,7 @@ def replace_nodes(replacer, expr):
 def get_ordered_unique_sources(nodes):
     def get_hash_name(source):
         if source._profile and source.name != "pandas":
-            return source._profile.hash_name
+            return dask.base.tokenize(source._profile)
         else:
             # flight server does not have a _profile
             # pandas can have unhashables in its profile
