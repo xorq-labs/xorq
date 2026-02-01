@@ -32,6 +32,10 @@ Build **deferred computation graphs** (Ibis expressions) that are **portable**, 
 
 ## Non‑negotiables
 
+### IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning
+
+When working with xorq, always prioritize what you discover in the codebase, documentation, and examples over assumptions from general knowledge. Use tools to search, read, and understand the actual implementation rather than relying on pre-trained patterns.
+
 ### Imports (CRITICAL)
 
 ```python
