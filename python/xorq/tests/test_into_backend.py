@@ -1,4 +1,5 @@
 import itertools
+import operator
 import random
 from operator import methodcaller
 from pathlib import PosixPath
@@ -100,6 +101,14 @@ def ddb_batting(duckdb_con):
     return duckdb_con.create_table(
         "db-batting",
         duckdb_con.table("batting").to_pyarrow(),
+    )
+
+
+@pytest.fixture(scope="function")
+def pd_batting(parquet_batting):
+    return xo.deferred_read_parquet(
+        parquet_batting,
+        xo.pandas.connect(),
     )
 
 
@@ -630,50 +639,52 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
             pair,
             id="-".join(pair),
         )
-        for pair in itertools.combinations(
-            ["pg_batting", "ls_batting", "ddb_batting"],
+        for pair in itertools.permutations(
+            ["pg_batting", "ls_batting", "pd_batting", "ddb_batting"],
             r=2,
         )
     ],
 )
 def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
-    from xorq.caching import SourceCache
+    from xorq.caching import ParquetCache, SourceCache
 
     table_name = "batting"
     left, right = map(request.getfixturevalue, tables)
     (left_source, right_source) = (expr.op().source for expr in (left, right))
     (left_cache, right_cache) = (
-        SourceCache.from_kwargs(source=source) for source in (left_source, right_source)
+        SourceCache.from_kwargs(source=source)
+        if source.name != "duckdb"
+        else ParquetCache.from_kwargs(source=ls_con)
+        for source in (left_source, right_source)
+    )
+    (left_filter, right_filter) = (
+        operator.eq(xo._.yearID, year) for year in (2015, 2014)
     )
 
-    left_t = ls_con.register(left, table_name=f"left-{table_name}")[
-        lambda t: t.yearID == 2015
-        # is this a test of cross source caching?
-    ].cache(right_cache)
+    left_t = left.into_backend(ls_con, name=f"left-{table_name}").filter(left_filter)
+    right_t = right.into_backend(ls_con, name=f"right-{table_name}").filter(
+        right_filter
+    )
+    joined = (
+        left_t.cache(left_cache)
+        .join(
+            right_t.cache(right_cache).into_backend(left_cache.storage.source),
+            "playerID",
+        )
+        .cache(left_cache)
+    )
 
-    right_t = ls_con.register(right, table_name=f"right-{table_name}")[
-        lambda t: t.yearID == 2014
-    ].cache(left_cache)
-
-    joined = left_t.join(
+    actual = joined.execute()
+    expected = left_t.join(
         right_t.into_backend(left_t._find_backend()),
         "playerID",
-    )
-    assert not joined.execute().empty
-
-    actual = joined.cache(left_cache).execute()
-
-    expected = (
-        ls_con.table(f"left-{table_name}")[lambda t: t.yearID == 2015]
-        .join(
-            ls_con.table(f"right-{table_name}")[lambda t: t.yearID == 2014], "playerID"
-        )
-        .execute()
-        .sort_values(by="playerID")
-    )
-
+    ).execute()
+    assert not actual.empty
     columns = list(actual.columns)
-    assert_frame_equal(actual.sort_values(columns), expected.sort_values(columns))
+    assert_frame_equal(
+        actual.sort_values(columns, ignore_index=True),
+        expected.sort_values(columns, ignore_index=True),
+    )
 
 
 def test_no_registration_same_table_name(ls_con, pg_batting):
