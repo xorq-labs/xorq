@@ -193,6 +193,7 @@ def maybe_prevent_cross_source_caching(expr, storage):
         into_backend,
     )
 
-    if storage.storage.source != expr._find_backend():
+    # this might break on pandas profiles
+    if storage.storage.source._profile != expr._find_backend()._profile:
         expr = into_backend(expr, storage.storage.source)
     return expr
