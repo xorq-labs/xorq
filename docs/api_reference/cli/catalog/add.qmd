@@ -1,12 +1,38 @@
 ---
 title: 'catalog add'
+description: "Add a build to the compute catalog"
 ---
 
-## Coming soon
+Add a build directory to the catalog so you can reference it by alias or entry ID from other commands (e.g. `xorq run`, `xorq lineage`).
 
-Documentation for the `xorq catalog add` CLI command.
+## Usage
 
-This command adds a build to the compute catalog with an optional alias.
+Pass a build directory path and optionally an alias.
 
-Check back soon for complete documentation.
+```bash
+xorq catalog add <build_path> [OPTIONS]
+```
 
+## Arguments
+
+The build to add to the catalog.
+
+| Argument | Description |
+|----------|-------------|
+| `build_path` | Path to the build directory to add |
+
+## Options
+
+Optional alias for the entry.
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--alias` | `-a` | | Optional alias for this entry |
+
+## Example
+
+Add a build with an alias so you can reference it by name.
+
+```bash
+xorq catalog add builds/f02d28198715 --alias penguins-v1
+```

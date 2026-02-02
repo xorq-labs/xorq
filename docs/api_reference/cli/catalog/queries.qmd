@@ -1,0 +1,61 @@
+---
+title: 'Catalog queries'
+description: "List catalog entries and show catalog location and summary"
+---
+
+`xorq catalog ls` and `xorq catalog info` are read-only commands with no arguments or options. Use this page to look up their output format and how catalog location is determined.
+
+## xorq catalog ls
+
+List all builds and aliases in the compute catalog.
+
+### Usage
+
+Run with no arguments.
+
+```bash
+xorq catalog ls
+```
+
+### Arguments and options
+
+None.
+
+### Output
+
+The command prints two blocks. **Aliases** (if any): one line per alias with tab-separated `alias`, `entry_id`, `revision_id`. **Entries**: one line per catalog entry with tab-separated `entry_id`, `current_revision`, `build_id`.
+
+```text
+Aliases:
+my-model        d32fdc18-f55b-4c15-b96b-d72c0f2727e4    r1
+model-staging   1998f0ef-8798-4222-83e6-3c5773ea27c5    r1
+Entries:
+d32fdc18-f55b-4c15-b96b-d72c0f2727e4    r1      c2cbc2dd123f
+1998f0ef-8798-4222-83e6-3c5773ea27c5    r1      c2cbc2dd123f
+```
+
+## xorq catalog info
+
+Show the catalog file path and counts of entries and aliases.
+
+### Usage
+
+Run with no arguments.
+
+```bash
+xorq catalog info
+```
+
+### Arguments and options
+
+None. Catalog location is determined by `XDG_CONFIG_HOME` (or `~/.config/xorq/catalog.yaml` if unset).
+
+### Output
+
+Three lines: catalog path, entry count, alias count.
+
+```text
+Catalog path: /Users/mac/.config/xorq/catalog.yaml
+Entries: 2
+Aliases: 2
+```

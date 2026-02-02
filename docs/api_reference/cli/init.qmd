@@ -1,10 +1,13 @@
 ---
-title: "Init"
+title: 'init'
+description: "Create a new project from a template"
 ---
 
-Initialize a new Xorq project from a template.
+Create a new Xorq project from a template. Use this to bootstrap a script, config, and structure for cached data fetching or ML workflows.
 
 ## Usage
+
+Run from the directory where you want the project created.
 
 ```bash
 xorq init [OPTIONS]
@@ -12,36 +15,44 @@ xorq init [OPTIONS]
 
 ## Options
 
+These flags control where and which template is used.
+
 | Option | Short | Default | Description |
 |--------|-------|---------|-------------|
-| `--path` | `-p` | `./xorq-template` | Directory path where template will be created |
-| `--template` | `-t` | `cached-fetcher` | Template type to initialize |
+| `--path` | `-p` | `./xorq-template` | Directory where the template is created |
+| `--template` | `-t` | `cached-fetcher` | Template type |
+| `--branch` | `-b` | (template default) | Git branch or commit to use for the template |
 
 ## Templates
 
-- **`cached-fetcher`** - Default template for cached data fetching workflows
-- **`sklearn`** - Template for machine learning workflows with scikit-learn
+Available template types and what they include.
+
+| Template | Description |
+|----------|-------------|
+| `cached-fetcher` | Cached data fetching workflows (default) |
+| `sklearn` | Machine learning workflows with scikit-learn |
+| `penguins` | Example using the penguins dataset |
 
 ## Examples
 
-Initialize with default template:
+Common ways to run the command.
+
+Default template in the default directory:
+
 ```bash
 xorq init
 ```
 
-Initialize in custom directory:
-```bash
-xorq init --path ./my-project
-```
+Custom directory and template:
 
-Initialize with sklearn template:
 ```bash
-xorq init --template sklearn --path ./ml-project
+xorq init --path ./my-project --template sklearn
 ```
 
 ## Output
 
-The command creates a new directory with template files and prints:
+After running the command, the directory is created and a line is printed to stdout:
+
 ```
 initialized xorq template `{template}` to {path}
 ```

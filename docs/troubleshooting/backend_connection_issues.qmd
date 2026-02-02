@@ -3,5 +3,76 @@ title: "Backend connection issues"
 description: "Fix backend connection and configuration problems"
 ---
 
-Coming soon.
+This page covers connection timeouts, authentication errors, and file or path not found when using backends. By the end, you will know how to verify credentials and fix common connection failures.
 
+## Verifying credentials
+
+Connection failures usually come from missing credentials, wrong environment variables, or network or firewall issues.
+
+**What to check:**
+
+- **AWS:** Check `AWS_ACCESS_KEY_ID` and related environment variables, or IAM roles if you run on EC2 or ECS.
+- **Database backends:** See the backend-specific sections below and the [Environment variables](../../api_reference/backends/env_variables.qmd) reference.
+
+## Troubleshooting
+
+### Issue: PostgreSQL connection fails
+
+**Cause**: Connection-related environment variables are not set or are wrong.
+
+**Solution**: Check that the variables are set:
+
+```bash
+echo $POSTGRES_HOST
+echo $POSTGRES_DATABASE
+```
+
+If they are empty, set them or use a profile before running your code. See [Connect to backends](../../getting_started/installation.qmd#connect-to-backends) and [Environment variables](../../api_reference/backends/env_variables.qmd) for the full list.
+
+### Issue: Snowflake or Trino connection fails
+
+**Cause**: Wrong account, user, or password, or network blocked by firewall or VPN.
+
+**Solution**: Confirm account, user, and password (and warehouse, database, and schema for Snowflake). Verify network access to the service.
+
+### Issue: Connection timeout
+
+**Error**: `ArrowIOError: Connection timeout after 30s`
+
+**Cause**: The operation took too long or the network is unreachable.
+
+**Solution**:
+
+1. Use streaming to reduce load: `data.to_pyarrow_batches(chunk_size=100000)`.
+2. Check network connectivity (for example, `ping s3.amazonaws.com` for S3).
+3. For local work, try the embedded or DuckDB backend: `con = xo.duckdb.connect()`.
+
+### Issue: File not found, for example S3
+
+**Error**: `FileNotFoundError: s3://bucket/path/file.csv not found`
+
+**Cause**: Wrong path, typo in bucket or key, or missing IAM permissions.
+
+**Solution**:
+
+1. Confirm the path: `aws s3 ls s3://bucket/path/`.
+2. Check for typos in the bucket or key.
+3. Check that IAM permissions include `s3:GetObject` (and `s3:ListBucket` if you list objects).
+
+### Issue: Authentication failed
+
+**Error**: `ClientError: Access Denied` (or similar).
+
+**Cause**: Credentials are missing, wrong, or lack permission for the operation.
+
+**Solution**:
+
+1. Verify credentials (environment variables or profile). For AWS: `print(os.environ.get("AWS_ACCESS_KEY_ID"))`.
+2. Check IAM permissions for the operation (read, write, or list as needed).
+3. On EC2 or ECS, prefer IAM roles instead of long-lived keys.
+
+## Next steps
+
+- [Environment variables](../../api_reference/backends/env_variables.qmd) for backend configuration
+- [Connect to backends](../../getting_started/installation.qmd#connect-to-backends) for setup steps
+- [Overview](index.qmd) for all topics

@@ -3,5 +3,54 @@ title: "Performance problems"
 description: "Identify and resolve performance issues"
 ---
 
-Coming soon.
+This page covers slow or hanging queries, out-of-memory, and evaluation that is too slow. By the end, you will know when to switch backends and how to use streaming or sampling.
 
+## Troubleshooting
+
+### Issue: Queries slow or hanging
+
+**Cause**: Large datasets or a backend that does not match the workload.
+
+**Solution**: Use a backend that fits the use case:
+
+- **DuckDB** — Analytical queries on moderate-sized data (for example, Parquet, AsOf joins).
+- **Pandas** — Small data and fast iteration.
+- **Snowflake or BigQuery** — Large-scale production workloads.
+
+See [Switch backends](../../getting_started/switch_backends.qmd) and [Connect to backends](../../getting_started/installation.qmd#connect-to-backends).
+
+### Issue: Out of memory
+
+**Error**: `MemoryError: Unable to allocate array`
+
+**Cause**: The dataset or result is too large for available memory.
+
+**Solution**:
+
+1. Stream data: `for batch in data.to_pyarrow_batches(chunk_size=100000): ...`
+2. Lower chunk size (for example, 10,000) if needed.
+3. Process one file or partition at a time instead of loading everything.
+
+For connection timeouts while reading large data, see [Backend connection issues](backend_connection_issues.qmd#issue-connection-timeout).
+
+### Issue: Evaluation too slow
+
+**Cause**: The test set or metric computation is too large.
+
+**Solution**: Reduce work per run by sampling the test set and running the metric on the sample:
+
+```python
+test_sample = test.limit(1000)
+accuracy = deferred_sklearn_metric(
+    expr=fitted.predict(test_sample),
+    target="target",
+    pred_col="predicted",
+    metric_fn=accuracy_score
+).execute()
+```
+
+## Next steps
+
+- [Backend connection issues](backend_connection_issues.qmd) for connection timeouts
+- [Switch backends](../../getting_started/switch_backends.qmd) for backend setup
+- [Overview](index.qmd) for all topics

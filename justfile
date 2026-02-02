@@ -44,6 +44,7 @@ up *backends:
 docs-apigen *args:
     cd docs && uv run --no-sync quartodoc interlinks
     uv run --no-sync quartodoc build {{ args }} --config docs/_quarto.yml
+    python3 docs/_fix_links.py
 
 # build documentation
 docs-render:

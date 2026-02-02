@@ -35,7 +35,7 @@ website:
         text: "Guides"
       - href: concepts/understanding_xorq/overview.qmd
         text: "Concepts"
-      - href: reference/index.qmd
+      - href: reference/reference_overview.qmd
         text: "Reference"
       - href: release_notes.qmd
         text: "Release notes"
@@ -172,7 +172,8 @@ website:
       collapse-level: 2
       pinned: true
       contents:
-        - reference/index.qmd
+        - href: reference/reference_overview.qmd
+          text: "Overview"
         - href: reference/glossary.qmd
           text: "Glossary"
         - id: backends-section
@@ -200,20 +201,21 @@ website:
               section: "catalog"
               contents:
                 - api_reference/cli/catalog/add.qmd
-                - api_reference/cli/catalog/ls.qmd
-                - api_reference/cli/catalog/info.qmd
+                - api_reference/cli/catalog/queries.qmd
                 - api_reference/cli/catalog/rm.qmd
                 - api_reference/cli/catalog/diff-builds.qmd
         - id: python-api-section
           section: "Python API"
           contents:
+            - href: reference/python_api/index.qmd
+              text: "Overview"
             - id: core-operations-section
               section: "Core operations"
               contents:
                 - reference/connect.qmd
                 - reference/execute.qmd
                 - href: reference/ls.qmd
-                  text: "ls"
+                  text: "ls accessors"
                 - reference/memtable.qmd
                 - reference/read_csv.qmd
                 - reference/read_parquet.qmd
@@ -263,11 +265,11 @@ website:
             - id: ml-operations-section
               section: "ML operations"
               contents:
-                - reference/train_test_splits.qmd
-                - reference/Step.qmd
                 - reference/Pipeline.qmd
+                - reference/Step.qmd
                 - reference/FittedPipeline.qmd
                 - reference/FittedStep.qmd
+                - reference/train_test_splits.qmd
                 - reference/deferred_fit_predict.qmd
                 - reference/deferred_fit_transform.qmd
                 - reference/calc_split_column.qmd
@@ -290,6 +292,8 @@ website:
               contents:
                 - reference/FlightServer.qmd
                 - reference/FlightUrl.qmd
+                - href: reference/connect_flight.qmd
+                  text: "connect (flight)"
                 - reference/make_udxf.qmd
             - id: catalog-operations-section
               section: "Catalog operations"
@@ -304,10 +308,8 @@ website:
             - href: troubleshooting/index.qmd
             - href: troubleshooting/common_errors.qmd
             - href: troubleshooting/installation_issues.qmd
-            - href: troubleshooting/pipeline_failures.qmd
             - href: troubleshooting/performance_problems.qmd
             - href: troubleshooting/backend_connection_issues.qmd
-            - href: troubleshooting/caching_issues.qmd
 
       
 
@@ -348,6 +350,12 @@ quartodoc:
           dynamic: true
           signature_name: full
           package: xorq.api
+        - kind: page
+          path: ls
+          package: xorq.vendor.ibis.expr.types.core
+          contents:
+            - name: LETSQLAccessor
+              package: xorq.vendor.ibis.expr.types.core
         - name: memtable
           dynamic: true
           signature_name: full
@@ -459,10 +467,12 @@ quartodoc:
       package: xorq.expr.ml
       desc: "Machine Learning Functions and Helpers"
       contents:
-        - train_test_splits
-        - Step
         - Pipeline
+        - Step
         - FittedPipeline
+        - name: FittedStep
+          package: xorq.expr.ml.pipeline_lib
+        - train_test_splits
         - deferred_fit_predict
         - deferred_fit_transform
         - calc_split_column
@@ -491,6 +501,13 @@ quartodoc:
           package: xorq.flight
         - name: FlightUrl
           package: xorq.flight
+        - kind: page
+          path: connect_flight
+          contents:
+            - name: connect
+              dynamic: true
+              signature_name: full
+              package: xorq.flight
         - name: make_udxf
           dynamic: true
           signature_name: full

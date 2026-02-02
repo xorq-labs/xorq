@@ -1,12 +1,30 @@
 ---
 title: 'ps'
+description: "List running Xorq servers"
 ---
 
-## Coming soon
+List running Xorq processes (e.g. servers started with `serve-flight-udxf` or `serve-unbound`). Reads server state from the cache directory.
 
-Documentation for the `xorq ps` CLI command.
+## Usage
 
-This command lists running Xorq processes.
+Run with no arguments to list running Xorq servers.
 
-Check back soon for complete documentation.
+```bash
+xorq ps [OPTIONS]
+```
 
+## Options
+
+Optional override for where server state is stored.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--cache-dir` | (system cache) | Directory where server state records are stored |
+
+## Example
+
+List running servers.
+
+```bash
+xorq ps
+```

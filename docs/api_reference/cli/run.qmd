@@ -1,120 +1,55 @@
 ---
-title: 'Run'
+title: 'run'
+description: "Execute a built artifact and write output"
 ---
 
-The `Xorq run` command executes built Xorq expressions and outputs the results in various formats. This command takes the artifacts created by `xorq build` and executes the expression to produce data.
+Execute a built expression and write results to a file or stdout. The build must have been created with `xorq build` or `xorq uv-build`.
 
-## Prerequisites
+## Usage
 
-Before running Xorq expressions, you need:
-- Built Xorq expression artifacts (created with `xorq build`)
-- Xorq installed with necessary dependencies
-
-## Running expressions
-
-Once you've built a Xorq expression using `xorq build`, you can execute it with the `run` command.
-
-### Basic usage
-
-The basic syntax for the `run` command is:
+Pass a build path (or alias) and optional output path and format.
 
 ```bash
-xorq run <build_path> --output-path <output_file> --format <output_format>
+xorq run <build_path> [OPTIONS]
 ```
 
-Where:
-- `<build_path>` is the path to the built Xorq expression directory
-- `--output-path` specifies where to write the results (defaults to discarding output)
-- `--format` specifies the output format: "csv", "json", or "parquet" (defaults to "parquet")
+## Arguments
 
-### Example: running the penguins analysis
+The build to execute.
 
-Assuming you've built the penguins analysis expression from the [run example](run.qmd):
+| Argument | Description |
+|----------|-------------|
+| `build_path` | Alias, catalog entry ID, build ID, or path to the build directory |
+
+## Options
+
+Where to write output and how to format it.
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--output-path` | `-o` | (discard) | Where to write output; use `-` for stdout |
+| `--format` | `-f` | `parquet` | Output format: `csv`, `json`, `parquet`, or `arrow` |
+| `--limit` | | | Limit number of rows to output |
+| `--cache-dir` | | (system cache) | Directory for parquet cache files |
+
+## Examples
+
+Common usage patterns.
+
+Write Parquet to a file:
 
 ```bash
-# Run the expression and save results as Parquet (default format)
-xorq run builds/f02d28198715 --output-path penguin_results.parquet
+xorq run builds/f02d28198715 --output-path results.parquet
 ```
 
-The command will execute the UDXF Xorq expression and produce a dataset with the health analysis results.
-
-### Output formats
-
-#### Parquet output (default)
-```bash
-xorq run builds/f02d28198715 --output-path results.parquet --format parquet
-```
-
-Parquet is efficient for large datasets and preserves data types perfectly.
-
-#### CSV output
-```bash
-xorq run builds/f02d28198715 --output-path results.csv --format csv
-```
-
-CSV is human-readable and works well with spreadsheet applications.
-
-#### JSON output
-```bash
-xorq run builds/f02d28198715 --output-path results.json --format json
-```
-
-JSON is useful for web applications and APIs.
-
-### Example output
-
-When you run the penguins health analysis, you'll get output like (for json the output format is [NDJSON](https://github.com/ndjson/ndjson-spec)):
-
-```json
-{
-  "species": "Adelie",
-  "island": "Torgersen",
-  "bill_length_mm": 39.1,
-  "bill_depth_mm": 18.7,
-  "flipper_length_mm": 181.0,
-  "body_mass_g": 3750.0,
-  "sex": "male",
-  "year": 2007,
-  "health_score": 3.83,
-  "size_category": "medium",
-  "processed_at": 1752508034
-}
-```
-
-### Advanced options
-
-#### Custom cache directory
-Specify where intermediate cache files are stored:
+Stream CSV to stdout:
 
 ```bash
-xorq run builds/penguins_analysis \
-    --output-path results.parquet \
-    --cache-dir /path/to/cache
+xorq run builds/f02d28198715 -o - -f csv
 ```
 
-#### Output to standard output
-Use `-` to output to stdout (useful for piping):
+Run without saving output (e.g. for validation):
 
 ```bash
-# Output CSV to stdout and pipe to another command
-xorq run builds/f02d28198715 --output-path - --format csv | head -10
-```
-
-#### Discarding output
-When you don't need to save results (useful for validation):
-
-```bash
-# Run without saving output (goes to /dev/null)
 xorq run builds/f02d28198715
 ```
-
-## Understanding execution
-
-When you run `xorq run`, several things happen:
-
-1. **Load Expression**: The build artifacts are loaded to reconstruct the Xorq expression
-2. **Resolve Dependencies**: Data sources and UDXFs are resolved
-3. **Execute Expression**: The Xorq expression is executed using the appropriate backend
-4. **Format Output**: Results are formatted and written to the specified location
-
-The run command provides a reliable way to execute your data transformations consistently across different environments.
