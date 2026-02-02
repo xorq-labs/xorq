@@ -230,12 +230,28 @@ Install hooks (`xorq agents hooks install`) for auto-injection of workflow conte
 
 ## Catalog-First Workflow
 1. `xorq catalog ls` - CHECK CATALOG FIRST! Compose on existing expressions
-2. **BEFORE writing code** - Invoke expression-builder skill for patterns and guidance
-3. `xorq agents vignette list` - Discover patterns for new expressions
-4. `xorq agents vignette scaffold <name> --dest expr.py` - Get template
-5. Follow the scaffolded pattern exactly
-6. `xorq build expr.py -e expr` - Build expression
-7. `xorq catalog add .xorq/builds/<hash> --alias <name>` - Register to catalog
+2. Explore entries: `xorq catalog schema <alias>`, `xorq catalog sources <alias>`
+3. **BEFORE writing code** - Invoke expression-builder skill for patterns and guidance
+4. `xorq agents vignette list` - Discover patterns for new expressions
+5. `xorq agents vignette scaffold <name> --dest expr.py` - Get template
+6. Follow the scaffolded pattern exactly
+7. `xorq build expr.py -e expr` - Build expression
+8. `xorq catalog add .xorq/builds/<hash> --alias <name>` - Register to catalog
+
+## Catalog Exploration Commands
+```bash
+xorq catalog ls                  # List all catalog entries
+xorq catalog info <alias>        # Show entry details and metadata
+xorq catalog schema <alias>      # View output schema (columns/types)
+xorq catalog sources <alias>     # List data source dependencies
+```
+
+**For composition in Python:**
+```python
+import xorq.api as xo
+base = xo.catalog.get('<alias>')      # Load catalog entry
+result = base.filter(...).mutate(...) # Extend it
+```
 
 **Key principles:**
 - Compose on existing catalog entries before creating new ones!
@@ -268,6 +284,45 @@ def render_onboarding_summary(step: str | None = None) -> str:
         for build_hash, time_str in recent_builds[:3]:
             sections.append(f"- `{build_hash[:12]}...` ({time_str})")
         sections.append("💡 Catalog these: `xorq catalog add builds/<hash> --alias name`")
+        sections.append("")
+
+    # Catalog exploration guidance
+    if catalog_entries:
+        sections.append("## 🔍 Catalog Exploration")
+        sections.append("")
+        sections.append("**Understanding catalog entries for composition:**")
+        sections.append("")
+        sections.append("```bash")
+        sections.append("# List all available expressions")
+        sections.append("xorq catalog ls")
+        sections.append("")
+        sections.append("# Show details about a specific entry")
+        sections.append("xorq catalog info <alias>")
+        sections.append("")
+        sections.append("# View output schema (what columns/types it produces)")
+        sections.append("xorq catalog schema <alias>")
+        sections.append("")
+        sections.append("# List source nodes (what data sources it depends on)")
+        sections.append("xorq catalog sources <alias>")
+        sections.append("")
+        sections.append("# Find expressions that accept a specific schema")
+        sections.append("# (useful for finding compatible transforms)")
+        sections.append("echo '{schema_json}' | xorq catalog search-source-schema")
+        sections.append("```")
+        sections.append("")
+        sections.append("**Composing on existing entries:**")
+        sections.append("```python")
+        sections.append("import xorq.api as xo")
+        sections.append("")
+        sections.append("# Load and extend an existing expression")
+        sections.append("base = xo.catalog.get('<alias>')")
+        sections.append("result = base.filter(...).mutate(...)")
+        sections.append("")
+        sections.append("# Combine multiple catalog entries")
+        sections.append("left = xo.catalog.get('dataset_a')")
+        sections.append("right = xo.catalog.get('dataset_b')")
+        sections.append("joined = left.join(right, ...)")
+        sections.append("```")
         sections.append("")
 
     # Context-aware guidance
@@ -319,10 +374,18 @@ def render_onboarding_summary(step: str | None = None) -> str:
     sections.append("")
     sections.append("## Core Commands")
     sections.append("```bash")
-    sections.append("xorq catalog ls                     # List expressions (START HERE!)")
+    sections.append("# Catalog exploration (START HERE!)")
+    sections.append("xorq catalog ls                     # List all expressions")
+    sections.append("xorq catalog info <alias>           # Show entry details")
+    sections.append("xorq catalog schema <alias>         # View output schema")
+    sections.append("xorq catalog sources <alias>        # List data sources")
+    sections.append("")
+    sections.append("# Building and running")
     sections.append("xorq build expr.py -e expr          # Build expression")
     sections.append("xorq catalog add builds/<h> --alias # Catalog build")
     sections.append("xorq run <alias> -f arrow           # Run expression")
+    sections.append("")
+    sections.append("# Learning resources")
     sections.append("xorq agents vignette list           # List available vignettes")
     sections.append("```")
     sections.append("")
