@@ -714,12 +714,20 @@ def get_schema_out(sklearnish, expr, features=None):
 def lazy_register_sklearn():
     from sklearn.base import ClassNamePrefixFeaturesOutMixin, OneToOneFeatureMixin
     from sklearn.compose import ColumnTransformer
-    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.feature_extraction import DictVectorizer
+    from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
     from sklearn.feature_selection._base import SelectorMixin
     from sklearn.impute import SimpleImputer
+    from sklearn.kernel_approximation import AdditiveChi2Sampler
     from sklearn.pipeline import FeatureUnion
     from sklearn.pipeline import Pipeline as SklearnPipeline
-    from sklearn.preprocessing import OneHotEncoder
+    from sklearn.preprocessing import (
+        KBinsDiscretizer,
+        OneHotEncoder,
+        PolynomialFeatures,
+        SplineTransformer,
+        TargetEncoder,
+    )
 
     def _structer_from_maybe_kv_inputs(expr, features):
         """Create Structer for transformers that preserve column structure.
@@ -896,6 +904,55 @@ def lazy_register_sklearn():
     def _(instance, expr, features=None):
         features = features or tuple(expr.columns)
         return Structer(struct=None, input_columns=features, is_series=True)
+
+    # TargetEncoder: inherits OneToOneFeatureMixin but needs needs_target=True
+    @structer_from_instance.register(TargetEncoder)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        kv_cols = KVEncoder.get_kv_encoded_cols(expr, features)
+        if kv_cols:
+            return Structer(struct=None, input_columns=features, needs_target=True)
+        return Structer(
+            struct=Structer.from_names_typ(features, float).struct,
+            input_columns=features,
+            needs_target=True,
+        )
+
+    # CountVectorizer: text vectorizer like TfidfVectorizer
+    @structer_from_instance.register(CountVectorizer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer(struct=None, input_columns=features, is_series=True)
+
+    # PolynomialFeatures: output depends on degree and input feature count
+    @structer_from_instance.register(PolynomialFeatures)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # SplineTransformer: output depends on n_knots and input feature count
+    @structer_from_instance.register(SplineTransformer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # KBinsDiscretizer: output depends on n_bins and encode strategy
+    @structer_from_instance.register(KBinsDiscretizer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # DictVectorizer: output depends on keys in input dicts
+    @structer_from_instance.register(DictVectorizer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer(struct=None, input_columns=features, is_series=True)
+
+    # AdditiveChi2Sampler: doesn't inherit ClassNamePrefixFeaturesOutMixin
+    @structer_from_instance.register(AdditiveChi2Sampler)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
 
     @structer_from_instance.register(ColumnTransformer)
     def _(instance, expr, features=None):
