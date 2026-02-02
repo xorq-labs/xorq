@@ -894,7 +894,7 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
         return hash(self.db_identity)
 
     def __eq__(self, other):
-        return self.db_identity == other.db_identity
+        return self._profile.hash_name == other._profile.hash_name
 
     @functools.cached_property
     def db_identity(self) -> str:
