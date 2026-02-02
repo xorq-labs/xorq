@@ -195,11 +195,7 @@ class Profile:
 
     @property
     def hash_name(self):
-        dask_hash = dask.base.tokenize(
-            json.dumps(
-                toolz.dissoc(self.as_dict(), "idx"),
-            )
-        )
+        dask_hash = dask.base.tokenize(toolz.dissoc(self.as_dict(), "idx"))
         return f"{dask_hash}_{self.idx}"
 
     def get_con(self, **kwargs):

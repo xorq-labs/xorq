@@ -128,10 +128,10 @@ def replace_nodes(replacer, expr):
 
 def get_ordered_unique_sources(nodes):
     sources, seen = (), set()
-    for node in nodes:
-        if (value := (node.source, node.source._profile)) not in seen:
-            seen.add(value)
-            sources += (node.source,)
+    for source in (node.source for node in nodes):
+        if source not in seen:
+            seen.add(source)
+            sources += (source,)
     return sources
 
 
