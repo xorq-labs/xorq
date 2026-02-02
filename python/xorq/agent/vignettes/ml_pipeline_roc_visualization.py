@@ -380,6 +380,16 @@ def add_probability_columns(expr):
 
         # Determine prediction from probabilities using xo.cases
         # Each (condition, result) pair is a single tuple argument
+        #
+        # IMPORTANT: xo.cases() vs .cases() method:
+        # - xo.cases() cannot use xo._ (Deferred) inside .mutate() - it will fail!
+        # - Use column.cases() method instead when you need xo._
+        # - Here we use expr['predicted_proba'][0] directly (works!)
+        #
+        # Example patterns:
+        #   ❌ WON'T WORK: xo.cases((xo._.cut == "Fair", 1), ...)
+        #   ✅ WORKS: xo._.cut.cases(("Fair", 1), ("Good", 2), else_=0)
+        #   ✅ WORKS: xo.cases((expr['col'] == "Fair", 1), ...) [what we do here]
         predicted=xo.cases(
             ((expr['predicted_proba'][0] >= expr['predicted_proba'][1]) &
              (expr['predicted_proba'][0] >= expr['predicted_proba'][2]), 'Adelie'),
