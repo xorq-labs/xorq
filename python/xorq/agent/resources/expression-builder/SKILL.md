@@ -4,7 +4,7 @@ description: >
   Progressive-disclosure skill doc for building deferred, portable expressions with xorq (vendored ibis),
   plus caching, manifests/builds, and multi-engine execution.
 allowed-tools: "Read,Bash(xorq:*),Bash(python:*)"
-version: "0.2.0"
+version: "0.3.0"
 author: "Xorq Labs [https://github.com/xorq-labs](https://github.com/xorq-labs)"
 license: "Apache-2.0"
 ---
@@ -42,7 +42,6 @@ from xorq.vendor import ibis  # ALWAYS use xorq's vendored ibis
 Why vendored ibis?
 
 * Xorq extends ibis with custom operators and behavior, including:
-
   * `.into_backend(con)` (move expressions between backends via Arrow)
   * `.cache(...)` (cache with Parquet/SQLite/etc)
   * additional UDF/window/ML utilities
@@ -91,51 +90,24 @@ result
 
 ---
 
-## Common patterns (you'll use these constantly)
-
-### Filtering, selecting, mutating
+## Common patterns
 
 ```python
-filtered = table.filter([
-    xo._.age > 18,
-    xo._.status == "active",
-])
-
+# Filter, select, mutate
+filtered = table.filter([xo._.age > 18, xo._.status == "active"])
 selected = table.select("id", "name", "value")
+mutated = table.mutate(value_squared=xo._.value ** 2)
 
-mutated = table.mutate(
-    value_squared=xo._.value ** 2,
-    full_name=xo._.first + " " + xo._.last,
+# Aggregations
+summary = table.group_by("category").agg(
+    count=xo._.id.count(),
+    total=xo._.value.sum(),
 )
-```
 
-### Aggregations
+# Joins
+joined = left.join(right, left.id == right.left_id, how="inner")
 
-```python
-summary = (
-    table
-    .group_by("category")
-    .agg(
-        count=xo._.id.count(),
-        total=xo._.value.sum(),
-        avg=xo._.value.mean(),
-    )
-)
-```
-
-### Joins
-
-```python
-joined = left.join(
-    right,
-    left.id == right.left_id,
-    how="inner",
-)
-```
-
-### Window functions
-
-```python
+# Window functions
 ranked = table.mutate(
     rank=xo._.value.rank().over(
         group_by="category",
@@ -146,20 +118,16 @@ ranked = table.mutate(
 
 ---
 
-## Next step: handle big data safely
+<details>
+<summary><strong>Caching & big data patterns</strong></summary>
 
 ### Deferred loading for large Parquet files
 
-Use deferred reads to keep things lazy and scalable.
-
 ```python
-import xorq.api as xo
 from xorq.common.utils.defer_utils import deferred_read_parquet
 
 con = xo.connect()
 expr = deferred_read_parquet("large.parquet", con, "data")
-
-print(expr.schema())
 expr.filter(xo._.some_col.notnull()).execute()
 ```
 
@@ -168,36 +136,52 @@ expr.filter(xo._.some_col.notnull()).execute()
 Cache *where it hurts* (right after expensive steps).
 
 ```python
-import xorq.api as xo
 from xorq.caching import ParquetCache
 from xorq.common.utils.ibis_utils import from_ibis
 
-con = xo.connect()
-
 expensive_query = con.table("huge_table").filter(xo._.flag == 1)
-
-cached_expr = (
-    from_ibis(expensive_query)
-    .cache(ParquetCache.from_kwargs())
-)
-
+cached_expr = from_ibis(expensive_query).cache(ParquetCache.from_kwargs())
 cached_expr.execute()
 ```
 
+</details>
+
 ---
 
-## Catalog basics (reuse work across sessions)
+<details>
+<summary><strong>Catalog (reuse work across sessions)</strong></summary>
+
+### Python API
 
 ```python
-import xorq.api as xo
-
+# Load cataloged expression
 expr = xo.catalog.get("my-alias")
 
+# Get placeholder for run-unbound workflows
 placeholder = xo.catalog.get_placeholder(
     "my-alias",
     tag="tag",  # useful with xorq run-unbound --to_unbind_tag
 )
 ```
+
+### CLI Workflow
+
+```bash
+# Build expression from Python file
+xorq build my_expr.py -e expr
+
+# Add to catalog
+xorq catalog add .xorq/builds/<hash> --alias my-dataset
+
+# List catalog
+xorq catalog ls
+
+# View schema & sources
+xorq catalog schema my-dataset
+xorq catalog sources my-dataset
+```
+
+</details>
 
 ---
 
@@ -206,8 +190,6 @@ placeholder = xo.catalog.get_placeholder(
 
 Use this when you truly need Python/pandas logic inside an aggregate step.
 
-### Example: pandas dataframe aggregation returning Arrow-friendly structs
-
 ```python
 import xorq.api as xo
 from xorq.expr.udf import agg
@@ -215,7 +197,6 @@ import xorq.expr.datatypes as dt
 
 con = xo.connect()
 source = xo.examples.diamonds.fetch(con)
-
 expr = source.filter(xo._.carat > 1)
 
 def complex_pandas_fn(df):
@@ -226,14 +207,7 @@ def complex_pandas_fn(df):
 return_fields = {
     "carat": dt.float64,
     "cut": dt.string,
-    "color": dt.string,
-    "clarity": dt.string,
-    "depth": dt.float64,
-    "table": dt.float64,
     "price": dt.float64,
-    "x": dt.float64,
-    "y": dt.float64,
-    "z": dt.float64,
 }
 return_type = dt.Array(dt.Struct(return_fields))
 
@@ -241,30 +215,29 @@ pandas_udaf = agg.pandas_df(
     fn=complex_pandas_fn,
     schema=expr.schema(),
     return_type=return_type,
-    name="optimize_portfolio",
+    name="my_aggregation",
 )
 
 out = expr.aggregate(
-    optimize_portfolio=pandas_udaf.on_expr(expr)
+    result=pandas_udaf.on_expr(expr)
 )
 
 out.execute()
 ```
 
-### Practical notes
-
-* Make sure your `return_type` matches exactly what your function returns.
-* Pandas UDAFs are powerful but can be slow; combine with caching if needed.
-* Prefer vectorized or native expression logic when possible.
+**Notes:**
+* Make sure `return_type` matches exactly what your function returns
+* Pandas UDAFs are powerful but slow; combine with caching if needed
+* Prefer vectorized or native expression logic when possible
 
 </details>
 
 ---
 
 <details>
-<summary><strong>Advanced: ML pipeline (preferred sklearn pattern)</strong></summary>
+<summary><strong>Advanced: ML pipeline (sklearn integration)</strong></summary>
 
-This is the recommended pattern for "deferred sklearn" with row-packing via `struct`.
+Recommended pattern for deferred sklearn with row-packing via `struct`.
 
 ```python
 import toolz
@@ -285,7 +258,6 @@ sklearn_pipeline = SkPipeline([
 ])
 
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-
 FEATURES = ["f1", "f2", "f3"]
 
 # Fit
@@ -302,6 +274,8 @@ predictions = (
 
 predictions.execute()
 ```
+
+**For more ML patterns**, see `resources/ml-pipelines.md`
 
 </details>
 
@@ -320,7 +294,6 @@ duckdb_con = xo.connect()
 snowflake_con = xo.connect("snowflake://...")
 
 expr = from_ibis(duckdb_con.table("local_data"))
-
 moved = expr.into_backend(snowflake_con)  # transit via Arrow
 moved.execute()
 ```
@@ -330,7 +303,17 @@ moved.execute()
 ---
 
 <details>
-<summary><strong>CLI + starter templates</strong></summary>
+<summary><strong>Vignettes & templates</strong></summary>
+
+### Discover patterns
+
+```bash
+# List available vignettes
+xorq agents vignette list
+
+# Scaffold a vignette to learn from
+xorq agents vignette scaffold penguins_classification_intro --dest example.py
+```
 
 ### Onboarding workflow
 
@@ -340,79 +323,54 @@ xorq agents onboard
 
 Conceptually: **init → build → catalog → test → land**
 
-### Templates
-
-```bash
-ls examples/
-cat examples/sklearn_pipeline.py
-cp examples/penguins_demo.py my_pipeline.py
-```
-
-Examples typically include:
-
-* `penguins_demo` — minimal multi-engine example
-* `sklearn_pipeline` — deferred sklearn fit/predict
-* `cached_fetcher` — hydrate upstream tables + cache
-
 </details>
 
 ---
 
 ## Troubleshooting
 
-### "My expression errors when executing on another engine"
+**Common issues:**
 
-* Confirm you used `from xorq.vendor import ibis` (not upstream ibis).
-* Confirm you didn't accidentally execute early and pass pandas where an expression is expected.
-* If crossing engines, use `.into_backend(...)` intentionally.
+* **Wrong ibis import**: Use `from xorq.vendor import ibis` (not standalone ibis)
+* **Schema mismatch**: Always `print(table.schema())` before operations
+* **xo.cases() with xo._**: Use `.cases()` method instead: `xo._.col.cases(("val", 1), ...)`
+* **Type coercion errors in UDAFs**: Use `.into_backend(con=xo.connect())` before UDF operations
+* **Caching not helping**: Cache *after* expensive operations (joins, filters, UDFs)
 
-### "Schema mismatch / column not found"
-
-* Print schema before you write transforms:
-
-  ```python
-  print(table.schema())
-  ```
-* Then verify column names and types match your assumptions.
-
-### "Caching didn't help"
-
-* Cache should sit *after* the expensive boundary (big join, heavy filter, UDF).
-* If the expensive work happens after caching, you won't see a speedup.
+**For detailed troubleshooting**, see `resources/TROUBLESHOOTING.md`
 
 ---
 
 ## Reference cheat sheet
 
-### Connect
-
 ```python
+# Connect
 con = xo.connect()                  # DuckDB default
 con = xo.connect("snowflake://...") # other engines
-```
 
-### Catalog
-
-```python
+# Catalog
 expr = xo.catalog.get("my-alias")
 ph = xo.catalog.get_placeholder("my-alias", tag="tag")
-```
 
-### Execute
+# Execute
+result = expr.execute()
 
-```python
-expr.execute()
-```
-
-### Move between backends
-
-```python
+# Move between backends
 expr.into_backend(other_con)
-```
 
-### Cache
-
-```python
+# Cache
 from xorq.caching import ParquetCache
 expr.cache(ParquetCache.from_kwargs())
+```
+
+**CLI Quick Reference:**
+
+```bash
+xorq catalog ls                    # List catalog entries
+xorq catalog schema <alias>        # View schema
+xorq build expr.py -e expr         # Build expression
+xorq catalog add builds/<h> --alias <name>  # Catalog build
+xorq run <alias> -f arrow          # Run expression
+xorq agents vignette list          # List vignettes
+xorq agents onboard                # Onboarding guide
 ```
