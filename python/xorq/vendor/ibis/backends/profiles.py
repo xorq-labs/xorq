@@ -15,6 +15,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import normalize_attr
 from xorq.common.utils.env_utils import compiled_env_var_substitution_re
 from xorq.common.utils.inspect_utils import get_arguments
 from xorq.loader import _load_entry_points, load_backend
+from xorq.vendor.ibis.backends import BaseBackend
 from xorq.vendor.ibis.config import options
 
 
@@ -196,8 +197,13 @@ class Profile:
 
     @property
     def hash_name(self):
-        dask_hash = dask.base.tokenize(toolz.dissoc(self.as_dict(), "idx"))
-        return f"{dask_hash}_{self.idx}"
+        # represents the type of connection and all its config but not the particular instance
+        match self:
+            case BaseBackend(name="pandas") | BaseBackend(name="xorq_flight"):
+                to_tokenize = id(self)
+            case _:
+                to_tokenize = toolz.dissoc(self.as_dict(), "idx")
+        return f"{dask.base.tokenize(to_tokenize)}_{self.idx}"
 
     def get_con(self, **kwargs):
         """Create a connection using this profile's parameters."""
