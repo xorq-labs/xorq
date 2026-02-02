@@ -1,0 +1,292 @@
+---
+title: 'User-defined functions'
+description: "Understand how to extend Xorq with custom Python functions that work in SQL"
+---
+
+Applying complex business rules requires custom logic beyond standard SQL operations and built-in functions. Built-in functions handle sum, filter, and join operations, but not your specific discount calculations. User-defined functions solve this by wrapping your Python logic for both expressions and queries.
+
+## What are user-defined functions?
+
+User-defined functions (UDFs) are custom Python functions that work in both Xorq expressions and SQL queries. You write Python code that operates on pandas DataFrames, and Xorq makes it available as a function that executes consistently across different backends. This lets you extend Xorq's built-in operations with domain-specific logic for custom business rules, API calls, and complex transformations that aren't built into the system.
+
+```python
+import xorq.api as xo
+from xorq.expr.udf import make_pandas_udf
+import xorq.expr.datatypes as dt
+
+# Define your Python function
+def calculate_discount(df):
+    import numpy as np
+    return np.where(df['is_member'], df['price'] * 0.9, df['price'])
+
+# Wrap as UDF
+discount_udf = make_pandas_udf(
+    fn=calculate_discount,
+    schema=xo.schema({"price": dt.float64, "is_member": dt.boolean}),
+    return_type=dt.float64,
+    name="calculate_discount"
+)
+
+# Use in expressions
+result = customers.mutate(
+    final_price=discount_udf.on_expr(customers)
+)
+```
+
+## Why user-defined functions matter
+
+Built-in functions cover common operations like sum, filter, and join. However, every domain has specific logic that doesn't fit standard operations. Without UDFs, you'd need to extract data to Python, apply your logic, then load it back. This breaks the pipeline and loses optimization opportunities.
+
+This creates three problems:
+
+**Pipeline fragmentation slows execution.** You can't express your full computation in one pipeline. You extract data, process in Python, then load back. This requires serializing data to disk or memory, context switching between systems, and potentially losing parallelization. A transformation that could run in-database runs in Python instead, moving gigabytes unnecessarily.
+
+**No SQL integration limits collaboration.** Your Python logic doesn't work in SQL queries. Data analysts who prefer SQL can't use your transformations. They either duplicate your logic in SQL, creating a maintenance burden, or ask you to extract and process data for them, creating bottlenecks.
+
+**Lost optimization reduces performance.** When you extract data to Python, Xorq can't optimize the full pipeline. Operations that could push to the database run in Python instead. Filter operations that could eliminate 99% of data happen after extraction, not before. The query optimizer has no visibility into your Python processing.
+
+UDFs solve these by making Python functions first-class operations in Xorq. Your custom logic works in expressions, SQL queries, and across all backends.
+
+## How user-defined functions work
+
+UDFs operate in three stages:
+
+**Function definition**: You write a Python function that takes a pandas DataFrame and returns a Series or scalar. This function contains your custom logic.
+
+**UDF wrapping**: You wrap the function with `make_pandas_udf`, specifying the input schema and return type. This creates a UDF constructor.
+
+**UDF application**: You apply the UDF to expressions using `.on_expr()`. After registration, UDFs can be used in SQL queries by name. Xorq handles data conversion and execution. The UDF lifecycle from definition to execution follows this sequence:
+
+```{mermaid}
+%%| eval: true
+sequenceDiagram
+    participant User
+    participant UDF
+    participant Xorq
+    participant Backend
+    
+    User->>UDF: Define Python function
+    User->>UDF: Wrap with make_pandas_udf
+    UDF->>Xorq: Create UDF constructor
+    User->>Xorq: Apply UDF in expression
+    Xorq->>Backend: Convert to backend format
+    Backend->>Backend: Execute
+    Backend->>Xorq: Return results
+    Xorq-->>User: Results
+```
+
+UDFs are portable across different database backends, meaning the same UDF works on DuckDB, PostgreSQL, Snowflake, and other supported systems without modification. Xorq handles all the backend-specific implementation details and data format conversions automatically. The same UDF can execute on multiple backends:
+
+```{mermaid}
+%%| eval: true
+graph LR
+    A[Python Function] --> B[make_pandas_udf]
+    B --> C[Schema + Return Type]
+    C --> D[UDF Constructor]
+    D --> E[Apply to Expression<br/>or Use in SQL Query]
+    E --> F[Execute on<br/>DuckDB / PostgreSQL / Snowflake]
+```
+
+:::{.callout-tip}
+UDFs bridge Python and SQL by letting you write Python functions once and use them in both Python expressions and SQL queries. This enables collaboration between Python-first and SQL-first users without duplicating logic.
+:::
+
+## Creating UDFs with make_pandas_udf
+
+The `make_pandas_udf` function creates scalar UDFs that process data row-by-row:
+
+```python
+from xorq.expr.udf import make_pandas_udf
+import xorq.expr.datatypes as dt
+
+# 1. Define function
+def bill_ratio(df):
+    return df['bill_length_mm'] / df['bill_depth_mm']
+
+# 2. Create schema
+schema = xo.schema({
+    "bill_length_mm": dt.float64,
+    "bill_depth_mm": dt.float64
+})
+
+# 3. Wrap as UDF
+bill_ratio_udf = make_pandas_udf(
+    fn=bill_ratio,
+    schema=schema,
+    return_type=dt.float64,
+    name="bill_ratio"
+)
+
+# 4. Apply to data
+result = penguins.mutate(
+    ratio=bill_ratio_udf.on_expr(penguins)
+)
+```
+
+The function receives a pandas DataFrame where columns correspond to the schema keys. It returns a pandas Series or scalar compatible with the return type.
+
+## UDF types
+
+Xorq supports two main UDF types:
+
+### Scalar UDFs
+
+Process data row-by-row, returning one value per row:
+
+```python
+def classify_size(df):
+    def categorize(mass):
+        if mass > 4500:
+            return 'Large'
+        elif mass < 3500:
+            return 'Small'
+        else:
+            return 'Medium'
+    return df['body_mass_g'].apply(categorize)
+
+size_udf = make_pandas_udf(
+    fn=classify_size,
+    schema=xo.schema({"body_mass_g": dt.float64}),
+    return_type=dt.string,
+    name="classify_size"
+)
+```
+
+### Expression UDFs
+
+Use pre-computed values like trained models in predictions:
+
+```python
+from xorq.expr.udf import make_pandas_expr_udf, agg
+
+# Train model (aggregation)
+model_udaf = agg.pandas_df(
+    fn=train_model,
+    schema=train_schema,
+    return_type=dt.binary,
+    name="train_model"
+)
+
+# Predict using trained model
+predict_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=model_udaf.on_expr(train_data),
+    fn=predict,
+    schema=test_schema,
+    return_type=dt.string,
+    name="predict"
+)
+
+# Apply predictions
+result = test_data.mutate(
+    prediction=predict_udf.on_expr(test_data)
+)
+```
+
+Expression UDFs enable ML workflows where you train on aggregated data and predict on new data in one pipeline.
+
+## Using UDFs in SQL
+
+UDFs work in SQL queries after they are registered by using them in an expression first:
+
+```python
+# Create UDF
+bill_ratio_udf = make_pandas_udf(
+    fn=bill_ratio,
+    schema=schema,
+    return_type=dt.float64,
+    name="bill_ratio"
+)
+
+# Register UDF by using it in an expression
+_ = penguins.mutate(ratio=bill_ratio_udf.on_expr(penguins)).execute()
+
+# Now use in SQL
+result = con.sql("""
+    SELECT 
+        species,
+        bill_ratio(bill_length_mm, bill_depth_mm) as ratio
+    FROM penguins
+    WHERE ratio > 2.0
+""")
+```
+
+The UDF name you specify becomes a SQL function after registration. Once registered, SQL users can call it just like built-in functions without needing Python knowledge.
+
+## When to use UDFs
+
+**Use UDFs when**: You need domain-specific logic such as business rules, APIs, or complex Python-only transforms, or when you want to share Python logic with SQL users.
+
+**Use built-in functions when**: Xorq already has the operation, for example sum, filter, or join; performance is critical; or you can compose built-ins to get the result.
+
+## UDF best practices
+
+Following these practices helps you write maintainable UDFs that perform well in production.
+
+### Keep UDFs focused
+
+Each UDF should do one thing well:
+
+```python
+# Good: focused UDF
+def calculate_discount(df):
+    return df['price'] * 0.9
+
+# Bad: UDF doing too much
+def process_order(df):
+    # Calculates discount, applies tax, formats output...
+    # Too many responsibilities
+```
+
+### Handle null values
+
+Always handle missing data explicitly:
+
+```python
+def safe_divide(df):
+    result = df['numerator'] / df['denominator']
+    return result.fillna(0)  # Handle division by zero
+```
+
+### Use type hints
+
+Type hints improve readability and catch errors:
+
+```python
+import pandas as pd
+
+def classify_size(df: pd.DataFrame) -> pd.Series:
+    return df['body_mass_g'].apply(lambda x: 'Large' if x > 4500 else 'Small')
+```
+
+### Test UDFs independently
+
+Test your function with pandas DataFrames before wrapping as UDF:
+
+```python
+# Test function directly
+test_df = pd.DataFrame({"price": [100, 200], "is_member": [True, False]})
+result = calculate_discount(test_df)
+assert result.tolist() == [90, 200]
+
+# Then wrap as UDF
+discount_udf = make_pandas_udf(...)
+```
+
+## Trade-offs
+
+**Benefits**: Extensibility, portability across backends, SQL integration, reusability, maintainability.
+
+**Costs**: Performance because UDFs are slower than built-ins, serialization overhead, limited optimization, debugging complexity, and maintenance burden.
+
+## Learning more
+
+[How Xorq works](../fundamentals/how_xorq_works.qmd) explains Xorq's architecture and how UDFs fit into the system.
+
+[User-defined exchange functions](user_defined_exchange_functions.qmd) covers UDXFs for distributed processing.
+
+[Create your first UDF tutorial](../../tutorials/analytics_tutorials/create_your_first_udf.qmd) provides hands-on UDF practice. [UDF API reference](../../api_reference/python_api/udf.qmd) covers complete UDF documentation.
+
+### See also
+
+- [Create your first UDF tutorial](../../tutorials/analytics_tutorials/create_your_first_udf.qmd) - Hands-on UDF practice
+- [UDF API reference](../../api_reference/python_api/udf.qmd) - Complete UDF documentation

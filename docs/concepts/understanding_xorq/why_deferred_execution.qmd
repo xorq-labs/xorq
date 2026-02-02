@@ -1,6 +1,0 @@
----
-title: "Deferred Execution"
----
-
-Deferred execution is a core architectural principle in Xorq that builds computational graphs rather than immediately executing operations. This approach enables powerful optimizations, cross-engine portability, and efficient resource management - similar to how [Polars Lazy](https://docs.pola.rs/user-guide/concepts/lazy-api/), and [Dask Delayed](https://docs.dask.org/en/stable/delayed.html) work, but specifically designed for ML pipelines and multi-engine data workflows.
-

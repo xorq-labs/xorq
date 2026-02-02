@@ -1,8 +1,7 @@
 project:
   type: website
 
-execute:
-  mermaid: true
+# Mermaid is enabled by default for HTML output, no explicit configuration needed
   
 website:
   page-navigation: true
@@ -33,7 +32,7 @@ website:
         text: "Tutorials"
       - href: guides/data_workflows/read_write_production_data.qmd
         text: "Guides"
-      - href: concepts/understanding_xorq/overview.qmd
+      - href: concepts/index.qmd
         text: "Concepts"
       - href: reference/index.qmd
         text: "Reference"
@@ -138,34 +137,33 @@ website:
         - id: fundamentals-section
           section: "Fundamentals"
           contents:
-            - concepts/understanding_xorq/overview.qmd
-            - concepts/understanding_xorq/how_xorq_works.qmd
-            - concepts/understanding_xorq/why_deferred_execution.qmd
-            - concepts/understanding_xorq/expression_format.qmd
+            - concepts/fundamentals/how_xorq_works.qmd
+            - concepts/fundamentals/why_deferred_execution.qmd
+            - concepts/fundamentals/expression_format.qmd
         - id: execution-backends-section
           section: "Execution and backends"
           contents:
-            - concepts/understanding_xorq/multi_engine_execution.qmd
-            - concepts/understanding_xorq/intelligent_caching_system.qmd
-            - concepts/core_concepts/profile_based_connections.qmd
+            - concepts/execution_and_backends/multi_engine_execution.qmd
+            - concepts/execution_and_backends/intelligent_caching_system.qmd
+            - concepts/execution_and_backends/profile_based_connections.qmd
         - id: reproducibility-section
           section: "Reproducibility"
           contents:
-            - concepts/core_concepts/content_addressed_hashing.qmd
-            - concepts/core_concepts/input_addressed_computation.qmd
-            - concepts/core_concepts/build_system.qmd
-            - concepts/core_concepts/compute_catalog.qmd
-            - concepts/core_concepts/reproducible_environments_uv.qmd
+            - concepts/reproducibility/content_addressed_hashing.qmd
+            - concepts/reproducibility/input_addressed_computation.qmd
+            - concepts/reproducibility/build_system.qmd
+            - concepts/reproducibility/compute_catalog.qmd
+            - concepts/reproducibility/reproducible_environments_with_uv.qmd
         - id: advanced-capabilities-section
           section: "Advanced capabilities"
           contents:
-            - concepts/core_concepts/user_defined_functions.qmd
-            - concepts/core_concepts/user_defined_exchange_functions.qmd
-            - concepts/core_concepts/serving_expressions_as_endpoints.qmd
-            - concepts/core_concepts/data_lineage_tracking.qmd
-            - concepts/core_concepts/feature_serving_patterns.qmd
-            - concepts/core_concepts/batch_processing_llms.qmd
-            - concepts/core_concepts/point_in_time_correctness.qmd
+            - concepts/advanced_capabilities/user_defined_functions.qmd
+            - concepts/advanced_capabilities/user_defined_exchange_functions.qmd
+            - concepts/advanced_capabilities/serving_expressions_as_endpoints.qmd
+            - concepts/advanced_capabilities/data_lineage_tracking.qmd
+            - concepts/advanced_capabilities/feature_serving_patterns.qmd
+            - concepts/advanced_capabilities/batch_processing_with_llms.qmd
+            - concepts/advanced_capabilities/point_in_time_correctness.qmd
 
     - id: reference
       title: "Overview"
@@ -324,6 +322,8 @@ format:
       theme: dark
     execute:
       eval: false  # Don't execute code blocks by default
+      # Note: Mermaid blocks are processed even with eval: false
+      # They render client-side in the browser
     include-in-header: 
       - "style/google.html"
       - "style/typography-spacing.html"

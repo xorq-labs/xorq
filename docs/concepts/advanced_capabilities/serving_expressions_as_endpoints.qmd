@@ -1,0 +1,292 @@
+---
+title: 'Serving expressions as endpoints'
+description: "Understand how to deploy Xorq expressions as stateless API endpoints"
+---
+
+Your fraud detection model works great in Jupyter notebooks. Now the transaction service needs to score payments in real-time. You could rewrite your feature engineering in Flask, but then your training code and serving code diverge. Serving expressions solves this by deploying your Xorq computation as an Arrow Flight endpoint that clients can call directly, no translation required.
+
+## What is serving expressions as endpoints?
+
+Serving expressions as endpoints means deploying a Xorq expression as a network service that accepts input data and returns computed results. You run `xorq serve-unbound` to start an Arrow Flight server hosting your expression. Clients send data to the server, and the server executes the expression and returns results.
+
+This provides stateless serving. The server holds the computation logic but not the data. Each request provides input data, the server processes it, and returns results. This pattern works well for model serving, feature engineering APIs, and data transformation services.
+
+```bash
+# Build expression
+xorq build pipeline.py -e features
+
+# Serve as endpoint
+xorq serve-unbound builds/a3f5c9d2 --port 8815
+
+# Client calls endpoint
+import xorq.api as xo
+flight_backend = xo.flight.connect(port=8815)
+exchange = flight_backend.get_exchange("default")
+result = my_data.pipe(exchange).execute()
+```
+
+## Why serving expressions as endpoints matters
+
+Without serving, you run expressions locally or in batch jobs. If you want to provide features or predictions as an API, you need to rewrite your expression as a web service. This creates duplicate code and drift between development and production.
+
+This creates three real problems in production systems.
+
+**Duplicate implementations cause training/serving skew.** You write feature engineering in Xorq for training to calculate historical features on batch data. Then you rewrite the same logic in Flask for serving to calculate features for real-time predictions. The two implementations drift over time. Training uses pandas while serving uses numpy. Training rounds to two decimals but serving rounds to three. Your model trains on slightly different features than it sees in production, degrading accuracy.
+
+**Custom deployment logic multiplies maintenance burden.** Each expression needs its own deployment pipeline. You package Python code, manage virtual environments, and configure gunicorn or uvicorn. You set up health checks and write Dockerfiles. Deploying 10 models means maintaining 10 different deployment configurations. Version updates require redeployment of entire services.
+
+**Manual version tracking breaks rollback workflows.** Without standard versioning, clients don't know which model version they're calling. You track versions in spreadsheets or wikis. When a model degrades, rolling back means finding old code, rebuilding containers, and coordinating downtime. No atomic version switching exists.
+
+Serving expressions solves these by making expressions directly servable. The same expression you develop locally becomes the production API. No rewriting, no drift.
+
+## How serving expressions works
+
+Serving operates in four stages.
+
+**Expression building**: You build an expression with `xorq build`. This creates the manifest that captures the computation logic.
+
+**Server startup**: You run `xorq serve-unbound builds/<hash>`. This starts an Arrow Flight server that loads the expression manifest.
+
+**Request handling**: Clients connect via Flight protocol and send input data. The server executes the expression with the provided data and returns results.
+
+**Server shutdown**: The server runs until you stop it with Ctrl+C. It handles requests concurrently and remains stateless. The request flow between client and server works like this:
+
+```{mermaid}
+%%| eval: true
+sequenceDiagram
+    participant Client
+    participant Server as Flight Server
+    participant Expression as Expression
+    
+    Client->>Server: Connect (grpc://host:port)
+    Client->>Server: Send input data
+    Server->>Expression: Execute with data
+    Expression->>Expression: Process
+    Expression->>Server: Return results
+    Server->>Client: Send results
+```
+
+The server is stateless. It holds the expression logic but not data. Each request is independent. This supports horizontal scaling by running multiple servers behind a load balancer. Multiple clients can connect to the same server:
+
+```{mermaid}
+%%| eval: true
+graph LR
+    A[Build Expression] --> B[xorq build]
+    B --> C[builds/a3f5c9d2/]
+    C --> D[xorq serve-unbound]
+    D --> E[Flight Server<br/>Port 8815]
+    F[Multiple Clients] --> E
+    E --> G[Execute & Return]
+```
+
+:::{.callout-tip}
+Serving expressions provides training/serving consistency. The exact same expression you use for training becomes the production serving endpoint. Feature engineering and model inference code stays identical between development and production. No code translation, no drift.
+:::
+
+## Unbound expressions
+
+Unbound expressions are expressions with placeholders that get filled at serving time. Instead of hardcoding data sources, you mark a node as unbound. Clients provide that data when calling the endpoint.
+
+**Example**: Feature pipeline with unbound input
+
+```python
+# Build feature pipeline
+features = (
+    raw_data  # This becomes the unbound node
+    .filter(xo._.amount > 100)
+    .mutate(ratio=xo._.price / xo._.quantity)
+    .group_by("customer_id")
+    .agg(total=xo._.amount.sum())
+)
+
+# Build and serve
+xorq build pipeline.py -e features
+xorq serve-unbound builds/a3f5c9d2 --to_unbind_hash <raw_data_hash>
+```
+
+Clients provide `raw_data` when calling:
+
+```python
+# Client code
+import xorq.api as xo
+
+# Connect to Flight server
+flight_backend = xo.flight.connect(port=8815)
+
+# Get exchange function
+exchange = flight_backend.get_exchange("default")
+
+# Pipe input data through exchange (fills unbound node)
+result = my_data.pipe(exchange).execute()
+```
+
+This pattern supports parameterized serving. One expression serves many different datasets.
+
+## Serving from the catalog
+
+You can serve catalog entries by alias instead of hash.
+
+```bash
+# Register in catalog
+xorq catalog add builds/a3f5c9d2 --alias fraud-model
+
+# Serve by alias
+xorq serve-unbound fraud-model --port 8815
+```
+
+This supports version management. Update the catalog alias to promote new versions. Clients automatically get the new version on their next connection.
+
+## Serving use cases
+
+Serving expressions supports four key patterns:
+
+### Model serving
+
+Deploy trained models as prediction APIs.
+
+```bash
+# Train and build model
+xorq build train_model.py -e trained_model
+
+# Serve for predictions
+xorq serve-unbound trained_model --port 8815
+
+# Clients call for predictions
+import xorq.api as xo
+flight_backend = xo.flight.connect(port=8815)
+exchange = flight_backend.get_exchange("default")
+predictions = new_data.pipe(exchange).execute()
+```
+
+### Feature serving
+
+Provide feature engineering as an API.
+
+```bash
+# Build feature pipeline
+xorq build features.py -e customer_features
+
+# Serve features
+xorq serve-unbound customer_features --port 8815
+
+# Clients get transformed features
+import xorq.api as xo
+flight_backend = xo.flight.connect(port=8815)
+exchange = flight_backend.get_exchange("default")
+features = raw_customer_data.pipe(exchange).execute()
+```
+
+### Data transformation services
+
+Deploy transformations as microservices.
+
+```bash
+# Build transformation
+xorq build transform.py -e data_cleaner
+
+# Serve as service
+xorq serve-unbound data_cleaner --port 8815
+
+# Multiple clients call the service
+import xorq.api as xo
+flight_backend = xo.flight.connect(port=8815)
+exchange = flight_backend.get_exchange("default")
+clean_data = dirty_data.pipe(exchange).execute()
+```
+
+### Online feature stores
+
+Serve features for real-time inference.
+
+```bash
+# Build feature computation
+xorq build features.py -e realtime_features
+
+# Serve with low latency
+xorq serve-unbound realtime_features --port 8815
+
+# Inference service calls for features
+import xorq.api as xo
+flight_backend = xo.flight.connect(port=8815)
+exchange = flight_backend.get_exchange("default")
+# Create input expression with user_id
+input_data = xo.memtable({"user_id": [12345]})
+features = input_data.pipe(exchange).execute()
+```
+
+## When to serve expressions
+
+Deciding when to serve expressions depends on your API requirements, latency tolerance, and deployment architecture needs.
+
+**Serve expressions when**:
+
+- You need to provide features or predictions as an API for model serving or feature engineering endpoints.
+- You want training/serving consistency so the same code runs for batch training and online inference.
+- Multiple clients need the same computation in a microservice pattern or shared feature service architecture.
+- You're building microservice architectures and each expression becomes an independent deployable service.
+- You need versioned discoverable endpoints with catalog integration for automated version management.
+- Latency requirements are above 10ms and Flight protocol overhead becomes negligible compared to computation time.
+
+**Run directly without serving when**:
+
+- You're doing batch processing to score historical data or compute nightly features.
+- You're running one-off analyses for exploratory data analysis or ad-hoc reports.
+- You don't need network access for local development or single-machine workflows.
+- Latency requirements are under 10ms and Flight overhead becomes significant.
+- The computation runs once and doesn't need repeated calls like batch jobs or scheduled ETL.
+
+If you're building a fraud detection model that needs to score transactions in real-time, then serve the model as an endpoint. The transaction service calls the endpoint with transaction data and gets a fraud score back in 50ms. The computation takes 40ms and network adds 10ms. The 10ms Flight overhead is acceptable for this use case.
+
+If you're scoring historical transactions in batch to process 10 million transactions nightly, then run the expression directly without serving overhead. Batch execution processes all 10 million rows in 30 minutes. Adding serving would require managing servers and network calls without benefit.
+
+## Serving configuration
+
+Serve-unbound supports several configuration options:
+
+### Port selection
+
+Specify the port or let Xorq choose one automatically.
+
+```bash
+# Specific port
+xorq serve-unbound fraud-model --port 8815
+
+# Random port (Xorq chooses)
+xorq serve-unbound fraud-model
+```
+
+### Host binding
+
+Bind to specific network interfaces.
+
+```bash
+# Localhost only for development
+xorq serve-unbound fraud-model --host localhost
+
+# All interfaces for production network access
+xorq serve-unbound fraud-model --host 0.0.0.0
+```
+
+### Monitoring
+
+Enable Prometheus metrics for observability.
+
+```bash
+xorq serve-unbound fraud-model --prometheus-port 9090
+```
+
+This exposes metrics like request count, latency, and error rates.
+
+## Trade-offs
+
+**Benefits**: Training or serving consistency, stateless scaling, versioned deployments via the catalog, Arrow Flight protocol, no rewriting, and hot swapping.
+
+**Costs**: Network overhead, server management, resource usage, complexity from networking and concurrency, and port management.
+
+## Learning more
+
+[Build system](../reproducibility/build_system.qmd) explains how to serve built expressions from the builds directory. [Compute catalog](../reproducibility/compute_catalog.qmd) covers how to serve catalog entries by alias for version management.
+
+[Feature serving patterns](feature_serving_patterns.qmd) discusses patterns for serving features at scale. [User-defined exchange functions](user_defined_exchange_functions.qmd) explains how UDXFs enable serving custom logic as endpoints.
+
+[Deploy models to production guide](../../guides/ml_workflows/deploy_models_to_production.qmd) provides production serving workflows. [Serve-unbound CLI reference](../../api_reference/cli/serve-unbound.qmd) covers complete serve-unbound documentation.

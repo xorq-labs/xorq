@@ -1,0 +1,236 @@
+---
+title: 'Intelligent caching system'
+description: "Understand how Xorq's caching system optimizes performance and enables automatic reuse"
+---
+
+You run the same expensive aggregation repeatedly during development while the input data hasn't changed at all. Recomputing everything from scratch each time wastes minutes or hours that could be spent on actual development. Xorq's caching system detects when data is unchanged and skips the recomputation automatically, returning cached results instantly.
+
+## What is the intelligent caching system?
+
+Xorq's caching system stores intermediate results from computations so you don't recompute expensive operations on every execution. When you call `.cache()` on an expression, Xorq marks it for caching and saves results to reuse them automatically. The system is intelligent because it knows when to invalidate cache automatically based on source data changes.
+
+If source data changes, then Xorq detects this and recomputes with updated data rather than serving stale results. If nothing changed, then you get cached results instantly without any recomputation overhead or latency from query execution.
+
+The following example shows how to mark an expression for caching and what happens on the first run versus the second:
+
+```python
+import xorq.api as xo
+from xorq.caching import ParquetCache
+
+con = xo.connect()
+data = con.read_parquet("large_file.parquet")
+
+# Expensive operation: filter and aggregate
+result = (
+    data
+    .filter(xo._.amount > 1000)
+    .group_by("category")
+    .agg(total=xo._.amount.sum())
+    .cache(cache=ParquetCache.from_kwargs(source=con))  # Cache results
+)
+
+# First run: computes and caches (slow)
+result.execute()
+
+# Second run: uses cache (instant)
+result.execute()
+```
+
+## Why recomputation wastes development time
+
+Recomputing everything on every run means you pay the full execution cost each time you iterate. If you're iterating on a feature engineering pipeline, then you might run the same expensive join ten times while tweaking logic. This approach creates three critical problems that waste computational resources and slow down development velocity.
+
+### Wasted compute costs money
+
+Running the same query repeatedly costs money and time without any benefit when data hasn't changed. A 10-minute aggregation running hourly wastes the full execution time on every run, even if input data remains constant. That's 240 minutes daily when 10 minutes would suffice for the entire day with caching.
+
+### Iteration grinds to a halt
+
+Every change requires recomputing from scratch, which slows down feedback loops and kills development velocity. Data scientists wait minutes for results they've already computed in previous iterations of the same analysis. Development velocity drops to a crawl because feedback loops are too slow for productive exploration.
+
+### Manual cache management fails
+
+Manual caching requires you to remember when to invalidate, which leads to serving stale data or wasting compute. If you forget to invalidate, then you use stale data from old logic or old source data. If you invalidate too aggressively, then you waste compute rerunning queries that didn't actually need recomputation.
+
+Intelligent caching solves these problems by automatically detecting when source data changes and invalidating only affected entries.
+
+## How intelligent caching works
+
+Xorq's caching operates through four sequential stages that transform expensive operations into instant cache hits on subsequent runs.
+
+When you call `.cache()`, Xorq generates a cache key based on computation logic and optionally source data modification times, including operations, filters, and joins. Before executing, Xorq checks if a valid cache entry exists. If cache hits occur, then results return instantly. If cache misses or invalid entries occur, then Xorq executes the query and stores results in configured storage. On subsequent runs, Xorq checks if source data changed. If data changed, then cache invalidates. If data is unchanged, then cached results return. The cache lookup and execution flow works like this:
+
+```{mermaid}
+%%| eval: true
+sequenceDiagram
+    participant User
+    participant Xorq
+    participant Cache
+    participant Engine
+    
+    User->>Xorq: expr.cache().execute()
+    Xorq->>Cache: Check cache key
+    alt Cache hit & valid
+        Cache-->>User: Return cached results
+    else Cache miss or invalid
+        Xorq->>Engine: Execute query
+        Engine-->>Xorq: Return results
+        Xorq->>Cache: Store results
+        Xorq-->>User: Return results
+    end
+```
+
+Cache keys are based on computation logic and source data modification times for correct invalidation semantics. Two different queries on the same data produce different cache keys because logic differs fundamentally. The same query on changed data produces a different key because modification times are included in the hash, which triggers automatic invalidation.
+
+:::{.callout-tip}
+Xorq's caching is lazy rather than eager. Calling `.cache()` doesn't execute immediately at all. It marks the expression for caching. Caching happens when you call `.execute()` to trigger evaluation.
+:::
+
+## Cache types
+
+Xorq provides four cache types, each optimized for different scenarios based on invalidation needs and persistence requirements.
+
+### SourceCache
+
+SourceCache automatically invalidates when upstream data changes by tracking source modification times, which ensures results stay current with source data. It stores cached data in the source backend for convenience and backend integration. DuckDB, PostgreSQL, and other backends work with this approach.
+
+Use SourceCache when you need automatic invalidation as source data changes unpredictably during development. Building production pipelines benefits from automatic invalidation that prevents serving stale data without manual intervention.
+
+SourceCache tracks source data modification times. When a source file or table changes, cache invalidates automatically.
+
+```python
+from xorq.caching import SourceCache
+
+con = xo.connect()
+cache = SourceCache.from_kwargs(source=con)
+
+# Cache automatically invalidates if source data changes
+cached = data.filter(xo._.amount > 100).cache(cache=cache)
+```
+
+### ParquetCache
+
+ParquetCache persists results as Parquet files on disk. It combines automatic invalidation with durable storage that survives process restarts, so results can be shared across sessions.
+
+Use ParquetCache when you want persistent cache across sessions for iterating on pipelines locally with efficiency. Efficient columnar storage makes reading cached results fast while modification time tracking provides automatic invalidation.
+
+ParquetCache writes results to Parquet files in a specified directory while tracking source data modification times.
+
+```python
+from pathlib import Path
+from xorq.caching import ParquetCache
+
+cache = ParquetCache.from_kwargs(source=con, relative_path=Path.cwd() / "cache")
+
+# Results persist as Parquet files
+cached = expensive_operation.cache(cache=cache)
+```
+
+### SourceSnapshotCache
+
+SourceSnapshotCache stores results without automatic invalidation, so you control when to invalidate manually for reproducibility. Fixed snapshots provide reproducibility guarantees since results never change unless you explicitly delete the cache.
+
+Use SourceSnapshotCache when you want fixed snapshots for reproducibility in one-off analyses or research work. If source data is stable and you want manual control over cache lifecycle, then this approach works well since automatic invalidation would interfere with reproducibility goals.
+
+SourceSnapshotCache stores results in the source backend but doesn't check modification times for invalidation logic.
+
+```python
+from xorq.caching import SourceSnapshotCache
+
+cache = SourceSnapshotCache.from_kwargs(source=con)
+
+# Cache never invalidates automatically
+snapshot = data.filter(xo._.year == 2024).cache(cache=cache)
+```
+
+### ParquetSnapshotCache
+
+ParquetSnapshotCache combines Parquet persistence with snapshot semantics for durable archives and reproducible research. No automatic invalidation occurs with this cache type.
+
+Use ParquetSnapshotCache when you want durable snapshots for reproducible research so results persist as files. Archiving analysis results benefits from Parquet storage without automatic invalidation, which prevents archived outputs from changing unexpectedly.
+
+ParquetSnapshotCache works like ParquetCache but without modification time tracking. Results persist until you delete them manually.
+
+```python
+from xorq.caching import ParquetSnapshotCache
+
+cache = ParquetSnapshotCache.from_kwargs(source=con, relative_path=Path.cwd() / "snapshots")
+
+# Durable snapshot that never auto-invalidates
+archive = analysis_result.cache(cache=cache)
+```
+
+## Choosing the right cache type
+
+**When to use each cache type:**
+
+- **Need automatic invalidation?** Use SourceCache or ParquetCache to automatically recompute when source data changes.
+- **Need persistent storage across sessions?** Use ParquetCache or ParquetSnapshotCache for durability and sharing capabilities.
+- **Source data changes frequently?** Use SourceCache or ParquetCache since they automatically detect changes and recompute when needed.
+
+### Cache comparison
+
+| Cache type | Auto-invalidation | Persistence | Best for |
+|------------|-------------------|-------------|----------|
+| SourceCache | Yes | Backend-dependent | Production pipelines with changing data |
+| ParquetCache | Yes | Parquet files on disk | Local development with changing data |
+| SourceSnapshotCache | No | Backend-dependent | One-off analyses, manual control |
+| ParquetSnapshotCache | No | Parquet files on disk | Reproducible research, archiving |
+
+## How cache invalidation works
+
+Xorq uses different strategies to determine when cache is still valid based on cache type selection.
+
+SourceCache and ParquetCache track source data modification times. When a source file or table's last modified time changes, then the cache invalidates automatically without manual intervention or configuration.
+
+Snapshot caches provide no automatic invalidation at all. SourceSnapshotCache and ParquetSnapshotCache leave cache valid indefinitely, so cache remains valid until you manually delete it through filesystem operations or explicit cache clearing commands.
+
+| Storage type | Hash components |
+|--------------|-----------------|
+| In-memory | Data bytes + Schema |
+| Disk-based | Query plan + Schema + Modification time |
+| Remote | Table metadata + Last modified time |
+
+Automatic invalidation resembles a smart refrigerator that knows when food expires based on expiration dates. Snapshot caching is more like a freezer, where you decide when to throw things out based on judgment.
+
+## Multi-engine caching
+
+Xorq's caching works across multiple engines. For example, you can cache results from PostgreSQL in DuckDB. See [Multi-engine execution](multi_engine_execution.qmd) and [Explore caching tutorial](../../getting_started/explore_caching.qmd) for examples.
+
+## When intelligent caching matters
+
+### Use intelligent caching when
+
+- **Iterating on pipelines**: Same operations rerun repeatedly; caching eliminates recomputation.
+- **Expensive operations**: Large joins or aggregations; cache hits give clear wins.
+- **Infrequent source changes**: Data updates less often than you iterate; cache hits outweigh misses.
+- **Shared work**: Multiple people run the same expensive transformations.
+
+### Use snapshot caching when
+
+- **Reproducibility**: Fixed results for research or compliance; no auto-invalidation.
+- **Archiving**: Outputs persist indefinitely; source changes don't invalidate.
+
+### Skip caching when
+
+- **Cheap or one-off**: Operations are fast or run once; cache overhead exceeds benefit.
+- **Constantly changing data**: Real-time streams; cache invalidates too often.
+- **Backend already caches**: DuckDB temp tables, Snowflake query cache; extra layer adds little.
+
+## Understanding trade-offs
+
+**Benefits**: Faster iteration on cache hits, reduced database load, automatic change detection, persistent storage, multi-engine support.
+
+**Costs**: Storage overhead, invalidation complexity on some backends, stale-data risk with snapshots, cache management, overhead for cheap operations.
+
+:::{.callout-note}
+`.cache()` is lazy: it marks the expression for caching. Caching happens when you call `.execute()`. Unlike Ibis, Xorq's `.cache()` does not execute eagerly.
+:::
+
+## Learning more
+
+[Why deferred execution](../fundamentals/why_deferred_execution.qmd) explains how caching works with deferred execution. [How Xorq works](../fundamentals/how_xorq_works.qmd) shows where caching fits in the pipeline.
+
+[Content-addressed hashing](../reproducibility/content_addressed_hashing.qmd) discusses how cache keys are generated. [Multi-engine execution](multi_engine_execution.qmd) details how caching works across backends.
+
+[Explore caching tutorial](../../getting_started/explore_caching.qmd) provides hands-on practice with caching. [Optimize pipeline performance guide](../../guides/performance_workflows/optimize_pipeline_performance.qmd) covers production caching strategies.

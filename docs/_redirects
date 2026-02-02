@@ -1,0 +1,13 @@
+# Netlify redirects file
+# Redirects old URLs to new locations after documentation restructuring
+# Format: old_path  new_path  301
+
+# Files moved from how_to/ directory
+/how_to/installation  /getting_started/installation  301
+/how_to/lineage  /guides/advanced_workflows/track_data_lineage  301
+
+# Files moved from core_concepts/ directory
+/concepts/core_concepts/multi_engine  /concepts/execution_and_backends/multi_engine_execution  301
+/concepts/core_concepts/caching  /concepts/execution_and_backends/intelligent_caching_system  301
+/concepts/core_concepts/expression_format  /concepts/fundamentals/expression_format  301
+/concepts/core_concepts/point_in_time_correctness  /concepts/advanced_capabilities/point_in_time_correctness  301
