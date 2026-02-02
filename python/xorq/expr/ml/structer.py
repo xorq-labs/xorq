@@ -346,21 +346,26 @@ class Structer:
         feature_names = tuple(model.get_feature_names_out())
 
         def accumulate_sklearn_col_slice(acc, field_item):
-            """Accumulate (col_idx, slices) -> (new_col_idx, updated_slices)."""
+            """Accumulate (col_idx, slices) -> (new_col_idx, updated_slices).
+
+            For KV-encoded fields, delta is the count of feature names matching
+            the field prefix (e.g., "cat__color_red", "cat__color_blue" for "cat").
+            For non-KV fields, delta is always 1 (single column).
+            """
             col_idx, slices = acc
             field_name, field_type = field_item
             is_kv = KVEncoder.is_kv_encoded_type(field_type)
             start = col_idx
-            end = (
-                start
-                + sum(
+            delta = (
+                sum(
                     1
                     for fn in feature_names[start:]
                     if fn.startswith(f"{field_name}__")
                 )
                 if is_kv
-                else start + 1
+                else 1
             )
+            end = start + delta
             return (end, {**slices, field_name: (start, end, is_kv)})
 
         _, field_slices = toolz.reduce(

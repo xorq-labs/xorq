@@ -2186,3 +2186,162 @@ class TestNormalizeColumns:
             _normalize_columns(123)
         with pytest.raises(TypeError, match="Unsupported columns type"):
             _normalize_columns({"a": 1})
+
+
+class TestConvertStructWithKv:
+    """Tests for Structer.convert_struct_with_kv column slicing.
+
+    These tests verify the accumulate_sklearn_col_slice logic correctly
+    computes column indices for hybrid output (KV + non-KV fields).
+    """
+
+    def test_kv_then_non_kv_slicing(self):
+        """Test slicing when KV field precedes non-KV field.
+
+        This catches a potential bug where end = start + (start + 1) instead of
+        end = start + 1 for non-KV fields. With incorrect logic:
+        - cat field: start=0, end=0+2=2 (correct)
+        - num field: start=2, end=2+(2+1)=5 (WRONG, should be 3)
+
+        The non-KV field would get wrong values or cause index errors.
+        """
+        import pandas as pd
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.structer import get_structer_out
+
+        df = pd.DataFrame(
+            {
+                "cat": ["a", "b", "a"],
+                "num": [1.0, 2.0, 3.0],
+            }
+        )
+
+        ct = ColumnTransformer(
+            [
+                ("cat", OneHotEncoder(sparse_output=False), ["cat"]),
+                ("num", StandardScaler(), ["num"]),
+            ]
+        )
+        ct.fit(df)
+
+        # Get structer and verify it has KV fields
+        expr = xo.memtable(df)
+        structer = get_structer_out(ct, expr)
+        assert structer.struct_has_kv_fields
+
+        # Struct fields: "cat" for KV (named after transformer), "num__num" for scalar
+        assert "cat" in structer.struct.fields
+        assert "num__num" in structer.struct.fields
+
+        # Use convert_struct_with_kv to convert the output
+        convert_fn = structer.get_convert_struct_with_kv()
+        result = convert_fn(ct, df)
+
+        # Verify we got 3 rows
+        assert len(result) == 3
+
+        # Verify KV field has correct structure (2 categories: a, b)
+        for row in result:
+            assert "cat" in row
+            assert "num__num" in row
+            # KV field should be tuple of dicts
+            assert isinstance(row["cat"], tuple)
+            assert len(row["cat"]) == 2  # a and b categories
+            # num field should be a float (scalar)
+            assert isinstance(row["num__num"], float)
+
+        # Verify actual values for num field match StandardScaler output
+        sklearn_result = ct.transform(df)
+        # num is the last column (index 2) in sklearn output
+        expected_num_values = sklearn_result[:, 2].tolist()
+        actual_num_values = [row["num__num"] for row in result]
+        assert actual_num_values == pytest.approx(expected_num_values)
+
+    def test_non_kv_then_kv_slicing(self):
+        """Test slicing when non-KV field precedes KV field."""
+        import pandas as pd
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.structer import get_structer_out
+
+        df = pd.DataFrame(
+            {
+                "num": [1.0, 2.0, 3.0],
+                "cat": ["x", "y", "x"],
+            }
+        )
+
+        ct = ColumnTransformer(
+            [
+                ("num", StandardScaler(), ["num"]),
+                ("cat", OneHotEncoder(sparse_output=False), ["cat"]),
+            ]
+        )
+        ct.fit(df)
+
+        expr = xo.memtable(df)
+        structer = get_structer_out(ct, expr)
+        convert_fn = structer.get_convert_struct_with_kv()
+        result = convert_fn(ct, df)
+
+        assert len(result) == 3
+        for row in result:
+            assert isinstance(row["num__num"], float)
+            assert isinstance(row["cat"], tuple)
+            assert len(row["cat"]) == 2  # x and y categories
+
+        # Verify num values (first column in sklearn output)
+        sklearn_result = ct.transform(df)
+        expected_num_values = sklearn_result[:, 0].tolist()
+        actual_num_values = [row["num__num"] for row in result]
+        assert actual_num_values == pytest.approx(expected_num_values)
+
+    def test_multiple_kv_fields_slicing(self):
+        """Test slicing with multiple KV fields."""
+        import pandas as pd
+        from sklearn.compose import ColumnTransformer
+        from sklearn.preprocessing import OneHotEncoder, StandardScaler
+
+        from xorq.expr.ml.structer import get_structer_out
+
+        df = pd.DataFrame(
+            {
+                "cat1": ["a", "b", "c"],
+                "num": [1.0, 2.0, 3.0],
+                "cat2": ["x", "y", "x"],
+            }
+        )
+
+        ct = ColumnTransformer(
+            [
+                ("cat1", OneHotEncoder(sparse_output=False), ["cat1"]),
+                ("num", StandardScaler(), ["num"]),
+                ("cat2", OneHotEncoder(sparse_output=False), ["cat2"]),
+            ]
+        )
+        ct.fit(df)
+
+        expr = xo.memtable(df)
+        structer = get_structer_out(ct, expr)
+        convert_fn = structer.get_convert_struct_with_kv()
+        result = convert_fn(ct, df)
+
+        assert len(result) == 3
+        for row in result:
+            assert isinstance(row["cat1"], tuple)
+            assert len(row["cat1"]) == 3  # a, b, c
+            assert isinstance(row["num__num"], float)
+            assert isinstance(row["cat2"], tuple)
+            assert len(row["cat2"]) == 2  # x, y
+
+        # sklearn output: cat1 (3 cols) + num (1 col) + cat2 (2 cols) = 6 cols
+        sklearn_result = ct.transform(df)
+        assert sklearn_result.shape[1] == 6
+
+        # Verify num values (column index 3)
+        expected_num_values = sklearn_result[:, 3].tolist()
+        actual_num_values = [row["num__num"] for row in result]
+        assert actual_num_values == pytest.approx(expected_num_values)
