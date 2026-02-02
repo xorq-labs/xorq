@@ -366,10 +366,11 @@ class FittedStep:
     dest_col = field(validator=optional(instance_of(str)), default=None)
 
     def __attrs_post_init__(self):
-        # we are either transform or predict
-        assert self.is_transform ^ self.is_predict
-        # if we are predict, we must have target
-        if self.target is None and self.is_predict:
+        # we must have at least transform or predict
+        if not (self.is_transform or self.is_predict):
+            raise ValueError("Step must have transform or predict method")
+        # if we are predict-only, we must have target
+        if self.target is None and self.is_predict and not self.is_transform:
             raise ValueError("Can't infer target")
         # we can do very simple feature inference
         if self.features is None:
@@ -395,8 +396,23 @@ class FittedStep:
 
     @property
     @functools.cache
+    def _deferred_fit_transform(self):
+        if not self.is_transform:
+            return None
+        return DeferredFitOther.from_fitted_step(self, mode="transform")
+
+    @property
+    @functools.cache
+    def _deferred_fit_predict(self):
+        if not self.is_predict:
+            return None
+        return DeferredFitOther.from_fitted_step(self, mode="predict")
+
+    @property
+    @functools.cache
     def _deferred_fit_other(self):
-        return DeferredFitOther.from_fitted_step(self)
+        # Backward compat: prefer transform, fall back to predict
+        return self._deferred_fit_transform or self._deferred_fit_predict
 
     @property
     def deferred_model(self):
@@ -408,17 +424,15 @@ class FittedStep:
 
     @property
     def deferred_transform(self):
-        if self.is_transform:
-            return self._deferred_fit_other.deferred_other
-        else:
-            return None
+        if self._deferred_fit_transform:
+            return self._deferred_fit_transform.deferred_other
+        return None
 
     @property
     def deferred_predict(self):
-        if self.is_predict:
-            return self._deferred_fit_other.deferred_other
-        else:
-            return None
+        if self._deferred_fit_predict:
+            return self._deferred_fit_predict.deferred_other
+        return None
 
     @property
     def deferred_predict_proba(self):

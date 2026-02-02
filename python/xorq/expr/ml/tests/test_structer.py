@@ -321,14 +321,17 @@ class TestStructerFromInstance:
         assert not structer.is_series
 
     def test_select_k_best(self):
-        """Test SelectKBest has needs_target=True."""
+        """Test SelectKBest produces stub columns when k is known."""
         from sklearn.feature_selection import SelectKBest
 
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
         structer = Structer.from_instance_expr(SelectKBest(k=1), t, features=("a", "b"))
 
+        # Known k -> stub column names (not KV-encoded)
         assert not structer.is_kv_encoded
         assert structer.needs_target is True
+        assert structer.input_columns == ("a", "b")
+        assert tuple(structer.struct.names) == ("transformed_0",)
 
     def test_tfidf_vectorizer(self):
         """Test TfidfVectorizer is KV-encoded and is_series."""
@@ -460,13 +463,305 @@ class TestKVEncoderIntegration:
         with pytest.raises(ValueError, match="KV-encoded"):
             _ = structer.dtype
 
-    def test_select_k_best_mixed_types_raises(self):
-        """Test SelectKBest raises for mixed feature types."""
+    def test_select_k_best_kv_encoded_input(self):
+        """Test SelectKBest with KV-encoded input uses KV-encoding output."""
         from sklearn.feature_selection import SelectKBest
+        from sklearn.preprocessing import OneHotEncoder
 
-        t = xo.memtable({"a": [1.0, 2.0], "b": ["x", "y"]})
-        with pytest.raises(ValueError):
-            Structer.from_instance_expr(SelectKBest(k=1), t, features=("a", "b"))
+        # Create table with KV-encoded column from OneHotEncoder
+        t = xo.memtable({"cat": ["a", "b", "a"], "target": [0, 1, 0]})
+        ohe_step = xo.Step.from_instance_name(OneHotEncoder(), name="ohe")
+        ohe_fitted = ohe_step.fit(t, features=("cat",))
+        t_encoded = ohe_fitted.transform(t)
+
+        # SelectKBest on KV-encoded input -> KV-encoded output
+        structer = Structer.from_instance_expr(
+            SelectKBest(k=1), t_encoded, features=("transformed",)
+        )
+
+        assert structer.is_kv_encoded
+        assert structer.needs_target
+
+
+class TestScalerTransformerParity:
+    """Parity tests for scalers/transformers comparing xorq output with sklearn."""
+
+    def test_minmax_scaler_matches_sklearn(self):
+        """Test MinMaxScaler output matches sklearn."""
+        import numpy as np
+        from sklearn.preprocessing import MinMaxScaler
+
+        np.random.seed(42)
+        data = pd.DataFrame(
+            {
+                "a": np.random.randn(10) * 100,
+                "b": np.random.randn(10) * 50 + 25,
+            }
+        )
+        t = xo.memtable(data)
+
+        # xorq result
+        step = xo.Step.from_instance_name(MinMaxScaler(), name="scaler")
+        fitted = step.fit(t, features=("a", "b"))
+        result = fitted.transform(t)
+        xorq_df = result.execute()
+
+        # sklearn result
+        scaler = MinMaxScaler()
+        sklearn_result = scaler.fit_transform(data[["a", "b"]])
+        sklearn_df = pd.DataFrame(sklearn_result, columns=["a", "b"])
+
+        pd.testing.assert_frame_equal(
+            xorq_df[["a", "b"]].reset_index(drop=True),
+            sklearn_df.reset_index(drop=True),
+            check_exact=False,
+            atol=1e-10,
+        )
+
+    def test_maxabs_scaler_matches_sklearn(self):
+        """Test MaxAbsScaler output matches sklearn."""
+        import numpy as np
+        from sklearn.preprocessing import MaxAbsScaler
+
+        np.random.seed(42)
+        data = pd.DataFrame(
+            {
+                "a": np.random.randn(10) * 100,
+                "b": np.random.randn(10) * 50 + 25,
+            }
+        )
+        t = xo.memtable(data)
+
+        # xorq result
+        step = xo.Step.from_instance_name(MaxAbsScaler(), name="scaler")
+        fitted = step.fit(t, features=("a", "b"))
+        result = fitted.transform(t)
+        xorq_df = result.execute()
+
+        # sklearn result
+        scaler = MaxAbsScaler()
+        sklearn_result = scaler.fit_transform(data[["a", "b"]])
+        sklearn_df = pd.DataFrame(sklearn_result, columns=["a", "b"])
+
+        pd.testing.assert_frame_equal(
+            xorq_df[["a", "b"]].reset_index(drop=True),
+            sklearn_df.reset_index(drop=True),
+            check_exact=False,
+            atol=1e-10,
+        )
+
+    def test_robust_scaler_matches_sklearn(self):
+        """Test RobustScaler output matches sklearn."""
+        import numpy as np
+        from sklearn.preprocessing import RobustScaler
+
+        np.random.seed(42)
+        # Include some outliers to test robustness
+        data = pd.DataFrame(
+            {
+                "a": np.concatenate([np.random.randn(8), [100, -100]]),
+                "b": np.concatenate([np.random.randn(8) * 10, [500, -500]]),
+            }
+        )
+        t = xo.memtable(data)
+
+        # xorq result
+        step = xo.Step.from_instance_name(RobustScaler(), name="scaler")
+        fitted = step.fit(t, features=("a", "b"))
+        result = fitted.transform(t)
+        xorq_df = result.execute()
+
+        # sklearn result
+        scaler = RobustScaler()
+        sklearn_result = scaler.fit_transform(data[["a", "b"]])
+        sklearn_df = pd.DataFrame(sklearn_result, columns=["a", "b"])
+
+        pd.testing.assert_frame_equal(
+            xorq_df[["a", "b"]].reset_index(drop=True),
+            sklearn_df.reset_index(drop=True),
+            check_exact=False,
+            atol=1e-10,
+        )
+
+    def test_normalizer_matches_sklearn(self):
+        """Test Normalizer output matches sklearn."""
+        import numpy as np
+        from sklearn.preprocessing import Normalizer
+
+        np.random.seed(42)
+        data = pd.DataFrame(
+            {
+                "a": np.random.randn(10) * 100,
+                "b": np.random.randn(10) * 50,
+                "c": np.random.randn(10) * 25,
+            }
+        )
+        t = xo.memtable(data)
+
+        # xorq result
+        step = xo.Step.from_instance_name(Normalizer(norm="l2"), name="normalizer")
+        fitted = step.fit(t, features=("a", "b", "c"))
+        result = fitted.transform(t)
+        xorq_df = result.execute()
+
+        # sklearn result
+        normalizer = Normalizer(norm="l2")
+        sklearn_result = normalizer.fit_transform(data[["a", "b", "c"]])
+        sklearn_df = pd.DataFrame(sklearn_result, columns=["a", "b", "c"])
+
+        pd.testing.assert_frame_equal(
+            xorq_df[["a", "b", "c"]].reset_index(drop=True),
+            sklearn_df.reset_index(drop=True),
+            check_exact=False,
+            atol=1e-10,
+        )
+
+    def test_power_transformer_matches_sklearn(self):
+        """Test PowerTransformer output matches sklearn."""
+        import numpy as np
+        from sklearn.preprocessing import PowerTransformer
+
+        np.random.seed(42)
+        # Use positive values for yeo-johnson (works with any values, but positive is simpler)
+        data = pd.DataFrame(
+            {
+                "a": np.abs(np.random.randn(20)) * 100 + 1,
+                "b": np.abs(np.random.randn(20)) * 50 + 1,
+            }
+        )
+        t = xo.memtable(data)
+
+        # xorq result
+        step = xo.Step.from_instance_name(
+            PowerTransformer(method="yeo-johnson"), name="power"
+        )
+        fitted = step.fit(t, features=("a", "b"))
+        result = fitted.transform(t)
+        xorq_df = result.execute()
+
+        # sklearn result
+        transformer = PowerTransformer(method="yeo-johnson")
+        sklearn_result = transformer.fit_transform(data[["a", "b"]])
+        sklearn_df = pd.DataFrame(sklearn_result, columns=["a", "b"])
+
+        pd.testing.assert_frame_equal(
+            xorq_df[["a", "b"]].reset_index(drop=True),
+            sklearn_df.reset_index(drop=True),
+            check_exact=False,
+            atol=1e-10,
+        )
+
+    def test_quantile_transformer_matches_sklearn(self):
+        """Test QuantileTransformer output matches sklearn."""
+        import numpy as np
+        from sklearn.preprocessing import QuantileTransformer
+
+        np.random.seed(42)
+        # Need enough samples for quantile estimation
+        data = pd.DataFrame(
+            {
+                "a": np.random.randn(100) * 100,
+                "b": np.random.randn(100) * 50,
+            }
+        )
+        t = xo.memtable(data)
+
+        # xorq result
+        step = xo.Step.from_instance_name(
+            QuantileTransformer(n_quantiles=50, output_distribution="uniform"),
+            name="quantile",
+        )
+        fitted = step.fit(t, features=("a", "b"))
+        result = fitted.transform(t)
+        xorq_df = result.execute()
+
+        # sklearn result
+        transformer = QuantileTransformer(n_quantiles=50, output_distribution="uniform")
+        sklearn_result = transformer.fit_transform(data[["a", "b"]])
+        sklearn_df = pd.DataFrame(sklearn_result, columns=["a", "b"])
+
+        pd.testing.assert_frame_equal(
+            xorq_df[["a", "b"]].reset_index(drop=True),
+            sklearn_df.reset_index(drop=True),
+            check_exact=False,
+            atol=1e-10,
+        )
+
+
+class TestScalerTransformerStructer:
+    """Tests for scaler/transformer structer_from_instance registrations."""
+
+    def test_minmax_scaler_produces_known_schema(self):
+        """Test MinMaxScaler produces known schema."""
+        from sklearn.preprocessing import MinMaxScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(MinMaxScaler(), t, features=("a", "b"))
+
+        assert not structer.is_kv_encoded
+        assert not structer.needs_target
+        assert not structer.is_series
+        assert "a" in structer.struct.fields
+        assert "b" in structer.struct.fields
+
+    def test_maxabs_scaler_produces_known_schema(self):
+        """Test MaxAbsScaler produces known schema."""
+        from sklearn.preprocessing import MaxAbsScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(MaxAbsScaler(), t, features=("a", "b"))
+
+        assert not structer.is_kv_encoded
+        assert not structer.needs_target
+        assert not structer.is_series
+
+    def test_robust_scaler_produces_known_schema(self):
+        """Test RobustScaler produces known schema."""
+        from sklearn.preprocessing import RobustScaler
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(RobustScaler(), t, features=("a", "b"))
+
+        assert not structer.is_kv_encoded
+        assert not structer.needs_target
+        assert not structer.is_series
+
+    def test_normalizer_produces_known_schema(self):
+        """Test Normalizer produces known schema."""
+        from sklearn.preprocessing import Normalizer
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(Normalizer(), t, features=("a", "b"))
+
+        assert not structer.is_kv_encoded
+        assert not structer.needs_target
+        assert not structer.is_series
+
+    def test_power_transformer_produces_known_schema(self):
+        """Test PowerTransformer produces known schema."""
+        from sklearn.preprocessing import PowerTransformer
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(
+            PowerTransformer(), t, features=("a", "b")
+        )
+
+        assert not structer.is_kv_encoded
+        assert not structer.needs_target
+        assert not structer.is_series
+
+    def test_quantile_transformer_produces_known_schema(self):
+        """Test QuantileTransformer produces known schema."""
+        from sklearn.preprocessing import QuantileTransformer
+
+        t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(
+            QuantileTransformer(), t, features=("a", "b")
+        )
+
+        assert not structer.is_kv_encoded
+        assert not structer.needs_target
+        assert not structer.is_series
 
 
 class TestColumnTransformerStructer:
@@ -659,13 +954,22 @@ class TestColumnTransformerStructer:
 
     def test_unregistered_child_raises(self):
         """Test ColumnTransformer with unregistered child transformer raises."""
+        from sklearn.base import BaseEstimator, TransformerMixin
         from sklearn.compose import ColumnTransformer
-        from sklearn.preprocessing import RobustScaler  # Not registered
+
+        class CustomTransformer(BaseEstimator, TransformerMixin):
+            """Custom transformer not registered with structer_from_instance."""
+
+            def fit(self, X, y=None):
+                return self
+
+            def transform(self, X):
+                return X
 
         t = xo.memtable({"num": [1.0, 2.0]})
         ct = ColumnTransformer(
             [
-                ("robust", RobustScaler(), ["num"]),
+                ("custom", CustomTransformer(), ["num"]),
             ]
         )
 
@@ -831,13 +1135,22 @@ class TestFeatureUnionStructer:
 
     def test_unregistered_child_raises(self):
         """Test FeatureUnion with unregistered child transformer raises."""
+        from sklearn.base import BaseEstimator, TransformerMixin
         from sklearn.pipeline import FeatureUnion
-        from sklearn.preprocessing import RobustScaler  # Not registered
+
+        class CustomTransformer(BaseEstimator, TransformerMixin):
+            """Custom transformer not registered with structer_from_instance."""
+
+            def fit(self, X, y=None):
+                return self
+
+            def transform(self, X):
+                return X
 
         t = xo.memtable({"num": [1.0, 2.0]})
         fu = FeatureUnion(
             [
-                ("robust", RobustScaler()),
+                ("custom", CustomTransformer()),
             ]
         )
 
@@ -1013,13 +1326,22 @@ class TestSklearnPipelineStructer:
 
     def test_unregistered_step_raises(self):
         """Test Pipeline with unregistered transformer raises."""
+        from sklearn.base import BaseEstimator, TransformerMixin
         from sklearn.pipeline import Pipeline
-        from sklearn.preprocessing import RobustScaler  # Not registered
+
+        class CustomTransformer(BaseEstimator, TransformerMixin):
+            """Custom transformer not registered with structer_from_instance."""
+
+            def fit(self, X, y=None):
+                return self
+
+            def transform(self, X):
+                return X
 
         t = xo.memtable({"num": [1.0, 2.0]})
         pipe = Pipeline(
             [
-                ("robust", RobustScaler()),
+                ("custom", CustomTransformer()),
             ]
         )
 
@@ -2126,7 +2448,7 @@ class TestAccumulatePipelineStep:
         assert new_structer.is_kv_encoded is True
 
     def test_accumulate_pipeline_step_updates_features(self):
-        """Test _accumulate_pipeline_step updates features for known-schema output."""
+        """Test _accumulate_pipeline_step with known output count updates features."""
         from sklearn.feature_selection import SelectKBest
 
         t = xo.memtable({"a": [1.0, 2.0], "b": [3.0, 4.0], "target": [0, 1]})
@@ -2135,9 +2457,10 @@ class TestAccumulatePipelineStep:
 
         new_features, new_structer = _accumulate_pipeline_step(t, acc, step)
 
-        # SelectKBest reduces features
-        assert len(new_features) == 1
-        assert new_structer.struct is not None
+        # SelectKBest with known k produces stub column names
+        assert new_features == ("transformed_0",)
+        assert not new_structer.is_kv_encoded
+        assert new_structer.needs_target
 
     def test_accumulate_pipeline_step_chain(self):
         """Test _accumulate_pipeline_step through multiple steps."""
@@ -2345,3 +2668,288 @@ class TestConvertStructWithKv:
         expected_num_values = sklearn_result[:, 3].tolist()
         actual_num_values = [row["num__num"] for row in result]
         assert actual_num_values == pytest.approx(expected_num_values)
+
+
+class TestFeatureSelectorParity:
+    """Parameterized tests for feature selector sklearn parity."""
+
+    @pytest.fixture
+    def classification_data(self):
+        """Generate classification data with features and target."""
+        import numpy as np
+
+        np.random.seed(42)
+        n_samples = 100
+        # Create features where some have clear relationship with target
+        X = pd.DataFrame(
+            {
+                "f1": np.random.randn(n_samples),
+                "f2": np.random.randn(n_samples),
+                "f3": np.random.randn(n_samples),
+                "f4": np.random.randn(n_samples),
+            }
+        )
+        # Target correlated with f1 and f2
+        y = ((X["f1"] + X["f2"]) > 0).astype(int)
+        X["target"] = y
+        return X
+
+    @pytest.mark.parametrize(
+        "selector_cls,selector_kwargs",
+        [
+            pytest.param(
+                "SelectKBest",
+                {"k": 2},
+                id="SelectKBest",
+            ),
+            pytest.param(
+                "SelectPercentile",
+                {"percentile": 50},
+                id="SelectPercentile",
+            ),
+            pytest.param(
+                "SelectFpr",
+                {"alpha": 0.5},
+                id="SelectFpr",
+            ),
+            pytest.param(
+                "SelectFdr",
+                {"alpha": 0.5},
+                id="SelectFdr",
+            ),
+            pytest.param(
+                "SelectFwe",
+                {"alpha": 0.5},
+                id="SelectFwe",
+            ),
+            pytest.param(
+                "GenericUnivariateSelect",
+                {"mode": "k_best", "param": 2},
+                id="GenericUnivariateSelect",
+            ),
+        ],
+    )
+    def test_univariate_selector_matches_sklearn(
+        self, classification_data, selector_cls, selector_kwargs
+    ):
+        """Test univariate feature selectors match sklearn output."""
+        from sklearn import feature_selection
+
+        data = classification_data
+        features = ("f1", "f2", "f3", "f4")
+        t = xo.memtable(data)
+
+        # Get the selector class
+        SelectorClass = getattr(feature_selection, selector_cls)
+        selector = SelectorClass(**selector_kwargs)
+
+        # xorq result
+        step = xo.Step.from_instance_name(selector, name="selector")
+        fitted = step.fit(t, features=features, target="target")
+        result = fitted.transform(t, retain_others=False)
+        xorq_raw = result.execute()
+
+        # Handle both KV-encoded and struct output
+        if "transformed" in xorq_raw.columns:
+            # KV-encoded output - decode it
+            xorq_df = KVEncoder.decode(xorq_raw["transformed"])
+        else:
+            # Struct output - columns are already unpacked (transformed_0, etc.)
+            xorq_df = xorq_raw
+
+        # sklearn result
+        sklearn_selector = SelectorClass(**selector_kwargs)
+        sklearn_result = sklearn_selector.fit_transform(
+            data[list(features)], data["target"]
+        )
+        sklearn_df = pd.DataFrame(
+            sklearn_result, columns=sklearn_selector.get_feature_names_out()
+        )
+
+        # Compare values (struct output has stub names, so compare values only)
+        import numpy as np
+
+        np.testing.assert_allclose(
+            xorq_df.reset_index(drop=True).values,
+            sklearn_df.reset_index(drop=True).values,
+            atol=1e-10,
+        )
+
+    @pytest.mark.parametrize(
+        "selector_cls,selector_kwargs",
+        [
+            pytest.param(
+                "RFE",
+                {"n_features_to_select": 2},
+                id="RFE",
+            ),
+            pytest.param(
+                "RFECV",
+                {"min_features_to_select": 2, "cv": 3},
+                id="RFECV",
+            ),
+            pytest.param(
+                "SelectFromModel",
+                {"threshold": "median"},
+                id="SelectFromModel",
+            ),
+            pytest.param(
+                "SequentialFeatureSelector",
+                {"n_features_to_select": 2, "cv": 3},
+                id="SequentialFeatureSelector",
+            ),
+        ],
+    )
+    def test_model_based_selector_matches_sklearn(
+        self, classification_data, selector_cls, selector_kwargs
+    ):
+        """Test model-based feature selectors match sklearn output."""
+        from sklearn import feature_selection
+        from sklearn.linear_model import LogisticRegression
+
+        data = classification_data
+        features = ("f1", "f2", "f3", "f4")
+        t = xo.memtable(data)
+
+        # Get the selector class
+        SelectorClass = getattr(feature_selection, selector_cls)
+        estimator = LogisticRegression(max_iter=1000, random_state=42)
+        selector = SelectorClass(estimator=estimator, **selector_kwargs)
+
+        # xorq result
+        step = xo.Step.from_instance_name(selector, name="selector")
+        fitted = step.fit(t, features=features, target="target")
+        result = fitted.transform(t, retain_others=False)
+        xorq_raw = result.execute()
+
+        # Handle both KV-encoded and struct output
+        if "transformed" in xorq_raw.columns:
+            # KV-encoded output - decode it
+            xorq_df = KVEncoder.decode(xorq_raw["transformed"])
+        else:
+            # Struct output - columns are already unpacked (transformed_0, etc.)
+            xorq_df = xorq_raw
+
+        # sklearn result
+        sklearn_estimator = LogisticRegression(max_iter=1000, random_state=42)
+        sklearn_selector = SelectorClass(estimator=sklearn_estimator, **selector_kwargs)
+        sklearn_result = sklearn_selector.fit_transform(
+            data[list(features)], data["target"]
+        )
+        sklearn_df = pd.DataFrame(
+            sklearn_result, columns=sklearn_selector.get_feature_names_out()
+        )
+
+        # Compare values (struct output has stub names, so compare values only)
+        import numpy as np
+
+        np.testing.assert_allclose(
+            xorq_df.reset_index(drop=True).values,
+            sklearn_df.reset_index(drop=True).values,
+            atol=1e-10,
+        )
+
+
+class TestDimensionReducerParity:
+    """Parameterized tests for ClassNamePrefixFeaturesOutMixin sklearn parity."""
+
+    @pytest.fixture
+    def numeric_data(self):
+        """Generate numeric data for dimensionality reduction."""
+        import numpy as np
+
+        np.random.seed(42)
+        n_samples = 100
+        # Create positive features (required for NMF)
+        X = pd.DataFrame(
+            {
+                "f1": np.abs(np.random.randn(n_samples)) + 0.1,
+                "f2": np.abs(np.random.randn(n_samples)) + 0.1,
+                "f3": np.abs(np.random.randn(n_samples)) + 0.1,
+                "f4": np.abs(np.random.randn(n_samples)) + 0.1,
+            }
+        )
+        return X
+
+    @pytest.mark.parametrize(
+        "transformer_cls,transformer_kwargs,module",
+        [
+            pytest.param(
+                "PCA",
+                {"n_components": 2},
+                "sklearn.decomposition",
+                id="PCA",
+            ),
+            pytest.param(
+                "TruncatedSVD",
+                {"n_components": 2},
+                "sklearn.decomposition",
+                id="TruncatedSVD",
+            ),
+            pytest.param(
+                "NMF",
+                {"n_components": 2, "max_iter": 500, "random_state": 42},
+                "sklearn.decomposition",
+                id="NMF",
+            ),
+            pytest.param(
+                "FastICA",
+                {"n_components": 2, "max_iter": 500, "random_state": 42},
+                "sklearn.decomposition",
+                id="FastICA",
+            ),
+            pytest.param(
+                "FactorAnalysis",
+                {"n_components": 2, "random_state": 42},
+                "sklearn.decomposition",
+                id="FactorAnalysis",
+            ),
+        ],
+    )
+    def test_dimension_reducer_matches_sklearn(
+        self, numeric_data, transformer_cls, transformer_kwargs, module
+    ):
+        """Test dimension reducers match sklearn output."""
+        import importlib
+
+        import numpy as np
+
+        data = numeric_data
+        features = ("f1", "f2", "f3", "f4")
+        t = xo.memtable(data)
+
+        # Get the transformer class
+        mod = importlib.import_module(module)
+        TransformerClass = getattr(mod, transformer_cls)
+        transformer = TransformerClass(**transformer_kwargs)
+
+        # xorq result
+        step = xo.Step.from_instance_name(transformer, name="reducer")
+        fitted = step.fit(t, features=features)
+        result = fitted.transform(t, retain_others=False)
+        xorq_raw = result.execute()
+
+        # Handle both KV-encoded and struct output
+        if "transformed" in xorq_raw.columns:
+            # KV-encoded output - decode it
+            xorq_df = KVEncoder.decode(xorq_raw["transformed"])
+        else:
+            # Struct output - columns are already unpacked
+            xorq_df = xorq_raw
+
+        # sklearn result
+        sklearn_transformer = TransformerClass(**transformer_kwargs)
+        sklearn_result = sklearn_transformer.fit_transform(data[list(features)])
+        sklearn_df = pd.DataFrame(
+            sklearn_result, columns=sklearn_transformer.get_feature_names_out()
+        )
+
+        # Compare values (use larger tolerance for iterative algorithms like NMF)
+        np.testing.assert_allclose(
+            xorq_df.reset_index(drop=True).values,
+            sklearn_df.reset_index(drop=True).values,
+            atol=1e-4,
+        )
+
+        # Also verify column names match sklearn's get_feature_names_out()
+        assert list(xorq_df.columns) == list(sklearn_df.columns)
