@@ -35,7 +35,7 @@ website:
         text: "Guides"
       - href: concepts/understanding_xorq/overview.qmd
         text: "Concepts"
-      - href: reference/reference_overview.qmd
+      - href: reference/index.qmd
         text: "Reference"
       - href: release_notes.qmd
         text: "Release notes"
@@ -172,7 +172,7 @@ website:
       collapse-level: 2
       pinned: true
       contents:
-        - href: reference/reference_overview.qmd
+        - href: reference/index.qmd
           text: "Overview"
         - href: reference/glossary.qmd
           text: "Glossary"
