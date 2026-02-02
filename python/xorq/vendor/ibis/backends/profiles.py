@@ -11,6 +11,7 @@ from attr.validators import (
     optional,
 )
 
+from xorq.common.utils.dask_normalize.dask_normalize_utils import normalize_attrs
 from xorq.common.utils.env_utils import compiled_env_var_substitution_re
 from xorq.common.utils.inspect_utils import get_arguments
 from xorq.loader import _load_entry_points, load_backend
@@ -420,6 +421,8 @@ class Profile:
             kwargs["port"] = int(kwargs["port"])
 
         return cls(con_name=con.name, kwargs_tuple=tuple(sorted(kwargs.items())))
+
+    __dask_tokenize__ = normalize_attrs
 
 
 def check_for_exposed_secrets(con_name: str, kwargs: dict) -> None:
