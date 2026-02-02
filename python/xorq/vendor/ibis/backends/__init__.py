@@ -22,7 +22,6 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.loader import load_backend
 from xorq.vendor import ibis
 from xorq.vendor.ibis import util
-from xorq.vendor.ibis.backends.profiles import Profile
 
 
 if TYPE_CHECKING:
@@ -866,6 +865,7 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
 
     def __init__(self, *args, **kwargs):
         from xorq.common.utils.env_utils import maybe_substitute_env_var
+        from xorq.vendor.ibis.backends.profiles import Profile
 
         # we need to substitute args, kwargs here
         self._con_args: tuple[Any] = tuple(map(maybe_substitute_env_var, args))
@@ -1336,6 +1336,7 @@ class BaseBackend(abc.ABC, _FileIOHandler, CacheHandler):
 
     def __reduce__(self):
         import xorq.flight.backend
+        from xorq.vendor.ibis.backends.profiles import Profile
 
         if isinstance(self, xorq.flight.backend.Backend):
             return (

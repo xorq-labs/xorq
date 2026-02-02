@@ -19,7 +19,7 @@ from ibis.formats.pyarrow import PyArrowTableProxy as IbisPyArrowTableProxy
 
 import xorq.vendor.ibis.expr.operations as ops
 from xorq.vendor.ibis import Schema
-from xorq.vendor.ibis.backends import Profile
+from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.common.temporal import IntervalUnit, TimestampUnit, TimeUnit
 from xorq.vendor.ibis.expr.datatypes import DataType

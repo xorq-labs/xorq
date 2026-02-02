@@ -8,7 +8,6 @@ import pyarrow as pa
 import toolz
 from opentelemetry import trace
 
-from xorq.backends.xorq import connect as xo_connect
 from xorq.common.utils.otel_utils import tracer
 from xorq.common.utils.rbr_utils import (
     copy_rbr_batches,
@@ -201,6 +200,7 @@ class FlightExpr(DatabaseTableView):
         name=None,
         **kwargs,
     ):
+        from xorq.backends.xorq import connect as xo_connect
         from xorq.flight import FlightServer
 
         def roundtrip_cloudpickle(obj):
@@ -348,6 +348,7 @@ class FlightUDXF(DatabaseTableView):
         name=None,
         **kwargs,
     ):
+        from xorq.backends.xorq import connect as xo_connect
         from xorq.common.utils.tls_utils import TLSKwargs
         from xorq.flight import FlightServer
 
