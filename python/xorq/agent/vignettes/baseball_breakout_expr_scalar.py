@@ -2,6 +2,7 @@ import xorq.api as xo
 from xorq.expr.udf import agg, make_pandas_expr_udf
 import xorq.expr.datatypes as dt
 from xorq.common.utils.toolz_utils import curry
+from xorq.caching import ParquetCache
 import pickle
 
 batting = xo.examples.batting.fetch()
@@ -154,8 +155,18 @@ model_udaf = agg.pandas_df(
     name="model"
 )
 
-train = training_subset.limit(10000).cache()
-test = training_subset.tail(500)
+# Create cache for intermediate results
+cache = ParquetCache.from_kwargs()
+
+# Use train_test_splits for proper data splitting
+train, test = xo.train_test_splits(
+    training_subset,
+    test_sizes=0.2,
+    num_buckets=1000,
+    random_seed=42
+)
+train = train.cache(cache)
+test = test.limit(500).cache(cache)
 
 trained_model_expr = model_udaf.on_expr(train)
 
