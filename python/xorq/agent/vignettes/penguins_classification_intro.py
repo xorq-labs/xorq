@@ -240,6 +240,16 @@ def create_predictions_with_probs_expr(fitted_pipeline, test_expr):
         # Determine final prediction based on highest probability
         # xo.cases() is like SQL CASE WHEN, but for expressions!
         # Each (condition, result) pair is a single tuple argument
+        #
+        # IMPORTANT: xo.cases() vs .cases() method:
+        # - xo.cases() cannot use xo._ (Deferred) inside .mutate() - it will fail!
+        # - Use column.cases() method instead when you need xo._
+        # - Here we use predictions_proba['predicted_proba'][0] directly (works!)
+        #
+        # Example patterns:
+        #   ❌ WON'T WORK: xo.cases((xo._.cut == "Fair", 1), ...)
+        #   ✅ WORKS: xo._.cut.cases(("Fair", 1), ("Good", 2), else_=0)
+        #   ✅ WORKS: xo.cases((expr['col'] == "Fair", 1), ...) [what we do here]
         predicted=xo.cases(
             # If Adelie has highest probability
             ((predictions_proba['predicted_proba'][0] >= predictions_proba['predicted_proba'][1]) &
