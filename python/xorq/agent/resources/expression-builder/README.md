@@ -9,7 +9,9 @@ expression-builder/
 ├── SKILL.md              # Main skill file (edit directly)
 ├── skill-rules.json      # Auto-activation triggers
 ├── README.md             # This file
-└── resources/            # Progressive disclosure docs
+└── resources/            # Additional reference docs
+    ├── TROUBLESHOOTING.md   # Common errors and solutions
+    └── ml-pipelines.md      # ML patterns and sklearn integration
 ```
 
 ## Philosophy
@@ -18,6 +20,7 @@ This skill uses **progressive disclosure** via `<details>` blocks:
 - Core concepts and quickstart are always visible
 - Advanced topics (UDAFs, ML pipelines, multi-engine) are collapsed
 - Reference cheat sheet at the bottom
+- Additional deep-dive resources available in `resources/` folder
 
 ## Editing
 
