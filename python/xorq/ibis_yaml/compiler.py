@@ -58,7 +58,7 @@ from xorq.ibis_yaml.common import (
 from xorq.ibis_yaml.config import config
 from xorq.ibis_yaml.sql import generate_sql_plans
 from xorq.ibis_yaml.utils import freeze
-from xorq.vendor.ibis.backends import Profile
+from xorq.vendor.ibis.backends.profiles import Profile
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 from xorq.vendor.ibis.expr.operations import DatabaseTable, InMemoryTable
 
