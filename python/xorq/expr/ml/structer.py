@@ -717,7 +717,7 @@ def lazy_register_sklearn():
     from sklearn.feature_extraction import DictVectorizer
     from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
     from sklearn.feature_selection._base import SelectorMixin
-    from sklearn.impute import SimpleImputer
+    from sklearn.impute import MissingIndicator, SimpleImputer
     from sklearn.kernel_approximation import AdditiveChi2Sampler
     from sklearn.pipeline import FeatureUnion
     from sklearn.pipeline import Pipeline as SklearnPipeline
@@ -748,6 +748,18 @@ def lazy_register_sklearn():
     @structer_from_instance.register(SimpleImputer)
     def _(instance, expr, features=None):
         return _structer_from_maybe_kv_inputs(expr, features)
+
+    # Register MissingIndicator: output depends on features parameter
+    # - features='all': one indicator per input feature (one-to-one)
+    # - features='missing-only' (default): output count unknown until fit time
+    @structer_from_instance.register(MissingIndicator)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        if instance.features == "all":
+            # One-to-one mapping: one indicator per input feature
+            return Structer.from_names_typ(features, dt.boolean)
+        # 'missing-only': output count depends on which features have missing values
+        return Structer.kv_encoded(input_columns=features)
 
     # Register all one-to-one transformers (scalers) via OneToOneFeatureMixin
     @structer_from_instance.register(OneToOneFeatureMixin)

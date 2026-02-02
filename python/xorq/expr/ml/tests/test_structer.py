@@ -309,6 +309,32 @@ class TestStructerFromInstance:
         assert not structer.is_kv_encoded
         assert not structer.needs_target
 
+    def test_missing_indicator_features_all(self):
+        """Test MissingIndicator with features='all' produces known boolean schema."""
+        from sklearn.impute import MissingIndicator
+
+        t = xo.memtable({"a": [1.0, None], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(
+            MissingIndicator(features="all"), t, features=("a", "b")
+        )
+
+        assert not structer.is_kv_encoded
+        assert structer.struct == dt.Struct({"a": dt.boolean, "b": dt.boolean})
+        assert not structer.needs_target
+
+    def test_missing_indicator_features_missing_only(self):
+        """Test MissingIndicator with features='missing-only' produces KV-encoded schema."""
+        from sklearn.impute import MissingIndicator
+
+        t = xo.memtable({"a": [1.0, None], "b": [3.0, 4.0]})
+        structer = Structer.from_instance_expr(
+            MissingIndicator(features="missing-only"), t, features=("a", "b")
+        )
+
+        assert structer.is_kv_encoded
+        assert structer.input_columns == ("a", "b")
+        assert not structer.needs_target
+
     def test_one_hot_encoder(self):
         """Test OneHotEncoder produces KV-encoded schema."""
         from sklearn.preprocessing import OneHotEncoder
