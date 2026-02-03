@@ -2913,6 +2913,48 @@ class TestFeatureSelectorParity:
             atol=1e-10,
         )
 
+    def test_variance_threshold_matches_sklearn(self, classification_data):
+        """Test VarianceThreshold (unsupervised selector) matches sklearn output.
+
+        VarianceThreshold is unique among feature selectors - it doesn't require
+        a target variable, making it an unsupervised feature selector.
+        """
+        import numpy as np
+        from sklearn.feature_selection import VarianceThreshold
+
+        data = classification_data
+        features = ("f1", "f2", "f3", "f4")
+        t = xo.memtable(data)
+
+        # Use a low threshold so we keep most features
+        selector = VarianceThreshold(threshold=0.1)
+
+        # xorq result
+        step = xo.Step.from_instance_name(selector, name="selector")
+        fitted = step.fit(t, features=features)  # No target needed
+        result = fitted.transform(t, retain_others=False)
+        xorq_raw = result.execute()
+
+        # Handle both KV-encoded and struct output
+        if "transformed" in xorq_raw.columns:
+            xorq_df = KVEncoder.decode(xorq_raw["transformed"])
+        else:
+            xorq_df = xorq_raw
+
+        # sklearn result
+        sklearn_selector = VarianceThreshold(threshold=0.1)
+        sklearn_result = sklearn_selector.fit_transform(data[list(features)])
+        sklearn_df = pd.DataFrame(
+            sklearn_result, columns=sklearn_selector.get_feature_names_out()
+        )
+
+        # Compare values
+        np.testing.assert_allclose(
+            xorq_df.reset_index(drop=True).values,
+            sklearn_df.reset_index(drop=True).values,
+            atol=1e-10,
+        )
+
     @pytest.mark.parametrize(
         "selector_cls,selector_kwargs",
         [
@@ -3351,6 +3393,35 @@ class TestKVEncodedTransformersParity:
                 None,
                 "numeric",
                 id="PolynomialCountSketch",
+            ),
+            # Neighbor Transformers (output depends on n_samples)
+            pytest.param(
+                "KNeighborsTransformer",
+                {"n_neighbors": 3, "mode": "distance"},
+                "sklearn.neighbors",
+                ("num1", "num2"),
+                None,
+                "numeric",
+                id="KNeighborsTransformer",
+            ),
+            pytest.param(
+                "RadiusNeighborsTransformer",
+                {"radius": 5.0, "mode": "distance"},
+                "sklearn.neighbors",
+                ("num1", "num2"),
+                None,
+                "numeric",
+                id="RadiusNeighborsTransformer",
+            ),
+            # Tree-based transformer (output depends on leaf nodes)
+            pytest.param(
+                "RandomTreesEmbedding",
+                {"n_estimators": 5, "max_depth": 2, "random_state": 42},
+                "sklearn.ensemble",
+                ("num1", "num2"),
+                None,
+                "numeric",
+                id="RandomTreesEmbedding",
             ),
         ],
     )

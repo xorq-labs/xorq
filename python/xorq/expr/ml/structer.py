@@ -714,6 +714,7 @@ def get_schema_out(sklearnish, expr, features=None):
 def lazy_register_sklearn():
     from sklearn.base import ClassNamePrefixFeaturesOutMixin, OneToOneFeatureMixin
     from sklearn.compose import ColumnTransformer
+    from sklearn.ensemble import RandomTreesEmbedding
     from sklearn.feature_extraction import DictVectorizer
     from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
     from sklearn.feature_selection._base import SelectorMixin
@@ -962,6 +963,12 @@ def lazy_register_sklearn():
 
     # AdditiveChi2Sampler: doesn't inherit ClassNamePrefixFeaturesOutMixin
     @structer_from_instance.register(AdditiveChi2Sampler)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # RandomTreesEmbedding: output depends on tree structure (leaf nodes)
+    @structer_from_instance.register(RandomTreesEmbedding)
     def _(instance, expr, features=None):
         features = features or tuple(expr.columns)
         return Structer.kv_encoded(input_columns=features)
