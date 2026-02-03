@@ -719,7 +719,7 @@ def lazy_register_sklearn():
     from sklearn.feature_extraction import DictVectorizer
     from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
     from sklearn.feature_selection._base import SelectorMixin
-    from sklearn.impute import MissingIndicator, SimpleImputer
+    from sklearn.impute import KNNImputer, MissingIndicator, SimpleImputer
     from sklearn.kernel_approximation import AdditiveChi2Sampler
     from sklearn.pipeline import FeatureUnion
     from sklearn.pipeline import Pipeline as SklearnPipeline
@@ -748,6 +748,11 @@ def lazy_register_sklearn():
 
     # Register SimpleImputer (doesn't inherit from OneToOneFeatureMixin)
     @structer_from_instance.register(SimpleImputer)
+    def _(instance, expr, features=None):
+        return _structer_from_maybe_kv_inputs(expr, features)
+
+    # Register KNNImputer (doesn't inherit from OneToOneFeatureMixin)
+    @structer_from_instance.register(KNNImputer)
     def _(instance, expr, features=None):
         return _structer_from_maybe_kv_inputs(expr, features)
 
