@@ -1,30 +1,92 @@
 ---
 title: 'Overview'
+description: "Command-line tools for building, running, and serving expressions"
 ---
 
-Xorq provides command-line tools for building, running, and managing your data and ML pipelines.
+The Xorq CLI builds expressions from Python scripts, runs built artifacts, and serves them over Arrow Flight. **Build path** means an alias, catalog entry ID, build ID, or path to a build directory.
 
-### Project management
+## Commands
 
-|                                            |                                                                                      |
-|--------------------------------------------|--------------------------------------------------------------------------------------|
-| [init](init.qmd)                           | Create a Xorq project.                                                               |
-| [build](build.qmd)                         | Compile a Xorq expression into a reusable artifact that can be executed later.       |
-| [uv-build](uv-build.qmd)                   | Build a Xorq expression using uv for dependency management.                          |
-| [run](run.qmd)                             | Executes a built expression artifact and outputs the results in your desired format. |
-| [uv-run](uv-run.qmd)                       | Run a built expression artifact using uv for dependency management.                  |
+Use the cards below to open each command’s reference.
 
-### Serving and deployment
+::: {.docs-grid}
+::: {.doc-card}
+<i class="bi bi-folder-plus"></i>
 
-|                                            |                                                                                      |
-|--------------------------------------------|--------------------------------------------------------------------------------------|
-| [serve-flight-udxf](serve-flight-udxf.qmd) | Deploys UDXF nodes to a Flight Server, enabling remote execution and data serving.   |
-| [serve-unbound](serve-unbound.qmd)         | Serve an unbound expression via Flight Server.                                       |
+[**init**](init.qmd)
 
-### Analysis and management
+Create a new project from a template
+:::
 
-|                                            |                                                                                      |
-|--------------------------------------------|--------------------------------------------------------------------------------------|
-| [lineage](lineage.qmd)                     | Track and display data lineage information.                                          |
-| [ps](ps.qmd)                               | List running Xorq processes.                                                         |
-| [catalog](catalog/add.qmd)                 | Manage the compute catalog (add, ls, info, rm, diff-builds).                       
+::: {.doc-card}
+<i class="bi bi-hammer"></i>
+
+[**build**](build.qmd)
+
+Compile an expression from a script into a reusable artifact
+:::
+
+::: {.doc-card}
+<i class="bi bi-box-seam"></i>
+
+[**uv-build**](uv-build.qmd)
+
+Build an expression using uv for dependency management
+:::
+
+::: {.doc-card}
+<i class="bi bi-play"></i>
+
+[**run**](run.qmd)
+
+Execute a built artifact and write output (csv, json, parquet, arrow)
+:::
+
+::: {.doc-card}
+<i class="bi bi-play-btn"></i>
+
+[**uv-run**](uv-run.qmd)
+
+Run a built artifact in an isolated uv environment
+:::
+
+::: {.doc-card}
+<i class="bi bi-broadcast"></i>
+
+[**serve-flight-udxf**](serve-flight-udxf.qmd)
+
+Serve a build with UDXF nodes via Arrow Flight
+:::
+
+::: {.doc-card}
+<i class="bi bi-broadcast-pin"></i>
+
+[**serve-unbound**](serve-unbound.qmd)
+
+Serve an unbound expression via Flight (replace a node with streamed input)
+:::
+
+::: {.doc-card}
+<i class="bi bi-diagram-3"></i>
+
+[**lineage**](lineage.qmd)
+
+Print lineage trees for a build
+:::
+
+::: {.doc-card}
+<i class="bi bi-list-ul"></i>
+
+[**ps**](ps.qmd)
+
+List running Xorq servers
+:::
+
+::: {.doc-card}
+<i class="bi bi-journal-bookmark"></i>
+
+[**catalog**](catalog/add.qmd)
+
+Manage the compute catalog (add, ls, info, rm, diff-builds)
+:::
+:::

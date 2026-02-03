@@ -1,7 +1,48 @@
 ---
-title: "Troubleshooting"
+title: "Overview"
 description: "Resolve common issues and errors when using Xorq"
 ---
 
-Coming soon.
+Use this section when installation, connections, or execution fail. Each page covers one area so you can jump to the right fix.
 
+## Troubleshooting
+
+Use the cards below to find fixes for installation, connections, errors, or performance.
+
+::: {.docs-grid}
+::: {.doc-card}
+<i class="bi bi-download"></i>
+
+[**Installation issues**](installation_issues.qmd)
+
+"No matching distribution found," `ModuleNotFoundError`, or missing backend (for example, DuckDB)
+:::
+
+::: {.doc-card}
+<i class="bi bi-plug"></i>
+
+[**Backend connection issues**](backend_connection_issues.qmd)
+
+Connection timeouts, auth errors, or file or path not found (for example, S3)
+:::
+
+::: {.doc-card}
+<i class="bi bi-exclamation-triangle"></i>
+
+[**Common errors**](common_errors.qmd)
+
+Schema mismatch, CSV parsing errors, out-of-memory, or evaluation and metrics issues
+:::
+
+::: {.doc-card}
+<i class="bi bi-speedometer2"></i>
+
+[**Performance problems**](performance_problems.qmd)
+
+Queries slow or hanging, or evaluation too slow
+:::
+:::
+
+## Still having issues?
+
+Check [GitHub issues](https://github.com/xorq-labs/xorq/issues) or join the [Discord community](https://discord.gg/8Kma9DhcJG) for support.

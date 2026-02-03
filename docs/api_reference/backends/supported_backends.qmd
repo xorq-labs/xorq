@@ -1,31 +1,49 @@
 ---
-title: Supported backends
+title: 'Supported backends'
+description: "Engines you can use and when to choose each"
 ---
 
-xorq currently supports:
+Backends are registered in the package and loaded on first use (e.g. `xo.duckdb`, `xo.postgres`). The default backend for `xo.connect()` is the embedded Xorq engine (DataFusion-based).
 
-1. **In-Process Engines**
-    - DuckDB
-    - DataFusion
-    - Pandas
-2. **Distributed Engines**
-    - Trino
-    - Snowflake
-    - BigQuery
+## In-process engines
 
-### Backend selection guidelines
+Engines that run in your process; no separate server.
 
-Choose engines based on their strengths:
+- **xorq**: Default embedded engine (`xo.connect()`).
+- DuckDB
+- DataFusion
+- Pandas
+- SQLite
 
-1. **DuckDB**: Local processing, AsOf joins, efficient file formats
-2. **DataFusion**: Custom UDFs, streaming processing
-3. **Trino**: Distributed queries, federation, security
-4. **Snowflake/BigQuery**: Managed infrastructure, scalability
+## Distributed engines
 
-### Data transfer
+Engines that run on remote or managed infrastructure.
 
-Data movement between engines is handled through:
+- Trino
+- Snowflake
+- BigQuery (via Ibis)
 
-1. **Arrow Flight**: Zero-copy data transfer protocol
-2. **Memory Management**: Automatic spilling to disk
-3. **Batching**: Efficient chunk-based processing
+## Table formats
+
+Engines for table formats and catalogs.
+
+- **PyIceberg**: Apache Iceberg tables; use `xo.pyiceberg.connect_env()` or connect with a catalog URI.
+
+## When to use which
+
+Use this table to pick an engine for your workload.
+
+| Engine | Use for |
+|--------|---------|
+| xorq (default) | Embedded execution, no external server |
+| DuckDB | Local processing, AsOf joins, efficient file formats |
+| DataFusion | Custom UDFs, streaming |
+| Pandas | In-memory, small data, prototyping |
+| SQLite | Local file-based SQL, portability |
+| Trino | Distributed queries, federation, security |
+| Snowflake / BigQuery | Managed infrastructure, scale |
+| PyIceberg | Iceberg tables, time travel, catalog backends (SQL, Hive, Glue) |
+
+## Data movement
+
+Data moves between engines via Arrow Flight (zero-copy), with automatic spilling to disk and chunk-based batching when needed.

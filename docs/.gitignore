@@ -12,7 +12,8 @@ site_libs
 *.db
 diamonds.json
 *.ndjson
-reference/
+reference/*
+!reference/index.qmd
 objects.json
 
 # generated notebooks and files

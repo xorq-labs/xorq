@@ -1,0 +1,42 @@
+---
+title: 'Reference'
+description: "Complete reference documentation for Xorq"
+---
+
+Welcome to the Xorq Reference documentation. Use the sections below to navigate to different areas of the API and documentation.
+
+## Reference sections
+
+::: {.docs-grid}
+::: {.doc-card}
+<i class="bi bi-book"></i>
+
+[**Glossary**](glossary.qmd)
+
+Key terms and concepts used throughout Xorq
+:::
+
+::: {.doc-card}
+<i class="bi bi-database"></i>
+
+[**Backends**](../api_reference/backends/index.qmd)
+
+Configure and connect to different database backends
+:::
+
+::: {.doc-card}
+<i class="bi bi-code-square"></i>
+
+[**Python API**](python_api/index.qmd)
+
+Complete Python API reference for functions, classes, and types
+:::
+
+::: {.doc-card}
+<i class="bi bi-wrench"></i>
+
+[**Troubleshooting**](../troubleshooting/index.qmd)
+
+Resolve common issues and errors
+:::
+:::

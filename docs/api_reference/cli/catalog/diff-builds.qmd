@@ -1,12 +1,41 @@
 ---
 title: 'catalog diff-builds'
+description: "Compare two build artifacts"
 ---
 
-## Coming soon
+Compare two builds using `git diff --no-index`. Use this to see what changed between two build directories (e.g. after changing an expression or dependencies).
 
-Documentation for the `xorq catalog diff-builds` CLI command.
+## Usage
 
-This command compares two builds and shows differences between them.
+Pass two build targets to compare them with `git diff --no-index`.
 
-Check back soon for complete documentation.
+```bash
+xorq catalog diff-builds <left> <right> [OPTIONS]
+```
 
+## Arguments
+
+The two builds to compare.
+
+| Argument | Description |
+|----------|-------------|
+| `left` | Left build: alias, entry ID, build ID, or path to build dir |
+| `right` | Right build: alias, entry ID, build ID, or path to build dir |
+
+## Options
+
+Which files to diff.
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--all` | | Diff all known build files plus all `.sql` files |
+| `--files` | | Explicit list of relative file paths to diff (overrides `--all`) |
+
+## Examples
+
+Compare two build directories or aliases.
+
+```bash
+xorq catalog diff-builds builds/abc123 builds/def456
+xorq catalog diff-builds alias-v1 alias-v2 --all
+```

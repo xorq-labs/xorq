@@ -1,12 +1,30 @@
 ---
 title: 'catalog rm'
+description: "Remove a build or alias from the catalog"
 ---
 
-## Coming soon
+Remove a build entry or alias from the compute catalog. The build directory on disk is not deleted.
 
-Documentation for the `xorq catalog rm` CLI command.
+## Usage
 
-This command removes a build or alias from the compute catalog.
+Pass an entry ID or alias to remove it from the catalog.
 
-Check back soon for complete documentation.
+```bash
+xorq catalog rm <entry>
+```
 
+## Arguments
+
+The catalog entry to remove.
+
+| Argument | Description |
+|----------|-------------|
+| `entry` | Entry ID or alias to remove |
+
+## Example
+
+Remove an entry by alias.
+
+```bash
+xorq catalog rm penguins-v1
+```

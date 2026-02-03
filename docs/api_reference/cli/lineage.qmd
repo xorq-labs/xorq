@@ -1,12 +1,30 @@
 ---
 title: 'lineage'
+description: "Print lineage trees for a build"
 ---
 
-## Coming soon
+Print lineage trees for all columns in a build. Use this to see how columns are derived and where data comes from.
 
-Documentation for the `xorq lineage` CLI command.
+## Usage
 
-This command tracks and displays data lineage information.
+Pass a build target to print lineage trees for all columns.
 
-Check back soon for complete documentation.
+```bash
+xorq lineage <target>
+```
 
+## Arguments
+
+The build to inspect.
+
+| Argument | Description |
+|----------|-------------|
+| `target` | Build target: alias, catalog entry ID, build ID, or path to the build directory |
+
+## Example
+
+Print lineage for a build directory.
+
+```bash
+xorq lineage builds/f02d28198715
+```

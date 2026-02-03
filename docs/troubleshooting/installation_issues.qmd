@@ -3,5 +3,78 @@ title: "Installation issues"
 description: "Troubleshoot Xorq installation problems"
 ---
 
-Coming soon.
+This page covers pip and environment problems when installing Xorq or backends. By the end, you will know how to fix "No matching distribution found," import errors, and missing backends.
 
+## Troubleshooting
+
+### Issue: No matching distribution found
+
+**Error**: Pip reports no matching distribution for Xorq (or similar).
+
+**Cause**: Your Python version is below 3.10. Xorq requires Python 3.10 or higher.
+
+**Solution**: Check your version and upgrade if needed:
+
+```bash
+python --version
+```
+
+Output should show 3.10 or higher. To upgrade, use the [Python downloads page](https://www.python.org/downloads/).
+
+### Issue: ModuleNotFoundError when importing Xorq
+
+**Error**: `ModuleNotFoundError: No module named 'xorq'` (or similar).
+
+**Cause**: Xorq is not installed in the Python environment you are using.
+
+**Solution**: Activate the correct virtual environment, then install Xorq:
+
+**macOS and Linux:**
+
+```bash
+source .venv/bin/activate
+pip install xorq
+```
+
+**Windows:**
+
+```bash
+.venv\Scripts\activate
+pip install xorq
+```
+
+### Issue: Backend connection fails after install
+
+**Cause**: Connection failures are usually due to missing credentials or wrong configuration.
+
+**Solution**: See [Backend connection issues](backend_connection_issues.qmd) for environment variables (PostgreSQL), credentials (Snowflake and Trino), and network checks.
+
+### Issue: No module named 'duckdb' or another backend
+
+**Error**: `ModuleNotFoundError: No module named 'duckdb'` (or the backend you use).
+
+**Cause**: The backend you are using is not installed.
+
+**Solution**: Install the backend you need:
+
+```bash
+pip install "xorq[duckdb]"
+```
+
+To install all backends:
+
+```bash
+pip install "xorq[examples,duckdb,snowflake,postgres,pyiceberg,datafusion,sqlite]"
+```
+
+### Issue: Query execution is slow or hangs
+
+**Cause**: Often due to large data or a backend that does not fit the workload.
+
+**Solution**: See [Performance problems](performance_problems.qmd) for when to use DuckDB, Pandas, or Snowflake and BigQuery.
+
+## Next steps
+
+- [Backend connection issues](backend_connection_issues.qmd) for connection and credential problems
+- [Performance problems](performance_problems.qmd) for slow queries and backend choice
+- [Overview](index.qmd) for all topics

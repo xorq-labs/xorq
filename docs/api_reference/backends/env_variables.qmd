@@ -1,97 +1,88 @@
 ---
-title: Environment variables
+title: 'Environment variables'
+description: "Reference for variables used in backend and service templates"
 ---
 
-This document provides a comprehensive reference for all environment variables used in the project's `.template` files. These template files serve as blueprints for configuring various services and connections in the XORQ ecosystem.
+Xorq ships `.env.{service}.template` files (in the package `env_templates` directory) as blueprints for configuration. Profiles reference these variables (e.g. `${POSTGRES_HOST}`); you set the values in your environment or in a local `.env` file that is not committed. See [Profiles](profiles_api.qmd) for how references are used at connection time.
 
-## Overview
+## Template reference
 
-Xorq uses several `.env.{service}.template` files to define environment variables for different services. These templates help ensure consistent configuration across different environments while keeping sensitive credentials secure through environment variable references.
+Variables defined in each `.env.{service}.template` file. Set values in your environment or in a local `.env` file that is not committed.
 
-## Template files
+### PostgreSQL (`.env.postgres.template`)
 
-### PostgreSQL configuration (`.env.postgres.template`)
+Connection parameters for PostgreSQL.
 
-PostgreSQL database connection parameters.
-
-| Variable | Description | Required | 
+| Variable | Description | Required |
 |----------|-------------|----------|
-| `POSTGRES_USER` | Database username | Yes | 
+| `POSTGRES_USER` | Database username | Yes |
 | `POSTGRES_PASSWORD` | Database password | Yes |
-| `POSTGRES_HOST` | Database host address | Yes |
-| `POSTGRES_PORT` | Database port number | Yes | 
+| `POSTGRES_HOST` | Host address | Yes |
+| `POSTGRES_PORT` | Port number | Yes |
 | `POSTGRES_DATABASE` | Database name | Yes |
 
-
-### AWS configuration (`.env.aws.template`)
+### AWS (`.env.aws.template`)
 
 Amazon Web Services authentication and configuration.
 
-| Variable | Description | Required |  
+| Variable | Description | Required |
 |----------|-------------|----------|
-| `AWS_ACCESS_KEY_ID` | AWS access key identifier | Yes |  
-| `AWS_SECRET_ACCESS_KEY` | AWS secret access key | Yes |  
-| `AWS_SESSION_TOKEN` | AWS session token (for temporary credentials) | No |  
-| `AWS_ALLOW_HTTP` | Allow HTTP connections (not recommended for production) | No |  
-| `AWS_REGION` | AWS region for services | Yes | 
+| `AWS_ACCESS_KEY_ID` | Access key identifier | Yes |
+| `AWS_SECRET_ACCESS_KEY` | Secret access key | Yes |
+| `AWS_SESSION_TOKEN` | Session token (temporary credentials) | No |
+| `AWS_ALLOW_HTTP` | Allow HTTP (not recommended for production) | No |
+| `AWS_REGION` | Region for services | Yes |
 
-**Security Note:** Never commit actual AWS credentials to version control. Use IAM roles or temporary credentials when possible.
+Do not commit credentials. Prefer IAM roles or temporary credentials when possible.
 
-### Snowflake configuration (`.env.snowflake.template`)
+### Snowflake (`.env.snowflake.template`)
 
 Snowflake data warehouse connection parameters.
 
-| Variable | Description | Required | 
+| Variable | Description | Required |
 |----------|-------------|----------|
-| `SNOWFLAKE_USER` | Snowflake username | Yes | 
-| `SNOWFLAKE_PASSWORD` | Snowflake password | Yes | 
-| `SNOWFLAKE_ACCOUNT` | Snowflake account identifier | Yes | 
-| `SNOWFLAKE_ROLE` | Snowflake role to assume | Yes | 
-| `SNOWFLAKE_WAREHOUSE` | Snowflake warehouse to use | Yes | 
+| `SNOWFLAKE_USER` | Username | Yes |
+| `SNOWFLAKE_PASSWORD` | Password | Yes |
+| `SNOWFLAKE_ACCOUNT` | Account identifier | Yes |
+| `SNOWFLAKE_ROLE` | Role to assume | Yes |
+| `SNOWFLAKE_WAREHOUSE` | Warehouse to use | Yes |
+| `SNOWFLAKE_DATABASE` | Database name | No |
+| `SNOWFLAKE_SCHEMA` | Schema name | No |
+| `SNOWFLAKE_PRIVATE_KEY` | Private key (key-pair auth) | No |
+| `SNOWFLAKE_PUBLIC_KEY` | Public key (key-pair auth) | No |
+| `SNOWFLAKE_PRIVATE_KEY_PWD` | Passphrase for private key | No |
+| `SNOWFLAKE_CREATE_OBJECT_UDFS` | Create object UDFs on connect | No |
 
-**Note:** Snowflake accounts can be identified by their account locator or account URL format.
+### Weather API (`.env.weather.template`)
 
-### Weather API configuration (`.env.weather.template`)
+OpenWeatherMap API integration.
 
-OpenWeatherMap API integration settings.
+| Variable | Description | Required |
+|----------|-------------|----------|
+| `OPENWEATHER_API_KEY` | OpenWeatherMap API key | Yes |
 
-| Variable | Description | Required | Default | 
+### PyIceberg (`.env.pyiceberg.template`)
+
+Apache Iceberg catalog and warehouse configuration.
+
+| Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `OPENWEATHER_API_KEY` | OpenWeatherMap API key | Yes | - | 
-| `WEATHER_FEATURES_PORT` | Port for weather features service | No | `8819` | 
-| `WEATHER_API_URL` | OpenWeatherMap API base URL | No | `https://api.openweathermap.org/data/2.5/weather` |
+| `ICEBERG_WAREHOUSE_PATH` | Path to Iceberg warehouse | No | `warehouse` |
+| `ICEBERG_NAMESPACE` | Default namespace for tables | No | `default` |
+| `ICEBERG_CATALOG_NAME` | Catalog name | No | `default` |
+| `ICEBERG_CATALOG_TYPE` | Catalog backend: `sql`, `hive`, or `glue` | No | `sql` |
+| `ICEBERG_URI` | Connection URI for the catalog | Yes | — |
 
-**API Key:** Obtain from [OpenWeatherMap](https://openweathermap.org/api) after creating an account.
+### Xorq (`.env.xorq.template`)
 
-### PyIceberg configuration (`.env.pyiceberg.template`)
+Core Xorq application settings (cache, profiles, debug).
 
-Apache Iceberg table format configuration for PyIceberg.
-
-| Variable | Description | Required | Default | 
+| Variable | Description | Required | Default |
 |----------|-------------|----------|---------|
-| `ICEBERG_WAREHOUSE_PATH` | Path to Iceberg warehouse | No | `warehouse` | 
-| `ICEBERG_NAMESPACE` | Default namespace for tables | No | `default` | 
-| `ICEBERG_CATALOG_NAME` | Name of the Iceberg catalog | No | `default` | 
-| `ICEBERG_CATALOG_TYPE` | Type of catalog backend | No | `sql` | 
-| `ICEBERG_URI` | Connection URI for the catalog | Yes | - | 
+| `XORQ_CACHE_DIR` | Directory for cached data | No | `~/.cache/xorq` |
+| `XORQ_DEFAULT_RELATIVE_PATH` | Default relative path for data | No | `parquet` |
+| `XORQ_PROFILE_DIR` | Directory for stored profiles | No | `~/.config/xorq/profiles` |
+| `XORQ_DEBUG` | Enable debug mode | No | `False` |
+| `XORQ_CACHE_KEY_PREFIX` | Prefix for cache keys | No | `letsql_cache-` |
 
-**Catalog Types:**
-- `sql`: SQL-based catalog (requires database connection)
-- `hive`: Hive Metastore catalog
-- `glue`: AWS Glue Data Catalog
-
-### Xorq configuration (`.env.xorq.template`)
-
-Core XORQ application settings.
-
-| Variable | Description | Required | Default | Example |
-|----------|-------------|----------|---------|---------|
-| `XORQ_CACHE_DIR` | Directory for caching data | No | `~/.cache/xorq` | 
-| `XORQ_DEFAULT_RELATIVE_PATH` | Default relative path for data | No | `parquet` | 
-| `XORQ_PROFILE_DIR` | Directory for storing profiles | No | `~/.config/xorq/profiles` | 
-| `XORQ_DEBUG` | Enable debug mode | No | `False` | 
-| `XORQ_CACHE_KEY_PREFIX` | Prefix for cache keys | No | `letsql_cache-` | 
-
-**Note:** These variables use `export` statements in the template, indicating they should be set as shell environment variables.
-
-
+Set these as shell environment variables (e.g. with `export` in your shell or in a `.env` file loaded by your app).
