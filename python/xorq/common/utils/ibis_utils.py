@@ -136,10 +136,12 @@ backend_registry = {}
 
 
 @contextmanager
-def backend_registry_context():
-    assert not backend_registry
-    yield
-    backend_registry.clear()
+def ibis_utils_backend_registry_context():
+    try:
+        assert not backend_registry, backend_registry
+        yield
+    finally:
+        backend_registry.clear()
 
 
 @map_ibis.register(IbisBaseBackend)
@@ -157,5 +159,5 @@ def map_namespace(namespace, kwargs=None):
 
 
 def from_ibis(ibis_expr):
-    with backend_registry_context():
+    with ibis_utils_backend_registry_context():
         return ibis_expr.op().replace(map_ibis).to_expr()
