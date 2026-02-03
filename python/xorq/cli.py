@@ -334,6 +334,18 @@ def unbind_and_serve_command(
         typs=typ,
         strategy=SnapshotStrategy(),
     )
+
+    # Get schema information from the unbound expression
+    from xorq.flight.exchanger import UnboundExprExchanger
+
+    exchanger = UnboundExprExchanger(unbound_expr)
+
+    # Display schema-in and schema-out
+    logger.info(f"Schema-in (required input):\n{exchanger.schema_in_required}")
+    logger.info(
+        f"Schema-out (output):\n{exchanger.calc_schema_out(exchanger.schema_in_required)}"
+    )
+
     flight_url = xorq.flight.FlightUrl(host=host, port=port)
     make_server = partial(
         xorq.flight.FlightServer,
