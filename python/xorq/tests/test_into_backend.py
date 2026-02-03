@@ -1,4 +1,5 @@
 import itertools
+import operator
 import random
 from operator import methodcaller
 from pathlib import PosixPath
@@ -11,6 +12,7 @@ from pytest import param
 
 import xorq.api as xo
 from xorq.caching import ParquetCache, SourceCache
+from xorq.common.exceptions import XorqError
 from xorq.expr.relations import register_and_transform_remote_tables
 from xorq.loader import load_backend
 from xorq.tests.util import assert_frame_equal, check_eq
@@ -99,6 +101,14 @@ def ddb_batting(duckdb_con):
     return duckdb_con.create_table(
         "db-batting",
         duckdb_con.table("batting").to_pyarrow(),
+    )
+
+
+@pytest.fixture(scope="function")
+def pd_batting(parquet_batting):
+    return xo.deferred_read_parquet(
+        parquet_batting,
+        xo.pandas.connect(),
     )
 
 
@@ -629,50 +639,52 @@ def test_execution_expr_multiple_tables(ls_con, tables, request, mocker):
             pair,
             id="-".join(pair),
         )
-        for pair in itertools.combinations(
-            ["pg_batting", "ls_batting", "ddb_batting"],
+        for pair in itertools.permutations(
+            ["pg_batting", "ls_batting", "pd_batting", "ddb_batting"],
             r=2,
         )
     ],
 )
 def test_execution_expr_multiple_tables_cached(ls_con, tables, request):
-    from xorq.caching import SourceCache
+    from xorq.caching import ParquetCache, SourceCache
 
     table_name = "batting"
     left, right = map(request.getfixturevalue, tables)
-    source = right.op().source
+    (left_source, right_source) = (expr.op().source for expr in (left, right))
+    (left_cache, right_cache) = (
+        SourceCache.from_kwargs(source=source)
+        if source.name != "duckdb"
+        else ParquetCache.from_kwargs(source=ls_con)
+        for source in (left_source, right_source)
+    )
+    (left_filter, right_filter) = (
+        operator.eq(xo._.yearID, year) for year in (2015, 2014)
+    )
 
-    left_cache = SourceCache.from_kwargs(source=left.op().source)
-    right_cache = SourceCache.from_kwargs(source=right.op().source)
-
-    left_t = ls_con.register(left, table_name=f"left-{table_name}")[
-        lambda t: t.yearID == 2015
-    ].cache(right_cache)
-
-    right_t = ls_con.register(right, table_name=f"right-{table_name}")[
-        lambda t: t.yearID == 2014
-    ].cache(left_cache)
-
-    actual = (
-        left_t.join(
-            right_t.into_backend(source),
+    left_t = left.into_backend(ls_con, name=f"left-{table_name}").filter(left_filter)
+    right_t = right.into_backend(ls_con, name=f"right-{table_name}").filter(
+        right_filter
+    )
+    joined = (
+        left_t.cache(left_cache)
+        .join(
+            right_t.cache(right_cache).into_backend(left_cache.storage.source),
             "playerID",
         )
         .cache(left_cache)
-        .execute()
     )
 
-    expected = (
-        ls_con.table(f"left-{table_name}")[lambda t: t.yearID == 2015]
-        .join(
-            ls_con.table(f"right-{table_name}")[lambda t: t.yearID == 2014], "playerID"
-        )
-        .execute()
-        .sort_values(by="playerID")
-    )
-
+    actual = joined.execute()
+    expected = left_t.join(
+        right_t.into_backend(left_t._find_backend()),
+        "playerID",
+    ).execute()
+    assert not actual.empty
     columns = list(actual.columns)
-    assert_frame_equal(actual.sort_values(columns), expected.sort_values(columns))
+    assert_frame_equal(
+        actual.sort_values(columns, ignore_index=True),
+        expected.sort_values(columns, ignore_index=True),
+    )
 
 
 def test_no_registration_same_table_name(ls_con, pg_batting):
@@ -709,3 +721,16 @@ def test_multi_engine_cache(pg, ls_con, ls_batting, tmp_path, backend_name):
     )
 
     assert expr.execute() is not None
+
+
+def test_multi_backend(parquet_dir):
+    batting = xo.deferred_read_parquet(
+        parquet_dir.joinpath("batting.parquet"), con=xo.connect()
+    )
+    awards_players = xo.deferred_read_parquet(
+        parquet_dir.joinpath("awards_players.parquet"), con=xo.connect()
+    )
+    on = set(batting.columns).intersection(awards_players.columns)
+    joined = batting.select(on).join(awards_players.select(on), predicates=on)
+    with pytest.raises(XorqError, match="Multiple backends"):
+        joined.execute()

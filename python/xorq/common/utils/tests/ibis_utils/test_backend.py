@@ -10,7 +10,11 @@ from xorq.backends.snowflake import Backend as SnowflakeBackend
 from xorq.backends.snowflake import SnowflakeAuthenticator
 from xorq.backends.sqlite import Backend as SqliteBackend
 from xorq.common.utils.env_utils import maybe_substitute_env_var
-from xorq.common.utils.ibis_utils import from_ibis, map_ibis
+from xorq.common.utils.ibis_utils import (
+    from_ibis,
+    ibis_utils_backend_registry_context,
+    map_ibis,
+)
 
 
 ibis = pytest.importorskip("ibis")
@@ -100,6 +104,7 @@ def test_backends(get_con, backend_type):
 def test_snowflake_backend():
     snow_conn = connect_snowflake()
     assert snow_conn.list_tables() is not None
-    xorq_con = map_ibis(snow_conn, None)
+    with ibis_utils_backend_registry_context():
+        xorq_con = map_ibis(snow_conn, None)
     assert isinstance(xorq_con, SnowflakeBackend)
     assert xorq_con.list_tables() is not None
