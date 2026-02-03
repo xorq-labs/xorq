@@ -369,9 +369,15 @@ class FittedStep:
         # we must have at least transform or predict
         if not (self.is_transform or self.is_predict):
             raise ValueError("Step must have transform or predict method")
-        # if we are predict-only, we must have target
+        # if we are predict-only, we must have target (except for clustering)
         if self.target is None and self.is_predict and not self.is_transform:
-            raise ValueError("Can't infer target")
+            from sklearn.base import ClusterMixin
+
+            if not isinstance(self.instance, ClusterMixin):
+                raise ValueError(
+                    f"Predict-only estimator {self.step.typ.__name__} requires a target column. "
+                    "Pass target='column_name' to fit()."
+                )
         # we can do very simple feature inference
         if self.features is None:
             features = tuple(col for col in self.expr.columns if col != self.target)
@@ -1004,6 +1010,7 @@ def raise_on_unregistered(instance, step, expr, features, target):
 def lazy_register_sklearn():
     from sklearn.base import (
         ClassifierMixin,
+        ClusterMixin,
         RegressorMixin,
     )
     from sklearn.ensemble import (
@@ -1027,6 +1034,9 @@ def lazy_register_sklearn():
     registry.register(
         RegressorMixin, return_constant(dt.float)
     )  # General fallback for regressors
+    registry.register(
+        ClusterMixin, return_constant(dt.int64)
+    )  # Clustering predict returns integer labels
 
 
 get_predict_return_type.register = registry.register

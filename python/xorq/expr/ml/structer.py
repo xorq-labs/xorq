@@ -713,6 +713,7 @@ def get_schema_out(sklearnish, expr, features=None):
 @structer_from_instance.register_lazy("sklearn")
 def lazy_register_sklearn():
     from sklearn.base import ClassNamePrefixFeaturesOutMixin, OneToOneFeatureMixin
+    from sklearn.cluster import Birch
     from sklearn.compose import ColumnTransformer
     from sklearn.ensemble import RandomTreesEmbedding
     from sklearn.feature_extraction import DictVectorizer
@@ -972,6 +973,16 @@ def lazy_register_sklearn():
     def _(instance, expr, features=None):
         features = features or tuple(expr.columns)
         return Structer.kv_encoded(input_columns=features)
+
+    # Birch: transform() returns distances to all subclusters (count not known until fit)
+    # Must be registered before ClassNamePrefixFeaturesOutMixin to override the mixin
+    @structer_from_instance.register(Birch)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # FeatureAgglomeration: works via ClassNamePrefixFeaturesOutMixin + _get_n_components
+    # (n_clusters is used for output count)
 
     @structer_from_instance.register(ColumnTransformer)
     def _(instance, expr, features=None):

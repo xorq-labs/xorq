@@ -3164,6 +3164,39 @@ class TestClassNamePrefixFeaturesOutMixinParity:
                 True,
                 id="NeighborhoodComponentsAnalysis",
             ),
+            # Clustering (with transform method)
+            # KMeans, MiniBatchKMeans, BisectingKMeans transform() returns distances
+            # to n_clusters centroids (known schema)
+            pytest.param(
+                "KMeans",
+                {"n_clusters": 3, "random_state": 42, "n_init": 10},
+                "sklearn.cluster",
+                False,
+                id="KMeans",
+            ),
+            pytest.param(
+                "MiniBatchKMeans",
+                {"n_clusters": 3, "random_state": 42, "n_init": 10},
+                "sklearn.cluster",
+                False,
+                id="MiniBatchKMeans",
+            ),
+            pytest.param(
+                "BisectingKMeans",
+                {"n_clusters": 3, "random_state": 42},
+                "sklearn.cluster",
+                False,
+                id="BisectingKMeans",
+            ),
+            # Note: Birch is registered as KV-encoded because transform() returns
+            # distances to all subclusters (count not known until fit time)
+            pytest.param(
+                "FeatureAgglomeration",
+                {"n_clusters": 2},
+                "sklearn.cluster",
+                False,
+                id="FeatureAgglomeration",
+            ),
         ],
     )
     def test_classname_prefix_transformer_matches_sklearn(
@@ -3422,6 +3455,16 @@ class TestKVEncodedTransformersParity:
                 None,
                 "numeric",
                 id="RandomTreesEmbedding",
+            ),
+            # Clustering (output depends on subcluster count, not n_clusters)
+            pytest.param(
+                "Birch",
+                {"n_clusters": 3},
+                "sklearn.cluster",
+                ("num1", "num2"),
+                None,
+                "numeric",
+                id="Birch",
             ),
         ],
     )
