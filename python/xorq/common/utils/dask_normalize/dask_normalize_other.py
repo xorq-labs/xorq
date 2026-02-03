@@ -37,6 +37,25 @@ def safe_lazy_register(toplevel, function):
 safe_lazy_register("pandas", lazy_register_pandas)
 
 
+def lazy_register_sklearn():
+    from sklearn.base import BaseEstimator
+
+    from xorq.ibis_yaml.utils import freeze
+
+    @dask.base.normalize_token.register(BaseEstimator)
+    def normalize_sklearn_estimator(estimator):
+        params = freeze(tuple(estimator.get_params(deep=True).items()))
+        return normalize_seq_with_caller(
+            type(estimator).__name__,
+            type(estimator).__module__,
+            params,
+            caller="normalize_sklearn_estimator",
+        )
+
+
+safe_lazy_register("sklearn", lazy_register_sklearn)
+
+
 @dask.base.normalize_token.register(dict)
 def normalize_dict(dct):
     return normalize_seq_with_caller(*sorted(dct.items()))

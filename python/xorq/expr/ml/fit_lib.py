@@ -249,8 +249,12 @@ class DeferredFitOther:
                 fitted_step.instance, fitted_step.expr, features=fitted_step.features
             )
             target = fitted_step.target if structer.needs_target else None
-            match (structer.is_series, structer.is_kv_encoded):
-                case (True, True):
+            match (
+                structer.is_series,
+                structer.is_kv_encoded,
+                structer.struct_has_kv_fields,
+            ):
+                case (True, True, _):
                     (col,) = fitted_step.features
                     return cls(
                         fit=fit_sklearn_series(
@@ -266,7 +270,8 @@ class DeferredFitOther:
                             "target": target,
                         },
                     )
-                case (False, True):
+                case (False, True, _):
+                    # Pure KV-encoded output (struct is None)
                     return cls(
                         fit=fit_sklearn_args(
                             cls=fitted_step.step.typ,
@@ -277,7 +282,20 @@ class DeferredFitOther:
                         name_infix="transformed_encoded",
                         **kwargs,
                     )
+                case (False, False, True):
+                    # Struct with KV-encoded fields
+                    return cls(
+                        fit=fit_sklearn_args(
+                            cls=fitted_step.step.typ,
+                            params=fitted_step.step.params_tuple,
+                        ),
+                        other=structer.get_convert_struct_with_kv(),
+                        return_type=structer.return_type,
+                        name_infix="transformed_struct_kv",
+                        **kwargs,
+                    )
                 case _:
+                    # Pure struct output (no KV columns)
                     return cls(
                         fit=fit_sklearn_args(
                             cls=fitted_step.step.typ,
