@@ -609,3 +609,4 @@ quartodoc:
         - name: flight_udxf
           dynamic: true
           package: xorq.expr.relations
+          
