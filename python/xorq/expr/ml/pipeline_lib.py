@@ -443,38 +443,41 @@ class FittedStep:
     @property
     def deferred_predict_proba(self):
         (attrname, fn) = ("predict_proba", predict_proba_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
+        return (
+            self._deferred_fit_other.make_deferred_other(
                 fn=fn,
                 return_type=dt.Array(dt.float64),
                 name_infix=attrname.rstrip("_"),
             )
-        else:
-            return None
+            if hasattr(self.step.instance.__class__, attrname)
+            else None
+        )
 
     @property
     def deferred_decision_function(self):
         (attrname, fn) = ("decision_function", decision_function_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
+        return (
+            self._deferred_fit_other.make_deferred_other(
                 fn=fn,
                 return_type=dt.Array(dt.float64),
                 name_infix=attrname.rstrip("_"),
             )
-        else:
-            return None
+            if hasattr(self.step.instance.__class__, attrname)
+            else None
+        )
 
     @property
     def deferred_feature_importances(self):
         (attrname, fn) = ("feature_importances_", feature_importances_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
+        return (
+            self._deferred_fit_other.make_deferred_other(
                 fn=fn,
                 return_type=dt.Array(dt.float64),
                 name_infix=attrname.rstrip("_"),
             )
-        else:
-            return None
+            if hasattr(self.step.instance.__class__, attrname)
+            else None
+        )
 
     @property
     @functools.cache
@@ -989,16 +992,13 @@ registry = Dispatch()
 
 def get_predict_return_type(fitted_step):
     instance = fitted_step.step.instance
-    if return_type := getattr(instance, "return_type", None):
-        return return_type
-    else:
-        return registry(
-            instance,
-            fitted_step.step,
-            fitted_step.expr,
-            fitted_step.features,
-            fitted_step.target,
-        )
+    return getattr(instance, "return_type", None) or registry(
+        instance,
+        fitted_step.step,
+        fitted_step.expr,
+        fitted_step.features,
+        fitted_step.target,
+    )
 
 
 @registry.register(object)
