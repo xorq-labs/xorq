@@ -718,6 +718,11 @@ def lazy_register_sklearn():
     from sklearn.ensemble import RandomTreesEmbedding
     from sklearn.feature_extraction import DictVectorizer
     from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+    from sklearn.feature_selection import (
+        GenericUnivariateSelect,
+        SelectFdr,
+        SelectFwe,
+    )
     from sklearn.feature_selection._base import SelectorMixin
     from sklearn.impute import KNNImputer, MissingIndicator, SimpleImputer
     from sklearn.kernel_approximation import AdditiveChi2Sampler
@@ -780,40 +785,37 @@ def lazy_register_sklearn():
         Returns the number of features the selector will output, or None if
         it cannot be determined at compile time.
         """
-        # SelectKBest uses k parameter
-        if hasattr(instance, "k"):
-            k = instance.k
-            if k == "all":
-                return n_features_in
-            return min(k, n_features_in)
-
-        # SelectPercentile uses percentile parameter
-        if hasattr(instance, "percentile"):
-            return max(1, int(n_features_in * instance.percentile / 100))
-
-        # RFE, RFECV, SequentialFeatureSelector use n_features_to_select
-        if hasattr(instance, "n_features_to_select"):
-            n = instance.n_features_to_select
-            if n is None:
-                # Default is half
-                return max(1, n_features_in // 2)
-            if isinstance(n, float) and 0 < n < 1:
-                return max(1, int(n_features_in * n))
-            return min(n, n_features_in)
-
-        # SelectFromModel uses max_features or threshold
-        if hasattr(instance, "max_features"):
-            max_f = instance.max_features
-            if max_f is not None:
-                if callable(max_f):
-                    return None  # Can't determine at compile time
-                return min(max_f, n_features_in)
-            # Threshold-based selection - can't determine at compile time
-            return None
-
-        # SelectFpr, SelectFdr, SelectFwe, GenericUnivariateSelect - alpha/threshold based
-        # Can't determine number of features at compile time
-        return None
+        match instance:
+            case object(k=k):
+                # SelectKBest uses k parameter
+                return n_features_in if k == "all" else min(k, n_features_in)
+            case object(percentile=percentile):
+                # SelectPercentile uses percentile parameter
+                return max(1, int(n_features_in * percentile / 100))
+            case object(n_features_to_select=n):
+                # RFE, RFECV, SequentialFeatureSelector use n_features_to_select
+                match n:
+                    case None:
+                        # Default is half
+                        return max(1, n_features_in // 2)
+                    case float() if 0 < n < 1:
+                        return max(1, int(n_features_in * n))
+                    case _:
+                        return min(n, n_features_in)
+            case object(max_features=max_f):
+                # SelectFromModel uses max_features or threshold
+                match max_f:
+                    case None | object(__call__=_):
+                        # Can't determine at compile time
+                        return
+                    case _:
+                        return min(max_f, n_features_in)
+            case SelectFdr() | SelectFdr() | SelectFwe() | GenericUnivariateSelect():
+                # SelectFpr, SelectFdr, SelectFwe, GenericUnivariateSelect - alpha/threshold based
+                # Can't determine number of features at compile time
+                return None
+            case _:
+                raise ValueError
 
     def _structer_for_feature_selector(instance, expr, features):
         """Create Structer for feature selectors.
