@@ -107,7 +107,8 @@ With Xorq installed, the next step is to create your first project.
 
 ## Step 2: Initialize a project
 
-Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the [Palmer Penguins dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data):
+Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow wit
+h the [Palmer Penguins dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data):
 ```bash
 xorq init -t penguins -p penguins_example # <1>
 cd penguins_example # <2>
@@ -121,6 +122,7 @@ The template generates an `expr.py` file. This file contains a complete ML pipel
 With your project initialized, the next step is to build it into an executable format.
 
 ## Step 3: Build your expression
+Here we will show what it looks like to use sklearn inside of a xorq pipeline.
 
 Convert your pipeline into a serialized, executable format using the `build` command:
 ```bash
@@ -228,6 +230,8 @@ This step uses the same `BUILD_HASH` from step 3. You're deploying the exact pip
 
 Run the server with your build hash:
 
+Serving unbind allows you to ???  The unbound hash is later used to ??
+
 ::: {.panel-tabset}
 
 ### macOS/Linux
@@ -259,6 +263,7 @@ With your pipeline running locally, the next step is to serve a UDXF expression 
 
 
 ## Step 5: Serve a UDXF expression
+We use UDXF expressions to perform arbitrary pandas transforms on nodes and serve them.
 
 ::: {.callout-note}
 ### New terminal setup
