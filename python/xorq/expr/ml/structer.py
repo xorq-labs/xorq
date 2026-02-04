@@ -931,10 +931,9 @@ def lazy_register_sklearn():
     def _(instance, expr, features=None):
         features = features or tuple(expr.columns)
         kv_cols = KVEncoder.get_kv_encoded_cols(expr, features)
-        if kv_cols:
-            return Structer(struct=None, input_columns=features, needs_target=True)
+        struct = None if kv_cols else Structer.from_names_typ(features, float).struct
         return Structer(
-            struct=Structer.from_names_typ(features, float).struct,
+            struct=struct,
             input_columns=features,
             needs_target=True,
         )

@@ -432,15 +432,19 @@ class FittedStep:
 
     @property
     def deferred_transform(self):
-        if self._deferred_fit_transform:
-            return self._deferred_fit_transform.deferred_other
-        return None
+        return (
+            self._deferred_fit_transform
+            if self._deferred_fit_transform.deferred_other
+            else None
+        )
 
     @property
     def deferred_predict(self):
-        if self._deferred_fit_predict:
-            return self._deferred_fit_predict.deferred_other
-        return None
+        return (
+            self._deferred_fit_predict.deferred_other
+            if self._deferred_fit_predict
+            else None
+        )
 
     @property
     def deferred_predict_proba(self):
