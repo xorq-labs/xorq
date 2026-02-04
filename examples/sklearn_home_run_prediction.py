@@ -14,12 +14,6 @@ Pipeline structure:
 All transformations are deferred until predictions.execute() is called.
 """
 
-import warnings
-
-
-# Suppress sklearn numerical warnings from matrix operations (benign on Apple Silicon)
-warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn")
-
 # ruff: noqa: E402
 from sklearn.compose import ColumnTransformer
 from sklearn.decomposition import NMF, PCA, FastICA
