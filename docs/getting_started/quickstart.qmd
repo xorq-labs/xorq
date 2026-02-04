@@ -9,7 +9,9 @@ After completing this guide, you have a working ML pipeline. This pipeline loads
 
 ## What you'll build
 
-In this quickstart, you:
+In this quickstart, you will:
+build an a pipeline that works with the [Palmer Penguins Dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data) to predict an observed penguin's species given it's duck bill length and depth.  Then you will serve this prection model up for consumption by other services.
+
 
 1. Set up your environment and install Xorq
 2. Initialize a project
@@ -105,7 +107,7 @@ With Xorq installed, the next step is to create your first project.
 
 ## Step 2: Initialize a project
 
-Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the Palmer Penguins dataset:
+Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the [Palmer Penguins dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data):
 ```bash
 xorq init -t penguins -p penguins_example # <1>
 cd penguins_example # <2>
