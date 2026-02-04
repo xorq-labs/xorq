@@ -172,7 +172,7 @@ The hash `12287e173c17` is an example. Copy the actual hash from your build outp
 
 ## Step 4: Run your pipeline
 
-Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with the hash from your build output in step 3:
+Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with the hash from your build output in step 3: You will see a ...?
 
 ::: {.callout-warning}
 ### Windows users
