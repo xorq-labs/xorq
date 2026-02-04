@@ -102,7 +102,6 @@ The moment you called `.execute()`, Xorq:
 - Returned the results as a PyArrow Table.
 
 :::{.callout-note}
-### Execution is explicit
 Xorq never runs queries behind your back. You control exactly when computation happens by calling `.execute()` or similar methods like `.to_pandas()` or `.to_pyarrow()`.
 :::
 
@@ -172,7 +171,6 @@ print(f"Can chain more operations or execute when ready")
 The deferred approach lets Xorq optimize the entire pipeline. The immediate approach locks in results after each step, preventing optimization.
 
 :::{.callout-warning}
-### Avoid premature execution
 If you execute too early, you lose the benefits of deferred execution. Let Xorq see your full query before running it.
 :::
 
