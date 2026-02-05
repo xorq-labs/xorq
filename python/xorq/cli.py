@@ -1144,27 +1144,6 @@ def parse_args(override=None):
     )
     agents_subparsers.required = True
 
-<<<<<<< HEAD
-    agents_init_parser = agents_subparsers.add_parser(
-        "init",
-        help="Bootstrap agent guides (claude)",
-    )
-    agents_init_parser.add_argument(
-        "-p",
-        "--path",
-        type=Path,
-        default=".",
-        help="Path to the xorq project directory",
-    )
-    agents_init_parser.add_argument(
-        "--agents",
-        type=str,
-        default="claude",
-        help="Comma-separated list of agents to bootstrap (currently only claude is supported)",
-    )
-
-=======
->>>>>>> c8f56f09 (feat: add bank_marketing_column_transformer vignette and remove agents init)
     onboard_parser = agents_subparsers.add_parser(
         "onboard",
         help="Lean onboarding instructions for AGENTS.md",
