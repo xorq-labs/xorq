@@ -230,22 +230,23 @@ Install hooks (`xorq agents hooks install`) for auto-injection of workflow conte
 
 ## Catalog-First Workflow
 1. `xorq catalog ls` - CHECK CATALOG FIRST! Compose on existing expressions
-2. Explore entries: `xorq catalog schema <alias>`, `xorq catalog sources <alias>`
-3. **BEFORE writing code** - Invoke expression-builder skill for patterns and guidance
-4. `xorq agents vignette list` - Discover patterns for new expressions
-5. `xorq agents vignette scaffold <name> --dest expr.py` - Get template
-6. Follow the scaffolded pattern exactly
-7. `xorq build expr.py -e expr` - Build expression
-8. `xorq catalog add .xorq/builds/<hash> --alias <name>` - Register to catalog
+2. `xorq agents vignette list` - Discover patterns for new expressions
+3. `xorq agents vignette scaffold <name> --dest expr.py` - Get template
+4.  Build xorq/ibis expressions as required
+5. `xorq build expr.py -e expr` - Build expression
+6. `xorq catalog add .xorq/builds/<hash> --alias <name>` - Register to catalog
 
 ## Catalog Exploration Commands
 ```bash
 xorq catalog ls                  # List all catalog entries
-xorq catalog info <alias>        # Show entry details and metadata
 xorq catalog schema <alias>      # View output schema (columns/types)
 xorq catalog sources <alias>     # List data source dependencies
 ```
-
+## Explore interactively
+```
+xorq run builds/17d96efb38c0 -f arrow -o - \
+  | duckdb -c "select cut, unnest(stats) from read_arrow('/dev/stdin');"
+```
 **For composition in Python:**
 ```python
 import xorq.api as xo
