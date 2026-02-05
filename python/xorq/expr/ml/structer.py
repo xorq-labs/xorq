@@ -712,45 +712,210 @@ def get_schema_out(sklearnish, expr, features=None):
 
 @structer_from_instance.register_lazy("sklearn")
 def lazy_register_sklearn():
+    from sklearn.base import ClassNamePrefixFeaturesOutMixin, OneToOneFeatureMixin
+    from sklearn.cluster import Birch
     from sklearn.compose import ColumnTransformer
-    from sklearn.feature_extraction.text import TfidfVectorizer
-    from sklearn.feature_selection import SelectKBest
-    from sklearn.impute import SimpleImputer
+    from sklearn.ensemble import RandomTreesEmbedding
+    from sklearn.feature_extraction import DictVectorizer
+    from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
+    from sklearn.feature_selection import (
+        GenericUnivariateSelect,
+        SelectFdr,
+        SelectFpr,
+        SelectFwe,
+    )
+    from sklearn.feature_selection._base import SelectorMixin
+    from sklearn.impute import KNNImputer, MissingIndicator, SimpleImputer
+    from sklearn.kernel_approximation import AdditiveChi2Sampler
     from sklearn.pipeline import FeatureUnion
     from sklearn.pipeline import Pipeline as SklearnPipeline
-    from sklearn.preprocessing import OneHotEncoder, StandardScaler
+    from sklearn.preprocessing import (
+        KBinsDiscretizer,
+        OneHotEncoder,
+        PolynomialFeatures,
+        SplineTransformer,
+        TargetEncoder,
+    )
 
+    def _structer_from_maybe_kv_inputs(expr, features):
+        """Create Structer for transformers that preserve column structure.
+
+        If any input column is KV-encoded, output is KV-encoded (feature names
+        resolved at runtime). Otherwise, output has known schema with float type.
+        """
+        features = features or tuple(expr.columns)
+        # Check if any input columns are KV-encoded
+        kv_cols = KVEncoder.get_kv_encoded_cols(expr, features)
+        if kv_cols:
+            # KV-encoded input -> KV-encoded output
+            return Structer.kv_encoded(input_columns=features)
+        # Known schema -> known schema with float output
+        return Structer.from_names_typ(features, float)
+
+    # Register SimpleImputer (doesn't inherit from OneToOneFeatureMixin)
     @structer_from_instance.register(SimpleImputer)
     def _(instance, expr, features=None):
-        features = features or tuple(expr.columns)
-        typ = float
-        structer = Structer.from_names_typ(features, typ)
-        return structer
+        return _structer_from_maybe_kv_inputs(expr, features)
 
-    @structer_from_instance.register(StandardScaler)
+    # Register KNNImputer (doesn't inherit from OneToOneFeatureMixin)
+    @structer_from_instance.register(KNNImputer)
+    def _(instance, expr, features=None):
+        return _structer_from_maybe_kv_inputs(expr, features)
+
+    # Register MissingIndicator: output depends on features parameter
+    # - features='all': one indicator per input feature (one-to-one)
+    # - features='missing-only' (default): output count unknown until fit time
+    @structer_from_instance.register(MissingIndicator)
     def _(instance, expr, features=None):
         features = features or tuple(expr.columns)
-        typ = float
-        structer = Structer.from_names_typ(features, typ)
-        return structer
+        if instance.features == "all":
+            # One-to-one mapping: one indicator per input feature
+            return Structer.from_names_typ(features, dt.boolean)
+        # 'missing-only': output count depends on which features have missing values
+        return Structer.kv_encoded(input_columns=features)
 
-    @structer_from_instance.register(SelectKBest)
+    # Register all one-to-one transformers (scalers) via OneToOneFeatureMixin
+    @structer_from_instance.register(OneToOneFeatureMixin)
     def _(instance, expr, features=None):
+        return _structer_from_maybe_kv_inputs(expr, features)
+
+    # Register feature selectors
+    def _get_n_features_out_selectors(instance, n_features_in):
+        """Get number of output features from a feature selector instance.
+
+        Returns the number of features the selector will output, or None if
+        it cannot be determined before execution.
+        """
+        match instance:
+            case object(k=k):
+                # SelectKBest uses k parameter
+                return n_features_in if k == "all" else min(k, n_features_in)
+            case object(percentile=percentile):
+                # SelectPercentile uses percentile parameter
+                return max(1, int(n_features_in * percentile / 100))
+            case object(n_features_to_select=n):
+                # RFE, RFECV, SequentialFeatureSelector use n_features_to_select
+                match n:
+                    case None:
+                        # Default is half
+                        return max(1, n_features_in // 2)
+                    case float() if 0 < n < 1:
+                        return max(1, int(n_features_in * n))
+                    case _:
+                        return min(n, n_features_in)
+            case object(max_features=max_f):
+                # SelectFromModel uses max_features or threshold
+                match max_f:
+                    case None | object(__call__=_):
+                        # Can't determine before execution
+                        return None
+                    case _:
+                        return min(max_f, n_features_in)
+            case SelectFpr() | SelectFdr() | SelectFwe() | GenericUnivariateSelect():
+                # SelectFpr, SelectFdr, SelectFwe, GenericUnivariateSelect - alpha/threshold based
+                # Can't determine number of features before execution
+                return None
+            case _:
+                return None
+
+    def _structer_for_feature_selector(instance, expr, features):
+        """Create Structer for feature selectors.
+
+        If input is KV-encoded or output count is unknown, uses KV-encoding.
+        Otherwise, creates stub column names (transformed_0, transformed_1, ...).
+        """
         features = features or tuple(expr.columns)
-        # Get types and handle KV-encoded format - extract value type from Array[Struct{key, value}]
+        kv_cols = KVEncoder.get_kv_encoded_cols(expr, features)
+
+        if kv_cols:
+            # KV-encoded input -> KV-encoded output
+            return Structer(struct=None, input_columns=features, needs_target=True)
+
+        # Try to determine output feature count
+        n_out = _get_n_features_out_selectors(instance, len(features))
+        if n_out is None:
+            # Unknown output count -> KV-encoded
+            return Structer(struct=None, input_columns=features, needs_target=True)
+
+        # Get the value type from input columns
         types = {
             KVEncoder.get_kv_value_type(t)
             for t in expr.select(features).schema().values()
         }
         (typ, *rest) = types
         if rest:
-            raise ValueError
-        base_structer = Structer.from_n_typ_prefix(n=instance.k, typ=typ)
-        # SelectKBest is a supervised feature selector that needs target during fit
+            raise ValueError(f"Mixed types in feature columns: {types}")
+
+        # Known output count -> stub column names
+        base_structer = Structer.from_n_typ_prefix(n=n_out, typ=typ)
         return Structer(
             struct=base_structer.struct,
+            input_columns=features,
             needs_target=True,
         )
+
+    # Register all feature selectors via SelectorMixin base class
+    @structer_from_instance.register(SelectorMixin)
+    def _(instance, expr, features=None):
+        return _structer_for_feature_selector(instance, expr, features)
+
+    def _get_n_components(instance):
+        """Get number of output components from a transformer instance.
+
+        Returns the number of components/clusters the transformer will output,
+        or None if it cannot be determined before execution.
+        """
+        # PCA, NMF, TruncatedSVD, FastICA, etc. use n_components
+        if hasattr(instance, "n_components"):
+            n = instance.n_components
+            # None means auto-determined at fit time
+            # "mle" is PCA-specific for auto-selection
+            if n is None or n == "mle":
+                return None
+            if isinstance(n, int):
+                return n
+            return None
+
+        # KMeans, MiniBatchKMeans use n_clusters
+        if hasattr(instance, "n_clusters"):
+            n = instance.n_clusters
+            if isinstance(n, int):
+                return n
+            return None
+
+        return None
+
+    def _get_class_name_prefix(instance):
+        """Get sklearn-style prefix from instance class name (e.g., 'pca', 'nmf')."""
+        return instance.__class__.__name__.lower()
+
+    def _structer_from_class_name_prefix_features(instance, expr, features):
+        """Create Structer for transformers with dynamic output (PCA, NMF, etc.).
+
+        If n_components/n_clusters is known, creates stub column names matching
+        sklearn's get_feature_names_out() format (e.g., pca0, pca1, nmf0, nmf1).
+        Otherwise, uses KV-encoding for runtime schema resolution. All classes inherit from ClassNamePrefixFeaturesOutMixin.
+        """
+        features = features or tuple(expr.columns)
+        kv_cols = KVEncoder.get_kv_encoded_cols(expr, features)
+
+        if kv_cols:
+            return Structer.kv_encoded(input_columns=features)
+
+        n_out = _get_n_components(instance)
+        return (
+            Structer.from_n_typ_prefix(
+                n=n_out, typ=float, prefix=_get_class_name_prefix(instance)
+            )
+            if n_out is not None
+            else Structer.kv_encoded(input_columns=features)
+        )
+
+    # Register all dynamic-output transformers via ClassNamePrefixFeaturesOutMixin
+    # (PCA, NMF, TruncatedSVD, FastICA, KMeans, etc.)
+    @structer_from_instance.register(ClassNamePrefixFeaturesOutMixin)
+    def _(instance, expr, features=None):
+        return _structer_from_class_name_prefix_features(instance, expr, features)
 
     @structer_from_instance.register(OneHotEncoder)
     def _(instance, expr, features=None):
@@ -761,6 +926,70 @@ def lazy_register_sklearn():
     def _(instance, expr, features=None):
         features = features or tuple(expr.columns)
         return Structer(struct=None, input_columns=features, is_series=True)
+
+    # TargetEncoder: inherits OneToOneFeatureMixin but needs needs_target=True
+    @structer_from_instance.register(TargetEncoder)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        kv_cols = KVEncoder.get_kv_encoded_cols(expr, features)
+        struct = None if kv_cols else Structer.from_names_typ(features, float).struct
+        return Structer(
+            struct=struct,
+            input_columns=features,
+            needs_target=True,
+        )
+
+    # CountVectorizer: text vectorizer like TfidfVectorizer
+    @structer_from_instance.register(CountVectorizer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer(struct=None, input_columns=features, is_series=True)
+
+    # PolynomialFeatures: output depends on degree and input feature count
+    @structer_from_instance.register(PolynomialFeatures)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # SplineTransformer: output depends on n_knots and input feature count
+    @structer_from_instance.register(SplineTransformer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # KBinsDiscretizer: output depends on n_bins and encode strategy
+    @structer_from_instance.register(KBinsDiscretizer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # DictVectorizer: output depends on keys in input dicts
+    @structer_from_instance.register(DictVectorizer)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer(struct=None, input_columns=features, is_series=True)
+
+    # AdditiveChi2Sampler: doesn't inherit ClassNamePrefixFeaturesOutMixin
+    @structer_from_instance.register(AdditiveChi2Sampler)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # RandomTreesEmbedding: output depends on tree structure (leaf nodes)
+    @structer_from_instance.register(RandomTreesEmbedding)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # Birch: transform() returns distances to all subclusters (count not known until fit)
+    # Must be registered before ClassNamePrefixFeaturesOutMixin to override the mixin
+    @structer_from_instance.register(Birch)
+    def _(instance, expr, features=None):
+        features = features or tuple(expr.columns)
+        return Structer.kv_encoded(input_columns=features)
+
+    # FeatureAgglomeration: works via ClassNamePrefixFeaturesOutMixin + _get_n_components
+    # (n_clusters is used for output count)
 
     @structer_from_instance.register(ColumnTransformer)
     def _(instance, expr, features=None):

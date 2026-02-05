@@ -226,7 +226,14 @@ class DeferredFitOther:
         )
 
     @classmethod
-    def from_fitted_step(cls, fitted_step):
+    def from_fitted_step(cls, fitted_step, mode=None):
+        # Auto-detect mode if not specified (backward compat)
+        if mode is None:
+            if fitted_step.is_predict and not fitted_step.is_transform:
+                mode = "predict"
+            else:
+                mode = "transform"  # Default to transform
+
         kwargs = {
             # still need to add: fit, other, return_type, name_infix
             "expr": fitted_step.expr,
@@ -234,7 +241,7 @@ class DeferredFitOther:
             "features": fitted_step.features,
             "cache": fitted_step.cache,
         }
-        if fitted_step.is_predict:
+        if mode == "predict":
             return cls(
                 fit=fit_sklearn(
                     cls=fitted_step.step.typ, params=fitted_step.step.params_tuple
@@ -244,7 +251,7 @@ class DeferredFitOther:
                 name_infix="predict",
                 **kwargs,
             )
-        elif fitted_step.is_transform:
+        elif mode == "transform":
             structer = Structer.from_instance_expr(
                 fitted_step.instance, fitted_step.expr, features=fitted_step.features
             )
@@ -307,7 +314,7 @@ class DeferredFitOther:
                         **kwargs,
                     )
         else:
-            raise ValueError("fitted_step is neither predict nor transform")
+            raise ValueError(f"Unknown mode: {mode}. Must be 'transform' or 'predict'")
 
 
 @toolz.curry
