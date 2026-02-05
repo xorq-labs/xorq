@@ -10,7 +10,6 @@ from opentelemetry import trace
 
 import xorq
 import xorq.common.utils.pickle_utils  # noqa: F401
-from xorq.agent.onboarding import bootstrap_agent_docs
 from xorq.caching.strategy import SnapshotStrategy
 from xorq.catalog import (
     ServerRecord,
@@ -467,27 +466,8 @@ def init_command(
     return path
 
 
-def git_hooks_command(args):
-    """Handle git hooks commands."""
-    from xorq.hooks import install_hooks, uninstall_hooks, run_hook, list_hooks
-
-    match args.hooks_subcommand:
-        case "install":
-            return install_hooks(force=args.force)
-        case "uninstall":
-            return uninstall_hooks()
-        case "run":
-            return run_hook(args.hook_name, args.hook_args)
-        case "list":
-            return list_hooks()
-        case _:
-            raise ValueError(f"Unknown hooks subcommand: {args.hooks_subcommand}")
-
-
 def agents_command(args):
     match args.agents_subcommand:
-        case "init":
-            return agents_init_command(args)
         case "onboard":
             return agent_onboard_command(args)
         case "hooks":
@@ -498,37 +478,6 @@ def agents_command(args):
             return agent_vignette_command(args)
         case _:
             raise ValueError(f"Unknown agents subcommand: {args.agents_subcommand}")
-
-
-def agents_init_command(args):
-    path = Path(args.path)
-    if not path.exists():
-        print(
-            f"Error: Path {path} does not exist. Please initialize a xorq project first with 'xorq init'"
-        )
-        return None
-
-    # Parse comma-separated agent list
-    agents = [a.strip().lower() for a in args.agents.split(",")]
-    valid_agents = {"claude"}
-    invalid = set(agents) - valid_agents
-    if invalid:
-        print(f"Warning: Unknown agents {invalid}. Valid options: {valid_agents}")
-        agents = [a for a in agents if a in valid_agents]
-
-    if not agents:
-        print("No valid agents specified. Skipping agent setup.")
-        return None
-
-    created_files = bootstrap_agent_docs(path, agents=agents)
-    if created_files:
-        rel_paths = ", ".join(
-            str(Path(file).relative_to(path)) for file in created_files
-        )
-        print(f"wrote agent onboarding files: {rel_paths}")
-    else:
-        print("agent onboarding files already present, skipping")
-    return path
 
 
 def agent_onboard_command(args):
@@ -1195,6 +1144,7 @@ def parse_args(override=None):
     )
     agents_subparsers.required = True
 
+<<<<<<< HEAD
     agents_init_parser = agents_subparsers.add_parser(
         "init",
         help="Bootstrap agent guides (claude)",
@@ -1213,6 +1163,8 @@ def parse_args(override=None):
         help="Comma-separated list of agents to bootstrap (currently only claude is supported)",
     )
 
+=======
+>>>>>>> c8f56f09 (feat: add bank_marketing_column_transformer vignette and remove agents init)
     onboard_parser = agents_subparsers.add_parser(
         "onboard",
         help="Lean onboarding instructions for AGENTS.md",
