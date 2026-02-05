@@ -366,11 +366,18 @@ class FittedStep:
     dest_col = field(validator=optional(instance_of(str)), default=None)
 
     def __attrs_post_init__(self):
-        # we are either transform or predict
-        assert self.is_transform ^ self.is_predict
-        # if we are predict, we must have target
-        if self.target is None and self.is_predict:
-            raise ValueError("Can't infer target")
+        # we must have at least transform or predict
+        if not (self.is_transform or self.is_predict):
+            raise ValueError("Step must have transform or predict method")
+        # if we are predict-only, we must have target (except for clustering)
+        if self.target is None and self.is_predict and not self.is_transform:
+            from sklearn.base import ClusterMixin
+
+            if not isinstance(self.instance, ClusterMixin):
+                raise ValueError(
+                    f"Predict-only estimator {self.step.typ.__name__} requires a target column. "
+                    "Pass target='column_name' to fit()."
+                )
         # we can do very simple feature inference
         if self.features is None:
             features = tuple(col for col in self.expr.columns if col != self.target)
@@ -395,8 +402,25 @@ class FittedStep:
 
     @property
     @functools.cache
+    def _deferred_fit_transform(self):
+        assert self.is_transform
+        return DeferredFitOther.from_fitted_step(self, mode="transform")
+
+    @property
+    @functools.cache
+    def _deferred_fit_predict(self):
+        assert self.is_predict
+        return DeferredFitOther.from_fitted_step(self, mode="predict")
+
+    @property
+    @functools.cache
     def _deferred_fit_other(self):
-        return DeferredFitOther.from_fitted_step(self)
+        # Backward compat: prefer transform, fall back to predict
+        return (
+            self._deferred_fit_transform
+            if self.is_transform
+            else self._deferred_fit_predict
+        )
 
     @property
     def deferred_model(self):
@@ -408,53 +432,52 @@ class FittedStep:
 
     @property
     def deferred_transform(self):
-        if self.is_transform:
-            return self._deferred_fit_other.deferred_other
-        else:
-            return None
+        return (
+            self._deferred_fit_transform.deferred_other if self.is_transform else None
+        )
 
     @property
     def deferred_predict(self):
-        if self.is_predict:
-            return self._deferred_fit_other.deferred_other
-        else:
-            return None
+        return self._deferred_fit_predict.deferred_other if self.is_predict else None
 
     @property
     def deferred_predict_proba(self):
         (attrname, fn) = ("predict_proba", predict_proba_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
+        return (
+            self._deferred_fit_other.make_deferred_other(
                 fn=fn,
                 return_type=dt.Array(dt.float64),
                 name_infix=attrname.rstrip("_"),
             )
-        else:
-            return None
+            if hasattr(self.step.instance.__class__, attrname)
+            else None
+        )
 
     @property
     def deferred_decision_function(self):
         (attrname, fn) = ("decision_function", decision_function_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
+        return (
+            self._deferred_fit_other.make_deferred_other(
                 fn=fn,
                 return_type=dt.Array(dt.float64),
                 name_infix=attrname.rstrip("_"),
             )
-        else:
-            return None
+            if hasattr(self.step.instance.__class__, attrname)
+            else None
+        )
 
     @property
     def deferred_feature_importances(self):
         (attrname, fn) = ("feature_importances_", feature_importances_sklearn)
-        if hasattr(self.step.instance.__class__, attrname):
-            return self._deferred_fit_other.make_deferred_other(
+        return (
+            self._deferred_fit_other.make_deferred_other(
                 fn=fn,
                 return_type=dt.Array(dt.float64),
                 name_infix=attrname.rstrip("_"),
             )
-        else:
-            return None
+            if hasattr(self.step.instance.__class__, attrname)
+            else None
+        )
 
     @property
     @functools.cache
@@ -969,16 +992,13 @@ registry = Dispatch()
 
 def get_predict_return_type(fitted_step):
     instance = fitted_step.step.instance
-    if return_type := getattr(instance, "return_type", None):
-        return return_type
-    else:
-        return registry(
-            instance,
-            fitted_step.step,
-            fitted_step.expr,
-            fitted_step.features,
-            fitted_step.target,
-        )
+    return getattr(instance, "return_type", None) or registry(
+        instance,
+        fitted_step.step,
+        fitted_step.expr,
+        fitted_step.features,
+        fitted_step.target,
+    )
 
 
 @registry.register(object)
@@ -990,6 +1010,7 @@ def raise_on_unregistered(instance, step, expr, features, target):
 def lazy_register_sklearn():
     from sklearn.base import (
         ClassifierMixin,
+        ClusterMixin,
         RegressorMixin,
     )
     from sklearn.ensemble import (
@@ -1013,6 +1034,9 @@ def lazy_register_sklearn():
     registry.register(
         RegressorMixin, return_constant(dt.float)
     )  # General fallback for regressors
+    registry.register(
+        ClusterMixin, return_constant(dt.int64)
+    )  # Clustering predict returns integer labels
 
 
 get_predict_return_type.register = registry.register

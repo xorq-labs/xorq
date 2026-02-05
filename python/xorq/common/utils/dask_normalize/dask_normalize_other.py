@@ -66,6 +66,19 @@ def normalize_random_state(random_state):
     return normalize_seq_with_caller(random_state.get_state())
 
 
+@dask.base.normalize_token.register(type(np.mean))
+def normalize_numpy_array_function_dispatcher(func):
+    """Normalize numpy array function dispatchers (e.g., np.mean, np.sum).
+
+    Used by sklearn estimators like FeatureAgglomeration that have pooling_func=np.mean.
+    """
+    return normalize_seq_with_caller(
+        func.__name__,
+        func.__module__,
+        caller="normalize_numpy_array_function_dispatcher",
+    )
+
+
 @dask.base.normalize_token.register(type)
 def normalize_type(typ):
     return normalize_seq_with_caller(typ.__name__, typ.__module__)

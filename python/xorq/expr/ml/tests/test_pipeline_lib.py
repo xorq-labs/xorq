@@ -468,3 +468,129 @@ class TestDeeplyNestedPipelines:
 
         # Assert predictions match
         assert np.array_equal(predictions["predicted"].values, sklearn_preds)
+
+
+class TestClusteringPredict:
+    """Tests for clustering algorithm predict support."""
+
+    @pytest.fixture
+    def cluster_data(self):
+        """Generate data with clear cluster structure."""
+        import numpy as np
+
+        np.random.seed(42)
+        # Two well-separated clusters
+        cluster1 = np.random.randn(10, 2) + [0, 0]
+        cluster2 = np.random.randn(10, 2) + [10, 10]
+        data = np.vstack([cluster1, cluster2])
+        return {"num1": data[:, 0].tolist(), "num2": data[:, 1].tolist()}
+
+    @pytest.mark.parametrize(
+        "clusterer_cls,clusterer_kwargs",
+        [
+            pytest.param(
+                "KMeans",
+                {"n_clusters": 2, "random_state": 42, "n_init": 10},
+                id="KMeans",
+            ),
+            pytest.param(
+                "MiniBatchKMeans",
+                {"n_clusters": 2, "random_state": 42, "n_init": 10},
+                id="MiniBatchKMeans",
+            ),
+            pytest.param(
+                "BisectingKMeans",
+                {"n_clusters": 2, "random_state": 42},
+                id="BisectingKMeans",
+            ),
+            pytest.param(
+                "Birch",
+                {"n_clusters": 2},
+                id="Birch",
+            ),
+            pytest.param(
+                "MeanShift",
+                {},
+                id="MeanShift",
+            ),
+            pytest.param(
+                "AffinityPropagation",
+                {"random_state": 42},
+                id="AffinityPropagation",
+            ),
+        ],
+    )
+    def test_inductive_clustering_predict(
+        self, cluster_data, clusterer_cls, clusterer_kwargs
+    ):
+        """Test that inductive clustering algorithms support predict."""
+        import numpy as np
+        from sklearn import cluster
+
+        t = xo.memtable(cluster_data)
+        features = ("num1", "num2")
+
+        ClustererClass = getattr(cluster, clusterer_cls)
+        clusterer = ClustererClass(**clusterer_kwargs)
+
+        # xorq predict
+        step = xo.Step.from_instance_name(clusterer, name="clusterer")
+        fitted = step.fit(t, features=features)
+        result = fitted.predict(t)
+        xorq_labels = result.execute()["predicted"].values
+
+        # sklearn predict
+        X = np.array([cluster_data["num1"], cluster_data["num2"]]).T
+        sklearn_clusterer = ClustererClass(**clusterer_kwargs)
+        sklearn_clusterer.fit(X)
+        sklearn_labels = sklearn_clusterer.predict(X)
+
+        # Labels should match
+        np.testing.assert_array_equal(xorq_labels, sklearn_labels)
+
+    @pytest.mark.parametrize(
+        "clusterer_cls,clusterer_kwargs",
+        [
+            pytest.param(
+                "DBSCAN",
+                {"eps": 3, "min_samples": 2},
+                id="DBSCAN",
+            ),
+            pytest.param(
+                "HDBSCAN",
+                {"min_samples": 2},
+                id="HDBSCAN",
+            ),
+            pytest.param(
+                "AgglomerativeClustering",
+                {"n_clusters": 2},
+                id="AgglomerativeClustering",
+            ),
+            pytest.param(
+                "SpectralClustering",
+                {"n_clusters": 2, "random_state": 42},
+                id="SpectralClustering",
+            ),
+            pytest.param(
+                "OPTICS",
+                {"min_samples": 2},
+                id="OPTICS",
+            ),
+        ],
+    )
+    def test_transductive_clustering_rejected_at_fit(
+        self, cluster_data, clusterer_cls, clusterer_kwargs
+    ):
+        """Test that transductive clustering algorithms are rejected at fit time."""
+        from sklearn import cluster
+
+        t = xo.memtable(cluster_data)
+        features = ("num1", "num2")
+
+        ClustererClass = getattr(cluster, clusterer_cls)
+        clusterer = ClustererClass(**clusterer_kwargs)
+
+        step = xo.Step.from_instance_name(clusterer, name="clusterer")
+
+        with pytest.raises(ValueError, match="must have transform or predict method"):
+            step.fit(t, features=features)

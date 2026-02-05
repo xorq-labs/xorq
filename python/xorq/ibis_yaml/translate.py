@@ -1143,10 +1143,13 @@ try:
     def _sklearn_estimator_to_yaml(
         obj: BaseEstimator, context: TranslationContext
     ) -> dict:
+        params = freeze(obj.get_params(deep=False))
         return freeze(
             {
                 "op": "SklearnEstimator",
-                "pickled_estimator": serialize_callable(obj),
+                "estimator_module": type(obj).__module__,
+                "estimator_class": type(obj).__name__,
+                "params": {k: context.translate_to_yaml(v) for k, v in params.items()},
             }
         )
 
@@ -1154,6 +1157,18 @@ except ImportError:
     pass
 
 
+def _import_estimator_class(module: str, classname: str):
+    """Import an sklearn estimator class from module and class name."""
+    import importlib
+
+    mod = importlib.import_module(module)
+    return getattr(mod, classname)
+
+
 @register_from_yaml_handler("SklearnEstimator")
 def _sklearn_estimator_from_yaml(yaml_dict: dict, context: TranslationContext) -> Any:
-    return deserialize_callable(yaml_dict["pickled_estimator"])
+    cls = _import_estimator_class(
+        yaml_dict["estimator_module"], yaml_dict["estimator_class"]
+    )
+    params = {k: context.translate_from_yaml(v) for k, v in yaml_dict["params"].items()}
+    return cls(**params)
