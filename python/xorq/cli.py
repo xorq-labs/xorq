@@ -784,7 +784,7 @@ def install_cortex_hooks_command(args):
     home_dir = Path.home()
     cortex_dir = home_dir / ".snowflake" / "cortex"
     hooks_dir = cortex_dir / "hooks"
-    settings_file = cortex_dir / "settings.json"
+    hooks_json_file = cortex_dir / "hooks.json"
 
     # Create directories
     hooks_dir.mkdir(parents=True, exist_ok=True)
@@ -809,45 +809,51 @@ def install_cortex_hooks_command(args):
             target_path.chmod(0o755)
             installed_hooks.append(hook_name)
 
-    # Handle settings.json
-    if settings_file.exists() and not args.force:
-        # Load existing settings
+    # Install hooks.json
+    hooks_json_source = hooks_source_dir / "hooks.json"
+
+    # Load xorq hooks template
+    with hooks_json_source.open() as f:
+        xorq_hooks = json.load(f)
+
+    if hooks_json_file.exists() and not args.force:
+        # Merge with existing hooks
         try:
-            with settings_file.open() as f:
-                existing_settings = json.load(f)
+            with hooks_json_file.open() as f:
+                existing_hooks = json.load(f)
         except json.JSONDecodeError:
-            print(f"Error: Existing {settings_file} is not valid JSON")
+            print(f"Error: Existing {hooks_json_file} is not valid JSON")
             return 1
 
-        # Check if hooks already exist
-        if "hooks" in existing_settings:
-            print(f"Warning: {settings_file} already contains hooks configuration")
-            print("Use --force to overwrite or manually merge the hooks")
-            print("\nTo manually add xorq hooks, add these to your settings.json:")
-            print(json.dumps(json.loads((hooks_source_dir / "settings_template.json").read_text()), indent=2))
-            return 0
+        # Merge hooks for each event type
+        if "hooks" not in existing_hooks:
+            existing_hooks["hooks"] = {}
 
-        # Merge settings (preserve existing, add hooks)
-        template_path = hooks_source_dir / "settings_template.json"
-        with template_path.open() as f:
-            template_settings = json.load(f)
-        existing_settings.update(template_settings)
-        settings = existing_settings
+        for event_type, event_hooks in xorq_hooks["hooks"].items():
+            if event_type not in existing_hooks["hooks"]:
+                # New event type, add all hooks
+                existing_hooks["hooks"][event_type] = event_hooks
+            else:
+                # Event type exists, append xorq hooks
+                existing_hooks["hooks"][event_type].extend(event_hooks)
+
+        # Write merged hooks
+        with hooks_json_file.open("w") as f:
+            json.dump(existing_hooks, f, indent=2)
+
+        print(f"✅ Merged xorq hooks into existing {hooks_json_file}")
     else:
-        # Load template settings
-        template_path = hooks_source_dir / "settings_template.json"
-        with template_path.open() as f:
-            settings = json.load(f)
+        # No existing hooks.json or force mode, install fresh
+        with hooks_json_file.open("w") as f:
+            json.dump(xorq_hooks, f, indent=2)
 
-    # Write settings
-    with settings_file.open("w") as f:
-        json.dump(settings, f, indent=2)
+        print(f"✅ Installed hooks.json at {hooks_json_file}")
 
-    print("✅ Installed Cortex Code hooks for xorq (global)")
+    print("\n✅ Installed Cortex Code hooks for xorq (global)")
     print(f"   Hooks directory: {hooks_dir}")
-    print(f"   Settings: {settings_file}")
+    print(f"   Hooks config: {hooks_json_file}")
     for hook in installed_hooks:
-        print(f"   Hook: {hook}")
+        print(f"   • {hook}")
 
     print("\n📝 Next steps:")
     print("1. Restart Cortex Code CLI (cortex) to activate the hooks")
