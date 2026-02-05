@@ -29,6 +29,7 @@ class MetricComputation:
     )
     return_type = field(validator=instance_of(dt.DataType), default=dt.float64)
     name = field(validator=optional(instance_of(str)), default=None)
+    sign: int = field(validator=instance_of(int), default=1)
 
     def __attrs_post_init__(self):
         if self.name is None:
@@ -55,7 +56,8 @@ class MetricComputation:
     def __call__(self, df):
         y_true = df[self.target]
         y_pred = self._prepare_predictions(df[self.pred_col])
-        return self.metric_fn(y_true, y_pred, **self.metric_kwargs)
+        result = self.metric_fn(y_true, y_pred, **self.metric_kwargs)
+        return self.sign * result
 
     def on_expr(self, expr):
         schema = expr.select([self.target, self.pred_col]).schema()
@@ -110,6 +112,7 @@ def deferred_sklearn_metric(
     metric_kwargs=(),
     return_type=dt.float64,
     name=None,
+    sign=1,
 ):
     """Compute sklearn metrics on expressions
 
@@ -133,6 +136,8 @@ def deferred_sklearn_metric(
         Return type for the metric (default: dt.float64)
     name: Optional[str]
         Custom name for the UDF
+    sign : int, optional
+        Sign to apply to result (default: 1). Use -1 for neg_* scorers.
 
     Returns
     -------
@@ -168,5 +173,6 @@ def deferred_sklearn_metric(
         metric_kwargs_tuple=metric_kwargs,
         return_type=return_type,
         name=name,
+        sign=sign,
     )
     return metric.on_expr(expr)

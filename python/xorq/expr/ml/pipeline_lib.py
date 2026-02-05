@@ -1022,20 +1022,13 @@ class FittedPipeline:
             else (self.predict(expr), "predicted")
         )
 
-        # Wrap score_fn to apply sign (for neg_* scorers)
-        maybe_signed_score_fn = (
-            score_fn
-            if sign == 1
-            else lambda y_true, y_pred, **kwargs: sign
-            * score_fn(y_true, y_pred, **kwargs)
-        )
-
         return deferred_sklearn_metric(
             expr=expr_with_preds,
             target=self.predict_step.target,
             pred_col=pred_col,
-            metric_fn=maybe_signed_score_fn,
+            metric_fn=score_fn,
             metric_kwargs=kwargs,
+            sign=sign,
         )
 
     def score(self, X, y, scorer=None, **kwargs):
