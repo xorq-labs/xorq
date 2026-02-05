@@ -1,18 +1,487 @@
 ---
-title: 'Create your first UDF'
+title: 'Write UDFs for SQL and Python'
+description: "Write Python functions that extend Xorq's SQL and expression capabilities"
+icon: "function"
+headline: "Extend Xorq with custom analytics functions"
 ---
 
-## Coming soon
+This tutorial shows you how to create user-defined functions (UDFs) that extend Xorq's analytics capabilities. You'll learn how to write Python functions that work in both SQL queries and Xorq expressions with full type safety.
 
-This tutorial will guide you through creating your first User-Defined Function in Xorq.
+After completing this tutorial, you know how to create scalar UDFs for transformations, expression UDFs that use computed values, and aggregate UDFs for group operations.
 
-You will learn how to extend SQL with custom Python logic that runs on any backend.
+## Prerequisites
 
-**What you'll learn:**
-- Write a Pandas UDF
-- Register the UDF
-- Use the UDF in expressions
-- Understand UDF serialization
+You need:
 
-Check back soon for the complete tutorial.
+- Xorq installed (see [Install Xorq](../../getting_started/install_xorq.qmd#install-xorq))
+- [XGBoost](https://xgboost.readthedocs.io/) for ML example: `pip install xgboost`
+- Basic understanding of [pandas DataFrames](https://pandas.pydata.org/docs/user_guide/dsintro.html#dataframe)
+- Familiarity with Xorq expressions (see [Defer query execution](understand_deferred_execution) tutorial)
+
+
+## How to follow along
+
+This tutorial builds code incrementally. Each section provides a code block that you run sequentially.
+
+**Recommended approach**: Open a terminal, run `python` to start an interactive Python shell, then copy and paste each code block in order.
+
+**Alternative approaches**:
+- **Jupyter notebook**: Create a new notebook and run each code block in a separate cell
+
+- **Python script**: Combine all code blocks into a single `.py` file and run it
+
+The code blocks build on each other. Variables like `age_udf`, `predict_udf`, and `train` are created in earlier blocks and used in later ones.
+
+
+## Create a scalar UDF
+
+Now you'll write your first scalar UDF that calculates age from birthdate:
+
+```python
+import pandas as pd
+from datetime import date
+import xorq.api as xo
+import xorq.expr.datatypes as dt
+from xorq.expr.udf import make_pandas_udf
+
+# <1>
+def calculate_age(birthdate: pd.Series) -> pd.Series:
+    today = date.today()
+    # <2>
+    ages = birthdate.apply(
+        lambda bd: today.year - bd.year - 
+        ((today.month, today.day) < (bd.month, bd.day))
+    )
+    return ages
+
+# <3>
+age_udf = make_pandas_udf(
+    fn=calculate_age,
+    schema=xo.schema({"birthdate": dt.date}),
+    return_type=dt.int64,
+    name="calculate_age"
+)
+
+# <4>
+customers = xo.memtable({
+    "name": ["Alice", "Bob", "Charlie"],
+    "birthdate": [date(1990, 5, 15), date(1985, 11, 30), date(2000, 3, 22)]
+})
+
+# <5>
+result = customers.mutate(
+    age=age_udf(customers.birthdate)
+).execute()
+
+print("Scalar UDF result:")
+print(result)
+```
+1. Define a Python function that takes a pandas Series and returns a Series.
+2. Calculate age accounting for whether the birthday has occurred this year.
+3. Wrap the function as a UDF with input schema (expects date column) and return type (returns int64).
+4. Create sample customer data with birthdates.
+5. Use the UDF in a Xorq expression with `.mutate()` to add an age column.
+
+The output shows:
+
+```
+Scalar UDF result:
+      name  birthdate  age
+0    Alice 1990-05-15   34
+1      Bob 1985-11-30   39
+2  Charlie 2000-03-22   25
+```
+
+**What just happened?** You created a UDF that Xorq executes as if it were a built-in function. The schema validation ensures `birthdate` is a date column. The return type tells Xorq the output is int64. The UDF works in expressions, and it also works in SQL queries, which you’ll see later.
+
+**Key insight**: Scalar UDFs process series (pandas columns), not individual values. This gives you vectorized pandas operations for better performance. If you wrote a function that processes one value at a time, then Xorq would still work, but more slowly.
+
+## Use UDFs in SQL
+
+UDFs work in SQL queries without any extra configuration. This example registers your table and calls the `calculate_age` UDF in both SELECT and WHERE clauses:
+
+```python
+# <1>
+con = xo.connect()
+
+# <2>
+con.register(customers, "customers_table")
+
+# <3>
+sql_result = con.sql("""
+    SELECT 
+        name,
+        birthdate,
+        calculate_age(birthdate) as age
+    FROM customers_table
+    WHERE calculate_age(birthdate) > 30
+""").execute()
+
+print("\nSQL with UDF:")
+print(sql_result)
+```
+1. Get a Xorq connection for SQL queries.
+2. Register the in-memory table as a SQL table.
+3. Write SQL that calls your UDF like a built-in function, including using it in WHERE clauses.
+
+The output shows:
+
+```
+SQL with UDF:
+    name  birthdate  age
+0  Alice 1990-05-15   34
+1    Bob 1985-11-30   39
+```
+
+**What does success look like?** Your Python UDF works in SQL just like built-in functions. You write `calculate_age(birthdate)` in SQL queries without any special syntax. Xorq handles the execution, type checking, and optimization. The WHERE clause filters using your UDF, showing it integrates fully with SQL operations.
+
+**Understanding SQL integration**: When you create a UDF with `make_pandas_udf`, Xorq registers it in both the expression engine and the SQL engine. You don't write any SQL-specific code. The same UDF works in `.mutate()` expressions and SELECT statements.
+
+## Create an expression UDF with computed values
+
+Now you'll build a more powerful pattern where one UDF uses results from another computation. This example trains an XGBoost model with one UDF, then uses that model in a prediction UDF:
+
+```python
+import pickle
+import toolz
+import xgboost as xgb
+from xorq.common.utils.toolz_utils import curry
+from xorq.expr.udf import make_pandas_expr_udf
+import xorq.expr.udf as udf
+
+# <1>
+@curry
+def train_xgboost_model(df, features, target, seed=0):
+    param = {
+        "max_depth": 4,
+        "eta": 1,
+        "objective": "binary:logistic",
+        "seed": seed
+    }
+    num_round = 10
+    
+    # <2>
+    X = df[list(features)]
+    y = df[target]
+    dtrain = xgb.DMatrix(X, y)
+    
+    # <3>
+    bst = xgb.train(param, dtrain, num_boost_round=num_round)
+    return bst
+
+# <4>
+@curry
+def predict_xgboost_model(model, df, features):
+    # <5>
+    X = df[list(features)]
+    predictions = model.predict(xgb.DMatrix(X))
+    return predictions
+
+print("XGBoost UDF functions defined")
+```
+1. Create a curried function that trains an XGBoost model on a DataFrame.
+2. Extract features and target from the DataFrame.
+3. Train the model and return it (the model becomes computed input for prediction UDF).
+4. Create a curried function that takes a trained model and makes predictions.
+5. Use the model to make predictions based on new data.
+
+The output shows:
+
+```
+XGBoost UDF functions defined
+```
+
+**Key pattern**: The training function returns a model object. The prediction function receives that model as a parameter. This is the "computed value" pattern where one UDF's output feeds into another UDF's input.
+
+Now you'll wrap these as UDFs:
+
+```python
+# <1>
+features = ("emp_length", "dti", "annual_inc", "loan_amnt", "fico_range_high", "cr_age_days")
+target = "event_occurred"
+
+# <2>
+t = xo.deferred_read_parquet(
+    xo.config.options.pins.get_path("lending-club"),
+    xo.connect()
+)
+
+# <3>
+(train, test) = xo.train_test_splits(
+    t,
+    unique_key="rownum",
+    test_sizes=0.7,
+    random_seed=42
+)
+
+# <4>
+model_udaf = udf.agg.pandas_df(
+    fn=toolz.compose(pickle.dumps, train_xgboost_model(features=features, target=target)),
+    schema=t[features + (target,)].schema(),
+    return_type=dt.binary,
+    name="train_model"
+)
+
+# <5>
+predict_expr_udf = make_pandas_expr_udf(
+    computed_kwargs_expr=model_udaf.on_expr(train),
+    fn=predict_xgboost_model(features=features),
+    schema=t[features].schema(),
+    return_type=dt.dtype("float32"),
+    name="predict"
+)
+
+print("Expression UDF created")
+print(f"Features: {features}")
+print(f"Target: {target}")
+```
+1. Define which columns are features and which is the target.
+2. Load lending club dataset from Xorq's pinned data.
+3. Split into train and test sets.
+4. Create an aggregate UDF (UDAF) that trains the model on all training data and serializes it with pickle.
+5. Create an expression UDF that receives the trained model as computed input and makes predictions.
+
+The output shows:
+
+```
+Expression UDF created
+Features: ('emp_length', 'dti', 'annual_inc', 'loan_amnt', 'fico_range_high', 'cr_age_days')
+Target: event_occurred
+```
+
+**What just happened?** You created two UDFs that work together. The UDAF trains a model on the training set (aggregate operation). The expression UDF receives that trained model as `computed_kwargs_expr` and applies it to the test set. This pattern lets you train once and predict many times.
+
+**Think of it this way**: `computed_kwargs_expr` is like a parameter that comes from executing another expression. The prediction UDF doesn't know how the model was trained, it just receives a trained model and uses it. This separation of concerns makes the code reusable.
+
+## Execute the prediction pipeline
+
+Now you'll run the full training and prediction workflow:
+
+```python
+# <1>
+expr = test.mutate(
+    predicted=predict_expr_udf.on_expr(test)
+)
+
+# <2>
+result = expr.execute()
+
+print("\nPrediction results (first 5 rows):")
+print(result[["event_occurred", "predicted"]].head())
+
+# <3>
+accuracy = (result["event_occurred"] == (result["predicted"] > 0.5)).mean()
+print(f"\nModel accuracy: {accuracy:.2%}")
+```
+1. Apply the prediction UDF to the test set, adding a `predicted` column.
+2. Execute the entire pipeline (train model on train set, predict on test set).
+3. Calculate accuracy by comparing predictions to actual outcomes.
+
+You'll see output like:
+
+```
+Prediction results (first 5 rows):
+   event_occurred  predicted
+0               0   0.234567
+1               1   0.876543
+2               0   0.123456
+3               1   0.789012
+4               0   0.345678
+
+Model accuracy: 73.45%
+```
+
+**Understanding the execution**: When you call `.execute()`, Xorq first runs the UDAF on the training set to build the model. Then it serializes the model (with pickle). Then it passes that serialized model to the expression UDF, which deserializes and uses it for predictions. All of this happens within Xorq's execution engine.
+
+**Key performance insight**: Training happens once (aggregate operation). Prediction happens for each test row (but with a pre-trained model). This is efficient because you don't retrain for each prediction.
+
+## Understand aggregate UDFs (UDAFs)
+
+The model training UDF you just used is an aggregate UDF. Here's how it works in detail:
+
+```python
+# <1>
+def simple_udaf_example(df: pd.DataFrame) -> bytes:
+    # <2>
+    result = {
+        "row_count": len(df),
+        "mean_value": df["some_column"].mean(),
+        "custom_statistic": df["some_column"].std() / df["some_column"].mean()
+    }
+    # <3>
+    return pickle.dumps(result)
+
+# <4>
+example_udaf = udf.agg.pandas_df(
+    fn=simple_udaf_example,
+    schema=xo.schema({"some_column": dt.float}),
+    return_type=dt.binary,
+    name="custom_aggregation"
+)
+
+print("\nUDAF pattern:")
+print("- Input: Entire DataFrame (all rows in group)")
+print("- Process: Custom aggregation logic")
+print("- Output: Single value (often serialized)")
+```
+1. Define a function that receives the entire DataFrame for a group.
+2. Compute custom statistics across all rows.
+3. Return a single value, often serialized with pickle for complex objects.
+4. Wrap as an aggregate UDF that Xorq can use in group operations.
+
+The output shows:
+
+```
+UDAF pattern:
+- Input: Entire DataFrame (all rows in group)
+- Process: Custom aggregation logic
+- Output: Single value (often serialized)
+```
+
+**Key difference from scalar UDFs**: Scalar UDFs process each row independently (input and output have the same length). Aggregate UDFs process all rows together (many rows → one value). If you have 1,000 rows and use a UDAF, then the function receives a DataFrame with all 1,000 rows and returns a single result.
+
+**Understanding when to use UDAFs**: Train ML models (needs all data), calculate complex statistics (median absolute deviation), build custom data structures (frequency distributions), or any operation that requires seeing multiple rows together.
+
+
+## Type annotations and schemas
+
+Understanding Xorq's type system helps you write UDFs correctly:
+
+```python
+# <1>
+from xorq.expr.datatypes import (
+    int64, float64, string, date, binary, dtype
+)
+
+# <2>
+schema_example = xo.schema({
+    "age": int64,           # Integer column
+    "score": float64,       # Float column
+    "name": string,         # String column
+    "birthdate": date,      # Date column
+    "data": binary          # Binary data (serialized objects)
+})
+
+# <3>
+def typed_udf_example(
+    ages: pd.Series,
+    scores: pd.Series
+) -> pd.Series:
+    # <4>
+    return (ages * 0.5 + scores * 10).astype('float64')
+
+typed_udf = make_pandas_udf(
+    fn=typed_udf_example,
+    schema=xo.schema({
+        "ages": int64,
+        "scores": float64
+    }),
+    return_type=float64,
+    name="calculate_composite_score"
+)
+
+print("\nType system:")
+print("- Schema: Defines input column types")
+print("- Return type: Defines output type")
+print("- Type safety: Xorq validates before execution")
+```
+1. Import common data types from Xorq's type system.
+2. Create a schema that maps column names to types.
+3. Define a UDF that takes multiple typed inputs.
+4. Return a Series with explicit type (Xorq validates this matches return_type).
+
+The output shows:
+
+```
+Type system:
+- Schema: Defines input column types
+- Return type: Defines output type
+- Type safety: Xorq validates before execution
+```
+
+**Why type annotations matter**: If your UDF expects an int64 column but receives a string column, then Xorq catches the error at pipeline build time, not execution time. This saves you from runtime failures on production data. The schema acts as a contract between your UDF and Xorq's execution engine.
+
+**Understanding type validation**: When you apply a UDF to a table, Xorq checks that the table's schema matches the UDF's expected schema. If types don't match, then you get a clear error message before any data processing happens.
+
+## Complete UDF workflow
+
+Here's the full pattern for creating and using UDFs in production workflows:
+
+```python
+# <1>
+def business_logic(input_data: pd.Series) -> pd.Series:
+    # Your domain-specific transformation
+    return input_data.apply(lambda x: x * 2 if x > 10 else x)
+
+# <2>
+business_udf = make_pandas_udf(
+    fn=business_logic,
+    schema=xo.schema({"input_column": dt.float}),
+    return_type=dt.float,
+    name="apply_business_rule"
+)
+
+# <3>
+data = xo.memtable({
+    "input_column": [5.0, 15.0, 8.0, 20.0, 12.0]
+})
+
+# <4>
+result_expr = data.mutate(
+    output=business_udf(data.input_column)
+)
+
+# <5>
+result_sql = con.register(data, "business_data").sql("""
+    SELECT 
+        input_column,
+        apply_business_rule(input_column) as output
+    FROM business_data
+""")
+
+print("\nComplete workflow:")
+print("Expression result:", result_expr.execute()["output"].tolist())
+print("SQL result:", result_sql.execute()["output"].tolist())
+```
+1. Write your core logic as a pandas function.
+2. Wrap as a UDF with schema and return type.
+3. Create or load your data.
+4. Use the UDF in expressions with `.mutate()`.
+5. Use the same UDF in SQL queries.
+
+The output shows:
+
+```
+Complete workflow:
+Expression result: [5.0, 30.0, 8.0, 40.0, 24.0]
+SQL result: [5.0, 30.0, 8.0, 40.0, 24.0]
+```
+
+**What does success look like?** You write the function once and use it everywhere. Expression API and SQL API both work. The same business logic applies whether users write Python expressions or SQL queries. This consistency makes your analytics platform more maintainable.
+
+Most workflows follow this pattern: define logic → wrap as UDF → use in expressions and SQL. The UDF becomes part of your analytics function library that anyone on your team can use.
+
+
+## What you learned
+
+You've learned how to create three types of UDFs that extend Xorq's analytics capabilities. Here's what you accomplished:
+
+- Created scalar UDFs for row-by-row transformations
+- Used UDFs in both Xorq expressions and SQL queries
+- Built expression UDFs that use computed values from other expressions
+- Created aggregate UDFs for group operations
+- Applied the pattern to real ML workflows (XGBoost training and prediction)
+- Understood Xorq's type system and schema validation
+- Knew when to use each UDF type for different use cases
+
+The key insight? UDFs let you extend Xorq's function library with your domain logic while keeping all the benefits of type safety, optimization, and SQL integration. You write Python functions, Xorq handles execution efficiently.
+
+## Next steps
+
+Now that you know how to create UDFs, continue learning:
+
+- [Train your first model](train_your_first_model.qmd) shows complete ML training workflows
+- [Split data for training](split_data_for_training.qmd) demonstrates data preparation patterns
+- [Compare model performance](compare_model_performance.qmd) covers systematic model evaluation
+
 
