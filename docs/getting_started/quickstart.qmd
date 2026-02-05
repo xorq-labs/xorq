@@ -230,7 +230,13 @@ This step uses the same `BUILD_HASH` from step 3. You're deploying the exact pip
 
 Run the server with your build hash:
 
-Serving unbind allows you to ???  The unbound hash is later used to ??
+Serving unbound allows you to ???  The unbound hash is later used to ??
+xorq serve-unbound builds/$BUILD_HASH --host localhost --port 8001 --to_unbind_tag test
+
+serving unbound allows you to unspecify a node and let that be passed in.  In this case , we are unspecifying the test node.  Now when data is passed in in the form of bill_length_mm, bill_depth_mmm, then the computations will flow through and a prediction will be returned.
+
+
+
 
 ::: {.panel-tabset}
 
@@ -263,7 +269,7 @@ With your pipeline running locally, the next step is to serve a UDXF expression 
 
 
 ## Step 5: Serve a UDXF expression
-We use UDXF expressions to perform arbitrary pandas transforms on nodes and serve them.
+Her we use a UDXF expression to perform arbitrary pandas transforms on nodes and serve them. 
 
 ::: {.callout-note}
 ### New terminal setup
