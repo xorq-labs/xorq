@@ -171,36 +171,36 @@ The build directory is content-addressed: the hash identifies this exact pipelin
 
 Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with the hash from your build output in step 3:
 
-::: {.callout-warning}
-Skip the first tab and go straight to "Save to file." Running without an output file might cause issues on Windows.
+::: {.callout-note}
+Use the "Save to file" option to save results to a file. Running without an output file discards results.
 :::
 
 ::: {.panel-tabset}
-
-### View results (macOS/Linux)
-```bash
-xorq run builds/$BUILD_HASH
-```
-
-Runs the pipeline and displays results in your terminal.
 
 ### Save to file (macOS/Linux)
 ```bash
 xorq run builds/$BUILD_HASH -o predictions.parquet
 ```
 
-Runs the pipeline and saves results to `predictions.parquet`.
+Runs the pipeline and saves results to `predictions.parquet`. You can open this file with pandas, DuckDB, or Polars.
 
 ### Save to file (Windows)
 ```cmd
 xorq run builds/%BUILD_HASH% -o predictions.parquet
 ```
 
-Runs the pipeline and saves results to `predictions.parquet`.
+Runs the pipeline and saves results to `predictions.parquet`. You can open this file with pandas, DuckDB, or Polars.
+
+### View results in terminal (macOS/Linux)
+```bash
+xorq run builds/$BUILD_HASH -o - --format csv
+```
+
+Outputs results as CSV to your terminal. You can also view results as JSON by using `--format json`.
 
 :::
 
-The command saves prediction results to `predictions.parquet`. You can open this file with pandas, DuckDB, or Polars. So far, the pipeline has run only on your machine; to accept input from clients over the network, you deploy it as an API.
+So far, the pipeline has run only on your machine; to accept input from clients over the network, you deploy it as an API.
 
 ## Step 5: Deploy your pipeline as an API endpoint
 
@@ -230,7 +230,7 @@ xorq serve-unbound builds/%BUILD_HASH% --host localhost --port 8001 --to_unbind_
 :::
 
 ::: {.callout-note}
-If you get an error like "not enough values to unpack", the template or Xorq version may have changed. Open `builds/<BUILD_HASH>/expr.yaml`, find the `CachedNode` with `name: xorq_cached_node_name_placeholder`, and use its full `snapshot_hash` value instead.
+If you get an error like "not enough values to unpack", then the template or Xorq version may have changed. Open `builds/<BUILD_HASH>/expr.yaml`, find the `CachedNode` with `name: xorq_cached_node_name_placeholder`, and use its full `snapshot_hash` value instead.
 :::
 
 You'll see output like:
