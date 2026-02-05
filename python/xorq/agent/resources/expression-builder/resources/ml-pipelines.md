@@ -224,6 +224,84 @@ result = predictions.execute()
 
 ---
 
+## ColumnTransformer
+
+### Pattern: Mixed Preprocessing for Numeric and Categorical Features
+
+```python
+from sklearn.compose import ColumnTransformer
+from sklearn.pipeline import Pipeline as SkPipeline
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.impute import SimpleImputer
+from sklearn.ensemble import GradientBoostingClassifier
+from xorq.expr.ml.pipeline_lib import Pipeline
+
+# Define feature groups
+numeric_features = ["age", "balance", "duration"]
+categorical_features = ["job", "marital", "education"]
+
+# Build ColumnTransformer with separate preprocessing
+preprocessor = ColumnTransformer([
+    ("num", SkPipeline([
+        ("imputer", SimpleImputer(strategy="median")),
+        ("scaler", StandardScaler())
+    ]), numeric_features),
+    ("cat", SkPipeline([
+        ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+        ("encoder", OneHotEncoder(handle_unknown="ignore", sparse_output=False))
+    ]), categorical_features)
+])
+
+# Create sklearn pipeline with preprocessor
+sklearn_pipeline = SkPipeline([
+    ("preprocessor", preprocessor),
+    ("classifier", GradientBoostingClassifier(n_estimators=50, random_state=42))
+])
+
+# Convert to xorq and fit
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+fitted = xorq_pipeline.fit(
+    train,
+    features=numeric_features + categorical_features,
+    target="deposit"
+)
+
+# Predict
+predictions = fitted.predict(test)
+```
+
+### Pattern: ColumnTransformer with Feature Selection
+
+```python
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.feature_selection import SelectKBest, f_classif
+
+# Hybrid ColumnTransformer: known-schema + KV-encoded outputs
+preprocessor = ColumnTransformer([
+    ("numeric", StandardScaler(), ["age", "income"]),        # Known-schema
+    ("tfidf", TfidfVectorizer(), "text"),                    # KV-encoded
+    ("cat", OneHotEncoder(sparse_output=False), ["category"]) # KV-encoded
+])
+
+sklearn_pipeline = SkPipeline([
+    ("preprocessor", preprocessor),
+    ("selector", SelectKBest(f_classif, k=5)),  # Feature selection after transform
+    ("classifier", RandomForestClassifier(n_estimators=10, random_state=42))
+])
+
+xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+fitted = xorq_pipeline.fit(expr, features=all_features, target="target")
+```
+
+**Key points:**
+- ColumnTransformer handles heterogeneous preprocessing
+- Supports nested pipelines for each feature type
+- Automatically concatenates transformed features
+- Works with text features (TfidfVectorizer) and encoders (OneHotEncoder)
+- Can chain with feature selection (SelectKBest, etc.)
+
+---
+
 ## Complete ML Workflow Example
 
 ### Pattern: Full Training Pipeline
