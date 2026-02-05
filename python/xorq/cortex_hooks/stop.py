@@ -57,6 +57,10 @@ def main():
         # Get working directory from environment
         work_dir = os.environ.get("CORTEX_WORKDIR", os.getcwd())
 
+        # Debug output to stderr
+        print(f"DEBUG: work_dir={work_dir}", file=sys.stderr)
+        print(f"DEBUG: .xorq exists={Path(work_dir).joinpath('.xorq').exists()}", file=sys.stderr)
+
         # Check if this is an xorq project
         if not (Path(work_dir) / ".xorq").exists():
             # Not an xorq project, allow stop
@@ -64,6 +68,7 @@ def main():
             return 0
 
         uncataloged = get_uncataloged_builds(work_dir)
+        print(f"DEBUG: uncataloged={uncataloged}", file=sys.stderr)
 
         if uncataloged:
             # Block stopping until builds are cataloged
@@ -90,8 +95,11 @@ def main():
             # No uncataloged builds
             print(json.dumps({"suppressOutput": False}))
 
-    except Exception:
-        # Don't block stop on errors
+    except Exception as e:
+        # Don't block stop on errors, but log them
+        print(f"DEBUG: Exception occurred: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc(file=sys.stderr)
         print(json.dumps({"suppressOutput": False}))
 
     return 0
