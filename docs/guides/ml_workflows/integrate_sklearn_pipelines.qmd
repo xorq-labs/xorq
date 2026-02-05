@@ -62,31 +62,6 @@ results = predictions.execute()
 print(results)
 ```
 
-Run the script:
-
-```bash
-python wrap_and_predict.py
-```
-
-The output is a pandas DataFrame with predictions:
-
-```
-     target  predicted
-0         1          0
-1         0          1
-2         1          0
-3         1          0
-4         0          0
-..      ...        ...
-301       0          0
-302       1          0
-303       1          1
-304       1          0
-305       0          0
-
-[306 rows x 2 columns]
-```
-
 Wrapped pipelines work with Xorq expressions, not pandas DataFrames. `.fit()` returns a `FittedPipeline` that supports deferred execution, and `.predict()` creates an expression that executes only when you call `.execute()`. This deferred execution enables optimization and caching of the entire pipeline.
 
 ## Manage pipeline parameters
@@ -144,34 +119,13 @@ fitted = updated_pipeline.fit(train, features=("feature1", "feature2"), target="
 print("\nPipeline fitted successfully with updated parameters.")
 ```
 
-Run the script:
-
-```bash
-python update_params.py
-```
-
-You should see a result like this:
-
-```
-Original parameters:
-  n_neighbors: 5
-  weights: uniform
-
-Updated parameters:
-  n_neighbors: 10
-  weights: distance
-
-Pipeline fitted successfully with updated parameters.
-```
-
 Use `step_name__parameter_name` syntax (double underscore) to update parameters. `set_params()` returns a new pipeline instance since pipelines are immutable. All sklearn parameter names and values are supported.
 
 ### Compare parameter settings
 
 Create `compare_params.py` to test different parameter combinations:
 
-```{python}
-#| eval: true
+```{python, eval=false}
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -211,12 +165,6 @@ print(f"Uniform weights: {results['uniform']:.4f}")
 print(f"Distance weights: {results['distance']:.4f}")
 ```
 
-Run the script:
-
-```bash
-python compare_params.py
-```
-
 You should see a result like this (exact values will vary with random data):
 
 ```
@@ -235,7 +183,7 @@ Xorq pipelines produce identical results to sklearn pipelines. You can verify eq
 Create `test_equivalence.py` to compare Xorq and sklearn pipeline outputs:
 
 ```{python}
-#| eval: true
+#| eval: false
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -280,13 +228,7 @@ assert np.isclose(sklearn_score, xorq_score)
 print("✓ Xorq and sklearn pipelines produce identical results!")
 ```
 
-Run the script:
-
-```bash
-python test_equivalence.py
-```
-
-You should see a result like this:
+You should see:
 
 ```
 ✓ Xorq and sklearn pipelines produce identical results!
@@ -328,21 +270,6 @@ print(f"Same object: {sklearn_instance is sklearn_pipeline}")
 # For example, get all parameters:
 params = sklearn_instance.get_params()
 print(f"\nPipeline parameters: {list(params.keys())[:3]}...")
-```
-
-Run the script:
-
-```bash
-python access_sklearn_instance.py
-```
-
-You should see a result like this:
-
-```
-Type: <class 'sklearn.pipeline.Pipeline'>
-Same object: False
-
-Pipeline parameters: ['memory', 'steps', 'transform_input']...
 ```
 
 The `.instance` property returns the equivalent sklearn pipeline, useful for debugging or when you need sklearn-specific features not exposed by Xorq. The instance reflects current parameter settings, but changes to the instance don't affect the Xorq pipeline due to immutability.
@@ -418,36 +345,18 @@ print(f"Second fit completed in {second_time:.3f} seconds")
 print(f"\nCache speedup: {first_time/second_time:.1f}x faster")
 ```
 
-Run the script:
-
-```bash
-python cache_pipeline.py
-```
-
-You should see output like this:
-
-```
-First fit (computes model)...
-First fit completed in 0.055 seconds
-
-Second fit (uses cache)...
-Second fit completed in 0.005 seconds
-
-Cache speedup: 12.1x faster
-```
-
 Caching works with wrapped sklearn pipelines. Fitted models are cached based on content-addressed hashing, and cache hits avoid recomputation of fitted steps. See [Train models at scale](./train_models_at_scale.qmd) for detailed caching examples.
 
-## Deploy sklearn models
+## Prepare sklearn models for deployment
 
-Prepare your wrapped sklearn pipelines for deployment by creating a prediction expression with a placeholder input. Wrapped sklearn pipelines work the same as native Xorq pipelines for deployment.
+Prepare your wrapped sklearn pipelines for deployment by creating a prediction expression with a placeholder input. This creates a deployment-ready expression that can be served later. Wrapped sklearn pipelines work the same as native Xorq pipelines for deployment.
 
 ### Create prediction expression
 
-Create `prepare_deployment.py` to create a prediction expression for serving:
+Create `prepare_deployment.py` to create a prediction expression ready for serving:
 
 ```{python}
-#| eval: true
+#| eval: false
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -496,13 +405,7 @@ print("Prediction expression created successfully!")
 print(f"Expression schema: {model_expr.schema()}")
 ```
 
-Run the script:
-
-```bash
-python prepare_deployment.py
-```
-
-You should see a result like this:
+You should see:
 
 ```
 Prediction expression created successfully!
@@ -511,7 +414,7 @@ Expression schema: ibis.Schema {
 }
 ```
 
-Use a placeholder input table with the same schema as your training features. Tag the placeholder with `"model_input"` for deployment. The prediction expression is deferred until execution. See [Deploy models to production](./deploy_models_to_production.qmd) for complete deployment workflow including server setup and client code.
+Use a placeholder input table with the same schema as your training features. Tag the placeholder with `"model_input"` for deployment. The prediction expression is deferred until execution. This creates a deployment-ready expression that you can serve later using Xorq's serving infrastructure (e.g., Flight servers). The expression itself is not yet deployed or accessible to clients.
 
 ## Troubleshooting
 
@@ -611,5 +514,4 @@ For more troubleshooting help, see the [troubleshooting guide](../../troubleshoo
 You now have sklearn pipelines integrated with Xorq, enabling deferred execution, caching, and deployment while preserving full sklearn compatibility.
 
 - [Train models at scale](./train_models_at_scale.qmd) - Use caching and optimization with your wrapped pipelines
-- [Deploy models to production](./deploy_models_to_production.qmd) - Build and serve your sklearn models
 - [Evaluate model performance](./evaluate_model_performance.qmd) - Use sklearn metrics with Xorq expressions

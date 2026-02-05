@@ -60,20 +60,6 @@ print(df)
 4. Apply the UDF to the data using `.on_expr(data)`. The UDF is used in a `.mutate()` expression to create a new `cleaned` column. The transformation is lazy and doesn't execute until `.execute()` is called.
 5. Execute the expression to materialize results. The UDF processes all rows, removing whitespace and converting to lowercase, producing a DataFrame with the original and cleaned text columns.
 
-Run the script:
-
-```bash
-python text_transform.py
-```
-
-Expected output:
-
-```
-   id        text cleaned
-0   1     HELLO     hello
-1   2      World    world
-2   3    Python    python
-```
 
 ## Handle UDF errors
 
@@ -134,20 +120,6 @@ print(df)
 5. Create test data with valid prices and quantities. The data will be used to verify the UDF works correctly with valid inputs.
 6. Apply the UDF to calculate totals. The UDF validates inputs and computes `price * quantity` for each row, creating a new `total` column in the result.
 
-Run the script:
-
-```bash
-python validated_transform.py
-```
-
-Expected output:
-
-```
-   price  quantity  total
-0   10.0         2   20.0
-1   20.0         3   60.0
-2   30.0         1   30.0
-```
 
 To verify error handling works, modify `validated_transform.py` to use bad data:
 
@@ -247,20 +219,6 @@ print(df)
 8. Create test data with categories and values. Some values (100.0, 50.0) are outliers that will be penalized in the weighted median calculation.
 9. Group data by category and apply the aggregation UDF. The UDF processes each group independently, calculating a weighted median that reduces the influence of outliers compared to a standard median.
 
-Run the script:
-
-```bash
-python custom_aggregation.py
-```
-
-Expected output:
-
-```
-  category  median
-0        B     6.0
-1        A    12.0
-```
-
 ## Test UDFs
 
 Test UDFs separately from your pipeline to catch errors early.
@@ -272,8 +230,21 @@ Create `test_udfs.py`:
 # test_udfs.py
 import pandas as pd
 import pytest
-from text_transform import clean_text_fn
-from validated_transform import calculate_total_fn
+
+# Inline the UDF functions so tests run without separate module files (see text_transform.py and validated_transform.py above).
+def clean_text_fn(df: pd.DataFrame) -> pd.Series:
+    """Remove extra whitespace and convert to lowercase."""
+    return df["text"].str.strip().str.lower()
+
+def calculate_total_fn(df: pd.DataFrame) -> pd.Series:
+    """Calculate total with validation."""
+    price = df["price"]
+    quantity = df["quantity"]
+    if (price < 0).any():
+        raise ValueError("Price cannot be negative")
+    if (quantity < 0).any():
+        raise ValueError("Quantity cannot be negative")
+    return price * quantity
 
 # <1>
 def test_clean_text():
@@ -327,26 +298,6 @@ if __name__ == "__main__":
 5. Test error handling by providing invalid data (negative price). This ensures validation logic works correctly and prevents bad data from propagating through the pipeline.
 6. Use `pytest.raises()` to verify the function raises the expected exception with the correct error message. This confirms error handling works as intended.
 
-Run tests:
-
-```bash
-python test_udfs.py
-```
-
-Expected output:
-
-```
-   id        text cleaned
-0   1     HELLO     hello
-1   2      World    world
-2   3    Python    python
-   price  quantity  total
-0   10.0         2   20.0
-1   20.0         3   60.0
-2   30.0         1   30.0
-All tests passed!
-```
-
 ## Production considerations
 
 Choose the right approach for custom transformations based on your performance, maintenance, and complexity requirements.
@@ -366,7 +317,7 @@ Choose the right approach for custom transformations based on your performance, 
 - The transformation requires complex conditional logic
 
 ```{python}
-#| eval: true
+#| eval: false
 # <1>
 result = data.mutate(total=xo._.price * xo._.quantity)
 
@@ -383,7 +334,7 @@ Once you've decided to use UDFs, performance becomes critical. UDFs execute in P
 **Vectorize operations inside UDFs**:
 
 ```{python}
-#| eval: true
+#| eval: false
 # <1>
 def slow_transform_fn(df: pd.DataFrame) -> pd.Series:
     return df["x"].apply(lambda val: complex_calculation(val))
@@ -512,7 +463,7 @@ Even with proper design, testing, and monitoring, you'll encounter issues when d
 **Solution**: Verify the UDF creation and import:
 
 ```{python}
-#| eval: true
+#| eval: false
 # <1>
 def my_udf_fn(df: pd.DataFrame) -> pd.Series:
     return df["x"] * 2
@@ -621,6 +572,5 @@ If UDF is >10x slower than native operations, consider:
 
 You now have scalar UDFs for custom transformations and aggregation UDFs for custom calculations. You can deploy these in production with proper testing, monitoring, and error handling. For more advanced batch processing patterns, explore UDXFs.
 
-- [Build data quality checks](build_data_quality_checks.qmd) - Validate data before transformation
 - [Build feature pipelines](build_feature_pipelines.qmd) - Create production feature pipelines
-- Learn about UDXFs for batch processing in [Your first UDXF](../../tutorials/ai_tutorials/your_first_udxf.qmd)
+- [Integrate with scikit-learn pipelines](../ml_workflows/integrate_sklearn_pipelines.qmd) - Wrap sklearn pipelines for deferred execution and caching

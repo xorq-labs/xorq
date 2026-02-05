@@ -73,27 +73,6 @@ print(f"Test set: {test_count} rows")
 print(f"Split ratio: {train_count / (train_count + test_count):.2%} train")
 ```
 
-Run the script:
-
-```bash
-python load_and_split.py
-```
-
-You should see a result like this:
-
-```
-Columns: ['age', 'income', 'credit_score', 'loan_amount', 'approved']
-Preview:
-   age  income  credit_score  loan_amount  approved
-0   56  125186           414        12239         0
-1   69   54674           622        11710         0
-2   46   55854           339        26384         0
-
-Training set: 804 rows
-Test set: 196 rows
-Split ratio: 80.40% train
-```
-
 **Key points**:
 
 - `xo.memtable()` creates in-memory tables from Python dictionaries
@@ -184,28 +163,6 @@ result = predictions.execute()  # Execution happens here
 accuracy = (result[target] == result["predicted"]).mean()
 print(f"\nTest accuracy: {accuracy:.2%}")
 print(f"Predictions sample:\n{result[[target, 'predicted']].head()}")
-```
-
-Run the script:
-
-```bash
-python train_with_cache.py
-```
-
-You should see a result like this:
-
-```
-Fitting pipeline...
-Making predictions...
-
-Test accuracy: 87.50%
-Predictions sample:
-   approved  predicted
-0         0          0
-1         1          1
-2         0          0
-3         1          1
-4         0          0
 ```
 
 **Key points**:
@@ -311,25 +268,6 @@ print(f"  Predict time: {predict_time:.2f}s ({predict_time/total_time:.1%})")
 print(f"  Test accuracy: {accuracy:.2%}")
 ```
 
-Run the script:
-
-```bash
-python monitor_training.py
-```
-
-You should see a result like this:
-
-```
-Step 0 ('scaler'): fitted
-Step 1 ('classifier'): fitted
-
-Performance Summary:
-  Total time: 1.23s
-  Fit time: 0.95s (77.2%)
-  Predict time: 0.18s (14.6%)
-  Test accuracy: 87.50%
-```
-
 **Key points**:
 
 - Track time for each training phase (load, fit, predict)
@@ -358,7 +296,7 @@ The dataset sizes above are example guidelines. Actual performance depends on yo
 Switch backends without changing your training code:
 
 ```{python}
-#| eval: true
+#| eval: false
 # Train on different backends with the same pipeline
 con = xo.connect()              # Embedded: <10GB
 ddb = xo.duckdb.connect()       # DuckDB: 10-100GB  
@@ -380,7 +318,7 @@ Backend choice affects memory usage, but you also need strategies to control mem
 Execute transformations in batches to avoid loading the entire dataset:
 
 ```{python}
-#| eval: true
+#| eval: false
 import xorq.api as xo
 import numpy as np
 
@@ -414,7 +352,7 @@ print(f"Mean amount: {mean_value:.2f}")
 Select only required columns before training:
 
 ```{python}
-#| eval: true
+#| eval: false
 # Bad: loads all columns
 data = xo.deferred_read_csv(path="data.csv", con=con)
 fitted = pipeline.fit(data, features=features, target=target)
@@ -443,7 +381,7 @@ Memory management prevents crashes, but monitoring tells you when you're approac
 **Instrument training pipelines**:
 
 ```{python}
-#| eval: true
+#| eval: false
 import psutil
 import logging
 
@@ -476,7 +414,7 @@ Monitoring shows you when things go wrong. Checkpointing ensures you don't lose 
 Xorq's caching system automatically checkpoints fitted models:
 
 ```{python}
-#| eval: true
+#| eval: false
 from xorq.caching import ParquetCache
 from pathlib import Path
 
@@ -499,7 +437,7 @@ fitted = pipeline.fit(data, features=features, target=target, cache=cache)
 Use different cache strategies for different training workflows:
 
 ```{python}
-#| eval: true
+#| eval: false
 from xorq.caching import ParquetSnapshotCache
 
 # For reproducible experiments: fixed snapshots
@@ -531,7 +469,7 @@ Even with proper backend selection, memory management, and checkpointing, you'll
 Check where time is spent:
 
 ```{python}
-#| eval: true
+#| eval: false
 import time
 
 stages = {}
@@ -568,7 +506,7 @@ for stage, duration in stages.items():
 Select only necessary columns:
 
 ```{python}
-#| eval: true
+#| eval: false
 # Load only features and target
 data = xo.deferred_read_csv(path="data.csv", con=con)
 data = data.select(*features, target)
@@ -577,7 +515,7 @@ data = data.select(*features, target)
 Process in smaller chunks:
 
 ```{python}
-#| eval: true
+#| eval: false
 # Reduce chunk size from default
 for batch in data.to_pyarrow_batches(chunk_size=10000):  # Was 50000
     df = batch.to_pandas()
@@ -588,7 +526,7 @@ for batch in data.to_pyarrow_batches(chunk_size=10000):  # Was 50000
 Switch to a lower-memory backend:
 
 ```{python}
-#| eval: true
+#| eval: false
 # DuckDB uses less memory than embedded DataFusion
 ddb = xo.duckdb.connect()
 data = xo.deferred_read_csv(path="data.csv", con=ddb)
@@ -639,5 +577,4 @@ Common causes of cache misses:
 You now have efficient model training on large datasets with automatic caching and memory management. Xorq handles data loading, splitting, and checkpointing so you can focus on model iteration and evaluation.
 
 - [Evaluate model performance](evaluate_model_performance.qmd) - Compare models and track metrics
-- [Version and promote models](version_and_promote_models.qmd) - Manage model versions across environments
-- [Deploy models to production](deploy_models_to_production.qmd) - Serve models via Flight server
+- [Optimize pipeline performance](../performance_workflows/optimize_pipeline_performance.qmd) - Improve training and evaluation performance

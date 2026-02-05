@@ -425,6 +425,5 @@ Log validation failures to identify data quality trends and upstream issues.
 
 You now have expression creation schema validation to catch errors before execution and runtime validation to filter bad data during execution. For troubleshooting validation errors, see [Troubleshoot common errors](../../troubleshooting/common_errors.qmd).
 
-- [Transform data with custom UDFs](transform_data_with_custom_udfs.qmd) - Create reusable transformations
+- [Transform data with custom UDFs](transform_data_custom_udfs.qmd) - Create reusable transformations
 - [Build feature pipelines](build_feature_pipelines.qmd) - Create production feature pipelines
-- [Optimize pipeline performance](../../guides/performance_workflows/optimize_pipeline_performance.qmd) - Improve validation performance

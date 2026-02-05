@@ -17,7 +17,7 @@ Compute a single metric using the fitted pipeline's `score_expr()` method. The d
 Create `evaluate_basic.py`:
 
 ```{python}
-#| eval: true
+#| eval: false
 import xorq.api as xo
 from xorq.expr.ml import Pipeline
 from sklearn.preprocessing import StandardScaler
@@ -53,12 +53,6 @@ fitted = xorq_pipe.fit(train, features=("feature1", "feature2"), target="target"
 accuracy = fitted.score_expr(test)
 
 print(f"Accuracy: {accuracy:.4f}")
-```
-
-Run the script:
-
-```bash
-python evaluate_basic.py
 ```
 
 You should see a result like this (exact value will vary with random data):
@@ -152,13 +146,13 @@ f1: 0.0667
 
 **Key points**:
 
-- Get predictions once using `fitted.predict(test)` and execute to get a DataFrame
-- Use scikit-learn metrics directly on the target and predicted columns
-- This approach works with scikit-learn metric functions that take (y_true, y_pred) format
-
 :::{.callout-warning}
 `fitted.predict()` returns class labels, not probabilities. For metrics like ROC-AUC that need probability predictions, you must access the fitted model directly.
 :::
+
+- Get predictions once using `fitted.predict(test)` and execute to get a DataFrame
+- Use scikit-learn metrics directly on the target and predicted columns
+- This approach works with scikit-learn metric functions that take (y_true, y_pred) format
 
 For probability-based metrics such as ROC-AUC, obtain probability predictions from the fitted model. This example continues from the code above using the same `fitted` pipeline and `test` data:
 
@@ -268,23 +262,6 @@ best_model = max(results.items(), key=lambda x: x[1]["accuracy"])
 print(f"\nBest model: {best_model[0]} (accuracy: {best_model[1]['accuracy']:.4f})")
 ```
 
-Run the script:
-
-```bash
-python compare_models.py
-```
-
-You should see a result like this (exact values will vary with random data):
-
-```
-Logistic Regression: accuracy=0.4167, f1=0.0667
-Random Forest: accuracy=0.4167, f1=0.3913
-SVM: accuracy=0.4375, f1=0.0000
-KNN: accuracy=0.5833, f1=0.5652
-
-Best model: KNN (accuracy: 0.5833)
-```
-
 **Key points**:
 
 - Compare models using the same evaluation data and metrics
@@ -379,38 +356,6 @@ experiment_result = {
 print(json.dumps(experiment_result, indent=2))
 ```
 
-Run the script:
-
-```bash
-python track_experiments.py
-```
-
-Expected output (timestamp will be current time, metric values are examples):
-
-```json
-{
-  "experiment_id": "rf_experiment_001",
-  "timestamp": "2026-01-21T16:14:42.418922",
-  "model_type": "RandomForestClassifier",
-  "model_params": {
-    "n_estimators": 10,
-    "max_depth": 5,
-    "random_state": 42
-  },
-  "features": [
-    "feature1",
-    "feature2"
-  ],
-  "test_size": 0.3,
-  "metrics": {
-    "accuracy": 0.4608,
-    "precision": 0.4580,
-    "recall": 0.3896,
-    "f1": 0.4211
-  }
-}
-```
-
 **Key points**:
 
 - Track experiment configuration, including model parameters, features, and data splits alongside metrics
@@ -501,25 +446,6 @@ if not all_passed:
     print("\nThe model does not meet the acceptance criteria. Do not deploy.")
 ```
 
-Run the script:
-
-```bash
-python validate_model.py
-```
-
-Expected output (exact values will vary with random data):
-
-```
-Accuracy: 0.4608 (threshold: 0.50) - FAIL
-Precision: 0.4580 (threshold: 0.45) - PASS
-Recall: 0.3896 (threshold: 0.45) - FAIL
-F1: 0.4211 (threshold: 0.45) - FAIL
-
-Overall validation: FAIL
-
-The model does not meet the acceptance criteria. Do not deploy.
-```
-
 **Key points**:
 
 - Define acceptance criteria based on your application requirements
@@ -560,8 +486,5 @@ For more troubleshooting help, see the [Troubleshooting guide](../../troubleshoo
 
 You now have systematic model evaluation workflows that compute metrics, compare models, track experiments, and validate quality. Evaluation expressions use deferred execution for efficient computation.
 
-After evaluating and validating your model, you're ready to deploy it:
-
-- [Deploy models to production](./deploy_models_to_production.qmd) - Build and serve validated models as prediction endpoints
-- [Version and promote models](./version_and_promote_models.qmd) - Manage model versions and compare performance over time
-- [Build feature pipelines](../data_workflows/build_feature_pipelines.qmd) - Create features for model training and evaluation
+- [Optimize pipeline performance](../performance_workflows/optimize_pipeline_performance.qmd) - Improve evaluation and training performance
+- [Optimize model serving](../performance_workflows/optimize_model_serving.qmd) - Optimize prediction latency and throughput
