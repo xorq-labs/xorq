@@ -9,7 +9,9 @@ After completing this guide, you have a working ML pipeline. This pipeline loads
 
 ## What you'll build
 
-In this quickstart, you:
+In this quickstart, you will:
+build an a pipeline that works with the [Palmer Penguins Dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data) to predict an observed penguin's species given it's duck bill length and depth.  Then you will serve this prection model up for consumption by other services.
+
 
 1. Set up your environment and install Xorq
 2. Initialize a project
@@ -105,7 +107,8 @@ With Xorq installed, the next step is to create your first project.
 
 ## Step 2: Initialize a project
 
-Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow with the Palmer Penguins dataset:
+Create a new Xorq project using the built-in penguins template. This template demonstrates a complete ML workflow wit
+h the [Palmer Penguins dataset](https://www.kaggle.com/datasets/parulpandey/palmer-archipelago-antarctica-penguin-data):
 ```bash
 xorq init -t penguins -p penguins_example # <1>
 cd penguins_example # <2>
@@ -119,6 +122,7 @@ The template generates an `expr.py` file. This file contains a complete ML pipel
 With your project initialized, the next step is to build it into an executable format.
 
 ## Step 3: Build your expression
+Here we will show what it looks like to use sklearn inside of a xorq pipeline.
 
 Convert your pipeline into a serialized, executable format using the `build` command:
 ```bash
@@ -172,7 +176,7 @@ The hash `12287e173c17` is an example. Copy the actual hash from your build outp
 
 ## Step 4: Run your pipeline
 
-Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with the hash from your build output in step 3:
+Execute your built pipeline and view the results. Replace `<BUILD_HASH>` with the hash from your build output in step 3: You will see a ...?
 
 ::: {.callout-warning}
 ### Windows users
@@ -226,6 +230,14 @@ This step uses the same `BUILD_HASH` from step 3. You're deploying the exact pip
 
 Run the server with your build hash:
 
+Serving unbound allows you to ???  The unbound hash is later used to ??
+xorq serve-unbound builds/$BUILD_HASH --host localhost --port 8001 --to_unbind_tag test
+
+serving unbound allows you to unspecify a node and let that be passed in.  In this case , we are unspecifying the test node.  Now when data is passed in in the form of bill_length_mm, bill_depth_mmm, then the computations will flow through and a prediction will be returned.
+
+
+
+
 ::: {.panel-tabset}
 
 ### macOS/Linux
@@ -257,6 +269,7 @@ With your pipeline running locally, the next step is to serve a UDXF expression 
 
 
 ## Step 5: Serve a UDXF expression
+Her we use a UDXF expression to perform arbitrary pandas transforms on nodes and serve them. 
 
 ::: {.callout-note}
 ### New terminal setup
