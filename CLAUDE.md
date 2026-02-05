@@ -1,7 +1,8 @@
 ## xorq Expression Framework
 
 This project uses **xorq** for deferred data pipelines.
-Run `xorq agents onboard` for workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
+
+**For Claude Code:** Run `xorq agents onboard` for workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
 
 ## Mandatory Workflow
 1. `xorq catalog ls` - CHECK CATALOG FIRST! Compose on existing expressions
@@ -23,3 +24,16 @@ Run `xorq agents onboard` for workflow context, or install hooks (`xorq agents h
 For ML patterns, use `xorq agents vignette` for deferred sklearn guidance.
 
 For full workflow details: `xorq agents onboard`
+
+## AI Agent Integration
+
+**Claude Code (Anthropic):**
+- `xorq agents hooks install` - Install project-local hooks in `.claude/`
+- `xorq agents skill install` - Install expression-builder skill
+- Hooks provide workflow context and enforce catalog-first workflow
+
+**Cortex Code (Snowflake):**
+- `xorq agents cortex hooks install` - Install global hooks in `~/.snowflake/cortex/`
+- `xorq agents cortex skill install` - Install expression-builder skill globally
+- Works across all xorq projects automatically
+- Auto-detects xorq projects via `.xorq/` directory

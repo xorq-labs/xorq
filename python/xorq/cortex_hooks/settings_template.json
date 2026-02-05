@@ -1,0 +1,40 @@
+{
+  "hooks": {
+    "SessionStart": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 ~/.snowflake/cortex/hooks/session_start.py"
+      }]
+    }],
+    "UserPromptSubmit": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 ~/.snowflake/cortex/hooks/user_prompt_submit.py"
+      }]
+    }],
+    "PostToolUseFailure": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 ~/.snowflake/cortex/hooks/post_tool_use_failure.py"
+      }]
+    }],
+    "PreCompact": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 ~/.snowflake/cortex/hooks/pre_compact.py"
+      }]
+    }],
+    "Stop": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 ~/.snowflake/cortex/hooks/stop.py"
+      }]
+    }],
+    "SessionEnd": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 ~/.snowflake/cortex/hooks/session_end.py"
+      }]
+    }]
+  }
+}
