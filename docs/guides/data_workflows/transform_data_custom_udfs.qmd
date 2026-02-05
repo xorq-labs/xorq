@@ -58,8 +58,7 @@ print(df)
 2. Create a scalar UDF from the pandas function using `make_pandas_udf()`. The `schema` parameter defines input column names and types. `return_type` specifies the output data type. `name` is a unique identifier for the UDF.
 3. Connect to the default backend and create an in-memory table with sample text data. The table contains an `id` column and a `text` column with whitespace that needs cleaning.
 4. Apply the UDF to the data using `.on_expr(data)`. The UDF is used in a `.mutate()` expression to create a new `cleaned` column. The transformation is lazy and doesn't execute until `.execute()` is called.
-5. Execute the expression to materialize results. The UDF processes all rows, removing whitespace and converting to lowercase, producing a DataFrame with the original and cleaned text columns.
-
+5. Execute the expression to materialize results. The UDF processes all rows, removing whitespace and converting to lowercase, producing a DataFrame with the original and cleaned text columns. If the UDF receives invalid data, it fails at execution time unless you validate inputs first.
 
 ## Handle UDF errors
 
@@ -114,7 +113,7 @@ df = result.execute()
 print(df)
 ```
 1. Define a function that calculates total price with input validation. Extract input columns from the DataFrame for validation and calculation.
-2. Validate inputs using vectorized pandas operations. The `.any()` method checks if any value in the Series violates the constraint. Raise a descriptive error if validation fails, preventing invalid calculations from propagating.
+2. Validate inputs using vectorized pandas operations. The `.any()` method checks if any value in the Series violates the constraint. If validation fails, then raise a descriptive error, preventing invalid calculations from propagating.
 3. Return the calculated total using vectorized pandas multiplication. Vectorized operations process all rows simultaneously, which is faster than row-by-row iteration.
 4. Create the UDF with a schema that matches the function's input requirements. The schema specifies both `price` (float64) and `quantity` (int64) columns, and the return type is float64 for the calculated total.
 5. Create test data with valid prices and quantities. The data will be used to verify the UDF works correctly with valid inputs.
@@ -145,11 +144,11 @@ This raises an error:
 ValueError: Price cannot be negative
 ```
 
-The validation catches the error at execution, preventing invalid calculations from propagating through your pipeline.
+The validation catches the error at execution, preventing invalid calculations from propagating through your pipeline. For metrics across groups rather than row by row, use aggregation UDFs.
 
 ## Create aggregation UDFs
 
-Scalar UDFs transform individual rows, but you also need to compute custom statistics across groups. Aggregation UDFs reduce multiple rows to a single value, enabling custom metrics that SQL's built-in aggregations don't support.
+Aggregation UDFs reduce multiple rows to a single value, enabling custom metrics that SQL's built-in aggregations don't support.
 
 Create `custom_aggregation.py`:
 
@@ -217,7 +216,7 @@ print(df)
 6. Find the index where cumulative weight exceeds the cutoff and return that value as the weighted median. Convert to Python float for compatibility with Xorq's type system.
 7. Create an aggregation UDF using `agg.pandas_df()`. Unlike scalar UDFs, aggregation UDFs receive all rows in a group and return a single value per group. The schema defines the input column, and `return_type` is the output type.
 8. Create test data with categories and values. Some values (100.0, 50.0) are outliers that will be penalized in the weighted median calculation.
-9. Group data by category and apply the aggregation UDF. The UDF processes each group independently, calculating a weighted median that reduces the influence of outliers compared to a standard median.
+9. Group data by category and apply the aggregation UDF. The UDF processes each group independently, calculating a weighted median that reduces the influence of outliers compared to a standard median. Test UDF logic on its own before wiring it into a pipeline.
 
 ## Test UDFs
 
@@ -316,6 +315,8 @@ Choose the right approach for custom transformations based on your performance, 
 - You're integrating external libraries (sklearn, scipy, custom code)
 - The transformation requires complex conditional logic
 
+The snippets below show a simple native expression (price × quantity) versus a UDF for custom logic. Use the first when the operation is built-in; use the second when you need your own function.
+
 ```{python}
 #| eval: false
 # <1>
@@ -333,6 +334,8 @@ Once you've decided to use UDFs, performance becomes critical. UDFs execute in P
 
 **Vectorize operations inside UDFs**:
 
+Avoid row-by-row processing in UDFs; vectorized operations run much faster. The code below contrasts a slow `.apply()`-based UDF with a vectorized version so you can use the same pattern in your own functions.
+
 ```{python}
 #| eval: false
 # <1>
@@ -347,6 +350,8 @@ def fast_transform_fn(df: pd.DataFrame) -> pd.Series:
 2. Use vectorized operations that process entire Series at once. Vectorized operations leverage optimized pandas/NumPy implementations that process data in batches, resulting in significantly better performance (often 10-100x faster).
 
 **Minimize data copying**:
+
+Copying DataFrames inside UDFs costs memory and time. The example below shows a UDF that copies unnecessarily versus one that works on columns directly, so you can keep your UDFs lean.
 
 ```{python}
 #| eval: true
@@ -387,7 +392,7 @@ Performance optimization helps, but monitoring tells you when UDFs degrade in pr
 | Error rate | Percentage of UDF invocations that fail |
 | Data volume | Number of rows/groups processed |
 
-Log UDF errors with input samples to diagnose issues:
+Log UDF errors with input samples to diagnose issues. The code below wraps a UDF in try/except and logs failures with a small sample of the input so you can debug in production without dumping full datasets.
 
 ```{python}
 #| eval: true
@@ -446,9 +451,9 @@ clean_text_v2 = make_pandas_udf(
 )
 ```
 1. Create the original UDF version with basic text cleaning (strip whitespace, lowercase). Versioning UDFs by including version numbers in names allows you to maintain multiple versions simultaneously.
-2. Create an updated version that adds punctuation removal. The new version extends the original functionality while keeping the old version available. This enables gradual migration and rollback if the new version causes issues.
+2. Create an updated version that adds punctuation removal. The new version extends the original functionality while keeping the old version available. If the new version causes issues, then you can roll back; this enables gradual migration.
 
-This allows gradual migration and rollback if needed.
+If needed, then you can migrate gradually or roll back.
 
 ## Troubleshooting
 
@@ -503,7 +508,7 @@ my_udf = make_pandas_udf(
     return_type=dt.float64
 )
 ```
-1. Convert the return value to match the declared `return_type`. Use `.astype()` to ensure the pandas Series has the correct dtype (e.g., "float64") that matches the UDF's declared return type.
+1. Convert the return value to match the declared `return_type`. Use `.astype()` to ensure the pandas Series has the correct dtype, for example "float64", that matches the UDF's declared return type.
 2. Declare the return type in `make_pandas_udf()`. The `return_type` must match the actual pandas dtype returned by the function. Mismatches cause `TypeError` or `ArrowTypeError` during execution.
 
 ### Performance issues
@@ -560,7 +565,7 @@ print(f"UDF is {udf_time/native_time:.1f}x slower than native")
 2. Define a simple UDF that doubles values. This is a minimal transformation that can be compared directly to native SQL operations to measure UDF overhead.
 3. Measure UDF execution time by recording start time, executing the transformation, and calculating elapsed time. This measures the total time including Python overhead, data conversion, and transformation.
 4. Measure native SQL operation time for comparison. Native operations execute directly in the SQL engine without Python overhead, providing a baseline for performance comparison.
-5. Calculate and print the performance ratio. If the UDF is >10x slower than native operations, consider using native SQL or optimizing the UDF logic (e.g., vectorization, reducing data copies).
+5. Calculate and print the performance ratio. If the UDF is >10x slower than native operations, consider using native SQL or optimizing the UDF logic, for example vectorization or reducing data copies.
 
 If UDF is >10x slower than native operations, consider:
 

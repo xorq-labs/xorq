@@ -119,6 +119,8 @@ customers = xo.deferred_read_parquet(
 
 #### Google Cloud Storage
 
+To read from GCS instead of S3, use a `gs://` path and ensure `GOOGLE_APPLICATION_CREDENTIALS` is set. Example:
+
 ```{python}
 #| eval: false
 # <1>
@@ -131,6 +133,8 @@ customers = xo.deferred_read_parquet(
 1. Read from Google Cloud Storage by using the `gs://` protocol prefix instead of `s3://`. Ensure `GOOGLE_APPLICATION_CREDENTIALS` is set to your service account key file path for authentication.
 
 #### Public buckets without credentials
+
+For public S3 buckets you can use the DuckDB backend without setting AWS credentials. Example:
 
 ```{python}
 #| eval: false
@@ -147,7 +151,7 @@ customers = xo.deferred_read_csv(
 1. Connect to DuckDB backend, which can access public S3 buckets without credentials. Use this for public datasets that don't require authentication.
 2. Read from the public S3 bucket. DuckDB handles public bucket access automatically, so no credentials are needed.
 
-If you see connection timeouts or file-not-found errors, then see [Troubleshoot data I/O errors](../../troubleshooting/data-io-errors.qmd).
+If you see connection timeouts or file-not-found errors, then see [Troubleshoot data I/O errors](../../troubleshooting/data-io-errors.qmd). Once data is loading from cloud storage, you can transform it before execution.
 
 ## Transform data
 
@@ -189,7 +193,7 @@ print(df)
 4. Aggregate the filtered data to compute summary statistics. The `agg()` method calculates `total_customers` (count of customer IDs) and `total_revenue` (sum of revenue). Multiple aggregations are specified as keyword arguments.
 5. Execute the entire pipeline: read → filter → aggregate. The operation processes all transformations in a single execution, returning the aggregated results as a pandas DataFrame.
 
-The pipeline executes when you call `execute()`: read → filter → aggregate → return results.
+The pipeline executes when you call `execute()`: read → filter → aggregate → return results. To persist those results back to cloud storage, write them as Parquet.
 
 ## Write to cloud storage
 
@@ -246,9 +250,11 @@ active_summary.to_parquet(output_path)
 2. Create a timestamp string in `YYYYMMDD_HHMMSS` format and construct a unique output path. This prevents overwriting existing files when running the pipeline multiple times.
 3. Write the results to the timestamped path. Each execution creates a new file with a unique name based on the current timestamp.
 
+The same deferred execution model works with databases.
+
 ## Read from PostgreSQL
 
-Beyond cloud storage, Xorq also works directly with databases. Connect to PostgreSQL to query tables and execute SQL, using the same deferred execution model you've seen with cloud files.
+Connect to PostgreSQL to query tables and execute SQL, using the same deferred execution model you've seen with cloud files.
 
 :::{.callout-note}
 Before running PostgreSQL examples, ensure you have:
@@ -280,7 +286,7 @@ print(f"Found {len(df)} active customers")
 2. Access a PostgreSQL table using `pg_con.table()`. This creates a deferred expression that references the table. Apply filters using the same `xo._` syntax as with cloud storage data. All operations remain deferred until execution.
 3. Execute the query to fetch filtered data from PostgreSQL. The operation translates the Xorq expression into SQL, executes it on the database, and returns results as a pandas DataFrame.
 
-For raw SQL queries:
+For raw SQL queries, use `pg_con.sql()` so you can run arbitrary SQL and still get a deferred expression. Example:
 
 ```{python}
 #| eval: false
@@ -295,7 +301,7 @@ recent_orders = pg_con.sql("""
 df = recent_orders.execute()
 ```
 1. Execute raw SQL queries using `pg_con.sql()`. This method accepts any valid SQL string and returns a deferred expression. Use this for complex queries that are easier to write in SQL than with Xorq's expression API.
-2. Execute the SQL query to fetch results from PostgreSQL. The operation runs the SQL directly on the database and returns results as a pandas DataFrame.
+2. Execute the SQL query to fetch results from PostgreSQL. The operation runs the SQL directly on the database and returns results as a pandas DataFrame. You can also create tables in PostgreSQL from Xorq expressions.
 
 ## Write to PostgreSQL
 
@@ -327,9 +333,9 @@ pg_con.create_table("active_customers", active_customers, overwrite=True)
 1. Connect to PostgreSQL using environment variables for authentication.
 2. Read data from S3 using a separate connection. You can combine data from different sources (cloud storage, databases) in the same pipeline.
 3. Filter the data to keep only active customers. This transformation remains deferred until execution.
-4. Create a PostgreSQL table from the Xorq expression. The `create_table()` method executes the expression, creates the table with the specified name, and writes the results. Set `overwrite=True` to replace existing tables, or `overwrite=False` (default) to raise an error if the table already exists.
+4. Create a PostgreSQL table from the Xorq expression. The `create_table()` method executes the expression, creates the table with the specified name, and writes the results. Set `overwrite=True` to replace existing tables, or `overwrite=False` (default); if the table already exists, then an error is raised.
 
-Set `overwrite=True` to replace existing tables. Set `overwrite=False` (default) to raise an error if the table already exists.
+Set `overwrite=True` to replace existing tables. If the table already exists and you use `overwrite=False` (default), then an error is raised.
 
 For temporary tables that exist only for the current session:
 
@@ -340,9 +346,9 @@ pg_con.register("temp_table", data)
 ```
 1. Register a temporary table in PostgreSQL. Temporary tables exist only for the current database session and are automatically dropped when the connection closes. Use this for intermediate results that don't need to persist across sessions.
 
-## Handle errors
+Production deployments need reliability. Network failures, timeouts, and transient errors are common in cloud I/O; add retry logic so read and write operations can recover gracefully.
 
-Now that you've seen the core read/write patterns, production deployments need reliability. Network failures, timeouts, and transient errors are common in cloud I/O, so add retry logic to handle them gracefully.
+## Handle errors
 
 Create `retry_read.py`:
 
@@ -380,14 +386,14 @@ con = xo.connect()
 df = read_with_retry("s3://my-bucket/data/customers.csv", con=con)
 ```
 1. Define a retry function that handles transient network errors. The function accepts a file path, connection, maximum retry attempts, and initial backoff time for exponential backoff.
-2. Create a connection if none is provided. This allows the function to work with or without an explicit connection parameter.
+2. If none is provided, then create a connection. This allows the function to work with or without an explicit connection parameter.
 3. Loop through retry attempts up to `max_attempts`. Each iteration attempts to read the file, catching and handling errors as needed.
 4. Attempt to read and execute the CSV file. If successful, return the DataFrame immediately. If an `ArrowIOError` occurs (network timeout, connection reset), proceed to retry logic.
 5. Calculate exponential backoff wait time and retry. The wait time increases exponentially: 2s, 4s, 8s for attempts 1, 2, 3. This gives the network time to recover from transient issues.
-6. Raise a runtime error if all retry attempts fail. This provides a clear error message indicating the operation failed after exhausting all retries.
-7. Use the retry function to read data with automatic error handling. The function will retry up to 3 times with exponential backoff if network errors occur.
+6. If all retry attempts fail, then raise a runtime error. This provides a clear error message indicating the operation failed after exhausting all retries.
+7. Use the retry function to read data with automatic error handling. If network errors occur, then the function will retry up to 3 times with exponential backoff.
 
-Retry network timeouts and connection resets. Don't retry authentication failures or file-not-found errors.
+Retry network timeouts and connection resets. Don't retry authentication failures or file-not-found errors. For files too large to load at once, stream in chunks instead.
 
 ## Handle large files
 
@@ -426,7 +432,7 @@ print(f"Total: {total_rows} rows")
 4. Stream data in chunks using `to_pyarrow_batches()`. The `chunk_size` parameter controls how many rows are loaded per batch (100,000 in this example). Each batch is converted to a pandas DataFrame for processing. This keeps memory usage constant regardless of file size.
 5. Print the total number of rows processed. Streaming allows you to process files larger than available memory by processing them in manageable chunks.
 
-Reduce `chunk_size` to 10,000 if you run out of memory. For persistent memory issues, see [Troubleshoot memory errors](../../troubleshooting/memory-errors.qmd).
+If you run out of memory, then reduce `chunk_size` to 10,000. To see where time and resources go, add monitoring around your I/O.
 
 ## Monitor performance
 
@@ -478,13 +484,13 @@ df = monitored_read("s3://my-bucket/data/customers.csv")
 ```
 1. Configure logging to track I/O operations. Set the log level to INFO and format messages with timestamps for monitoring and debugging.
 2. Define a monitoring function that wraps data reads with performance tracking. The function measures execution time, data size, and throughput.
-3. Create a connection if none is provided, allowing flexible usage with or without an explicit connection.
+3. If none is provided, then create a connection, allowing flexible usage with or without an explicit connection.
 4. Record the start time before executing the read operation. This enables precise timing measurements.
 5. Read and execute the CSV file. The operation fetches data from S3 and loads it into memory.
 6. Calculate performance metrics: elapsed time, row count, and memory usage. Memory usage is calculated in megabytes by summing all column memory usage and converting bytes to MB.
 7. Log performance metrics using the configured logger. The logs include row count, data size, execution time, and throughput (rows per second). These metrics help identify bottlenecks and optimize pipeline performance.
 8. Log errors and re-raise exceptions. This ensures errors are tracked in logs while still propagating to calling code for proper error handling.
-9. Use the monitoring function to read data with automatic performance tracking. All I/O operations are logged with detailed metrics for analysis.
+9. Use the monitoring function to read data with automatic performance tracking. All I/O operations are logged with detailed metrics for analysis. Before going live, consider performance, security, and cost.
 
 ## Production considerations
 
@@ -506,7 +512,7 @@ Use Parquet for production. It's 50-80% smaller than CSV and reads 3-5x faster.
 
 Performance optimization helps you scale, but security prevents data breaches. Configure authentication and access controls properly before deploying to production.
 
-Use IAM roles on EC2/ECS instead of access keys. Rotate credentials every 90 days if using access keys and configure least-privilege permissions. Never commit credentials to code.
+Use IAM roles on EC2/ECS instead of access keys. If using access keys, then rotate credentials every 90 days and configure least-privilege permissions. Never commit credentials to code.
 
 ### Monitoring
 
@@ -547,11 +553,11 @@ Cost optimization reduces waste, but scaling ensures systems handle growing data
 - File format (Parquet is 3-5x faster than CSV)
 - Query complexity and data transformations
 
-**Capacity planning**: Start with instance memory at least 2x your dataset size. Monitor actual usage and adjust based on your specific workload.
+**Capacity planning**: Start with instance memory at least 2x your dataset size. Monitor actual usage and adjust based on your specific workload. When something goes wrong, use the following troubleshooting steps.
 
 ## Troubleshooting
 
-Even with proper authentication, error handling, and monitoring, you'll encounter issues when working with production data. Here are the most common problems and their solutions.
+Here are the most common problems and their solutions.
 
 ### Authentication fails
 

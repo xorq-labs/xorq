@@ -82,13 +82,11 @@ print(f"Split ratio: {train_count / (train_count + test_count):.2%} train")
 - `num_buckets` controls split granularity (higher = more precise)
 - `random_seed` ensures reproducibility across runs
 
-Hash-based splitting ensures that duplicate rows are sent to the same split across runs, which is critical for reproducible model training.
+Hash-based splitting ensures that duplicate rows are sent to the same split across runs, which is critical for reproducible model training. Training large models can take minutes or hours, so caching fitted models and transformed features becomes essential for iterative development.
 
 ## Cache training artifacts
 
-Once you've split your data, the next challenge at scale is avoiding redundant computation. Training large models can take minutes or hours, so caching fitted models and transformed features becomes essential for iterative development.
-
-Create `train_with_cache.py`:
+Caching avoids redundant computation when you refit or rerun pipelines. Create `train_with_cache.py` to fit a pipeline with caching enabled:
 
 ```{python}
 #| eval: true
@@ -494,7 +492,7 @@ for stage, duration in stages.items():
 **Optimization strategies by bottleneck**:
 
 - **Load bottleneck**: Switch to Parquet format (3-5x faster than CSV), use `con.read_parquet()` instead of `deferred_read_csv()`
-- **Fit bottleneck**: Reduce training data size with sampling, select fewer features, use simpler model (e.g., Logistic Regression instead of XGBoost)
+- **Fit bottleneck**: Reduce training data size with sampling, select fewer features, use simpler model, for example Logistic Regression instead of XGBoost
 - **Predict bottleneck**: Increase batch size, cache intermediate transformations
 
 ### Out of memory during training

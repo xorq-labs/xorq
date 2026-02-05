@@ -171,7 +171,7 @@ print(result)
 ```
 1. Import `xorq.api` for Xorq operations, `SourceCache` for automatic cache invalidation, and `numpy` for data generation. Connect to Xorq and create sample data.
 2. Create a SourceCache that automatically invalidates when source data changes. SourceCache uses the source backend for storage and checks modification times.
-3. Apply filter and cache the result. The cache will automatically invalidate if the source data changes.
+3. Apply filter and cache the result. If the source data changes, then the cache will automatically invalidate.
 4. Execute the cached query and display the result.
 
 The result is a table with filtered rows where `value > 100`, containing `value` and `category` columns.
@@ -363,7 +363,7 @@ Choose backends based on dataset size, query complexity, and performance require
 
 | Backend | Dataset Size | Query Speed | Memory | Best For |
 |---------|--------------|-------------|--------|----------|
-| **Embedded (DataFusion)** | <10GB | Fast | Moderate | UDFs, complex transformations |
+| **Embedded backend, DataFusion** | <10GB | Fast | Moderate | UDFs, complex transformations |
 | **DuckDB** | 10-100GB | Very Fast | Low | Analytical queries, Parquet files |
 | **PostgreSQL** | >100GB | Moderate | Very Low | Massive datasets, existing databases |
 | **Pandas** | <1GB | Moderate | High | Small datasets, prototyping |
@@ -408,7 +408,7 @@ result = (
 print("You should see a result like this:")
 print(result)
 ```
-1. Import `xorq.api` for Xorq operations and `numpy` for data generation. Connect to different backends: Embedded (DataFusion) for datasets <10GB with UDF support, and DuckDB for datasets 10-100GB with fast analytics.
+1. Import `xorq.api` for Xorq operations and `numpy` for data generation. Connect to different backends: Embedded backend DataFusion for datasets <10GB with UDF support, and DuckDB for datasets 10-100GB with fast analytics.
 2. Create sample data in the embedded backend with a reproducible seed.
 3. Move data to DuckDB backend for analytical queries. `into_backend()` uses zero-copy Arrow transfers for efficient data movement.
 4. Execute analytical query on DuckDB backend. DuckDB is optimized for aggregations and analytical workloads: Filtering rows, grouping by category, and counting rows per group.
@@ -419,7 +419,7 @@ Choose the backend based on dataset size and query type, and test performance on
 
 ### Backend selection guidelines
 
-**Use Embedded (DataFusion) when**: Dataset <10GB, need custom UDFs, complex transformations, rapid iteration
+**Use Embedded backend, DataFusion, when**: Dataset <10GB, need custom UDFs, complex transformations, rapid iteration
 
 **Use DuckDB when**: Dataset 10-100GB, analytical queries (aggregations, joins), working with Parquet files, need persistent storage
 
@@ -609,7 +609,7 @@ print(f"Results match: {result1.equals(result2)}")
 3. Second execution is a cache hit: Xorq retrieves the result from cache. This is much faster (typically 5-50x) as it only reads from disk.
 4. Calculate speedup ratio and verify results match. Cache hits should be significantly faster than cache misses. If speedup is <2x, the cache may not be working correctly.
 
-The output displays execution times for both cache miss and cache hit, the calculated speedup (e.g., "5.2x faster"), and confirms that both results are identical (`Results match: True`).
+The output displays execution times for both cache miss and cache hit, the calculated speedup, for example "5.2x faster", and confirms that both results are identical (`Results match: True`).
 
 **Prevention**:
 

@@ -86,7 +86,7 @@ jobs:
 
 **What happens**:
 
-- The `xorq build` command outputs the build path on the last line (e.g., `builds/050dac72b4d8`)
+- The `xorq build` command outputs the build path on the last line, for example `builds/050dac72b4d8`
 - Extract the hash using `basename` to get just the directory name
 - Store it in `GITHUB_OUTPUT` and `GITHUB_ENV` for use in later steps
 - Verify required files exist before uploading
@@ -265,7 +265,7 @@ model-prod	abc123...	def456...
 :::{.callout-important}
 ## Catalog persistence in CI
 
-The catalog is stored in `~/.config/xorq/` on each CI runner. Catalog entries are **ephemeral** and only exist for the duration of the workflow run. If you need persistent catalog entries across CI runs, use shared storage (e.g., mounted volume, S3) or export/import the catalog.
+The catalog is stored in `~/.config/xorq/` on each CI runner. Catalog entries are **ephemeral** and only exist for the duration of the workflow run. If you need persistent catalog entries across CI runs, use shared storage, for example a mounted volume or S3, or export/import the catalog.
 :::
 
 ## Rollback workflow

@@ -91,7 +91,7 @@ validated = xo.expr.relations.flight_udxf(
 )
 ```
 1. Create data with a missing required column (`customer_id`). This demonstrates schema validation failure: the data doesn't match the expected schema.
-2. Attempt to create the UDXF with schema validation. This raises a `ValueError` immediately at expression creation because the input schema is missing the `customer_id` column. The error message shows the expected schema vs. the actual schema, making it easy to identify missing columns or type mismatches.
+2. Attempt to create the UDXF with schema validation. This raises a `ValueError` immediately at expression creation because the input schema is missing the `customer_id` column. The error message shows the expected schema vs. the actual schema, making it easy to identify missing columns or type mismatches. Once schemas match, you still need to catch bad values when the pipeline runs.
 
 ## Validate data at runtime
 
@@ -178,15 +178,18 @@ df = validate_and_process(data, ["customer_id", "email", "status"])
 print(f"Processed {len(df)} valid rows")
 ```
 1. Define a validation function that checks schema and data quality, raising exceptions on failure. This "fail fast" approach prevents processing invalid data and provides clear error messages.
-2. Check that all required columns exist in the schema. Extract the schema from the expression and compare required columns to actual columns. Raise a `ValueError` with missing column names if any are absent.
+2. Check that all required columns exist in the schema. Extract the schema from the expression and compare required columns to actual columns. If any are absent, then raise a `ValueError` with missing column names.
 3. Apply validation filters to remove rows with null values in required columns. Use a list comprehension to create `.notnull()` predicates for each required column, then unpack them as arguments to `.filter()`. This creates an AND condition across all columns.
-4. Execute the filtered expression and check if any rows remain. If all rows were filtered out (empty result), raise a `ValueError` to indicate complete validation failure. This prevents downstream processing from running on empty data.
+4. Execute the filtered expression and check if any rows remain. If all rows were filtered out (empty result), then raise a `ValueError` to indicate complete validation failure. This prevents downstream processing from running on empty data.
 5. Create test data with null values to demonstrate validation behavior. The data includes some valid rows and some with nulls that will be filtered out.
-6. Call the validation function with required columns. The function checks schema, filters nulls, and raises exceptions if validation fails, ensuring only valid data proceeds to processing.
+6. Call the validation function with required columns. The function checks schema, filters nulls, and if validation fails, then raises exceptions, ensuring only valid data proceeds to processing.
 
-If validation fails, then you'll see specific error messages:
+If validation fails, then you'll see specific error messages. The examples below show the missing-column error and the no-valid-rows error so you can recognize them in your own pipelines.
 
-**Missing columns:**
+**Missing columns**:
+
+The following code uses data that is missing a required column (`status`). Running it triggers a clear error listing the missing columns:
+
 ```{python}
 #| eval: false
 # <1>
@@ -201,7 +204,10 @@ df = validate_and_process(data, ["customer_id", "email", "status"])
 1. Create data with a missing required column (`status`). This demonstrates schema validation failure when required columns are absent.
 2. Call the validation function with a required column that doesn't exist. This raises a `ValueError` immediately with a clear message listing the missing columns, preventing the pipeline from processing incomplete data.
 
-**No valid rows after filtering:**
+**No valid rows after filtering**:
+
+This example uses data where every row has nulls in the required columns. Running it shows the error you get when validation filters out all rows:
+
 ```{python}
 #| eval: false
 # <1>
@@ -253,6 +259,8 @@ The `how` parameter controls which rows to remove:
 - `how="all"` removes only rows where every column is null
 - `subset=["col1", "col2"]` removes rows where only specified columns are null
 
+Beyond nulls, values can be out of range. Filter so numbers and dates stay within expected bounds.
+
 ## Validate data ranges
 
 Filter data to ensure values fall within expected ranges. Create `validate_ranges.py`:
@@ -286,7 +294,7 @@ print(f"Rows within valid range: {len(df)}")
 3. Filter data to ensure values fall within expected bounds. Use comparison operators (`>=`, `<=`, `>`) to create range predicates. Multiple predicates are combined with AND logic, so rows must satisfy all conditions. The `&` operator combines conditions within a single predicate.
 4. Execute the filtered expression to see how many rows pass range validation. This shows the impact of range filtering on your dataset and helps identify data quality issues.
 
-Range validation removes rows that don't meet the criteria. To verify, check that the output contains only values within the specified ranges and test edge cases such as age=18 or age=120.
+Range validation removes rows that don't meet the criteria. To verify, check that the output contains only values within the specified ranges and test edge cases such as age=18 or age=120. For text fields, validate format with string methods.
 
 ## Validate string patterns
 
@@ -317,10 +325,10 @@ print(f"Rows with valid email format: {len(df)}")
 ```
 1. Connect to the default backend for data processing.
 2. Create test data with various email formats, including invalid ones. Some emails lack "@" or "." characters, which will be filtered out by validation.
-3. Filter data to check for valid email patterns using string methods. The `.contains()` method checks if a substring exists in each string value. Multiple predicates ensure emails have both "@" and "." characters. For production, use more comprehensive validation (e.g., regex patterns, email validation libraries).
+3. Filter data to check for valid email patterns using string methods. The `.contains()` method checks if a substring exists in each string value. Multiple predicates ensure emails have both "@" and "." characters. For production, use more comprehensive validation, for example regex patterns or email validation libraries.
 4. Execute the filtered expression to count rows with valid email formats. This shows how many emails pass basic format validation and helps identify data quality issues.
 
-The script filters out emails that lack an "@" or a "." character. For production, use more comprehensive email validation rules.
+The script filters out emails that lack an "@" or a "." character. For production, use more comprehensive email validation rules. To enforce business rules that go beyond format, use a custom validation function in a UDXF.
 
 ## Create custom validation functions
 
@@ -382,12 +390,12 @@ print(df)
 ```
 1. Define the expected input schema for compile-time validation. The schema specifies required columns and types, which are validated when creating the UDXF expression, before any data processing begins.
 2. Define a validation function that implements runtime business rule validation. The function receives a pandas DataFrame, applies business logic, and returns filtered data. This runs during execution to catch data quality issues.
-3. Validate business rules using pandas operations. Filter rows where the `status` column contains valid values using `.isin()`. Rows with invalid statuses (e.g., "invalid") are removed from the result.
-4. Raise an error if all rows are filtered out. If no valid rows remain after validation, raise a `ValueError` to prevent downstream processing from running on empty data.
+3. Validate business rules using pandas operations. Filter rows where the `status` column contains valid values using `.isin()`. Rows with invalid statuses, for example "invalid", are removed from the result.
+4. If all rows are filtered out, then raise an error. If no valid rows remain after validation, then raise a `ValueError` to prevent downstream processing from running on empty data.
 5. Create test data with the expected schema. The data includes one row with an invalid status ("invalid") that will be filtered out by the validation function.
 6. Extract the actual schema from the data expression for exact matching. Using `data.schema()` ensures the input schema matches exactly, preventing schema validation errors.
-7. Create a UDXF with schema validation. Schema validation happens at expression creation: if the input schema doesn't match `maybe_schema_in`, a `ValueError` is raised immediately. The output schema is the same as input (just filtered rows), so `maybe_schema_out=actual_schema`.
-8. Execute the validated expression to apply business rule validation. Runtime validation (the `validate_customer_data` function) runs during execution, filtering out rows with invalid status values. Schema validation already occurred at expression creation.
+7. Create a UDXF with schema validation. Schema validation happens at expression creation: if the input schema doesn't match `maybe_schema_in`, then a `ValueError` is raised immediately. The output schema is the same as input (just filtered rows), so `maybe_schema_out=actual_schema`.
+8. Execute the validated expression to apply business rule validation. Runtime validation (the `validate_customer_data` function) runs during execution, filtering out rows with invalid status values. Schema validation already occurred at expression creation. Choosing when to validate and what to monitor matters for production.
 
 ## Production considerations
 
@@ -395,9 +403,9 @@ Choose the right validation strategy based on when you need to catch errors and 
 
 ### Choose validation timing
 
-**Expression creation validation (schema checks)**: Use for critical schema mismatches that would break your pipeline. These catch errors when you create the UDXF expression, before any data processing starts.
+**Validation at expression creation**: Schema checks catch critical schema mismatches that would break your pipeline when you create the UDXF expression, before any data processing starts.
 
-**Runtime validation (filters and assertions)**: Use for null checks, range validation, and business rules that filter rows. These catch data quality issues when you call `.execute()`.
+**Validation at runtime**: Filters and assertions handle null checks, range validation, and business rules that filter rows. These catch data quality issues when you call `.execute()`.
 
 For large datasets: Use schema validation in UDXFs for expression creation checks and filter-based validation for runtime data quality checks.
 

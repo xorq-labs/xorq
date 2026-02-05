@@ -62,11 +62,11 @@ results = predictions.execute()
 print(results)
 ```
 
-Wrapped pipelines work with Xorq expressions, not pandas DataFrames. `.fit()` returns a `FittedPipeline` that supports deferred execution, and `.predict()` creates an expression that executes only when you call `.execute()`. This deferred execution enables optimization and caching of the entire pipeline.
+Wrapped pipelines work with Xorq expressions, not pandas DataFrames. `.fit()` returns a `FittedPipeline` that supports deferred execution, and `.predict()` creates an expression that executes only when you call `.execute()`. This deferred execution enables optimization and caching of the entire pipeline. To change behavior without rewriting the pipeline, update parameters with `set_params()`.
 
 ## Manage pipeline parameters
 
-Xorq pipelines support sklearn's parameter naming convention for updating parameters. Use `set_params()` with the `step__parameter` syntax.
+Use `set_params()` with the `step__parameter` syntax. Xorq pipelines support sklearn's parameter naming convention.
 
 ### Update parameters
 
@@ -414,7 +414,7 @@ Expression schema: ibis.Schema {
 }
 ```
 
-Use a placeholder input table with the same schema as your training features. Tag the placeholder with `"model_input"` for deployment. The prediction expression is deferred until execution. This creates a deployment-ready expression that you can serve later using Xorq's serving infrastructure (e.g., Flight servers). The expression itself is not yet deployed or accessible to clients.
+Use a placeholder input table with the same schema as your training features. Tag the placeholder with `"model_input"` for deployment. The prediction expression is deferred until execution. This creates a deployment-ready expression that you can serve later using Xorq's serving infrastructure, for example Flight servers. The expression itself is not yet deployed or accessible to clients.
 
 ## Troubleshooting
 
@@ -433,7 +433,7 @@ When integrating sklearn pipelines, you may encounter issues with parameter upda
 1. Verify parameter name format: use `step_name__parameter_name` (double underscore)
 2. Check step names match pipeline definition: `sklearn_pipeline.named_steps.keys()`
 3. Verify parameter exists: `sklearn_pipeline.get_params().keys()`
-4. Use correct parameter value type (e.g., string vs. int)
+4. Use correct parameter value type, for example string versus int
 
 **Prevention**:
 

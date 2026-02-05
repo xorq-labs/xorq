@@ -129,21 +129,6 @@ for metric_name, value in results.items():
     print(f"{metric_name}: {value:.4f}")
 ```
 
-Run the script:
-
-```bash
-python evaluate_multiple_metrics.py
-```
-
-You should see a result like this (exact values will vary with random data):
-
-```
-accuracy: 0.4167
-precision: 0.3333
-recall: 0.0370
-f1: 0.0667
-```
-
 **Key points**:
 
 :::{.callout-warning}
@@ -178,12 +163,6 @@ y_true = test_df["target"].values
 roc_auc = roc_auc_score(y_true, y_proba)
 
 print(f"ROC-AUC: {roc_auc:.4f}")
-```
-
-Run this code after the previous example to see (exact value will vary with random data):
-
-```
-ROC-AUC: 0.5273
 ```
 
 ## Compare multiple models
@@ -450,7 +429,7 @@ if not all_passed:
 
 - Define acceptance criteria based on your application requirements
 - Validate multiple metrics to ensure balanced performance
-- Fail validation if any critical metric falls below the threshold
+- If any critical metric falls below the threshold, then fail validation
 
 Set thresholds based on your model's use case. For example, fraud detection might prioritize precision to minimize false positives, while customer churn prediction might prioritize recall to catch all churners.
 
@@ -474,7 +453,7 @@ When evaluating models, you may encounter issues computing specific metrics. Her
 4. Get probabilities: `y_proba = fitted_model.predict_proba(X_test)[:, 1]`
 5. Calculate metric: `roc_auc_score(y_true, y_proba)`
 
-**Prevention:**
+**Prevention**:
 
 - Use `predict_proba()` from fitted model for probability-based metrics (ROC-AUC, log loss)
 - Use `predict()` from fitted pipeline for class-based metrics (accuracy, precision, recall, F1)

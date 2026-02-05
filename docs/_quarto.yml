@@ -105,27 +105,16 @@ website:
             - href: guides/ml_workflows/integrate_sklearn_pipelines.qmd
             - href: guides/ml_workflows/train_models_at_scale.qmd
             - href: guides/ml_workflows/evaluate_model_performance.qmd
-            # - href: guides/ml_workflows/deploy_models_to_production.qmd
         - id: performance-workflows-section
           section: "Performance workflows"
           contents:
             - href: guides/performance_workflows/optimize_pipeline_performance.qmd
             - href: guides/performance_workflows/optimize_model_serving.qmd
-            # - href: guides/performance_workflows/manage_llm_costs.qmd
         - id: platform-workflows-section
           section: "Platform workflows"
           contents:
-            # - href: guides/platform_workflows/build_reproducible_environments.qmd
             - href: guides/platform_workflows/manage_compute_catalog.qmd
             - href: guides/platform_workflows/setup_cicd_pipelines.qmd
-            # - href: guides/platform_workflows/monitor_production_deployments.qmd
-            # - href: guides/platform_workflows/handle_production_errors.qmd
-            # - href: guides/platform_workflows/debug_pipeline_failures.qmd
-        # - id: advanced-workflows-section
-        #   section: "Advanced workflows"
-        #   contents:
-            # - href: guides/advanced_workflows/build_feature_store.qmd
-            # - href: guides/advanced_workflows/integrate_existing_tools.qmd
 
     - id: concepts
       title: "Concepts"

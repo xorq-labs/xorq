@@ -18,7 +18,7 @@ Before adding builds to the catalog, you need to create a build from your Xorq e
 
 ## I have an expression
 
-If you already have a Python file with your Xorq expression, then you can proceed directly to building. Make sure your expression is assigned to a variable (e.g., `model_expr`, `my_expr`, etc.) that you can reference with the `-e` flag.
+If you already have a Python file with your Xorq expression, then you can proceed directly to building. Make sure your expression is assigned to a variable, for example `model_expr` or `my_expr`, that you can reference with the `-e` flag.
 
 For example, if your file `my_expression.py` contains an expression variable:
 
@@ -83,13 +83,13 @@ Build your expression into a reusable artifact. Replace `<your_file.py>` with yo
 xorq build <your_file.py> -e <expression_name> --builds-dir builds
 ```
 
-For example, if you created `train_model.py` with `model_expr`:
+For example, if you created `train_model.py` with `model_expr`, then run:
 
 ```bash
 xorq build train_model.py -e model_expr --builds-dir builds
 ```
 
-**You should see output like this:**
+**You should see output like this**:
 
 ```
 Building model_expr from train_model.py
@@ -98,22 +98,22 @@ builds/abc123def456
 ```
 
 :::{.callout-important}
-The last line (`builds/abc123def456`) is the build hash directory. **Copy this hash** - you'll need it in the next step to add the build to the catalog. Replace `abc123def456` with your actual hash.
+The last line (`builds/abc123def456`) is the build hash directory. Copy this hash; you use it when adding the build to the catalog. Replace `abc123def456` with your actual hash.
 :::
 
 ## Add builds to the catalog
 
-Add builds to the catalog so you can reference them by alias instead of build hash.
+Add builds to the catalog so you can reference them by alias instead of build hash. That way you can run or serve a build by name, for example `my-model`, without copying the build hash.
 
 ### Add a build with an alias
 
-Add a build directory to the catalog:
+Register a build directory under a short name so you can use it in later commands. Run:
 
 ```bash
 xorq catalog add builds/<build_hash> --alias my-model
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Added build <build_hash> as entry <entry_id> revision r1
@@ -129,7 +129,7 @@ View all entries and aliases in your catalog:
 xorq catalog ls
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Aliases:
@@ -148,7 +148,7 @@ Get the catalog storage location and statistics:
 xorq catalog info
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Catalog path: /Users/username/.config/xorq/catalog.yaml
@@ -174,7 +174,7 @@ Find builds by searching aliases:
 xorq catalog ls | grep my-model
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 my-model        <entry_id>    r1
@@ -194,7 +194,7 @@ Add a build with a development alias:
 xorq catalog add builds/<build_hash> --alias model-dev
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Added build <build_hash> as entry <entry_id> revision r1
@@ -208,7 +208,7 @@ After testing in development, promote the same build to staging:
 xorq catalog add builds/<build_hash> --alias model-staging
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Added build <build_hash> as entry <entry_id> revision r1
@@ -222,7 +222,7 @@ After staging validation, promote to production:
 xorq catalog add builds/<build_hash> --alias model-prod
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Added build <build_hash> as entry <entry_id> revision r1
@@ -262,7 +262,7 @@ xorq catalog ls | grep model-prod
 
 :::
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 model-prod      <new_entry_id>    r1
@@ -282,7 +282,7 @@ Compare two builds using aliases, entry IDs, or build hashes:
 xorq catalog diff-builds model-dev model-prod
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 ## Diff: expr.yaml
@@ -320,7 +320,7 @@ Remove a build entry from the catalog:
 xorq catalog rm <entry_id>
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Removed entry <entry_id>
@@ -336,7 +336,7 @@ Remove just an alias, keeping the entry:
 xorq catalog rm my-model
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Removed alias my-model
@@ -382,7 +382,7 @@ Get the catalog storage path:
 xorq catalog info
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 Catalog path: /Users/username/.config/xorq/catalog.yaml
@@ -400,7 +400,7 @@ CATALOG_DIR=$(dirname "$CATALOG_PATH")
 tar -czf catalog-backup-$(date +%Y%m%d).tar.gz "$CATALOG_DIR"
 ```
 
-**You should see a result like this:**
+**You should see a result like this**:
 
 ```
 catalog-backup-20260119.tar.gz
@@ -422,7 +422,7 @@ Common issues when managing the catalog.
 
 1. Verify the file exists: `ls <filename>` or `ls *.py`
 2. Check you're in the correct directory: `pwd`
-3. Use the full path if the file is elsewhere: `xorq build /full/path/to/file.py -e <expression_name> --builds-dir builds`
+3. If the file is elsewhere, then use the full path: `xorq build /full/path/to/file.py -e <expression_name> --builds-dir builds`
 4. If you haven't created the file yet, see the [Create an expression file](#create-an-expression-file) section above
 
 ### Issue: Build not found in catalog
@@ -435,8 +435,8 @@ Common issues when managing the catalog.
 
 1. List catalog entries: `xorq catalog ls`
 2. Verify the alias spelling
-3. Add the build if it's missing: `xorq catalog add builds/<build_hash> --alias <alias>`
-4. Use the entry ID instead of alias if the alias was removed
+3. If the build is missing, then add it: `xorq catalog add builds/<build_hash> --alias <alias>`
+4. If the alias was removed, then use the entry ID instead of the alias
 
 ### Issue: Alias points to wrong build
 
@@ -461,7 +461,7 @@ Common issues when managing the catalog.
 
 1. Check catalog location: `xorq catalog info`
 2. Verify write permissions on the catalog directory
-3. Free up disk space if storage is full
+3. If storage is full, then free up disk space
 4. Check that the build directory exists and is readable
 
 ## Next steps

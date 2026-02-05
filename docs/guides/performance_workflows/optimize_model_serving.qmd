@@ -12,6 +12,8 @@ If you haven't installed Xorq yet, then see the [installation guide](../../getti
 
 ## Set up a test Flight server
 
+The examples on this page assume a local Flight server is running. Follow the steps below to create a minimal UDXF, build it, and start the server so you can run the connection-pool and caching examples.
+
 1. Create a `test_udxf.py` file in your project directory with this content:
 
 ```{python}
@@ -71,7 +73,7 @@ xorq build test_udxf.py --expr-name expr
 
 This creates a directory like `builds/<BUILD_HASH>/`. Copy your hash from the build output.
 
-3. In **Terminal 1**, start the Flight server (and leave it running):
+3. In Terminal 1, start the Flight server and leave it running:
 
 ```bash
 xorq serve-flight-udxf builds/<BUILD_HASH> --host 0.0.0.0 --port 8080
@@ -79,13 +81,11 @@ xorq serve-flight-udxf builds/<BUILD_HASH> --host 0.0.0.0 --port 8080
 
 ![](../../images/guides/optimize-model-serving-server.png)
 
-4. In **Terminal 2**, run the code examples on this page by saving each snippet as a `.py` file (for example, `connection_pool.py`, `singleton_client.py`, etc.) and running them with Python while the server in Terminal 1 stays running.
+4. In Terminal 2, run the code examples on this page by saving each snippet as a `.py` file, for example `connection_pool.py` or `singleton_client.py`, and running them with Python while the server in Terminal 1 stays running. Reusing the same connection across requests reduces overhead and improves latency.
 
 ## Reuse client connections
 
-All examples in this section assume the test Flight server from the previous section is running and exposes an exchange named `"default"`.
-
-Reusing Flight client connections reduces connection overhead and improves latency. Create a connection pool or a singleton client for your application.
+Create a connection pool or a singleton client for your application. All examples in this section assume the test Flight server is running and exposes an exchange named `"default"`.
 
 ### Create a connection pool
 
@@ -247,7 +247,7 @@ xorq serve-unbound fraud-detection-prod \
   --to_unbind_tag source_input
 ```
 
-This example assumes you have a built expression named `fraud-detection-prod` (for example, from a deployment guide) and a tag `source_input` defined when building that expression.
+This example assumes you have a built expression named `fraud-detection-prod`, for example from a deployment guide, and a tag `source_input` defined when building that expression.
 
 **Key points**:
 
@@ -312,7 +312,7 @@ except (OSError, ConnectionError, Exception) as e:
 ```
 1. Import `hashlib` for hashing and `pickle` for serialization. Define a function that creates a hash of DataFrame values for use as a cache key.
 2. Initialize an in-memory cache dictionary to store prediction results.
-3. Define a caching prediction function that checks the cache first, and only makes a network request if the result isn't cached. Store results in the cache for future requests.
+3. Define a caching prediction function that checks the cache first, and only makes a network request if the result isn't cached; then store results in the cache for future requests.
 4. Import `pandas` for DataFrames and `xorq.api` for Xorq operations. Connect to the Flight server using `xo.flight.connect()` with host and port, create test data, and use the caching function to make predictions. Display the results.
 ```text
 You should see a result like this:
