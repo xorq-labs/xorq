@@ -784,7 +784,7 @@ def lazy_register_sklearn():
         """Get number of output features from a feature selector instance.
 
         Returns the number of features the selector will output, or None if
-        it cannot be determined at compile time.
+        it cannot be determined before execution.
         """
         match instance:
             case object(k=k):
@@ -807,13 +807,13 @@ def lazy_register_sklearn():
                 # SelectFromModel uses max_features or threshold
                 match max_f:
                     case None | object(__call__=_):
-                        # Can't determine at compile time
+                        # Can't determine before execution
                         return None
                     case _:
                         return min(max_f, n_features_in)
             case SelectFpr() | SelectFdr() | SelectFwe() | GenericUnivariateSelect():
                 # SelectFpr, SelectFdr, SelectFwe, GenericUnivariateSelect - alpha/threshold based
-                # Can't determine number of features at compile time
+                # Can't determine number of features before execution
                 return None
             case _:
                 return None
@@ -863,7 +863,7 @@ def lazy_register_sklearn():
         """Get number of output components from a transformer instance.
 
         Returns the number of components/clusters the transformer will output,
-        or None if it cannot be determined at compile time.
+        or None if it cannot be determined before execution.
         """
         # PCA, NMF, TruncatedSVD, FastICA, etc. use n_components
         if hasattr(instance, "n_components"):
