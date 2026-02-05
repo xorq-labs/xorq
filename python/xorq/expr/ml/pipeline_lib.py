@@ -921,15 +921,57 @@ class FittedPipeline:
         methodname="feature_importances",
     )
 
-    def score_expr(self, expr, metric_fn=None, use_proba=False, **kwargs):
+    def _get_default_scorer(self):
+        """Get the default scorer based on model type.
+
+        Returns
+        -------
+        scorer
+            An sklearn scorer object appropriate for the model type.
+
+        Raises
+        ------
+        ValueError
+            If clustering model has no target column.
+        """
+        from sklearn.base import ClassifierMixin, ClusterMixin, RegressorMixin
+        from sklearn.metrics import (
+            accuracy_score,
+            adjusted_rand_score,
+            make_scorer,
+            r2_score,
+            silhouette_score,
+        )
+
+        model = self.predict_step.model
+
+        match model:
+            case ClusterMixin() if self.predict_step.target is None:
+                # Use silhouette_score for unsupervised clustering evaluation
+                return make_scorer(silhouette_score)
+            case ClusterMixin():
+                # Use adjusted_rand_score for supervised clustering evaluation
+                return make_scorer(adjusted_rand_score)
+            case ClassifierMixin():
+                return make_scorer(accuracy_score)
+            case RegressorMixin():
+                return make_scorer(r2_score)
+            case _:
+                raise ValueError(
+                    f"Cannot determine default scorer for model type {type(model).__name__}. "
+                    "Please specify a scorer explicitly."
+                )
+
+    def score_expr(self, expr, scorer=None, use_proba=False, **kwargs):
         """Compute metrics using deferred execution.
 
         Parameters
         ----------
         expr : ibis.Expr
             Expression containing test data
-        metric_fn : callable, optional
-            Metric function from sklearn.metrics. If None, uses model's default
+        scorer : str or callable, optional
+            Scorer name from sklearn.metrics.get_scorer_names() or a callable metric function.
+            If None, uses model's default (accuracy for classifiers, r2 for regressors)
         use_proba : bool, optional
             If True, use predict_proba for metric computation (default: False)
         **kwargs : dict
@@ -940,16 +982,38 @@ class FittedPipeline:
         ibis.Expr
             Deferred metric expression
         """
-        from sklearn.base import is_classifier
-        from sklearn.metrics import accuracy_score, r2_score
+        from sklearn.metrics import get_scorer
+        from sklearn.metrics._scorer import _BaseScorer
 
         from xorq.expr.ml.metrics import deferred_sklearn_metric
 
-        # Default metric based on model type
-        if metric_fn is None:
-            metric_fn = (
-                accuracy_score if is_classifier(self.predict_step.model) else r2_score
-            )
+        # Convert scorer to metric function
+        match scorer:
+            case None:
+                # Default metric based on model type
+                scorer_obj = self._get_default_scorer()
+                score_fn = scorer_obj._score_func
+                sign = scorer_obj._sign
+            case str():
+                # Get scorer from name and extract underlying metric function
+                scorer_obj = get_scorer(scorer)
+                score_fn = scorer_obj._score_func
+                sign = scorer_obj._sign
+            case _BaseScorer():
+                # sklearn scorer object, extract the metric function
+                score_fn = scorer._score_func
+                sign = scorer._sign
+            case _ if callable(scorer):
+                # Assume it's a metric function, wrap it in a scorer
+                from sklearn.metrics import make_scorer
+
+                scorer_obj = make_scorer(scorer)
+                score_fn = scorer_obj._score_func
+                sign = scorer_obj._sign
+            case _:
+                raise ValueError(
+                    f"scorer must be a string, callable, or None, got {type(scorer)}"
+                )
 
         # Get predictions with appropriate method
         expr_with_preds, pred_col = (
@@ -958,15 +1022,42 @@ class FittedPipeline:
             else (self.predict(expr), "predicted")
         )
 
+        # Wrap score_fn to apply sign (for neg_* scorers)
+        maybe_signed_score_fn = (
+            score_fn
+            if sign == 1
+            else lambda y_true, y_pred, **kwargs: sign
+            * score_fn(y_true, y_pred, **kwargs)
+        )
+
         return deferred_sklearn_metric(
             expr=expr_with_preds,
             target=self.predict_step.target,
             pred_col=pred_col,
-            metric_fn=metric_fn,
+            metric_fn=maybe_signed_score_fn,
             metric_kwargs=kwargs,
         )
 
-    def score(self, X, y, **kwargs):
+    def score(self, X, y, scorer=None, **kwargs):
+        """Compute model score on test data.
+
+        Parameters
+        ----------
+        X : array-like
+            Test features
+        y : array-like
+            Test targets
+        scorer : str or callable, optional
+            Scorer name from sklearn.metrics.get_scorer_names() or a callable metric function.
+            If None, uses model's default (accuracy for classifiers, r2 for regressors)
+        **kwargs : dict
+            Additional arguments passed to the scorer function
+
+        Returns
+        -------
+        float
+            The computed score
+        """
         import numpy as np
         import pandas as pd
 
@@ -980,7 +1071,7 @@ class FittedPipeline:
             columns=self.predict_step.features,
         ).assign(**{self.predict_step.target: y})
         expr = api.register(df, "t")
-        return self.score_expr(expr, **kwargs).execute()
+        return self.score_expr(expr, scorer=scorer, **kwargs).execute()
 
 
 def get_target_type(step_instance, step, expr, features, target):

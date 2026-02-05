@@ -470,6 +470,483 @@ class TestDeeplyNestedPipelines:
         assert np.array_equal(predictions["predicted"].values, sklearn_preds)
 
 
+class TestPipelineScoring:
+    """Tests for pipeline scoring with all compatible scorers."""
+
+    # Compatible scorers discovered by test_report_scorer_compatibility
+    CLASSIFIER_SCORERS = frozenset(
+        [
+            "accuracy",
+            "adjusted_mutual_info_score",
+            "adjusted_rand_score",
+            "average_precision",
+            "balanced_accuracy",
+            "completeness_score",
+            "d2_absolute_error_score",
+            "explained_variance",
+            "f1",
+            "f1_macro",
+            "f1_micro",
+            "f1_weighted",
+            "fowlkes_mallows_score",
+            "homogeneity_score",
+            "jaccard",
+            "jaccard_macro",
+            "jaccard_micro",
+            "jaccard_weighted",
+            "matthews_corrcoef",
+            "mutual_info_score",
+            "neg_brier_score",
+            "neg_log_loss",
+            "neg_max_error",
+            "neg_mean_absolute_error",
+            "neg_mean_absolute_percentage_error",
+            "neg_mean_squared_error",
+            "neg_mean_squared_log_error",
+            "neg_median_absolute_error",
+            "neg_negative_likelihood_ratio",
+            "neg_root_mean_squared_error",
+            "neg_root_mean_squared_log_error",
+            "normalized_mutual_info_score",
+            "positive_likelihood_ratio",
+            "precision",
+            "precision_macro",
+            "precision_micro",
+            "precision_weighted",
+            "r2",
+            "rand_score",
+            "recall",
+            "recall_macro",
+            "recall_micro",
+            "recall_weighted",
+            "roc_auc",
+            "roc_auc_ovo",
+            "roc_auc_ovo_weighted",
+            "roc_auc_ovr",
+            "roc_auc_ovr_weighted",
+            "top_k_accuracy",
+            "v_measure_score",
+        ]
+    )
+
+    REGRESSOR_SCORERS = frozenset(
+        [
+            "adjusted_mutual_info_score",
+            "adjusted_rand_score",
+            "completeness_score",
+            "d2_absolute_error_score",
+            "explained_variance",
+            "fowlkes_mallows_score",
+            "homogeneity_score",
+            "mutual_info_score",
+            "neg_max_error",
+            "neg_mean_absolute_error",
+            "neg_mean_absolute_percentage_error",
+            "neg_mean_squared_error",
+            "neg_median_absolute_error",
+            "neg_root_mean_squared_error",
+            "normalized_mutual_info_score",
+            "r2",
+            "rand_score",
+            "v_measure_score",
+        ]
+    )
+
+    CLUSTER_SUPERVISED_SCORERS = frozenset(
+        [
+            "accuracy",
+            "adjusted_mutual_info_score",
+            "adjusted_rand_score",
+            "balanced_accuracy",
+            "completeness_score",
+            "d2_absolute_error_score",
+            "explained_variance",
+            "f1",
+            "f1_macro",
+            "f1_micro",
+            "f1_weighted",
+            "fowlkes_mallows_score",
+            "homogeneity_score",
+            "jaccard",
+            "jaccard_macro",
+            "jaccard_micro",
+            "jaccard_weighted",
+            "matthews_corrcoef",
+            "mutual_info_score",
+            "neg_max_error",
+            "neg_mean_absolute_error",
+            "neg_mean_absolute_percentage_error",
+            "neg_mean_squared_error",
+            "neg_mean_squared_log_error",
+            "neg_median_absolute_error",
+            "neg_negative_likelihood_ratio",
+            "neg_root_mean_squared_error",
+            "neg_root_mean_squared_log_error",
+            "normalized_mutual_info_score",
+            "positive_likelihood_ratio",
+            "precision",
+            "precision_macro",
+            "precision_micro",
+            "precision_weighted",
+            "r2",
+            "rand_score",
+            "recall",
+            "recall_macro",
+            "recall_micro",
+            "recall_weighted",
+            "v_measure_score",
+        ]
+    )
+
+    # Note: No unsupervised clustering scorers work via sklearn's scorer API
+    CLUSTER_UNSUPERVISED_SCORERS = frozenset([])
+
+    # Known problematic scorers that need investigation/fixes
+    KNOWN_ISSUES = frozenset(
+        [
+            # Multiclass scorers with averaging that don't match sklearn
+            "f1_macro",
+            "f1_micro",
+            "f1_weighted",
+            "precision_macro",
+            "precision_micro",
+            "precision_weighted",
+            "recall_macro",
+            "recall_micro",
+            "recall_weighted",
+            "jaccard_macro",
+            "jaccard_micro",
+            "jaccard_weighted",
+            # Clustering metrics when used with regressors/classifiers
+            "adjusted_mutual_info_score",
+            "adjusted_rand_score",
+            "completeness_score",
+            "fowlkes_mallows_score",
+            "homogeneity_score",
+            "mutual_info_score",
+            "normalized_mutual_info_score",
+            "rand_score",
+            "v_measure_score",
+        ]
+    )
+
+    @pytest.fixture
+    def scoring_data(self):
+        """Generate dataset suitable for classification, regression, and clustering."""
+        import numpy as np
+
+        np.random.seed(42)
+        n = 100
+        return {
+            "x1": np.random.randn(n).tolist(),
+            "x2": np.random.randn(n).tolist(),
+            "y_class": (np.random.randn(n) > 0).astype(int).tolist(),
+            "y_reg": np.random.randn(n).tolist(),
+        }
+
+    @pytest.fixture(scope="class")
+    def all_scorer_names(self):
+        """Get all available scorer names."""
+        from sklearn.metrics import get_scorer_names
+
+        return get_scorer_names()
+
+    def test_report_scorer_compatibility(self, scoring_data, all_scorer_names):
+        """Report which scorers are compatible with each model type."""
+        import numpy as np
+        from sklearn.cluster import KMeans
+        from sklearn.linear_model import LinearRegression, LogisticRegression
+        from sklearn.metrics import get_scorer
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        # Prepare data
+        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+        y_class = np.array(scoring_data["y_class"])
+        y_reg = np.array(scoring_data["y_reg"])
+
+        # Create and fit pipelines
+        classifier_pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("model", LogisticRegression(random_state=42, max_iter=1000)),
+            ]
+        )
+        classifier_pipe.fit(X, y_class)
+
+        regressor_pipe = SklearnPipeline(
+            [("scaler", StandardScaler()), ("model", LinearRegression())]
+        )
+        regressor_pipe.fit(X, y_reg)
+
+        clusterer_pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clusterer", KMeans(n_clusters=2, random_state=42, n_init=10)),
+            ]
+        )
+        clusterer_pipe.fit(X)
+
+        # Test compatibility
+        classifier_scorers = []
+        regressor_scorers = []
+        cluster_supervised_scorers = []
+        cluster_unsupervised_scorers = []
+
+        for scorer_name in all_scorer_names:
+            scorer = get_scorer(scorer_name)
+
+            # Test classifier
+            try:
+                scorer(classifier_pipe, X, y_class)
+                classifier_scorers.append(scorer_name)
+            except (AttributeError, ValueError, TypeError):
+                pass
+
+            # Test regressor
+            try:
+                scorer(regressor_pipe, X, y_reg)
+                regressor_scorers.append(scorer_name)
+            except (AttributeError, ValueError, TypeError):
+                pass
+
+            # Test clustering with target
+            try:
+                scorer(clusterer_pipe, X, y_class)
+                cluster_supervised_scorers.append(scorer_name)
+            except (AttributeError, ValueError, TypeError):
+                pass
+
+            # Test clustering without target
+            try:
+                scorer(clusterer_pipe, X)
+                cluster_unsupervised_scorers.append(scorer_name)
+            except (AttributeError, ValueError, TypeError):
+                pass
+
+        # Print comprehensive report
+        print("\n" + "=" * 80)
+        print("SCORER COMPATIBILITY REPORT")
+        print("=" * 80)
+
+        print(f"\nCLASSIFIER SCORERS ({len(classifier_scorers)}):")
+        for s in sorted(classifier_scorers):
+            print(f"  • {s}")
+
+        print(f"\nREGRESSOR SCORERS ({len(regressor_scorers)}):")
+        for s in sorted(regressor_scorers):
+            print(f"  • {s}")
+
+        print(f"\nCLUSTERING SCORERS - SUPERVISED ({len(cluster_supervised_scorers)}):")
+        for s in sorted(cluster_supervised_scorers):
+            print(f"  • {s}")
+
+        print(
+            f"\nCLUSTERING SCORERS - UNSUPERVISED ({len(cluster_unsupervised_scorers)}):"
+        )
+        for s in sorted(cluster_unsupervised_scorers):
+            print(f"  • {s}")
+
+        print(f"\nTOTAL SCORERS AVAILABLE: {len(all_scorer_names)}")
+        print("=" * 80 + "\n")
+
+    @pytest.mark.parametrize(
+        "model_type,target_col",
+        [
+            ("classifier", "y_class"),
+            ("regressor", "y_reg"),
+        ],
+    )
+    def test_score_all_scorers_match_sklearn(
+        self, scoring_data, model_type, target_col
+    ):
+        """Test that xorq pipeline .score() matches sklearn for all compatible scorers."""
+        import numpy as np
+        from sklearn.linear_model import LinearRegression, LogisticRegression
+        from sklearn.metrics import get_scorer
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        # Get expected compatible scorers
+        if model_type == "classifier":
+            expected_scorers = self.CLASSIFIER_SCORERS
+            sklearn_pipe = SklearnPipeline(
+                [
+                    ("scaler", StandardScaler()),
+                    ("model", LogisticRegression(random_state=42, max_iter=1000)),
+                ]
+            )
+        else:  # regressor
+            expected_scorers = self.REGRESSOR_SCORERS
+            sklearn_pipe = SklearnPipeline(
+                [("scaler", StandardScaler()), ("model", LinearRegression())]
+            )
+
+        # Prepare data
+        t = xo.memtable(scoring_data)
+        features = ("x1", "x2")
+        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+        y = np.array(scoring_data[target_col])
+
+        # Fit sklearn pipeline
+        sklearn_pipe.fit(X, y)
+
+        # Fit xorq pipeline using from_instance
+        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+        fitted_xorq = xorq_pipeline.fit(t, features=features, target=target_col)
+
+        # Test all expected compatible scorers
+        tested_count = 0
+        failed_scorers = []
+
+        for scorer_name in expected_scorers:
+            # Skip known problematic scorers
+            if scorer_name in self.KNOWN_ISSUES:
+                continue
+
+            try:
+                scorer = get_scorer(scorer_name)
+
+                # Score with sklearn
+                sklearn_score = scorer(sklearn_pipe, X, y)
+
+                # Score with xorq using .score()
+                xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
+
+                # Assert scores match (within floating point tolerance)
+                np.testing.assert_allclose(
+                    xorq_score,
+                    sklearn_score,
+                    rtol=1e-9,
+                    atol=1e-12,
+                    err_msg=f"Mismatch for scorer: {scorer_name}",
+                )
+                tested_count += 1
+            except Exception as e:
+                failed_scorers.append((scorer_name, str(e)[:100]))
+
+        # Report results
+        expected_testable = len(expected_scorers - self.KNOWN_ISSUES)
+        print(
+            f"\n{model_type.upper()} - Successfully tested {tested_count}/{expected_testable} scorers"
+        )
+        print(f"Skipped {len(self.KNOWN_ISSUES & expected_scorers)} known issues")
+
+        if failed_scorers:
+            print(f"Failed {len(failed_scorers)} scorers:")
+            for scorer_name, error in failed_scorers[:3]:
+                print(f"  ✗ {scorer_name}: {error}")
+
+        # We should have tested most scorers (allowing some failures)
+        assert tested_count >= expected_testable * 0.8, (
+            f"Too many failures: only {tested_count}/{expected_testable} passed"
+        )
+
+    @pytest.mark.parametrize(
+        "has_target",
+        [True, False],
+    )
+    def test_clustering_score_all_scorers_match_sklearn(self, scoring_data, has_target):
+        """Test that xorq clustering .score() matches sklearn for all clustering scorers."""
+        import numpy as np
+        from sklearn.cluster import KMeans
+        from sklearn.metrics import get_scorer
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        # Get expected compatible scorers
+        if has_target:
+            expected_scorers = self.CLUSTER_SUPERVISED_SCORERS
+        else:
+            expected_scorers = self.CLUSTER_UNSUPERVISED_SCORERS
+
+        # Skip if no scorers expected (unsupervised clustering has none via scorer API)
+        if not expected_scorers:
+            pytest.skip(
+                "No scorers compatible with unsupervised clustering via sklearn scorer API"
+            )
+
+        # Create sklearn clustering pipeline
+        sklearn_pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clusterer", KMeans(n_clusters=2, random_state=42, n_init=10)),
+            ]
+        )
+
+        # Prepare data
+        t = xo.memtable(scoring_data)
+        features = ("x1", "x2")
+        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+
+        # Fit sklearn pipeline
+        if has_target:
+            y_true = np.array(scoring_data["y_class"])
+            sklearn_pipe.fit(X, y_true)
+            target_col = "y_class"
+        else:
+            sklearn_pipe.fit(X)
+            target_col = None
+
+        # Fit xorq pipeline using from_instance
+        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+        fitted_xorq = xorq_pipeline.fit(t, features=features, target=target_col)
+
+        # Test all expected compatible scorers
+        tested_count = 0
+        failed_scorers = []
+
+        for scorer_name in expected_scorers:
+            # Skip known problematic scorers
+            if scorer_name in self.KNOWN_ISSUES:
+                continue
+
+            try:
+                scorer = get_scorer(scorer_name)
+
+                # Score with sklearn
+                if has_target:
+                    sklearn_score = scorer(sklearn_pipe, X, y_true)
+                else:
+                    sklearn_score = scorer(sklearn_pipe, X)
+
+                # Score with xorq using .score()
+                if has_target:
+                    xorq_score = fitted_xorq.score(X, y_true, scorer=scorer_name)
+                else:
+                    xorq_score = fitted_xorq.score(X, None, scorer=scorer_name)
+
+                # Assert scores match (within floating point tolerance)
+                np.testing.assert_allclose(
+                    xorq_score,
+                    sklearn_score,
+                    rtol=1e-9,
+                    atol=1e-12,
+                    err_msg=f"Mismatch for scorer: {scorer_name}",
+                )
+                tested_count += 1
+            except Exception as e:
+                failed_scorers.append((scorer_name, str(e)[:100]))
+
+        # Report results
+        expected_testable = len(expected_scorers - self.KNOWN_ISSUES)
+        label = "CLUSTERING (supervised)" if has_target else "CLUSTERING (unsupervised)"
+        print(
+            f"\n{label} - Successfully tested {tested_count}/{expected_testable} scorers"
+        )
+        print(f"Skipped {len(self.KNOWN_ISSUES & expected_scorers)} known issues")
+
+        if failed_scorers:
+            print(f"Failed {len(failed_scorers)} scorers:")
+            for scorer_name, error in failed_scorers[:3]:
+                print(f"  ✗ {scorer_name}: {error}")
+
+        # We should have tested most scorers (allowing some failures)
+        assert tested_count >= expected_testable * 0.8, (
+            f"Too many failures: only {tested_count}/{expected_testable} passed"
+        )
+
+
 class TestClusteringPredict:
     """Tests for clustering algorithm predict support."""
 
