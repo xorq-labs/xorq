@@ -77,6 +77,26 @@ VIGNETTES = [
         difficulty="beginner"
     ),
     Vignette(
+        name="bank_marketing_column_transformer",
+        filename="bank_marketing_column_transformer.py",
+        title="Production Preprocessing with ColumnTransformer",
+        description=textwrap.dedent("""
+            Demonstrates production-ready preprocessing patterns using sklearn's ColumnTransformer
+            to handle heterogeneous features. This vignette teaches:
+            - ColumnTransformer for applying different preprocessing to numeric vs categorical features
+            - Nested sklearn pipelines for multi-step transformations
+            - Imputation strategies: median for numeric, constant fill for categorical
+            - StandardScaler for numeric normalization and OneHotEncoder for categorical encoding
+            - GradientBoostingClassifier for binary classification
+
+            Essential for building real-world ML systems where datasets contain mixed feature types
+            requiring different preprocessing approaches. Shows how to compose complex sklearn
+            pipelines within xorq's deferred execution framework.
+        """).strip(),
+        tags=["ml", "preprocessing", "column_transformer", "imputation", "sklearn_pipeline", "classification"],
+        difficulty="intermediate"
+    ),
+    Vignette(
         name="baseball_breakout_expr_scalar",
         filename="baseball_breakout_expr_scalar.py",
         title="Baseball Player Breakout Prediction with ExprScalarUDF",
