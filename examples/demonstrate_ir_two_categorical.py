@@ -1,5 +1,15 @@
 """
-Hybrid ColumnTransformer output: known-schema + two KV-encoded columns & sklearn prefix
+Demonstrates a hybrid ColumnTransformer pipeline with numeric, text (TF-IDF), and categorical (OneHotEncoder) features.
+
+Traditional approach: With plain sklearn, you build a ColumnTransformer with manual
+column selection and fit it on in-memory pandas DataFrames. Switching data sources
+(e.g., from CSV to a database) means rewriting your loading code. There is no
+separation between data definition and execution.
+
+With xorq: You use the same sklearn transformers, but data loading is backend-agnostic
+via Ibis expressions -- swap a memtable for a database table with no pipeline changes.
+The ColumnTransformer definition is composable with deferred execution, and the
+intermediate IR schemas are inspectable before any computation runs.
 """
 
 import numpy as np

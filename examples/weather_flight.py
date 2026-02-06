@@ -1,3 +1,16 @@
+"""End-to-end feature store with offline/online features, materialization, inference, and historical retrieval for weather data.
+
+Traditional approach: You would build a custom feature store with separate offline
+(batch) and online (serving) paths, manually managing feature registration,
+materialization jobs, and point-in-time joins. Keeping offline and online feature
+definitions in sync and orchestrating the data flow between batch storage and a
+low-latency serving layer requires substantial boilerplate.
+
+With xorq: The feature store API handles offline/online feature definitions, automatic
+materialization to Flight servers, point-in-time joins for training data, and inference
+-- all through composable Ibis expressions. Feature views declaratively bind entities,
+features, and source expressions, so adding or updating features requires minimal code.
+"""
 import argparse
 
 # import logging

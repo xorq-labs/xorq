@@ -1,3 +1,16 @@
+"""
+Applies TF-IDF transformation to HackerNews titles with and without caching, verifying that results are identical.
+
+Traditional approach: You call sklearn's TfidfVectorizer.fit_transform() on in-memory
+data, then manually pickle the fitted model and save transformed outputs to disk. Cache
+invalidation, path management, and ensuring reproducibility are all your responsibility.
+
+With xorq: deferred_fit_transform wraps any sklearn transformer with lazy execution and
+optional ParquetCache. The fitted model and transformed output are automatically cached
+and content-addressed, so re-runs skip redundant computation without any manual
+serialization code.
+"""
+
 import pickle
 
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -49,7 +62,7 @@ train_expr, test_expr = (
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     model = deferred_model.execute()
     transformed = test_expr.mutate(
         **{"transformed": deferred_transform.on_expr}
