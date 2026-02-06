@@ -79,7 +79,7 @@ clf_metrics = (
         expr=clf_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=accuracy_score,
+        scorer=accuracy_score,
     )
     .as_scalar()
     .name("accuracy")
@@ -89,7 +89,7 @@ clf_metrics = (
             expr=clf_preds,
             target="target",
             pred_col="predicted",
-            metric_str_fn_callable=f1_score,
+            scorer=f1_score,
         ).as_scalar()
     )
 )
@@ -112,7 +112,7 @@ reg_metrics = (
         expr=reg_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=r2_score,
+        scorer=r2_score,
     )
     .as_scalar()
     .name("r2")
@@ -122,7 +122,7 @@ reg_metrics = (
             expr=reg_preds,
             target="target",
             pred_col="predicted",
-            metric_str_fn_callable=mean_squared_error,
+            scorer=mean_squared_error,
         ).as_scalar()
     )
 )
@@ -146,7 +146,7 @@ clu_metrics = (
         expr=clu_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=adjusted_rand_score,
+        scorer=adjusted_rand_score,
     )
     .as_scalar()
     .name("adj_rand")
@@ -157,7 +157,7 @@ clu_metrics = (
             expr=clu_preds,
             target="target",
             pred_col="predicted",
-            metric_str_fn_callable="neg_mean_squared_error",
+            scorer="neg_mean_squared_error",
         ).as_scalar()
     )
 )

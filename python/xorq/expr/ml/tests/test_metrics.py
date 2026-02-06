@@ -139,7 +139,7 @@ def test_pipeline_classification_metrics(classification_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=accuracy_score,
+        scorer=accuracy_score,
     )
     actual_accuracy = accuracy_expr.execute()
     assert np.isclose(actual_accuracy, expected_accuracy)
@@ -149,7 +149,7 @@ def test_pipeline_classification_metrics(classification_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=precision_score,
+        scorer=precision_score,
     )
     actual_precision = precision_expr.execute()
     assert np.isclose(actual_precision, expected_precision)
@@ -159,7 +159,7 @@ def test_pipeline_classification_metrics(classification_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=recall_score,
+        scorer=recall_score,
     )
     actual_recall = recall_expr.execute()
     assert np.isclose(actual_recall, expected_recall)
@@ -169,7 +169,7 @@ def test_pipeline_classification_metrics(classification_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=f1_score,
+        scorer=f1_score,
     )
     actual_f1 = f1_expr.execute()
     assert np.isclose(actual_f1, expected_f1)
@@ -220,7 +220,7 @@ def test_pipeline_regression_metrics(regression_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=mean_squared_error,
+        scorer=mean_squared_error,
     )
     actual_mse = mse_expr.execute()
     assert np.isclose(actual_mse, expected_mse, rtol=1e-4)
@@ -230,7 +230,7 @@ def test_pipeline_regression_metrics(regression_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=mean_absolute_error,
+        scorer=mean_absolute_error,
     )
     actual_mae = mae_expr.execute()
     assert np.isclose(actual_mae, expected_mae, rtol=1e-4)
@@ -240,7 +240,7 @@ def test_pipeline_regression_metrics(regression_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=r2_score,
+        scorer=r2_score,
     )
     actual_r2 = r2_expr.execute()
     assert np.isclose(actual_r2, expected_r2, rtol=1e-4)
@@ -295,7 +295,7 @@ def test_pipeline_multiclass_metrics(multiclass_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=accuracy_score,
+        scorer=accuracy_score,
     )
     actual_accuracy = accuracy_expr.execute()
     assert np.isclose(actual_accuracy, expected_accuracy)
@@ -305,7 +305,7 @@ def test_pipeline_multiclass_metrics(multiclass_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=precision_score,
+        scorer=precision_score,
         metric_kwargs={"average": "macro", "zero_division": 0},
     )
     actual_precision = precision_expr.execute()
@@ -316,7 +316,7 @@ def test_pipeline_multiclass_metrics(multiclass_data):
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=recall_score,
+        scorer=recall_score,
         metric_kwargs={"average": "weighted", "zero_division": 0},
     )
     actual_recall = recall_expr.execute()
@@ -365,7 +365,7 @@ def test_custom_metric_with_pipeline():
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=custom_scorer,
+        scorer=custom_scorer,
         return_type=dt.float64,
     )
     result = custom_expr.execute()
@@ -408,7 +408,7 @@ def test_deferred_nature_with_pipeline():
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=accuracy_score,
+        scorer=accuracy_score,
     )
 
     # The expression should have an execute method (deferred)
@@ -422,7 +422,7 @@ def test_deferred_nature_with_pipeline():
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=precision_score,
+        scorer=precision_score,
         metric_kwargs={"average": "macro", "zero_division": 0},
     )
 
@@ -488,7 +488,7 @@ def test_predict_proba_metrics():
         expr=expr_with_proba,
         target="target",
         pred_col="predicted_proba",
-        metric_str_fn_callable=roc_auc_score,
+        scorer=roc_auc_score,
     )
 
     actual_auc = auc_expr.execute()
@@ -549,7 +549,7 @@ def test_probability_metric_without_predict_proba():
         expr=expr_with_scores,
         target="target",
         pred_col="decision_function",
-        metric_str_fn_callable=roc_auc_score,
+        scorer=roc_auc_score,
     )
 
     actual_auc = auc_expr.execute()
@@ -608,7 +608,7 @@ def test_probability_metric_multiclass_with_predict_proba():
         expr=expr_with_proba,
         target="target",
         pred_col="predicted_proba",
-        metric_str_fn_callable=roc_auc_score,
+        scorer=roc_auc_score,
         metric_kwargs={"multi_class": "ovr"},
     )
 
@@ -651,7 +651,7 @@ def test_metric_kwargs_with_pipeline():
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=precision_score,
+        scorer=precision_score,
         metric_kwargs={"average": "macro", "zero_division": 0},
     ).execute()
 
@@ -659,7 +659,7 @@ def test_metric_kwargs_with_pipeline():
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=precision_score,
+        scorer=precision_score,
         metric_kwargs={"average": "weighted", "zero_division": 0},
     ).execute()
 
@@ -701,7 +701,7 @@ def test_sign_auto_detected():
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable=mean_squared_error,
+        scorer=mean_squared_error,
     ).execute()
 
     # String scorer — sign=-1 (negated by convention)
@@ -709,7 +709,7 @@ def test_sign_auto_detected():
         expr=expr_with_preds,
         target="target",
         pred_col="predicted",
-        metric_str_fn_callable="neg_mean_squared_error",
+        scorer="neg_mean_squared_error",
     ).execute()
 
     assert mse_negative == -mse_positive

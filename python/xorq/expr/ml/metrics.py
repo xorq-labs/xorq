@@ -1,7 +1,7 @@
 """Deferred scikit-learn metrics evaluation for xorq."""
 
 import functools
-from typing import Any, Callable
+from typing import Callable
 
 import numpy as np
 from attr import (
@@ -174,26 +174,22 @@ class Scorer:
 class MetricComputation:
     target: str = field(validator=instance_of(str))
     pred_col: str = field(validator=instance_of(str))
-    metric_str_fn_callable: Any = field()  # str | _BaseScorer | Callable | Scorer
+    metric_fn: Callable = field(validator=instance_of(Callable))
+    sign: int = field(validator=instance_of(int), default=1)
     metric_kwargs_tuple: tuple = field(
         default=(),
         converter=compose(tuple, sorted, dict.items, dict),
     )
     return_type = field(validator=instance_of(dt.DataType), default=dt.float64)
     name = field(validator=optional(instance_of(str)), default=None)
-    _scorer: Scorer = field(init=False, repr=False, eq=False, hash=False)
 
     def __attrs_post_init__(self):
-        object.__setattr__(
-            self, "_scorer", Scorer.from_spec(self.metric_str_fn_callable)
-        )
-
         if self.name is None:
             object.__setattr__(
                 self,
                 "name",
                 make_name(
-                    prefix=f"metric_{self._scorer.metric_fn.__name__}",
+                    prefix=f"metric_{self.metric_fn.__name__}",
                     to_tokenize=self.metric_kwargs_tuple,
                 ),
             )
@@ -205,20 +201,18 @@ class MetricComputation:
     @property
     def __name__(self):
         """Return the name of the metric function for UDF registration."""
-        return self._scorer.metric_fn.__name__
+        return self.metric_fn.__name__
 
     @property
     def __module__(self):
         """Return the module of the metric function for UDF registration."""
-        return self._scorer.metric_fn.__module__
+        return self.metric_fn.__module__
 
     def __call__(self, df):
-        s = self._scorer
         y_true = df[self.target]
         y_pred = self._prepare_predictions(df[self.pred_col])
-        merged_kwargs = {**dict(s.kwargs), **self.metric_kwargs}
-        result = s.metric_fn(y_true, y_pred, **merged_kwargs)
-        return s.sign * result
+        result = self.metric_fn(y_true, y_pred, **self.metric_kwargs)
+        return self.sign * result
 
     def on_expr(self, expr):
         schema = expr.select([self.target, self.pred_col]).schema()
@@ -269,7 +263,7 @@ def deferred_sklearn_metric(
     expr,
     target,
     pred_col,
-    metric_str_fn_callable,
+    scorer,
     metric_kwargs=(),
     return_type=dt.float64,
     name=None,
@@ -291,7 +285,7 @@ def deferred_sklearn_metric(
         Name of the target column
     pred_col : str
         Name of the prediction column (e.g., "predicted", "predicted_proba")
-    metric_str_fn_callable : str | _BaseScorer | Callable | Scorer
+    scorer : str | _BaseScorer | Callable | Scorer
         Scorer specification. Can be a scorer name string, an sklearn _BaseScorer,
         a known sklearn metric function, or a Scorer instance.
     metric_kwargs : Optional[dict]
@@ -316,7 +310,7 @@ def deferred_sklearn_metric(
     ...     expr_with_preds,
     ...     target="target",
     ...     pred_col="predicted",
-    ...     metric_str_fn_callable=accuracy_score
+    ...     scorer=accuracy_score
     ... )
     >>>
     >>> # For probabilities
@@ -325,14 +319,17 @@ def deferred_sklearn_metric(
     ...     expr_with_proba,
     ...     target="target",
     ...     pred_col="predicted_proba",
-    ...     metric_str_fn_callable=roc_auc_score
+    ...     scorer=roc_auc_score
     ... )
     """
+    s = Scorer.from_spec(scorer) if not isinstance(scorer, Scorer) else scorer
+    merged_kwargs = {**dict(s.kwargs), **dict(metric_kwargs)}
     metric = MetricComputation(
         target=target,
         pred_col=pred_col,
-        metric_str_fn_callable=metric_str_fn_callable,
-        metric_kwargs_tuple=metric_kwargs,
+        metric_fn=s.metric_fn,
+        sign=s.sign,
+        metric_kwargs_tuple=merged_kwargs,
         return_type=return_type,
         name=name,
     )

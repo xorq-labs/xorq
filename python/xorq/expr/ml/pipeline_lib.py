@@ -996,7 +996,7 @@ class FittedPipeline:
             expr=expr_with_preds,
             target=self.predict_step.target,
             pred_col=pred_col,
-            metric_str_fn_callable=s,
+            scorer=s,
             metric_kwargs=kwargs,
         )
 
