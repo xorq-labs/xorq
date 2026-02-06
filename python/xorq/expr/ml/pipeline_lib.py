@@ -1028,10 +1028,14 @@ class FittedPipeline:
         if not self.is_predict:
             raise ValueError("Pipeline does not have a predict step")
 
+        # Use the first step's features (raw input names) so the full
+        # pipeline (transform → predict) runs correctly.
+        features = self.fitted_steps[0].features
+        target = self.predict_step.target
         df = pd.DataFrame(
             np.array(X),
-            columns=self.predict_step.features,
-        ).assign(**{self.predict_step.target: y})
+            columns=features,
+        ).assign(**{target: y})
         expr = api.register(df, "t")
         return self.score_expr(expr, scorer=scorer, **kwargs).execute()
 
