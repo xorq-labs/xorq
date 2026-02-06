@@ -7,6 +7,7 @@ from xorq.common.utils.toolz_utils import curry
 from xorq.expr import udf
 
 
+
 ROWNUM = "rownum"
 
 
@@ -60,6 +61,6 @@ agg_udf = udf.agg.pandas_df(
 expr = t.group_by(by).agg(agg_udf.on_expr(t).name("best_features")).order_by(by)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in("__pytest_main__", "__main__"):
     result = xo.execute(expr)
     pytest_examples_passed = True

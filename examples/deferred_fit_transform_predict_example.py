@@ -94,7 +94,7 @@ fitted_pipeline, test_predicted = make_pipeline(
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     fitted_transform, fitted_predict = fitted_pipeline.fitted_steps
     print(
         fitted_transform.deferred_model.ls.get_key(),

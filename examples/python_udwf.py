@@ -340,7 +340,7 @@ t = make_t()
 expr = make_expr(t)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     expected = run_pd(t)
     result = xo.execute(expr).reindex_like(expected)
     for col in expected.filter(like="smooth").columns:

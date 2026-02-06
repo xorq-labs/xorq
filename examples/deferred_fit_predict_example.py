@@ -57,7 +57,7 @@ fitted_step = step.fit(cache=cache, **kwargs)
 step_predicted = t.mutate(fitted_step.predict_raw(t, name="predicted"))
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     # model = deferred_model.execute()
     # ((cached_model,),) = cached_deferred_model.execute().values
     predicted_df = predicted.execute()

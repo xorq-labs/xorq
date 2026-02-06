@@ -27,7 +27,7 @@ expr = cached.filter(
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     path = cache.storage.get_path(cached.ls.get_key())
     print(f"{path} exists?: {path.exists()}")
     result = xo.execute(expr)

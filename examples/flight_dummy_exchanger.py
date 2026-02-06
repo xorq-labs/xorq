@@ -16,7 +16,7 @@ dummy_udxf = make_udxf(dummy, schema_in, schema_out)
 flight_server = FlightServer(exchangers=[dummy_udxf])
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     flight_server.serve()
     client = flight_server.client
     do_exchange = toolz.curry(client.do_exchange, dummy_udxf.command)

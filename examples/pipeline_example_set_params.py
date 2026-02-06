@@ -70,7 +70,7 @@ X_train, X_test, y_train, y_test = make_data()
 train, test, features, target = make_exprs(X_train, X_test, y_train, y_test)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     scores_sklearn = calc_scores_sklearn(X_train, X_test, y_train, y_test)
     scores_xorq = calc_scores_xorq(train, test, features, target)
     assert scores_xorq == scores_sklearn

@@ -144,7 +144,7 @@ def make_comparison_df():
     return df
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     df = make_comparison_df()
     assert df.sklearn_score.equals(df.xorq_score)
     pytest_examples_passed = True

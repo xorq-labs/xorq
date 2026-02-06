@@ -65,7 +65,7 @@ split_column = xo.calc_split_column(
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     demo_scalar_test_sizes(train_table, test_table)
     partition_counts = demo_partitions(partitions)
     other_counts = demo_split_column(split_column)

@@ -101,7 +101,7 @@ t = xo.memtable(
 expr = do_hackernews_fetcher_udxf(t)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     df = expr.execute()
     print(df)
     pytest_examples_passed = True

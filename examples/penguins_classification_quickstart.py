@@ -110,7 +110,7 @@ roc_auc = deferred_sklearn_metric(
 feature_importances_expr = fitted_pipeline.feature_importances(test_data)
 
 
-if __name__ in ("__pytest_main__"):
+if __name__ in ("__pytest_main__", "__main__"):
     print(f"  Accuracy:  {accuracy.execute():.4f}")
     print(f"  Precision: {precision.execute():.4f}")
     print(f"  Recall:    {recall.execute():.4f}")

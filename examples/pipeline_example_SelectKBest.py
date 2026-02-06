@@ -51,7 +51,7 @@ fitted_pipline = xorq_pipeline.fit(train, features=features, target=target)
 predicted = fitted_pipline.predict(test)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     y_pred = anova_svm.fit(X_train, y_train).predict(X_test)
     df = predicted.execute().assign(from_sklearn=y_pred)
     assert df["predicted"].equals(df["from_sklearn"])

@@ -25,7 +25,7 @@ expr = left.join(
 )[["yearID", "stint"]]
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     build_path = build_expr(expr, builds_dir="builds")
     roundtrip_expr = load_expr(build_path)
     pytest_examples_passed = True

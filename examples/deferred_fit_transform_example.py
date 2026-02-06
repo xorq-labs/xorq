@@ -49,7 +49,7 @@ train_expr, test_expr = (
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     model = deferred_model.execute()
     transformed = test_expr.mutate(
         **{"transformed": deferred_transform.on_expr}
