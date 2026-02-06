@@ -1471,6 +1471,12 @@ def parse_args(override=None):
         "land",
         help="Show session summary and landing checklist",
     )
+
+    # Claude Code hooks subparser
+    hooks_parser = agents_subparsers.add_parser(
+        "hooks",
+        help="Manage Claude Code hooks",
+    )
     hooks_subparsers = hooks_parser.add_subparsers(
         dest="hooks_subcommand",
         help="Claude Code hooks commands",
@@ -1487,9 +1493,10 @@ def parse_args(override=None):
         help="Overwrite existing settings.json even if it contains hooks",
     )
 
-    templates_parser = agents_subparsers.add_parser(
-        "templates",
-        help="Template registry commands",
+    # Claude Code skill subparser
+    skill_parser = agents_subparsers.add_parser(
+        "skill",
+        help="Manage Claude Code skills",
     )
     skill_subparsers = skill_parser.add_subparsers(
         dest="skill_subcommand",
