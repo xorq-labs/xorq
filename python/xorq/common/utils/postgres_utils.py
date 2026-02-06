@@ -77,8 +77,8 @@ postgres_config = PostgresConfig.from_env()
 
 def make_credential_defaults():
     return {
-        "user": "$POSTGRES_USER",
-        "password": "$POSTGRES_PASSWORD",
+        "user": postgres_config["POSTGRES_USER"],
+        "password": postgres_config["POSTGRES_PASSWORD"],
     }
 
 

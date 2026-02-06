@@ -3,7 +3,7 @@ from xorq.caching import SourceCache
 
 
 con = xo.connect()
-pg = xo.postgres.connect_env()
+pg = xo.postgres.connect_examples()
 
 
 t = pg.table("batting").filter(xo._.yearID == 2015).into_backend(con, "ls_batting")
