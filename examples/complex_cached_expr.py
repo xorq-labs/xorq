@@ -1,3 +1,15 @@
+"""Demonstrates multi-level caching with SourceCache and ParquetCache in an ML pipeline.
+
+Traditional approach: You would manually checkpoint each pipeline stage -- data
+fetching, sentiment analysis, feature engineering -- to different storage backends.
+Each checkpoint requires its own serialization logic, staleness checks, and
+invalidation strategy, all of which must be coordinated across stages.
+
+With xorq: You chain .cache() calls with different backends (SourceCache for
+postgres, ParquetCache for local files) at each stage. Each cache is independently
+managed and automatically invalidated when upstream expressions change, so the
+entire pipeline stays consistent without manual coordination.
+"""
 import argparse
 import functools
 
@@ -8,6 +20,7 @@ from sklearn.metrics import mean_absolute_error
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
+from libs.postgres_helpers import connect_postgres
 from xorq.caching import (
     ParquetCache,
     SourceCache,
@@ -160,7 +173,7 @@ def make_exprs():
     con = xo.connect()
     cache = ParquetCache.from_kwargs(source=con)
     # pg.postgres.connect_env().create_catalog("caching")
-    pg = xo.postgres.connect_env(database="caching")
+    pg = connect_postgres(database="caching")
 
     (train_expr, test_expr) = (
         deferred_read_parquet(

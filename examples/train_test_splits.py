@@ -1,3 +1,17 @@
+"""Train/test splitting with both scalar and list-based partition sizes, demonstrating
+deterministic, expression-level data splitting.
+
+Traditional approach: You would use sklearn's train_test_split on in-memory DataFrames
+or numpy arrays. Splits are random by default (seeded via random_state), and creating
+multiple named partitions (holdout, test, validation, training) requires multiple calls
+or manual index slicing.
+
+With xorq: Splitting operates at the expression level via train_test_splits, working on
+any backend without materializing data first. Multiple partition sizes can be specified
+as a list, producing mutually exclusive partitions in one call. Splits are deterministic
+via unique_key hashing, ensuring reproducibility without relying on global random state.
+"""
+
 import pandas as pd
 
 import xorq.api as xo

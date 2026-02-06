@@ -1,3 +1,16 @@
+"""Iterative split-train exchanger using Flight with streaming exchange.
+
+Traditional approach: You would build a custom Flight server that receives
+batched data, splits it by partition key, trains models per split, and streams
+results back. All the partitioning, streaming, and protocol code must be
+written by hand.
+
+With xorq: Define an AbstractExchanger subclass with split logic and a training
+function, then use streaming_split_exchange to handle partitioned streaming
+automatically. The Flight framework manages the exchange protocol while you
+focus on the model training logic.
+"""
+
 import functools
 import pickle
 

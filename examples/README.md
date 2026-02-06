@@ -35,8 +35,8 @@ Some examples write to PostgreSQL and need a local instance:
 just up postgres
 ```
 
-The default connection credentials match the docker compose config, so no environment variables are needed.
-To override, set `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DATABASE`.
+These scripts use `libs/postgres_helpers.py` which provides `connect_postgres()` with
+defaults matching the docker compose config (postgres/postgres on localhost:5432/ibis_testing).
 
 Scripts requiring local postgres: `deferred_read_csv.py`, `multi_engine.py`, `remote_caching.py`
 
@@ -143,6 +143,7 @@ Scripts requiring local postgres: `deferred_read_csv.py`, `multi_engine.py`, `re
 
 | File | Description |
 |------|-------------|
+| `libs/postgres_helpers.py` | `connect_postgres()` with docker compose defaults for local postgres |
 | `libs/hackernews_lib.py` | HackerNews data fetching via Firebase API with disk caching |
 | `libs/openai_lib.py` | OpenAI ChatGPT integration for sentiment analysis with disk caching |
 | `libs/mcp_lib.py` | FastMCP server wrapper that exposes Flight UDXFs as MCP tools |

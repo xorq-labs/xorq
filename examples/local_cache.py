@@ -1,3 +1,13 @@
+"""Demonstrates ParquetCache for local filesystem caching of postgres query results.
+
+Traditional approach: You would query postgres, use pyarrow to write the results
+to a parquet file, check whether that file already exists before re-querying,
+and manage cache invalidation yourself whenever the query logic changes.
+
+With xorq: Calling .cache(ParquetCache) on any expression adds input-addressed
+caching in one line. If the expression hasn't changed, cached parquet results are
+returned automatically -- no manual file management or invalidation logic required.
+"""
 from pathlib import Path
 
 import xorq.api as xo

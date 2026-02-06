@@ -1,3 +1,15 @@
+"""XGBoost aggregate UDF for computing feature importance grouped by category.
+
+Traditional approach: Use pandas groupby with apply and a custom function that
+trains an XGBoost model per group and extracts feature importances. This
+requires manual aggregation logic, careful handling of group boundaries, and
+serialization if results need to flow into further processing.
+
+With xorq: Define a UDAF that trains XGBoost per group and returns feature
+importances. It runs as a native aggregate function inside the query engine,
+so you can use it with group_by and agg just like any built-in aggregation.
+"""
+
 import pandas as pd
 import xgboost as xgb
 
