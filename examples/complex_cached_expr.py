@@ -1,8 +1,23 @@
+"""Demonstrates multi-level caching with SourceCache and ParquetCache in an ML pipeline.
+
+Traditional approach: You would manually checkpoint each pipeline stage -- data
+fetching, sentiment analysis, feature engineering -- to different storage backends.
+Each checkpoint requires its own serialization logic, staleness checks, and
+invalidation strategy, all of which must be coordinated across stages.
+
+With xorq: You chain .cache() calls with different backends (SourceCache for
+postgres, ParquetCache for local files) at each stage. Each cache is independently
+managed and automatically invalidated when upstream expressions change, so the
+entire pipeline stays consistent without manual coordination.
+"""
 import argparse
 import functools
 
 import pandas as pd
 import xgboost as xgb
+from libs.hackernews_lib import do_hackernews_fetcher_udxf
+from libs.openai_lib import do_hackernews_sentiment_udxf
+from libs.postgres_helpers import connect_postgres
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
 
@@ -13,7 +28,6 @@ from xorq.caching import (
     SourceCache,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.common.utils.import_utils import import_python
 from xorq.common.utils.toolz_utils import curry
 from xorq.expr.ml import (
     deferred_fit_predict,
@@ -31,14 +45,6 @@ transform_port = 8765
 predict_port = 8766
 expected_transform_command = "execute-unbound-expr-d785a558027791af18dac689ed381d42"
 expected_predict_command = "execute-unbound-expr-2f54734d557f2914929e8f0fc8784c42"
-
-
-do_hackernews_fetcher_udxf = import_python(
-    xo.options.pins.get_path("hackernews_lib", version="20250604T223424Z-2e578")
-).do_hackernews_fetcher_udxf
-do_hackernews_sentiment_udxf = import_python(
-    xo.options.pins.get_path("openai_lib", version="20250604T223419Z-0ce44")
-).do_hackernews_sentiment_udxf
 
 
 @curry
@@ -165,7 +171,7 @@ def make_exprs():
     con = xo.connect()
     cache = ParquetCache.from_kwargs(source=con)
     # pg.postgres.connect_env().create_catalog("caching")
-    pg = xo.postgres.connect_env(database="caching")
+    pg = connect_postgres(database="caching")
 
     (train_expr, test_expr) = (
         deferred_read_parquet(

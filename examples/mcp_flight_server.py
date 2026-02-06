@@ -1,3 +1,16 @@
+"""MCP (Model Context Protocol) server wrapping a Flight-based sentiment analyzer.
+
+Traditional approach: You would build separate MCP and Flight servers, manually
+bridge between the two protocols, and handle tool registration, schema mapping,
+and input/output conversion yourself. Keeping the two services in sync adds
+ongoing maintenance burden.
+
+With xorq: FlightMCPServer wraps Flight UDXFs as MCP tools automatically. You
+define input and output mappers, register them with create_mcp_tool, and the
+integration layer exposes your data pipeline as an MCP-compatible tool with
+minimal glue code.
+"""
+
 import pathlib
 import pickle
 import sys
