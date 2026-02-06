@@ -5,6 +5,35 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.8] - 2026-02-06
+### Details
+#### Added
+- Add grpc otel exporter by @hussainsultan in [#1488](https://github.com/xorq-labs/xorq/pull/1488)
+
+#### Changed
+- Serve-unbound to accept snapshot hash by @hussainsultan in [#1478](https://github.com/xorq-labs/xorq/pull/1478)
+- Update DuckDB backend code by @mesejo in [#1351](https://github.com/xorq-labs/xorq/pull/1351)
+- Update README and add architecture/intro SVG diagrams by @hussainsultan in [#1473](https://github.com/xorq-labs/xorq/pull/1473)
+- Sklearn metrics by @dlovell in [#1514](https://github.com/xorq-labs/xorq/pull/1514)
+- Run-unbound: enable passing file/stream to read from by @dlovell in [#1525](https://github.com/xorq-labs/xorq/pull/1525)
+- Adjust hero heading size and text wrapping by @Olamideod in [#1530](https://github.com/xorq-labs/xorq/pull/1530)
+- Restructure the reference documentation and add a glossary by @Olamideod in [#1538](https://github.com/xorq-labs/xorq/pull/1538)
+- Consolidate get_structer_out and clarify KV-encoding proper… by @ghoersti in [#1541](https://github.com/xorq-labs/xorq/pull/1541)
+
+#### Fixed
+- Update quickstart.qmd with valid udxf client by @mesejo in [#1503](https://github.com/xorq-labs/xorq/pull/1503)
+- Specify the type of the output format (OutputFormats) by @mesejo in [#1504](https://github.com/xorq-labs/xorq/pull/1504)
+- Properly detect memtables on load by @dlovell in [#1520](https://github.com/xorq-labs/xorq/pull/1520)
+- Fix UI styling and fonts by @Olamideod in [#1512](https://github.com/xorq-labs/xorq/pull/1512)
+- ExprLoader.deferred_read_to_memtables: return an op by @dlovell in [#1524](https://github.com/xorq-labs/xorq/pull/1524)
+- Deal with possible exprs in expr scalar udf by @dlovell in [#1527](https://github.com/xorq-labs/xorq/pull/1527)
+- Require sqlglot <28.7.0 by @dlovell in [#1542](https://github.com/xorq-labs/xorq/pull/1542)
+- Connection equivalence by @dlovell in [#1556](https://github.com/xorq-labs/xorq/pull/1556)
+- Restore ibis Expr._find_backend by @dlovell in [#1557](https://github.com/xorq-labs/xorq/pull/1557)
+
+#### Removed
+- Remove from fitted steps, register : OneHotEncoder, TfIdfVector… by @ghoersti in [#1531](https://github.com/xorq-labs/xorq/pull/1531)
+
 ## [0.3.7] - 2026-01-08
 ### Details
 #### Added
