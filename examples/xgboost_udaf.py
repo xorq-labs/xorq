@@ -19,7 +19,6 @@ from xorq.common.utils.toolz_utils import curry
 from xorq.expr import udf
 
 
-
 ROWNUM = "rownum"
 
 

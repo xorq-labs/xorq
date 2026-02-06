@@ -11,8 +11,9 @@ declaratively, so the same expression works across backends without rewriting in
 """
 import argparse
 
-import xorq.api as xo
 from libs.postgres_helpers import connect_postgres
+
+import xorq.api as xo
 from xorq.api import _
 
 

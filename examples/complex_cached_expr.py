@@ -15,12 +15,14 @@ import functools
 
 import pandas as pd
 import xgboost as xgb
+from libs.hackernews_lib import do_hackernews_fetcher_udxf
+from libs.openai_lib import do_hackernews_sentiment_udxf
+from libs.postgres_helpers import connect_postgres
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
 
 import xorq.api as xo
 import xorq.vendor.ibis.expr.datatypes as dt
-from libs.postgres_helpers import connect_postgres
 from xorq.caching import (
     ParquetCache,
     SourceCache,
@@ -43,10 +45,6 @@ transform_port = 8765
 predict_port = 8766
 expected_transform_command = "execute-unbound-expr-d785a558027791af18dac689ed381d42"
 expected_predict_command = "execute-unbound-expr-2f54734d557f2914929e8f0fc8784c42"
-
-
-from libs.hackernews_lib import do_hackernews_fetcher_udxf
-from libs.openai_lib import do_hackernews_sentiment_udxf
 
 
 @curry
