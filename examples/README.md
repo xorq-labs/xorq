@@ -14,42 +14,13 @@ uv sync --extra examples --extra postgres
 
 # Activate the venv
 source .venv/bin/activate
-```
 
-## Running examples
+# run the examples
 
-Most examples work out of the box:
-
-```bash
 cd examples
 python simple_example.py
-python local_cache.py
 ```
 
-### Examples that require local PostgreSQL
-
-Some examples write to PostgreSQL and need a local instance:
-
-```bash
-# Start postgres (from repo root)
-just up postgres
-```
-
-These scripts use `libs/postgres_helpers.py` which provides `connect_postgres()` with
-defaults matching the docker compose config (postgres/postgres on localhost:5432/ibis_testing).
-
-Scripts requiring local postgres: `deferred_read_csv.py`, `multi_engine.py`, `remote_caching.py`
-
-### Examples that require API keys
-
-| Script | Environment variable |
-|--------|---------------------|
-| `weather_flight.py` | `OPENWEATHER_API_KEY` |
-| `flight_udtf_llm_example.py` | `OPENAI_API_KEY` |
-
-### CLI-style examples
-
-`duckdb_flight_example.py` requires a subcommand: `python duckdb_flight_example.py serve`
 
 ## Examples
 
@@ -122,15 +93,10 @@ Scripts requiring local postgres: `deferred_read_csv.py`, `multi_engine.py`, `re
 | `flight_exchange_example.py` | Iterative split-train exchanger using Flight with streaming exchange |
 | `flight_serve_model.py` | Flight server serving TF-IDF model transformations |
 | `flight_udtf_example.py` | Flight UDTF for fetching HackerNews data via live API calls |
-| `flight_udtf_llm_example.py` | Flight UDTF using OpenAI API for sentiment analysis on HackerNews comments |
+| `flight_udtf_llm_example.py` | Flight UDTF using OpenAI API for sentiment analysis on HackerNews comments *requires openAI key*  |
 | `duckdb_flight_example.py` | Concurrent Flight server with DuckDB supporting concurrent read/write |
 | `mcp_flight_server.py` | MCP (Model Context Protocol) server wrapping a Flight sentiment analyzer |
 
-### Feature Store
-
-| File | Description |
-|------|-------------|
-| `weather_flight.py` | End-to-end feature store with offline/online features, materialization, inference, and historical retrieval for weather data |
 
 ### Configuration & Serialization
 
@@ -155,3 +121,20 @@ Scripts requiring local postgres: `deferred_read_csv.py`, `multi_engine.py`, `re
 | `data/iris.csv` | Classic Iris classification dataset |
 | `data/data.rownum.parquet` | Lending Club dataset with row numbering for ML examples |
 
+
+### Examples that require API keys
+
+| Script | Environment variable |
+|--------|---------------------|
+| `weather_flight.py` | `OPENWEATHER_API_KEY` |
+| `flight_udtf_llm_example.py` | `OPENAI_API_KEY` |
+
+### CLI-style examples
+
+`duckdb_flight_example.py` requires a subcommand: `python duckdb_flight_example.py serve`
+
+### Feature Store
+
+| File | Description |
+|------|-------------|
+| `weather_flight.py` | End-to-end feature store with offline/online features, materialization, inference, and historical retrieval for weather data |
