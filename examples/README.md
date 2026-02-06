@@ -87,6 +87,8 @@ python simple_example.py
 
 ### Flight Server & Distribution
 
+[Arrow Flight](https://arrow.apache.org/docs/format/Flight.html) lets you move columnar data between processes over gRPC with zero-copy semantics -- no CSV/JSON serialization overhead. This is useful when a computation must run in a separate process (e.g. a Python model that can't be pushed into the database engine), or when you want to expose a transformation as a network service that multiple clients can call. The `do_exchange` RPC is especially powerful: the client streams input batches and receives output batches in a single bidirectional call, so large datasets never need to be fully materialized on either side.
+
 | File | Description |
 |------|-------------|
 | `flight_dummy_exchanger.py` | Simple Flight server with a dummy UDXF that returns fixed data |
