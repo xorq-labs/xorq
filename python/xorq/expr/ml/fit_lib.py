@@ -177,9 +177,15 @@ class DeferredFitOther:
     @functools.cache
     # if we don't cache this, we get extra tags
     def make_deferred_other(self, fn, return_type, name_infix):
+        wrapped_fn = self._inner_other(
+            other=fn,
+            features=self.features,
+            return_type=return_type,
+            encoded_cols=self.encoded_cols,
+        )
         deferred_other = make_pandas_expr_udf(
             computed_kwargs_expr=self.deferred_model,
-            fn=fn,
+            fn=wrapped_fn,
             schema=self.schema,
             return_type=return_type,
             name=self.make_name(name_infix),
@@ -189,12 +195,7 @@ class DeferredFitOther:
     @property
     def deferred_other(self):
         return self.make_deferred_other(
-            fn=self._inner_other(
-                other=self.other,
-                features=self.features,
-                return_type=self.return_type,
-                encoded_cols=self.encoded_cols,
-            ),
+            fn=self.other,
             return_type=self.return_type,
             name_infix=self.name_infix,
         )

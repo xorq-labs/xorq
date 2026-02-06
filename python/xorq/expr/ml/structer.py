@@ -134,9 +134,12 @@ class KVEncoder:
             raise ValueError(f"{encoded_col} not in DataFrame")
         if col.empty:
             raise ValueError(f"cannot decode empty column {encoded_col}")
+        first_row = col.iloc[0]  # for empty columns that can be kv encoded
+        if first_row is None:
+            return df, features
         # remove encoded_col from features and append the columns it becomes
         new_features = tuple(c for c in features if c != encoded_col) + tuple(
-            item[KVField.KEY] for item in col.iloc[0]
+            item[KVField.KEY] for item in first_row
         )
         result_df = df.drop(columns=[encoded_col]).join(cls.decode(df[encoded_col]))
         return result_df, new_features
