@@ -1,17 +1,55 @@
 How to run the examples
 =======================
 
-1. `just download-data` to download the testing data
-2. `just up postgres` to launch the postgres instance
-3. `uv sync --extra examples --extra postgres` to install the proper dependencies
-3. `pip install .[examples] .[postgres]` to install proper dependencies with pip
-4. `brew install libomp`
+## Setup
 
-Then:
+From the repo root:
 
 ```bash
+# macOS only
+brew install cmake libomp
+
+# Install dependencies (from repo root)
+uv sync --extra examples --extra postgres
+
+# Activate the venv
+source .venv/bin/activate
+```
+
+## Running examples
+
+Most examples work out of the box:
+
+```bash
+cd examples
+python simple_example.py
 python local_cache.py
 ```
+
+### Examples that require local PostgreSQL
+
+Some examples write to PostgreSQL and need a local instance:
+
+```bash
+# Start postgres (from repo root)
+just up postgres
+```
+
+The default connection credentials match the docker compose config, so no environment variables are needed.
+To override, set `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DATABASE`.
+
+Scripts requiring local postgres: `deferred_read_csv.py`, `multi_engine.py`, `remote_caching.py`
+
+### Examples that require API keys
+
+| Script | Environment variable |
+|--------|---------------------|
+| `weather_flight.py` | `OPENWEATHER_API_KEY` |
+| `flight_udtf_llm_example.py` | `OPENAI_API_KEY` |
+
+### CLI-style examples
+
+`duckdb_flight_example.py` requires a subcommand: `python duckdb_flight_example.py serve`
 
 ## Examples
 

@@ -11,7 +11,7 @@ from attr.validators import (
 from google.cloud import storage
 from toolz import curry
 
-from xorq.caching.storage import Storage
+from xorq.caching.storage import CacheStorage as Storage
 from xorq.config import _backend_init
 from xorq.vendor.ibis.backends import BaseBackend
 
