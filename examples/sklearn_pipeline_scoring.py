@@ -7,9 +7,7 @@ response method (predict, predict_proba, decision_function) and sign.
 xorq supports all scorers from sklearn.metrics.get_scorer_names() —
 including predict-based scorers (accuracy, f1, neg_mean_squared_error, ...),
 predict_proba-based scorers (roc_auc, log_loss, ...), and
-decision_function-based scorers. The Scorer class resolves the response
-method, sign, and kwargs automatically from any input: scorer name strings,
-bare callables (known sklearn metric functions), or make_scorer objects.
+decision_function-based scorers.
 
 Uses the bank-marketing dataset with a GradientBoostingClassifier.
 """
