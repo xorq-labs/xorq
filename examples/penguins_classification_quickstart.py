@@ -72,14 +72,14 @@ accuracy = deferred_sklearn_metric(
     expr=predictions,
     target="species",
     pred_col="predicted",
-    metric_fn=accuracy_score,
+    metric_str_fn_callable=accuracy_score,
 )
 
 precision = deferred_sklearn_metric(
     expr=predictions,
     target="species",
     pred_col="predicted",
-    metric_fn=precision_score,
+    metric_str_fn_callable=precision_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
 
@@ -87,7 +87,7 @@ recall = deferred_sklearn_metric(
     expr=predictions,
     target="species",
     pred_col="predicted",
-    metric_fn=recall_score,
+    metric_str_fn_callable=recall_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
 
@@ -95,7 +95,7 @@ f1 = deferred_sklearn_metric(
     expr=predictions,
     target="species",
     pred_col="predicted",
-    metric_fn=f1_score,
+    metric_str_fn_callable=f1_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
 
@@ -103,7 +103,7 @@ roc_auc = deferred_sklearn_metric(
     expr=predictions_proba,
     target="species",
     pred_col="predicted_proba",
-    metric_fn=roc_auc_score,
+    metric_str_fn_callable=roc_auc_score,
     metric_kwargs={"multi_class": "ovr", "average": "weighted"},
 )
 

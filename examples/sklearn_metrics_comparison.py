@@ -79,7 +79,7 @@ def compute_metrics(clf, X_train, X_test, y_train, y_test):
             expr=expr_with_preds,
             target=target,
             pred_col="predicted",
-            metric_fn=metric_fn,
+            metric_str_fn_callable=metric_fn,
             metric_kwargs=kwargs if kwargs else (),
         ).execute()
         for name, metric_fn, kwargs in metric_configs
@@ -197,7 +197,7 @@ def test_predict_proba():
         expr=expr_with_proba,
         target=target,
         pred_col="predicted_proba",
-        metric_fn=roc_auc_score,
+        metric_str_fn_callable=roc_auc_score,
     ).execute()
 
     return sklearn_auc, xorq_auc
@@ -232,7 +232,7 @@ def test_decision_function():
         expr=expr_with_scores,
         target=target,
         pred_col="decision_function",
-        metric_fn=roc_auc_score,
+        metric_str_fn_callable=roc_auc_score,
     ).execute()
 
     return sklearn_auc, xorq_auc

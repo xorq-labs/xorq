@@ -1,6 +1,12 @@
 import functools
 import pickle
 
+
+try:
+    from enum import StrEnum
+except ImportError:
+    from strenum import StrEnum
+
 import toolz
 from attr import (
     field,
@@ -44,6 +50,14 @@ from xorq.expr.ml.structer import (
 )
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.expr.types.core import Expr
+
+
+class ResponseMethod(StrEnum):
+    """Sklearn scorer response methods."""
+
+    PREDICT = "predict"
+    PREDICT_PROBA = "predict_proba"
+    DECISION_FUNCTION = "decision_function"
 
 
 def do_into_backend(expr, con=None):
@@ -932,48 +946,23 @@ class FittedPipeline:
         Raises
         ------
         ValueError
-            If clustering model has no target column.
+            If model type is not recognized.
         """
-        from sklearn.base import ClassifierMixin, ClusterMixin, RegressorMixin
-        from sklearn.metrics import (
-            accuracy_score,
-            adjusted_rand_score,
-            make_scorer,
-            r2_score,
-            silhouette_score,
-        )
+        from xorq.expr.ml.metrics import _default_scorer_for_model
 
-        model = self.predict_step.model
+        return _default_scorer_for_model(self.predict_step.model)
 
-        match model:
-            case ClusterMixin() if self.predict_step.target is None:
-                # Use silhouette_score for unsupervised clustering evaluation
-                return make_scorer(silhouette_score)
-            case ClusterMixin():
-                # Use adjusted_rand_score for supervised clustering evaluation
-                return make_scorer(adjusted_rand_score)
-            case ClassifierMixin():
-                return make_scorer(accuracy_score)
-            case RegressorMixin():
-                return make_scorer(r2_score)
-            case _:
-                raise ValueError(
-                    f"Cannot determine default scorer for model type {type(model).__name__}. "
-                    "Please specify a scorer explicitly."
-                )
-
-    def score_expr(self, expr, scorer=None, use_proba=False, **kwargs):
+    def score_expr(self, expr, scorer=None, **kwargs):
         """Compute metrics using deferred execution.
 
         Parameters
         ----------
         expr : ibis.Expr
             Expression containing test data
-        scorer : str or callable, optional
-            Scorer name from sklearn.metrics.get_scorer_names() or a callable metric function.
-            If None, uses model's default (accuracy for classifiers, r2 for regressors)
-        use_proba : bool, optional
-            If True, use predict_proba for metric computation (default: False)
+        scorer : str, callable, _BaseScorer, Scorer, or None
+            Scorer specification. If None, uses model's default.
+            Automatically detects whether scorer needs predict, predict_proba,
+            or decision_function.
         **kwargs : dict
             Additional arguments passed to the metric function
 
@@ -982,53 +971,33 @@ class FittedPipeline:
         ibis.Expr
             Deferred metric expression
         """
-        from sklearn.metrics import get_scorer
-        from sklearn.metrics._scorer import _BaseScorer
+        from xorq.expr.ml.metrics import Scorer, deferred_sklearn_metric
 
-        from xorq.expr.ml.metrics import deferred_sklearn_metric
+        s = Scorer.from_spec(scorer, model=self.predict_step.model)
 
-        # Convert scorer to metric function
-        match scorer:
-            case None:
-                # Default metric based on model type
-                scorer_obj = self._get_default_scorer()
-                score_fn = scorer_obj._score_func
-                sign = scorer_obj._sign
-            case str():
-                # Get scorer from name and extract underlying metric function
-                scorer_obj = get_scorer(scorer)
-                score_fn = scorer_obj._score_func
-                sign = scorer_obj._sign
-            case _BaseScorer():
-                # sklearn scorer object, extract the metric function
-                score_fn = scorer._score_func
-                sign = scorer._sign
-            case _ if callable(scorer):
-                # Assume it's a metric function, wrap it in a scorer
-                from sklearn.metrics import make_scorer
-
-                scorer_obj = make_scorer(scorer)
-                score_fn = scorer_obj._score_func
-                sign = scorer_obj._sign
+        # Route predictions based on response_method
+        match s.response_method:
+            case ResponseMethod.PREDICT_PROBA:
+                expr_with_preds = self.predict_proba(expr)
+                pred_col = "predicted_proba"
+            case ResponseMethod.DECISION_FUNCTION:
+                expr_with_preds = self.decision_function(expr)
+                pred_col = "decision_function"
+            case ResponseMethod.PREDICT:
+                expr_with_preds = self.predict(expr)
+                pred_col = "predicted"
             case _:
                 raise ValueError(
-                    f"scorer must be a string, callable, or None, got {type(scorer)}"
+                    f"Unsupported response method: {s.response_method}. "
+                    f"Expected one of {[m.value for m in ResponseMethod]}"
                 )
-
-        # Get predictions with appropriate method
-        expr_with_preds, pred_col = (
-            (self.predict_proba(expr), "predicted_proba")
-            if use_proba
-            else (self.predict(expr), "predicted")
-        )
 
         return deferred_sklearn_metric(
             expr=expr_with_preds,
             target=self.predict_step.target,
             pred_col=pred_col,
-            metric_fn=score_fn,
+            metric_str_fn_callable=s,
             metric_kwargs=kwargs,
-            sign=sign,
         )
 
     def score(self, X, y, scorer=None, **kwargs):
