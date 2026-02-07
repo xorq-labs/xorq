@@ -485,6 +485,8 @@ def agents_command(args):
 
 
 def agents_init_command(args):
+    from xorq.agent.onboarding import bootstrap_agent_docs
+
     path = Path(args.path)
     if not path.exists():
         print(
