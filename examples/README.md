@@ -14,11 +14,11 @@ uv sync --extra examples --extra postgres
 
 # Activate the venv
 source .venv/bin/activate
+docker compose up postgres
 
 # run the examples
 
-cd examples
-python simple_example.py
+python examples/simple_example.py
 ```
 
 
@@ -111,7 +111,6 @@ python simple_example.py
 
 | File | Description |
 |------|-------------|
-| `libs/postgres_helpers.py` | `connect_postgres()` with docker compose defaults for local postgres |
 | `libs/hackernews_lib.py` | HackerNews data fetching via Firebase API with disk caching |
 | `libs/openai_lib.py` | OpenAI ChatGPT integration for sentiment analysis with disk caching |
 | `libs/mcp_lib.py` | FastMCP server wrapper that exposes Flight UDXFs as MCP tools |

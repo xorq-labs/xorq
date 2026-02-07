@@ -8,13 +8,12 @@ With xorq: Cross-backend joins are transparent. You write a single join expressi
 handles moving data between engines via into_backend, picking the optimal execution engine.
 The query reads naturally even though the underlying data lives in different databases.
 """
-from libs.postgres_helpers import connect_postgres
 
 import xorq.api as xo
 from xorq.expr.relations import into_backend
 
 
-pg = connect_postgres()
+pg = xo.postgres.connect_env()
 db = xo.duckdb.connect()
 
 batting = pg.table("batting")

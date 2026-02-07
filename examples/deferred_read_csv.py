@@ -9,9 +9,8 @@ With xorq: deferred_read_csv lazily reads a CSV into any backend (pandas, Postgr
 with automatic schema inference. Table creation modes like "replace" handle conflicts
 declaratively, so the same expression works across backends without rewriting ingestion code.
 """
-import argparse
 
-from libs.postgres_helpers import connect_postgres
+import argparse
 
 import xorq.api as xo
 from xorq.api import _
@@ -28,7 +27,7 @@ pd_expr = xo.deferred_read_csv(con=pd_con, path=csv_path, table_name=csv_name).f
 )
 
 # we can even work with postgres!
-pg = connect_postgres()
+pg = xo.postgres.connect_env()
 pg_expr = xo.deferred_read_csv(con=pg, path=csv_path, table_name=csv_name).filter(
     _.sepal_length > 6
 )

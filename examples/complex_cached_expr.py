@@ -10,6 +10,7 @@ postgres, ParquetCache for local files) at each stage. Each cache is independent
 managed and automatically invalidated when upstream expressions change, so the
 entire pipeline stays consistent without manual coordination.
 """
+
 import argparse
 import functools
 
@@ -17,7 +18,6 @@ import pandas as pd
 import xgboost as xgb
 from libs.hackernews_lib import do_hackernews_fetcher_udxf
 from libs.openai_lib import do_hackernews_sentiment_udxf
-from libs.postgres_helpers import connect_postgres
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
 
@@ -171,7 +171,7 @@ def make_exprs():
     con = xo.connect()
     cache = ParquetCache.from_kwargs(source=con)
     # pg.postgres.connect_env().create_catalog("caching")
-    pg = connect_postgres(database="caching")
+    pg = xo.postgres.connect_env(database="caching")
 
     (train_expr, test_expr) = (
         deferred_read_parquet(

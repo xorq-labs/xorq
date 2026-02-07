@@ -9,7 +9,6 @@ With xorq: SourceCache with a postgres backend automatically materializes DuckDB
 query results into postgres tables, keyed by expression content. Schema management
 and cache invalidation are handled for you.
 """
-from libs.postgres_helpers import connect_postgres
 
 import xorq.api as xo
 from xorq.api import _
@@ -18,7 +17,7 @@ from xorq.caching import SourceCache
 
 con = xo.connect()
 ddb = xo.duckdb.connect()
-pg = connect_postgres()
+pg = xo.postgres.connect_env()
 
 name = "batting"
 
