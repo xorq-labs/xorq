@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import subprocess
 import time
 from dataclasses import dataclass
@@ -209,6 +210,16 @@ def get_catalog_entries(limit: int = 10) -> list[dict]:
         return entries[:limit]
     except Exception:
         return []
+
+
+@dataclass
+class OnboardingStep:
+    """A step in the onboarding workflow."""
+    key: str
+    title: str
+    checklist: list[str]
+    commands: list[str]
+    prompt_refs: list[str]
 
 
 ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
@@ -706,43 +717,84 @@ def _format_onboarding_step(step: OnboardingStep) -> list[str]:
     return lines
 
 
+def _get_docs_index() -> str:
+    """Get the minified documentation index in Vercel blog style.
+
+    The docs bundle is shipped with the xorq package in:
+    python/xorq/agent/resources/docs-bundle/
+    """
+    import xorq
+    xorq_package_dir = Path(xorq.__file__).parent
+    # Docs bundle is shipped with the package
+    docs_bundle = xorq_package_dir / "agent" / "resources" / "docs-bundle"
+    index_file = docs_bundle / "DOCS_INDEX.txt"
+
+    if index_file.exists():
+        return index_file.read_text()
+
+    # Fallback: minimal inline index
+    return dedent("""\
+        [xorq Docs Index]|root: docs
+        |IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for xorq tasks
+        |IMPORTANT: All xorq expressions must be deferred - no eager pandas/NumPy operations
+        |getting_started:{quickstart.qmd,installation.qmd,your_first_expression.qmd}
+        |api_reference/cli:{build.qmd,run.qmd,catalog/add.qmd,catalog/ls.qmd}
+        |concepts/understanding_xorq:{how_xorq_works.qmd,why_deferred_execution.qmd}
+        |guides/ml_workflows:{integrate_sklearn_pipelines.qmd,train_models_at_scale.qmd}
+        """).strip()
+
+
 def _render_agent_doc(max_lines: int) -> str:
-    """Render minimal AGENTS.md pointing to xorq agent commands as source of truth."""
+    """Render minimal AGENTS.md with minified docs index in Vercel style."""
+    docs_index = _get_docs_index()
+
     content = dedent(
-        """\
+        f"""\
+        # xorq Documentation Index
+
+        {docs_index}
+
+        **Documentation root:** `docs/` (when available in project)
+        **Online docs:** https://docs.xorq.dev
+
+        ---
+
         # Agent Instructions
 
         This project uses **xorq** for composable ML pipelines and deferred data analysis.
 
         ## Workflow Context
 
-        Run `xorq agent onboard` for dynamic, context-aware workflow guidance. This is the **single source of truth** for xorq workflow instructions.
+        Run `xorq agents onboard` for dynamic, context-aware workflow guidance. This is the **single source of truth** for xorq workflow instructions.
 
         ```bash
-        xorq agent onboard
+        xorq agents onboard
         ```
 
         ## Quick Reference
 
         **Core Workflow:**
         ```bash
-        # 1. Check schema FIRST (mandatory)
+        # 1. Check catalog FIRST (mandatory)
+        xorq catalog ls
+
+        # 2. Check schema (mandatory)
         print(table.schema())
 
-        # 2. Build expression
+        # 3. Build expression
         xorq build expr.py -e expr
 
-        # 3. Catalog the build
+        # 4. Catalog the build
         xorq catalog add builds/<hash> --alias my-pipeline
 
-        # 4. Run when needed
+        # 5. Run when needed
         xorq run builds/<hash> -f arrow | ...
         ```
 
         **Agent Commands:**
-        - `xorq agent onboard` - Workflow context and onboarding (use this!)
-        - `xorq agent land` - Session close checklist (MANDATORY before completion)
-        - `xorq agent templates list` - Available templates (USE THIS to learn patterns!)
+        - `xorq agents onboard` - Workflow context and onboarding (use this!)
+        - `xorq agents land` - Session close checklist (MANDATORY before completion)
+        - `xorq agents vignette list` - Available vignettes (USE THIS to learn patterns!)
         - `xorq catalog ls` - List cataloged builds
 
         ## Agent Onboard/Land Workflow
@@ -765,7 +817,7 @@ def _render_agent_doc(max_lines: int) -> str:
         ### 3. Interactive Source Exploration
         ```bash
         # Stream Arrow IPC to DuckDB for SQL exploration
-        xorq run <catalog-alias> -f arrow -o /dev/stdout 2>/dev/null | \
+        xorq run <catalog-alias> -f arrow -o /dev/stdout 2>/dev/null | \\
           duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10"
 
         # Check available source nodes for composition
@@ -775,7 +827,7 @@ def _render_agent_doc(max_lines: int) -> str:
         xorq catalog schema <catalog-alias>
 
         # Examples:
-        xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
+        xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \\
           duckdb -c "LOAD arrow;
             SELECT playerID, SUM(H) as hits
             FROM read_arrow('/dev/stdin')
@@ -786,35 +838,23 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Key insight:** Everything in xorq is an expression. Sources are expressions, transforms are expressions, models are expressions. They all compose via Arrow IPC streaming.
 
-        ### 4. Learn from Templates
-        Before building new expressions, study and scaffold existing templates:
+        ### 4. Learn from Vignettes
+        Before building new expressions, study and scaffold existing vignettes:
 
         ```bash
-        # List available templates
-        xorq agent templates list
+        # List available vignettes
+        xorq agents vignette list
 
-        # Scaffold a template to your project
-        xorq agent templates scaffold pipeline_example --dest my_pipeline.py
-        xorq agent templates scaffold diamonds_price_prediction --dest my_model.py
+        # Scaffold a vignette to your project
+        xorq agents vignette scaffold penguins_classification_intro --dest my_pipeline.py
 
-        # See template details
-        xorq agent templates show pipeline_example
-
-        # Or read directly from examples/
-        cat examples/pipeline_example.py
-        cat examples/diamonds_price_prediction.py
+        # View vignette directly
+        xorq agents vignette show penguins_classification_intro
         ```
 
-        **Available Templates:**
-        - **pipeline_example**: sklearn pipelines with StandardScaler + KNeighborsClassifier on iris
-        - **diamonds_price_prediction**: Feature engineering, train/test splits, LinearRegression
-        - **sklearn_classifier_comparison**: Compare multiple classifiers on same dataset
-        - **deferred_fit_transform_predict**: Complete deferred ML workflow pattern
-        - **penguins_demo**: Minimal multi-engine example, good starting point (basic scaffold)
-
-        **Template Usage Pattern:**
-        1. List templates: `xorq agent templates list`
-        2. Scaffold to your project: `xorq agent templates scaffold <name> --dest <file>.py`
+        **Vignette Usage Pattern:**
+        1. List vignettes: `xorq agents vignette list`
+        2. Scaffold to your project: `xorq agents vignette scaffold <name> --dest <file>.py`
         3. Read the scaffolded code to understand xorq patterns (deferred execution, expressions)
         4. Adapt patterns for data loading, feature engineering, model fitting to your needs
         5. Build and catalog: `xorq build <file>.py -e expr && xorq catalog add builds/<hash> --alias <name>`
@@ -832,7 +872,7 @@ def _render_agent_doc(max_lines: int) -> str:
         ### 6. Compose via Memtable Pattern & Unbound Nodes
         ```bash
         # Memtable pattern: Build transforms independently
-        # In transform.py: source = xo.memtable({"col1": [1, 2], "col2": [3, 4]})
+        # In transform.py: source = xo.memtable({{"col1": [1, 2], "col2": [3, 4]}})
         xorq build transform.py -e expr
         xorq catalog add builds/<hash> --alias my-transform
 
@@ -840,30 +880,30 @@ def _render_agent_doc(max_lines: int) -> str:
         xorq catalog sources my-transform
 
         # Basic composition: source → transform
-        xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound transform \
-            --to_unbind_hash <hash> \
-            --typ xorq.expr.relations.Read \
+        xorq run source -f arrow -o /dev/stdout 2>/dev/null | \\
+          xorq run-unbound transform \\
+            --to_unbind_hash <hash> \\
+            --typ xorq.expr.relations.Read \\
             -o output.parquet
 
         # Multi-stage with DuckDB exploration: source → transform1 → transform2 → SQL
-        xorq run source -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound transform1 \
-            --to_unbind_hash <hash1> \
-            --typ xorq.expr.relations.Read \
-            -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound transform2 \
-            --to_unbind_hash <hash2> \
-            --typ xorq.expr.relations.Read \
-            -f arrow -o /dev/stdout 2>/dev/null | \
+        xorq run source -f arrow -o /dev/stdout 2>/dev/null | \\
+          xorq run-unbound transform1 \\
+            --to_unbind_hash <hash1> \\
+            --typ xorq.expr.relations.Read \\
+            -f arrow -o /dev/stdout 2>/dev/null | \\
+          xorq run-unbound transform2 \\
+            --to_unbind_hash <hash2> \\
+            --typ xorq.expr.relations.Read \\
+            -f arrow -o /dev/stdout 2>/dev/null | \\
           duckdb -c "LOAD arrow; SELECT * FROM read_arrow('/dev/stdin')"
 
         # Real example:
-        xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \
-          xorq run-unbound lineup-transform \
-            --to_unbind_hash d43ad87ea8a989f3495aab5dff0b5746 \
-            --typ xorq.expr.relations.Read \
-            -f arrow -o /dev/stdout 2>/dev/null | \
+        xorq run batting-source -f arrow -o /dev/stdout 2>/dev/null | \\
+          xorq run-unbound lineup-transform \\
+            --to_unbind_hash d43ad87ea8a989f3495aab5dff0b5746 \\
+            --typ xorq.expr.relations.Read \\
+            -f arrow -o /dev/stdout 2>/dev/null | \\
           duckdb -c "LOAD arrow;
             SELECT playerID, leadoff_fit
             FROM read_arrow('/dev/stdin')
@@ -875,7 +915,7 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Unbound pattern:** Any expression can have nodes "unbound" (made into placeholders). Feed Arrow IPC data via stdin to bind and execute. This enables composing arbitrary pipelines and streaming to SQL engines like DuckDB.
 
-        ### 7. Land the Plane (`xorq agent land`)
+        ### 7. Land the Plane (`xorq agents land`)
         **MANDATORY before session completion:**
         - Validates all builds are cataloged
         - Checks git status (catalog.yaml and builds/ must be committed)
@@ -892,7 +932,7 @@ def _render_agent_doc(max_lines: int) -> str:
         - **ALWAYS check schema first** - `print(table.schema())` before any operations
         - **Match column case exactly** - Snowflake=UPPERCASE, DuckDB=lowercase
         - **Catalog your expressions** - Use `xorq catalog add` for all builds
-        - **Session close protocol** - Run `xorq agent land` to see mandatory steps
+        - **Session close protocol** - Run `xorq agents land` to see mandatory steps
 
         """
     ).strip()
