@@ -1,0 +1,431 @@
+{
+  "version": "0.1.0",
+  "total_files": 106,
+  "total_size": 236298,
+  "files": [
+    {
+      "path": "concepts.qmd",
+      "size": 7338
+    },
+    {
+      "path": "release_notes.qmd",
+      "size": 270
+    },
+    {
+      "path": "index.qmd",
+      "size": 3015
+    },
+    {
+      "path": "faq.qmd",
+      "size": 262
+    },
+    {
+      "path": "core_concepts/deferred_execution.qmd",
+      "size": 515
+    },
+    {
+      "path": "core_concepts/multi_engine.qmd",
+      "size": 1016
+    },
+    {
+      "path": "core_concepts/flight_udxf.qmd",
+      "size": 2218
+    },
+    {
+      "path": "core_concepts/index.qmd",
+      "size": 294
+    },
+    {
+      "path": "core_concepts/expression_format.qmd",
+      "size": 874
+    },
+    {
+      "path": "core_concepts/caching.qmd",
+      "size": 6098
+    },
+    {
+      "path": "troubleshooting/common_errors.qmd",
+      "size": 118
+    },
+    {
+      "path": "troubleshooting/installation_issues.qmd",
+      "size": 114
+    },
+    {
+      "path": "troubleshooting/index.qmd",
+      "size": 119
+    },
+    {
+      "path": "troubleshooting/pipeline_failures.qmd",
+      "size": 114
+    },
+    {
+      "path": "troubleshooting/caching_issues.qmd",
+      "size": 111
+    },
+    {
+      "path": "troubleshooting/performance_problems.qmd",
+      "size": 115
+    },
+    {
+      "path": "troubleshooting/backend_connection_issues.qmd",
+      "size": 130
+    },
+    {
+      "path": "how_to/into_backend_caching.qmd",
+      "size": 7303
+    },
+    {
+      "path": "getting_started/cache_expression_results.qmd",
+      "size": 8402
+    },
+    {
+      "path": "getting_started/explore_caching.qmd",
+      "size": 8483
+    },
+    {
+      "path": "getting_started/your_first_expression.qmd",
+      "size": 5142
+    },
+    {
+      "path": "getting_started/introduction.qmd",
+      "size": 5712
+    },
+    {
+      "path": "getting_started/switch_backends.qmd",
+      "size": 8185
+    },
+    {
+      "path": "getting_started/installation.qmd",
+      "size": 9146
+    },
+    {
+      "path": "getting_started/understand_deferred_execution.qmd",
+      "size": 7379
+    },
+    {
+      "path": "getting_started/quickstart.qmd",
+      "size": 10616
+    },
+    {
+      "path": "api_reference/backends/overview.qmd",
+      "size": 817
+    },
+    {
+      "path": "api_reference/backends/env_variables.qmd",
+      "size": 4170
+    },
+    {
+      "path": "api_reference/backends/profiles_api.qmd",
+      "size": 4503
+    },
+    {
+      "path": "api_reference/backends/index.qmd",
+      "size": 1015
+    },
+    {
+      "path": "api_reference/backends/supported_backends.qmd",
+      "size": 745
+    },
+    {
+      "path": "api_reference/cli/serve-flight-udxf.qmd",
+      "size": 6574
+    },
+    {
+      "path": "api_reference/cli/init.qmd",
+      "size": 918
+    },
+    {
+      "path": "api_reference/cli/build.qmd",
+      "size": 6731
+    },
+    {
+      "path": "api_reference/cli/index.qmd",
+      "size": 2349
+    },
+    {
+      "path": "api_reference/cli/uv-run.qmd",
+      "size": 873
+    },
+    {
+      "path": "api_reference/cli/lineage.qmd",
+      "size": 210
+    },
+    {
+      "path": "api_reference/cli/uv-build.qmd",
+      "size": 845
+    },
+    {
+      "path": "api_reference/cli/ps.qmd",
+      "size": 184
+    },
+    {
+      "path": "api_reference/cli/serve-unbound.qmd",
+      "size": 1391
+    },
+    {
+      "path": "api_reference/cli/run.qmd",
+      "size": 3423
+    },
+    {
+      "path": "api_reference/cli/catalog/add.qmd",
+      "size": 232
+    },
+    {
+      "path": "api_reference/cli/catalog/info.qmd",
+      "size": 252
+    },
+    {
+      "path": "api_reference/cli/catalog/ls.qmd",
+      "size": 223
+    },
+    {
+      "path": "api_reference/cli/catalog/rm.qmd",
+      "size": 221
+    },
+    {
+      "path": "api_reference/cli/catalog/diff-builds.qmd",
+      "size": 244
+    },
+    {
+      "path": "guides/platform_workflows/handle_production_errors.qmd",
+      "size": 498
+    },
+    {
+      "path": "guides/platform_workflows/debug_pipeline_failures.qmd",
+      "size": 511
+    },
+    {
+      "path": "guides/platform_workflows/manage_compute_catalog.qmd",
+      "size": 529
+    },
+    {
+      "path": "guides/platform_workflows/setup_cicd_pipelines.qmd",
+      "size": 533
+    },
+    {
+      "path": "guides/platform_workflows/monitor_production_deployments.qmd",
+      "size": 504
+    },
+    {
+      "path": "guides/platform_workflows/build_reproducible_environments.qmd",
+      "size": 531
+    },
+    {
+      "path": "guides/performance_workflows/optimize_model_serving.qmd",
+      "size": 511
+    },
+    {
+      "path": "guides/performance_workflows/manage_llm_costs.qmd",
+      "size": 510
+    },
+    {
+      "path": "guides/performance_workflows/switch_backends_dynamically.qmd",
+      "size": 575
+    },
+    {
+      "path": "guides/performance_workflows/optimize_pipeline_performance.qmd",
+      "size": 540
+    },
+    {
+      "path": "guides/advanced_workflows/track_data_lineage.qmd",
+      "size": 519
+    },
+    {
+      "path": "guides/advanced_workflows/integrate_existing_tools.qmd",
+      "size": 548
+    },
+    {
+      "path": "guides/advanced_workflows/build_feature_store.qmd",
+      "size": 561
+    },
+    {
+      "path": "guides/data_workflows/build_feature_pipelines.qmd",
+      "size": 515
+    },
+    {
+      "path": "guides/data_workflows/build_data_quality_checks.qmd",
+      "size": 507
+    },
+    {
+      "path": "guides/data_workflows/transform_data_custom_udfs.qmd",
+      "size": 521
+    },
+    {
+      "path": "guides/data_workflows/read_write_production_data.qmd",
+      "size": 577
+    },
+    {
+      "path": "guides/ml_workflows/deploy_models_to_production.qmd",
+      "size": 531
+    },
+    {
+      "path": "guides/ml_workflows/train_models_at_scale.qmd",
+      "size": 532
+    },
+    {
+      "path": "guides/ml_workflows/integrate_sklearn_pipelines.qmd",
+      "size": 534
+    },
+    {
+      "path": "guides/ml_workflows/evaluate_model_performance.qmd",
+      "size": 520
+    },
+    {
+      "path": "guides/ml_workflows/version_and_promote_models.qmd",
+      "size": 531
+    },
+    {
+      "path": "concepts/core_concepts/profile_based_connections.qmd",
+      "size": 434
+    },
+    {
+      "path": "concepts/core_concepts/data_lineage_tracking.qmd",
+      "size": 439
+    },
+    {
+      "path": "concepts/core_concepts/reproducible_environments_uv.qmd",
+      "size": 438
+    },
+    {
+      "path": "concepts/core_concepts/serving_expressions_as_endpoints.qmd",
+      "size": 437
+    },
+    {
+      "path": "concepts/core_concepts/build_system.qmd",
+      "size": 422
+    },
+    {
+      "path": "concepts/core_concepts/content_addressed_hashing.qmd",
+      "size": 445
+    },
+    {
+      "path": "concepts/core_concepts/compute_catalog.qmd",
+      "size": 411
+    },
+    {
+      "path": "concepts/core_concepts/feature_serving_patterns.qmd",
+      "size": 447
+    },
+    {
+      "path": "concepts/core_concepts/batch_processing_llms.qmd",
+      "size": 440
+    },
+    {
+      "path": "concepts/core_concepts/user_defined_exchange_functions.qmd",
+      "size": 2218
+    },
+    {
+      "path": "concepts/core_concepts/point_in_time_correctness.qmd",
+      "size": 461
+    },
+    {
+      "path": "concepts/understanding_xorq/overview.qmd",
+      "size": 425
+    },
+    {
+      "path": "concepts/understanding_xorq/multi_engine_execution.qmd",
+      "size": 1016
+    },
+    {
+      "path": "concepts/understanding_xorq/when_to_use_xorq.qmd",
+      "size": 427
+    },
+    {
+      "path": "concepts/understanding_xorq/how_xorq_works.qmd",
+      "size": 412
+    },
+    {
+      "path": "concepts/understanding_xorq/expression_format.qmd",
+      "size": 874
+    },
+    {
+      "path": "concepts/understanding_xorq/intelligent_caching_system.qmd",
+      "size": 6927
+    },
+    {
+      "path": "concepts/understanding_xorq/why_deferred_execution.qmd",
+      "size": 515
+    },
+    {
+      "path": "api/_templates/api.qmd",
+      "size": 336
+    },
+    {
+      "path": "tutorials/ai_tutorials/call_llms_from_expressions.qmd",
+      "size": 453
+    },
+    {
+      "path": "tutorials/ai_tutorials/build_an_mcp_tool.qmd",
+      "size": 418
+    },
+    {
+      "path": "tutorials/ai_tutorials/understand_flight_protocol.qmd",
+      "size": 417
+    },
+    {
+      "path": "tutorials/ai_tutorials/your_first_udxf.qmd",
+      "size": 431
+    },
+    {
+      "path": "tutorials/ml_tutorials/deploy_your_first_model.qmd",
+      "size": 123
+    },
+    {
+      "path": "tutorials/ml_tutorials/train_your_first_model.qmd",
+      "size": 9534
+    },
+    {
+      "path": "tutorials/ml_tutorials/explore_model_evaluation.qmd",
+      "size": 13674
+    },
+    {
+      "path": "tutorials/ml_tutorials/understand_step_and_pipeline.qmd",
+      "size": 194
+    },
+    {
+      "path": "tutorials/ml_tutorials/use_deferred_fit_predict.qmd",
+      "size": 204
+    },
+    {
+      "path": "tutorials/ml_tutorials/split_data_for_training.qmd",
+      "size": 12598
+    },
+    {
+      "path": "tutorials/analytics_tutorials/create_your_first_udf.qmd",
+      "size": 416
+    },
+    {
+      "path": "tutorials/analytics_tutorials/use_window_functions.qmd",
+      "size": 424
+    },
+    {
+      "path": "tutorials/analytics_tutorials/work_with_schemas.qmd",
+      "size": 383
+    },
+    {
+      "path": "tutorials/analytics_tutorials/query_across_engines.qmd",
+      "size": 483
+    },
+    {
+      "path": "tutorials/core_tutorials/your_first_build.qmd",
+      "size": 11643
+    },
+    {
+      "path": "tutorials/core_tutorials/explore_caching.qmd",
+      "size": 8481
+    },
+    {
+      "path": "tutorials/core_tutorials/switch_backends.qmd",
+      "size": 8185
+    },
+    {
+      "path": "tutorials/core_tutorials/understand_deferred_execution.qmd",
+      "size": 7379
+    },
+    {
+      "path": "LINTING.md",
+      "size": 2687
+    }
+  ]
+}

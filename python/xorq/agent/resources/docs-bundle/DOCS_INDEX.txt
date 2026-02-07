@@ -1,0 +1,23 @@
+[xorq Docs Index]|root: .xorq-docs
+|IMPORTANT: Prefer retrieval-led reasoning over pre-training-led reasoning for xorq tasks
+|IMPORTANT: All xorq expressions must be deferred - no eager pandas/NumPy operations
+|api/_templates:{api.qmd}
+|api_reference/backends:{env_variables.qmd,index.qmd,overview.qmd,profiles_api.qmd,supported_backends.qmd}
+|api_reference/cli:{build.qmd,index.qmd,init.qmd,lineage.qmd,ps.qmd,run.qmd,serve-flight-udxf.qmd,serve-unbound.qmd,uv-build.qmd,uv-run.qmd}
+|api_reference/cli/catalog:{add.qmd,diff-builds.qmd,info.qmd,ls.qmd,rm.qmd}
+|concepts/core_concepts:{batch_processing_llms.qmd,build_system.qmd,compute_catalog.qmd,content_addressed_hashing.qmd,data_lineage_tracking.qmd,feature_serving_patterns.qmd,point_in_time_correctness.qmd,profile_based_connections.qmd,reproducible_environments_uv.qmd,serving_expressions_as_endpoints.qmd,user_defined_exchange_functions.qmd}
+|concepts/understanding_xorq:{expression_format.qmd,how_xorq_works.qmd,intelligent_caching_system.qmd,multi_engine_execution.qmd,overview.qmd,when_to_use_xorq.qmd,why_deferred_execution.qmd}
+|core_concepts:{caching.qmd,deferred_execution.qmd,expression_format.qmd,flight_udxf.qmd,index.qmd,multi_engine.qmd}
+|getting_started:{cache_expression_results.qmd,explore_caching.qmd,installation.qmd,introduction.qmd,quickstart.qmd,switch_backends.qmd,understand_deferred_execution.qmd,your_first_expression.qmd}
+|guides/advanced_workflows:{build_feature_store.qmd,integrate_existing_tools.qmd,track_data_lineage.qmd}
+|guides/data_workflows:{build_data_quality_checks.qmd,build_feature_pipelines.qmd,read_write_production_data.qmd,transform_data_custom_udfs.qmd}
+|guides/ml_workflows:{deploy_models_to_production.qmd,evaluate_model_performance.qmd,integrate_sklearn_pipelines.qmd,train_models_at_scale.qmd,version_and_promote_models.qmd}
+|guides/performance_workflows:{manage_llm_costs.qmd,optimize_model_serving.qmd,optimize_pipeline_performance.qmd,switch_backends_dynamically.qmd}
+|guides/platform_workflows:{build_reproducible_environments.qmd,debug_pipeline_failures.qmd,handle_production_errors.qmd,manage_compute_catalog.qmd,monitor_production_deployments.qmd,setup_cicd_pipelines.qmd}
+|how_to:{into_backend_caching.qmd}
+|root:{LINTING.md,concepts.qmd,faq.qmd,index.qmd,release_notes.qmd}
+|troubleshooting:{backend_connection_issues.qmd,caching_issues.qmd,common_errors.qmd,index.qmd,installation_issues.qmd,performance_problems.qmd,pipeline_failures.qmd}
+|tutorials/ai_tutorials:{build_an_mcp_tool.qmd,call_llms_from_expressions.qmd,understand_flight_protocol.qmd,your_first_udxf.qmd}
+|tutorials/analytics_tutorials:{create_your_first_udf.qmd,query_across_engines.qmd,use_window_functions.qmd,work_with_schemas.qmd}
+|tutorials/core_tutorials:{explore_caching.qmd,switch_backends.qmd,understand_deferred_execution.qmd,your_first_build.qmd}
+|tutorials/ml_tutorials:{deploy_your_first_model.qmd,explore_model_evaluation.qmd,split_data_for_training.qmd,train_your_first_model.qmd,understand_step_and_pipeline.qmd,use_deferred_fit_predict.qmd}
