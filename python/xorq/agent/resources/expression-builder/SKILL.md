@@ -157,11 +157,11 @@ cached_expr.execute()
 # Load cataloged expression
 expr = xo.catalog.get("my-alias")
 
-# Get placeholder for run-unbound workflows
-placeholder = xo.catalog.get_placeholder(
-    "my-alias",
-    tag="tag",  # useful with xorq run-unbound --to_unbind_tag
-)
+# List source nodes for composition
+sources = xo.catalog.list_source_nodes(expr)
+
+# Replace node with memtable for run-unbound workflows
+transform = xo.catalog.replace_as_root_memtable(expr, node_hash=sources[0]['hash'])
 ```
 
 ### CLI Workflow
@@ -350,7 +350,6 @@ con = xo.connect("snowflake://...") # other engines
 
 # Catalog
 expr = xo.catalog.get("my-alias")
-ph = xo.catalog.get_placeholder("my-alias", tag="tag")
 
 # Execute
 result = expr.execute()

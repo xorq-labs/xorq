@@ -90,13 +90,3 @@ def test_load_expr_missing_expr_yaml(tmp_path):
         api.load_expr(build_dir)
 
 
-def test_get_placeholder_non_existent_alias(tmp_path):
-    """Test get_placeholder with non-existent alias raises ValueError"""
-    # Create empty catalog
-    catalog_path = tmp_path / CATALOG_YAML_FILENAME
-    load_catalog(path=str(catalog_path)).save(path=str(catalog_path))
-
-    api = CatalogAPI(catalog_path=catalog_path)
-
-    with pytest.raises(ValueError, match="Build directory not found"):
-        api.get_placeholder("non-existent-alias")
