@@ -24,7 +24,7 @@ expr = xo.deferred_read_csv(
 ).cache(cache=cache)
 
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     assert not expr.ls.exists()
     df = expr.execute()
     assert expr.ls.exists()

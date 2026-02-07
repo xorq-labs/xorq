@@ -62,7 +62,7 @@ expr = (
 )
 
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     res = expr.execute()
     assert not res.empty
     assert sqlite_con.list_tables()

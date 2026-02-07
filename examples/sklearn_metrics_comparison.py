@@ -284,7 +284,7 @@ def test_feature_importances():
     return sklearn_importances, xorq_importances
 
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     df = make_comparison_df()
     mismatches = validate_metrics_match(df)
     assert not mismatches, f"Metrics mismatch: {mismatches}"

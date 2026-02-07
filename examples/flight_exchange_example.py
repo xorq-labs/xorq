@@ -120,7 +120,7 @@ expr = train_test_split_union(
 )
 
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     rbr_in = instrument_reader(xo.to_pyarrow_batches(expr), prefix="input ::")
     exchanger = IterativeSplitTrainExchanger()
     with FlightServer() as server:

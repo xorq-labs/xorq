@@ -35,7 +35,7 @@ expr = left.join(
 ).cache(SourceCache.from_kwargs(source=pg))
 
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     res = expr.execute()
     print(res)
     pytest_examples_passed = True

@@ -55,6 +55,6 @@ def main():
         print("\n")
 
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     main()
     pytest_examples_passed = True

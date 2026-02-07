@@ -58,7 +58,7 @@ train_expr, test_expr = (
 bound_expr = test_expr.mutate(**{"transformed": deferred_transform.on_expr})
 
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     server, do_exchange = xo.expr.relations.flight_serve(bound_expr)
     df = do_exchange(test_expr).read_pandas()
     server.close()

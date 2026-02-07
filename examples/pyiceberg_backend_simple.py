@@ -32,7 +32,7 @@ df = pa.Table.from_pylist(
 inhabitants = con.create_table("inhabitants", df, overwrite=True)
 expr = con.tables["inhabitants"].head()
 
-if __name__ in ("__pytest_main__", "__main__"):
+if __name__ == "__pytest_main__":
     res = expr.execute()
     print(res)
     pytest_examples_passed = True
