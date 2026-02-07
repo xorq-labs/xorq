@@ -667,9 +667,8 @@ def render_onboarding_summary(step: str | None = None) -> str:
         "   xorq run <alias> -f arrow -o /dev/stdout 2>/dev/null | \\",
         "     duckdb -c \"LOAD arrow; SELECT * FROM read_arrow('/dev/stdin') LIMIT 10\"",
         "   ```",
-        "5. **Commit and push** - `xorq agents land` for checklist",
         "",
-        "**For detailed step-by-step guide:** `xorq agent onboard --step <init|templates|build|catalog|explore|compose|land>`",
+        "**For detailed step-by-step guide:** `xorq agent onboard --step <init|templates|build|catalog|explore|compose>`",
         "",
     ])
 
@@ -793,11 +792,10 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Agent Commands:**
         - `xorq agents onboard` - Workflow context and onboarding (use this!)
-        - `xorq agents land` - Session close checklist (MANDATORY before completion)
         - `xorq agents vignette list` - Available vignettes (USE THIS to learn patterns!)
         - `xorq catalog ls` - List cataloged builds
 
-        ## Agent Onboard/Land Workflow
+        ## Agent Onboard Workflow
 
         The agent workflow follows a discover → explore → learn → build → compose pattern:
 
@@ -915,15 +913,6 @@ def _render_agent_doc(max_lines: int) -> str:
 
         **Unbound pattern:** Any expression can have nodes "unbound" (made into placeholders). Feed Arrow IPC data via stdin to bind and execute. This enables composing arbitrary pipelines and streaming to SQL engines like DuckDB.
 
-        ### 7. Land the Plane (`xorq agents land`)
-        **MANDATORY before session completion:**
-        - Validates all builds are cataloged
-        - Checks git status (catalog.yaml and builds/ must be committed)
-        - Ensures remote is up to date
-        - Provides validation commands
-
-        **Never skip this step.** Work is not done until pushed and validated.
-
         ## Non-Negotiable Rules
 
         - **All work must be deferred xorq/ibis expressions** - No eager pandas/NumPy operations!
@@ -932,7 +921,6 @@ def _render_agent_doc(max_lines: int) -> str:
         - **ALWAYS check schema first** - `print(table.schema())` before any operations
         - **Match column case exactly** - Snowflake=UPPERCASE, DuckDB=lowercase
         - **Catalog your expressions** - Use `xorq catalog add` for all builds
-        - **Session close protocol** - Run `xorq agents land` to see mandatory steps
 
         """
     ).strip()
