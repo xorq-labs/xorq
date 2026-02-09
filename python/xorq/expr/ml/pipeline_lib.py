@@ -1,12 +1,6 @@
 import functools
 import pickle
 
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
 import toolz
 from attr import (
     field,
@@ -39,6 +33,7 @@ from xorq.common.utils.func_utils import (
 from xorq.common.utils.name_utils import (
     make_name,
 )
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.fit_lib import (
     DeferredFitOther,
     decision_function_sklearn,
@@ -50,14 +45,6 @@ from xorq.expr.ml.structer import (
 )
 from xorq.ibis_yaml.utils import freeze
 from xorq.vendor.ibis.expr.types.core import Expr
-
-
-class ResponseMethod(StrEnum):
-    """Sklearn scorer response methods."""
-
-    PREDICT = "predict"
-    PREDICT_PROBA = "predict_proba"
-    DECISION_FUNCTION = "decision_function"
 
 
 def do_into_backend(expr, con=None):
@@ -558,7 +545,7 @@ class FittedStep:
 
     def predict_raw(self, expr, name=None):
         col = self.deferred_predict.on_expr(expr).name(
-            name or self.dest_col or ResponseMethod.PREDICT
+            name or self.dest_col or ResponseMethod.PREDICT.value
         )
         return col
 
@@ -590,25 +577,23 @@ class FittedStep:
             raise AttributeError(
                 f"'{self.step.typ.__name__}' object has no attribute '{methodname}'"
             )
-        return method.on_expr(expr).name(name or methodname)
+        return method.on_expr(expr).name(
+            name or getattr(methodname, "value", methodname)
+        )
 
     @toolz.curry
     def invoke_method(self, expr, retain_others=True, name=None, *, methodname):
         col = self.invoke_method_raw(expr=expr, name=name, methodname=methodname)
-        if retain_others and (others := self.get_others(expr)):
-            expr = expr.select(*others, col)
-        else:
-            expr = col.as_table()
-
+        expr = (
+            expr.select(*others, col)
+            if retain_others and (others := self.get_others(expr))
+            else col.as_table()
+        )
         return expr.tag(**self.tag_kwargs)
 
-    predict_proba_raw = invoke_method_raw(
-        methodname=ResponseMethod.PREDICT_PROBA, name=ResponseMethod.PREDICT_PROBA
-    )
+    predict_proba_raw = invoke_method_raw(methodname=ResponseMethod.PREDICT_PROBA)
 
-    predict_proba = invoke_method(
-        methodname=ResponseMethod.PREDICT_PROBA, name=ResponseMethod.PREDICT_PROBA
-    )
+    predict_proba = invoke_method(methodname=ResponseMethod.PREDICT_PROBA)
 
     decision_function_raw = invoke_method_raw(
         methodname=ResponseMethod.DECISION_FUNCTION
@@ -921,23 +906,32 @@ class FittedPipeline:
         )
         return predicted
 
-    predict_proba = invoke_predict_method(
-        tag_name="FittedPipeline-predict_proba",
-        tag_key="predict_proba_tags",
-        methodname=ResponseMethod.PREDICT_PROBA,
-    )
+    def predict_proba(self, expr, name=None):
+        return self.invoke_predict_method(
+            expr,
+            tag_name="FittedPipeline-predict_proba",
+            tag_key="predict_proba_tags",
+            methodname=ResponseMethod.PREDICT_PROBA,
+            name=name,
+        )
 
-    decision_function = invoke_predict_method(
-        tag_name="FittedPipeline-decision_function",
-        tag_key="decision_function_tags",
-        methodname=ResponseMethod.DECISION_FUNCTION,
-    )
+    def decision_function(self, expr, name=None):
+        return self.invoke_predict_method(
+            expr,
+            tag_name="FittedPipeline-decision_function",
+            tag_key="decision_function_tags",
+            methodname=ResponseMethod.DECISION_FUNCTION,
+            name=name,
+        )
 
-    feature_importances = invoke_predict_method(
-        tag_name="FittedPipeline-feature_importances",
-        tag_key="feature_importances_tags",
-        methodname="feature_importances",
-    )
+    def feature_importances(self, expr, name=None):
+        return self.invoke_predict_method(
+            expr,
+            tag_name="FittedPipeline-feature_importances",
+            tag_key="feature_importances_tags",
+            methodname="feature_importances",
+            name=name,
+        )
 
     def _get_default_scorer(self):
         """Get the default scorer based on model type.

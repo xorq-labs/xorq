@@ -5,7 +5,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.common.utils.graph_utils import walk_nodes
-from xorq.expr.ml.pipeline_lib import ResponseMethod
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.relations import Tag
 
 

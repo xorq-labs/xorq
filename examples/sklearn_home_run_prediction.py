@@ -28,6 +28,7 @@ from sklearn.preprocessing import MinMaxScaler, OneHotEncoder, StandardScaler
 import xorq.api as xo
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.expr.ml import train_test_splits
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
@@ -166,7 +167,7 @@ if __name__ in ("__main__", "__pytest_main__"):
     print(results.head(10))
 
     # Calculate simple metrics
-    mae = (results[target] - results["predict"]).abs().mean()
+    mae = (results[target] - results[ResponseMethod.PREDICT]).abs().mean()
     print(f"\nMean Absolute Error: {mae:.2f}")
 
     pytest_examples_passed = True

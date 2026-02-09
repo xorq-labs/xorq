@@ -8,6 +8,7 @@ import toolz
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.api import make_pandas_expr_udf, make_pandas_udf, udf
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.tests.util import assert_frame_equal
 from xorq.vendor.ibis import _
 from xorq.vendor.ibis import literal as L
@@ -237,7 +238,7 @@ def test_pandas_expr_udf(con, diamonds):
     )
     target = "price"
     train_fn = train_xgboost_model(features=features, target=target)
-    name = "predict"
+    name = ResponseMethod.PREDICT
     typ = "float64"
 
     df = diamonds.limit(500).execute()

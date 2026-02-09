@@ -18,6 +18,7 @@ from attr.validators import (
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.name_utils import make_name
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.structer import KV_ENCODED_TYPE, KVEncoder, Structer
 from xorq.expr.udf import make_pandas_expr_udf
 from xorq.vendor import ibis
@@ -231,7 +232,7 @@ class DeferredFitOther:
         # Auto-detect mode if not specified (backward compat)
         if mode is None:
             if fitted_step.is_predict and not fitted_step.is_transform:
-                mode = "predict"
+                mode = ResponseMethod.PREDICT
             else:
                 mode = "transform"  # Default to transform
 
@@ -242,14 +243,14 @@ class DeferredFitOther:
             "features": fitted_step.features,
             "cache": fitted_step.cache,
         }
-        if mode == "predict":
+        if mode == ResponseMethod.PREDICT:
             return cls(
                 fit=fit_sklearn(
                     cls=fitted_step.step.typ, params=fitted_step.step.params_tuple
                 ),
                 other=predict_sklearn,
                 return_type=fitted_step.predict_return_type,
-                name_infix="predict",
+                name_infix=ResponseMethod.PREDICT,
                 **kwargs,
             )
         elif mode == "transform":
@@ -374,7 +375,7 @@ def deferred_fit_predict(
     cls,
     return_type,
     params=(),
-    name_infix="predict",
+    name_infix=ResponseMethod.PREDICT,
     cache=None,
 ):
     return DeferredFitOther(
@@ -420,7 +421,7 @@ def deferred_fit_predict_sklearn(
     cls,
     return_type,
     params=(),
-    name_infix="predict",
+    name_infix=ResponseMethod.PREDICT,
     cache=None,
 ):
     return DeferredFitOther(
@@ -443,7 +444,7 @@ def deferred_fit_predict_proba_sklearn(
     cls,
     return_type,
     params=(),
-    name_infix="predict_proba",
+    name_infix=ResponseMethod.PREDICT_PROBA,
     cache=None,
 ):
     return DeferredFitOther(
@@ -466,7 +467,7 @@ def deferred_fit_decision_function_sklearn(
     cls,
     return_type,
     params=(),
-    name_infix="decision_function",
+    name_infix=ResponseMethod.DECISION_FUNCTION,
     cache=None,
 ):
     return DeferredFitOther(
@@ -506,7 +507,7 @@ def deferred_fit_feature_importances_sklearn(
 
 @toolz.curry
 def deferred_fit_transform_series_sklearn(
-    expr, col, cls, return_type, params=(), name="predict", cache=None
+    expr, col, cls, return_type, params=(), name="transformed", cache=None
 ):
     return DeferredFitOther(
         expr=expr,

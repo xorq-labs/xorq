@@ -73,12 +73,12 @@ def compute_metrics(clf, X_train, X_test, y_train, y_test):
     xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
         train, features=features, target=target
     )
-    expr_with_preds = xorq_pipeline.predict(test, name="predicted")
+    expr_with_preds = xorq_pipeline.predict(test, name="my_predicted")
     xorq_metrics = {
         name: deferred_sklearn_metric(
             expr=expr_with_preds,
             target=target,
-            pred_col="predicted",
+            pred_col="my_predicted",
             scorer=metric_fn,
             metric_kwargs=kwargs if kwargs else (),
         ).execute()
@@ -192,11 +192,11 @@ def test_predict_proba():
     xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
         train, features=features, target=target
     )
-    expr_with_proba = xorq_pipeline.predict_proba(test, name="predicted_proba")
+    expr_with_proba = xorq_pipeline.predict_proba(test, name="my_predicted_proba")
     xorq_auc = deferred_sklearn_metric(
         expr=expr_with_proba,
         target=target,
-        pred_col="predicted_proba",
+        pred_col="my_predicted_proba",
         scorer=roc_auc_score,
     ).execute()
 
@@ -227,11 +227,13 @@ def test_decision_function():
     xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
         train, features=features, target=target
     )
-    expr_with_scores = xorq_pipeline.decision_function(test)
+    expr_with_scores = xorq_pipeline.decision_function(
+        test, name="my_decision_function"
+    )
     xorq_auc = deferred_sklearn_metric(
         expr=expr_with_scores,
         target=target,
-        pred_col="decision_function",
+        pred_col="my_decision_function",
         scorer=roc_auc_score,
     ).execute()
 

@@ -17,7 +17,7 @@ from toolz import compose
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.name_utils import make_name
-from xorq.expr.ml.pipeline_lib import ResponseMethod
+from xorq.expr.ml.enums import ResponseMethod
 
 
 @functools.lru_cache(maxsize=1)

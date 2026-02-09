@@ -6,8 +6,9 @@ import pytest
 
 import xorq.expr.datatypes as dt
 from xorq.expr import api
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.metrics import deferred_sklearn_metric
-from xorq.expr.ml.pipeline_lib import Pipeline, ResponseMethod
+from xorq.expr.ml.pipeline_lib import Pipeline
 
 
 # Skip all tests in this module if sklearn is not installed
@@ -945,3 +946,157 @@ def test_scorer_from_spec_make_scorer_greater_is_better_false():
     s = Scorer.from_spec(scorer_obj)
     assert s.metric_fn is mean_squared_error
     assert s.sign == -1
+
+
+class TestCustomPredColName:
+    """Test that custom name= on prediction methods flows through to deferred_sklearn_metric."""
+
+    def test_classifier_custom_pred_col(self, classification_data):
+        """Classifier: predict(name='my_pred') -> pred_col='my_pred'."""
+        train_df, test_df, feature_names = classification_data
+        train_expr = api.register(train_df, "cls_train")
+        test_expr = api.register(test_df, "cls_test")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", RandomForestClassifier(n_estimators=10, random_state=42)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+
+        preds = fitted.predict(test_expr, name="my_pred")
+        assert "my_pred" in preds.columns
+
+        result = deferred_sklearn_metric(
+            expr=preds,
+            target="target",
+            pred_col="my_pred",
+            scorer=accuracy_score,
+        ).execute()
+        assert 0 <= result <= 1
+
+    def test_regressor_custom_pred_col(self, regression_data):
+        """Regressor: predict(name='my_pred') -> pred_col='my_pred'."""
+        train_df, test_df, feature_names = regression_data
+        train_expr = api.register(train_df, "reg_train")
+        test_expr = api.register(test_df, "reg_test")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("reg", RandomForestRegressor(n_estimators=10, random_state=42)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+
+        preds = fitted.predict(test_expr, name="my_pred")
+        assert "my_pred" in preds.columns
+
+        result = deferred_sklearn_metric(
+            expr=preds,
+            target="target",
+            pred_col="my_pred",
+            scorer=r2_score,
+        ).execute()
+        assert isinstance(result, (float, np.floating))
+
+    def test_clusterer_custom_pred_col(self):
+        """Clusterer: predict(name='my_labels') -> pred_col='my_labels'."""
+        KMeans = sklearn.cluster.KMeans
+        adjusted_rand_score = sklearn.metrics.adjusted_rand_score
+
+        X, y = make_classification(
+            n_samples=200, n_features=5, n_informative=3, n_classes=2, random_state=42
+        )
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)]).assign(target=y)
+        train_df, test_df = train_test_split(df, test_size=0.3, random_state=42)
+
+        train_expr = api.register(train_df, "clu_train")
+        test_expr = api.register(test_df, "clu_test")
+
+        features = [f"f{i}" for i in range(5)]
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clu", KMeans(n_clusters=2, random_state=42, n_init=10)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=features, target="target"
+        )
+
+        preds = fitted.predict(test_expr, name="my_labels")
+        assert "my_labels" in preds.columns
+
+        result = deferred_sklearn_metric(
+            expr=preds,
+            target="target",
+            pred_col="my_labels",
+            scorer=adjusted_rand_score,
+        ).execute()
+        assert isinstance(result, (float, np.floating))
+
+    def test_predict_proba_custom_pred_col(self, classification_data):
+        """predict_proba(name='my_proba') -> pred_col='my_proba'."""
+        train_df, test_df, feature_names = classification_data
+        train_expr = api.register(train_df, "proba_train")
+        test_expr = api.register(test_df, "proba_test")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(random_state=42)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+
+        preds = fitted.predict_proba(test_expr, name="my_proba")
+        assert "my_proba" in preds.columns
+
+        result = deferred_sklearn_metric(
+            expr=preds,
+            target="target",
+            pred_col="my_proba",
+            scorer=roc_auc_score,
+        ).execute()
+        assert 0 <= result <= 1
+
+    def test_decision_function_custom_pred_col(self):
+        """decision_function(name='my_scores') -> pred_col='my_scores'."""
+        X, y = make_classification(
+            n_samples=200, n_features=5, n_informative=3, n_classes=2, random_state=7
+        )
+        df = pd.DataFrame(X, columns=[f"f{i}" for i in range(5)]).assign(target=y)
+        train_df, test_df = train_test_split(df, test_size=0.3, random_state=42)
+
+        train_expr = api.register(train_df, "df_train")
+        test_expr = api.register(test_df, "df_test")
+
+        features = [f"f{i}" for i in range(5)]
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("svm", LinearSVC(random_state=7, max_iter=5000)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=features, target="target"
+        )
+
+        preds = fitted.decision_function(test_expr, name="my_scores")
+        assert "my_scores" in preds.columns
+
+        result = deferred_sklearn_metric(
+            expr=preds,
+            target="target",
+            pred_col="my_scores",
+            scorer=roc_auc_score,
+        ).execute()
+        assert isinstance(result, (float, np.floating))
