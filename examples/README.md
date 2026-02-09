@@ -6,19 +6,25 @@ How to run the examples
 From the repo root:
 
 ```bash
+just download-data
+just up postgres
+#On Apple Silicon Macs, you may see a platform mismatch warning for the Postgres image (linux/amd64 vs linux/arm64); this is not an error — Docker runs it under emulation and it works normally.
+
 # macOS only
 brew install cmake libomp
 
+source .venv/bin/activate # Activate the venv
 # Install dependencies (from repo root)
 uv sync --extra examples --extra postgres
 
-# Activate the venv
-source .venv/bin/activate
-docker compose up postgres
+#docker compose up postgres # I'm not sure if this is needed
 
 # run the examples
+cd examples
+xorq build simple_example.py
+xorq run simple_example.py
 
-python examples/simple_example.py
+python xorq_build_and_run.py iris_example.py # build and run in a single step
 ```
 
 
