@@ -1,3 +1,18 @@
+"""Full ML pipeline with StandardScaler and KNeighborsClassifier, comparing a manual
+deferred approach against the Pipeline API.
+
+Traditional approach: You would build an sklearn Pipeline with fit/transform/predict
+calls, operating entirely in-memory on pandas DataFrames. There is no caching of
+intermediate results, so rerunning the pipeline repeats all computation. Moving data
+between backends (e.g., from a database to local memory) requires manual extraction.
+
+With xorq: The Pipeline API wraps sklearn estimators with deferred execution, so
+transformations and predictions are built as expressions before being materialized.
+Intermediate results are automatically cached, and data loading is backend-agnostic,
+meaning the same pipeline code works whether data comes from DuckDB, Postgres, or
+pandas.
+"""
+
 import operator
 
 import sklearn
@@ -117,7 +132,7 @@ test_predicted_pipeline = make_pipeline_expr(
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     sklearn_df = train_predict_sklearn(sklearn_pipeline, train, test, features, target)
     manual_df = test_predicted_manual.execute().reindex_like(sklearn_df)
     pipeline_df = test_predicted_pipeline.execute().reindex_like(sklearn_df)

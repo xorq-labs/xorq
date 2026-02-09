@@ -1,3 +1,16 @@
+"""
+Chains a TF-IDF transform step with an XGBoost regression predict step into a FittedPipeline over HackerNews data.
+
+Traditional approach: You build an sklearn Pipeline and serve it via Flask or FastAPI,
+manually serializing models with pickle or joblib, writing custom request/response
+handlers, and managing the serving infrastructure yourself.
+
+With xorq: Chain deferred_fit_transform and deferred_fit_predict as Step objects in a
+FittedPipeline. Each step's model is automatically cached via ParquetCache, and the
+pipeline's predict method composes all transformations into a single deferred expression
+that can be executed on train or test data interchangeably.
+"""
+
 import xgboost as xgb
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics import mean_absolute_error
@@ -94,7 +107,7 @@ fitted_pipeline, test_predicted = make_pipeline(
 )
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     fitted_transform, fitted_predict = fitted_pipeline.fitted_steps
     print(
         fitted_transform.deferred_model.ls.get_key(),

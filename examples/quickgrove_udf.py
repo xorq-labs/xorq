@@ -1,3 +1,16 @@
+"""XGBoost model loaded from JSON with expression rewriting for optimization.
+
+Traditional approach: Load an XGBoost model from a JSON file, call predict in
+Python per batch. The prediction step is opaque to any query planner, so no
+query-level optimization is possible -- all columns are always fetched
+regardless of what the model actually needs.
+
+With xorq: Wrap the model in a UDF using make_quickgrove_udf and apply
+rewrite_quickgrove_expr to enable expression rewriting. The query optimizer
+can then prune unused columns and push operations closer to the data source,
+reducing data transfer and improving performance.
+"""
+
 from pathlib import Path
 
 import pandas as pd
@@ -26,7 +39,7 @@ t = (
 t_pruned = rewrite_quickgrove_expr(t)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     original = xo.execute(t)
     pruned = xo.execute(t_pruned)
     pd.testing.assert_frame_equal(original, pruned, rtol=3)

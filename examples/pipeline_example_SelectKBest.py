@@ -1,3 +1,16 @@
+"""Feature selection pipeline using SelectKBest for ANOVA-based filtering followed by
+LinearSVC classification.
+
+Traditional approach: You would use sklearn's make_pipeline(SelectKBest, LinearSVC),
+call fit on the training data, and predict on the test data, all in-memory. Data loading,
+feature selection, and scoring are tightly coupled in a single process with no caching.
+
+With xorq: The same sklearn estimators are wrapped in a deferred pipeline, so feature
+selection and training are expressed as lazy operations. This means intermediate results
+(e.g., selected features) can be cached and reused, and the train/test data can originate
+from different backends.
+"""
+
 # https://scikit-learn.org/stable/_downloads/5a7e586367163444711012a4c5214817/plot_feature_selection_pipeline.py
 import pandas as pd
 import toolz
@@ -52,7 +65,7 @@ fitted_pipline = xorq_pipeline.fit(train, features=features, target=target)
 predicted = fitted_pipline.predict(test)
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     y_pred = anova_svm.fit(X_train, y_train).predict(X_test)
     df = predicted.execute().assign(from_sklearn=y_pred)
     assert df[ResponseMethod.PREDICT].equals(df["from_sklearn"])

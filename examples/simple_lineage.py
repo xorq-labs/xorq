@@ -1,3 +1,16 @@
+"""Column lineage tracking through expressions with custom UDFs.
+
+Traditional approach: Manually trace which columns feed into which
+transformations by reading code. There is no automated way to determine that
+a derived column like total_discount depends on both price and discount
+through a UDF -- you must follow the logic yourself.
+
+With xorq: Expressions carry lineage metadata, so you can programmatically
+inspect which source columns contribute to any derived column, even through
+UDFs. The build_column_trees utility produces a tree structure showing the
+full dependency chain for each output column.
+"""
+
 import xorq.api as xo
 import xorq.expr.datatypes as dt
 from xorq.common.utils.lineage_utils import build_column_trees, print_tree
@@ -42,6 +55,6 @@ def main():
         print("\n")
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     main()
     pytest_examples_passed = True

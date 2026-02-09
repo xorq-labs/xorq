@@ -1,3 +1,17 @@
+"""Compares 8 classifiers (KNN, SVM, Decision Tree, Random Forest, Neural Net, AdaBoost,
+Naive Bayes, QDA) across 3 synthetic datasets (moons, circles, linearly separable).
+
+Traditional approach: You would write nested loops over classifiers and datasets, calling
+sklearn's fit and score in-memory for each combination. All data lives in numpy arrays,
+and there is no way to reuse intermediate results or swap backends without rewriting the
+data loading code.
+
+With xorq: Each dataset is registered as an Ibis expression that can originate from any
+backend. The same classifier comparison loop uses xorq Pipelines with deferred fit and
+score, so results are computed as expressions and can be cached. Scores from sklearn and
+xorq are compared to verify equivalence.
+"""
+
 # https://scikit-learn.org/stable/auto_examples/classification/plot_classifier_comparison.html#sphx-glr-auto-examples-classification-plot-classifier-comparison-py
 # Authors: The scikit-learn developers
 # SPDX-License-Identifier: BSD-3-Clause
@@ -144,7 +158,7 @@ def make_comparison_df():
     return df
 
 
-if __name__ == "__pytest_main__":
+if __name__ in ("__pytest_main__", "__main__"):
     df = make_comparison_df()
     assert df.sklearn_score.equals(df.xorq_score)
     pytest_examples_passed = True

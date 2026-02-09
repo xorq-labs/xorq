@@ -1,15 +1,15 @@
-"""Penguins Classification Quickstart
+"""Classification on the penguins dataset using StandardScaler and RandomForestClassifier,
+with deferred metric computation.
 
-This example demonstrates xorq's ML pipeline and metrics functionality:
-1. Load penguins dataset using xo.examples
-2. Split data using train_test_splits
-3. Train a classification model using xorq Pipeline
-4. Make predictions and probability predictions on test data
-5. Compute sklearn metrics (accuracy, precision, recall, F1, ROC AUC) in a deferred manner
-6. Extract feature importances from the trained model
+Traditional approach: You would load penguin data with seaborn or pandas, filter nulls,
+split with sklearn's train_test_split, build an sklearn Pipeline, fit and predict
+in-memory, then manually compute each metric (accuracy, precision, recall, F1, ROC AUC).
 
-The example showcases the declarative approach to ML metrics and model introspection
-that execute only when needed, making it suitable for large-scale distributed workflows.
+With xorq: Data is loaded through Ibis expressions and split with expression-level
+train_test_splits. The sklearn pipeline is wrapped with deferred execution, and metrics
+are computed as lazy expressions via deferred_sklearn_metric, so they are only
+materialized when .execute() is called. This enables automatic caching and composability
+of metric results.
 """
 
 from sklearn.ensemble import RandomForestClassifier
@@ -110,7 +110,7 @@ roc_auc = deferred_sklearn_metric(
 feature_importances_expr = fitted_pipeline.feature_importances(test_data)
 
 
-if __name__ in ("__pytest_main__"):
+if __name__ in ("__pytest_main__", "__main__"):
     print(f"  Accuracy:  {accuracy.execute():.4f}")
     print(f"  Precision: {precision.execute():.4f}")
     print(f"  Recall:    {recall.execute():.4f}")
