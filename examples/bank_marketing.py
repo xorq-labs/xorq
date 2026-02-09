@@ -11,6 +11,7 @@ import xorq.api as xo
 from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_csv
 from xorq.expr.ml import train_test_splits
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
@@ -108,7 +109,7 @@ predicted_test = fitted_pipeline.predict(test_table)
 
 if __name__ in ("__main__", "__pytest_main__"):
     predictions_df = predicted_test.execute()
-    binary_predictions = predictions_df["predict"]
+    binary_predictions = predictions_df[ResponseMethod.PREDICT]
 
     cm = confusion_matrix(predictions_df[target_column], binary_predictions)
     print("\nConfusion Matrix:")
