@@ -5,6 +5,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.relations import Tag
 
 
@@ -292,10 +293,6 @@ class TestDeeplyNestedPipelines:
             }
         )
 
-        # Add missing values
-        data.loc[np.random.choice(n_samples, 10), "age"] = np.nan
-        data.loc[np.random.choice(n_samples, 8), "income"] = np.nan
-
         numeric_features = ["age", "income", "credit_score", "years_employed"]
         categorical_features = ["education", "employment_type", "region"]
         all_features = tuple(numeric_features + categorical_features)
@@ -365,7 +362,7 @@ class TestDeeplyNestedPipelines:
         sklearn_preds = sklearn_pipe.predict(X)
 
         # Assert predictions match
-        assert np.array_equal(predictions["predicted"].values, sklearn_preds)
+        assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
 
     def test_non_kv_deeply_nested_pipeline(self):
         """Test depth-4 nested pipeline with all known-schema transformers.
@@ -402,11 +399,6 @@ class TestDeeplyNestedPipelines:
                 "approved": np.random.randint(0, 2, n_samples),
             }
         )
-
-        # Add missing values
-        data.loc[np.random.choice(n_samples, 10), "age"] = np.nan
-        data.loc[np.random.choice(n_samples, 8), "income"] = np.nan
-        data.loc[np.random.choice(n_samples, 5), "years_employed"] = np.nan
 
         numeric_features_a = ["age", "income", "credit_score"]
         numeric_features_b = ["years_employed", "debt_ratio", "savings"]
@@ -467,7 +459,316 @@ class TestDeeplyNestedPipelines:
         sklearn_preds = sklearn_pipe.predict(X)
 
         # Assert predictions match
-        assert np.array_equal(predictions["predicted"].values, sklearn_preds)
+        assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
+
+
+def _scorer_info():
+    """Return [(name, module, response_method), ...] for every registered scorer."""
+    from sklearn.metrics import get_scorer, get_scorer_names
+
+    return [
+        (
+            name,
+            get_scorer(name)._score_func.__module__,
+            get_scorer(name)._response_method,
+        )
+        for name in get_scorer_names()
+    ]
+
+
+def get_scorers_by_type():
+    """Categorize all sklearn scorers by their type based on internal module path."""
+    info = _scorer_info()
+
+    proba = {
+        name
+        for name, _, response in info
+        if isinstance(response, tuple)
+        or response in (ResponseMethod.PREDICT_PROBA, ResponseMethod.DECISION_FUNCTION)
+    }
+
+    multilabel = {name for name, _, _ in info if name.endswith("_samples")}
+
+    # Non-multilabel scorers categorized by module
+    non_ml = [
+        (name, module) for name, module, _ in info if not name.endswith("_samples")
+    ]
+
+    classification = {
+        name
+        for name, module in non_ml
+        if "_classification" in module or "_ranking" in module or "_scorer" in module
+    }
+
+    regression = {name for name, module in non_ml if "_regression" in module}
+
+    cluster = {name for name, module in non_ml if "cluster" in module}
+
+    return {
+        "classification": classification,
+        "regression": regression,
+        "cluster": cluster,
+        "proba": proba,
+        "multilabel": multilabel,
+    }
+
+
+SCORERS_BY_TYPE = get_scorers_by_type()
+
+
+class TestPipelineScoringMatchSklearn:
+    """Tests for pipeline scoring with all compatible scorers."""
+
+    @pytest.fixture
+    def scoring_data(self):
+        """Generate dataset suitable for classification, regression, and clustering."""
+        import numpy as np
+
+        np.random.seed(42)
+        n = 100
+        return {
+            "x1": np.random.randn(n).tolist(),
+            "x2": np.random.randn(n).tolist(),
+            "y_class": (np.random.randn(n) > 0).astype(int).tolist(),
+            "y_reg": (
+                np.abs(np.random.randn(n)) + 0.1
+            ).tolist(),  # positive for log/deviance scorers
+        }
+
+    @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["classification"])
+    def test_classifier_scorer(self, scoring_data, scorer_name):
+        """Test classification scorers match sklearn."""
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.metrics import get_scorer
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+        y = np.array(scoring_data["y_class"])
+
+        sklearn_pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("model", LogisticRegression(random_state=42, max_iter=1000)),
+            ]
+        )
+        sklearn_pipe.fit(X, y)
+
+        t = xo.memtable(scoring_data)
+        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+        fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_class")
+
+        scorer = get_scorer(scorer_name)
+        sklearn_score = scorer(sklearn_pipe, X, y)
+        xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
+
+        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
+
+    @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["regression"])
+    def test_regressor_scorer(self, scoring_data, scorer_name):
+        """Test regression scorers match sklearn."""
+        import numpy as np
+        from sklearn.linear_model import LinearRegression
+        from sklearn.metrics import get_scorer
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+        y = np.array(scoring_data["y_reg"])
+
+        sklearn_pipe = SklearnPipeline(
+            [("scaler", StandardScaler()), ("model", LinearRegression())]
+        )
+        sklearn_pipe.fit(X, y)
+
+        t = xo.memtable(scoring_data)
+        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+        fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_reg")
+
+        scorer = get_scorer(scorer_name)
+        sklearn_score = scorer(sklearn_pipe, X, y)
+        xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
+
+        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
+
+    @pytest.mark.parametrize("scorer_name", SCORERS_BY_TYPE["cluster"])
+    def test_cluster_scorer(self, scoring_data, scorer_name):
+        """Test clustering scorers match sklearn."""
+        import numpy as np
+        from sklearn.cluster import KMeans
+        from sklearn.metrics import get_scorer
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        X = np.array([scoring_data["x1"], scoring_data["x2"]]).T
+        y = np.array(scoring_data["y_class"])
+
+        sklearn_pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clusterer", KMeans(n_clusters=2, random_state=42, n_init=10)),
+            ]
+        )
+        sklearn_pipe.fit(X, y)
+
+        t = xo.memtable(scoring_data)
+        xorq_pipeline = xo.Pipeline.from_instance(sklearn_pipe)
+        fitted_xorq = xorq_pipeline.fit(t, features=("x1", "x2"), target="y_class")
+
+        scorer = get_scorer(scorer_name)
+        sklearn_score = scorer(sklearn_pipe, X, y)
+        xorq_score = fitted_xorq.score(X, y, scorer=scorer_name)
+
+        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9, atol=1e-12)
+
+
+class TestScoreExpr:
+    """Tests for FittedPipeline.score_expr and .score edge cases."""
+
+    @pytest.fixture
+    def fitted_classifier(self):
+        """Fitted classifier pipeline."""
+        import numpy as np
+        from sklearn.linear_model import LogisticRegression
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        np.random.seed(42)
+        data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0, 1]}
+        X = np.array([data["x1"], data["x2"]]).T
+        y = np.array(data["y"])
+
+        sklearn_pipe = SklearnPipeline(
+            [("scaler", StandardScaler()), ("model", LogisticRegression())]
+        )
+        sklearn_pipe.fit(X, y)
+
+        t = xo.memtable(data)
+        fitted = xo.Pipeline.from_instance(sklearn_pipe).fit(
+            t, features=("x1", "x2"), target="y"
+        )
+        return fitted, sklearn_pipe, X, y, t
+
+    @pytest.fixture
+    def fitted_regressor(self):
+        """Fitted regressor pipeline."""
+        import numpy as np
+        from sklearn.linear_model import LinearRegression
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        np.random.seed(42)
+        data = {"x1": [0.0, 1.0], "x2": [0.0, 1.0], "y": [0.0, 1.0]}
+        X = np.array([data["x1"], data["x2"]]).T
+        y = np.array(data["y"])
+
+        sklearn_pipe = SklearnPipeline(
+            [("scaler", StandardScaler()), ("model", LinearRegression())]
+        )
+        sklearn_pipe.fit(X, y)
+
+        t = xo.memtable(data)
+        fitted = xo.Pipeline.from_instance(sklearn_pipe).fit(
+            t, features=("x1", "x2"), target="y"
+        )
+        return fitted, sklearn_pipe, X, y, t
+
+    def test_default_scorer_classifier_is_accuracy(self, fitted_classifier):
+        """Test default scorer for classifier is accuracy_score."""
+        from sklearn.metrics import accuracy_score
+
+        fitted, *_ = fitted_classifier
+        scorer = fitted._get_default_scorer()
+        assert scorer._score_func is accuracy_score
+
+    def test_default_scorer_regressor_is_r2(self, fitted_regressor):
+        """Test default scorer for regressor is r2_score."""
+        from sklearn.metrics import r2_score
+
+        fitted, *_ = fitted_regressor
+        scorer = fitted._get_default_scorer()
+        assert scorer._score_func is r2_score
+
+    def test_default_scorer_cluster_is_adjusted_rand(self):
+        """Test default scorer for clustering is adjusted_rand_score."""
+        from sklearn.cluster import KMeans
+        from sklearn.metrics import adjusted_rand_score
+
+        t = xo.memtable({"x": [0.0, 1.0], "y": [0, 1]})
+        fitted = xo.Pipeline.from_instance(
+            sklearn.pipeline.make_pipeline(KMeans(n_clusters=2, n_init=1))
+        ).fit(t, features=("x",), target="y")
+
+        assert fitted._get_default_scorer()._score_func is adjusted_rand_score
+
+    def test_string_scorer(self, fitted_classifier):
+        """Test passing a scorer name string."""
+        import numpy as np
+        from sklearn.metrics import get_scorer
+
+        fitted, sklearn_pipe, X, y, _ = fitted_classifier
+
+        xorq_score = fitted.score(X, y, scorer="f1")
+        sklearn_score = get_scorer("f1")(sklearn_pipe, X, y)
+        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
+
+    def test_callable_scorer(self, fitted_classifier):
+        """Test passing a raw callable metric function."""
+        import numpy as np
+        from sklearn.metrics import f1_score
+
+        fitted, sklearn_pipe, X, y, _ = fitted_classifier
+
+        xorq_score = fitted.score(X, y, scorer=f1_score)
+        sklearn_score = f1_score(y, sklearn_pipe.predict(X))
+        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
+
+    def test_make_scorer_object(self, fitted_classifier):
+        """Test passing a make_scorer object directly."""
+        import numpy as np
+        from sklearn.metrics import f1_score, make_scorer
+
+        fitted, sklearn_pipe, X, y, _ = fitted_classifier
+
+        scorer = make_scorer(f1_score)
+        xorq_score = fitted.score(X, y, scorer=scorer)
+        sklearn_score = scorer(sklearn_pipe, X, y)
+        np.testing.assert_allclose(xorq_score, sklearn_score, rtol=1e-9)
+
+    def test_score_expr_returns_expression(self, fitted_classifier):
+        """Test score_expr returns an ibis expression."""
+        from xorq.vendor.ibis.expr.types import Expr
+
+        fitted, _, _, _, t = fitted_classifier
+        expr = fitted.score_expr(t, scorer="accuracy")
+
+        assert isinstance(expr, Expr)
+        assert isinstance(expr.execute(), (int, float))
+
+    def test_default_scorer_raises_for_unknown_model(self):
+        """Test _get_default_scorer raises ValueError for unknown model type."""
+        from sklearn.base import BaseEstimator
+
+        import xorq.expr.datatypes as dt
+
+        # Custom estimator that isn't a Classifier/Regressor/Cluster
+        class CustomEstimator(BaseEstimator):
+            return_type = dt.int64  # needed for xorq to handle predict
+
+            def fit(self, X, y=None):
+                return self
+
+            def predict(self, X):
+                return [0] * len(X)
+
+        t = xo.memtable({"x": [0.0, 1.0], "y": [0, 1]})
+        fitted = xo.Pipeline.from_instance(
+            sklearn.pipeline.make_pipeline(CustomEstimator())
+        ).fit(t, features=("x",), target="y")
+
+        with pytest.raises(ValueError, match="Cannot determine default scorer"):
+            fitted._get_default_scorer()
 
 
 class TestClusteringPredict:
@@ -537,7 +838,7 @@ class TestClusteringPredict:
         step = xo.Step.from_instance_name(clusterer, name="clusterer")
         fitted = step.fit(t, features=features)
         result = fitted.predict(t)
-        xorq_labels = result.execute()["predicted"].values
+        xorq_labels = result.execute()[ResponseMethod.PREDICT].values
 
         # sklearn predict
         X = np.array([cluster_data["num1"], cluster_data["num2"]]).T

@@ -1,11 +1,5 @@
 import operator
 
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
 import toolz
 from attr import (
     field,
@@ -20,11 +14,7 @@ from dask.utils import Dispatch
 
 import xorq.expr.datatypes as dt
 from xorq.common.utils.func_utils import if_not_none
-
-
-class KVField(StrEnum):
-    KEY = "key"
-    VALUE = "value"
+from xorq.expr.ml.enums import KVField
 
 
 ENCODED = "encoded"
@@ -132,14 +122,19 @@ class KVEncoder:
         """Decode a single KV-encoded column."""
         if (col := df.get(encoded_col)) is None:
             raise ValueError(f"{encoded_col} not in DataFrame")
-        if col.empty:
-            raise ValueError(f"cannot decode empty column {encoded_col}")
-        # remove encoded_col from features and append the columns it becomes
-        new_features = tuple(c for c in features if c != encoded_col) + tuple(
-            item[KVField.KEY] for item in col.iloc[0]
-        )
-        result_df = df.drop(columns=[encoded_col]).join(cls.decode(df[encoded_col]))
-        return result_df, new_features
+        match tuple(col):
+            case ():
+                raise ValueError(f"cannot decode empty column {encoded_col}")
+            case (None, *_):
+                return df, features
+            case (first_row, *_):
+                new_features = tuple(c for c in features if c != encoded_col) + tuple(
+                    item[KVField.KEY] for item in first_row
+                )
+                result_df = df.drop(columns=[encoded_col]).join(
+                    cls.decode(df[encoded_col])
+                )
+                return result_df, new_features
 
     @classmethod
     def decode_encoded_columns(cls, df, features, encoded_cols):

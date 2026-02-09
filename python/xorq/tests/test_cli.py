@@ -766,7 +766,7 @@ def test_serve_penguins_template(tmpdir, tmp_path):
 
         actual = hit_server(port=port, expr=expr)
         assert not actual.empty
-        assert actual["predicted"].isin(("Adelie", "Chinstrap", "Gentoo")).all()
+        assert actual["predict"].isin(("Adelie", "Chinstrap", "Gentoo")).all()
         assert len(actual) == len(sample_data)
     else:
         raise AssertionError("No expression hash")
