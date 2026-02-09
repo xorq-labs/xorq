@@ -19,7 +19,7 @@ from xorq.expr.ml.pipeline_lib import (
 
 STRUCTED = "structed"
 ORIGINAL_ROW = "original_row"
-PREDICTED = ResponseMethod.PREDICT
+PREDICTED = str(ResponseMethod.PREDICT)
 
 
 @toolz.curry

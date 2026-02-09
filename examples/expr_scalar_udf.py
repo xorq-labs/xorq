@@ -25,7 +25,7 @@ features = (
 )
 target = "event_occurred"
 model_key = "model"
-prediction_key = ResponseMethod.PREDICT
+prediction_key = str(ResponseMethod.PREDICT)
 prediction_typ = "float32"
 
 
