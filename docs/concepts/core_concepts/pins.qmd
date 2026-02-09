@@ -1,0 +1,140 @@
+---
+title: 'Pins: Versioned Data Artifacts'
+---
+
+Xorq uses [pins](https://rstudio.github.io/pins-python/) to provide named, versioned access to shared datasets, trained models, and code modules. Instead of shipping large files in the repository or requiring manual downloads, artifacts are stored in a public cloud bucket and accessed by name.
+
+## Overview
+
+The pins system in xorq allows you to:
+
+- **Access shared datasets by name** without managing file paths or URLs
+- **Load pre-trained ML models** for use in pipelines
+- **Pin specific versions of artifacts** for reproducible pipelines
+- **Cache downloads locally** so repeated access is fast
+
+## Quick start
+
+```python
+import xorq as xo
+
+# Download a dataset and get its local path
+path = xo.options.pins.get_path("iris")
+
+# Use it with xorq's data loading
+t = xo.deferred_read_csv(path=path, con=xo.connect())
+```
+
+`get_path` downloads the artifact to a local cache on first call and returns the local file path. Subsequent calls use the cached copy.
+
+## How it works
+
+Xorq wraps the [pins Python library](https://rstudio.github.io/pins-python/) with a preconfigured connection to a public Google Cloud Storage bucket (`letsql-pins`). No authentication is required.
+
+The configuration lives in `xo.options.pins`:
+
+| Setting | Default | Description |
+|---|---|---|
+| `protocol` | `"gcs"` | Storage protocol |
+| `path` | `"letsql-pins"` | GCS bucket name |
+| `storage_options` | `{"token": "anon"}` | Anonymous access |
+
+### `get_path(name, version=None)`
+
+Downloads the named pin and returns a local file path.
+
+```python
+# Get the latest version
+path = xo.options.pins.get_path("diamonds")
+
+# Pin a specific version for reproducibility
+path = xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
+```
+
+### `get_board()`
+
+Returns the underlying `pins.board` object for advanced operations like listing available pins or reading metadata.
+
+```python
+board = xo.options.pins.get_board()
+board.pin_list()        # list all available pins
+board.pin_meta("iris")  # get metadata for a pin
+```
+
+## Available pins
+
+| Pin | Format | Description |
+|---|---|---|
+| `"iris"` | CSV | Classic iris dataset |
+| `"diamonds"` | Parquet | Diamonds pricing dataset |
+| `"penguins"` | Parquet | Palmer penguins dataset |
+| `"batting"` | Parquet | Baseball batting statistics |
+| `"lending-club"` | Parquet | Lending Club loan data |
+| `"bank-marketing"` | CSV | Bank marketing dataset |
+| `"hn-fetcher-input-small.parquet"` | Parquet | HackerNews sample data |
+| `"hn_tfidf_fitted_model"` | Binary | Pre-trained TF-IDF model |
+| `"hn_sentiment_reg"` | Binary | Pre-trained XGBoost sentiment model |
+| `"hackernews_lib"` | Python module | HackerNews pipeline code (versioned) |
+| `"diamonds-model"` | Binary | Quickgrove ML model |
+
+## Common patterns
+
+### Loading datasets
+
+The `xorq.examples` module uses pins internally to load example datasets:
+
+```python
+from xorq.examples import get_table_from_name
+
+t = get_table_from_name("diamonds", backend=xo.connect())
+```
+
+This calls `xo.options.pins.get_path("diamonds")` under the hood and reads the file with the appropriate method based on file format.
+
+### Loading ML models
+
+Pre-trained models are pinned as binary artifacts and loaded by path:
+
+```python
+import pathlib
+
+TFIDF_MODEL_PATH = pathlib.Path(
+    xo.options.pins.get_path("hn_tfidf_fitted_model")
+)
+XGB_MODEL_PATH = pathlib.Path(
+    xo.options.pins.get_path("hn_sentiment_reg")
+)
+```
+
+### Loading versioned code modules
+
+Python modules can be pinned and loaded with a specific version, ensuring pipeline reproducibility:
+
+```python
+from xorq.common.utils.import_utils import import_python
+
+m = import_python(
+    xo.options.pins.get_path("hackernews_lib", version="20250820T111457Z-1d66a")
+)
+# m is now a module with functions defined in the pinned file
+```
+
+### Using a custom board
+
+You can override the default board to use your own storage:
+
+```python
+import pins
+
+# Use a local board for development
+board = pins.board_folder("/path/to/local/pins")
+path = xo.options.pins.get_path("my-dataset", board=board)
+
+# Or use S3
+board = pins.board(protocol="s3", path="my-bucket/pins")
+path = xo.options.pins.get_path("my-dataset", board=board)
+```
+
+## Caching behavior
+
+The pins library caches downloads automatically in a platform-specific cache directory (typically `~/.cache/pins/` on Linux). The `cache_timeout: 0` setting in xorq's default configuration means the library always checks if the remote version has changed, but serves from cache if it hasn't.
