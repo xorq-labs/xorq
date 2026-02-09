@@ -558,7 +558,7 @@ class FittedStep:
 
     def predict_raw(self, expr, name=None):
         col = self.deferred_predict.on_expr(expr).name(
-            name or self.dest_col or "predicted"
+            name or self.dest_col or "predict"
         )
         return col
 
@@ -603,10 +603,10 @@ class FittedStep:
         return expr.tag(**self.tag_kwargs)
 
     predict_proba_raw = invoke_method_raw(
-        methodname="predict_proba", name="predicted_proba"
+        methodname="predict_proba", name="predict_proba"
     )
 
-    predict_proba = invoke_method(methodname="predict_proba", name="predicted_proba")
+    predict_proba = invoke_method(methodname="predict_proba", name="predict_proba")
 
     decision_function_raw = invoke_method_raw(methodname="decision_function")
 
@@ -976,21 +976,9 @@ class FittedPipeline:
         s = Scorer.from_spec(scorer, model=self.predict_step.model)
 
         # Route predictions based on response_method
-        match s.response_method:
-            case ResponseMethod.PREDICT_PROBA:
-                expr_with_preds = self.predict_proba(expr)
-                pred_col = "predicted_proba"
-            case ResponseMethod.DECISION_FUNCTION:
-                expr_with_preds = self.decision_function(expr)
-                pred_col = "decision_function"
-            case ResponseMethod.PREDICT:
-                expr_with_preds = self.predict(expr)
-                pred_col = "predicted"
-            case _:
-                raise ValueError(
-                    f"Unsupported response method: {s.response_method}. "
-                    f"Expected one of {[m.value for m in ResponseMethod]}"
-                )
+        method = ResponseMethod(s.response_method)
+        expr_with_preds = getattr(self, method.value)(expr)
+        pred_col = method.value
 
         return deferred_sklearn_metric(
             expr=expr_with_preds,

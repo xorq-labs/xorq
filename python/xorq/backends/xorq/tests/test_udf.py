@@ -237,7 +237,7 @@ def test_pandas_expr_udf(con, diamonds):
     )
     target = "price"
     train_fn = train_xgboost_model(features=features, target=target)
-    name = "predicted"
+    name = "predict"
     typ = "float64"
 
     df = diamonds.limit(500).execute()

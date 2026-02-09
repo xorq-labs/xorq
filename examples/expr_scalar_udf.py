@@ -24,7 +24,7 @@ features = (
 )
 target = "event_occurred"
 model_key = "model"
-prediction_key = "predicted"
+prediction_key = "predict"
 prediction_typ = "float32"
 
 

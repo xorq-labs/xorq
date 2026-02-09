@@ -420,7 +420,7 @@ def deferred_fit_predict_sklearn(
     cls,
     return_type,
     params=(),
-    name_infix="predicted",
+    name_infix="predict",
     cache=None,
 ):
     return DeferredFitOther(
@@ -443,7 +443,7 @@ def deferred_fit_predict_proba_sklearn(
     cls,
     return_type,
     params=(),
-    name_infix="predicted_proba",
+    name_infix="predict_proba",
     cache=None,
 ):
     return DeferredFitOther(
@@ -506,7 +506,7 @@ def deferred_fit_feature_importances_sklearn(
 
 @toolz.curry
 def deferred_fit_transform_series_sklearn(
-    expr, col, cls, return_type, params=(), name="predicted", cache=None
+    expr, col, cls, return_type, params=(), name="predict", cache=None
 ):
     return DeferredFitOther(
         expr=expr,

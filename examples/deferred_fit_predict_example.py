@@ -42,7 +42,7 @@ kwargs = {
 (deferred_model, model_udaf, predict) = deferred_linear_regression(
     **kwargs
 ).deferred_model_udaf_other
-predicted = t.mutate(predict.on_expr(t).name("predicted"))
+predicted = t.mutate(predict.on_expr(t).name("predict"))
 
 
 # cached run
@@ -50,11 +50,11 @@ predicted = t.mutate(predict.on_expr(t).name("predicted"))
     cache=cache,
     **kwargs,
 ).deferred_model_udaf_other
-cached_predicted = t.mutate(cached_predict.on_expr(t).name("predicted"))
+cached_predicted = t.mutate(cached_predict.on_expr(t).name("predict"))
 
 # as step
 fitted_step = step.fit(cache=cache, **kwargs)
-step_predicted = t.mutate(fitted_step.predict_raw(t, name="predicted"))
+step_predicted = t.mutate(fitted_step.predict_raw(t, name="predict"))
 
 
 if __name__ == "__pytest_main__":

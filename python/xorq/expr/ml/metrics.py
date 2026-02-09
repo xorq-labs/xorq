@@ -123,7 +123,7 @@ class Scorer:
             case Scorer():
                 return scorer  # already resolved
 
-            case _ if callable(scorer):
+            case object(__call__=_):
                 known = _build_known_scorer_funcs()
                 if scorer in known:
                     # Known scorer function — bare callable = raw metric value
@@ -162,9 +162,9 @@ class Scorer:
         """Extract the response method string from a scorer object."""
         raw = scorer_obj._response_method
         match raw:
-            case tuple() as methods:
-                return methods[0]
-            case str() as method:
+            case (method, *_):
+                return method
+            case str(method):
                 return method
             case _:
                 raise ValueError(f"Unexpected _response_method: {raw}")
@@ -284,7 +284,7 @@ def deferred_sklearn_metric(
     target : str
         Name of the target column
     pred_col : str
-        Name of the prediction column (e.g., "predicted", "predicted_proba")
+        Name of the prediction column (e.g., "predict", "predict_proba")
     scorer : str | _BaseScorer | Callable | Scorer
         Scorer specification. Can be a scorer name string, an sklearn _BaseScorer,
         a known sklearn metric function, or a Scorer instance.
@@ -309,7 +309,7 @@ def deferred_sklearn_metric(
     >>> acc = deferred_sklearn_metric(
     ...     expr_with_preds,
     ...     target="target",
-    ...     pred_col="predicted",
+    ...     pred_col="predict",
     ...     scorer=accuracy_score
     ... )
     >>>
@@ -318,17 +318,17 @@ def deferred_sklearn_metric(
     >>> auc = deferred_sklearn_metric(
     ...     expr_with_proba,
     ...     target="target",
-    ...     pred_col="predicted_proba",
+    ...     pred_col="predict_proba",
     ...     scorer=roc_auc_score
     ... )
     """
-    s = Scorer.from_spec(scorer) if not isinstance(scorer, Scorer) else scorer
-    merged_kwargs = {**dict(s.kwargs), **dict(metric_kwargs)}
+    scorer = Scorer.from_spec(scorer) if not isinstance(scorer, Scorer) else scorer
+    merged_kwargs = {**dict(scorer.kwargs), **dict(metric_kwargs)}
     metric = MetricComputation(
         target=target,
         pred_col=pred_col,
-        metric_fn=s.metric_fn,
-        sign=s.sign,
+        metric_fn=scorer.metric_fn,
+        sign=scorer.sign,
         metric_kwargs_tuple=merged_kwargs,
         return_type=return_type,
         name=name,

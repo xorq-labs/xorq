@@ -78,7 +78,7 @@ clf_metrics = (
     deferred_sklearn_metric(
         expr=clf_preds,
         target="target",
-        pred_col="predicted",
+        pred_col="predict",
         scorer=accuracy_score,
     )
     .as_scalar()
@@ -88,7 +88,7 @@ clf_metrics = (
         f1=deferred_sklearn_metric(
             expr=clf_preds,
             target="target",
-            pred_col="predicted",
+            pred_col="predict",
             scorer=f1_score,
         ).as_scalar()
     )
@@ -111,7 +111,7 @@ reg_metrics = (
     deferred_sklearn_metric(
         expr=reg_preds,
         target="target",
-        pred_col="predicted",
+        pred_col="predict",
         scorer=r2_score,
     )
     .as_scalar()
@@ -121,7 +121,7 @@ reg_metrics = (
         mse=deferred_sklearn_metric(
             expr=reg_preds,
             target="target",
-            pred_col="predicted",
+            pred_col="predict",
             scorer=mean_squared_error,
         ).as_scalar()
     )
@@ -145,7 +145,7 @@ clu_metrics = (
     deferred_sklearn_metric(
         expr=clu_preds,
         target="target",
-        pred_col="predicted",
+        pred_col="predict",
         scorer=adjusted_rand_score,
     )
     .as_scalar()
@@ -156,7 +156,7 @@ clu_metrics = (
         neg_mse=deferred_sklearn_metric(
             expr=clu_preds,
             target="target",
-            pred_col="predicted",
+            pred_col="predict",
             scorer="neg_mean_squared_error",
         ).as_scalar()
     )

@@ -361,7 +361,7 @@ class TestDeeplyNestedPipelines:
         sklearn_preds = sklearn_pipe.predict(X)
 
         # Assert predictions match
-        assert np.array_equal(predictions["predicted"].values, sklearn_preds)
+        assert np.array_equal(predictions["predict"].values, sklearn_preds)
 
     def test_non_kv_deeply_nested_pipeline(self):
         """Test depth-4 nested pipeline with all known-schema transformers.
@@ -458,54 +458,57 @@ class TestDeeplyNestedPipelines:
         sklearn_preds = sklearn_pipe.predict(X)
 
         # Assert predictions match
-        assert np.array_equal(predictions["predicted"].values, sklearn_preds)
+        assert np.array_equal(predictions["predict"].values, sklearn_preds)
+
+
+def _scorer_info():
+    """Return [(name, module, response_method), ...] for every registered scorer."""
+    from sklearn.metrics import get_scorer, get_scorer_names
+
+    return [
+        (
+            name,
+            get_scorer(name)._score_func.__module__,
+            get_scorer(name)._response_method,
+        )
+        for name in get_scorer_names()
+    ]
 
 
 def get_scorers_by_type():
     """Categorize all sklearn scorers by their type based on internal module path."""
-    from sklearn.metrics import get_scorer, get_scorer_names
+    info = _scorer_info()
 
-    classification = set()
-    regression = set()
-    cluster = set()
-    proba = set()
-    multilabel = set()
+    proba = {
+        name
+        for name, _, response in info
+        if isinstance(response, tuple)
+        or response in ("predict_proba", "decision_function")
+    }
 
-    for name in get_scorer_names():
-        scorer = get_scorer(name)
-        module = scorer._score_func.__module__
-        response = scorer._response_method
+    multilabel = {name for name, _, _ in info if name.endswith("_samples")}
 
-        # Check if needs predict_proba/decision_function
-        if isinstance(response, tuple) or response in (
-            "predict_proba",
-            "decision_function",
-        ):
-            proba.add(name)
+    # Non-multilabel scorers categorized by module
+    non_ml = [
+        (name, module) for name, module, _ in info if not name.endswith("_samples")
+    ]
 
-        # *_samples scorers need multilabel data
-        if name.endswith("_samples"):
-            multilabel.add(name)
-            continue
+    classification = {
+        name
+        for name, module in non_ml
+        if "_classification" in module or "_ranking" in module or "_scorer" in module
+    }
 
-        # Categorize by module
-        if "cluster" in module:
-            cluster.add(name)
-        elif "_classification" in module:
-            classification.add(name)
-        elif "_regression" in module:
-            regression.add(name)
-        elif "_ranking" in module:
-            classification.add(name)  # ranking metrics are for classifiers
-        elif "_scorer" in module:
-            classification.add(name)  # likelihood ratios
+    regression = {name for name, module in non_ml if "_regression" in module}
+
+    cluster = {name for name, module in non_ml if "cluster" in module}
 
     return {
-        "classification": frozenset(classification),
-        "regression": frozenset(regression),
-        "cluster": frozenset(cluster),
-        "proba": frozenset(proba),
-        "multilabel": frozenset(multilabel),
+        "classification": classification,
+        "regression": regression,
+        "cluster": cluster,
+        "proba": proba,
+        "multilabel": multilabel,
     }
 
 
@@ -834,7 +837,7 @@ class TestClusteringPredict:
         step = xo.Step.from_instance_name(clusterer, name="clusterer")
         fitted = step.fit(t, features=features)
         result = fitted.predict(t)
-        xorq_labels = result.execute()["predicted"].values
+        xorq_labels = result.execute()["predict"].values
 
         # sklearn predict
         X = np.array([cluster_data["num1"], cluster_data["num2"]]).T

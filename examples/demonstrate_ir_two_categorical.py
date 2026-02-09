@@ -81,6 +81,6 @@ if __name__ in ("__main__", "__pytest_main__"):
     sklearn_preds = sklearn_pipe.predict(X)
     predictions = fitted_pipeline.predict(expr).execute()
 
-    match = np.array_equal(predictions["predicted"].values, sklearn_preds)
+    match = np.array_equal(predictions["predict"].values, sklearn_preds)
     print(f"\nxorq matches sklearn: {match}")
     pytest_examples_passed = True

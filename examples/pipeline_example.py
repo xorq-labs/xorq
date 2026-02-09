@@ -18,7 +18,7 @@ from xorq.expr.ml.pipeline_lib import (
 
 STRUCTED = "structed"
 ORIGINAL_ROW = "original_row"
-PREDICTED = "predicted"
+PREDICTED = "predict"
 
 
 @toolz.curry

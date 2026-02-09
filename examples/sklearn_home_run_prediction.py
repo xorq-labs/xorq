@@ -166,7 +166,7 @@ if __name__ in ("__main__", "__pytest_main__"):
     print(results.head(10))
 
     # Calculate simple metrics
-    mae = (results[target] - results["predicted"]).abs().mean()
+    mae = (results[target] - results["predict"]).abs().mean()
     print(f"\nMean Absolute Error: {mae:.2f}")
 
     pytest_examples_passed = True

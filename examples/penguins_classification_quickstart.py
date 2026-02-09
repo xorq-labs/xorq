@@ -71,14 +71,14 @@ predictions_proba = fitted_pipeline.predict_proba(test_data)
 accuracy = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
+    pred_col="predict",
     scorer=accuracy_score,
 )
 
 precision = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
+    pred_col="predict",
     scorer=precision_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
@@ -86,7 +86,7 @@ precision = deferred_sklearn_metric(
 recall = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
+    pred_col="predict",
     scorer=recall_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
@@ -94,7 +94,7 @@ recall = deferred_sklearn_metric(
 f1 = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
+    pred_col="predict",
     scorer=f1_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
@@ -102,7 +102,7 @@ f1 = deferred_sklearn_metric(
 roc_auc = deferred_sklearn_metric(
     expr=predictions_proba,
     target="species",
-    pred_col="predicted_proba",
+    pred_col="predict_proba",
     scorer=roc_auc_score,
     metric_kwargs={"multi_class": "ovr", "average": "weighted"},
 )
