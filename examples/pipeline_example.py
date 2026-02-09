@@ -11,6 +11,7 @@ from xorq.expr.ml import (
     deferred_fit_transform_sklearn_struct,
     train_test_splits,
 )
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.pipeline_lib import (
     Pipeline,
 )
@@ -18,7 +19,7 @@ from xorq.expr.ml.pipeline_lib import (
 
 STRUCTED = "structed"
 ORIGINAL_ROW = "original_row"
-PREDICTED = "predicted"
+PREDICTED = str(ResponseMethod.PREDICT)
 
 
 @toolz.curry

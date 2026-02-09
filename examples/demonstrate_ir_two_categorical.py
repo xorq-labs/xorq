@@ -12,6 +12,7 @@ from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 import xorq.api as xo
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
@@ -81,6 +82,6 @@ if __name__ in ("__main__", "__pytest_main__"):
     sklearn_preds = sklearn_pipe.predict(X)
     predictions = fitted_pipeline.predict(expr).execute()
 
-    match = np.array_equal(predictions["predicted"].values, sklearn_preds)
+    match = np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
     print(f"\nxorq matches sklearn: {match}")
     pytest_examples_passed = True

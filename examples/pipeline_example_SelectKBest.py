@@ -9,6 +9,7 @@ from sklearn.svm import LinearSVC
 
 import xorq.api as xo
 import xorq.expr.ml.pipeline_lib
+from xorq.expr.ml.enums import ResponseMethod
 
 
 def make_data():
@@ -54,5 +55,5 @@ predicted = fitted_pipline.predict(test)
 if __name__ == "__pytest_main__":
     y_pred = anova_svm.fit(X_train, y_train).predict(X_test)
     df = predicted.execute().assign(from_sklearn=y_pred)
-    assert df["predicted"].equals(df["from_sklearn"])
+    assert df[ResponseMethod.PREDICT].equals(df["from_sklearn"])
     pytest_examples_passed = True
