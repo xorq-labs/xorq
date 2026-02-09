@@ -1,11 +1,5 @@
 import operator
 
-
-try:
-    from enum import StrEnum
-except ImportError:
-    from strenum import StrEnum
-
 import toolz
 from attr import (
     field,
@@ -20,11 +14,7 @@ from dask.utils import Dispatch
 
 import xorq.expr.datatypes as dt
 from xorq.common.utils.func_utils import if_not_none
-
-
-class KVField(StrEnum):
-    KEY = "key"
-    VALUE = "value"
+from xorq.expr.ml.enums import KVField
 
 
 ENCODED = "encoded"
