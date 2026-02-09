@@ -65,45 +65,45 @@ xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
 
 fitted_pipeline = xorq_pipeline.fit(train_data, features=feature_cols, target="species")
 
-predictions = fitted_pipeline.predict(test_data)
-predictions_proba = fitted_pipeline.predict_proba(test_data)
+predictions = fitted_pipeline.predict(test_data, name="my_predicted")
+predictions_proba = fitted_pipeline.predict_proba(test_data, name="my_predicted_proba")
 
 accuracy = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
-    metric_fn=accuracy_score,
+    pred_col="my_predicted",
+    scorer=accuracy_score,
 )
 
 precision = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
-    metric_fn=precision_score,
+    pred_col="my_predicted",
+    scorer=precision_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
 
 recall = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
-    metric_fn=recall_score,
+    pred_col="my_predicted",
+    scorer=recall_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
 
 f1 = deferred_sklearn_metric(
     expr=predictions,
     target="species",
-    pred_col="predicted",
-    metric_fn=f1_score,
+    pred_col="my_predicted",
+    scorer=f1_score,
     metric_kwargs={"average": "weighted", "zero_division": 0},
 )
 
 roc_auc = deferred_sklearn_metric(
     expr=predictions_proba,
     target="species",
-    pred_col="predicted_proba",
-    metric_fn=roc_auc_score,
+    pred_col="my_predicted_proba",
+    scorer=roc_auc_score,
     metric_kwargs={"multi_class": "ovr", "average": "weighted"},
 )
 

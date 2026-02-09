@@ -1,9 +1,23 @@
+"""Sklearn Pipeline Scoring
+
+This example demonstrates how to score an sklearn pipeline wrapped in xorq
+using score_expr() — the high-level API that auto-detects the scorer's
+response method (predict, predict_proba, decision_function) and sign.
+
+xorq supports all scorers from sklearn.metrics.get_scorer_names() —
+including predict-based scorers (accuracy, f1, neg_mean_squared_error, ...),
+predict_proba-based scorers (roc_auc, log_loss, ...), and
+decision_function-based scorers.
+
+Uses the bank-marketing dataset with a GradientBoostingClassifier.
+"""
+
 from pathlib import Path
 
 from sklearn.compose import ColumnTransformer
 from sklearn.ensemble import GradientBoostingClassifier
 from sklearn.impute import SimpleImputer
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
+from sklearn.metrics import precision_score
 from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
@@ -11,9 +25,10 @@ import xorq.api as xo
 from xorq.caching import ParquetCache
 from xorq.common.utils.defer_utils import deferred_read_csv
 from xorq.expr.ml import train_test_splits
-from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.pipeline_lib import Pipeline
 
+
+# --- Data setup ---
 
 target_column = "deposit"
 numeric_features = [
@@ -37,7 +52,7 @@ categorical_features = [
     "poutcome",
 ]
 all_features = numeric_features + categorical_features
-# Set up cache & input expression, train test split
+
 con = xo.connect()
 cache = ParquetCache.from_kwargs(
     source=con,
@@ -56,7 +71,9 @@ train_table, test_table = expr.pipe(
     num_buckets=2,
     random_seed=42,
 )
-# Define the preprocessing and modeling pipeline
+
+# --- Pipeline definition ---
+
 preprocessor = ColumnTransformer(
     [
         (
@@ -96,7 +113,6 @@ sklearn_pipeline = SklearnPipeline(
 )
 
 xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
-# This pipeline is now deferred & has has caching for all registered sklearn pipeline operations
 fitted_pipeline = xorq_pipeline.fit(
     train_table,
     features=tuple(all_features),
@@ -104,21 +120,33 @@ fitted_pipeline = xorq_pipeline.fit(
     cache=cache,
 )
 
-encoded_test = fitted_pipeline.transform(test_table)
-predicted_test = fitted_pipeline.predict(test_table)
+# --- score_expr(): high-level API ---
+#
+# score_expr() returns a deferred expression; score() executes immediately.
+# The scorer auto-detects sign and response_method.
+
+# By scorer name string
+accuracy_expr = fitted_pipeline.score_expr(test_table, scorer="accuracy")
+f1_expr = fitted_pipeline.score_expr(test_table, scorer="f1")
+
+# By scorer name string with automatic sign (neg_* convention)
+neg_mse_expr = fitted_pipeline.score_expr(test_table, scorer="neg_mean_squared_error")
+
+# By bare callable (known sklearn scorer function)
+precision_expr = fitted_pipeline.score_expr(test_table, scorer=precision_score)
+
 
 if __name__ in ("__main__", "__pytest_main__"):
-    predictions_df = predicted_test.execute()
-    binary_predictions = predictions_df[ResponseMethod.PREDICT]
+    print("=== score_expr (deferred) ===")
+    print(f"  Accuracy:  {accuracy_expr.execute():.4f}")
+    print(f"  F1:        {f1_expr.execute():.4f}")
+    print(f"  Neg MSE:   {neg_mse_expr.execute():.4f}")
+    print(f"  Precision: {precision_expr.execute():.4f}")
 
-    cm = confusion_matrix(predictions_df[target_column], binary_predictions)
-    print("\nConfusion Matrix:")
-    print(f"TN: {cm[0, 0]}, FP: {cm[0, 1]}")
-    print(f"FN: {cm[1, 0]}, TP: {cm[1, 1]}")
+    # score() is the eager wrapper — takes numpy arrays, executes immediately
+    print("\n=== score (eager) ===")
+    X = test_table.select(all_features).execute().values
+    y = test_table.select(target_column).execute().values.ravel()
+    print(f"  Accuracy:  {fitted_pipeline.score(X, y, scorer='accuracy'):.4f}")
 
-    auc = roc_auc_score(predictions_df[target_column], binary_predictions)
-    print(f"\nAUC Score: {auc:.4f}")
-
-    print("\nClassification Report:")
-    print(classification_report(predictions_df[target_column], binary_predictions))
     pytest_examples_passed = True

@@ -33,6 +33,7 @@ from xorq.common.utils.func_utils import (
 from xorq.common.utils.name_utils import (
     make_name,
 )
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.ml.fit_lib import (
     DeferredFitOther,
     decision_function_sklearn,
@@ -60,7 +61,7 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
             case [other, None]:
                 return other, "transform"
             case [None, other]:
-                return other, "predict"
+                return other, ResponseMethod.PREDICT
             case [other0, other1]:
                 raise ValueError(other0, other1)
             case _:
@@ -442,7 +443,7 @@ class FittedStep:
 
     @property
     def deferred_predict_proba(self):
-        (attrname, fn) = ("predict_proba", predict_proba_sklearn)
+        (attrname, fn) = (ResponseMethod.PREDICT_PROBA, predict_proba_sklearn)
         return (
             self._deferred_fit_other.make_deferred_other(
                 fn=fn,
@@ -455,7 +456,7 @@ class FittedStep:
 
     @property
     def deferred_decision_function(self):
-        (attrname, fn) = ("decision_function", decision_function_sklearn)
+        (attrname, fn) = (ResponseMethod.DECISION_FUNCTION, decision_function_sklearn)
         return (
             self._deferred_fit_other.make_deferred_other(
                 fn=fn,
@@ -544,7 +545,7 @@ class FittedStep:
 
     def predict_raw(self, expr, name=None):
         col = self.deferred_predict.on_expr(expr).name(
-            name or self.dest_col or "predicted"
+            name or self.dest_col or ResponseMethod.PREDICT.value
         )
         return col
 
@@ -576,27 +577,29 @@ class FittedStep:
             raise AttributeError(
                 f"'{self.step.typ.__name__}' object has no attribute '{methodname}'"
             )
-        return method.on_expr(expr).name(name or methodname)
+        return method.on_expr(expr).name(
+            name or getattr(methodname, "value", methodname)
+        )
 
     @toolz.curry
     def invoke_method(self, expr, retain_others=True, name=None, *, methodname):
         col = self.invoke_method_raw(expr=expr, name=name, methodname=methodname)
-        if retain_others and (others := self.get_others(expr)):
-            expr = expr.select(*others, col)
-        else:
-            expr = col.as_table()
-
+        expr = (
+            expr.select(*others, col)
+            if retain_others and (others := self.get_others(expr))
+            else col.as_table()
+        )
         return expr.tag(**self.tag_kwargs)
 
-    predict_proba_raw = invoke_method_raw(
-        methodname="predict_proba", name="predicted_proba"
+    predict_proba_raw = invoke_method_raw(methodname=ResponseMethod.PREDICT_PROBA)
+
+    predict_proba = invoke_method(methodname=ResponseMethod.PREDICT_PROBA)
+
+    decision_function_raw = invoke_method_raw(
+        methodname=ResponseMethod.DECISION_FUNCTION
     )
 
-    predict_proba = invoke_method(methodname="predict_proba", name="predicted_proba")
-
-    decision_function_raw = invoke_method_raw(methodname="decision_function")
-
-    decision_function = invoke_method(methodname="decision_function")
+    decision_function = invoke_method(methodname=ResponseMethod.DECISION_FUNCTION)
 
     feature_importances_raw = invoke_method_raw(methodname="feature_importances")
 
@@ -875,10 +878,10 @@ class FittedPipeline:
             )
         return transformed
 
-    def predict(self, expr):
+    def predict(self, expr, name=None):
         transformed = self.transform(expr, tag=False)
         return (
-            self.predict_step.predict(transformed)
+            self.predict_step.predict(transformed, name=name)
             .pipe(do_into_backend)
             .tag(
                 "FittedPipeline-predict",
@@ -887,14 +890,14 @@ class FittedPipeline:
         )
 
     @toolz.curry
-    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname):
+    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname, name=None):
         if not self.is_predict:
             raise ValueError("Pipeline does not have a predict step")
         if not (method := getattr(self.predict_step, methodname, None)):
             raise ValueError(f"predict step does not have a method named {methodname}")
         transformed = self.transform(expr, tag=False)
         predicted = (
-            method(transformed)
+            method(transformed, name=name)
             .pipe(do_into_backend)
             .tag(
                 tag_name,
@@ -903,35 +906,61 @@ class FittedPipeline:
         )
         return predicted
 
-    predict_proba = invoke_predict_method(
-        tag_name="FittedPipeline-predict_proba",
-        tag_key="predict_proba_tags",
-        methodname="predict_proba",
-    )
+    def predict_proba(self, expr, name=None):
+        return self.invoke_predict_method(
+            expr,
+            tag_name="FittedPipeline-predict_proba",
+            tag_key="predict_proba_tags",
+            methodname=ResponseMethod.PREDICT_PROBA,
+            name=name,
+        )
 
-    decision_function = invoke_predict_method(
-        tag_name="FittedPipeline-decision_function",
-        tag_key="decision_function_tags",
-        methodname="decision_function",
-    )
+    def decision_function(self, expr, name=None):
+        return self.invoke_predict_method(
+            expr,
+            tag_name="FittedPipeline-decision_function",
+            tag_key="decision_function_tags",
+            methodname=ResponseMethod.DECISION_FUNCTION,
+            name=name,
+        )
 
-    feature_importances = invoke_predict_method(
-        tag_name="FittedPipeline-feature_importances",
-        tag_key="feature_importances_tags",
-        methodname="feature_importances",
-    )
+    def feature_importances(self, expr, name=None):
+        return self.invoke_predict_method(
+            expr,
+            tag_name="FittedPipeline-feature_importances",
+            tag_key="feature_importances_tags",
+            methodname="feature_importances",
+            name=name,
+        )
 
-    def score_expr(self, expr, metric_fn=None, use_proba=False, **kwargs):
+    def _get_default_scorer(self):
+        """Get the default scorer based on model type.
+
+        Returns
+        -------
+        scorer
+            An sklearn scorer object appropriate for the model type.
+
+        Raises
+        ------
+        ValueError
+            If model type is not recognized.
+        """
+        from xorq.expr.ml.metrics import _default_scorer_for_model
+
+        return _default_scorer_for_model(self.predict_step.model)
+
+    def score_expr(self, expr, scorer=None, **kwargs):
         """Compute metrics using deferred execution.
 
         Parameters
         ----------
         expr : ibis.Expr
             Expression containing test data
-        metric_fn : callable, optional
-            Metric function from sklearn.metrics. If None, uses model's default
-        use_proba : bool, optional
-            If True, use predict_proba for metric computation (default: False)
+        scorer : str, callable, _BaseScorer, Scorer, or None
+            Scorer specification. If None, uses model's default.
+            Automatically detects whether scorer needs predict, predict_proba,
+            or decision_function.
         **kwargs : dict
             Additional arguments passed to the metric function
 
@@ -940,33 +969,43 @@ class FittedPipeline:
         ibis.Expr
             Deferred metric expression
         """
-        from sklearn.base import is_classifier
-        from sklearn.metrics import accuracy_score, r2_score
+        from xorq.expr.ml.metrics import Scorer, deferred_sklearn_metric
 
-        from xorq.expr.ml.metrics import deferred_sklearn_metric
+        s = Scorer.from_spec(scorer, model=self.predict_step.model)
 
-        # Default metric based on model type
-        if metric_fn is None:
-            metric_fn = (
-                accuracy_score if is_classifier(self.predict_step.model) else r2_score
-            )
-
-        # Get predictions with appropriate method
-        expr_with_preds, pred_col = (
-            (self.predict_proba(expr), "predicted_proba")
-            if use_proba
-            else (self.predict(expr), "predicted")
-        )
+        # Route predictions based on response_method
+        method = ResponseMethod(s.response_method)
+        expr_with_preds = getattr(self, method.value)(expr)
+        pred_col = method.value
 
         return deferred_sklearn_metric(
             expr=expr_with_preds,
             target=self.predict_step.target,
             pred_col=pred_col,
-            metric_fn=metric_fn,
+            scorer=s,
             metric_kwargs=kwargs,
         )
 
-    def score(self, X, y, **kwargs):
+    def score(self, X, y, scorer=None, **kwargs):
+        """Compute model score on test data.
+
+        Parameters
+        ----------
+        X : array-like
+            Test features
+        y : array-like
+            Test targets
+        scorer : str or callable, optional
+            Scorer name from sklearn.metrics.get_scorer_names() or a callable metric function.
+            If None, uses model's default (accuracy for classifiers, r2 for regressors)
+        **kwargs : dict
+            Additional arguments passed to the scorer function
+
+        Returns
+        -------
+        float
+            The computed score
+        """
         import numpy as np
         import pandas as pd
 
@@ -975,12 +1014,16 @@ class FittedPipeline:
         if not self.is_predict:
             raise ValueError("Pipeline does not have a predict step")
 
+        # Use the first step's features (raw input names) so the full
+        # pipeline (transform → predict) runs correctly.
+        features = self.fitted_steps[0].features
+        target = self.predict_step.target
         df = pd.DataFrame(
             np.array(X),
-            columns=self.predict_step.features,
-        ).assign(**{self.predict_step.target: y})
+            columns=features,
+        ).assign(**{target: y})
         expr = api.register(df, "t")
-        return self.score_expr(expr, **kwargs).execute()
+        return self.score_expr(expr, scorer=scorer, **kwargs).execute()
 
 
 def get_target_type(step_instance, step, expr, features, target):

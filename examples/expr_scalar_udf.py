@@ -8,6 +8,7 @@ import xorq.api as xo
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.toolz_utils import curry
+from xorq.expr.ml.enums import ResponseMethod
 from xorq.expr.udf import (
     make_pandas_expr_udf,
 )
@@ -24,7 +25,7 @@ features = (
 )
 target = "event_occurred"
 model_key = "model"
-prediction_key = "predicted"
+prediction_key = str(ResponseMethod.PREDICT)
 prediction_typ = "float32"
 
 
