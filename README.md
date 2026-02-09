@@ -354,7 +354,7 @@ in a vendor's database.
 
 # Learn More
 
-- [Quickstart tutorial](https://docs.xorq.dev/tutorials/getting_started/quickstart)
+- [Quickstart tutorial](https://docs.xorq.dev/getting_started/quickstart)
 - [Why Xorq?](https://docs.xorq.dev/#why-xorq)
 - [Scikit-learn template](https://github.com/xorq-labs/xorq-template-sklearn)
 
