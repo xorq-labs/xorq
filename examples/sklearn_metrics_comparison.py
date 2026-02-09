@@ -73,12 +73,12 @@ def compute_metrics(clf, X_train, X_test, y_train, y_test):
     xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
         train, features=features, target=target
     )
-    expr_with_preds = xorq_pipeline.predict(test)
+    expr_with_preds = xorq_pipeline.predict(test, name="predicted")
     xorq_metrics = {
         name: deferred_sklearn_metric(
             expr=expr_with_preds,
             target=target,
-            pred_col="predict",
+            pred_col="predicted",
             scorer=metric_fn,
             metric_kwargs=kwargs if kwargs else (),
         ).execute()
@@ -192,11 +192,11 @@ def test_predict_proba():
     xorq_pipeline = Pipeline.from_instance(sklearn_pipeline).fit(
         train, features=features, target=target
     )
-    expr_with_proba = xorq_pipeline.predict_proba(test)
+    expr_with_proba = xorq_pipeline.predict_proba(test, name="predicted_proba")
     xorq_auc = deferred_sklearn_metric(
         expr=expr_with_proba,
         target=target,
-        pred_col="predict_proba",
+        pred_col="predicted_proba",
         scorer=roc_auc_score,
     ).execute()
 

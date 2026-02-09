@@ -72,13 +72,13 @@ fitted_clf = Pipeline.from_instance(
     )
 ).fit(train_cls_expr, features=tuple(feature_names), target="target")
 
-clf_preds = fitted_clf.predict(test_cls_expr)
+clf_preds = fitted_clf.predict(test_cls_expr, name="predicted")
 
 clf_metrics = (
     deferred_sklearn_metric(
         expr=clf_preds,
         target="target",
-        pred_col="predict",
+        pred_col="predicted",
         scorer=accuracy_score,
     )
     .as_scalar()
@@ -88,7 +88,7 @@ clf_metrics = (
         f1=deferred_sklearn_metric(
             expr=clf_preds,
             target="target",
-            pred_col="predict",
+            pred_col="predicted",
             scorer=f1_score,
         ).as_scalar()
     )
@@ -105,13 +105,13 @@ fitted_reg = Pipeline.from_instance(
     )
 ).fit(train_reg_expr, features=tuple(feature_names), target="target")
 
-reg_preds = fitted_reg.predict(test_reg_expr)
+reg_preds = fitted_reg.predict(test_reg_expr, name="predicted")
 
 reg_metrics = (
     deferred_sklearn_metric(
         expr=reg_preds,
         target="target",
-        pred_col="predict",
+        pred_col="predicted",
         scorer=r2_score,
     )
     .as_scalar()
@@ -121,7 +121,7 @@ reg_metrics = (
         mse=deferred_sklearn_metric(
             expr=reg_preds,
             target="target",
-            pred_col="predict",
+            pred_col="predicted",
             scorer=mean_squared_error,
         ).as_scalar()
     )
@@ -139,13 +139,13 @@ fitted_clu = Pipeline.from_instance(
     )
 ).fit(train_cls_expr, features=tuple(feature_names), target="target")
 
-clu_preds = fitted_clu.predict(test_cls_expr)
+clu_preds = fitted_clu.predict(test_cls_expr, name="predicted")
 
 clu_metrics = (
     deferred_sklearn_metric(
         expr=clu_preds,
         target="target",
-        pred_col="predict",
+        pred_col="predicted",
         scorer=adjusted_rand_score,
     )
     .as_scalar()
@@ -156,7 +156,7 @@ clu_metrics = (
         neg_mse=deferred_sklearn_metric(
             expr=clu_preds,
             target="target",
-            pred_col="predict",
+            pred_col="predicted",
             scorer="neg_mean_squared_error",
         ).as_scalar()
     )

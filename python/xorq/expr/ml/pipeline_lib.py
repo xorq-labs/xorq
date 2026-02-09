@@ -889,10 +889,10 @@ class FittedPipeline:
             )
         return transformed
 
-    def predict(self, expr):
+    def predict(self, expr, name=None):
         transformed = self.transform(expr, tag=False)
         return (
-            self.predict_step.predict(transformed)
+            self.predict_step.predict(transformed, name=name)
             .pipe(do_into_backend)
             .tag(
                 "FittedPipeline-predict",
@@ -901,14 +901,14 @@ class FittedPipeline:
         )
 
     @toolz.curry
-    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname):
+    def invoke_predict_method(self, expr, tag_name, tag_key, *, methodname, name=None):
         if not self.is_predict:
             raise ValueError("Pipeline does not have a predict step")
         if not (method := getattr(self.predict_step, methodname, None)):
             raise ValueError(f"predict step does not have a method named {methodname}")
         transformed = self.transform(expr, tag=False)
         predicted = (
-            method(transformed)
+            method(transformed, name=name)
             .pipe(do_into_backend)
             .tag(
                 tag_name,
