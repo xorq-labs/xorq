@@ -28,6 +28,10 @@ python xorq_build_and_run.py iris_example.py # build and run in a single step
 ```
 
 
+## Expressions vs. Scripts
+
+Most examples define a top-level `expr` variable and should be run with `python xorq_build_and_run.py <file>` (or `xorq build` + `xorq run` separately), which compiles the expression graph into a versioned YAML manifest and executes it. A few examples involve runtime behavior like starting servers or CLI subcommands — these are marked as **script** below and should be run directly with `python <file>`.
+
 ## Examples
 
 ### Getting Started
@@ -36,13 +40,13 @@ python xorq_build_and_run.py iris_example.py # build and run in a single step
 |------|-------------|
 | `simple_example.py` | Minimal example: loads iris data, filters, groups by species, and aggregates |
 | `pandas_example.py` | Registers a pandas DataFrame as a table and queries it |
-| `quickstart.py` | End-to-end HackerNews sentiment analysis using pre-trained TF-IDF and XGBoost models, with Flight server integration |
+| `quickstart.py` | End-to-end HackerNews sentiment analysis using pre-trained TF-IDF and XGBoost models, with Flight server integration. Build with `xorq build quickstart.py -e pipeline` |
 
 ### Data Loading & Backends
 
 | File | Description |
 |------|-------------|
-| `deferred_read_csv.py` | Deferred CSV reading with multiple backends (pandas, postgres) and different table creation modes |
+| `deferred_read_csv.py` | Deferred CSV reading with multiple backends (pandas, postgres) and different table creation modes. **Script**: `python deferred_read_csv.py` (supports `--cleanup`) |
 | `into_backend_example.py` | Transferring data between backends (postgres to duckdb) with joins and caching |
 | `iris_example.py` | Loading the iris dataset with ParquetCache for caching |
 | `multi_engine.py` | Working with multiple backends (postgres, duckdb) and joining across them |
@@ -88,7 +92,7 @@ python xorq_build_and_run.py iris_example.py # build and run in a single step
 | `local_cache.py` | ParquetCache for local filesystem caching from postgres |
 | `postgres_caching.py` | ParquetCache for caching window function results with postgres |
 | `remote_caching.py` | Remote caching using DuckDB as source and postgres as cache backend |
-| `complex_cached_expr.py` | Multi-level caching with DuckDB and SourceCache |
+| `complex_cached_expr.py` | Multi-level caching with DuckDB and SourceCache. **Script**: `python complex_cached_expr.py` (subcommands: `run`, `serve`, `predict`) |
 | `gcstorage_example.py` | Google Cloud Storage caching with GCCache |
 
 ### Flight Server & Distribution
@@ -102,8 +106,8 @@ python xorq_build_and_run.py iris_example.py # build and run in a single step
 | `flight_serve_model.py` | Flight server serving TF-IDF model transformations |
 | `flight_udtf_example.py` | Flight UDTF for fetching HackerNews data via live API calls |
 | `flight_udtf_llm_example.py` | Flight UDTF using OpenAI API for sentiment analysis on HackerNews comments *requires openAI key*  |
-| `duckdb_flight_example.py` | Concurrent Flight server with DuckDB supporting concurrent read/write |
-| `mcp_flight_server.py` | MCP (Model Context Protocol) server wrapping a Flight sentiment analyzer |
+| `duckdb_flight_example.py` | Concurrent Flight server with DuckDB supporting concurrent read/write. **Script**: `python duckdb_flight_example.py serve\|read\|write` |
+| `mcp_flight_server.py` | MCP (Model Context Protocol) server wrapping a Flight sentiment analyzer. **Script**: `python mcp_flight_server.py` |
 
 
 ### Configuration & Serialization
@@ -136,12 +140,8 @@ python xorq_build_and_run.py iris_example.py # build and run in a single step
 | `weather_flight.py` | `OPENWEATHER_API_KEY` |
 | `flight_udtf_llm_example.py` | `OPENAI_API_KEY` |
 
-### CLI-style examples
-
-`duckdb_flight_example.py` requires a subcommand: `python duckdb_flight_example.py serve`
-
 ### Feature Store
 
 | File | Description |
 |------|-------------|
-| `weather_flight.py` | End-to-end feature store with offline/online features, materialization, inference, and historical retrieval for weather data |
+| `weather_flight.py` | End-to-end feature store with offline/online features, materialization, inference, and historical retrieval for weather data. **Script**: `python weather_flight.py` |
