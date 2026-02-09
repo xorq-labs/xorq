@@ -7,7 +7,7 @@ import pytest
 import xorq.expr.datatypes as dt
 from xorq.expr import api
 from xorq.expr.ml.metrics import deferred_sklearn_metric
-from xorq.expr.ml.pipeline_lib import Pipeline
+from xorq.expr.ml.pipeline_lib import Pipeline, ResponseMethod
 
 
 # Skip all tests in this module if sklearn is not installed
@@ -138,7 +138,7 @@ def test_pipeline_classification_metrics(classification_data):
     accuracy_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=accuracy_score,
     )
     actual_accuracy = accuracy_expr.execute()
@@ -148,7 +148,7 @@ def test_pipeline_classification_metrics(classification_data):
     precision_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=precision_score,
     )
     actual_precision = precision_expr.execute()
@@ -158,7 +158,7 @@ def test_pipeline_classification_metrics(classification_data):
     recall_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=recall_score,
     )
     actual_recall = recall_expr.execute()
@@ -168,7 +168,7 @@ def test_pipeline_classification_metrics(classification_data):
     f1_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=f1_score,
     )
     actual_f1 = f1_expr.execute()
@@ -219,7 +219,7 @@ def test_pipeline_regression_metrics(regression_data):
     mse_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=mean_squared_error,
     )
     actual_mse = mse_expr.execute()
@@ -229,7 +229,7 @@ def test_pipeline_regression_metrics(regression_data):
     mae_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=mean_absolute_error,
     )
     actual_mae = mae_expr.execute()
@@ -239,7 +239,7 @@ def test_pipeline_regression_metrics(regression_data):
     r2_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=r2_score,
     )
     actual_r2 = r2_expr.execute()
@@ -294,7 +294,7 @@ def test_pipeline_multiclass_metrics(multiclass_data):
     accuracy_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=accuracy_score,
     )
     actual_accuracy = accuracy_expr.execute()
@@ -304,7 +304,7 @@ def test_pipeline_multiclass_metrics(multiclass_data):
     precision_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=precision_score,
         metric_kwargs={"average": "macro", "zero_division": 0},
     )
@@ -315,7 +315,7 @@ def test_pipeline_multiclass_metrics(multiclass_data):
     recall_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=recall_score,
         metric_kwargs={"average": "weighted", "zero_division": 0},
     )
@@ -364,7 +364,7 @@ def test_custom_metric_with_pipeline():
     custom_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=custom_scorer,
         return_type=dt.float64,
     )
@@ -407,7 +407,7 @@ def test_deferred_nature_with_pipeline():
     accuracy_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=accuracy_score,
     )
 
@@ -421,7 +421,7 @@ def test_deferred_nature_with_pipeline():
     precision_expr = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=precision_score,
         metric_kwargs={"average": "macro", "zero_division": 0},
     )
@@ -487,7 +487,7 @@ def test_predict_proba_metrics():
     auc_expr = deferred_sklearn_metric(
         expr=expr_with_proba,
         target="target",
-        pred_col="predict_proba",
+        pred_col=ResponseMethod.PREDICT_PROBA,
         scorer=roc_auc_score,
     )
 
@@ -503,7 +503,7 @@ def test_predict_proba_metrics():
     assert hasattr(proba_expr, "execute")
 
     # Execute and check shape
-    proba_result = proba_expr["predict_proba"].execute()
+    proba_result = proba_expr[ResponseMethod.PREDICT_PROBA].execute()
     assert len(proba_result) == len(test_df)
 
 
@@ -548,7 +548,7 @@ def test_probability_metric_without_predict_proba():
     auc_expr = deferred_sklearn_metric(
         expr=expr_with_scores,
         target="target",
-        pred_col="decision_function",
+        pred_col=ResponseMethod.DECISION_FUNCTION,
         scorer=roc_auc_score,
     )
 
@@ -607,7 +607,7 @@ def test_probability_metric_multiclass_with_predict_proba():
     auc_expr = deferred_sklearn_metric(
         expr=expr_with_proba,
         target="target",
-        pred_col="predict_proba",
+        pred_col=ResponseMethod.PREDICT_PROBA,
         scorer=roc_auc_score,
         metric_kwargs={"multi_class": "ovr"},
     )
@@ -650,7 +650,7 @@ def test_metric_kwargs_with_pipeline():
     precision_macro = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=precision_score,
         metric_kwargs={"average": "macro", "zero_division": 0},
     ).execute()
@@ -658,7 +658,7 @@ def test_metric_kwargs_with_pipeline():
     precision_weighted = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=precision_score,
         metric_kwargs={"average": "weighted", "zero_division": 0},
     ).execute()
@@ -700,7 +700,7 @@ def test_sign_auto_detected():
     mse_positive = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer=mean_squared_error,
     ).execute()
 
@@ -708,7 +708,7 @@ def test_sign_auto_detected():
     mse_negative = deferred_sklearn_metric(
         expr=expr_with_preds,
         target="target",
-        pred_col="predict",
+        pred_col=ResponseMethod.PREDICT,
         scorer="neg_mean_squared_error",
     ).execute()
 
@@ -723,7 +723,7 @@ def test_scorer_from_spec_string_input():
     s = Scorer.from_spec("accuracy")
     assert s.metric_fn is accuracy_score
     assert s.sign == 1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_string_neg_scorer():
@@ -733,7 +733,7 @@ def test_scorer_from_spec_string_neg_scorer():
     s = Scorer.from_spec("neg_mean_squared_error")
     assert s.metric_fn is mean_squared_error
     assert s.sign == -1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_string_proba_scorer():
@@ -744,7 +744,10 @@ def test_scorer_from_spec_string_proba_scorer():
     assert s.metric_fn is roc_auc_score
     assert s.sign == 1
     # roc_auc uses decision_function or predict_proba
-    assert s.response_method in ("decision_function", "predict_proba")
+    assert s.response_method in (
+        ResponseMethod.DECISION_FUNCTION,
+        ResponseMethod.PREDICT_PROBA,
+    )
 
 
 def test_scorer_from_spec_base_scorer_input():
@@ -767,7 +770,7 @@ def test_scorer_from_spec_known_callable():
     assert s.metric_fn is accuracy_score
     assert s.sign == 1
     assert s.kwargs == ()
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_unknown_callable_raises():
@@ -785,7 +788,10 @@ def test_scorer_from_spec_scorer_passthrough():
     from xorq.expr.ml.metrics import Scorer
 
     original = Scorer(
-        metric_fn=accuracy_score, sign=1, kwargs={}, response_method="predict"
+        metric_fn=accuracy_score,
+        sign=1,
+        kwargs={},
+        response_method=ResponseMethod.PREDICT,
     )
     result = Scorer.from_spec(original)
     assert result is original
@@ -843,7 +849,7 @@ def test_scorer_from_spec_string_neg_mean_absolute_error():
     s = Scorer.from_spec("neg_mean_absolute_error")
     assert s.metric_fn is mean_absolute_error
     assert s.sign == -1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_string_r2():
@@ -853,7 +859,7 @@ def test_scorer_from_spec_string_r2():
     s = Scorer.from_spec("r2")
     assert s.metric_fn is r2_score
     assert s.sign == 1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_string_precision():
@@ -863,7 +869,7 @@ def test_scorer_from_spec_string_precision():
     s = Scorer.from_spec("precision")
     assert s.metric_fn is precision_score
     assert s.sign == 1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_string_recall():
@@ -873,7 +879,7 @@ def test_scorer_from_spec_string_recall():
     s = Scorer.from_spec("recall")
     assert s.metric_fn is recall_score
     assert s.sign == 1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_string_f1():
@@ -883,7 +889,7 @@ def test_scorer_from_spec_string_f1():
     s = Scorer.from_spec("f1")
     assert s.metric_fn is f1_score
     assert s.sign == 1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_callable_mean_squared_error():
@@ -893,7 +899,7 @@ def test_scorer_from_spec_callable_mean_squared_error():
     s = Scorer.from_spec(mean_squared_error)
     assert s.metric_fn is mean_squared_error
     assert s.sign == 1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_callable_r2_score():
@@ -903,7 +909,7 @@ def test_scorer_from_spec_callable_r2_score():
     s = Scorer.from_spec(r2_score)
     assert s.metric_fn is r2_score
     assert s.sign == 1
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_callable_roc_auc_score():
@@ -914,7 +920,7 @@ def test_scorer_from_spec_callable_roc_auc_score():
     assert s.metric_fn is roc_auc_score
     assert s.sign == 1
     # bare callable doesn't carry response_method metadata
-    assert s.response_method == "predict"
+    assert s.response_method == ResponseMethod.PREDICT
 
 
 def test_scorer_from_spec_make_scorer_with_kwargs():

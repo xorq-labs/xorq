@@ -5,6 +5,7 @@ import pytest
 
 import xorq.api as xo
 from xorq.common.utils.graph_utils import walk_nodes
+from xorq.expr.ml.pipeline_lib import ResponseMethod
 from xorq.expr.relations import Tag
 
 
@@ -361,7 +362,7 @@ class TestDeeplyNestedPipelines:
         sklearn_preds = sklearn_pipe.predict(X)
 
         # Assert predictions match
-        assert np.array_equal(predictions["predict"].values, sklearn_preds)
+        assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
 
     def test_non_kv_deeply_nested_pipeline(self):
         """Test depth-4 nested pipeline with all known-schema transformers.
@@ -458,7 +459,7 @@ class TestDeeplyNestedPipelines:
         sklearn_preds = sklearn_pipe.predict(X)
 
         # Assert predictions match
-        assert np.array_equal(predictions["predict"].values, sklearn_preds)
+        assert np.array_equal(predictions[ResponseMethod.PREDICT].values, sklearn_preds)
 
 
 def _scorer_info():
@@ -483,7 +484,7 @@ def get_scorers_by_type():
         name
         for name, _, response in info
         if isinstance(response, tuple)
-        or response in ("predict_proba", "decision_function")
+        or response in (ResponseMethod.PREDICT_PROBA, ResponseMethod.DECISION_FUNCTION)
     }
 
     multilabel = {name for name, _, _ in info if name.endswith("_samples")}
@@ -837,7 +838,7 @@ class TestClusteringPredict:
         step = xo.Step.from_instance_name(clusterer, name="clusterer")
         fitted = step.fit(t, features=features)
         result = fitted.predict(t)
-        xorq_labels = result.execute()["predict"].values
+        xorq_labels = result.execute()[ResponseMethod.PREDICT].values
 
         # sklearn predict
         X = np.array([cluster_data["num1"], cluster_data["num2"]]).T

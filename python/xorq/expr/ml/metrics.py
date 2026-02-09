@@ -17,6 +17,7 @@ from toolz import compose
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
 from xorq.common.utils.name_utils import make_name
+from xorq.expr.ml.pipeline_lib import ResponseMethod
 
 
 @functools.lru_cache(maxsize=1)
@@ -86,7 +87,9 @@ class Scorer:
         factory=tuple,
         converter=lambda d: tuple(sorted(d.items())) if isinstance(d, dict) else d,
     )
-    response_method: str = field(validator=instance_of(str), default="predict")
+    response_method: str = field(
+        validator=instance_of(str), default=ResponseMethod.PREDICT
+    )
 
     @classmethod
     def from_spec(cls, scorer, model=None):
@@ -133,7 +136,7 @@ class Scorer:
                         metric_fn=scorer,
                         sign=1,
                         kwargs={},
-                        response_method="predict",
+                        response_method=ResponseMethod.PREDICT,
                     )
                 else:
                     raise ValueError(

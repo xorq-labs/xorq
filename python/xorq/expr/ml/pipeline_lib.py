@@ -74,7 +74,7 @@ def make_estimator_typ(fit, return_type, name=None, *, transform=None, predict=N
             case [other, None]:
                 return other, "transform"
             case [None, other]:
-                return other, "predict"
+                return other, ResponseMethod.PREDICT
             case [other0, other1]:
                 raise ValueError(other0, other1)
             case _:
@@ -456,7 +456,7 @@ class FittedStep:
 
     @property
     def deferred_predict_proba(self):
-        (attrname, fn) = ("predict_proba", predict_proba_sklearn)
+        (attrname, fn) = (ResponseMethod.PREDICT_PROBA, predict_proba_sklearn)
         return (
             self._deferred_fit_other.make_deferred_other(
                 fn=fn,
@@ -469,7 +469,7 @@ class FittedStep:
 
     @property
     def deferred_decision_function(self):
-        (attrname, fn) = ("decision_function", decision_function_sklearn)
+        (attrname, fn) = (ResponseMethod.DECISION_FUNCTION, decision_function_sklearn)
         return (
             self._deferred_fit_other.make_deferred_other(
                 fn=fn,
@@ -558,7 +558,7 @@ class FittedStep:
 
     def predict_raw(self, expr, name=None):
         col = self.deferred_predict.on_expr(expr).name(
-            name or self.dest_col or "predict"
+            name or self.dest_col or ResponseMethod.PREDICT
         )
         return col
 
@@ -603,14 +603,18 @@ class FittedStep:
         return expr.tag(**self.tag_kwargs)
 
     predict_proba_raw = invoke_method_raw(
-        methodname="predict_proba", name="predict_proba"
+        methodname=ResponseMethod.PREDICT_PROBA, name=ResponseMethod.PREDICT_PROBA
     )
 
-    predict_proba = invoke_method(methodname="predict_proba", name="predict_proba")
+    predict_proba = invoke_method(
+        methodname=ResponseMethod.PREDICT_PROBA, name=ResponseMethod.PREDICT_PROBA
+    )
 
-    decision_function_raw = invoke_method_raw(methodname="decision_function")
+    decision_function_raw = invoke_method_raw(
+        methodname=ResponseMethod.DECISION_FUNCTION
+    )
 
-    decision_function = invoke_method(methodname="decision_function")
+    decision_function = invoke_method(methodname=ResponseMethod.DECISION_FUNCTION)
 
     feature_importances_raw = invoke_method_raw(methodname="feature_importances")
 
@@ -920,13 +924,13 @@ class FittedPipeline:
     predict_proba = invoke_predict_method(
         tag_name="FittedPipeline-predict_proba",
         tag_key="predict_proba_tags",
-        methodname="predict_proba",
+        methodname=ResponseMethod.PREDICT_PROBA,
     )
 
     decision_function = invoke_predict_method(
         tag_name="FittedPipeline-decision_function",
         tag_key="decision_function_tags",
-        methodname="decision_function",
+        methodname=ResponseMethod.DECISION_FUNCTION,
     )
 
     feature_importances = invoke_predict_method(
