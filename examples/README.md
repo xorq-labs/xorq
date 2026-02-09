@@ -17,8 +17,6 @@ source .venv/bin/activate # Activate the venv
 # Install dependencies (from repo root)
 uv sync --extra examples --extra postgres
 
-#docker compose up postgres # I'm not sure if this is needed
-
 # run the examples
 cd examples
 xorq build simple_example.py
