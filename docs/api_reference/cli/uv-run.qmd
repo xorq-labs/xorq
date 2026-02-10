@@ -1,36 +1,41 @@
 ---
 title: 'uv-run'
+description: "Run a built artifact in an isolated uv environment"
 ---
 
-The `xorq uv-run` command executes a built expression in an isolated uv environment using the packaged sdist. It mirrors `xorq run` while ensuring the runtime matches the packaged dependencies.
+Run a built expression using the same uv environment as the packaged sdist. Mirrors `xorq run` but ensures runtime dependencies match the build.
 
 ## Usage
 
+Pass a build path and optional output path and format.
+
 ```bash
-xorq uv-run <build_path> [options]
+xorq uv-run <build_path> [OPTIONS]
 ```
 
 ## Arguments
 
-- **build_path**: Path to the compiled build directory or file produced by `xorq build`/`uv-build`.
+The build to execute.
+
+| Argument | Description |
+|----------|-------------|
+| `build_path` | Path to the build directory (from `xorq build` or `uv-build`) |
 
 ## Options
 
-- **--cache-dir**: Directory for parquet cache files (default: system cache dir).
-- **-o, --output-path**: Output file path. Use `-` to write to stdout.
-- **-f, --format**: Output format. One of `csv`, `json`, `parquet` (default: `parquet`).
+Where to write output and how to format it.
+
+| Option | Short | Default | Description |
+|--------|-------|---------|-------------|
+| `--output-path` | `-o` | (discard) | Where to write output; use `-` for stdout |
+| `--format` | `-f` | `parquet` | Output format: `csv`, `json`, `parquet`, or `arrow` |
+| `--cache-dir` | | (system cache) | Directory for parquet cache files |
 
 ## Examples
 
+Common usage patterns.
+
 ```bash
-# Run and preview results
-xorq uv-run builds/7061dd65ff3c
-
-# Save to parquet
 xorq uv-run builds/7061dd65ff3c -o results.parquet
-
-# Stream JSON to stdout
 xorq uv-run builds/7061dd65ff3c -f json -o -
 ```
-
-

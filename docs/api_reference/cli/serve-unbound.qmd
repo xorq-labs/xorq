@@ -1,42 +1,47 @@
 ---
 title: 'serve-unbound'
+description: "Serve an unbound expression via Flight"
 ---
 
-The `xorq serve-unbound` command serves a built expression as an Arrow Flight service after replacing a selected node with an unbound table. This lets clients stream record batches to the server to drive the computation.
+Serve a built expression after replacing one node with an unbound table. Clients stream Arrow IPC to the server to supply that table at request time. Use this when one input is dynamic (e.g. user-provided data) and the rest of the pipeline is fixed.
 
 ## Usage
 
+Pass a build path and optional node selector (hash or tag) and host/port.
+
 ```bash
-xorq serve-unbound <build_path> [options]
+xorq serve-unbound <build_path> [OPTIONS]
 ```
 
 ## Arguments
 
-- **build_path**: Path to the build directory produced by `xorq build`/`uv-build`.
+The build to serve.
+
+| Argument | Description |
+|----------|-------------|
+| `build_path` | Build target: alias, entry ID, build ID, or path to the build directory |
 
 ## Options
 
-- **--to_unbind_hash**: Hash of the node to replace with an unbound source.
-- **--to_unbind_tag**: Tag of the node to replace (alternative to hash).
-- **--typ**: Type of the node to unbind.
-- **--host**: Host to bind Flight Server (default: `localhost`).
-- **--port**: Port to bind Flight Server (default: random available port).
-- **--prometheus-port**: Port to expose Prometheus metrics (if metrics packages installed).
-- **--cache-dir**: Directory for parquet cache files.
+Node to unbind, host, port, and cache.
 
-## Notes
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--to_unbind_hash` | | Hash of the node to replace with unbound input |
+| `--to_unbind_tag` | | Tag of the node to replace (alternative to hash) |
+| `--typ` | | Type of the node to unbind |
+| `--host` | `localhost` | Host to bind the Flight server |
+| `--port` | (random) | Port to bind |
+| `--prometheus-port` | (disabled) | Port for Prometheus metrics |
+| `--cache-dir` | (system cache) | Directory for parquet cache files |
 
-- If neither `--to_unbind_hash` nor `--to_unbind_tag` is provided, the command will attempt to infer the target based on graph analysis; providing one is recommended for determinism.
+If neither `--to_unbind_hash` nor `--to_unbind_tag` is set, the command may infer the node; specifying one is recommended for determinism.
 
 ## Examples
 
-```bash
-# Serve with explicit node hash
-xorq serve-unbound builds/7061dd65ff3c --host 0.0.0.0 --port 8001 \
-  --cache-dir cache --to_unbind_hash b2370a29c19df8e1e639c63252dacd0e
+Serve with an explicit node hash or by tag.
 
-# Serve selecting by tag
+```bash
+xorq serve-unbound builds/7061dd65ff3c --host 0.0.0.0 --port 8001 --to_unbind_hash b2370a29c19df8e1e639c63252dacd0e
 xorq serve-unbound builds/7061dd65ff3c --to_unbind_tag source_input
 ```
-
-

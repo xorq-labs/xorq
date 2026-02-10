@@ -3,5 +3,84 @@ title: "Common errors"
 description: "Resolve common errors encountered when using Xorq"
 ---
 
-Coming soon.
+This page covers schema mismatches, CSV parsing errors, out-of-memory, and evaluation or metrics issues. By the end, you will know how to inspect schemas, relax parsing, and fix metric computation.
 
+## Troubleshooting
+
+### Issue: Schema mismatch
+
+**Error**: `ValueError: Column 'X' not found in data`
+
+**Cause**: Your code references a column that is not in the table or expression.
+
+**Solution**:
+
+1. Inspect the schema: `print(data.schema())`.
+2. Use only columns that exist. For a fixed set of names, filter to what is present:
+
+```python
+expected = ["customer_id", "name", "status"]
+available = [c for c in expected if c in data.columns]
+data = data.select(available)
+```
+
+### Issue: CSV parsing errors
+
+**Error**: `ParserError: Error tokenizing data`
+
+**Cause**: The CSV has malformed rows or unexpected formatting.
+
+**Solution**: Relax parsing so bad rows do not fail the whole read:
+
+```python
+data = xo.deferred_read_csv(path=path, con=con, strict_mode=False)
+```
+
+Use `ignore_errors=True` if your API supports it and you want to skip bad rows.
+
+### Issue: Out of memory
+
+**Error**: `MemoryError: Unable to allocate array`
+
+**Cause**: The dataset or result is too large for available memory.
+
+**Solution**: Process in chunks instead of loading everything at once. Use streaming (for example, `to_pyarrow_batches(chunk_size=100000)`), reduce chunk size (for example, 10,000), or process one file at a time. Details and backend choices are in [Performance problems](performance_problems.qmd).
+
+### Issue: Metric computation fails
+
+**Error**: `deferred_sklearn_metric()` (or similar) raises when you execute.
+
+**Cause**: Missing predictions column or wrong target column or type.
+
+**Solution**: Check schema and column names:
+
+```python
+print(expr_with_preds.schema())
+assert "predicted" in expr_with_preds.columns, "Predictions column missing"
+assert "target" in expr_with_preds.columns, "Target column missing"
+```
+
+### Issue: Metrics differ from scikit-learn
+
+**Cause**: Different data splits or prediction format (for example, probabilities instead of labels).
+
+**Solution**: Use a fixed random seed for splits and make sure the prediction format matches the metric (for example, class labels for accuracy):
+
+```python
+train, test = train_test_splits(expr=data, test_size=0.3, random_seed=42)
+# For classification, predictions should be labels (for example, int64), not probabilities
+predictions_df = expr_with_preds.execute()
+print(predictions_df["predicted"].dtype)
+```
+
+### Issue: Probability-based metrics such as ROC-AUC fail
+
+**Cause**: You are using `predict()` instead of `predict_proba()`.
+
+**Solution**: Use `predict_proba()` when the metric expects probabilities, and pass the probability column to the metric.
+
+## Next steps
+
+- [Performance problems](performance_problems.qmd) for streaming and backend choice
+- [Evaluate model performance](../../guides/ml_workflows/evaluate_model_performance.qmd) for evaluation workflows
+- [Overview](index.qmd) for all topics

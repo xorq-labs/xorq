@@ -229,6 +229,16 @@ pre>code.sourceCode {
     border: none !important;
 }
 
+/* Inline code: full opacity so text and background are readable (headings, tables, body) */
+.quarto-content code:not(.sourceCode code):not(pre code),
+main code:not(.sourceCode code):not(pre code),
+p code, td code, li code,
+h2 code, h3 code, h4 code, h5 code {
+  opacity: 1 !important;
+  background: rgba($black, 0.08) !important;
+  color: $black !important;
+}
+
 .quarto-sidebar .navbar-brand,
 #quarto-sidebar .navbar-brand {
   display: block;

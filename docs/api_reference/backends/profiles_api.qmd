@@ -1,32 +1,36 @@
 ---
-title: Profiles
+title: 'Profiles'
+description: "Store and use connection settings via environment variable references"
 ---
 
-The Profiles API provides a secure way to manage database connection parameters through environment variable references, allowing you to create, save, load, and use database connections while keeping sensitive information protected.
+Profiles store connection parameters as environment variable references (e.g. `${POSTGRES_HOST}`). You create, save, and load profiles; at connection time Xorq resolves the variables so credentials never live in code or in the profile file.
 
 ## Profile
 
-A `Profile` is an immutable representation of database connection settings that can be serialized to disk.
+A `Profile` is an immutable connection configuration you can serialize to disk.
 
 ### Properties
 
+These attributes describe a saved profile.
+
 | Property | Type | Description |
 |----------|------|-------------|
-| `con_name` | `str` | Backend name (e.g., 'postgres', 'snowflake') |
+| `con_name` | `str` | Backend name (e.g. `postgres`, `snowflake`) |
 | `kwargs_tuple` | `tuple` | Connection parameters as key-value pairs |
-| `kwargs_dict` | `dict` | Connection parameters as a dictionary |
-| `hash_name` | `str` | Unique hash identifier for the profile |
+| `kwargs_dict` | `dict` | Same parameters as a dictionary |
+| `hash_name` | `str` | Unique hash for the profile |
 | `idx` | `int` | Unique numeric identifier |
 
-### Creation methods
+### Create a profile
+
+Construct a profile from parameters, from an existing connection, or by loading from disk.
 
 ```{python}
 #| eval: false
 
-import xorq.api as xo 
+import xorq.api as xo
 from xorq.vendor.ibis.backends.profiles import Profile
 
-# Create a new profile
 profile = Profile(
     con_name="postgres",
     kwargs_tuple=(
@@ -38,7 +42,7 @@ profile = Profile(
     ),
 )
 
-# Create from an existing connection
+# From an existing connection (e.g. postgres: Profile.from_con(xo.postgres.connect_env()))
 profile = Profile.from_con(xo.connect())
 
 # Load from disk by alias
@@ -47,74 +51,48 @@ profile = Profile.load("postgres_example")
 
 ### Instance methods
 
+Call these on a `Profile` instance to get a connection, clone, or serialize.
+
 ```{python}
 #| eval: false
 
-# Create a connection
 connection = profile.get_con()
-
-# Create a modified copy
-modified = profile.clone(**{"connect_timeout": 10})
-
-# Convert to dictionary
+modified = profile.clone(connect_timeout=10)
 profile_dict = profile.as_dict()
-
-# Serialize as JSON
 json_str = profile.as_json()
-
-# Serialize as YAML
 yaml_str = profile.as_yaml()
-
-# Save to disk with optional alias
 path = profile.save(alias="postgres_example", clobber=True)
 ```
 
-## Profiles
+## Profiles (collection)
 
-A collection manager for working with multiple saved profiles.
+Use `Profiles()` to list and access saved profiles by name. `list()` returns a tuple of profile names (aliases or hash stems). Use `get(name)`, attribute access, or dictionary access to load a profile.
 
 ```{python}
 #| eval: false
 
 from xorq.vendor.ibis.backends.profiles import Profiles
 
-# Create a profiles manager
 profiles = Profiles()
-```
-
-### Methods
-
-```{python}
-#| eval: false
-
-# List all available profiles
-available = profiles.list()
-
-# Get profile by name
+names = profiles.list()  # e.g. ("postgres_example", "feda6956..._1")
 profile = profiles.get("postgres_example")
-
-# Access profiles as attributes
 profile = profiles.postgres_example
-
-# Access profiles as dictionary keys
 profile = profiles["postgres_example"]
 ```
 
-## Environment variable handling
+## How variables are resolved
 
-Profiles store references to environment variables, not their values:
+Profiles store references (e.g. `${POSTGRES_PASSWORD}`), not values. Set the variables in your environment; `profile.get_con()` resolves them when creating the connection. This keeps secrets out of profile files.
 
 ```{python}
 #| eval: false
 
 import os
 
-# Set environment variables
 os.environ["POSTGRES_HOST"] = "examples.letsql.com"
 os.environ["POSTGRES_USER"] = "letsql"
 os.environ["POSTGRES_PASSWORD"] = "letsql"
 
-# Create profile with environment variable references
 profile = Profile(
     con_name="postgres",
     kwargs_tuple=(
@@ -126,75 +104,17 @@ profile = Profile(
     ),
 )
 
-# Profile stores references (${POSTGRES_PASSWORD}), not actual values
-print(profile.kwargs_dict["password"])  
+# Profile still shows the reference
+print(profile.kwargs_dict["password"])  # "${POSTGRES_PASSWORD}"
 
-# Connection resolves environment variables when created
+# Connection resolves at creation time
 conn = profile.get_con()
 ```
 
-## Common patterns
+## Security
 
-### Creating and using profiles
+Profiles are safe to share and commit because they only store references.
 
-```{python}
-#| eval: false
-
-# Create profile
-profile = Profile(
-    con_name="postgres",
-    kwargs_tuple=(
-        ("host", "${POSTGRES_HOST}"),
-        ("port", 5432),
-        ("database", "postgres"),
-        ("user", "${POSTGRES_USER}"),
-        ("password", "${POSTGRES_PASSWORD}"),
-    ),
-)
-
-# Save profile
-profile.save(alias="postgres_example", clobber=True)
-
-# Load profile
-loaded_profile = Profile.load("postgres_example")
-
-# Create connection
-connection = loaded_profile.get_con()
-
-# Use connection
-tables = connection.list_tables()
-```
-
-### Cloning and modifying profiles
-
-```{python}
-#| eval: false
-
-# Clone with modifications
-cloned_profile = profile.clone(**{"connect_timeout": 10})
-
-# Save modified profile
-cloned_profile.save(alias="postgres_other_db", clobber=True)
-```
-
-### Working with multiple profiles
-
-```{python}
-#| eval: false
-
-# Get profiles collection
-profiles = Profiles()
-
-# List all profiles
-all_profiles = profiles.list()
-
-# Access by name
-my_profile = profiles.get("postgres_example")
-```
-
-## Security considerations
-
-- Profiles never store actual values of environment variables, only references
-- Sensitive information is resolved only when connections are created
-- Profiles can be safely committed to version control
-- Always use environment variables for passwords, API keys, and tokens
+- Profiles store references only; values are resolved when you call `get_con()`.
+- You can commit profile files to version control.
+- Use environment variables (or a secrets manager) for passwords, API keys, and tokens.

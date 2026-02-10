@@ -1,17 +1,43 @@
 ---
-title: 'Backends'
+title: 'Overview'
+description: "Connect to backends and manage connections"
 ---
 
-## Overview
+Backends are the execution engines that run your expressions. You connect to one backend per session; [Profiles](profiles_api.qmd) and environment variables hold connection settings so you never put credentials in code.
 
-Xorq supports multiple execution engines (backends) for running your data and ML workloads. Configure and use different backends to execute your pipelines.
+## Backend documentation
 
-### Configuration
+Use the cards below to configure connections, reference environment variables, or choose an engine.
 
-|                                              |                                                                                   |
-|----------------------------------------------|-----------------------------------------------------------------------------------|
-| [Overview](overview.qmd)                     | Introduction to backend configuration and how to choose between backends.          |
-| [Profiles](profiles_api.qmd)                 | The Profiles API securely manages database connections via environment variables. |
-| [Environment Variables](env_variables.qmd)   | The available environment variables for backend configuration.                   |
-| [Supported Backends](supported_backends.qmd) | The supported backends and how to choose between them.                            |
+::: {.docs-grid}
+::: {.doc-card}
+<i class="bi bi-shield-check"></i>
 
+[**Profiles**](profiles_api.qmd)
+
+Store connection settings as environment variable references and use them securely
+:::
+
+::: {.doc-card}
+<i class="bi bi-env"></i>
+
+[**Environment variables**](env_variables.qmd)
+
+Reference for variables used in `.env.*.template` files
+:::
+
+::: {.doc-card}
+<i class="bi bi-hdd-stack"></i>
+
+[**Supported backends**](supported_backends.qmd)
+
+Engines you can use and when to choose each
+:::
+:::
+
+
+## Next steps
+
+- [Profiles](profiles_api.qmd): Create, save, and load connection profiles.
+- [Environment variables](env_variables.qmd): Variables used by templates and profiles.
+- [Supported backends](supported_backends.qmd): List of engines and selection guidelines.
