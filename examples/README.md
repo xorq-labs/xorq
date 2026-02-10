@@ -19,10 +19,8 @@ uv sync --extra examples --extra postgres
 
 # run the examples
 cd examples
-xorq build simple_example.py
-xorq run simple_example.py
 
-python xorq_build_and_run.py iris_example.py # build and run in a single step
+./example_run.sh  iris_example.py # build and run in a single step
 ```
 
 
