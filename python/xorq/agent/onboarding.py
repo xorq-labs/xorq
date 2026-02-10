@@ -240,6 +240,28 @@ ONBOARDING_STEPS: tuple[OnboardingStep, ...] = (
 )
 
 
+def _set_directory_permissions(directory: Path, dir_mode: int = 0o755, file_mode: int = 0o644):
+    """Recursively set permissions on directory and all its contents.
+
+    Args:
+        directory: Path to directory to set permissions on
+        dir_mode: Permission mode for directories (default: 0o755)
+        file_mode: Permission mode for files (default: 0o644)
+    """
+    for root, dirs, files in os.walk(directory):
+        root_path = Path(root)
+        # Set directory permissions
+        root_path.chmod(dir_mode)
+        # Set file permissions
+        for file in files:
+            file_path = root_path / file
+            # Preserve executable bit for scripts
+            if file.endswith('.py') or file.endswith('.sh'):
+                file_path.chmod(0o755)
+            else:
+                file_path.chmod(file_mode)
+
+
 def register_claude_skill() -> Path | None:
     """Register the xorq skill with Claude Code.
 
@@ -296,6 +318,7 @@ def register_claude_skill() -> Path | None:
         shutil.rmtree(skill_dest, onerror=handle_remove_readonly)
 
     shutil.copytree(skill_source, skill_dest)
+    _set_directory_permissions(skill_dest)
 
     # Setup skill-rules.json for auto-activation
     _setup_skill_rules(claude_skills_dir, skill_source)
@@ -408,9 +431,11 @@ def _setup_skill_rules(claude_skills_dir: Path, skill_source: Path) -> None:
 
         # Write merged rules
         skill_rules_path.write_text(json.dumps(existing_rules, indent=4))
+        skill_rules_path.chmod(0o644)
     else:
         # No existing rules, copy the template
         shutil.copy(skill_rules_source, skill_rules_path)
+        skill_rules_path.chmod(0o644)
 
 
 def bootstrap_agent_docs(
