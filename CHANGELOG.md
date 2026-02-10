@@ -5,6 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.9] - 2026-02-10
+### Details
+#### Changed
+- Sklearn scorers by @ghoersti in [#1565](https://github.com/xorq-labs/xorq/pull/1565)
+
+#### Fixed
+- Fixed the link to the quickstart in the README by @paddymul in [#1559](https://github.com/xorq-labs/xorq/pull/1559)
+
+## New Contributors
+* @paddymul made their first contribution in [#1564](https://github.com/xorq-labs/xorq/pull/1564)
+
 ## [0.3.8] - 2026-02-06
 ### Details
 #### Added
