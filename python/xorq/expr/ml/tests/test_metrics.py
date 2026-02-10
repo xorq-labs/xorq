@@ -1100,3 +1100,269 @@ class TestCustomPredColName:
             scorer=roc_auc_score,
         ).execute()
         assert isinstance(result, (float, np.floating))
+
+
+# ---------------------------------------------------------------------------
+# Tests for metric_fn path (non-scorer metrics)
+# ---------------------------------------------------------------------------
+
+cohen_kappa_score = sklearn.metrics.cohen_kappa_score
+hamming_loss = sklearn.metrics.hamming_loss
+hinge_loss = sklearn.metrics.hinge_loss
+zero_one_loss = sklearn.metrics.zero_one_loss
+fbeta_score = sklearn.metrics.fbeta_score
+mean_pinball_loss = sklearn.metrics.mean_pinball_loss
+mean_tweedie_deviance = sklearn.metrics.mean_tweedie_deviance
+d2_pinball_score = sklearn.metrics.d2_pinball_score
+d2_tweedie_score = sklearn.metrics.d2_tweedie_score
+d2_log_loss_score = sklearn.metrics.d2_log_loss_score
+calinski_harabasz_score = sklearn.metrics.calinski_harabasz_score
+davies_bouldin_score = sklearn.metrics.davies_bouldin_score
+silhouette_score = sklearn.metrics.silhouette_score
+KMeans = sklearn.cluster.KMeans
+
+
+class TestMetricFnXorScorer:
+    """Validate the XOR constraint between scorer and metric_fn."""
+
+    def test_neither_raises(self):
+        df = pd.DataFrame({"target": [0, 1], "predict": [0, 1]})
+        expr = api.register(df, "xor_neither")
+        with pytest.raises(ValueError, match="Exactly one"):
+            deferred_sklearn_metric(
+                expr=expr,
+                target="target",
+                pred_col="predict",
+            )
+
+    def test_both_raises(self):
+        df = pd.DataFrame({"target": [0, 1], "predict": [0, 1]})
+        expr = api.register(df, "xor_both")
+        with pytest.raises(ValueError, match="Cannot specify both"):
+            deferred_sklearn_metric(
+                expr=expr,
+                target="target",
+                pred_col="predict",
+                scorer=accuracy_score,
+                metric_fn=cohen_kappa_score,
+            )
+
+
+class TestMetricFnYPred:
+    """Non-scorer metrics that take (y_true, y_pred) -> scalar float."""
+
+    @pytest.fixture
+    def classification_expr(self, classification_data):
+        train_df, test_df, feature_names = classification_data
+        train_expr = api.register(train_df, "mfn_train")
+        test_expr = api.register(test_df, "mfn_test")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                (
+                    "classifier",
+                    RandomForestClassifier(n_estimators=10, random_state=42),
+                ),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+
+        sklearn_pipeline.fit(train_df[feature_names], train_df["target"])
+        y_pred = sklearn_pipeline.predict(test_df[feature_names])
+
+        return (
+            fitted.predict(test_expr),
+            test_df["target"].values,
+            y_pred,
+        )
+
+    @pytest.mark.parametrize(
+        "metric_func,kwargs",
+        (
+            (cohen_kappa_score, {}),
+            (hamming_loss, {}),
+            (zero_one_loss, {}),
+            (fbeta_score, {"beta": 1.0}),
+            (mean_pinball_loss, {}),
+            (d2_pinball_score, {}),
+            (mean_tweedie_deviance, {}),
+            (d2_tweedie_score, {}),
+        ),
+        ids=lambda p: p.__name__ if callable(p) else str(p),
+    )
+    def test_y_pred_metric(self, classification_expr, metric_func, kwargs):
+        expr_with_preds, y_true, y_pred = classification_expr
+
+        result = deferred_sklearn_metric(
+            expr=expr_with_preds,
+            target="target",
+            pred_col=ResponseMethod.PREDICT,
+            metric_fn=metric_func,
+            metric_kwargs=kwargs,
+        ).execute()
+
+        expected = metric_func(y_true, y_pred, **kwargs)
+        assert abs(result - expected) < 1e-10
+
+
+class TestMetricFnYScore:
+    """Non-scorer metrics that take (y_true, y_score/pred_decision)."""
+
+    def test_hinge_loss(self, classification_data):
+        train_df, test_df, feature_names = classification_data
+        train_expr = api.register(train_df, "hinge_train")
+        test_expr = api.register(test_df, "hinge_test")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("svm", LinearSVC(random_state=42, max_iter=5000)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+
+        expr_with_scores = fitted.decision_function(test_expr)
+        result = deferred_sklearn_metric(
+            expr=expr_with_scores,
+            target="target",
+            pred_col=ResponseMethod.DECISION_FUNCTION,
+            metric_fn=hinge_loss,
+        ).execute()
+
+        sklearn_pipeline.fit(train_df[feature_names], train_df["target"])
+        y_score = sklearn_pipeline.decision_function(test_df[feature_names])
+        expected = hinge_loss(test_df["target"], y_score)
+        assert abs(result - expected) < 1e-10
+
+    def test_d2_log_loss_score(self, classification_data):
+        train_df, test_df, feature_names = classification_data
+        train_expr = api.register(train_df, "d2ll_train")
+        test_expr = api.register(test_df, "d2ll_test")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(random_state=42)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+
+        expr_with_proba = fitted.predict_proba(test_expr)
+        result = deferred_sklearn_metric(
+            expr=expr_with_proba,
+            target="target",
+            pred_col=ResponseMethod.PREDICT_PROBA,
+            metric_fn=d2_log_loss_score,
+        ).execute()
+
+        sklearn_pipeline.fit(train_df[feature_names], train_df["target"])
+        y_proba = sklearn_pipeline.predict_proba(test_df[feature_names])[:, 1]
+        expected = d2_log_loss_score(test_df["target"], y_proba)
+        assert abs(result - expected) < 1e-10
+
+
+class TestMetricFnClustering:
+    """Clustering metrics that take (X, labels) via tuple target."""
+
+    @pytest.fixture
+    def clustering_expr(self):
+        from sklearn.datasets import make_blobs
+
+        X, _ = make_blobs(n_samples=200, centers=3, n_features=4, random_state=42)
+        feature_names = tuple(f"f{i}" for i in range(X.shape[1]))
+        df = pd.DataFrame(X, columns=list(feature_names))
+        kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
+        df["cluster"] = kmeans.fit_predict(X)
+        expr = api.register(df, "cluster_test")
+        return expr, feature_names, X, df["cluster"].values
+
+    @pytest.mark.parametrize(
+        "metric_func",
+        (
+            calinski_harabasz_score,
+            davies_bouldin_score,
+            silhouette_score,
+        ),
+        ids=lambda p: p.__name__,
+    )
+    def test_clustering_metric(self, clustering_expr, metric_func):
+        expr, feature_names, X, labels = clustering_expr
+
+        result = deferred_sklearn_metric(
+            expr=expr,
+            target=feature_names,
+            pred_col="cluster",
+            metric_fn=metric_func,
+        ).execute()
+
+        expected = metric_func(X, labels)
+        assert abs(result - expected) < 1e-10
+
+
+class TestMetricFnSignAutoDetect:
+    """When metric_fn is a known scorer func, sign is auto-detected."""
+
+    def test_known_scorer_fn_via_metric_fn_gets_sign(self):
+        """mean_squared_error is in _build_known_scorer_funcs;
+        Scorer.from_spec resolves it with sign=1 (bare callable convention).
+        metric_fn path picks up that same sign=1."""
+        df = pd.DataFrame(
+            {
+                "target": [0.0, 1.0, 2.0, 3.0],
+                "predict": [0.1, 0.9, 2.1, 3.2],
+            }
+        )
+        expr = api.register(df, "sign_auto_test")
+
+        result_metric_fn = deferred_sklearn_metric(
+            expr=expr,
+            target="target",
+            pred_col="predict",
+            metric_fn=mean_squared_error,
+        ).execute()
+
+        # Bare callable through scorer path also uses sign=1
+        result_scorer = deferred_sklearn_metric(
+            expr=expr,
+            target="target",
+            pred_col="predict",
+            scorer=mean_squared_error,
+        ).execute()
+
+        assert abs(result_metric_fn - result_scorer) < 1e-10
+
+        # neg_mean_squared_error string scorer uses sign=-1
+        result_neg = deferred_sklearn_metric(
+            expr=expr,
+            target="target",
+            pred_col="predict",
+            scorer="neg_mean_squared_error",
+        ).execute()
+
+        assert abs(result_metric_fn + result_neg) < 1e-10
+
+    def test_non_scorer_fn_has_no_sign(self):
+        df = pd.DataFrame(
+            {
+                "target": [0, 1, 0, 1],
+                "predict": [0, 1, 1, 1],
+            }
+        )
+        expr = api.register(df, "no_sign_test")
+
+        result = deferred_sklearn_metric(
+            expr=expr,
+            target="target",
+            pred_col="predict",
+            metric_fn=cohen_kappa_score,
+        ).execute()
+
+        expected = cohen_kappa_score([0, 1, 0, 1], [0, 1, 1, 1])
+        assert abs(result - expected) < 1e-10

@@ -173,12 +173,23 @@ class Scorer:
                 raise ValueError(f"Unexpected _response_method: {raw}")
 
 
+def _validate_target(instance, attribute, value):
+    """Validate target is str or tuple of str."""
+    match value:
+        case str():
+            pass
+        case tuple() if all(isinstance(v, str) for v in value):
+            pass
+        case _:
+            raise TypeError(f"target must be a str or tuple of str, got {type(value)}")
+
+
 @frozen
 class MetricComputation:
-    target: str = field(validator=instance_of(str))
+    target = field(validator=_validate_target)
     pred_col: str = field(validator=instance_of(str))
     metric_fn: Callable = field(validator=instance_of(Callable))
-    sign: int = field(validator=instance_of(int), default=1)
+    sign: int = field(validator=optional(instance_of(int)), default=None)
     metric_kwargs_tuple: tuple = field(
         default=(),
         converter=compose(tuple, sorted, dict.items, dict),
@@ -211,14 +222,50 @@ class MetricComputation:
         """Return the module of the metric function for UDF registration."""
         return self.metric_fn.__module__
 
+    @property
+    def _target_columns(self):
+        match self.target:
+            case str():
+                return (self.target,)
+            case tuple():
+                return self.target
+            case _:
+                raise TypeError(
+                    f"target must be a str or tuple of str, got {type(self.target)}"
+                )
+
+    @property
+    def _first_arg(self):
+        """Dispatch for extracting the first metric argument from a DataFrame."""
+        match self.target:
+            case str():
+                return lambda df: df[self.target]
+            case tuple():
+                return lambda df: df[list(self.target)].values
+            case _:
+                raise TypeError(
+                    f"target must be a str or tuple of str, got {type(self.target)}"
+                )
+
+    @property
+    def _apply_sign(self):
+        """Dispatch for sign application to a metric result."""
+        match self.sign:
+            case None:
+                return lambda result: result
+            case int():
+                return lambda result: self.sign * result
+            case _:
+                raise TypeError(f"sign must be None or int, got {type(self.sign)}")
+
     def __call__(self, df):
-        y_true = df[self.target]
+        first_arg = self._first_arg(df)
         y_pred = self._prepare_predictions(df[self.pred_col])
-        result = self.metric_fn(y_true, y_pred, **self.metric_kwargs)
-        return self.sign * result
+        result = self.metric_fn(first_arg, y_pred, **self.metric_kwargs)
+        return self._apply_sign(result)
 
     def on_expr(self, expr):
-        schema = expr.select([self.target, self.pred_col]).schema()
+        schema = expr.select((*self._target_columns, self.pred_col)).schema()
         metric_udaf = udf.agg.pandas_df(
             fn=self,
             schema=schema,
@@ -254,19 +301,21 @@ class MetricComputation:
     @staticmethod
     def _extract_positive_class_proba(y_pred):
         """Extract positive class probabilities for binary classification."""
-        if y_pred.ndim == 2:
-            if y_pred.shape[1] == 2:
+        match (y_pred.ndim, y_pred.shape):
+            case (2, (_, 2)):
                 return y_pred[:, 1]
-            elif y_pred.shape[1] == 1:
+            case (2, (_, 1)):
                 return y_pred[:, 0]
-        return y_pred
+            case _:
+                return y_pred
 
 
 def deferred_sklearn_metric(
     expr,
     target,
     pred_col,
-    scorer,
+    scorer=None,
+    metric_fn=None,
     metric_kwargs=(),
     return_type=dt.float64,
     name=None,
@@ -277,20 +326,27 @@ def deferred_sklearn_metric(
     expression (via fitted_pipeline.predict(), predict_proba(), or
     decision_function()).
 
-    Sign is extracted automatically from the resolved scorer (e.g.
-    "neg_mean_squared_error" resolves to sign=-1).
+    Exactly one of ``scorer`` or ``metric_fn`` must be provided.
 
     Parameters
     ----------
     expr : ibis.Expr
         Expression containing both target and prediction columns
-    target : str
-        Name of the target column
+    target : str | tuple[str, ...]
+        Name of the target column, or a tuple of column names for metrics
+        that expect a feature matrix (e.g. clustering metrics like
+        calinski_harabasz_score).
     pred_col : str
         Name of the prediction column (e.g., "predict", "predict_proba")
-    scorer : str | _BaseScorer | Callable | Scorer
-        Scorer specification. Can be a scorer name string, an sklearn _BaseScorer,
-        a known sklearn metric function, or a Scorer instance.
+    scorer : str | _BaseScorer | Callable | Scorer, optional
+        Scorer specification. Can be a scorer name string, an sklearn
+        _BaseScorer, a known sklearn metric function, or a Scorer instance.
+        Mutually exclusive with ``metric_fn``.
+    metric_fn : Callable, optional
+        A raw metric callable (e.g. cohen_kappa_score, confusion_matrix).
+        If the callable is a known scorer function, sign is auto-detected
+        from sklearn's registry. Otherwise sign is not applied.
+        Mutually exclusive with ``scorer``.
     metric_kwargs : Optional[dict]
         Additional kwargs to pass to metric function
     return_type : dt.DataType, optional
@@ -305,9 +361,9 @@ def deferred_sklearn_metric(
 
     Examples
     --------
-    >>> from sklearn.metrics import accuracy_score, roc_auc_score
+    >>> from sklearn.metrics import accuracy_score, roc_auc_score, cohen_kappa_score
     >>>
-    >>> # For regular predictions
+    >>> # Using scorer (existing path)
     >>> expr_with_preds = fitted_pipeline.predict(test_data)
     >>> acc = deferred_sklearn_metric(
     ...     expr_with_preds,
@@ -316,24 +372,46 @@ def deferred_sklearn_metric(
     ...     scorer=accuracy_score
     ... )
     >>>
-    >>> # For probabilities
-    >>> expr_with_proba = fitted_pipeline.predict_proba(test_data)
-    >>> auc = deferred_sklearn_metric(
-    ...     expr_with_proba,
+    >>> # Using metric_fn (non-scorer metrics)
+    >>> kappa = deferred_sklearn_metric(
+    ...     expr_with_preds,
     ...     target="target",
-    ...     pred_col="predict_proba",
-    ...     scorer=roc_auc_score
+    ...     pred_col="predict",
+    ...     metric_fn=cohen_kappa_score
     ... )
     """
-    scorer = Scorer.from_spec(scorer) if not isinstance(scorer, Scorer) else scorer
-    merged_kwargs = {**dict(scorer.kwargs), **dict(metric_kwargs)}
-    metric = MetricComputation(
-        target=target,
-        pred_col=pred_col,
-        metric_fn=scorer.metric_fn,
-        sign=scorer.sign,
-        metric_kwargs_tuple=merged_kwargs,
-        return_type=return_type,
-        name=name,
-    )
-    return metric.on_expr(expr)
+    match (scorer, metric_fn):
+        case (None, None):
+            raise ValueError("Exactly one of 'scorer' or 'metric_fn' must be provided.")
+        case (_, None):
+            resolved = (
+                Scorer.from_spec(scorer) if not isinstance(scorer, Scorer) else scorer
+            )
+            merged_kwargs = {**dict(resolved.kwargs), **dict(metric_kwargs)}
+            return MetricComputation(
+                target=target,
+                pred_col=pred_col,
+                metric_fn=resolved.metric_fn,
+                sign=resolved.sign,
+                metric_kwargs_tuple=merged_kwargs,
+                return_type=return_type,
+                name=name,
+            ).on_expr(expr)
+        case (None, _):
+            known = _build_known_scorer_funcs()
+            sign = Scorer.from_spec(metric_fn).sign if metric_fn in known else None
+            merged_kwargs = dict(metric_kwargs)
+            return MetricComputation(
+                target=target,
+                pred_col=pred_col,
+                metric_fn=metric_fn,
+                sign=sign,
+                metric_kwargs_tuple=merged_kwargs,
+                return_type=return_type,
+                name=name,
+            ).on_expr(expr)
+        case _:
+            raise ValueError(
+                "Cannot specify both 'scorer' and 'metric_fn'. "
+                "Use 'scorer' for sklearn scorers, 'metric_fn' for raw metric callables."
+            )
