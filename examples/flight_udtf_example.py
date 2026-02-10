@@ -1,3 +1,16 @@
+"""Flight UDTF for fetching HackerNews data via live API calls.
+
+Traditional approach: You would write a custom Flight server that accepts
+parameters, calls the HackerNews API, and returns Arrow batches. Client code
+must handle Flight protocol directly, manage schema negotiation, and
+coordinate request/response serialization.
+
+With xorq: Define a processing function that fetches and transforms API data,
+then wrap it with flight_udxf to create a table-valued function. The UDTF
+integrates directly into Ibis expressions, so you can call it like any other
+table operation and compose it with filters, joins, and caching.
+"""
+
 import functools
 import json
 import pathlib

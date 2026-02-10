@@ -1,3 +1,17 @@
+"""Demonstrates setting pipeline parameters dynamically and computing classification
+scores with different configurations.
+
+Traditional approach: You would use sklearn's set_params to change hyperparameters,
+refit the pipeline, and call score on the test set, all operating in-memory on numpy
+arrays. Repeated runs with different parameter values redo all computation from scratch,
+including data loading.
+
+With xorq: The same set_params API is available on xorq Pipelines, but execution is
+deferred. Repeated runs with different parameters reuse cached data loading and
+preprocessing steps, and scores are computed as expressions that can be composed or
+stored.
+"""
+
 # https://scikit-learn.org/stable/modules/generated/sklearn.preprocessing.LabelEncoder.html
 import sklearn
 from sklearn.datasets import load_iris

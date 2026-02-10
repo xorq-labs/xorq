@@ -1,3 +1,15 @@
+"""Concurrent Flight server with DuckDB supporting concurrent read/write operations.
+
+Traditional approach: You would build a multi-threaded Flight server backed by
+DuckDB, manually manage connection pooling, handle concurrent access to the
+database, and write separate CLI entry points for serving, reading, and writing.
+
+With xorq: FlightServer accepts a make_connection factory for the DuckDB
+backend and handles concurrent reads and writes. The example provides a CLI
+interface (serve/read/write) using standard argparse, with FlightClient
+handling all protocol details.
+"""
+
 import argparse
 import random
 import time

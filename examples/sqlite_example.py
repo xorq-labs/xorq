@@ -1,3 +1,13 @@
+"""Registers Arrow RecordBatches in SQLite and chains operations through DuckDB with caching.
+
+Traditional approach: You would use the sqlite3 module with manual schema creation and
+row-by-row inserts to load data. Chaining to another database like DuckDB means opening a
+separate connection, re-creating schemas, and exporting data through an intermediate format.
+
+With xorq: Register Arrow RecordBatches directly into SQLite with read_record_batches, then
+chain operations across SQLite and DuckDB using .into_backend(). SourceCache persists the
+final results back to SQLite, all in a single composable expression.
+"""
 import numpy as np
 import pandas as pd
 import pyarrow as pa

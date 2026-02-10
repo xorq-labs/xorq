@@ -1,3 +1,16 @@
+"""XGBoost pandas scalar UDF with pickle serialization for model storage.
+
+Traditional approach: Train an XGBoost model in Python, serialize it with
+pickle, load it in your application code, and call predict manually per batch.
+Each step is a separate imperative operation with no connection to the query
+that produces the data.
+
+With xorq: Define a scalar UDF that wraps model prediction, and it becomes a
+composable Ibis expression. The model is trained via an aggregate UDF and
+passed to the prediction UDF automatically -- the UDF runs inside the query
+engine on each row/batch without manual orchestration.
+"""
+
 import pickle
 
 import pandas as pd
