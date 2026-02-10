@@ -1,3 +1,16 @@
+"""Flight server serving TF-IDF model transformations on HackerNews data.
+
+Traditional approach: You would train the model, save it to disk, build a
+Flask or FastAPI endpoint, handle request parsing, batching, and response
+serialization. Deploying the model as a service requires significant
+boilerplate around the serving infrastructure.
+
+With xorq: deferred_fit_transform produces an expression that captures both
+training and inference. Calling flight_serve() on the bound expression turns
+any deferred ML operation into a Flight endpoint in one step, with no separate
+serving code required.
+"""
+
 from sklearn.feature_extraction.text import TfidfVectorizer
 
 import xorq.api as xo

@@ -1,3 +1,14 @@
+"""Creates and queries PyIceberg tables using xorq's Iceberg backend integration.
+
+Traditional approach: You would manually set up an Iceberg catalog, define table schemas
+through the Iceberg API, and write data using Iceberg's own write path. Querying requires
+separate reader setup, and mixing Iceberg tables with other data sources means glue code
+between incompatible APIs.
+
+With xorq: PyIceberg is integrated as a first-class backend, so you can use familiar Ibis
+expressions to create and query Iceberg tables. The same expression syntax works across
+Iceberg and other backends, making it easy to incorporate Iceberg into multi-engine workflows.
+"""
 import pyarrow as pa
 
 import xorq.api as xo

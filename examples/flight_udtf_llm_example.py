@@ -1,3 +1,15 @@
+"""Flight UDTF using OpenAI API for sentiment analysis on HackerNews comments.
+
+Traditional approach: You would call the OpenAI API in a loop, collect results
+into a pandas DataFrame, and serve the output via a REST API. Composing the
+LLM call with upstream filtering or downstream joins requires manual
+orchestration.
+
+With xorq: Wrap the LLM call in a UDTF via flight_udxf and serve it over
+Flight. The UDTF integrates directly into Ibis query expressions, so you can
+compose it with filters, joins, and caching in a single declarative pipeline.
+"""
+
 import functools
 import os
 from urllib.parse import unquote_plus

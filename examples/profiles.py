@@ -1,3 +1,15 @@
+"""Profile management for database connections with environment variable references.
+
+Traditional approach: You would manage connection strings manually in config files
+or environment variables, writing custom parsing code for each database type. Switching
+between dev, staging, and production environments requires updating multiple hardcoded
+values or maintaining separate config files per environment.
+
+With xorq: Profiles define database connections declaratively with environment variable
+interpolation, so credentials are never stored in plain text. You can switch between
+dev, staging, and production by simply changing the active profile, and profiles can
+be saved, loaded, cloned, and shared without exposing secrets.
+"""
 from contextlib import (
     contextmanager,
 )

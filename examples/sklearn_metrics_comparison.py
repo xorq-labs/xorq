@@ -1,6 +1,16 @@
 #!/usr/bin/env python
-"""
-Comparison of scikit-learn metrics using xorq's minimal deferred metrics API.
+"""Deferred metrics computation for multiple model configurations, comparing sklearn and
+xorq results across datasets and classifiers.
+
+Traditional approach: You would fit each sklearn pipeline, call predict, and manually
+compute each metric (accuracy, precision, recall, F1, ROC AUC) for every model and
+dataset combination. Each metric call eagerly materializes predictions, and there is no
+way to compose or cache metric results.
+
+With xorq: deferred_fit_predict generates predictions lazily as Ibis expressions.
+Metrics are computed via deferred_sklearn_metric, which returns expressions that can be
+cached, composed, and only materialized when .execute() is called. This also tests
+predict_proba, decision_function, and feature_importances for parity with sklearn.
 """
 
 import numpy as np

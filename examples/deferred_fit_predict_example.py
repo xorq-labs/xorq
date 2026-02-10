@@ -1,3 +1,16 @@
+"""
+Runs linear regression fit/predict with deferred execution and caching, comparing uncached, cached, and Step-based APIs.
+
+Traditional approach: You call sklearn's LinearRegression.fit() then .predict(),
+manually managing train/test splits, saving models with pickle, and wiring prediction
+arrays back into your DataFrame. Each of these steps is imperative and tightly coupled.
+
+With xorq: deferred_fit_predict wraps fit/predict in a deferred expression, so
+predictions become composable Ibis columns you can .mutate() onto any table. Automatic
+caching via ParquetCache means repeated runs are free, and the Step API provides a
+higher-level interface for the same workflow.
+"""
+
 import pandas as pd
 from sklearn.linear_model import LinearRegression
 

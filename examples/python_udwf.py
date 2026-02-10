@@ -1,3 +1,16 @@
+"""User-defined window functions implementing exponential smoothing variants.
+
+Traditional approach: Use pandas rolling/expanding with custom functions, or
+write raw SQL window functions. Complex window logic like bounded smoothing,
+rank-based smoothing, or multi-column conditional smoothing requires manual
+state management and is difficult to compose or reuse.
+
+With xorq: Define Python UDWFs with clear bounded/unbounded semantics using
+the pyarrow_udwf decorator or WindowEvaluator subclasses. These integrate
+directly into Ibis expressions as window functions that the DataFusion engine
+executes, with proper partition and ordering support built in.
+"""
+
 import pandas as pd
 import pyarrow as pa
 from pandas.testing import assert_series_equal

@@ -1,3 +1,14 @@
+"""Simple Flight server with a dummy UDXF that returns fixed data.
+
+Traditional approach: You would implement a pyarrow.flight.FlightServerBase
+subclass, handle do_exchange manually, and manage serialization and schema
+negotiation yourself. Every new exchanger requires boilerplate protocol code.
+
+With xorq: Define an exchanger function with input/output schemas and pass it
+to make_udxf. Register it with FlightServer via a list of exchangers, and the
+framework handles all protocol details, so you only write the transform logic.
+"""
+
 import pandas as pd
 import toolz
 
