@@ -1,7 +1,14 @@
-"""
-HackerNews Sentiment Analysis Script This script loads HackerNews data,
-analyzes post titles using a pre-trained TF-IDF transformer, and predicts
-sentiment scores using another pre-trained XGBoost model.
+"""End-to-end HackerNews sentiment analysis using TF-IDF, XGBoost, and an Arrow Flight server.
+
+Traditional approach: You would build a sklearn pipeline for TF-IDF vectorization and
+XGBoost prediction, then wrap it in a Flask or FastAPI service for serving. Each step
+runs eagerly, serialization between stages is manual, and you need to write your own
+server boilerplate and caching logic.
+
+With xorq: Fit, transform, and predict are composed as deferred expressions in a
+single pipeline. xorq provides built-in Arrow Flight serving so you can expose the
+pipeline as a service with minimal code, and intermediate results are cached
+automatically to avoid redundant computation.
 """
 
 import pathlib

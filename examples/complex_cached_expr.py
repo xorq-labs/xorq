@@ -1,3 +1,16 @@
+"""Demonstrates multi-level caching with SourceCache and ParquetCache in an ML pipeline.
+
+Traditional approach: You would manually checkpoint each pipeline stage -- data
+fetching, sentiment analysis, feature engineering -- to different storage backends.
+Each checkpoint requires its own serialization logic, staleness checks, and
+invalidation strategy, all of which must be coordinated across stages.
+
+With xorq: You chain .cache() calls with different backends (SourceCache for
+postgres, ParquetCache for local files) at each stage. Each cache is independently
+managed and automatically invalidated when upstream expressions change, so the
+entire pipeline stays consistent without manual coordination.
+"""
+
 import argparse
 import functools
 

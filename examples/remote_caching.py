@@ -1,3 +1,15 @@
+"""Demonstrates remote caching by using DuckDB as a data source and postgres as the cache backend.
+
+Traditional approach: You would query DuckDB locally, then manually write the
+results into postgres tables so other services can access them. Keeping schemas
+in sync between the two systems and deciding when to refresh the postgres copy
+is tedious and error-prone.
+
+With xorq: SourceCache with a postgres backend automatically materializes DuckDB
+query results into postgres tables, keyed by expression content. Schema management
+and cache invalidation are handled for you.
+"""
+
 import xorq.api as xo
 from xorq.api import _
 from xorq.caching import SourceCache

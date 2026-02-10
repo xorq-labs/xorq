@@ -1,3 +1,16 @@
+"""Iterative split-train exchanger using Flight with streaming exchange.
+
+Traditional approach: You would build a custom Flight server that receives
+batched data, splits it by partition key, trains models per split, and streams
+results back. All the partitioning, streaming, and protocol code must be
+written by hand.
+
+With xorq: Define an AbstractExchanger subclass with split logic and a training
+function, then use streaming_split_exchange to handle partitioned streaming
+automatically. The Flight framework manages the exchange protocol while you
+focus on the model training logic.
+"""
+
 import functools
 import pickle
 
@@ -6,7 +19,6 @@ import pyarrow as pa
 
 import xorq.api as xo
 import xorq.expr.datatypes as dt
-from xorq.common.utils import classproperty
 from xorq.common.utils.rbr_utils import (
     instrument_reader,
     streaming_split_exchange,
@@ -30,8 +42,8 @@ def train_batch_df(df):
 
 
 class IterativeSplitTrainExchanger(AbstractExchanger):
-    @classproperty
-    def exchange_f(cls):
+    @property
+    def exchange_f(self):
         def train_batch(split_reader):
             df = split_reader.read_pandas()
             (split, *rest) = df[SPLIT_KEY].unique()
@@ -47,19 +59,19 @@ class IterativeSplitTrainExchanger(AbstractExchanger):
 
         return functools.partial(streaming_split_exchange, SPLIT_KEY, train_batch)
 
-    @classproperty
-    def schema_in_required(cls):
+    @property
+    def schema_in_required(self):
         return None
 
-    @classproperty
-    def schema_in_condition(cls):
+    @property
+    def schema_in_condition(self):
         def condition(schema_in):
             return any(name == SPLIT_KEY for name in schema_in)
 
         return condition
 
-    @classproperty
-    def calc_schema_out(cls):
+    @property
+    def calc_schema_out(self):
         def f(schema_in):
             return xo.schema(
                 {
@@ -70,13 +82,23 @@ class IterativeSplitTrainExchanger(AbstractExchanger):
 
         return f
 
-    @classproperty
-    def description(cls):
+    @property
+    def description(self):
         return "iteratively train model on data ordered by `split`"
 
-    @classproperty
-    def command(cls):
+    @property
+    def command(self):
         return "iterative-split-train"
+
+    @property
+    def query_result(self):
+        return {
+            "schema-in-required": self.schema_in_required,
+            "schema-in-condition": self.schema_in_condition,
+            "calc-schema-out": self.calc_schema_out,
+            "description": self.description,
+            "command": self.command,
+        }
 
 
 def train_test_split_union(expr, name=SPLIT_KEY, *args, **kwargs):
@@ -100,15 +122,16 @@ expr = train_test_split_union(
 
 if __name__ == "__pytest_main__":
     rbr_in = instrument_reader(xo.to_pyarrow_batches(expr), prefix="input ::")
+    exchanger = IterativeSplitTrainExchanger()
     with FlightServer() as server:
         client = server.client
         client.do_action(
             AddExchangeAction.name,
-            IterativeSplitTrainExchanger,
+            exchanger,
             options=client._options,
         )
         (fut, rbr_out) = client.do_exchange_batches(
-            IterativeSplitTrainExchanger.command, rbr_in
+            exchanger.command, rbr_in
         )
         df_out = instrument_reader(rbr_out, prefix="output ::").read_pandas()
         print(fut.result())

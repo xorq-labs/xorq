@@ -1,3 +1,17 @@
+"""Classification pipeline on the bank marketing dataset with preprocessing, caching,
+confusion matrix, and ROC-AUC evaluation.
+
+Traditional approach: You would load a CSV with pandas, manually preprocess numeric and
+categorical columns, build an sklearn Pipeline with ColumnTransformer and
+GradientBoostingClassifier, fit it, predict, and compute metrics -- all tightly coupled
+in a single script with no caching between steps.
+
+With xorq: CSV reading is deferred, preprocessing and model training are wrapped in a
+cached pipeline, and each step's output is automatically persisted to a ParquetCache.
+The pipeline is backend-agnostic, so the same code works whether the data originates
+from a local file or a remote database.
+"""
+
 from pathlib import Path
 
 from sklearn.compose import ColumnTransformer
