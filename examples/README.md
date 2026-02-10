@@ -28,7 +28,7 @@ python xorq_build_and_run.py iris_example.py # build and run in a single step
 
 ## Expressions vs. Scripts
 
-Most examples define a top-level `expr` variable and should be run with `python xorq_build_and_run.py <file>` (or `xorq build` + `xorq run` separately), which compiles the expression graph into a versioned YAML manifest and executes it. A few examples involve runtime behavior like starting servers or CLI subcommands — these are marked as **script** below and should be run directly with `python <file>`.
+Most examples define a top-level `expr` variable and can be conveniently run with `./example_run.sh <file>` (in normal usage you'd run `xorq build` + `xorq run` separately), which compiles the expression graph into a versioned YAML manifest and executes it. A few examples involve runtime behavior like starting servers or CLI subcommands — these are marked as **script** below and should be run directly with `python <file>`.
 
 ## Examples
 
