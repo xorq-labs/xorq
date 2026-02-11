@@ -10,7 +10,10 @@ from xorq.udf import *  # noqa: F403
 from xorq import config
 from xorq import expr
 from xorq.config import options
-
+from xorq.ibis_yaml.compiler import (
+    build_expr,
+    load_expr,
+)
 
 from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
@@ -31,6 +34,8 @@ __all__ = [  # noqa: PLE0604
     "options",
     "SessionConfig",
     "udf",
+    "build_expr",
+    "load_expr",
     *api.__all__,
     *ml.__all__,
     *udf.__all__,
