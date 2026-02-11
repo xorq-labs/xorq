@@ -976,13 +976,13 @@ class FittedPipeline:
         # Route predictions based on response_method
         method = ResponseMethod(s.response_method)
         expr_with_preds = getattr(self, method.value)(expr)
-        pred_col = method.value
+        pred = method.value
 
         return deferred_sklearn_metric(
             expr=expr_with_preds,
             target=self.predict_step.target,
-            pred_col=pred_col,
-            scorer=s,
+            pred=pred,
+            metric=s,
             metric_kwargs=kwargs,
         )
 

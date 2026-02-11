@@ -199,7 +199,7 @@ lines-after-imports = 2
 
 [tool.codespell]
 skip = "*.lock,.direnv,.git,docs/_freeze/**/html.json"
-ignore-regex = '\b(DOUB|i[if]f|I[IF]F|lamduh|AFE|crate|ba)\b'
+ignore-regex = '\b(DOUB|i[if]f|I[IF]F|lamduh|AFE|crate|ba|fpr)\b'
 builtin = "clear,rare,names"
 
 [tool.pytest.ini_options]
