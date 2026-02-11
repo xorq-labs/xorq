@@ -2,21 +2,664 @@
 title: 'Optimize pipeline performance'
 ---
 
-## Coming soon
+Identify and fix performance bottlenecks in your data pipelines. This guide shows you how to profile pipeline execution, select optimal caching strategies, choose the right backends, and optimize queries for production workloads.
 
-This guide will show you how to identify and fix performance bottlenecks in your data pipelines.
+Xorq's deferred execution and caching system enables significant performance improvements, but you need to understand where time is spent and how to optimize each stage.
 
-You will learn profiling techniques and optimization strategies for production workloads.
+:::{.callout-tip}
+## Installation
 
-**What you'll accomplish:**
-- Profile pipeline performance
-- Identify bottlenecks
-- Optimize queries and expressions
-- Leverage caching effectively
+If you haven't installed Xorq yet, then see the [installation guide](../../getting_started/installation.qmd) for setup instructions.
+:::
 
-**Prerequisites:**
-- Working Xorq pipeline
-- Performance issue to resolve
 
-Check back soon for the complete guide.
+## Profile pipeline performance
 
+Before optimizing, identify where your pipeline spends time. Use timing measurements and Python's profiler to measure execution time for each stage and find bottlenecks.
+
+### Time each stage
+
+Measure execution time for each pipeline stage:
+
+Create `profile_stages.py`:
+
+```{python}
+#| eval: true
+import time
+import xorq.api as xo
+from xorq.expr.ml import Pipeline, Step, train_test_splits
+from sklearn.preprocessing import StandardScaler
+from sklearn.linear_model import LogisticRegression
+import numpy as np
+
+# <1>
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "id": range(10000),
+    "feature1": np.random.randn(10000),
+    "feature2": np.random.randn(10000),
+    "target": np.random.randint(0, 2, 10000)
+}, name="training_data")
+
+# <2>
+stages = {}
+start = time.time()
+train, test = train_test_splits(data, test_sizes=0.3, unique_key="id", random_seed=42)
+stages["split"] = time.time() - start
+
+# <3>
+pipeline = Pipeline(steps=(
+    Step(StandardScaler, name="scaler"),
+    Step(LogisticRegression, name="classifier", params_tuple=(("random_state", 42),))
+))
+start = time.time()
+fitted = pipeline.fit(train, features=("feature1", "feature2"), target="target")
+stages["fit"] = time.time() - start
+
+# <4>
+start = time.time()
+predictions = fitted.predict(test).execute()
+stages["predict"] = time.time() - start
+
+# <5>
+total_time = sum(stages.values())
+print("Performance breakdown:")
+for stage, duration in stages.items():
+    percentage = (duration / total_time) * 100
+    print(f"  {stage}: {duration:.2f}s ({percentage:.1f}%)")
+
+bottleneck = max(stages.items(), key=lambda x: x[1])
+print(f"\nBottleneck: {bottleneck[0]} ({bottleneck[1]:.2f}s)")
+```
+
+1. Import `time` for timing measurements, `xorq.api` for Xorq operations, `xorq.expr.ml` for ML pipeline components, `sklearn` for preprocessing and models, and `numpy` for data generation. Connect to Xorq and create sample training data using memtable for in-memory profiling.
+2. Time the train/test split operation and store the duration.
+3. Define an ML pipeline with preprocessing and a classifier, then time the model training (fit) operation.
+4. Time the prediction operation on the test set.
+5. Calculate and display performance breakdown with percentages, then identify the slowest stage (bottleneck).
+
+The breakdown lists each stage, its execution time, and its percentage of total time. The bottleneck stage is identified at the end, focus optimization efforts on stages with the highest percentages, then re-profile after optimizations to measure improvement.
+
+### Profile with Python profiler
+
+Use Python's `cProfile` for detailed function-level profiling:
+
+Create `profile_functions.py`:
+
+```{python}
+#| eval: true
+import cProfile
+import pstats
+import xorq.api as xo
+import numpy as np
+
+# <1>
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "value": np.random.randint(0, 500, 10000),
+    "category": np.random.choice(["A", "B", "C"], 10000)
+}, name="sample_data")
+
+# <2>
+profiler = cProfile.Profile()
+profiler.enable()
+
+# <3>
+result = data.filter(xo._.value > 100).group_by("category").agg(count=xo._.value.count()).execute()
+
+# <4>
+profiler.disable()
+
+# <5>
+stats = pstats.Stats(profiler)
+stats.sort_stats('cumulative')
+stats.print_stats(20)
+```
+1. Import `cProfile` and `pstats` for function-level profiling, `xorq.api` for Xorq operations, and `numpy` for data generation. Connect to Xorq and create sample data for profiling.
+2. Initialize Python's cProfile to track function calls and execution time, then start profiling.
+3. Execute the query operation to profile: filters values > 100, groups by category, and counts rows per group.
+4. Stop profiling after the query completes.
+5. Analyze profiling results: sort by cumulative time (includes subcalls) and display the top 20 functions.
+
+The output shows function-level timing information sorted by cumulative time. Focus on functions with high cumulative time to identify optimization targets.
+
+## Choose cache strategy
+
+Select the right cache type based on your data freshness requirements, storage needs, and cost constraints. Use SourceCache for automatic invalidation on data changes, ParquetCache for durable disk-based caching with auto-invalidation, or snapshot caches for manual control over the cache lifecycle.
+
+### Cache type comparison
+
+| Cache Type | Auto-Invalidation | Storage | Use Case |
+|------------|------------------|---------|----------|
+| **SourceCache** | Yes | Source backend | Production pipelines requiring data freshness |
+| **SourceSnapshotCache** | No | Source backend | One-off analyses, manual cache control |
+| **ParquetCache** | Yes | Parquet files (disk) | Iterative development, durable persistence |
+| **ParquetSnapshotCache** | No | Parquet files (disk) | Reproducible research, fixed snapshots |
+
+### Use SourceCache for production
+
+Use `SourceCache` when you need automatic cache invalidation in production:
+
+Create `use_source_cache.py`:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+from xorq.caching import SourceCache
+import numpy as np
+
+# <1>
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "value": np.random.randint(0, 500, 10000),
+    "category": np.random.choice(["A", "B", "C"], 10000)
+}, name="sample_data")
+
+# <2>
+cache = SourceCache.from_kwargs(source=con)
+
+# <3>
+cached = data.filter(xo._.value > 100).cache(cache=cache)
+
+# <4>
+result = cached.execute()
+print("You should see a result like this:")
+print(result)
+```
+1. Import `xorq.api` for Xorq operations, `SourceCache` for automatic cache invalidation, and `numpy` for data generation. Connect to Xorq and create sample data.
+2. Create a SourceCache that automatically invalidates when source data changes. SourceCache uses the source backend for storage and checks modification times.
+3. Apply filter and cache the result. If the source data changes, then the cache will automatically invalidate.
+4. Execute the cached query and display the result.
+
+The result is a table with filtered rows where `value > 100`, containing `value` and `category` columns.
+
+SourceCache is ideal for production pipelines where data freshness matters, using the source backend for storage (Postgres, Snowflake, etc.).
+
+### Use ParquetCache for development
+
+Use `ParquetCache` for iterative development with durable persistence:
+
+Create `use_parquet_cache.py`:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+from xorq.caching import ParquetCache
+from pathlib import Path
+import numpy as np
+
+# <1>
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "value": np.random.randint(0, 500, 10000),
+    "category": np.random.choice(["A", "B", "C"], 10000)
+}, name="sample_data")
+
+# <2>
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./pipeline-cache",
+    base_path=Path(".").absolute()
+)
+
+# <3>
+cached = (
+    data
+    .filter(xo._.value > 100)
+    .group_by("category")
+    .agg(count=xo._.value.count())
+    .cache(cache=cache)
+)
+
+# <4>
+result = cached.execute()
+print("You should see a result like this:")
+print(result)
+```
+1. Import `xorq.api` for Xorq operations, `ParquetCache` for disk-based caching, `pathlib.Path` for path handling, and `numpy` for data generation. Connect to Xorq and create sample data.
+2. Create ParquetCache for durable disk-based caching. ParquetCache stores results as Parquet files and auto-invalidates on source changes. The relative_path is the cache directory relative to base_path.
+3. Build query pipeline: filter rows where value > 100, group by category, count rows in each group, and cache the aggregated result. The cache persists across sessions and invalidates when source data changes.
+4. Execute the cached query and display the result.
+
+You'll see an aggregated table with `category` and `count` columns, where each row shows the count of values > 100 for that category.
+
+ParquetCache provides durable persistence across sessions, making it excellent for iterative development workflows.
+
+### Use snapshot caches for reproducibility
+
+Use snapshot caches when you need fixed snapshots without automatic invalidation:
+
+Create `use_snapshot_cache.py`:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+from xorq.caching import ParquetSnapshotCache
+from pathlib import Path
+import numpy as np
+
+# <1>
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "value": np.random.randint(0, 500, 10000),
+    "category": np.random.choice(["A", "B", "C"], 10000)
+}, name="sample_data")
+
+# <2>
+snapshot_cache = ParquetSnapshotCache.from_kwargs(
+    source=con,
+    relative_path="./experiment-v1",
+    base_path=Path(".").absolute()
+)
+
+# <3>
+cached = data.filter(xo._.value > 100).cache(cache=snapshot_cache)
+
+# <4>
+result = cached.execute()
+print("You should see a result like this:")
+print(result)
+```
+1. Import `xorq.api` for Xorq operations, `ParquetSnapshotCache` for snapshot caching, `pathlib.Path` for path handling, and `numpy` for data generation. Connect to Xorq and create sample data.
+2. Create ParquetSnapshotCache for fixed snapshots without auto-invalidation. Snapshot caches must be manually cleared when data updates occur. The relative_path is the cache directory for this experiment.
+3. Apply filter and cache with snapshot cache. This cache will NOT invalidate automatically, but you control when to clear it.
+4. Execute the cached query and display the result.
+
+The filtered result contains rows where `value > 100`, with columns for `value` and `category`.
+
+Snapshot caches are ideal for reproducible research and experiments that require manual control over the cache lifecycle.
+
+### Clear cache when needed
+
+Clear snapshot caches manually when data updates or to free disk space:
+
+```{python}
+#| eval: true
+import shutil
+from pathlib import Path
+
+# <1>
+cache_dir = Path("./experiment-v1")
+if cache_dir.exists():
+    shutil.rmtree(cache_dir)
+    print(f"Cleared cache directory: {cache_dir}")
+else:
+    print(f"Cache directory not found: {cache_dir}")
+```
+
+1. Import `shutil` for directory operations and `pathlib.Path` for path handling. Delete the cache directory to clear all cached results for that cache instance. After removing, the subsequent execution will recompute and re-cache the results.
+
+For ParquetCache, clear the cache directory when source data changes and you want to force recomputation:
+
+```{python}
+#| eval: false
+import shutil
+from pathlib import Path
+
+# Clear ParquetCache directory
+cache_dir = Path("./pipeline-cache")
+if cache_dir.exists():
+    shutil.rmtree(cache_dir)
+    print("Cache cleared - next execution will recompute")
+```
+
+Clear caches when:
+
+- Source data has changed, and you want fresh results
+- The cache directory is consuming too much disk space
+- You want to test performance without caching
+- Switching between different data versions or experiments
+
+### Cost vs. compute tradeoff
+
+Balance cache storage costs against recomputation costs:
+
+**High compute cost, low storage cost**: Use aggressive caching
+
+```{python}
+#| eval: false
+from xorq.caching import ParquetCache
+
+# <1>
+cache = ParquetCache.from_kwargs(source=con, relative_path="./ml-cache")
+
+# <2>
+fitted = pipeline.fit(train, features=features, target=target, cache=cache)
+
+# <3>
+transformed = fitted.transform(test).cache(cache=cache)
+```
+1. Import `ParquetCache` for disk-based caching. Create a cache for storing ML pipeline results. When computation is expensive but storage is cheap, cache aggressively.
+2. Cache the model training (fit) step. This stores the trained model to avoid recomputation.
+3. Cache the transformation step: Cache both the model training and transformation steps to maximize performance benefits.
+
+**Low compute cost, high storage cost**: Cache selectively
+
+```{python}
+#| eval: false
+# <1>
+result = (
+    data
+    .filter(xo._.value > 100)
+    .group_by("category")
+    .agg(count=xo._.value.count())
+    .cache(cache=cache)
+)
+```
+1. When storage is expensive, cache only the final expensive result. Skip caching cheap operations like filters and simple aggregations. Filter rows (don't cache—cheap operation), group by category (don't cache—cheap grouping operation), aggregate (relatively inexpensive), and cache only the final aggregated result.
+
+Cache expensive operations (ML training, complex joins, aggregations) and skip caching cheap operations (simple filters, column selections). Monitor cache disk usage versus recomputation time to optimize the tradeoff.
+
+## Select backends for performance
+
+Choose backends based on dataset size, query complexity, and performance requirements.
+
+### Backend performance characteristics
+
+| Backend | Dataset Size | Query Speed | Memory | Best For |
+|---------|--------------|-------------|--------|----------|
+| **Embedded backend, DataFusion** | <10GB | Fast | Moderate | UDFs, complex transformations |
+| **DuckDB** | 10-100GB | Very Fast | Low | Analytical queries, Parquet files |
+| **PostgreSQL** | >100GB | Moderate | Very Low | Massive datasets, existing databases |
+| **Pandas** | <1GB | Moderate | High | Small datasets, prototyping |
+
+::: {.callout-note}
+These size thresholds are guidelines based on typical workloads. Actual performance depends on query complexity, available memory, and data distribution. Test with your specific workload to determine optimal backend selection.
+:::
+
+### Switch backends dynamically
+
+Move data between backends for optimal performance:
+
+Create `switch_backends.py`:
+
+```{python}
+#| eval: true
+import xorq.api as xo
+import numpy as np
+
+# <1>
+con = xo.connect()
+duckdb = xo.duckdb.connect()
+
+# <2>
+np.random.seed(42)
+data = xo.memtable({
+    "value": np.random.randint(0, 500, 10000),
+    "category": np.random.choice(["A", "B", "C"], 10000)
+}, name="sample_data")
+
+# <3>
+data_duck = data.into_backend(duckdb)
+
+# <4>
+result = (
+    data_duck
+    .filter(xo._.value > 100)
+    .group_by("category")
+    .agg(count=xo._.value.count())
+    .execute()
+)
+print("You should see a result like this:")
+print(result)
+```
+1. Import `xorq.api` for Xorq operations and `numpy` for data generation. Connect to different backends: Embedded backend DataFusion for datasets <10GB with UDF support, and DuckDB for datasets 10-100GB with fast analytics.
+2. Create sample data in the embedded backend with a reproducible seed.
+3. Move data to DuckDB backend for analytical queries. `into_backend()` uses zero-copy Arrow transfers for efficient data movement.
+4. Execute analytical query on DuckDB backend. DuckDB is optimized for aggregations and analytical workloads: Filtering rows, grouping by category, and counting rows per group.
+
+The result displays aggregated data with `category` and `count` columns, showing the count of values > 100 per category.
+
+Choose the backend based on dataset size and query type, and test performance on your specific workload since results vary.
+
+### Backend selection guidelines
+
+**Use Embedded backend, DataFusion, when**: Dataset <10GB, need custom UDFs, complex transformations, rapid iteration
+
+**Use DuckDB when**: Dataset 10-100GB, analytical queries (aggregations, joins), working with Parquet files, need persistent storage
+
+**Use PostgreSQL when**: Dataset >100GB, existing PostgreSQL infrastructure, need distributed query capabilities, complex SQL operations
+
+**Use Pandas when**: Dataset <1GB, interactive prototyping, integration with existing Pandas code, quick exploration
+
+## Optimize query performance
+
+Optimize individual queries and expressions for better performance.
+
+### Select only needed columns
+
+Reduce data transfer by selecting only required columns:
+
+```{python}
+#| eval: false
+# <1>
+result = data.execute()
+
+# <2>
+result = data.select("col1", "col2", "col3").execute()
+```
+1. Inefficient: Loads all columns from the table. This transfers unnecessary data and increases memory usage.
+2. Efficient: Select only the columns you actually need. This reduces memory usage and speeds up data transfer.
+
+Select only the columns you need to reduce memory usage and transfer time. This is especially important for wide tables with many columns.
+
+### Filter early
+
+Apply filters as early as possible in the pipeline:
+
+```{python}
+#| eval: false
+# <1>
+aggregated = (
+    data
+    .group_by("category")
+    .agg(count=xo._.value.count())
+)
+result = aggregated.filter(aggregated["count"] > 100).execute()
+
+# <2>
+result = (
+    data
+    .filter(xo._.value > 100)
+    .group_by("category")
+    .agg(count=xo._.value.count())
+    .execute()
+)
+```
+1. Inefficient: Processes all data, then filters after aggregation. This means the aggregation processes more rows than necessary. Group all rows first, count all rows in each group, then filter groups after aggregation using bracket notation to reference the aggregated column (`aggregated["count"]`).
+2. Efficient: Filter before aggregation to reduce data volume. Filtering first means aggregation processes fewer rows, improving performance. Filter rows early to reduce data volume, group only the filtered rows, then count them per group.
+
+### Cache intermediate results
+
+Cache expensive intermediate computations:
+
+Create `cache_intermediate.py`:
+
+```{python}
+#| eval: true
+# <1>
+import xorq.api as xo
+from xorq.caching import ParquetCache
+from pathlib import Path
+import numpy as np
+
+# <2>
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "id": range(10000),
+    "value": np.random.randint(0, 500, 10000),
+    "category": np.random.choice(["A", "B", "C"], 10000),
+    "region": np.random.choice(["North", "South", "East", "West"], 10000)
+}, name="sample_data")
+
+# <3>
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./cache",
+    base_path=Path(".").absolute()
+)
+
+# <4>
+aggregated = (
+    data
+    .filter(xo._.value > 100)
+    .group_by("category", "region")
+    .agg(
+        count=xo._.value.count(),
+        avg_value=xo._.value.mean(),
+        max_value=xo._.value.max()
+    )
+    .cache(cache=cache)
+)
+
+# <5>
+result1 = aggregated.filter(aggregated["count"] > 50).execute()
+
+# <6>
+result2 = aggregated.group_by("category").agg(total_count=aggregated["count"].sum()).execute()
+
+# <7>
+print("You should see a result like this:")
+print(result1)
+print("\nRe-aggregated by category:")
+print(result2)
+```
+1. Import `xorq.api` for Xorq operations, `ParquetCache` for disk-based caching, `pathlib.Path` for path handling, and `numpy` for data generation.
+2. Connect to Xorq and create sample data with multiple columns for aggregation.
+3. Create a ParquetCache for storing intermediate results on disk.
+4. Build an expensive aggregation (multi-column group-by) and cache the result. This aggregation is computationally costly, so caching allows reuse.
+5. Filter the cached aggregation result. Uses bracket notation (`aggregated["count"]`) to reference aggregated columns—using `xo._.count` would call the method instead of accessing the column.
+6. Re-aggregate the cached result by category, summing count values. Both operations benefit from the cached intermediate result.
+7. Display both results to show how the cached intermediate result is reused.
+
+The first result shows filtered aggregated rows where `count > 50`, with columns for `category`, `region`, `count`, `avg_value`, and `max_value`. The second result shows re-aggregated data grouped by `category` only, with `category` and `total_count` columns.
+
+Balance cache storage costs against recomputation costs based on your workload patterns.
+
+## Troubleshooting
+
+When optimizing performance, you may encounter issues with caching, backend selection, or query performance.
+
+### Issue: Pipeline is still slow after caching
+
+**Error**: Performance doesn't improve after adding cache
+
+**Cause**: Cache never hits, caching wrong operations, or cache overhead exceeds benefit
+
+**Recovery**:
+
+1. Verify cache hits: Measure execution time to detect cache hits (cache hits are typically 5-50x faster than cache misses)
+2. Profile to identify real bottleneck: Cache may not be the issue
+3. Cache more selectively: Cache only expensive operations
+4. Check cache I/O performance: A slow disk can negate cache benefits
+
+Verify cache hits by comparing execution times:
+
+```{python}
+#| eval: true
+import time
+import xorq.api as xo
+from xorq.caching import ParquetCache
+from pathlib import Path
+import numpy as np
+
+# <1>
+con = xo.connect()
+np.random.seed(42)
+data = xo.memtable({
+    "value": np.random.randint(0, 500, 10000),
+    "category": np.random.choice(["A", "B", "C"], 10000)
+}, name="sample_data")
+
+cache = ParquetCache.from_kwargs(
+    source=con,
+    relative_path="./verify-cache",
+    base_path=Path(".").absolute()
+)
+
+cached_expr = data.filter(xo._.value > 100).cache(cache=cache)
+
+# <2>
+print("First execution (cache miss)...")
+start = time.time()
+result1 = cached_expr.execute()
+miss_time = time.time() - start
+print(f"Cache miss: {miss_time:.4f}s - {len(result1)} rows")
+
+# <3>
+print("\nSecond execution (cache hit)...")
+start = time.time()
+result2 = cached_expr.execute()
+hit_time = time.time() - start
+print(f"Cache hit: {hit_time:.4f}s - {len(result2)} rows")
+
+# <4>
+speedup = miss_time / hit_time if hit_time > 0 else float('inf')
+print(f"\nSpeedup: {speedup:.1f}x faster")
+print(f"Results match: {result1.equals(result2)}")
+```
+1. Import `time` for timing measurements, `xorq.api` for Xorq operations, `ParquetCache` for caching, `pathlib.Path` for path handling, and `numpy` for data generation. Create sample data and cache.
+2. First execution is a cache miss: Xorq computes and caches the result. This takes longer as it performs the actual computation.
+3. Second execution is a cache hit: Xorq retrieves the result from cache. This is much faster (typically 5-50x) as it only reads from disk.
+4. Calculate speedup ratio and verify results match. Cache hits should be significantly faster than cache misses. If speedup is <2x, the cache may not be working correctly.
+
+The output displays execution times for both cache miss and cache hit, the calculated speedup, for example "5.2x faster", and confirms that both results are identical (`Results match: True`).
+
+**Prevention**:
+
+- Profile before and after caching to measure improvement
+- Cache only expensive operations (joins, aggregations, ML training)
+- Use fast storage (SSD) for cache directories
+
+### Issue: Wrong backend selected
+
+**Error**: Performance worse than expected for dataset size
+
+**Cause**: Using the wrong backend for the dataset size or query type
+
+**Recovery**:
+
+1. Profile on different backends: Test performance on Embedded, DuckDB, and PostgreSQL
+2. Check dataset size: Verify actual data volume
+3. Consider query type: Some backends are better for specific operations
+4. Switch backends: Use `.into_backend()` to test different backends
+
+**Prevention**:
+
+- Test backend performance on your specific workload
+- Start with Embedded, switch to DuckDB/PostgreSQL as data grows
+- Document backend selection criteria for your use case
+
+### Issue: Memory errors during optimization
+
+**Error**: `MemoryError` or system freezes during optimization
+
+**Cause**: Processing too much data at once or inefficient memory usage
+
+**Recovery**:
+
+1. Reduce data volume: Filter or sample data before processing
+2. Process in chunks: Use batch processing for large datasets
+3. Select fewer columns: Reduce memory footprint
+4. Switch to a more memory-efficient backend: DuckDB or PostgreSQL
+
+**Prevention**:
+
+- Monitor memory usage during development
+- Test on data samples before the full dataset
+- Use appropriate backends for dataset size
+
+## Next steps
+
+You now have techniques for profiling, caching, backend selection, and query optimization to achieve production-ready pipeline performance.
+
+- [Train models at scale](../ml_workflows/train_models_at_scale.qmd) - Apply caching to ML training workflows
+- [Optimize model serving](optimize_model_serving.qmd) - Optimize serving performance for predictions
+- [Switch backends](../../getting_started/switch_backends.qmd) - Learn backend switching patterns
+- [Intelligent caching system](../../concepts/understanding_xorq/intelligent_caching_system.qmd) - Deep dive into caching concepts
