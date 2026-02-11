@@ -14,8 +14,8 @@ After completing this tutorial, you'll know how to run experiments that compare 
 You need:
 
 - Xorq installed: `pip install "xorq[examples]"`
-- Basic familiarity with scikit-learn classifiers
-- Understanding of train/test splits
+- Basic familiarity with [scikit-learn classifiers](https://scikit-learn.org/stable/supervised_learning.html#supervised-learning)
+- Understanding of [train/test splits](https://scikit-learn.org/stable/modules/cross_validation.html#cross-validation)
 
 
 ## Why compare models?
@@ -392,6 +392,5 @@ The key insight? Model comparison is systematic with Xorq. Define your candidate
 
 Now that you know how to compare models, continue learning:
 
-- [Train your first model](train_your_first_model.qmd) covers the basics of model training with Xorq
-- [Split data for training](split_data_for_training.qmd) shows proper train/test/validation splits
-- [Understand Pipeline](understand_pipeline.qmd) explains how Xorq wraps scikit-learn pipelines
+- [Train your first model](train_your_first_model.qmd) — Learn the basics of model training with Xorq
+- [Split data for training](split_data_for_training.qmd) — Create proper train/test/validation splits
