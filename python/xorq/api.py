@@ -24,7 +24,6 @@ from xorq.ibis_yaml.compiler import (
     load_expr,
 )
 
-# Import catalog API - both namespace and convenience functions
 from xorq import catalog_api as catalog
 from xorq.catalog_api import (
     get as read_catalog,
