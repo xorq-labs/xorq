@@ -148,6 +148,7 @@ website:
             - concepts/understanding_xorq/multi_engine_execution.qmd
             - concepts/understanding_xorq/intelligent_caching_system.qmd
             - concepts/core_concepts/profile_based_connections.qmd
+            - concepts/core_concepts/pins.qmd
         - id: reproducibility-section
           section: "Reproducibility"
           contents:
