@@ -2,6 +2,8 @@
 
 from datetime import datetime
 
+import pytest
+
 import xorq.vendor.ibis as ibis
 import xorq.vendor.ibis.expr.datatypes as dt
 import xorq.vendor.ibis.expr.operations.temporal as tm
@@ -123,3 +125,59 @@ def test_temporal_unit_yaml(compiler):
     assert dtype_yaml["unit"]["value"] == "h"
     roundtrip_time = compiler.from_yaml(yaml_time)
     assert roundtrip_time.equals(interval_time)
+
+
+def test_date_truncate(compiler, t):
+    """Test that DateTruncate with DateUnit serializes and roundtrips correctly."""
+    truncated = t.e.truncate("M")
+    yaml_dict = compiler.to_yaml(truncated)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "DateTruncate"
+    assert expression["unit"]["op"] == "IntervalUnit"
+    assert expression["unit"]["name"] == "DateUnit"
+    assert expression["unit"]["value"] == "M"
+    roundtrip = compiler.from_yaml(yaml_dict)
+    assert roundtrip.equals(truncated)
+
+
+def test_time_truncate(compiler):
+    """Test that TimeTruncate with TimeUnit serializes and roundtrips correctly."""
+    t = ibis.table({"t": "time"}, name="time_table")
+    truncated = t.t.truncate("h")
+    yaml_dict = compiler.to_yaml(truncated)
+    expression = yaml_dict["expression"]
+    assert expression["op"] == "TimeTruncate"
+    assert expression["unit"]["op"] == "IntervalUnit"
+    assert expression["unit"]["name"] == "TimeUnit"
+    assert expression["unit"]["value"] == "h"
+    roundtrip = compiler.from_yaml(yaml_dict)
+    assert roundtrip.equals(truncated)
+
+
+@pytest.mark.parametrize(
+    "unit_cls,unit_value,expected_name",
+    [
+        (tm.DateUnit, "Y", "DateUnit"),
+        (tm.DateUnit, "M", "DateUnit"),
+        (tm.DateUnit, "D", "DateUnit"),
+        (tm.TimeUnit, "h", "TimeUnit"),
+        (tm.TimeUnit, "m", "TimeUnit"),
+        (tm.TimeUnit, "s", "TimeUnit"),
+        (tm.TimestampUnit, "s", "TimestampUnit"),
+        (tm.TimestampUnit, "ms", "TimestampUnit"),
+        (tm.IntervalUnit, "Y", "DateUnit"),
+        (tm.IntervalUnit, "h", "TimeUnit"),
+    ],
+)
+def test_temporal_unit_direct_serialization(
+    compiler, unit_cls, unit_value, expected_name
+):
+    """Test that DateUnit, TimeUnit, and TimestampUnit enums serialize directly."""
+    from xorq.ibis_yaml.common import TranslationContext, translate_to_yaml
+
+    ctx = TranslationContext()
+    unit = unit_cls(unit_value)
+    result = translate_to_yaml(unit, ctx)
+    assert result["op"] == "IntervalUnit"
+    assert result["name"] == expected_name
+    assert result["value"] == unit_value
