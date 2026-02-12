@@ -11,7 +11,6 @@ from xorq import config
 from xorq import expr
 from xorq.config import options
 
-
 from xorq.expr import api
 from xorq.expr.api import *  # noqa: F403
 from xorq import ml
@@ -20,6 +19,10 @@ from xorq.backends.xorq import Backend
 from xorq.internal import SessionConfig
 
 from xorq.loader import load_backend
+from xorq.ibis_yaml.compiler import (
+    build_expr,
+    load_expr,
+)
 
 __all__ = [  # noqa: PLE0604
     "api",
@@ -31,6 +34,8 @@ __all__ = [  # noqa: PLE0604
     "options",
     "SessionConfig",
     "udf",
+    "build_expr",
+    "load_expr",
     *api.__all__,
     *ml.__all__,
     *udf.__all__,
