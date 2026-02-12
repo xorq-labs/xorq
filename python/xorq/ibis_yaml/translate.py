@@ -142,9 +142,44 @@ def _interval_unit_to_yaml(
     )
 
 
+@translate_to_yaml.register(tm.DateUnit)
+def _date_unit_to_yaml(
+    unit: tm.DateUnit, context: TranslationContext
+) -> dict:
+    return freeze(
+        {"op": "IntervalUnit", "name": "DateUnit", "value": unit.value}
+    )
+
+
+@translate_to_yaml.register(tm.TimeUnit)
+def _time_unit_to_yaml(
+    unit: tm.TimeUnit, context: TranslationContext
+) -> dict:
+    return freeze(
+        {"op": "IntervalUnit", "name": "TimeUnit", "value": unit.value}
+    )
+
+
+@translate_to_yaml.register(tm.TimestampUnit)
+def _timestamp_unit_to_yaml(
+    unit: tm.TimestampUnit, context: TranslationContext
+) -> dict:
+    return freeze(
+        {"op": "IntervalUnit", "name": "TimestampUnit", "value": unit.value}
+    )
+
+
 @register_from_yaml_handler("IntervalUnit")
 def _interval_unit_from_yaml(yaml_dict: dict, context: TranslationContext) -> any:
-    return tm.IntervalUnit(yaml_dict["value"])
+    unit_classes = {
+        "DateUnit": tm.DateUnit,
+        "TimeUnit": tm.TimeUnit,
+        "TimestampUnit": tm.TimestampUnit,
+        "IntervalUnit": tm.IntervalUnit,
+    }
+    name = yaml_dict.get("name", "IntervalUnit")
+    cls = unit_classes.get(name, tm.IntervalUnit)
+    return cls(yaml_dict["value"])
 
 
 @translate_to_yaml.register(bool)
