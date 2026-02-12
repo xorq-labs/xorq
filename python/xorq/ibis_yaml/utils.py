@@ -1,8 +1,15 @@
+import datetime
 import pathlib
 from collections.abc import Mapping, Sequence
 from typing import Any, Dict
 
-from xorq.caching import ParquetCache, ParquetSnapshotCache, SourceCache
+from xorq.caching import (
+    ParquetCache,
+    ParquetSnapshotCache,
+    ParquetTTLSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
+)
 from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
@@ -137,6 +144,18 @@ def translate_cache(cache, translation_context: Any) -> Dict:
             "source": cache.storage.source._profile.hash_name,
             "relative_path": str(cache.storage.relative_path),
         }
+    elif isinstance(cache, ParquetTTLSnapshotCache):
+        return {
+            "type": "ParquetTTLSnapshotCache",
+            "source": cache.storage.source._profile.hash_name,
+            "relative_path": str(cache.storage.relative_path),
+            "ttl_seconds": cache.storage.ttl.total_seconds(),
+        }
+    elif isinstance(cache, SourceSnapshotCache):
+        return {
+            "type": "SourceSnapshotCache",
+            "source": cache.storage.source._profile.hash_name,
+        }
     else:
         raise NotImplementedError(f"Unknown cache type: {type(cache)}")
 
@@ -158,5 +177,18 @@ def load_cache_from_yaml(cache_yaml: Dict, compiler: Any):
         return ParquetSnapshotCache.from_kwargs(
             source=source, relative_path=pathlib.Path(cache_yaml["relative_path"])
         )
+    elif cache_yaml["type"] == "ParquetTTLSnapshotCache":
+        source_profile_name = cache_yaml["source"]
+        source = compiler.profiles[source_profile_name]
+        ttl = datetime.timedelta(seconds=cache_yaml["ttl_seconds"])
+        return ParquetTTLSnapshotCache.from_kwargs(
+            source=source,
+            relative_path=pathlib.Path(cache_yaml["relative_path"]),
+            ttl=ttl,
+        )
+    elif cache_yaml["type"] == "SourceSnapshotCache":
+        source_profile_name = cache_yaml["source"]
+        source = compiler.profiles[source_profile_name]
+        return SourceSnapshotCache.from_kwargs(source=source)
     else:
         raise NotImplementedError(f"Unknown cache type: {cache_yaml['type']}")
