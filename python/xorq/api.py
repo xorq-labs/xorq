@@ -44,6 +44,8 @@ __all__ = [  # noqa: PLE0604
     "catalog",
     "read_catalog",
     "read_build",
+    "build_expr",
+    "load_expr",
     *api.__all__,
     *ml.__all__,
     *udf.__all__,
