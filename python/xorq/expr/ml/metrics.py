@@ -229,46 +229,46 @@ def _build_metric_return_types():
     )
 
     return {
-        # tuple of scalars -> Struct
+        # Tuple of scalars -> Struct
         class_likelihood_ratios: dt.Struct(
-            {
-                "positive_likelihood_ratio": dt.float64,
-                "negative_likelihood_ratio": dt.float64,
-            }
+            dict(
+                positive_likelihood_ratio=dt.float64,
+                negative_likelihood_ratio=dt.float64,
+            )
         ),
         homogeneity_completeness_v_measure: dt.Struct(
-            {
-                "homogeneity": dt.float64,
-                "completeness": dt.float64,
-                "v_measure": dt.float64,
-            }
+            dict(
+                homogeneity=dt.float64,
+                completeness=dt.float64,
+                v_measure=dt.float64,
+            )
         ),
-        # matrix -> Array(Array(int64))
+        # Confusion matrices -> Array(Array(int64))
         confusion_matrix: dt.Array(dt.Array(dt.int64)),
         pair_confusion_matrix: dt.Array(dt.Array(dt.int64)),
-        # curves -> Struct of arrays
+        # Curves -> Struct of arrays
         roc_curve: dt.Struct(
-            {
-                "fpr": dt.Array(dt.float64),
-                "tpr": dt.Array(dt.float64),
-                "thresholds": dt.Array(dt.float64),
-            }
+            dict(
+                fpr=dt.Array(dt.float64),
+                tpr=dt.Array(dt.float64),
+                thresholds=dt.Array(dt.float64),
+            )
         ),
         precision_recall_curve: dt.Struct(
-            {
-                "precision": dt.Array(dt.float64),
-                "recall": dt.Array(dt.float64),
-                "thresholds": dt.Array(dt.float64),
-            }
+            dict(
+                precision=dt.Array(dt.float64),
+                recall=dt.Array(dt.float64),
+                thresholds=dt.Array(dt.float64),
+            )
         ),
         det_curve: dt.Struct(
-            {
-                "fpr": dt.Array(dt.float64),
-                "fnr": dt.Array(dt.float64),
-                "thresholds": dt.Array(dt.float64),
-            }
+            dict(
+                fpr=dt.Array(dt.float64),
+                fnr=dt.Array(dt.float64),
+                thresholds=dt.Array(dt.float64),
+            )
         ),
-        # per-sample -> Array(float64)
+        # Per-sample metrics -> Array(float64)
         silhouette_samples: dt.Array(dt.float64),
     }
 
@@ -324,29 +324,39 @@ class MetricComputation:
         """Return the module of the metric function for UDF registration."""
         return self.metric_fn.__module__
 
-    @property
-    def _target_columns(self):
-        match self.target:
+    @staticmethod
+    def _normalize_columns(value, name):
+        """Normalize str or tuple[str] to tuple[str].
+
+        Parameters
+        ----------
+        value : str or tuple of str
+            Column name(s) to normalize.
+        name : str
+            Parameter name for error messages.
+
+        Returns
+        -------
+        tuple of str
+            Normalized column names as a tuple.
+        """
+        match value:
             case str():
-                return (self.target,)
+                return (value,)
             case tuple():
-                return self.target
+                return value
             case _:
                 raise TypeError(
-                    f"target must be a str or tuple of str, got {type(self.target)}"
+                    f"{name} must be a str or tuple of str, got {type(value)}"
                 )
 
     @property
-    def _predumns(self):
-        match self.pred:
-            case str():
-                return (self.pred,)
-            case tuple():
-                return self.pred
-            case _:
-                raise TypeError(
-                    f"pred must be a str or tuple of str, got {type(self.pred)}"
-                )
+    def _target_columns(self):
+        return self._normalize_columns(self.target, "target")
+
+    @property
+    def _pred_columns(self):
+        return self._normalize_columns(self.pred, "pred")
 
     @property
     def _prepare_target(self):
@@ -429,7 +439,7 @@ class MetricComputation:
         return self._apply_sign(self._convert_result_for_udaf(result))
 
     def on_expr(self, expr):
-        schema = expr.select((*self._target_columns, *self._predumns)).schema()
+        schema = expr.select((*self._target_columns, *self._pred_columns)).schema()
         metric_udaf = udf.agg.pandas_df(
             fn=self,
             schema=schema,
@@ -553,74 +563,48 @@ def deferred_sklearn_metric(
     """
     from sklearn.metrics._scorer import _BaseScorer
 
+    # Helper to build MetricComputation from a Scorer
+    def _from_scorer(scorer, metric_kwargs):
+        merged_kwargs = {**dict(scorer.kwargs), **dict(metric_kwargs)}
+        return MetricComputation(
+            target=target,
+            pred=pred,
+            metric_fn=scorer.metric_fn,
+            sign=scorer.sign,
+            metric_kwargs_tuple=merged_kwargs,
+            return_type=return_type,
+            name=name,
+        ).on_expr(expr)
+
+    # Helper to build MetricComputation from a non-scorer metric function
+    def _from_non_scorer_metric_fn(metric_fn, metric_kwargs):
+        resolved_return_type = _build_metric_return_types().get(metric_fn, return_type)
+        return MetricComputation(
+            target=target,
+            pred=pred,
+            metric_fn=metric_fn,
+            sign=None,
+            metric_kwargs_tuple=dict(metric_kwargs),
+            return_type=resolved_return_type,
+            name=name,
+        ).on_expr(expr)
+
     match metric:
-        case str():
-            resolved = Scorer.from_spec(metric)
-            merged_kwargs = {**dict(resolved.kwargs), **dict(metric_kwargs)}
-            return MetricComputation(
-                target=target,
-                pred=pred,
-                metric_fn=resolved.metric_fn,
-                sign=resolved.sign,
-                metric_kwargs_tuple=merged_kwargs,
-                return_type=return_type,
-                name=name,
-            ).on_expr(expr)
+        case str() | _BaseScorer():
+            return _from_scorer(Scorer.from_spec(metric), metric_kwargs)
 
         case Scorer():
-            merged_kwargs = {**dict(metric.kwargs), **dict(metric_kwargs)}
-            return MetricComputation(
-                target=target,
-                pred=pred,
-                metric_fn=metric.metric_fn,
-                sign=metric.sign,
-                metric_kwargs_tuple=merged_kwargs,
-                return_type=return_type,
-                name=name,
-            ).on_expr(expr)
-
-        case _BaseScorer():
-            resolved = Scorer.from_spec(metric)
-            merged_kwargs = {**dict(resolved.kwargs), **dict(metric_kwargs)}
-            return MetricComputation(
-                target=target,
-                pred=pred,
-                metric_fn=resolved.metric_fn,
-                sign=resolved.sign,
-                metric_kwargs_tuple=merged_kwargs,
-                return_type=return_type,
-                name=name,
-            ).on_expr(expr)
+            return _from_scorer(metric, metric_kwargs)
 
         case object(__call__=_):
             known_scorers = _build_known_scorer_funcs()
             known_non_scorer_metrics = _build_known_non_scorer_metric_fns()
+
             match (metric in known_scorers, metric in known_non_scorer_metrics):
-                case (True, _):
-                    resolved = Scorer.from_spec(metric)
-                    merged_kwargs = {**dict(resolved.kwargs), **dict(metric_kwargs)}
-                    return MetricComputation(
-                        target=target,
-                        pred=pred,
-                        metric_fn=resolved.metric_fn,
-                        sign=resolved.sign,
-                        metric_kwargs_tuple=merged_kwargs,
-                        return_type=return_type,
-                        name=name,
-                    ).on_expr(expr)
-                case (_, True):
-                    resolved_return_type = _build_metric_return_types().get(
-                        metric, return_type
-                    )
-                    return MetricComputation(
-                        target=target,
-                        pred=pred,
-                        metric_fn=metric,
-                        sign=None,
-                        metric_kwargs_tuple=dict(metric_kwargs),
-                        return_type=resolved_return_type,
-                        name=name,
-                    ).on_expr(expr)
+                case (True, False):
+                    return _from_scorer(Scorer.from_spec(metric), metric_kwargs)
+                case (False, True):
+                    return _from_non_scorer_metric_fn(metric, metric_kwargs)
                 case _:
                     raise ValueError(
                         f"Unknown callable {metric.__name__!r}. "
@@ -680,28 +664,28 @@ def deferred_auc_from_curve(curve_expr):
     import pyarrow as pa
     from sklearn.metrics import auc
 
+    # Validate type and extract field mapping
     curve_type = curve_expr.type()
-    if not isinstance(curve_type, dt.Struct):
-        raise TypeError(
-            f"Expected a Struct expression from a curve metric, got {curve_type}"
-        )
+    match curve_type:
+        case dt.Struct():
+            field_names = frozenset(curve_type.names)
+            if (xy_fields := _CURVE_FIELD_MAP.get(field_names)) is None:
+                raise ValueError(
+                    f"Unrecognized curve fields {set(field_names)}. "
+                    f"Expected fields from roc_curve, precision_recall_curve, "
+                    f"or det_curve."
+                )
+            x_field, y_field = xy_fields
+        case _:
+            raise TypeError(
+                f"Expected a Struct expression from a curve metric, got {curve_type}"
+            )
 
-    field_names = frozenset(curve_type.names)
-    if field_names not in _CURVE_FIELD_MAP:
-        raise ValueError(
-            f"Unrecognized curve fields {set(field_names)}. "
-            f"Expected fields from roc_curve, precision_recall_curve, "
-            f"or det_curve."
-        )
-
-    x_field, y_field = _CURVE_FIELD_MAP[field_names]
-
+    # Create UDF to compute AUC
     def _auc_fn(struct: curve_type) -> dt.float64:
         x = struct.field(x_field).values.to_pylist()
         y = struct.field(y_field).values.to_pylist()
         return pa.array([auc(x, y)], type=pa.float64())
 
     _auc_fn.__name__ = f"_auc_{x_field}_{y_field}"
-    _auc_udf = udf.scalar.pyarrow(_auc_fn)
-
-    return _auc_udf(curve_expr)
+    return udf.scalar.pyarrow(_auc_fn)(curve_expr)
