@@ -11,7 +11,13 @@ import yaml
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
-from xorq.caching import ParquetCache, ParquetSnapshotCache, SourceCache
+from xorq.caching import (
+    ParquetCache,
+    ParquetSnapshotCache,
+    ParquetTTLSnapshotCache,
+    SourceCache,
+    SourceSnapshotCache,
+)
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
@@ -534,6 +540,33 @@ def test_roundtrip_parquet_snapshot_cache(builds_dir, tmp_path, users_df):
     ddb = xo.duckdb.connect()
 
     cache = ParquetSnapshotCache.from_kwargs(source=ddb, relative_path=tmp_path)
+
+    t = original.register(users_df, table_name="users")
+    expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
+    assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
+
+
+def test_roundtrip_parquet_ttl_snapshot_cache(builds_dir, tmp_path, users_df):
+    import datetime
+
+    original = xo.connect()
+    ddb = xo.duckdb.connect()
+
+    cache = ParquetTTLSnapshotCache.from_kwargs(
+        source=ddb, relative_path=tmp_path, ttl=datetime.timedelta(hours=2)
+    )
+
+    t = original.register(users_df, table_name="users")
+    expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
+    roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
+    assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
+
+
+def test_roundtrip_source_snapshot_cache(builds_dir, users_df):
+    original = xo.connect()
+
+    cache = SourceSnapshotCache.from_kwargs(source=xo.connect())
 
     t = original.register(users_df, table_name="users")
     expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)

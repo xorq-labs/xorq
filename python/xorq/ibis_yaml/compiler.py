@@ -29,6 +29,7 @@ import xorq.vendor.ibis.expr.types as ir
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
+    ParquetTTLSnapshotCache,
     SnapshotStrategy,
 )
 from xorq.common.utils.caching_utils import get_xorq_cache_dir
@@ -541,7 +542,7 @@ class ExprLoader:
     def replace_base_path(expr, base_path):
         def replace(node, kwargs):
             if isinstance(node, CachedNode) and isinstance(
-                node.cache, (ParquetCache, ParquetSnapshotCache)
+                node.cache, (ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache)
             ):
                 evolved = evolve(
                     node.cache,
