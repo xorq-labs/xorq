@@ -1694,14 +1694,9 @@ def parse_args(override=None):
     )
     onboard_parser.add_argument(
         "--step",
-        choices=("init", "templates", "build", "catalog", "explore", "compose", "land"),
+        choices=("init", "templates", "build", "catalog", "explore", "compose"),
         default=None,
         help="Filter onboarding instructions to a specific step",
-    )
-
-    land_parser = agents_subparsers.add_parser(
-        "land",
-        help="Show session summary and landing checklist",
     )
 
     # Claude Code hooks subparser
