@@ -15,7 +15,6 @@ Different backends excel at different tasks. DuckDB handles analytical queries e
 Xorq lets you write your expression once and run it anywhere. Same code, different engines.
 
 :::{.callout-tip}
-### Zero-copy transfers
 Xorq uses Apache Arrow to move data between backends without serialization overhead. This makes backend switching fast and memory-efficient.
 :::
 
@@ -84,7 +83,6 @@ print(duck_result)
 Notice how the expression code is identical. Only the backend connection changed.
 
 :::{.callout-note}
-### In-memory vs persistent
 This DuckDB connection is in-memory. To use a persistent database file, pass `database="my_db.duckdb"` to `connect()`.
 :::
 
@@ -149,7 +147,6 @@ print(f"Result shape: {result.shape}")
 `.into_backend()` transfers data between backends using Arrow's zero-copy protocol. This is fast even for large datasets.
 
 :::{.callout-tip}
-### When to move data
 Move data to a different backend when you need specific features (like DuckDB's AsOf joins) or better performance for your query type.
 :::
 
@@ -226,7 +223,6 @@ Here's when to use each backend:
 - Quick exploration.
 
 :::{.callout-warning}
-### Backend capabilities
 Not all backends support every operation. For example, some complex window functions might work in DuckDB but not in Pandas. Check the documentation if you hit an unsupported operation error.
 :::
 

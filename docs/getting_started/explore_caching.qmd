@@ -20,7 +20,6 @@ This is especially powerful for expensive operations:
 - Running complex aggregations
 
 :::{.callout-tip}
-### Smart caching
 Xorq uses content-addressed hashing to determine if an expression matches cached results. Same computation = same hash = cache hit.
 :::
 
@@ -131,7 +130,6 @@ print(f"Results match: {result1.equals(result2)}")
 The second execution should be significantly faster because Xorq fetched results from cache instead of recomputing the filter operation.
 
 :::{.callout-note}
-### Cache key
 Xorq computes a hash from your expression's structure and data sources. If the expression is identical, then the hash matches, and you get a cache hit.
 :::
 
@@ -202,7 +200,6 @@ print(f"\nSpeedup from caching: {speedup:.1f}x faster")
 The first execution is a cache miss (slower), but the second and third are cache hits (much faster). This shows how caching eliminates redundant computation.
 
 :::{.callout-warning}
-### Cache storage
 SourceCache keeps cached data in your backend as tables. Make sure you have enough storage space for cached results, especially with large datasets.
 :::
 
