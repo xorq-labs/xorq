@@ -506,7 +506,7 @@ def render_lean_onboarding() -> str:
         --- BEGIN AGENTS.MD CONTENT ---
         ## xorq Expression Framework
 
-        Run `xorq agents prime` for dynamic workflow context, or install hooks (`xorq agents hooks install`) for auto-injection.
+        Install hooks (`xorq agents hooks install`) for auto-injection.
 
         ## Mandatory Workflow
         1. `xorq agents vignette list` - discover patterns
@@ -515,28 +515,17 @@ def render_lean_onboarding() -> str:
         4. `xorq build <file>.py -e expr` - build expression
         5. `xorq catalog add .xorq/builds/<hash> --alias <name>` - register
         6 `xorq catalog ls` - Find available expressions
-        6 `xorq agents prime` - Get current workflow context and state
 
         **Key principle:** Everything is a deferred expression - no eager pandas/NumPy!
         For ML patterns, use `xorq skill` for deferred sklearn guidance.
 
-        For full workflow details: `xorq agents prime`
+        For full workflow details: `xorq agents onboard`
         --- END AGENTS.MD CONTENT ---
-
-        For GitHub Copilot users:
-        Add the same content to .github/copilot-instructions.md
-
-        How it works:
-           • xorq agents prime provides dynamic workflow context (~100 lines)
-           • xorq agents hooks install auto-injects prime at session start
-           • AGENTS.md only needs this minimal pointer, not full instructions
-
-        This keeps AGENTS.md lean while `xorq agents prime` provides up-to-date workflow details.
         """).strip()
 
 
 def render_onboarding_summary(step: str | None = None) -> str:
-    """Render dynamic workflow context (the 'prime' command)."""
+    """Render dynamic workflow context (the 'onboard' command)."""
     selected_steps = (
         tuple(s for s in ONBOARDING_STEPS if step is None or s.key == step)
         or ONBOARDING_STEPS
@@ -744,7 +733,7 @@ def _render_agent_doc(max_lines: int) -> str:
         ```
 
         **Agent Commands:**
-        - `xorq agents prime` - Dynamic workflow context (use this!)
+        - `xorq agents onboard` - Dynamic workflow context (use this!)
         - `xorq agents vignette list` - Comprehensive code examples (USE THIS for advanced patterns!)
         - `xorq catalog ls` - List cataloged builds
 

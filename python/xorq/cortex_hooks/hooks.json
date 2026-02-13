@@ -30,6 +30,16 @@
         ]
       }
     ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 ~/.snowflake/cortex/hooks/pre_tool_use.py"
+          }
+        ]
+      }
+    ],
     "PreCompact": [
       {
         "hooks": [

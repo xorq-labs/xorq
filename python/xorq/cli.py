@@ -853,6 +853,7 @@ def install_cortex_hooks_command(args):
     hook_files = [
         "session_start.py",
         "user_prompt_submit.py",
+        "pre_tool_use.py",
         "post_tool_use_failure.py",
         "pre_compact.py",
         "stop.py",
@@ -922,6 +923,7 @@ def install_cortex_hooks_command(args):
     print("2. The following hooks are now available globally:")
     print("   - SessionStart: Runs 'xorq agents onboard' at session start (xorq projects only)")
     print("   - UserPromptSubmit: Triggered when user submits a prompt")
+    print("   - PreToolUse: Blocks cortex CLI calls, redirects to xorq CLI")
     print("   - PostToolUseFailure: Provides troubleshooting guidance on xorq errors")
     print("   - PreCompact: Triggered before context compaction")
     print("   - Stop: Checks for uncataloged builds and reminds you to catalog them")
@@ -963,6 +965,7 @@ def install_cortex_hooks_project_command(args):
     hook_files = [
         "session_start.py",
         "user_prompt_submit.py",
+        "pre_tool_use.py",
         "post_tool_use_failure.py",
         "pre_compact.py",
         "stop.py",
@@ -1032,6 +1035,7 @@ def install_cortex_hooks_project_command(args):
     print("2. The following hooks are now available in this project:")
     print("   - SessionStart: Runs 'xorq agents onboard' at session start")
     print("   - UserPromptSubmit: Triggered when user submits a prompt")
+    print("   - PreToolUse: Blocks cortex CLI calls, redirects to xorq CLI")
     print("   - PostToolUseFailure: Provides troubleshooting guidance on xorq errors")
     print("   - PreCompact: Triggered before context compaction")
     print("   - Stop: Checks for uncataloged builds and reminds you to catalog them")
