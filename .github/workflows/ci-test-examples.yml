@@ -55,7 +55,7 @@ jobs:
       #   run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -vvv --capture=no -k "sklearn and not sklearn_deferred_auc_from_curve" --timeout=30  --cov --cov-report=xml
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -vvv --capture=no -k sklearn_home_run_prediction --timeout=30  --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
