@@ -21,7 +21,6 @@ All return types compose via .agg() into a single table.
 
 import numpy as np
 import pandas as pd
-import toolz
 from sklearn.cluster import KMeans
 from sklearn.datasets import make_blobs, make_classification
 from sklearn.ensemble import RandomForestClassifier
@@ -77,11 +76,8 @@ fitted_clf = Pipeline.from_instance(
 
 clf_preds = fitted_clf.predict(test_cls_expr, name="pred")
 
-make_clf_metric = toolz.curry(
-    deferred_sklearn_metric,
-    target="target",
-    pred="pred",
-)
+# deferred_sklearn_metric is curried — partial application returns a callable
+make_clf_metric = deferred_sklearn_metric(target="target", pred="pred")
 
 clf_metrics = clf_preds.agg(
     # Scalar
@@ -103,8 +99,7 @@ kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
 cluster_df["cluster"] = kmeans.fit_predict(X_cluster)
 cluster_expr = con.register(cluster_df, "clusters")
 
-make_cluster_metric = toolz.curry(
-    deferred_sklearn_metric,
+make_cluster_metric = deferred_sklearn_metric(
     target=cluster_features,
     pred="cluster",
 )
@@ -124,8 +119,7 @@ cluster_metrics = cluster_expr.agg(
 
 # HCV uses (str, str) with ground-truth labels
 hcv_metric = cluster_labeled_expr.agg(
-    hcv=toolz.curry(
-        deferred_sklearn_metric,
+    hcv=deferred_sklearn_metric(
         target="true_label",
         pred="cluster",
         metric=homogeneity_completeness_v_measure,
@@ -152,11 +146,7 @@ ml_df = pd.DataFrame(y_true_ml, columns=list(label_names))
 ml_df["scores"] = [row for row in y_score_ml]
 ml_expr = con.register(ml_df, "multilabel_array")
 
-make_ml_metric = toolz.curry(
-    deferred_sklearn_metric,
-    target=label_names,
-    pred="scores",
-)
+make_ml_metric = deferred_sklearn_metric(target=label_names, pred="scores")
 
 ml_array_metrics = ml_expr.agg(
     # target=tuple of label columns, pred=single array column
@@ -175,11 +165,7 @@ for i, name in enumerate(score_names):
     ml_cols_df[name] = y_score_ml[:, i]
 ml_cols_expr = con.register(ml_cols_df, "multilabel_cols")
 
-make_ml_cols_metric = toolz.curry(
-    deferred_sklearn_metric,
-    target=label_names,
-    pred=score_names,
-)
+make_ml_cols_metric = deferred_sklearn_metric(target=label_names, pred=score_names)
 
 ml_cols_metrics = ml_cols_expr.agg(
     # target=tuple of label columns, pred=tuple of score columns

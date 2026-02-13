@@ -22,7 +22,6 @@ Non-scalar return types (Struct, Array) are auto-detected from the registry.
 """
 
 import pandas as pd
-import toolz
 from sklearn.cluster import KMeans
 from sklearn.datasets import make_classification, make_regression
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -73,12 +72,8 @@ train_reg, test_reg = train_test_split(
 train_reg_expr = con.register(train_reg, "train_reg")
 test_reg_expr = con.register(test_reg, "test_reg")
 
-# --- Helper: curry deferred_sklearn_metric with shared target/pred ---
-make_metric = toolz.curry(
-    deferred_sklearn_metric,
-    target=target_name,
-    pred=pred_name,
-)
+# --- Helper: deferred_sklearn_metric is curried, so partial application works ---
+make_metric = deferred_sklearn_metric(target=target_name, pred=pred_name)
 
 # --- Classifier: predict once, score thrice ---
 

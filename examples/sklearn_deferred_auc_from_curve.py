@@ -59,21 +59,16 @@ proba_expr = fitted.predict_proba(test_expr, name=pred_name)
 
 
 # --- Deferred curve metrics ---
+# deferred_sklearn_metric is curried, so partial application returns a callable
 make_roc_auc, make_pr_auc, make_det_auc = (
     toolz.compose(
         deferred_auc_from_curve,
-        toolz.curry(
-            deferred_sklearn_metric,
-            target=target_name,
-            pred=pred_name,
-            metric=metric,
-        ),
+        deferred_sklearn_metric(target=target_name, pred=pred_name, metric=metric),
     )
     for metric in (roc_curve, precision_recall_curve, det_curve)
 )
 # --- For comparison: roc_auc_score via the scorer path ---
-make_roc_auc_score = toolz.curry(
-    deferred_sklearn_metric,
+make_roc_auc_score = deferred_sklearn_metric(
     target=target_name,
     pred=pred_name,
     metric=roc_auc_score,

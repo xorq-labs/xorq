@@ -4,6 +4,7 @@ import functools
 from typing import Callable
 
 import numpy as np
+import toolz
 from attr import (
     field,
     frozen,
@@ -481,6 +482,7 @@ class MetricComputation:
                 return y_pred
 
 
+@toolz.curry
 def deferred_sklearn_metric(
     expr,
     target,
