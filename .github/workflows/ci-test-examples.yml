@@ -46,7 +46,7 @@ jobs:
         working-directory: ${{ github.workspace }}
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib --capture=no -vvv -x -k 'sklearn_class or sklearn_deferred_auc or sklearn_pipeline_scoring or sklearn_metrics_comparison' -- python/xorq/tests/test_examples.py
+        run: uv run --no-sync pytest --import-mode=importlib --capture=no -vvv -x -k 'sklearn_class or sklearn_deferred_auc or sklearn_pipeline_scoring or sklearn_metrics_comparison sklearn_home_run_prediction' -- python/xorq/tests/test_examples.py
         working-directory: ${{ github.workspace }}
         env:
           POSTGRES_PASSWORD: postgres
