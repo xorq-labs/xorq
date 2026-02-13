@@ -43,11 +43,13 @@ from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
+from xorq.caching import SourceCache
 from xorq.expr.ml.metrics import deferred_sklearn_metric
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
 con = xo.connect()
+cache = SourceCache.from_kwargs(source=con)
 
 # ============================================================================
 # Section 1 — (str, str): classifier with non-scalar return types
@@ -74,7 +76,7 @@ fitted_clf = Pipeline.from_instance(
     )
 ).fit(train_cls_expr, features=tuple(feature_names), target="target")
 
-clf_preds = fitted_clf.predict(test_cls_expr, name="pred")
+clf_preds = fitted_clf.predict(test_cls_expr, name="pred").cache(cache)
 
 # Scalar
 deferred_accuracy = deferred_sklearn_metric(
