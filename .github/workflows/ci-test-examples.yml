@@ -51,14 +51,14 @@ jobs:
         run: uv sync --locked --extra examples --extra pyiceberg --extra postgres --extra sqlite --group dev --group test
         working-directory: ${{ github.workspace }}
 
-      # - name: start services
-      #   run: docker compose up --build --wait
+      - name: start services
+        run: docker compose up --build --wait
 
       - name: pytest
-        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -vvv --capture=no -k sklearn_deferred_auc_from_curve --timeout=30  --cov --cov-report=xml
+        run: uv run --no-sync pytest --import-mode=importlib python/xorq/tests/test_examples.py -v --timeout=30  --cov --cov-report=xml
         working-directory: ${{ github.workspace }}
         env:
-          PYTEST_DEBUG: true
+          PYTEST_DEBUG: false
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
           POSTGRES_HOST: localhost

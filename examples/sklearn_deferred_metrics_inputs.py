@@ -43,11 +43,13 @@ from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
+from xorq.caching import SourceCache
 from xorq.expr.ml.metrics import deferred_sklearn_metric
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
 con = xo.connect()
+cache = SourceCache.from_kwargs(source=con)
 
 # ============================================================================
 # Section 1 — (str, str): classifier with non-scalar return types
@@ -74,7 +76,7 @@ fitted_clf = Pipeline.from_instance(
     )
 ).fit(train_cls_expr, features=tuple(feature_names), target="target")
 
-clf_preds = fitted_clf.predict(test_cls_expr, name="pred")
+clf_preds = fitted_clf.predict(test_cls_expr, name="pred").cache(cache)
 
 # Scalar
 deferred_accuracy = deferred_sklearn_metric(
@@ -115,7 +117,7 @@ blob_features = tuple(f"f{i}" for i in range(X_blobs.shape[1]))
 blob_df = pd.DataFrame(X_blobs, columns=list(blob_features))
 kmeans = KMeans(n_clusters=3, random_state=42, n_init=10)
 blob_df["cluster"] = kmeans.fit_predict(X_blobs)
-blob_expr = con.register(blob_df, "blobs")
+blob_expr = con.register(blob_df, "blobs").cache(cache)
 
 # target=tuple of feature columns, pred=single label column
 deferred_silhouette = deferred_sklearn_metric(
@@ -176,7 +178,7 @@ label_names = tuple(f"label_{i}" for i in range(Y_ml.shape[1]))
 ml_df = pd.DataFrame(y_true_ml, columns=list(label_names))
 # Store scores as a single array-valued column (mimics predict_proba storage)
 ml_df["scores"] = [row for row in y_score_ml]
-ml_expr = con.register(ml_df, "multilabel_array")
+ml_expr = con.register(ml_df, "multilabel_array").cache(cache)
 
 # target=tuple of label columns, pred=single array column
 deferred_coverage = deferred_sklearn_metric(
@@ -214,7 +216,7 @@ score_names = tuple(f"score_{i}" for i in range(y_score_ml.shape[1]))
 ml_cols_df = pd.DataFrame(y_true_ml, columns=list(label_names))
 for i, name in enumerate(score_names):
     ml_cols_df[name] = y_score_ml[:, i]
-ml_cols_expr = con.register(ml_cols_df, "multilabel_cols")
+ml_cols_expr = con.register(ml_cols_df, "multilabel_cols").cache(cache)
 
 # target=tuple of label columns, pred=tuple of score columns
 deferred_coverage_t = deferred_sklearn_metric(

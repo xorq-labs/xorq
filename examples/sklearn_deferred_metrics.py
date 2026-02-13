@@ -40,6 +40,7 @@ from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
+from xorq.caching import SourceCache
 from xorq.expr.ml.metrics import deferred_sklearn_metric
 from xorq.expr.ml.pipeline_lib import Pipeline
 
@@ -47,6 +48,7 @@ from xorq.expr.ml.pipeline_lib import Pipeline
 # --- Shared data ---
 
 con = xo.connect()
+cache = SourceCache.from_kwargs(source=con)
 feature_names = [f"f{i}" for i in range(10)]
 
 X_cls, y_cls = make_classification(
@@ -82,7 +84,7 @@ fitted_clf = Pipeline.from_instance(
     )
 ).fit(train_cls_expr, features=tuple(feature_names), target="target")
 
-clf_preds = fitted_clf.predict(test_cls_expr, name="my_predicted")
+clf_preds = fitted_clf.predict(test_cls_expr, name="my_predicted").cache(cache)
 
 deferred_accuracy = deferred_sklearn_metric(
     expr=clf_preds,
@@ -124,7 +126,7 @@ fitted_reg = Pipeline.from_instance(
     )
 ).fit(train_reg_expr, features=tuple(feature_names), target="target")
 
-reg_preds = fitted_reg.predict(test_reg_expr, name="my_predicted")
+reg_preds = fitted_reg.predict(test_reg_expr, name="my_predicted").cache(cache)
 
 deferred_r2 = deferred_sklearn_metric(
     expr=reg_preds,
@@ -167,7 +169,7 @@ fitted_clu = Pipeline.from_instance(
     )
 ).fit(train_cls_expr, features=tuple(feature_names), target="target")
 
-clu_preds = fitted_clu.predict(test_cls_expr, name="my_predicted")
+clu_preds = fitted_clu.predict(test_cls_expr, name="my_predicted").cache(cache)
 
 deferred_adj_rand = deferred_sklearn_metric(
     expr=clu_preds,

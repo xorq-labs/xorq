@@ -10,10 +10,6 @@ on the curve's x/y fields via a pyarrow scalar UDF.
 All results compose into a single table via .as_scalar() + .mutate().
 """
 
-import pdb
-
-
-
 import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
@@ -28,13 +24,13 @@ from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
-print("YOYOYO", flush=True)
-import pdb; pdb.set_trace()
+from xorq.caching import SourceCache
 from xorq.expr.ml.metrics import deferred_auc_from_curve, deferred_sklearn_metric
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
 con = xo.connect()
+cache = SourceCache.from_kwargs(source=con)
 
 # --- Data setup ---
 feature_names = [f"f{i}" for i in range(10)]
@@ -59,7 +55,7 @@ fitted = Pipeline.from_instance(
     )
 ).fit(train_expr, features=tuple(feature_names), target="target")
 
-proba_expr = fitted.predict_proba(test_expr, name="scores")
+proba_expr = fitted.predict_proba(test_expr, name="scores").cache(cache)
 
 # --- Deferred curve metrics ---
 deferred_roc = deferred_sklearn_metric(
