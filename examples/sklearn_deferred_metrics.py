@@ -126,7 +126,7 @@ fitted_reg = Pipeline.from_instance(
     )
 ).fit(train_reg_expr, features=tuple(feature_names), target="target")
 
-reg_preds = fitted_reg.predict(test_reg_expr, name="my_predicted")
+reg_preds = fitted_reg.predict(test_reg_expr, name="my_predicted").cache(cache)
 
 deferred_r2 = deferred_sklearn_metric(
     expr=reg_preds,
