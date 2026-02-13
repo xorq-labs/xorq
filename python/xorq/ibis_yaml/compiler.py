@@ -434,7 +434,7 @@ class ExprDumper:
                 },
             )
             path_to_writer[path] = writer
-            op = replace_nodes(replace_from_to(mt, dr_op), expr)
+            op = replace_nodes(replace_from_to(mt, dr_op), op)
         new_expr = op.to_expr()
         return new_expr, path_to_writer
 
