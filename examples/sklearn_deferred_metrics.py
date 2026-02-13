@@ -169,7 +169,7 @@ fitted_clu = Pipeline.from_instance(
     )
 ).fit(train_cls_expr, features=tuple(feature_names), target="target")
 
-clu_preds = fitted_clu.predict(test_cls_expr, name="my_predicted")
+clu_preds = fitted_clu.predict(test_cls_expr, name="my_predicted").cache(cache)
 
 deferred_adj_rand = deferred_sklearn_metric(
     expr=clu_preds,
