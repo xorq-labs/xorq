@@ -80,7 +80,7 @@ xorq agents vignette scaffold baseball_breakout_expr_scalar
 
 **Or build from scratch:**
 ```bash
-xorq agents prime
+xorq agents onboard
 ```
 
 💡 **Vignettes show advanced patterns** like ExprScalarUDF, windowing, and ML pipelines with xorq's vendored ibis.

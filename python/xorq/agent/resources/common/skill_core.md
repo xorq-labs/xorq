@@ -33,7 +33,7 @@ xorq run my-expr -o output.parquet
 | `xorq run <alias>` | Execute cataloged build |
 | `xorq catalog add/ls` | Manage build registry |
 | `xorq lineage <alias>` | Show column-level lineage |
-| `xorq agents prime` | Get workflow context (source of truth) |
+| `xorq agents onboard` | Get workflow context (source of truth) |
 | `xorq agents onboard` | Guided workflow for agents |
 | `xorq agents templates list` | List available templates |
 
@@ -177,7 +177,7 @@ git commit -m "Add pipeline to catalog"
 
 ```bash
 # Get dynamic workflow context
-xorq agents prime
+xorq agents onboard
 ```
 
 ### Development Loop
@@ -210,7 +210,7 @@ git commit -m "Update catalog"
 git push
 
 # 3. Generate handoff
-xorq agents prime
+xorq agents onboard
 ```
 
 ## Advanced Workflow Patterns
@@ -360,7 +360,7 @@ xorq agents prompt list
 xorq agents prompt show xorq_core
 
 # Get workflow context (use this!)
-xorq agents prime
+xorq agents onboard
 ```
 
 ### Templates (Starter Code)
@@ -459,6 +459,6 @@ expr = (
 
 ## Documentation Links
 
-- **Workflow Context**: `xorq agents prime` (dynamic, context-aware)
+- **Workflow Context**: `xorq agents onboard` (dynamic, context-aware)
 - **GitHub**: [github.com/xorq-labs/xorq](https://github.com/xorq-labs/xorq)
 - **Docs**: [docs.xorq.dev](https://docs.xorq.dev)

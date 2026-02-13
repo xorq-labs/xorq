@@ -12,6 +12,12 @@
         "command": "python3 \"$CORTEX_PROJECT_DIR\"/.cortex/hooks/user_prompt_submit.py"
       }]
     }],
+    "PreToolUse": [{
+      "hooks": [{
+        "type": "command",
+        "command": "python3 \"$CORTEX_PROJECT_DIR\"/.cortex/hooks/pre_tool_use.py"
+      }]
+    }],
     "PostToolUseFailure": [{
       "hooks": [{
         "type": "command",
