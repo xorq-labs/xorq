@@ -10,6 +10,10 @@ on the curve's x/y fields via a pyarrow scalar UDF.
 All results compose into a single table via .as_scalar() + .mutate().
 """
 
+import pdb
+
+
+pdb.set_trace()
 import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression

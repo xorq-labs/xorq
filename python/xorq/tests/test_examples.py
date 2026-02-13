@@ -57,6 +57,6 @@ def maybe_marks(name: str):
     ],
 )
 def test_script_execution(script):
-    print(f"Running script: {script}")
+    print(f"Running script: {script}", flush=True)
     dct = runpy.run_path(str(script), run_name="__pytest_main__")
     assert dct.get("pytest_examples_passed")
