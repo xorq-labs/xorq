@@ -1867,3 +1867,179 @@ class TestDeferredAucFromCurve:
         )
         with pytest.raises(TypeError, match="Expected a Struct"):
             deferred_auc_from_curve(deferred_acc)
+
+    def test_unrecognized_curve_fields(self):
+        """Raises ValueError for Struct with unrecognized field names."""
+        from unittest.mock import MagicMock
+
+        from xorq.expr.ml.metrics import deferred_auc_from_curve
+
+        # Mock an expression whose .type() returns a dt.Struct with wrong field names
+        fake_struct_type = dt.Struct(
+            dict(
+                x=dt.Array(dt.float64),
+                y=dt.Array(dt.float64),
+                z=dt.Array(dt.float64),
+            )
+        )
+        mock_expr = MagicMock()
+        mock_expr.type.return_value = fake_struct_type
+        with pytest.raises(ValueError, match="Unrecognized curve fields"):
+            deferred_auc_from_curve(mock_expr)
+
+
+# ---------------------------------------------------------------------------
+# Tests for error branches / edge cases to improve coverage
+# ---------------------------------------------------------------------------
+
+
+class TestDefaultScorerForModel:
+    """Cover _default_scorer_for_model error branch (metrics.py:69-70)."""
+
+    def test_unknown_model_type_raises(self):
+        """Non-classifier/regressor/clusterer -> ValueError."""
+        from sklearn.base import BaseEstimator
+
+        from xorq.expr.ml.metrics import _default_scorer_for_model
+
+        class UnknownEstimator(BaseEstimator):
+            pass
+
+        model = UnknownEstimator()
+        with pytest.raises(ValueError, match="Cannot determine default scorer"):
+            _default_scorer_for_model(model)
+
+
+class TestScorerResolveResponseMethod:
+    """Cover Scorer._resolve_response_method fallback (metrics.py:172-173)."""
+
+    def test_unexpected_response_method_raises(self):
+        """Non-string, non-tuple _response_method -> ValueError."""
+        from unittest.mock import MagicMock
+
+        from xorq.expr.ml.metrics import Scorer
+
+        mock_scorer = MagicMock()
+        mock_scorer._response_method = 42  # neither str nor tuple
+        with pytest.raises(ValueError, match="Unexpected _response_method"):
+            Scorer._resolve_response_method(mock_scorer)
+
+
+class TestDeferredSklearnMetricScorerInput:
+    """Cover deferred_sklearn_metric with Scorer input directly (metrics.py:596-597)."""
+
+    def test_scorer_instance_input(self):
+        """Passing a Scorer instance directly to deferred_sklearn_metric."""
+        from xorq.expr.ml.metrics import Scorer
+
+        df = pd.DataFrame(
+            {
+                "target": [0, 1, 0, 1, 1],
+                "predict": [0, 1, 1, 1, 0],
+            }
+        )
+        expr = api.register(df, "scorer_direct")
+
+        scorer = Scorer(
+            metric_fn=accuracy_score,
+            sign=1,
+            kwargs={},
+            response_method=ResponseMethod.PREDICT,
+        )
+        result = deferred_sklearn_metric(
+            expr=expr,
+            target="target",
+            pred="predict",
+            metric=scorer,
+        ).execute()
+
+        expected = accuracy_score([0, 1, 0, 1, 1], [0, 1, 1, 1, 0])
+        assert np.isclose(result, expected)
+
+
+class TestPipelineScoreMethods:
+    """Cover FittedPipeline.score_expr() and .score() (pipeline_lib.py:953-1026)."""
+
+    @pytest.fixture
+    def fitted_classifier_pipeline(self, classification_data):
+        train_df, test_df, feature_names = classification_data
+        train_expr = api.register(train_df, "score_train")
+        test_expr = api.register(test_df, "score_test")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("clf", LogisticRegression(random_state=42)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+        return fitted, test_expr, train_df, test_df, feature_names
+
+    def test_score_expr_default(self, fitted_classifier_pipeline):
+        """score_expr with default scorer (accuracy for classifier)."""
+        fitted, test_expr, _, test_df, feature_names = fitted_classifier_pipeline
+        result = fitted.score_expr(test_expr).execute()
+        assert isinstance(result, (float, np.floating))
+        assert 0 <= result <= 1
+
+    def test_score_expr_with_string_scorer(self, fitted_classifier_pipeline):
+        """score_expr with string scorer name."""
+        fitted, test_expr, _, _, _ = fitted_classifier_pipeline
+        result = fitted.score_expr(test_expr, scorer="accuracy").execute()
+        assert isinstance(result, (float, np.floating))
+        assert 0 <= result <= 1
+
+    def test_score_default(self, fitted_classifier_pipeline):
+        """score() with default scorer using numpy arrays."""
+        fitted, _, _, test_df, feature_names = fitted_classifier_pipeline
+        X_test = test_df[feature_names].values
+        y_test = test_df["target"].values
+        result = fitted.score(X_test, y_test)
+        assert isinstance(result, (float, np.floating))
+        assert 0 <= result <= 1
+
+    def test_score_with_scorer(self, fitted_classifier_pipeline):
+        """score() with explicit scorer string."""
+        fitted, _, _, test_df, feature_names = fitted_classifier_pipeline
+        X_test = test_df[feature_names].values
+        y_test = test_df["target"].values
+        result = fitted.score(X_test, y_test, scorer="accuracy")
+        assert isinstance(result, (float, np.floating))
+        assert 0 <= result <= 1
+
+    def test_score_no_predict_step_raises(self):
+        """score() on a transform-only pipeline -> ValueError."""
+
+        df = pd.DataFrame({"feature_0": range(20), "feature_1": range(20)})
+        train_expr = api.register(df, "transform_only_train")
+
+        sklearn_pipeline = SkPipeline([("scaler", StandardScaler())])
+        xorq_pipeline = Pipeline.from_instance(sklearn_pipeline)
+        fitted = xorq_pipeline.fit(train_expr, features=["feature_0", "feature_1"])
+
+        with pytest.raises(ValueError, match="Pipeline does not have a predict step"):
+            fitted.score(
+                df[["feature_0", "feature_1"]].values,
+                np.zeros(20),
+            )
+
+    def test_score_regressor(self, regression_data):
+        """score() with a regressor pipeline uses default r2 scorer."""
+        train_df, test_df, feature_names = regression_data
+        train_expr = api.register(train_df, "score_reg_train")
+
+        sklearn_pipeline = SkPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("reg", RandomForestRegressor(n_estimators=10, random_state=42)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipeline).fit(
+            train_expr, features=feature_names, target="target"
+        )
+        X_test = test_df[feature_names].values
+        y_test = test_df["target"].values
+        result = fitted.score(X_test, y_test)
+        assert isinstance(result, (float, np.floating))
