@@ -11,6 +11,7 @@ All results compose into a single table via .as_scalar() + .mutate().
 """
 
 import pandas as pd
+import toolz
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (
@@ -24,18 +25,18 @@ from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
-from xorq.caching import SourceCache
 from xorq.expr.ml.metrics import deferred_auc_from_curve, deferred_sklearn_metric
 from xorq.expr.ml.pipeline_lib import Pipeline
 
 
 con = xo.connect()
-cache = SourceCache.from_kwargs(source=con)
+target_name, pred_name = "target", "scores"
 
 # --- Data setup ---
-feature_names = [f"f{i}" for i in range(10)]
+n_features = 10
+feature_names = [f"f{i}" for i in range(n_features)]
 X, y = make_classification(
-    n_samples=500, n_features=10, n_informative=5, random_state=42
+    n_samples=500, n_features=n_features, n_informative=5, random_state=42
 )
 train_df, test_df = train_test_split(
     pd.DataFrame(X, columns=feature_names).assign(target=y),
@@ -53,59 +54,45 @@ fitted = Pipeline.from_instance(
             ("clf", LogisticRegression(random_state=42)),
         ]
     )
-).fit(train_expr, features=tuple(feature_names), target="target")
-proba_expr = fitted.predict_proba(test_expr, name="scores").cache(cache)
+).fit(train_expr, features=tuple(feature_names), target=target_name)
+proba_expr = fitted.predict_proba(test_expr, name=pred_name)
+
 
 # --- Deferred curve metrics ---
-deferred_roc = deferred_sklearn_metric(
-    expr=proba_expr,
-    target="target",
-    pred="scores",
-    metric=roc_curve,
+make_roc_auc, make_pr_auc, make_det_auc = (
+    toolz.compose(
+        deferred_auc_from_curve,
+        toolz.curry(
+            deferred_sklearn_metric,
+            target=target_name,
+            pred=pred_name,
+            metric=metric,
+        ),
+    )
+    for metric in (roc_curve, precision_recall_curve, det_curve)
 )
-deferred_pr = deferred_sklearn_metric(
-    expr=proba_expr,
-    target="target",
-    pred="scores",
-    metric=precision_recall_curve,
-)
-deferred_det = deferred_sklearn_metric(
-    expr=proba_expr,
-    target="target",
-    pred="scores",
-    metric=det_curve,
-)
-
-# --- AUC from each curve ---
-deferred_roc_auc = deferred_auc_from_curve(deferred_roc)
-deferred_pr_auc = deferred_auc_from_curve(deferred_pr)
-deferred_det_auc = deferred_auc_from_curve(deferred_det)
-
 # --- For comparison: roc_auc_score via the scorer path ---
-deferred_roc_auc_score = deferred_sklearn_metric(
-    expr=proba_expr,
-    target="target",
-    pred="scores",
+make_roc_auc_score = toolz.curry(
+    deferred_sklearn_metric,
+    target=target_name,
+    pred=pred_name,
     metric=roc_auc_score,
 )
-
 # --- Compose into a single table ---
-auc_metrics = (
-    deferred_roc_auc.as_scalar()
-    .name("roc_auc")
-    .as_table()
-    .mutate(pr_auc=deferred_pr_auc.as_scalar())
-    .mutate(det_auc=deferred_det_auc.as_scalar())
-    .mutate(roc_auc_score=deferred_roc_auc_score.as_scalar())
+auc_metrics = proba_expr.agg(
+    roc_auc=make_roc_auc,
+    pr_auc=make_pr_auc,
+    det_auc=make_det_auc,
+    roc_auc_score=make_roc_auc_score,
 )
 
 
 if __name__ == "__pytest_main__":
-    result = auc_metrics.execute()
+    result = auc_metrics.execute().iloc[0]
     print("AUC Metrics:")
-    print(f"  ROC AUC (from curve):  {result['roc_auc'].iloc[0]:.4f}")
-    print(f"  ROC AUC (from scorer): {result['roc_auc_score'].iloc[0]:.4f}")
-    print(f"  PR AUC:                {result['pr_auc'].iloc[0]:.4f}")
-    print(f"  DET AUC:               {result['det_auc'].iloc[0]:.4f}")
+    print(f"  ROC AUC (from curve):  {result['roc_auc']:.4f}")
+    print(f"  ROC AUC (from scorer): {result['roc_auc_score']:.4f}")
+    print(f"  PR AUC:                {result['pr_auc']:.4f}")
+    print(f"  DET AUC:               {result['det_auc']:.4f}")
 
     pytest_examples_passed = True
