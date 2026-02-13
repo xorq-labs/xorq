@@ -13,7 +13,7 @@ All results compose into a single table via .as_scalar() + .mutate().
 import pdb
 
 
-pdb.set_trace()
+
 import pandas as pd
 from sklearn.datasets import make_classification
 from sklearn.linear_model import LogisticRegression
@@ -28,6 +28,8 @@ from sklearn.pipeline import Pipeline as SklearnPipeline
 from sklearn.preprocessing import StandardScaler
 
 import xorq.api as xo
+print("YOYOYO", flush=True)
+import pdb; pdb.set_trace()
 from xorq.expr.ml.metrics import deferred_auc_from_curve, deferred_sklearn_metric
 from xorq.expr.ml.pipeline_lib import Pipeline
 
