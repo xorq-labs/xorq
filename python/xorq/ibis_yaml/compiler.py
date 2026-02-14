@@ -553,17 +553,17 @@ class ExprLoader:
         profiles = hydrate_cons(self.artifact_store.load_yaml(DumpFiles.profiles))
         yaml_dict = self.artifact_store.load_yaml(DumpFiles.expr)
         expr = YamlExpressionTranslator.from_yaml(yaml_dict, profiles=profiles)
-        expr = self.deferred_reads_to_memtables(expr)
+        expr = self.deferred_reads_to_memtables(expr, self.expr_path)
         if self.cache_dir:
             expr = self.replace_base_path(expr, base_path=Path(self.cache_dir))
         return expr
 
     @staticmethod
-    def deferred_reads_to_memtables(loaded):
+    def deferred_reads_to_memtables(loaded, expr_path):
         def deferred_read_to_memtable(dr):
             assert any(key == MemtableTypes.inmemory for key, _ in dr.read_kwargs)
             path = next(v for k, v in dr.read_kwargs if k == "path")
-            df = read_parquet(path).execute()
+            df = read_parquet(expr_path.joinpath(path)).execute()
             mt = ibis.memtable(df, schema=dr.schema, name=dr.name)
             return mt.op()
 
