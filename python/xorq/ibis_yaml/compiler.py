@@ -17,6 +17,7 @@ from attr import (
 )
 from attr.validators import (
     instance_of,
+    is_callable,
     optional,
     or_,
 )
@@ -36,11 +37,17 @@ from xorq.common.utils.caching_utils import get_xorq_cache_dir
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
+from xorq.common.utils.defer_utils import normalize_read_path_stat
 from xorq.common.utils.graph_utils import (
     find_all_sources,
     opaque_ops,
     replace_nodes,
     walk_nodes,
+)
+from xorq.common.utils.name_utils import get_uid_prefix
+from xorq.common.utils.node_utils import (
+    change_read_table_name,
+    recreate,
 )
 from xorq.config import _backend_init
 from xorq.expr.api import deferred_read_parquet, read_parquet
@@ -285,8 +292,17 @@ class ExprDumper:
     builds_dir = field(validator=instance_of(Path), converter=Path, default="./builds")
     cache_dir = field(validator=optional(instance_of(Path)), factory=get_xorq_cache_dir)
     debug = field(validator=instance_of(bool), default=False)
+    read_normalize_method = field(
+        validator=is_callable(), default=normalize_read_path_stat
+    )
 
     def __attrs_post_init__(self):
+        # use normalize_read_path_md5sum for content addressable / mtime-agnostic hash
+        object.__setattr__(
+            self,
+            "expr",
+            self._sanitize_generated_names(self.expr, self.read_normalize_method),
+        )
         attrname = "cache_dir"
         match value := getattr(self, attrname):
             case None:
@@ -310,13 +326,36 @@ class ExprDumper:
     def expr_hash(self):
         return self.expr_path.name
 
+    @staticmethod
+    def _sanitize_generated_names(expr, normalize_method):
+        mts = walk_nodes((InMemoryTable,), expr)
+        op = expr.op()
+        for mt in mts:
+            if prefix := get_uid_prefix(mt.name):
+                name = (
+                    f"{prefix}{dask.base.tokenize(recreate(mt, name='name').to_expr())}"
+                )
+                new_mt = recreate(mt, name=name, normalize_method=normalize_method)
+                op = replace_nodes(replace_from_to(mt, new_mt), op)
+        for dr in walk_nodes(Read, op):
+            if prefix := get_uid_prefix(dr.name):
+                table_name = f"{prefix}{dask.base.tokenize(recreate(dr, name='name', normalize_method=normalize_method).to_expr())}"
+                new_dr = change_read_table_name(dr, table_name=table_name)
+                new_dr = recreate(new_dr, normalize_method=normalize_method)
+                op = replace_nodes(replace_from_to(dr, new_dr), op)
+        new_expr = op.to_expr()
+        return new_expr
+
     def _prepare_expr_file(self, expr, profiles):
         path = self.artifact_store.get_path(DumpFiles.expr)
         # we can't translate to yaml until the memtable parquets are written: they will be tokenized
         writer = toolz.compose(
             functools.partial(self.artifact_store.save_yaml, filename=DumpFiles.expr),
             functools.partial(
-                YamlExpressionTranslator.to_yaml, expr, profiles, self.cache_dir
+                YamlExpressionTranslator.to_yaml,
+                expr,
+                profiles,
+                self.cache_dir,
             ),
         )
         return (path, writer)
@@ -431,10 +470,11 @@ class ExprDumper:
                     "table_name": mt.name,
                     "schema": mt.schema,
                     str(MemtableTypes.inmemory): True,
+                    "normalize_method": self.read_normalize_method,
                 },
             )
             path_to_writer[path] = writer
-            op = replace_nodes(replace_from_to(mt, dr_op), expr)
+            op = replace_nodes(replace_from_to(mt, dr_op), op)
         new_expr = op.to_expr()
         return new_expr, path_to_writer
 
@@ -542,7 +582,8 @@ class ExprLoader:
     def replace_base_path(expr, base_path):
         def replace(node, kwargs):
             if isinstance(node, CachedNode) and isinstance(
-                node.cache, (ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache)
+                node.cache,
+                (ParquetCache, ParquetSnapshotCache, ParquetTTLSnapshotCache),
             ):
                 evolved = evolve(
                     node.cache,

@@ -23,6 +23,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
 from xorq.common.utils.graph_utils import find_all_sources
+from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
     DumpFiles,
@@ -37,6 +38,13 @@ from xorq.vendor.ibis.common.collections import FrozenOrderedDict
 
 
 do_roundtrip_expr = toolz.compose(load_expr, build_expr)
+
+
+def get_local_path(parquet_dir, name):
+    pins_path = parquet_dir.joinpath(f"{name}.parquet")
+    local_path = pathlib.Path(pins_path.name)
+    local_path.write_bytes(pins_path.read_bytes())
+    return local_path
 
 
 @pytest.mark.snapshot_check
@@ -428,19 +436,13 @@ def test_build_file_stability_local(
 ):
     monkeypatch.chdir(tmpdir)
 
-    def get_local_path(name):
-        pins_path = parquet_dir / f"{name}.parquet"
-        local_path = pathlib.Path(pins_path.name)
-        local_path.write_bytes(pins_path.read_bytes())
-        return local_path
-
     def with_profile_idx(con, idx):
         profile = con._profile
         con._profile = profile.clone(idx=idx)
         return con
 
-    batting_path = get_local_path("batting")
-    awards_players_path = get_local_path("awards_players")
+    batting_path = get_local_path(parquet_dir, "batting")
+    awards_players_path = get_local_path(parquet_dir, "awards_players")
 
     con0 = with_profile_idx(xo.connect(), 0)
     con1 = with_profile_idx(xo.connect(), 1)
@@ -572,3 +574,41 @@ def test_roundtrip_source_snapshot_cache(builds_dir, users_df):
     expr = t.filter(t.age > 30).select(t.user_id, t.name, t.age * 2).cache(cache=cache)
     roundtrip_expr = do_roundtrip_expr(expr, builds_dir=builds_dir)
     assert_frame_equal(xo.execute(expr), roundtrip_expr.execute())
+
+
+def test_generated_name_sanitization_parquet(
+    builds_dir,
+    parquet_dir,
+    tmpdir,
+    monkeypatch,
+    snapshot,
+):
+    monkeypatch.chdir(tmpdir)
+
+    batting_path = get_local_path(parquet_dir, "batting")
+    expr = xo.deferred_read_parquet(batting_path)
+    build_path = build_expr(
+        expr, builds_dir=builds_dir, read_normalize_method=normalize_read_path_md5sum
+    )
+    loaded = load_expr(build_path)
+
+    assert (expr_name := expr.op().name) != (build_name := loaded.op().name)
+    assert get_uid_prefix(expr_name)
+    assert not get_uid_prefix(build_name)
+    snapshot.assert_match(build_name, "parquet-build-name.txt")
+
+
+def test_generated_name_sanitization_memtable(
+    builds_dir,
+    parquet_dir,
+    snapshot,
+):
+    df = xo.deferred_read_parquet(parquet_dir.joinpath("batting.parquet")).execute()
+    expr = xo.memtable(df.sort_values(list(df.columns)))
+    build_path = build_expr(expr, builds_dir=builds_dir)
+    loaded = load_expr(build_path)
+
+    assert (expr_name := expr.op().name) != (build_name := loaded.op().name)
+    assert get_uid_prefix(expr_name)
+    assert not get_uid_prefix(build_name)
+    snapshot.assert_match(build_name, "memory-build-name.txt")
