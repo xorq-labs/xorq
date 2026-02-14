@@ -486,6 +486,52 @@ def test_build_file_stability_local(
     assert expr.execute().equals(roundtrip_expr.execute())
 
 
+@pytest.mark.snapshot_check
+def test_build_file_stability_sanitize_filenames(
+    builds_dir, parquet_dir, tmpdir, monkeypatch, snapshot
+):
+    # path impacts node hash therefore path ***MUST*** be the same
+    monkeypatch.chdir(tmpdir)
+
+    name = "awards_players.parquet"
+    path = pathlib.Path(name)
+    path.write_bytes(parquet_dir.joinpath(name).read_bytes())
+    awards_players = xo.deferred_read_parquet(
+        path,
+        normalize_method=normalize_read_path_md5sum,
+    )
+    batting = xo.memtable(
+        xo.read_parquet(parquet_dir.joinpath("batting.parquet")).execute()
+    )
+    on = sorted(set(batting.columns).intersection(awards_players.columns))
+    expr = awards_players.select(on).join(batting.select(on), predicates=on)
+
+    build_dir = build_expr(
+        expr, builds_dir=builds_dir, read_normalize_method=normalize_read_path_md5sum
+    )
+    actual = json.dumps(
+        {
+            p.name: hashlib.md5(p.read_bytes()).hexdigest()
+            for p in build_dir.iterdir()
+            if p.name != DumpFiles.metadata and p.is_file()
+        }
+        | {
+            "build_dir_name": build_dir.name,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    snapshot.assert_match(actual, "expected.json")
+
+    # test that it also runs
+    roundtrip_expr = load_expr(build_dir)
+    (actual, expected) = (
+        expr.execute().pipe(lambda t: t.sort_values(list(t.columns), ignore_index=True))
+        for expr in (roundtrip_expr, expr)
+    )
+    assert actual.equals(expected)
+
+
 def test_build_pandas_backend_behind_into_backend(builds_dir, users_df):
     xo_con = xo.connect()
     pandas_con = xo.pandas.connect()
