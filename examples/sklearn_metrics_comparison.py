@@ -88,8 +88,8 @@ def compute_metrics(clf, X_train, X_test, y_train, y_test):
         name: deferred_sklearn_metric(
             expr=expr_with_preds,
             target=target,
-            pred_col="my_predicted",
-            scorer=metric_fn,
+            pred="my_predicted",
+            metric=metric_fn,
             metric_kwargs=kwargs if kwargs else (),
         ).execute()
         for name, metric_fn, kwargs in metric_configs
@@ -206,8 +206,8 @@ def test_predict_proba():
     xorq_auc = deferred_sklearn_metric(
         expr=expr_with_proba,
         target=target,
-        pred_col="my_predicted_proba",
-        scorer=roc_auc_score,
+        pred="my_predicted_proba",
+        metric=roc_auc_score,
     ).execute()
 
     return sklearn_auc, xorq_auc
@@ -243,8 +243,8 @@ def test_decision_function():
     xorq_auc = deferred_sklearn_metric(
         expr=expr_with_scores,
         target=target,
-        pred_col="my_decision_function",
-        scorer=roc_auc_score,
+        pred="my_decision_function",
+        metric=roc_auc_score,
     ).execute()
 
     return sklearn_auc, xorq_auc

@@ -18,7 +18,7 @@ NON_TESTABLE = (
     "duckdb_flight_example.py",
     "complex_cached_expr.py",
     "xorq_build_and_run.py",
-    "weather_flight.py"
+    "weather_flight.py",
 )
 
 file_path = pathlib.Path(__file__).absolute()
@@ -57,5 +57,6 @@ def maybe_marks(name: str):
     ],
 )
 def test_script_execution(script):
+    print(f"Running script: {script}", flush=True)
     dct = runpy.run_path(str(script), run_name="__pytest_main__")
     assert dct.get("pytest_examples_passed")
