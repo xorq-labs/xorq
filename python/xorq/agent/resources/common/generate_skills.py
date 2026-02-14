@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 
@@ -66,16 +67,28 @@ def generate_all_skills(version: str = "0.2.0") -> dict[str, Path]:
     resources_dir = Path(__file__).parent.parent
     generated = {}
 
+    # Check if the package resources directory is writable (e.g. not in a nix store)
+    _pkg_writable = os.access(resources_dir, os.W_OK)
+
     # Generate Codex skill to resources/codex/SKILL.md
     codex_output = resources_dir / "codex" / "SKILL.md"
-    generate_skill("codex", version=version, output_path=codex_output)
+    if _pkg_writable:
+        generate_skill("codex", version=version, output_path=codex_output)
     generated["codex"] = codex_output
 
-    # Generate Claude skill to skills/xorq/SKILL.md (project root)
+    # Generate Claude skill to resources/expression-builder/SKILL.md (package-internal)
+    eb_output = resources_dir / "expression-builder" / "SKILL.md"
+    if _pkg_writable:
+        generate_skill("claude", version=version, output_path=eb_output)
+    generated["claude"] = eb_output
+
+    # Also generate to repo root skills/xorq/SKILL.md if in development
     project_root = resources_dir.parent.parent.parent.parent
-    claude_output = project_root / "skills" / "xorq" / "SKILL.md"
-    generate_skill("claude", version=version, output_path=claude_output)
-    generated["claude"] = claude_output
+    repo_skill_dir = project_root / "skills" / "xorq"
+    if repo_skill_dir.exists() and os.access(repo_skill_dir, os.W_OK):
+        claude_output = repo_skill_dir / "SKILL.md"
+        generate_skill("claude", version=version, output_path=claude_output)
+        generated["claude_repo"] = claude_output
 
     return generated
 

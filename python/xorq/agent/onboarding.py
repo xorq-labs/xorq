@@ -268,7 +268,7 @@ def register_claude_skill() -> Path | None:
     Returns the path where the skill was registered, or None if already exists.
     """
 
-    # Generate fresh skill from shared content
+    # Generate fresh skill from shared content (only works in dev repo, skip otherwise)
     try:
         from xorq.agent.resources.common.generate_skills import generate_all_skills
 
@@ -276,29 +276,24 @@ def register_claude_skill() -> Path | None:
     except Exception as e:
         print(f"⚠️  Could not regenerate skills: {e}")
 
-    # Find the skill source directory (should be in the package)
-    import xorq
+    # Find the skill source directory
+    # Primary: use package-internal resources (works for both pip-installed and dev)
+    skill_source = Path(__file__).parent / "resources" / "expression-builder"
 
-    xorq_package_dir = Path(xorq.__file__).parent.parent.parent
-    skill_source = xorq_package_dir / "skills" / "xorq"
-
-    # Claude Code skills directory
-    claude_skills_dir = Path.home() / ".claude" / "skills"
-    skill_dest = claude_skills_dir / "xorq"
-
-    # Check if skill source exists
     if not skill_source.exists():
-        # If not found, try relative to project root
-        import sys
+        # Fallback: try repo root (development mode)
+        import xorq
 
-        for path in sys.path:
-            candidate = Path(path) / "skills" / "xorq"
-            if candidate.exists():
-                skill_source = candidate
-                break
-        else:
-            # Can't find skill source
-            return None
+        xorq_package_dir = Path(xorq.__file__).parent.parent.parent
+        skill_source = xorq_package_dir / "skills" / "xorq"
+
+    if not skill_source.exists():
+        # Can't find skill source
+        return None
+
+    # Claude Code skills directory (project-local)
+    claude_skills_dir = Path.cwd() / ".claude" / "skills"
+    skill_dest = claude_skills_dir / "expression-builder"
 
     # Create Claude skills directory if needed
     claude_skills_dir.mkdir(parents=True, exist_ok=True)
@@ -419,9 +414,10 @@ def _setup_skill_rules(claude_skills_dir: Path, skill_source: Path) -> None:
         if "skills" not in existing_rules:
             existing_rules["skills"] = {}
 
-        # Update xorq skill entry
-        if "skills" in xorq_rules and "xorq" in xorq_rules["skills"]:
-            existing_rules["skills"]["xorq"] = xorq_rules["skills"]["xorq"]
+        # Update skill entries from source
+        if "skills" in xorq_rules:
+            for skill_name, skill_config in xorq_rules["skills"].items():
+                existing_rules["skills"][skill_name] = skill_config
 
         # Ensure version and description exist
         if "version" not in existing_rules:
