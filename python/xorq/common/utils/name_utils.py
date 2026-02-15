@@ -16,3 +16,11 @@ def _clean_udf_name(udf_name):
         return udf_name
     else:
         return f"fun_{re.sub(r'[^0-9a-zA-Z_]', '_', udf_name)}".lower()
+
+
+def get_uid_prefix(name, pattern="^(ibis_[\\w-]+_)\\w{26}$"):
+    # xorq.vendor.ibis.util.gen_name
+    if match := re.match(pattern, name):
+        return match.group(1)
+    else:
+        return None

@@ -198,3 +198,29 @@ def expr_to_unbound(expr, hash, tag, typs, strategy=None):
     (found,) = walk_nodes(UnboundTable, replaced)
     elided = replace_nodes(elide_downstream_cached_node(replaced, found), replaced)
     return elided
+
+
+def recreate(op, **kwargs):
+    new_kwargs = dict(zip(op.argnames, op.args)) | kwargs
+    return op.__recreate__(new_kwargs)
+
+
+def update_read_kwargs(old_read_kwargs, new_read_kwargs):
+    existing = set(name for name, _ in old_read_kwargs)
+    to_append = tuple(
+        (name, value) for (name, value) in new_read_kwargs if name not in existing
+    )
+    new_read_kwargs = dict(new_read_kwargs)
+    modified_read_kwargs = (
+        tuple(
+            (name, new_read_kwargs.get(name, value)) for name, value in old_read_kwargs
+        )
+        + to_append
+    )
+    return modified_read_kwargs
+
+
+def change_read_table_name(read, table_name):
+    assert isinstance(read, rel.Read)
+    read_kwargs = update_read_kwargs(read.read_kwargs, (("table_name", table_name),))
+    return recreate(read, name=table_name, read_kwargs=read_kwargs)

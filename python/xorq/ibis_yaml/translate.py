@@ -17,6 +17,8 @@ import xorq.vendor.ibis.expr.datashape as ds
 import xorq.vendor.ibis.expr.operations as ops
 import xorq.vendor.ibis.expr.operations.temporal as tm
 import xorq.vendor.ibis.expr.types as ir
+from xorq.common.utils.name_utils import get_uid_prefix
+from xorq.common.utils.node_utils import update_read_kwargs
 from xorq.expr.relations import (
     CachedNode,
     Read,
@@ -143,30 +145,20 @@ def _interval_unit_to_yaml(
 
 
 @translate_to_yaml.register(tm.DateUnit)
-def _date_unit_to_yaml(
-    unit: tm.DateUnit, context: TranslationContext
-) -> dict:
-    return freeze(
-        {"op": "IntervalUnit", "name": "DateUnit", "value": unit.value}
-    )
+def _date_unit_to_yaml(unit: tm.DateUnit, context: TranslationContext) -> dict:
+    return freeze({"op": "IntervalUnit", "name": "DateUnit", "value": unit.value})
 
 
 @translate_to_yaml.register(tm.TimeUnit)
-def _time_unit_to_yaml(
-    unit: tm.TimeUnit, context: TranslationContext
-) -> dict:
-    return freeze(
-        {"op": "IntervalUnit", "name": "TimeUnit", "value": unit.value}
-    )
+def _time_unit_to_yaml(unit: tm.TimeUnit, context: TranslationContext) -> dict:
+    return freeze({"op": "IntervalUnit", "name": "TimeUnit", "value": unit.value})
 
 
 @translate_to_yaml.register(tm.TimestampUnit)
 def _timestamp_unit_to_yaml(
     unit: tm.TimestampUnit, context: TranslationContext
 ) -> dict:
-    return freeze(
-        {"op": "IntervalUnit", "name": "TimestampUnit", "value": unit.value}
-    )
+    return freeze({"op": "IntervalUnit", "name": "TimestampUnit", "value": unit.value})
 
 
 @register_from_yaml_handler("IntervalUnit")
@@ -606,13 +598,18 @@ def _read_to_yaml(op: Read, context: TranslationContext) -> dict:
 
     warn_on_local_path(op.read_kwargs)
 
+    table_name = op.name
+    read_kwargs = freeze(op.read_kwargs)
+    if prefix := get_uid_prefix(table_name):
+        table_name = f"{prefix}{dask.base.tokenize(op)}"
+        read_kwargs = update_read_kwargs(read_kwargs, (("table_name", table_name),))
     return freeze(
         {
             "op": "Read",
             "method_name": op.method_name,
-            "name": op.name,
+            "name": table_name,
             "profile": profile_hash_name,
-            "read_kwargs": freeze(op.read_kwargs if op.read_kwargs else {}),
+            "read_kwargs": read_kwargs,
             "normalize_method": serialize_callable(op.normalize_method),
         }
         | context.registry.register_schema(op.schema)

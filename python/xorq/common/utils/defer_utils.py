@@ -231,7 +231,7 @@ def deferred_read_parquet(
         con = _backend_init()
     method = getattr(con, method_name)
     if table_name is None:
-        table_name = gen_name(f"letsql-{method_name}")
+        table_name = gen_name(f"xorq-{method_name}")
     schema = schema or xo_connect().read_parquet(path).schema()
     read_kwargs = make_read_kwargs(method, path, table_name=table_name, **kwargs)
     return Read(
