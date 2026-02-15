@@ -1,6 +1,8 @@
 """Deferred scikit-learn metrics evaluation for xorq."""
 
 import functools
+import inspect
+from types import MappingProxyType
 from typing import Callable
 
 import numpy as np
@@ -21,7 +23,7 @@ from xorq.common.utils.name_utils import make_name
 from xorq.expr.ml.enums import ResponseMethod
 
 
-@functools.lru_cache(maxsize=1)
+@functools.cache
 def _build_known_scorer_funcs():
     """Set of known scorer functions.
 
@@ -174,7 +176,7 @@ class Scorer:
                 raise ValueError(f"Unexpected _response_method: {raw}")
 
 
-@functools.lru_cache(maxsize=1)
+@functools.cache
 def _build_known_non_scorer_metric_fns():
     """Set of known non-scorer metric functions.
 
@@ -182,8 +184,6 @@ def _build_known_non_scorer_metric_fns():
     scorer functions from ``_build_known_scorer_funcs()``, excluding
     pairwise/scorer utilities by module and unsupported metrics by name.
     """
-    import inspect
-
     import sklearn.metrics
 
     _EXCLUDED_NAMES = frozenset(
@@ -198,10 +198,9 @@ def _build_known_non_scorer_metric_fns():
 
     all_metric_fns = frozenset(
         obj
-        for name in dir(sklearn.metrics)
+        for name, obj in sklearn.metrics.__dict__.items()
         if not name.startswith("_")
         and name not in _EXCLUDED_NAMES
-        and callable(obj := getattr(sklearn.metrics, name))
         and inspect.isfunction(obj)
         and not obj.__module__.startswith(
             ("sklearn.metrics.pairwise", "sklearn.metrics._scorer")
@@ -210,7 +209,7 @@ def _build_known_non_scorer_metric_fns():
     return all_metric_fns - _build_known_scorer_funcs()
 
 
-@functools.lru_cache(maxsize=1)
+@functools.cache
 def _build_metric_return_types():
     """Registry of non-scalar return types for known sklearn metrics.
 
@@ -229,49 +228,51 @@ def _build_metric_return_types():
         silhouette_samples,
     )
 
-    return {
-        # Tuple of scalars -> Struct
-        class_likelihood_ratios: dt.Struct(
-            dict(
-                positive_likelihood_ratio=dt.float64,
-                negative_likelihood_ratio=dt.float64,
-            )
-        ),
-        homogeneity_completeness_v_measure: dt.Struct(
-            dict(
-                homogeneity=dt.float64,
-                completeness=dt.float64,
-                v_measure=dt.float64,
-            )
-        ),
-        # Confusion matrices -> Array(Array(int64))
-        confusion_matrix: dt.Array(dt.Array(dt.int64)),
-        pair_confusion_matrix: dt.Array(dt.Array(dt.int64)),
-        # Curves -> Struct of arrays
-        roc_curve: dt.Struct(
-            dict(
-                fpr=dt.Array(dt.float64),
-                tpr=dt.Array(dt.float64),
-                thresholds=dt.Array(dt.float64),
-            )
-        ),
-        precision_recall_curve: dt.Struct(
-            dict(
-                precision=dt.Array(dt.float64),
-                recall=dt.Array(dt.float64),
-                thresholds=dt.Array(dt.float64),
-            )
-        ),
-        det_curve: dt.Struct(
-            dict(
-                fpr=dt.Array(dt.float64),
-                fnr=dt.Array(dt.float64),
-                thresholds=dt.Array(dt.float64),
-            )
-        ),
-        # Per-sample metrics -> Array(float64)
-        silhouette_samples: dt.Array(dt.float64),
-    }
+    return MappingProxyType(
+        {
+            # Tuple of scalars -> Struct
+            class_likelihood_ratios: dt.Struct(
+                dict(
+                    positive_likelihood_ratio=dt.float64,
+                    negative_likelihood_ratio=dt.float64,
+                )
+            ),
+            homogeneity_completeness_v_measure: dt.Struct(
+                dict(
+                    homogeneity=dt.float64,
+                    completeness=dt.float64,
+                    v_measure=dt.float64,
+                )
+            ),
+            # Confusion matrices -> Array(Array(int64))
+            confusion_matrix: dt.Array(dt.Array(dt.int64)),
+            pair_confusion_matrix: dt.Array(dt.Array(dt.int64)),
+            # Curves -> Struct of arrays
+            roc_curve: dt.Struct(
+                dict(
+                    fpr=dt.Array(dt.float64),
+                    tpr=dt.Array(dt.float64),
+                    thresholds=dt.Array(dt.float64),
+                )
+            ),
+            precision_recall_curve: dt.Struct(
+                dict(
+                    precision=dt.Array(dt.float64),
+                    recall=dt.Array(dt.float64),
+                    thresholds=dt.Array(dt.float64),
+                )
+            ),
+            det_curve: dt.Struct(
+                dict(
+                    fpr=dt.Array(dt.float64),
+                    fnr=dt.Array(dt.float64),
+                    thresholds=dt.Array(dt.float64),
+                )
+            ),
+            # Per-sample metrics -> Array(float64)
+            silhouette_samples: dt.Array(dt.float64),
+        }
+    )
 
 
 def _validate_str_or_tuple_of_str(instance, attribute, value):
@@ -567,7 +568,7 @@ def deferred_sklearn_metric(
 
     # Helper to build MetricComputation from a Scorer
     def _from_scorer(scorer, metric_kwargs):
-        merged_kwargs = {**dict(scorer.kwargs), **dict(metric_kwargs)}
+        merged_kwargs = dict(scorer.kwargs) | dict(metric_kwargs)
         return MetricComputation(
             target=target,
             pred=pred,

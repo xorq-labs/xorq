@@ -105,9 +105,8 @@ make_cluster_metric = deferred_sklearn_metric(
 )
 
 # Note: h/c/v needs ground-truth labels, not features — use (str, str) here
-cluster_df_with_labels = cluster_df.copy()
-cluster_df_with_labels["true_label"] = np.repeat([0, 1, 2], [67, 67, 66])
-cluster_labeled_expr = con.register(cluster_df_with_labels, "clusters_labeled")
+cluster_df["true_label"] = np.repeat([0, 1, 2], [67, 67, 66])
+cluster_labeled_expr = con.register(cluster_df, "clusters_labeled")
 
 cluster_metrics = cluster_expr.agg(
     # target=tuple of feature columns, pred=single label column
@@ -178,31 +177,30 @@ ml_cols_metrics = ml_cols_expr.agg(
 if __name__ == "__pytest_main__":
     # --- Section 1: (str, str) — classifier non-scalar metrics ---
     print("=== Section 1: (str, str) — Classifier non-scalar metrics ===")
-    clf_result = clf_metrics.execute()
-    print(clf_result[["accuracy"]].to_string(index=False))
+    clf_result = clf_metrics.execute().iloc[0]
+    print(f"  accuracy: {clf_result['accuracy']}")
 
     # Unpack confusion matrix: nested list -> 2D ndarray
-    cm = np.array(clf_result["confusion_matrix"].iloc[0])
+    cm = np.array(clf_result["confusion_matrix"])
     print(f"  confusion_matrix:\n{cm}")
 
     # Unpack Struct: dict with named fields
-    clr = clf_result["class_likelihood_ratios"].iloc[0]
+    clr = clf_result["class_likelihood_ratios"]
     print(f"  class_likelihood_ratios: {clr}")
 
     # --- Section 2: (tuple, str) — clustering metrics ---
     print("\n=== Section 2: (tuple, str) — Clustering metrics ===")
-    clu_result = cluster_metrics.execute()
-    print(f"  silhouette:        {clu_result['silhouette'].iloc[0]:.4f}")
-    print(f"  calinski_harabasz: {clu_result['calinski_harabasz'].iloc[0]:.1f}")
+    clu_result = cluster_metrics.execute().iloc[0]
+    print(f"  silhouette:        {clu_result['silhouette']:.4f}")
+    print(f"  calinski_harabasz: {clu_result['calinski_harabasz']:.1f}")
 
     # Unpack per-sample array
-    sil = np.array(clu_result["silhouette_samples"].iloc[0])
+    sil = np.array(clu_result["silhouette_samples"])
     print(f"  silhouette_samples: shape={sil.shape}, mean={sil.mean():.4f}")
 
     # Unpack Struct
-    hcv_result = hcv_metric.execute()
-    hcv = hcv_result["hcv"].iloc[0]
-    print(f"  hcv: {hcv}")
+    hcv_result = hcv_metric.execute().iloc[0]
+    print(f"  hcv: {hcv_result['hcv']}")
 
     # --- Section 3: (tuple, str) — multilabel array pred ---
     print("\n=== Section 3: (tuple, str) — Multilabel (array pred) ===")
