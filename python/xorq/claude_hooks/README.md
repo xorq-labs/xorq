@@ -6,7 +6,8 @@ Simple hook system for Claude Code lifecycle events.
 
 - **session_start.py** - Triggered when a Claude Code session begins
 - **user_prompt_submit.py** - Triggered when user submits a prompt
-- **pre_tool_use.py** - Triggered before a tool is used
+- **post_tool_use.py** - Injects xorq onboarding instructions after every tool use
+- **post_tool_use_failure.py** - Provides troubleshooting guidance on tool failures
 - **pre_compact.py** - Triggered before context compaction
 - **stop.py** - Triggered when Claude Code execution is stopped
 - **session_end.py** - Triggered when a Claude Code session ends
@@ -41,10 +42,10 @@ Configure in `.claude/settings.json`:
         "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/user_prompt_submit.py"
       }]
     }],
-    "PreToolUse": [{
+    "PostToolUse": [{
       "hooks": [{
         "type": "command",
-        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/pre_tool_use.py"
+        "command": "python3 \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/post_tool_use.py"
       }]
     }],
     "PreCompact": [{
