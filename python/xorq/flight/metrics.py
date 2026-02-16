@@ -65,7 +65,7 @@ class SimpleConsoleMetricExporter(MetricExporter):
         return True
 
 
-@functools.lru_cache(1)
+@functools.cache
 def setup_console_metrics(
     interval_ms: int = 2000,
     meter_name: str = "xorq.flight_server",

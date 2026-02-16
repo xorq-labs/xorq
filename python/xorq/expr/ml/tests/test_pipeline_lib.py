@@ -771,6 +771,182 @@ class TestScoreExpr:
             fitted._get_default_scorer()
 
 
+class TestStepFromFitFunctions:
+    """Tests for Step.from_fit_transform and Step.from_fit_predict.
+
+    These exercise make_estimator_typ which dynamically creates BaseEstimator
+    subclasses from raw fit/transform or fit/predict callables.
+    """
+
+    def test_from_fit_transform_creates_transform_type(self):
+        """Step.from_fit_transform creates a type with transform (not predict)."""
+        import numpy as np
+
+        import xorq.expr.datatypes as dt
+        from xorq.expr.ml.pipeline_lib import Step
+
+        def my_fit(X, y=None):
+            return np.mean(X, axis=0)
+
+        def my_transform(model, X, y=None):
+            return X - model
+
+        step = Step.from_fit_transform(
+            fit=my_fit,
+            transform=my_transform,
+            return_type=dt.Array(dt.float64),
+            name="custom_transform",
+        )
+
+        # Verify the dynamically created type has correct attributes
+        assert hasattr(step.instance, "transform")
+        assert hasattr(step.instance, "fit")
+        assert not hasattr(step.instance, "predict")
+        assert step.instance.return_type == dt.Array(dt.float64)
+
+    def test_from_fit_predict_creates_predict_type(self):
+        """Step.from_fit_predict creates a type with predict (not transform)."""
+        import numpy as np
+
+        import xorq.expr.datatypes as dt
+        from xorq.expr.ml.pipeline_lib import Step
+
+        def my_fit(X, y=None):
+            return int(np.median(y))
+
+        def my_predict(model, X, y=None):
+            return np.full(len(X), model)
+
+        step = Step.from_fit_predict(
+            fit=my_fit,
+            predict=my_predict,
+            return_type=dt.int64,
+            name="custom_predict",
+        )
+
+        assert hasattr(step.instance, "predict")
+        assert hasattr(step.instance, "fit")
+        assert not hasattr(step.instance, "transform")
+        assert step.instance.return_type == dt.int64
+
+    def test_make_estimator_typ_both_raises(self):
+        """Passing both transform and predict raises ValueError."""
+        import xorq.expr.datatypes as dt
+        from xorq.expr.ml.pipeline_lib import make_estimator_typ
+
+        with pytest.raises(ValueError):
+            make_estimator_typ(
+                fit=lambda X, y=None: None,
+                return_type=dt.float64,
+                transform=lambda m, X: X,
+                predict=lambda m, X: X,
+            )
+
+    def test_make_estimator_typ_neither_raises(self):
+        """Passing neither transform nor predict raises ValueError."""
+        import xorq.expr.datatypes as dt
+        from xorq.expr.ml.pipeline_lib import make_estimator_typ
+
+        with pytest.raises(ValueError):
+            make_estimator_typ(
+                fit=lambda X, y=None: None,
+                return_type=dt.float64,
+            )
+
+    def test_from_fit_predict_end_to_end(self):
+        """Step.from_fit_predict works end-to-end with dest_col."""
+        import numpy as np
+
+        import xorq.expr.datatypes as dt
+        from xorq.expr.ml.pipeline_lib import Step
+
+        def my_fit(X, y=None):
+            return int(np.median(y))
+
+        def my_predict(model, X, y=None):
+            return np.full(len(X), model)
+
+        step = Step.from_fit_predict(
+            fit=my_fit,
+            predict=my_predict,
+            return_type=dt.int64,
+            name="custom_predict",
+        )
+
+        t = xo.memtable({"a": [1.0, 2.0, 3.0], "b": [4.0, 5.0, 6.0], "y": [0, 1, 1]})
+        fitted = step.fit(t, features=("a", "b"), target="y", dest_col="pred")
+        result = fitted.predict(t)
+        df = result.execute()
+        assert df is not None
+        assert len(df) == 3
+
+
+class TestFeatureImportances:
+    """Tests for FittedStep.feature_importances and FittedPipeline.feature_importances."""
+
+    def test_fitted_step_feature_importances(self):
+        """FittedStep.feature_importances returns importances for tree models."""
+        import numpy as np
+        from sklearn.ensemble import RandomForestClassifier
+
+        t = xo.memtable(
+            {
+                "a": np.random.randn(50).tolist(),
+                "b": np.random.randn(50).tolist(),
+                "y": (np.random.randn(50) > 0).astype(int).tolist(),
+            }
+        )
+
+        step = xo.Step.from_instance_name(
+            RandomForestClassifier(n_estimators=5, random_state=42),
+            name="rf",
+        )
+        fitted = step.fit(t, features=("a", "b"), target="y")
+        result = fitted.feature_importances(t)
+        df = result.execute()
+
+        assert df is not None
+        assert "feature_importances" in df.columns
+        importances = df["feature_importances"].iloc[0]
+        assert len(importances) == 2  # two features
+        assert all(isinstance(v, float) for v in importances)
+
+    def test_fitted_pipeline_feature_importances(self):
+        """FittedPipeline.feature_importances returns importances through pipeline."""
+        import numpy as np
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.pipeline import Pipeline as SklearnPipeline
+        from sklearn.preprocessing import StandardScaler
+
+        from xorq.expr.ml.pipeline_lib import Pipeline
+
+        t = xo.memtable(
+            {
+                "a": np.random.randn(50).tolist(),
+                "b": np.random.randn(50).tolist(),
+                "y": (np.random.randn(50) > 0).astype(int).tolist(),
+            }
+        )
+
+        sklearn_pipe = SklearnPipeline(
+            [
+                ("scaler", StandardScaler()),
+                ("rf", RandomForestClassifier(n_estimators=5, random_state=42)),
+            ]
+        )
+        fitted = Pipeline.from_instance(sklearn_pipe).fit(
+            t, features=("a", "b"), target="y"
+        )
+
+        result = fitted.feature_importances(t)
+        df = result.execute()
+
+        assert df is not None
+        assert "feature_importances" in df.columns
+        importances = df["feature_importances"].iloc[0]
+        assert len(importances) == 2
+
+
 class TestClusteringPredict:
     """Tests for clustering algorithm predict support."""
 
