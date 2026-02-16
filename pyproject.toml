@@ -112,6 +112,10 @@ postgres = [
 sqlite = [
     "adbc-driver-sqlite>=1.4.0"
 ]
+gizmosql = [
+    "adbc-driver-gizmosql>=0.1.0",
+    "duckdb>=1.1.3",
+]
 ibis = [
     "ibis-framework>=10.5.0"
 ]
@@ -162,6 +166,7 @@ pandas = "xorq.backends.pandas"
 trino = "xorq.backends.trino"
 pyiceberg = "xorq.backends.pyiceberg"
 sqlite = "xorq.backends.sqlite"
+gizmosql = "xorq.backends.gizmosql"
 
 [project.scripts]
 xorq = "xorq.cli:main"
@@ -226,7 +231,8 @@ markers = [
     "trino",
     "pyiceberg",
     "core",
-    "sqlite"
+    "sqlite",
+    "gizmosql: GizmoSQL (DuckDB over Arrow Flight SQL) tests"
 ]
 consider_namespace_packages = true
 addopts = "--pdbcls=IPython.terminal.debugger:TerminalPdb"

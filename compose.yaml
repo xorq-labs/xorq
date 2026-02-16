@@ -116,9 +116,25 @@ services:
       - $PWD/docker/trino/catalog/hive.properties:/etc/trino/catalog/hive.properties:ro
       - $PWD/docker/trino/jvm.config:/etc/trino/jvm.config:ro
 
+  gizmosql:
+    image: gizmodata/gizmosql:latest
+    environment:
+      GIZMOSQL_USERNAME: ibis
+      GIZMOSQL_PASSWORD: ibis_password
+      TLS_ENABLED: "1"
+      PRINT_QUERIES: "0"
+      DATABASE_FILENAME: ":memory:"
+    ports:
+      - 31337:31337
+    networks:
+      - gizmosql
+    volumes:
+      - ./ci/ibis-testing-data/parquet:/data/parquet:ro
+
 networks:
   postgres:
   trino:
+  gizmosql:
 
 
 volumes:

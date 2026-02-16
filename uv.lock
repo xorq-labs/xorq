@@ -10,6 +10,36 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "adbc-driver-flightsql"
+version = "1.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "adbc-driver-manager" },
+    { name = "importlib-resources" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/55/c3/a97fba4960b76b4b3a3055d8c33f6915e7d40a9c67f065fe760d9a17514a/adbc_driver_flightsql-1.10.0.tar.gz", hash = "sha256:aab737ee7c16d0ec89928ef2297c92f815756e91773085d55cc5eabbebcb9338", size = 24516, upload-time = "2026-01-09T07:13:44.793Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/94/fb/c0d48ded0e75b61bbaff24ef52c89b97ba9b2fbc5caaeb9a102ab17f8f1d/adbc_driver_flightsql-1.10.0-py3-none-macosx_10_15_x86_64.whl", hash = "sha256:a520579be3194e315f35c749afc9cb2ae9b9b7b852c8c2ac5fb9cafa31cdc0c6", size = 7922165, upload-time = "2026-01-09T07:11:35.077Z" },
+    { url = "https://files.pythonhosted.org/packages/c8/55/c8bc08ea1e0ba3a35f6307528efa23f11745c5acb90981d2632f5d416659/adbc_driver_flightsql-1.10.0-py3-none-macosx_11_0_arm64.whl", hash = "sha256:c6d6f5e93adcc87f41e70adc07a470f865f36f8dd1e6e9ab2b05855bc44274ca", size = 7366098, upload-time = "2026-01-09T07:11:37.799Z" },
+    { url = "https://files.pythonhosted.org/packages/50/ed/2cc8683b1f59d5c9c82aaf8f5992b41d19e5abc90393af6b882eab072773/adbc_driver_flightsql-1.10.0-py3-none-manylinux1_x86_64.manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_5_x86_64.whl", hash = "sha256:9dfee1c767281c9add95fcf29eac84338107a7610b2d9b19d1169e67083a3eaa", size = 14446811, upload-time = "2026-01-09T07:11:41.532Z" },
+    { url = "https://files.pythonhosted.org/packages/b3/5d/1d4c235a04b349d8d5c89e6ca42e11a6b21e6959f48b5847523e87926b4b/adbc_driver_flightsql-1.10.0-py3-none-manylinux2014_aarch64.manylinux_2_17_aarch64.whl", hash = "sha256:e6212fba5a2a59d7a2a71db1b036730908eb85457df3cc3c90563e4ddadaa923", size = 13257586, upload-time = "2026-01-09T07:11:45.63Z" },
+    { url = "https://files.pythonhosted.org/packages/e7/4d/55b96339f18c3932c61bd503c477fabfb7f6c95d4fc4ceb31a1e4275d4fd/adbc_driver_flightsql-1.10.0-py3-none-win_amd64.whl", hash = "sha256:6750c1def8c782469cc33dd883f5c9598086a875432a257adf0522bb1e3b95ca", size = 14231290, upload-time = "2026-01-09T07:11:49.683Z" },
+]
+
+[[package]]
+name = "adbc-driver-gizmosql"
+version = "0.1.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "adbc-driver-flightsql" },
+    { name = "pyarrow" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/5b/4a/017a37dbf851fa03e05148135fc78619d15f861ef456fe5d2fe81b8f16b6/adbc_driver_gizmosql-0.1.1.tar.gz", hash = "sha256:eb75dff9d3fa85917a11a51b1344a842cb68abea1a569138bb739440359a7a62", size = 17416, upload-time = "2026-02-11T23:14:18.166Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8a/4c/e40692a6b63b8105b62688288f8f0174df76157e439a145f4c8e58843e03/adbc_driver_gizmosql-0.1.1-py3-none-any.whl", hash = "sha256:8689e42dcac802a0eecc02729819cadd2e8fa2283725c3df9677e107039b2e2d", size = 13619, upload-time = "2026-02-11T23:14:16.735Z" },
+]
+
+[[package]]
 name = "adbc-driver-manager"
 version = "1.7.0"
 source = { registry = "https://pypi.org/simple" }
@@ -5315,6 +5345,10 @@ examples = [
     { name = "xorq-feature-utils" },
     { name = "xorq-weather-lib" },
 ]
+gizmosql = [
+    { name = "adbc-driver-gizmosql" },
+    { name = "duckdb" },
+]
 ibis = [
     { name = "ibis-framework" },
 ]
@@ -5374,6 +5408,7 @@ test = [
 
 [package.metadata]
 requires-dist = [
+    { name = "adbc-driver-gizmosql", marker = "extra == 'gizmosql'", specifier = ">=0.1.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'examples'", specifier = ">=1.4.0" },
     { name = "adbc-driver-postgresql", marker = "extra == 'postgres'", specifier = ">=1.4.0" },
     { name = "adbc-driver-snowflake", marker = "extra == 'snowflake'", specifier = ">=1.5.0" },
@@ -5388,6 +5423,7 @@ requires-dist = [
     { name = "datafusion", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'datafusion'", specifier = ">=0.6,<49" },
     { name = "duckdb", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=0.10.3,<2" },
     { name = "duckdb", marker = "extra == 'duckdb'", specifier = ">=1.1.3" },
+    { name = "duckdb", marker = "extra == 'gizmosql'", specifier = ">=1.1.3" },
     { name = "envyaml", specifier = ">=1.10.211231" },
     { name = "fsspec", marker = "python_full_version >= '3.10' and python_full_version < '4' and extra == 'examples'", specifier = ">=2024.6.1,<2025.10.1" },
     { name = "geoarrow-types", marker = "python_full_version >= '3.10' and python_full_version < '4'", specifier = ">=0.2,<1" },
@@ -5429,7 +5465,7 @@ requires-dist = [
     { name = "xorq-feature-utils", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-feature-utils?branch=main" },
     { name = "xorq-weather-lib", marker = "extra == 'examples'", git = "https://github.com/xorq-labs/xorq-weather-lib?branch=main" },
 ]
-provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "ibis"]
+provides-extras = ["pyiceberg", "duckdb", "datafusion", "snowflake", "quickgrove", "examples", "postgres", "sqlite", "gizmosql", "ibis"]
 
 [package.metadata.requires-dev]
 dev = [

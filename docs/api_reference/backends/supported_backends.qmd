@@ -12,6 +12,8 @@ xorq currently supports:
     - Trino
     - Snowflake
     - BigQuery
+3. **Arrow Flight SQL Engines**
+    - GizmoSQL (DuckDB over Arrow Flight SQL)
 
 ### Backend selection guidelines
 
@@ -21,6 +23,7 @@ Choose engines based on their strengths:
 2. **DataFusion**: Custom UDFs, streaming processing
 3. **Trino**: Distributed queries, federation, security
 4. **Snowflake/BigQuery**: Managed infrastructure, scalability
+5. **GizmoSQL**: DuckDB over Arrow Flight SQL, client-server analytics
 
 ### Data transfer
 
