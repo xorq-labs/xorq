@@ -50,7 +50,6 @@ class CacheStorage:
         pass
 
 
-
 @frozen
 class ParquetStorage(CacheStorage):
     source = field(
@@ -69,7 +68,7 @@ class ParquetStorage(CacheStorage):
     )
 
     def __dask_tokenize__(self):
-        return (type(self).__name__, self.source, self.relative_path, self.base_path)
+        return (type(self).__name__, self.relative_path, self.base_path)
 
     def __attrs_post_init__(self):
         self.path.mkdir(exist_ok=True, parents=True)
@@ -112,7 +111,7 @@ class ParquetTTLStorage(ParquetStorage):
     )
 
     def __dask_tokenize__(self):
-        return (type(self).__name__, self.source, self.relative_path, self.base_path, self.ttl)
+        return (type(self).__name__, self.relative_path, self.base_path, self.ttl)
 
     def exists(self, key):
         path = self.get_path(key)
@@ -133,7 +132,7 @@ class SourceStorage(CacheStorage):
     )
 
     def __dask_tokenize__(self):
-        return (type(self).__name__, self.source)
+        return (type(self).__name__,)
 
     def exists(self, key):
         return key in self.source.tables
