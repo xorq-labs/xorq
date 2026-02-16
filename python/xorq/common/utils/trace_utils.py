@@ -33,6 +33,9 @@ from toolz.curried import (
     map as cmap,
 )
 
+from xorq.common.utils.attr_utils import (
+    convert_sorted_kwargs_tuple,
+)
 from xorq.common.utils.func_utils import (
     return_constant,
 )
@@ -229,7 +232,7 @@ class Span:
             for (to_, (from_, default, f)) in (
                 (
                     "status",
-                    ("status", None, compose(tuple, operator.methodcaller("items"))),
+                    ("status", None, convert_sorted_kwargs_tuple),
                 ),
                 (
                     "links",

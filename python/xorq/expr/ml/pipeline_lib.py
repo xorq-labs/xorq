@@ -12,6 +12,7 @@ from attr.validators import (
     optional,
 )
 from dask.utils import Dispatch
+from toolz import compose
 from toolz.curried import (
     excepts as cexcepts,
 )
@@ -23,6 +24,10 @@ from xorq.caching import (
     ParquetSnapshotCache,
     ParquetTTLSnapshotCache,
     SourceCache,
+)
+from xorq.common.utils.attr_utils import (
+    convert_sorted_kwargs_tuple,
+    validate_kwargs_tuple,
 )
 from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_attrs,
@@ -152,7 +157,11 @@ class Step:
 
     typ = field(validator=instance_of(type))
     name = field(validator=optional(instance_of(str)), default=None)
-    params_tuple = field(validator=instance_of(tuple), default=(), converter=freeze)
+    params_tuple = field(
+        validator=validate_kwargs_tuple,
+        converter=compose(freeze, convert_sorted_kwargs_tuple),
+        factory=tuple,
+    )
 
     def __attrs_post_init__(self):
         from sklearn.base import BaseEstimator
@@ -160,8 +169,6 @@ class Step:
         assert BaseEstimator in self.typ.mro()
         if self.name is None:
             object.__setattr__(self, "name", f"{self.typ.__name__.lower()}_{id(self)}")
-        # param order invariant
-        object.__setattr__(self, "params_tuple", tuple(sorted(self.params_tuple)))
 
     @property
     def tag_kwargs(self):
