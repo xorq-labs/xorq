@@ -15,10 +15,13 @@ from attr.validators import (
     instance_of,
     optional,
 )
-from toolz import compose
 
 import xorq.expr.datatypes as dt
 import xorq.expr.udf as udf
+from xorq.common.utils.attr_utils import (
+    convert_sorted_kwargs_tuple,
+    validate_kwargs_tuple,
+)
 from xorq.common.utils.name_utils import make_name
 from xorq.expr.ml.enums import ResponseMethod
 
@@ -88,7 +91,7 @@ class Scorer:
     sign: int = field(validator=instance_of(int))
     kwargs: tuple = field(
         factory=tuple,
-        converter=lambda d: tuple(sorted(d.items())) if isinstance(d, dict) else d,
+        converter=convert_sorted_kwargs_tuple,
     )
     response_method: str = field(
         validator=instance_of(str), default=ResponseMethod.PREDICT
@@ -295,8 +298,9 @@ class MetricComputation:
     metric_fn: Callable = field(validator=instance_of(Callable))
     sign: int = field(validator=optional(instance_of(int)), default=None)
     metric_kwargs_tuple: tuple = field(
-        default=(),
-        converter=compose(tuple, sorted, dict.items, dict),
+        factory=tuple,
+        validator=validate_kwargs_tuple,
+        converter=convert_sorted_kwargs_tuple,
     )
     return_type = field(validator=instance_of(dt.DataType), default=dt.float64)
     name = field(validator=optional(instance_of(str)), default=None)
