@@ -57,6 +57,9 @@ class GCStorage(CacheStorage):
         assert hasattr(self.source, "read_record_batches")
         object.__setattr__(self, "fs", gcsfs.GCSFileSystem())
 
+    def __dask_tokenize__(self):
+        return (type(self).__name__, self.bucket_name, self.source)
+
     def get_path(self, key):
         path = f"{self.bucket_name}/{key}.parquet"
         return path

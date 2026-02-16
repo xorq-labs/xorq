@@ -50,6 +50,7 @@ class CacheStorage:
         pass
 
 
+
 @frozen
 class ParquetStorage(CacheStorage):
     source = field(
@@ -66,6 +67,9 @@ class ParquetStorage(CacheStorage):
         default=None,
         converter=if_not_none(Path),
     )
+
+    def __dask_tokenize__(self):
+        return (type(self).__name__, self.source, self.relative_path, self.base_path)
 
     def __attrs_post_init__(self):
         self.path.mkdir(exist_ok=True, parents=True)
@@ -107,6 +111,9 @@ class ParquetTTLStorage(ParquetStorage):
         validator=instance_of(datetime.timedelta), default=datetime.timedelta(days=1)
     )
 
+    def __dask_tokenize__(self):
+        return (type(self).__name__, self.source, self.relative_path, self.base_path, self.ttl)
+
     def exists(self, key):
         path = self.get_path(key)
         return path.exists() and self.satisfies_ttl(path)
@@ -124,6 +131,9 @@ class SourceStorage(CacheStorage):
         validator=instance_of(ibis.backends.BaseBackend),
         factory=_backend_init,
     )
+
+    def __dask_tokenize__(self):
+        return (type(self).__name__, self.source)
 
     def exists(self, key):
         return key in self.source.tables

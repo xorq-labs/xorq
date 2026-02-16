@@ -93,6 +93,9 @@ class Cache:
         else:
             self.storage.drop(key)
 
+    def __dask_tokenize__(self):
+        return (type(self).__name__, self.strategy, self.storage, self.key_prefix)
+
     @classmethod
     def from_kwargs(cls, **kwargs):
         strategy = cls.strategy_typ()

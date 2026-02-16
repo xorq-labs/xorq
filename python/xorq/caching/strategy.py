@@ -34,6 +34,9 @@ class CacheStrategy:
     def calc_key(self, expr):
         pass
 
+    def __dask_tokenize__(self):
+        return (type(self).__name__,)
+
 
 @frozen
 class ModificationTimeStrategy(CacheStrategy):

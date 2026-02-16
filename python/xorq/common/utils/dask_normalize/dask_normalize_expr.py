@@ -380,6 +380,15 @@ def normalize_remote_table(dt):
     )
 
 
+@dask.base.normalize_token.register(rel.CachedNode)
+def normalize_cached_node(node):
+    return normalize_seq_with_caller(
+        node.parent,
+        node.cache,
+        caller="normalize_cached_node",
+    )
+
+
 @dask.base.normalize_token.register(ibis.backends.BaseBackend)
 def normalize_backend(con):
     name = con.name
@@ -412,6 +421,7 @@ def normalize_backend(con):
         name,
         con_details,
     )
+
 
 
 @dask.base.normalize_token.register(ir.Schema)
@@ -488,7 +498,7 @@ def opaque_node_replacer(node, kwargs):
         case rel.CachedNode():
             new_node = api.table(
                 node.schema,
-                name=dask.base.tokenize(node.parent),
+                name=dask.base.tokenize(node.parent, node.cache),
             ).op()
         case rel.Read():
             new_node = api.table(
