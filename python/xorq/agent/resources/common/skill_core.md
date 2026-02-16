@@ -174,7 +174,7 @@ git commit -m "Add pipeline to catalog"
 
 ```bash
 # Get dynamic workflow context
-xorq agents prime
+xorq agents onboard
 ```
 
 ### Development Loop
@@ -205,9 +205,6 @@ git commit -m "Update catalog"
 
 # 2. Push changes
 git push
-
-# 3. Generate handoff
-xorq agents prime
 ```
 
 ## Advanced Workflow Patterns
@@ -447,6 +444,6 @@ expr = (
 
 ## Documentation Links
 
-- **Workflow Context**: `xorq agents prime` (dynamic, context-aware)
+- **Workflow Context**: `xorq agents onboard` (dynamic, context-aware)
 - **GitHub**: [github.com/xorq-labs/xorq](https://github.com/xorq-labs/xorq)
 - **Docs**: [docs.xorq.dev](https://docs.xorq.dev)
