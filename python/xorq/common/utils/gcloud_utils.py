@@ -58,7 +58,13 @@ class GCStorage(CacheStorage):
         object.__setattr__(self, "fs", gcsfs.GCSFileSystem())
 
     def __dask_tokenize__(self):
-        return (type(self).__name__, self.bucket_name)
+        import dask.base
+
+        return (
+            type(self).__name__,
+            dask.base.normalize_token(self.source),
+            self.bucket_name,
+        )
 
     def get_path(self, key):
         path = f"{self.bucket_name}/{key}.parquet"

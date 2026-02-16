@@ -400,7 +400,7 @@ def normalize_backend(con):
     elif name == "pandas":
         con_details = id(con.dictionary)
     elif name in ("datafusion", "duckdb", "xorq"):
-        con_details = id(con.con)
+        con_details = (con._profile.con_name, con._profile.kwargs_tuple)
     elif name == "trino":
         con_details = con.con.host
     elif name == "bigquery":
@@ -421,7 +421,6 @@ def normalize_backend(con):
         name,
         con_details,
     )
-
 
 
 @dask.base.normalize_token.register(ir.Schema)
