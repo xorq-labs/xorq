@@ -96,6 +96,17 @@ class Registry:
         op_name = node_dict.get("op", "unknown").lower()
         node_ref = f"@{op_name}_{node_hash[: config.hash_length]}"
         node_dict_with_hash = freeze(node_dict | {"snapshot_hash": node_hash})
+        if node.__class__.__name__ == "Read" and "memtables" in dict(node.read_kwargs):
+            from xorq.common.utils.node_utils import update_read_kwargs
+
+            old_read_kwargs = node_dict_with_hash["read_kwargs"]
+            new_path = Path("memtables", dict(old_read_kwargs)["path"].name)
+            modified_read_kwargs = update_read_kwargs(
+                old_read_kwargs, (("path", new_path),)
+            )
+            node_dict_with_hash = freeze(
+                node_dict_with_hash | {"read_kwargs": modified_read_kwargs}
+            )
         self.nodes.setdefault(node_ref, node_dict_with_hash)
         frozen = freeze({RefEnum.node_ref: node_ref})
         return frozen

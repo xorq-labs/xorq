@@ -565,8 +565,8 @@ def flight_udxf(
 
 class Read(ops.DatabaseTable):
     method_name: str = None
-    read_kwargs: Any = None
-    normalize_method: Any = None
+    read_kwargs: Any = ()
+    normalize_method: Callable = None
 
     def make_dt(self):
         method = getattr(self.source, self.method_name)

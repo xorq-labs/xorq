@@ -11,6 +11,7 @@ import yaml
 
 import xorq.api as xo
 import xorq.vendor.ibis as ibis
+import xorq.vendor.ibis.expr.operations.relations as rel
 from xorq.caching import (
     ParquetCache,
     ParquetSnapshotCache,
@@ -22,7 +23,7 @@ from xorq.common.utils.dask_normalize.dask_normalize_utils import (
     normalize_read_path_md5sum,
 )
 from xorq.common.utils.defer_utils import deferred_read_parquet
-from xorq.common.utils.graph_utils import find_all_sources
+from xorq.common.utils.graph_utils import find_all_sources, walk_nodes
 from xorq.common.utils.name_utils import get_uid_prefix
 from xorq.ibis_yaml.compiler import (
     ArtifactStore,
@@ -484,6 +485,55 @@ def test_build_file_stability_local(
     # test that it also runs
     roundtrip_expr = load_expr(build_path)
     assert expr.execute().equals(roundtrip_expr.execute())
+
+
+@pytest.mark.snapshot_check
+def test_build_file_stability_and_relocatability(
+    builds_dir, parquet_dir, tmpdir, monkeypatch, snapshot
+):
+    # path impacts node hash therefore path ***MUST*** be the same
+    monkeypatch.chdir(tmpdir)
+
+    path = get_local_path(parquet_dir, "awards_players")
+    awards_players = xo.deferred_read_parquet(
+        path,
+        normalize_method=normalize_read_path_md5sum,
+    )
+    batting = xo.memtable(
+        xo.read_parquet(parquet_dir.joinpath("batting.parquet")).execute()
+    )
+    on = sorted(set(batting.columns).intersection(awards_players.columns))
+    expr = awards_players.select(on).join(batting.select(on), predicates=on)
+
+    build_dir = build_expr(
+        expr, builds_dir=builds_dir, read_normalize_method=normalize_read_path_md5sum
+    )
+    actual = json.dumps(
+        {
+            p.name: hashlib.md5(p.read_bytes()).hexdigest()
+            for p in build_dir.iterdir()
+            if p.name != DumpFiles.metadata and p.is_file()
+        }
+        | {
+            "build_dir_name": build_dir.name,
+        },
+        indent=2,
+        sort_keys=True,
+    )
+    snapshot.assert_match(actual, "expected.json")
+
+    # test that it also runs
+    roundtrip_expr = load_expr(build_dir)
+    (actual, expected) = (
+        expr.execute().pipe(lambda t: t.sort_values(list(t.columns), ignore_index=True))
+        for expr in (roundtrip_expr, expr)
+    )
+    assert actual.equals(expected)
+
+    before = tuple(node.name for node in walk_nodes(rel.PhysicalTable, expr))
+    assert all(map(get_uid_prefix, before))
+    after = tuple(node.name for node in walk_nodes(rel.PhysicalTable, roundtrip_expr))
+    assert not any(map(get_uid_prefix, after))
 
 
 def test_build_pandas_backend_behind_into_backend(builds_dir, users_df):
