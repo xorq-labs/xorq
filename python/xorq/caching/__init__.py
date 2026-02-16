@@ -94,7 +94,14 @@ class Cache:
             self.storage.drop(key)
 
     def __dask_tokenize__(self):
-        return (type(self).__name__, self.strategy, self.storage, self.key_prefix)
+        import dask.base
+
+        return (
+            type(self).__name__,
+            dask.base.normalize_token(self.strategy),
+            dask.base.normalize_token(self.storage),
+            self.key_prefix,
+        )
 
     @classmethod
     def from_kwargs(cls, **kwargs):
