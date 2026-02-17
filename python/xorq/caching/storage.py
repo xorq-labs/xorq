@@ -68,13 +68,15 @@ class ParquetStorage(CacheStorage):
     )
 
     def __dask_tokenize__(self):
-        import dask.base
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+            normalize_seq_with_caller,
+        )
 
-        return (
-            type(self).__name__,
-            dask.base.normalize_token(self.source),
+        return normalize_seq_with_caller(
+            self.source,
             self.relative_path,
             self.base_path,
+            caller="normalize_parquet_storage",
         )
 
     def __attrs_post_init__(self):
@@ -118,14 +120,16 @@ class ParquetTTLStorage(ParquetStorage):
     )
 
     def __dask_tokenize__(self):
-        import dask.base
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+            normalize_seq_with_caller,
+        )
 
-        return (
-            type(self).__name__,
-            dask.base.normalize_token(self.source),
+        return normalize_seq_with_caller(
+            self.source,
             self.relative_path,
             self.base_path,
             self.ttl,
+            caller="normalize_parquet_ttl_storage",
         )
 
     def exists(self, key):
@@ -147,9 +151,11 @@ class SourceStorage(CacheStorage):
     )
 
     def __dask_tokenize__(self):
-        import dask.base
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+            normalize_seq_with_caller,
+        )
 
-        return (type(self).__name__, dask.base.normalize_token(self.source))
+        return normalize_seq_with_caller(self.source, caller="normalize_source_storage")
 
     def exists(self, key):
         return key in self.source.tables

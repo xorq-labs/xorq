@@ -58,12 +58,12 @@ class GCStorage(CacheStorage):
         object.__setattr__(self, "fs", gcsfs.GCSFileSystem())
 
     def __dask_tokenize__(self):
-        import dask.base
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+            normalize_seq_with_caller,
+        )
 
-        return (
-            type(self).__name__,
-            dask.base.normalize_token(self.source),
-            self.bucket_name,
+        return normalize_seq_with_caller(
+            self.source, self.bucket_name, caller="normalize_gc_storage"
         )
 
     def get_path(self, key):

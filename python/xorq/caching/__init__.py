@@ -94,13 +94,12 @@ class Cache:
             self.storage.drop(key)
 
     def __dask_tokenize__(self):
-        import dask.base
+        from xorq.common.utils.dask_normalize.dask_normalize_utils import (
+            normalize_seq_with_caller,
+        )
 
-        return (
-            type(self).__name__,
-            dask.base.normalize_token(self.strategy),
-            dask.base.normalize_token(self.storage),
-            self.key_prefix,
+        return normalize_seq_with_caller(
+            self.strategy, self.storage, self.key_prefix, caller="normalize_cache"
         )
 
     @classmethod
