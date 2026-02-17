@@ -1,0 +1,111 @@
+"""Cross-Validation with deferred_cross_val_score
+
+Demonstrates deferred_cross_val_score — the xorq equivalent of sklearn's
+cross_val_score. Shows both cv strategies:
+
+1. int cv — uses train_test_splits internally, which partitions rows via
+   deterministic hashing (controlled by random_seed).  This produces different
+   folds than sklearn's index-based KFold, so per-fold scores differ.  The
+   mean converges to the same value (typically within ~1%).
+
+2. sklearn splitter — passes the splitter object (e.g. StratifiedKFold)
+   directly.  Rows are sorted by a deterministic hash (controlled by
+   random_seed) so the UDWF always sees rows in the same order.  To get
+   identical results from standalone sklearn, sort the pandas DataFrame
+   with make_deterministic_sort_key using the same random_seed.
+
+deferred_cross_val_score returns a CrossValScore object — nothing is
+materialized until .execute() is called.
+"""
+
+import numpy as np
+import pandas as pd
+from sklearn.datasets import make_classification
+from sklearn.linear_model import LogisticRegression
+from sklearn.model_selection import StratifiedKFold, cross_val_score
+from sklearn.pipeline import Pipeline as SklearnPipeline
+from sklearn.preprocessing import StandardScaler
+
+import xorq.api as xo
+from xorq.expr.ml.cross_validation import (
+    deferred_cross_val_score,
+    make_deterministic_sort_key,
+)
+from xorq.expr.ml.pipeline_lib import Pipeline
+
+
+con = xo.connect()
+
+RANDOM_STATE = 42
+
+# --- Data setup ---
+feature_names = tuple(f"f{i}" for i in range(10))
+X, y = make_classification(
+    n_samples=500, n_features=10, n_informative=5, random_state=RANDOM_STATE
+)
+df = pd.DataFrame(X, columns=list(feature_names)).assign(target=y)
+data = con.register(df, "data")
+
+# --- Pipeline (unfitted — deferred_cross_val_score fits per fold) ---
+sk_pipeline = SklearnPipeline(
+    [
+        ("scaler", StandardScaler()),
+        ("clf", LogisticRegression(random_state=RANDOM_STATE, max_iter=1000)),
+    ]
+)
+pipeline = Pipeline.from_instance(sk_pipeline)
+
+# --- int cv: 5-fold (hash-based splitting) ---
+# random_seed controls the deterministic hash partitioning
+cv_int = deferred_cross_val_score(
+    pipeline,
+    data,
+    features=feature_names,
+    target="target",
+    cv=5,
+    random_seed=RANDOM_STATE,
+)
+
+# --- sklearn splitter: StratifiedKFold (index-based splitting) ---
+# random_seed controls the deterministic row ordering; the splitter's
+# random_state controls shuffle order within the splitter.
+cv_stratified = deferred_cross_val_score(
+    pipeline,
+    data,
+    features=feature_names,
+    target="target",
+    cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE),
+    random_seed=RANDOM_STATE,
+)
+
+
+if __name__ == "__pytest_main__":
+    scores_int = cv_int.execute()
+    scores_stratified = cv_stratified.execute()
+
+    # --- Reproduce sklearn splitter results with standalone sklearn ---
+    # Sort the DataFrame by the same deterministic hash so sklearn sees
+    # the same row order as the UDWF.
+    sort_key = make_deterministic_sort_key(data, random_seed=RANDOM_STATE)
+    sort_col = sort_key.get_name()
+    df_sorted = data.mutate(sort_key).order_by(sort_col).drop(sort_col).execute()
+    sklearn_scores = cross_val_score(
+        sk_pipeline,
+        df_sorted[list(feature_names)].values,
+        df_sorted["target"].values,
+        cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE),
+        scoring="accuracy",
+    )
+
+    print("=== int cv (hash-based folds, random_seed=42) ===")
+    print(f"  scores: {scores_int}")
+    print(f"  mean:   {scores_int.mean():.4f} +/- {scores_int.std():.4f}")
+    print()
+
+    print("=== StratifiedKFold (deterministic sort + index-based folds) ===")
+    print(f"  xorq scores:    {scores_stratified}")
+    print(f"  sklearn scores: {sklearn_scores}")
+    print(f"  match: {np.allclose(scores_stratified, sklearn_scores)}")
+    print()
+
+    pytest_examples_passed = True
