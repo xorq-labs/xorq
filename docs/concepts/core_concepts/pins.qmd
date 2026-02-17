@@ -18,14 +18,11 @@ The pins system in xorq allows you to:
 ```python
 import xorq as xo
 
-# Download a dataset and get its local path
-path = xo.options.pins.get_path("iris")
-
-# Use it with xorq's data loading
-t = xo.deferred_read_csv(path=path, con=xo.connect())
+# Fetch an example dataset as a table expression
+t = xo.examples.iris.fetch()
 ```
 
-`get_path` downloads the artifact to a local cache on first call and returns the local file path. Subsequent calls use the cached copy.
+`xo.examples.<name>.fetch()` downloads the artifact via pins, reads it into a table expression on the default backend, and caches the download locally. Subsequent calls use the cached copy.
 
 ## How it works
 
@@ -81,15 +78,20 @@ board.pin_meta("iris")  # get metadata for a pin
 
 ### Loading datasets
 
-The `xorq.examples` module uses pins internally to load example datasets:
+The preferred way to load example datasets is `xo.examples.<name>.fetch()`:
 
 ```python
-from xorq.examples import get_table_from_name
+import xorq as xo
 
-t = get_table_from_name("diamonds", backend=xo.connect())
+# Fetch with default backend
+t = xo.examples.diamonds.fetch()
+
+# Fetch with a specific backend
+con = xo.connect()
+t = xo.examples.diamonds.fetch(backend=con)
 ```
 
-This calls `xo.options.pins.get_path("diamonds")` under the hood and reads the file with the appropriate method based on file format.
+This calls `xo.options.pins.get_path("diamonds")` under the hood, reads the file with the appropriate method based on format, and returns a table expression.
 
 ### Loading ML models
 
