@@ -244,6 +244,17 @@ def test_patch_normalize_token():
     assert name_to_cls["to_retain"] in dask.base.normalize_token._lookup
 
 
+def test_parquet_cache_tokenize_stable_across_cloudpickle():
+    import cloudpickle
+
+    con = xo.connect()
+    cache = ParquetCache.from_kwargs(source=con)
+    token_before = dask.base.tokenize(cache)
+    cache2 = cloudpickle.loads(cloudpickle.dumps(cache))
+    token_after = dask.base.tokenize(cache2)
+    assert token_before == token_after
+
+
 def test_different_cache_types_produce_different_hashes():
     t = xo.memtable({"a": [1, 2, 3], "b": ["x", "y", "z"]})
     c0 = t.cache()
