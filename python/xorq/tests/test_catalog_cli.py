@@ -1,3 +1,5 @@
+import re
+
 import pytest
 
 from xorq.cli import catalog_command, parse_args
@@ -63,7 +65,8 @@ def test_rm_entry(tmp_path, capsys):
     args = parse_args(["catalog", "add", str(build_dir)])
     catalog_command(args)
     out_add = capsys.readouterr().out
-    entry_id = out_add.split()[5]
+    match = re.search(r"as entry (\S+) revision", out_add)
+    entry_id = match.group(1)
     # Remove entry
     args = parse_args(["catalog", "rm", entry_id])
     catalog_command(args)
