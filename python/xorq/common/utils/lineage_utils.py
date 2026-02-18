@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from functools import lru_cache, singledispatch
 from itertools import count
-from typing import Any, Callable, Dict, Tuple
+from typing import Any, Callable, Tuple
 
 import dask.base
 from attrs import evolve, field, frozen
@@ -33,28 +33,26 @@ class TextTree:
         factory=tuple, validator=instance_of(tuple)
     )
 
-    def add(self, child: TextTree) -> TextTree:
-        """Return a new tree with *child* appended."""
-        return evolve(self, children=self.children + (child,))
-
-    def _format(
+    def _lines(
         self, prefix: str = "", is_last: bool = True, is_root: bool = True
-    ) -> str:
+    ) -> tuple[str, ...]:
         if is_root:
-            result = self.label + "\n"
+            line = self.label
             child_prefix = ""
         else:
             connector = "└── " if is_last else "├── "
-            result = prefix + connector + self.label + "\n"
+            line = prefix + connector + self.label
             child_prefix = prefix + ("    " if is_last else "│   ")
-
-        for i, child in enumerate(self.children):
-            result += child._format(child_prefix, i == len(self.children) - 1, False)
-
-        return result
+        return (line,) + tuple(
+            grandchild_line
+            for i, child in enumerate(self.children)
+            for grandchild_line in child._lines(
+                child_prefix, i == len(self.children) - 1, False
+            )
+        )
 
     def __str__(self) -> str:
-        return self._format().rstrip("\n")
+        return "\n".join(self._lines())
 
 
 @frozen
@@ -98,7 +96,7 @@ def _build_column_tree(node: Node) -> GenericNode:
             return GenericNode(op=node, children=children)
 
 
-def build_column_trees(expr: Any) -> Dict[str, GenericNode]:
+def build_column_trees(expr: Any) -> dict[str, GenericNode]:
     """Builds a lineage tree for each column in the expression."""
     op = to_node(expr)
     cols = getattr(op, "values", None) or getattr(op, "fields", {})
