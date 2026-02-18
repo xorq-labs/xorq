@@ -49,29 +49,37 @@ TEST_COLOR = "#E8432A"
 UNUSED_COLOR = "#E0E0E0"
 cmap_data = plt.cm.Paired
 
+
+def make_data(n_samples=N_SAMPLES, random_state=RANDOM_STATE):
+    """Generate synthetic classification data matching the sklearn plot_cv_indices example.
+
+    Returns (df, feature_names).
+    """
+    rng = np.random.RandomState(random_state)
+
+    n_features = 10
+    feature_names = tuple(f"f{i}" for i in range(n_features))
+    X = rng.randn(n_samples, n_features)
+
+    percentiles_classes = [0.1, 0.3, 0.6]
+    y = np.hstack(
+        [[ii] * int(n_samples * perc) for ii, perc in enumerate(percentiles_classes)]
+    )
+
+    group_prior = rng.dirichlet([2] * 10)
+    groups = np.repeat(np.arange(10), rng.multinomial(n_samples, group_prior))
+
+    df = pd.DataFrame(X, columns=list(feature_names)).assign(
+        target=y, group=groups, t=range(n_samples)
+    )
+    return df, feature_names
+
+
 # ---------------------------------------------------------------------------
 # Data — same structure as the sklearn plot_cv_indices example
 # ---------------------------------------------------------------------------
 con = xo.connect()
-rng = np.random.RandomState(RANDOM_STATE)
-
-# Generate the class/group data (matches sklearn example)
-n_features = 10
-feature_names = tuple(f"f{i}" for i in range(n_features))
-X = rng.randn(N_SAMPLES, n_features)
-
-percentiles_classes = [0.1, 0.3, 0.6]
-y = np.hstack(
-    [[ii] * int(N_SAMPLES * perc) for ii, perc in enumerate(percentiles_classes)]
-)
-
-# Generate uneven groups
-group_prior = rng.dirichlet([2] * 10)
-groups = np.repeat(np.arange(10), rng.multinomial(N_SAMPLES, group_prior))
-
-df = pd.DataFrame(X, columns=list(feature_names)).assign(
-    target=y, group=groups, t=range(N_SAMPLES)
-)
+df, feature_names = make_data()
 data = con.register(df, "cv_data")
 
 # ---------------------------------------------------------------------------
@@ -84,6 +92,7 @@ sk_pipeline = SklearnPipeline(
     ]
 )
 pipeline = Pipeline.from_instance(sk_pipeline)
+
 
 # ---------------------------------------------------------------------------
 # Splitters — factories so each side gets a fresh instance
@@ -128,13 +137,19 @@ def _build_sklearn_fold_df(cv, X_arr, y_arr):
 
     Encoding: 0=unused, 1=train, 2=test.
     """
-    fold_data = {}
-    for fold_i, (train_idx, test_idx) in enumerate(cv.split(X_arr, y_arr)):
+
+    def _make_col(train_idx, test_idx):
         col = np.zeros(len(y_arr), dtype=np.int8)
         col[train_idx] = 1
         col[test_idx] = 2
-        fold_data[f"fold_{fold_i}"] = col
-    return pd.DataFrame(fold_data)
+        return col
+
+    return pd.DataFrame(
+        {
+            f"fold_{fold_i}": _make_col(train_idx, test_idx)
+            for fold_i, (train_idx, test_idx) in enumerate(cv.split(X_arr, y_arr))
+        }
+    )
 
 
 def plot_fold_bars(ax, fold_values, n_splits, y_values, group_values, title):
@@ -201,6 +216,62 @@ def plot_fold_bars(ax, fold_values, n_splits, y_values, group_values, title):
     ax.set_title(title, fontsize=12, fontweight="bold")
 
 
+def plot_splitter_row(
+    axes_row,
+    name,
+    make_cv,
+    order_by,
+    pipeline,
+    data,
+    feature_names,
+    n_splits,
+    random_state,
+):
+    """Plot one row of the comparison figure for a single splitter."""
+    result = deferred_cross_val_score(
+        pipeline,
+        data,
+        features=feature_names,
+        target="target",
+        cv=make_cv(),
+        random_seed=random_state,
+        order_by=order_by,
+    )
+    fold_df = result.fold_expr.execute()
+
+    # The UDWF saw rows in this order, so sklearn must too for parity.
+    sklearn_fold_df = _build_sklearn_fold_df(
+        make_cv(),
+        fold_df[list(feature_names)].values,
+        fold_df["target"].values,
+    )
+
+    # Sort both by class label for visual clarity
+    sort_idx = fold_df["target"].argsort(kind="stable")
+    y_display = fold_df["target"].values[sort_idx]
+    group_display = fold_df["group"].values[sort_idx]
+
+    sklearn_sorted = {
+        f"fold_{i}": sklearn_fold_df[f"fold_{i}"].values[sort_idx]
+        for i in range(n_splits)
+    }
+    xorq_sorted = {
+        f"fold_{i}": fold_df[f"fold_{i}"].values[sort_idx] for i in range(n_splits)
+    }
+
+    plot_fold_bars(
+        axes_row[0],
+        sklearn_sorted,
+        n_splits,
+        y_display,
+        group_display,
+        f"{name} (sklearn)",
+    )
+    plot_fold_bars(
+        axes_row[1], xorq_sorted, n_splits, y_display, group_display, f"{name} (xorq)"
+    )
+
+
 if __name__ == "__pytest_main__":
     n_rows = len(splitters)
     fig, axes = plt.subplots(
@@ -208,54 +279,16 @@ if __name__ == "__pytest_main__":
     )
 
     for row, (name, make_cv, order_by) in enumerate(splitters):
-        # --- Right: xorq fold_expr ---
-        result = deferred_cross_val_score(
+        plot_splitter_row(
+            axes[row],
+            name,
+            make_cv,
+            order_by,
             pipeline,
             data,
-            features=feature_names,
-            target="target",
-            cv=make_cv(),
-            random_seed=RANDOM_STATE,
-            order_by=order_by,
-        )
-        fold_df = result.fold_expr.execute()
-
-        # --- Left: sklearn native on the same row order as fold_expr ---
-        # The UDWF saw rows in this order, so sklearn must too for parity.
-        sklearn_fold_df = _build_sklearn_fold_df(
-            make_cv(),
-            fold_df[list(feature_names)].values,
-            fold_df["target"].values,
-        )
-
-        # Sort both by class label for visual clarity
-        sort_idx = fold_df["target"].argsort(kind="stable")
-        y_display = fold_df["target"].values[sort_idx]
-        group_display = fold_df["group"].values[sort_idx]
-
-        sklearn_sorted = {
-            f"fold_{i}": sklearn_fold_df[f"fold_{i}"].values[sort_idx]
-            for i in range(N_SPLITS)
-        }
-        xorq_sorted = {
-            f"fold_{i}": fold_df[f"fold_{i}"].values[sort_idx] for i in range(N_SPLITS)
-        }
-
-        plot_fold_bars(
-            axes[row, 0],
-            sklearn_sorted,
+            feature_names,
             N_SPLITS,
-            y_display,
-            group_display,
-            f"{name} (sklearn)",
-        )
-        plot_fold_bars(
-            axes[row, 1],
-            xorq_sorted,
-            N_SPLITS,
-            y_display,
-            group_display,
-            f"{name} (xorq)",
+            RANDOM_STATE,
         )
 
     # Legend
