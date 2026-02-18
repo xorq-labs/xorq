@@ -28,6 +28,16 @@ from xorq.config import options
 from xorq.vendor.ibis.expr import types as ir
 
 
+__all__ = [  # noqa: PLE0604
+    "ParquetCache",
+    "ParquetSnapshotCache",
+    "ParquetTTLSnapshotCache",
+    "SourceCache",
+    "SourceSnapshotCache",
+    "GCSCache",
+]
+
+
 @frozen
 class Cache:
     strategy = field(validator=instance_of(CacheStrategy))
