@@ -16,6 +16,7 @@ from sklearn.model_selection import (  # noqa: E402
     ShuffleSplit,
     StratifiedKFold,
     StratifiedShuffleSplit,
+    TimeSeriesSplit,
     cross_val_score,
 )
 
@@ -39,7 +40,9 @@ def classification_data():
         n_redundant=0,
         random_state=42,
     )
-    df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)]).assign(target=y)
+    df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)]).assign(
+        target=y, t=range(200)
+    )
     return xo.memtable(df)
 
 
@@ -55,7 +58,9 @@ def regression_data():
         n_informative=3,
         random_state=42,
     )
-    df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)]).assign(target=y)
+    df = pd.DataFrame(X, columns=[f"f{i}" for i in range(4)]).assign(
+        target=y, t=range(200)
+    )
     return xo.memtable(df)
 
 
@@ -373,6 +378,34 @@ class TestDeferredCrossValScoreMatchesSklearn:
 
         np.testing.assert_allclose(xorq_scores, sklearn_scores, rtol=1e-9, atol=1e-12)
 
+    def test_timeseries_split_matches_sklearn(
+        self, classification_data, classifier_pipeline
+    ):
+        """TimeSeriesSplit with order_by must match sklearn on sorted data."""
+        make_cv = lambda: TimeSeriesSplit(n_splits=4)  # noqa: E731
+
+        xorq_scores = deferred_cross_val_score(
+            classifier_pipeline,
+            classification_data,
+            features=FEATURES,
+            target=TARGET,
+            cv=make_cv(),
+            scoring="accuracy",
+            order_by="t",
+        ).execute()
+
+        # sklearn sees the same order: sorted by "t".
+        df = classification_data.execute().sort_values("t")
+        sklearn_scores = cross_val_score(
+            classifier_pipeline.instance,
+            df[list(FEATURES)].values,
+            df[TARGET].values,
+            cv=make_cv(),
+            scoring="accuracy",
+        )
+
+        np.testing.assert_allclose(xorq_scores, sklearn_scores, rtol=1e-9, atol=1e-12)
+
     def test_regressor_kfold_matches_sklearn(self, regression_data, regressor_pipeline):
         """Per-fold r2 with KFold must match sklearn exactly."""
         make_cv = lambda: KFold(n_splits=3, shuffle=True, random_state=42)  # noqa: E731
@@ -498,9 +531,10 @@ class TestFoldExpr:
         for i in range(5):
             assert f"fold_{i}" in fold_df.columns
 
-    def test_fold_expr_values_are_0_or_1(
+    def test_fold_expr_values_are_0_1_or_2(
         self, classification_data, classifier_pipeline
     ):
+        """Fold columns use ternary encoding: 0=unused, 1=train, 2=test."""
         result = deferred_cross_val_score(
             classifier_pipeline,
             classification_data,
@@ -512,7 +546,7 @@ class TestFoldExpr:
         fold_df = result.fold_expr.execute()
         for i in range(3):
             values = set(fold_df[f"fold_{i}"].unique())
-            assert values <= {0, 1}
+            assert values <= {0, 1, 2}
 
     def test_fold_expr_each_row_is_test_in_exactly_one_fold_int_cv(
         self, classification_data, classifier_pipeline
@@ -527,8 +561,9 @@ class TestFoldExpr:
             random_seed=42,
         )
         fold_df = result.fold_expr.execute()
-        fold_sums = sum(fold_df[f"fold_{i}"] for i in range(3))
-        assert (fold_sums == 1).all()
+        # Each row is test (2) in exactly one fold
+        test_counts = sum((fold_df[f"fold_{i}"] == 2).astype(int) for i in range(3))
+        assert (test_counts == 1).all()
 
     def test_fold_expr_row_count_matches_original(
         self, classification_data, classifier_pipeline
@@ -560,7 +595,26 @@ class TestFoldExpr:
         for i in range(expected_folds):
             assert f"fold_{i}" in fold_df.columns
             values = set(fold_df[f"fold_{i}"].unique())
-            assert values <= {0, 1}
+            assert values <= {0, 1, 2}
+
+    def test_fold_expr_timeseries_split(self, classification_data, classifier_pipeline):
+        """TimeSeriesSplit fold_expr uses ternary encoding with unused rows."""
+        result = deferred_cross_val_score(
+            classifier_pipeline,
+            classification_data,
+            features=FEATURES,
+            target=TARGET,
+            cv=TimeSeriesSplit(n_splits=4),
+            order_by="t",
+        )
+        fold_df = result.fold_expr.execute()
+        for i in range(4):
+            assert f"fold_{i}" in fold_df.columns
+            values = set(fold_df[f"fold_{i}"].unique())
+            assert values <= {0, 1, 2}
+            # TimeSeriesSplit has unused rows in early folds
+            if i < 3:
+                assert 0 in values, f"fold_{i} should have unused rows"
 
 
 class TestDeferredCrossValScoreValidation:
@@ -573,4 +627,53 @@ class TestDeferredCrossValScoreValidation:
                 classification_data,
                 features=FEATURES,
                 target=TARGET,
+            )
+
+    @pytest.mark.parametrize(
+        "cv",
+        (
+            param(
+                pytest.importorskip("sklearn.model_selection").GroupKFold(n_splits=3),
+                id="GroupKFold",
+            ),
+            param(
+                pytest.importorskip("sklearn.model_selection").GroupShuffleSplit(
+                    n_splits=3, random_state=42
+                ),
+                id="GroupShuffleSplit",
+            ),
+            param(
+                pytest.importorskip("sklearn.model_selection").LeaveOneGroupOut(),
+                id="LeaveOneGroupOut",
+            ),
+            param(
+                pytest.importorskip("sklearn.model_selection").StratifiedGroupKFold(
+                    n_splits=3
+                ),
+                id="StratifiedGroupKFold",
+            ),
+        ),
+    )
+    def test_rejects_group_based_splitters(
+        self, classification_data, classifier_pipeline, cv
+    ):
+        with pytest.raises(TypeError, match="Group-based splitters are not supported"):
+            deferred_cross_val_score(
+                classifier_pipeline,
+                classification_data,
+                features=FEATURES,
+                target=TARGET,
+                cv=cv,
+            )
+
+    def test_rejects_timeseries_split_without_order_by(
+        self, classification_data, classifier_pipeline
+    ):
+        with pytest.raises(TypeError, match="TimeSeriesSplit requires order_by"):
+            deferred_cross_val_score(
+                classifier_pipeline,
+                classification_data,
+                features=FEATURES,
+                target=TARGET,
+                cv=TimeSeriesSplit(n_splits=4),
             )

@@ -9,6 +9,8 @@ import numpy as np
 import pyarrow as pa
 from attr import field, frozen
 from attr.validators import deep_iterable, instance_of
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.model_selection._split import GroupsConsumerMixin
 
 import xorq.expr.datatypes as dt
 from xorq.expr.ml.pipeline_lib import Pipeline
@@ -64,7 +66,7 @@ def _make_folds_from_int(expr, cv, random_seed):
     """Build a fold expression from k equal-sized hash-based folds.
 
     Returns the input table with ``fold_0``, ``fold_1``, ..., ``fold_{k-1}``
-    columns appended (int8, 0 = train, 1 = test).
+    columns appended (int8, 0=unused, 1=train, 2=test).
 
     Parameters
     ----------
@@ -79,7 +81,7 @@ def _make_folds_from_int(expr, cv, random_seed):
     -------
     ir.Table
         The input table with ``fold_0``, ..., ``fold_{k-1}`` columns
-        appended (int8, 0 = train, 1 = test).
+        appended (int8, 0=unused, 1=train, 2=test).
     """
     from xorq.expr.ml.split_lib import calc_split_column
 
@@ -93,20 +95,24 @@ def _make_folds_from_int(expr, cv, random_seed):
         random_seed=random_seed,
         name=split_col_name,
     )
-    fold_expr = expr.mutate(split_col)
-    for fold_i in range(cv):
-        fold_expr = fold_expr.mutate(
-            (fold_expr[split_col_name] == fold_i).cast("int8").name(f"fold_{fold_i}")
-        )
+    base_expr = expr.mutate(split_col)
+    # Encode: 2=test (row belongs to fold_i), 1=train (row belongs to another fold)
+    fold_columns = (
+        ((base_expr[split_col_name] == fold_i).cast("int8") + 1).name(f"fold_{fold_i}")
+        for fold_i in range(cv)
+    )
+    fold_expr = functools.reduce(
+        lambda expr, col: expr.mutate(col), fold_columns, base_expr
+    )
     return fold_expr.drop(split_col_name)
 
 
 def _make_fold_udwf(cv, fold_index, features, target, expr):
-    """Create a UDWF that marks rows as train (0) or test (1) for a given fold.
+    """Create a UDWF that marks rows for a given fold.
 
     The UDWF receives feature and target columns for all rows, runs the sklearn
     splitter to determine fold assignments, and returns a per-row int8 column
-    where 1 = test row for the requested fold and 0 = train row.
+    where 0 = unused, 1 = train, 2 = test.
 
     Parameters
     ----------
@@ -133,8 +139,7 @@ def _make_fold_udwf(cv, fold_index, features, target, expr):
     cv_bytes = cloudpickle.dumps(cv)
 
     table_schema = expr.schema()
-    schema_cols = {col: table_schema[col] for col in features}
-    schema_cols[target] = table_schema[target]
+    schema_cols = tuple((col, table_schema[col]) for col in (*features, target))
 
     @pyarrow_udwf(
         schema=ibis.schema(schema_cols),
@@ -155,29 +160,35 @@ def _make_fold_udwf(cv, fold_index, features, target, expr):
         X = np.column_stack([v.to_numpy(zero_copy_only=False) for v in values[:n_feat]])
         y = values[n_feat].to_numpy(zero_copy_only=False)
 
-        # Run the splitter and find the test indices for our fold
+        # Run the splitter: 0=unused, 1=train, 2=test
+        train_idx, test_idx = next(
+            (train, test)
+            for i, (train, test) in enumerate(cv_splitter.split(X, y))
+            if i == fold_i
+        )
         result = np.zeros(num_rows, dtype=np.int8)
-        for i, (_train_idx, test_idx) in enumerate(cv_splitter.split(X, y)):
-            if i == fold_i:
-                result[test_idx] = 1
-                break
+        result[train_idx] = 1
+        result[test_idx] = 2
 
         return pa.array(result, type=pa.int8())
 
     return assign_fold
 
 
-def _make_folds_from_sklearn(expr, cv, features, target, random_seed=None):
+def _make_folds_from_sklearn(
+    expr, cv, features, target, random_seed=None, order_by=None
+):
     """Build a fold expression from an sklearn splitter using deferred UDWFs.
 
     Returns the input table with ``fold_0``, ``fold_1``, ..., ``fold_{k-1}``
-    columns appended (int8, 0 = train, 1 = test).
+    columns appended (int8, 0=unused, 1=train, 2=test).
 
-    The expression is first sorted by a deterministic seeded hash of all
-    columns so that the UDWF always sees rows in the same order regardless
-    of backend scan order.  To reproduce the same fold assignments with
-    standalone sklearn, sort the pandas DataFrame by
-    :func:`make_deterministic_sort_key` with the same *random_seed*.
+    Row ordering for the UDWF is determined by:
+
+    1. If *order_by* is provided, rows are sorted by those column(s).
+    2. Otherwise, rows are sorted by a deterministic seeded hash so
+       the UDWF always sees the same order regardless of backend scan
+       order.
 
     Parameters
     ----------
@@ -191,34 +202,49 @@ def _make_folds_from_sklearn(expr, cv, features, target, random_seed=None):
         Target column name (used as y for stratified splitters).
     random_seed : int or None
         Seed for the deterministic row-ordering hash.
+    order_by : str, tuple of str, or None
+        Column(s) to sort by before folding.  Overrides the default
+        hash-based sort.  Useful for ``TimeSeriesSplit`` where rows
+        must be in temporal order.
 
     Returns
     -------
     ir.Table
         The input table with ``fold_0``, ..., ``fold_{k-1}`` columns
-        appended (int8, 0 = train, 1 = test).
+        appended (int8, 0=unused, 1=train, 2=test).
     """
     n_splits = cv.get_n_splits()
-
-    # Sort by a deterministic hash so the UDWF sees rows in a stable order.
-    # The table-level order_by is what determines the row delivery order to
-    # the UDWF; the window must NOT have its own order_by (that would impose
-    # a different sort within the window function).
-    sort_key = make_deterministic_sort_key(expr, random_seed)
-    sort_col = sort_key.get_name()
-    sorted_expr = expr.mutate(sort_key).order_by(sort_col)
     window = ibis.window()
 
+    match order_by:
+        case str() | tuple() | list() as key:
+            # User-specified ordering (e.g. a timestamp column).
+            base_expr = expr.order_by(key)
+            drop_cols = ()
+        case None:
+            # Default: sort by a deterministic hash so the UDWF sees rows
+            # in a stable order regardless of backend scan order.
+            sort_key = make_deterministic_sort_key(expr, random_seed)
+            sort_col = sort_key.get_name()
+            base_expr = expr.mutate(sort_key).order_by(sort_col)
+            drop_cols = (sort_col,)
+        case _:
+            raise TypeError(
+                f"order_by must be a str, tuple of str, or None, "
+                f"got {type(order_by).__name__}"
+            )
+
     fold_columns = (
-        _make_fold_udwf(cv, i, features, target, sorted_expr)
-        .on_expr(sorted_expr)
+        _make_fold_udwf(cv, i, features, target, base_expr)
+        .on_expr(base_expr)
         .over(window)
         .name(f"fold_{i}")
         for i in range(n_splits)
     )
-    return functools.reduce(
-        lambda expr, col: expr.mutate(col), fold_columns, sorted_expr
-    ).drop(sort_col)
+    result = functools.reduce(
+        lambda expr, col: expr.mutate(col), fold_columns, base_expr
+    )
+    return result.drop(*drop_cols) if drop_cols else result
 
 
 def _fold_pairs_from_fold_expr(fold_expr, n_splits):
@@ -227,7 +253,8 @@ def _fold_pairs_from_fold_expr(fold_expr, n_splits):
     Parameters
     ----------
     fold_expr : ir.Table
-        Table with ``fold_0``, ..., ``fold_{k-1}`` columns (int8, 0/1).
+        Table with ``fold_0``, ..., ``fold_{k-1}`` columns
+        (int8, 0=unused, 1=train, 2=test).
     n_splits : int
         Number of folds.
 
@@ -239,8 +266,8 @@ def _fold_pairs_from_fold_expr(fold_expr, n_splits):
     """
     return tuple(
         (
-            fold_expr.filter(fold_expr[f"fold_{i}"] == 0).drop(f"fold_{i}"),
             fold_expr.filter(fold_expr[f"fold_{i}"] == 1).drop(f"fold_{i}"),
+            fold_expr.filter(fold_expr[f"fold_{i}"] == 2).drop(f"fold_{i}"),
         )
         for i in range(n_splits)
     )
@@ -252,7 +279,7 @@ class CrossValScore:
 
     Holds a tuple of per-fold ibis score expressions and a ``fold_expr`` —
     a single ibis table with the original columns plus ``fold_0``,
-    ``fold_1``, ..., ``fold_k`` columns (int8, 0 = train, 1 = test).
+    ``fold_1``, ..., ``fold_k`` columns (int8, 0 = unused, 1 = train, 2 = test).
 
     Call ``.execute()`` to materialize the scores, or inspect
     ``fold_expr`` to visualize / debug fold assignments.
@@ -287,6 +314,7 @@ def deferred_cross_val_score(
     cv=5,
     scoring=None,
     random_seed=None,
+    order_by=None,
 ):
     """Evaluate a pipeline using cross-validation, returning deferred per-fold scores.
 
@@ -321,6 +349,10 @@ def deferred_cross_val_score(
         fold assignments with standalone sklearn, sort the pandas
         DataFrame by :func:`make_deterministic_sort_key` with the same
         seed before calling ``cross_val_score``.  Default is None.
+    order_by : str, tuple of str, or None, optional
+        Column(s) to sort by before folding.  Overrides the default
+        hash-based sort.  Required for ``TimeSeriesSplit`` to specify
+        the temporal ordering column.  Default is None.
 
     Returns
     -------
@@ -355,9 +387,26 @@ def deferred_cross_val_score(
         case int():
             fold_expr = _make_folds_from_int(expr, cv, random_seed)
             n_splits = cv
+        case TimeSeriesSplit() if order_by is None:
+            raise TypeError(
+                "TimeSeriesSplit requires order_by to specify the "
+                "temporal ordering column(s)."
+            )
+        case GroupsConsumerMixin():
+            raise TypeError(
+                f"Group-based splitters are not supported "
+                f"(got {type(cv).__name__}). "
+                f"Use a non-group splitter such as KFold, "
+                f"StratifiedKFold, ShuffleSplit, etc."
+            )
         case object(split=_):
             fold_expr = _make_folds_from_sklearn(
-                expr, cv, features, target, random_seed=random_seed
+                expr,
+                cv,
+                features,
+                target,
+                random_seed=random_seed,
+                order_by=order_by,
             )
             n_splits = cv.get_n_splits()
         case _:
