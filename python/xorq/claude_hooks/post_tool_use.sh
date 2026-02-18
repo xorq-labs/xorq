@@ -5,6 +5,9 @@ set -euo pipefail
 
 INPUT=$(cat)
 
+ERROR=$(printf '%s' "$INPUT" | jq -r '.error // empty')
+[ -z "$ERROR" ] && exit 0
+
 TRANSCRIPT_PATH=$(printf '%s' "$INPUT" | jq -r '.transcript_path // empty')
 [ -z "$TRANSCRIPT_PATH" ] && exit 0
 

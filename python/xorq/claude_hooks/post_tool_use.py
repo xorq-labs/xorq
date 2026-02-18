@@ -39,6 +39,10 @@ def main():
     tool_input = hook_input.get("tool_input", {})
     error = hook_input.get("error", "")
 
+    # Only log when there's an actual error
+    if not error:
+        return 0
+
     # Log the failure for the stop hook to discover
     try:
         log_failure(session_id, transcript_path, tool_name, tool_input, error)
